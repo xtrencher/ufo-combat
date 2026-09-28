@@ -802,3 +802,113 @@ Note: the task referred to reference images in a `/reference` directory (current
 - [x] Grass on Ultra mixed two styles — root cause: js/grass.js drew smooth, vertex-coloured triangle blades (their own shader, no texture) on top of the mesher's pixel-art tall-grass cross blocks. Rewrote grass.js so every instanced plant is a set of crossed cards sampling the block texture array with new pixel-art tiles (grass_tuft, grass_tuft_b, fern, reeds/cattails, flowers, lily pad) in exactly the style of the redrawn tall_grass block; one plant shader (js/shaders.js) with the shared wind, same tint as the grass blocks
 - [x] Dark curved shading on lower edges/faces — root cause in the relief (normal/height) maps: `paintRelief` took slopes with wrap-around, so a face's bottom row was compared with its top row; on tiles whose top and bottom differ (grass side's fringe over dirt, the sand's ripple texture) that invented a steep false slope along every block's lower edge, and parallax (repeat-wrapped) also stepped past the tile edge into the opposite side. Fixed with one-sided differences at tile borders and a clamped parallax march; sand now has its own ripple-free side texture (the wavy ripple bands were what read as dark curves on seabed walls)
 - [x] Underwater darkened too fast — fog density is now a uniform (`uUnderwaterFog`, 0.085 -> 0.03 per block, ~3x the visibility); the underwater light shafts march 56 blocks (was 30) with gentler falloff, colour grading unchanged
+
+---
+
+# UFO COMBAT — overnight build
+
+This repository was copied from Voxelands and is becoming **UFO COMBAT**. The checklists below are the source of truth for this build; items are ticked as they are finished and each group is committed and pushed.
+
+## UFO Part 1 checklist
+### 1.1 Rebrand and main menu
+- [ ] Rename to "UFO COMBAT" everywhere (page title, menus, README, console messages)
+- [ ] New unique localStorage key prefix (no sharing with the old game on the same domain)
+- [ ] New main menu: big stylized UFO COMBAT logo, animated background (slow flyover of the world with a UFO drifting across the sky)
+- [ ] Main menu buttons: Play (new world with optional seed / continue), Settings, Mods, Controls
+- [ ] Default graphics preset: Medium
+### 1.2 Mods toggle
+- [ ] "Mods" setting, ON by default; OFF = vanilla (no guns, explosives, vehicles, UFOs, aliens; swords/tools stay)
+- [ ] Toggling mid-game cleanly removes/restores mod entities and items
+### 1.3 Bug fixes
+- [ ] Sniper scope black screen fixed (zoomed view + scope overlay)
+- [ ] All weapons fully independent (airstrike pending no longer blocks the bazooka etc.)
+- [ ] World gen: no single stray water blocks on land (fix the cause)
+- [ ] Seagrass/kelp waterlogged: water around and inside them, never air pockets
+### 1.4 Airstrike upgrade
+- [ ] Meteors fall at an angle from much higher/farther, glowing fiery core, smoke trail, heat glow, impact flash, shockwave
+- [ ] Settings: meteor count, spread radius, delay, fall angle, fall speed, explosion size
+### 1.5 Zombie settings
+- [ ] Settings: zombie spawn rate (up to extreme), max zombie count, toughness (health + damage multipliers)
+- [ ] Playable at high counts (instanced far rendering, simplified AI far away); performance note next to extreme values
+### 1.6 Laser blaster
+- [ ] Laser blaster weapon: short glowing bolts, color red/green/blue (setting), bloom glow, impact sparks, scorch marks, blaster sound
+### 1.7 Render settings
+- [ ] Separate controls for full-detail chunk distance and LOD distance/quality
+- [ ] One-click performance presets (Potato / Balanced / Beautiful / Max)
+### 1.8 Binocular zoom
+- [ ] Hold both mouse buttons = strong binocular zoom with subtle vignette; release = instant normal view
+- [ ] Chord detection never fires weapons / breaks / places blocks by accident; works in vanilla mode; zoom strength setting
+### Finish
+- [ ] Full test suite run for Part 1, README updated, "UFO PART 1 COMPLETE"
+
+## UFO Part 2 checklist
+### 2.0 Shared vehicle system
+- [ ] One vehicle framework (enter/exit, camera modes, HUD, input, damage, saving) reused by UFO and jet
+- [ ] Edge cases: exit into water / underground / mid-air; dying inside; save/load while in a vehicle; pausing; mod toggle while piloting
+### 2.1 Enemy UFOs
+- [ ] Sizes small / medium / large / huge mothership; health and effects scale with size
+- [ ] Roam freely; notice the player by line of sight + chance-based detection, then attack
+- [ ] On-foot attack: fly in fast, stop above, blue tractor-beam cone lifts the player; reaching the UFO kills ("Abducted by a UFO"); escape by leaving the beam; beam stops if the UFO is shot down
+- [ ] Enemy UFOs fire laser blasts
+### 2.1b Behavior and variety
+- [ ] Distinct shapes: classic saucer (glowing + non-glowing), tic-tac, sphere, pyramid, triangle, cigar, + own unusual shapes; blinking / color-cycling lights; readable at a distance
+- [ ] Free roaming at any altitude; idle tricks (abducting cows/animals, hovering over lakes, zig-zag, following animals)
+- [ ] Rare "leave forever" streak into the sky (likelier after abducting or when chased by a jet)
+- [ ] Spawn out of view (far / over the horizon) and fly in; much more activity at night
+- [ ] "UFO activity" slider from very rare to "UFO APOCALYPSE" (playable: simplified distant models, instancing, cheap far AI)
+- [ ] Advanced UFO settings: spawn chance, max count, aggression, detection range, beam lift strength, size distribution, night multiplier, toughness
+### 2.1c Reactions and durability
+- [ ] When shot on foot: counterattack with lasers, fly in to beam, or evasive repositioning (dodge/strafe/altitude), mixed
+- [ ] Toughness scales with size with per-UFO variation
+### 2.1d UFOs vs player vehicles
+- [ ] Player in jet: UFO personalities (fleeing evaders vs attackers with lasers / aggressive passes)
+- [ ] Fleeing speed: most slightly slower than jet at full throttle; some faster and uncatchable
+- [ ] Player in UFO: other UFOs friendly unless provoked; shooting one turns it (and maybe nearby) hostile
+### 2.2 Shooting down UFOs
+- [ ] All weapons damage UFOs; destroyed UFOs fall with fire and smoke and crash-land (crater, debris)
+- [ ] Green alien mobs come out and attack with laser guns
+- [ ] Crashed UFO can be boarded and flown (damaged but working), keeps its shape
+### 2.3 Pilotable UFO
+- [ ] Fly a crashed UFO, or spawn one from the Mods menu in creative (choice of shape)
+- [ ] No physics limits: hover, instant acceleration, any direction, very wide speed range (setting)
+- [ ] Optional ghost mode: passes through terrain and burns a tunnel
+- [ ] Weapons: tractor beam (lifts mobs, optionally loose blocks) and laser cannon
+- [ ] Third-person chase camera; HUD with speed, altitude, weapon
+### Finish
+- [ ] Full test suite run for Part 2, README updated, "UFO PART 2 COMPLETE"
+
+## UFO Part 3 checklist
+### 3.1 Fighter jet
+- [ ] F-22-style stealth jet model (angular, twin tails, twin engines with afterburner glow), procedural
+- [ ] Call in a jet (hotbar item / key); spawn on ground or airborne (setting)
+- [ ] Exiting in the air ejects with a parachute
+- [ ] Flight physics: throttle/thrust, lift, drag, gravity, stall, afterburner, pitch/roll/yaw; cannot hover
+- [ ] Intuitive mouse + keyboard controls; optional flight-assist mode
+- [ ] Crashing into terrain destroys the jet and kills the player unless ejected; jet health; can be shot down by UFOs
+- [ ] Views: third-person chase + cockpit; HUD: speed, altitude, throttle, heading, weapon, lock indicator, health, incoming-attack warning
+- [ ] Settings: max speed, acceleration, turn rate, stall speed, flight assist
+### 3.2 Jet weapons
+- [ ] Autocannon: rapid fire with tracers
+- [ ] Guided missiles: lock onto UFOs/mobs (lock box, tone, delay while in front), tracking missile with smoke trail
+- [ ] Nuke: white flash, shockwave, rising mushroom cloud, huge crater, long-distance sound; batched edits, spread rebuilds, falling-block cap; settings for size and effect intensity
+### 3.3 End-to-end scenario
+- [ ] Jet → spot UFO → chase/dodge → lock → missile hit → UFO crash-lands → eject with parachute → land → fight aliens → board crashed UFO → fly away passing other UFOs peacefully
+- [ ] Automated test covering as much of it as possible
+### 3.4 Settings and stats
+- [ ] Settings grouped (Vehicles, UFOs, Weapons, Mobs, Graphics, Performance) with per-group "reset to defaults", persisted
+- [ ] Stats (world + total): UFOs shot down, play time, aliens killed, zombies killed, deaths, abductions survived; persisted
+- [ ] Optional small HUD stats overlay (UFOs shot down + play time), off by default; full Stats screen in the pause menu
+### Finish
+- [ ] Full test suite run for Part 3, README updated, "UFO PART 3 COMPLETE"
+
+## UFO Final checklist
+- [ ] 1. Regression pass (terrain, biomes, presets, water, mobs, combat, crafting, saving, death screen, mods OFF)
+- [ ] 2. Player's-eye review (menu, first minutes, every weapon/vehicle, UFO encounters on foot / jet / UFO, full scenario); fix what's found
+- [ ] 3. Performance check: Potato and Balanced smooth with UFOs at high activity, many zombies, explosions
+- [ ] 4. Full test suite one last time
+- [ ] 5. README: all controls, features, settings
+- [ ] 6. PROGRESS.md: summary, decisions, known issues, "How to test in 10 minutes"
+- [ ] 7. "UFO FINAL COMPLETE", commit, push
+
+## Decisions log
+(Notable decisions made without being able to ask, with the reason.)
