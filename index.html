@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Voxelands</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #87ceeb;
+    overflow: hidden;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #fff;
+    user-select: none;
+  }
+  #game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    outline: none;
+  }
+  .hidden { display: none !important; }
+
+  /* --- Crosshair --- */
+  #crosshair {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #crosshair::before, #crosshair::after {
+    content: "";
+    position: absolute;
+    background: rgba(255,255,255,0.85);
+    box-shadow: 0 0 1px rgba(0,0,0,0.8);
+  }
+  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #crosshair::after { top: 8px; left: 0; width: 18px; height: 2px; }
+
+  /* --- FPS counter --- */
+  #fps-counter {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    font-size: 13px;
+    background: rgba(0,0,0,0.35);
+    padding: 4px 8px;
+    border-radius: 4px;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  /* --- Hotbar --- */
+  #hotbar {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .hotbar-slot {
+    width: 48px;
+    height: 48px;
+    background: rgba(20,20,20,0.55);
+    border: 2px solid rgba(255,255,255,0.25);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .hotbar-slot.selected {
+    border-color: #fff;
+    background: rgba(60,60,60,0.7);
+  }
+  .hotbar-slot canvas {
+    width: 32px;
+    height: 32px;
+    image-rendering: pixelated;
+  }
+  .hotbar-slot .key-label {
+    position: absolute;
+    top: 1px;
+    left: 3px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.8);
+    text-shadow: 0 0 2px #000;
+  }
+
+  /* --- Overlays (start menu / pause menu / mobile block) --- */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10,14,20,0.82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .panel {
+    background: rgba(30,34,40,0.95);
+    max-height: 92vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 28px 34px;
+    max-width: 480px;
+    width: 90%;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  }
+  .panel h1 {
+    margin: 0 0 4px 0;
+    font-size: 28px;
+    letter-spacing: 1px;
+  }
+  .panel .subtitle {
+    opacity: 0.7;
+    margin-bottom: 18px;
+    font-size: 13px;
+  }
+  .panel h2 {
+    margin: 0 0 14px 0;
+    font-size: 20px;
+  }
+  .panel .controls-list {
+    font-size: 13px;
+    line-height: 1.7;
+    opacity: 0.9;
+    margin-bottom: 18px;
+  }
+  .panel .controls-list b { color: #ffd76b; }
+  .btn {
+    display: inline-block;
+    background: #4c8f3a;
+    color: #fff;
+    border: none;
+    padding: 10px 22px;
+    font-size: 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    pointer-events: all;
+  }
+  .btn:hover { background: #5aa845; }
+  .btn.secondary { background: #445; }
+  .btn.secondary:hover { background: #556; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; }
+  .row label { font-size: 13px; opacity: 0.85; }
+  .row input[type="range"] { width: 160px; }
+  .row select {
+    background: #1c1f24;
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 178px;
+  }
+  .hint { font-size: 11px; opacity: 0.6; margin: -6px 0 12px 0; line-height: 1.4; }
+  .row input[type="text"] {
+    background: #1c1f24;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 160px;
+  }
+  #seed-display {
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 4px;
+  }
+  #seed-display span { color: #ffd76b; }
+  .menu-buttons { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .btn:disabled, .btn:disabled:hover { background: #555; cursor: wait; }
+  a.btn { text-decoration: none; }
+  #start-notice:not(:empty) { color: #ffd76b; opacity: 0.95; margin-top: 0; }
+
+  /* --- Startup: loading message, or what went wrong (see the script at the end) --- */
+  #boot { z-index: 200; background: rgba(10,14,20,0.55); }
+  #boot-error p { font-size: 13px; line-height: 1.55; opacity: 0.92; margin: 0 0 12px 0; }
+  #boot-error p a { color: #ffd76b; }
+  #boot-error pre {
+    font-size: 11px;
+    line-height: 1.4;
+    background: rgba(0,0,0,0.35);
+    padding: 8px 10px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 26vh;
+    overflow-y: auto;
+    margin: 0 0 4px 0;
+  }
+
+  /* --- HUD --- */
+  #attack-charge {
+    position: fixed;
+    top: calc(50% + 15px);
+    left: calc(50% - 12px);
+    width: 24px;
+    height: 3px;
+    background: rgba(0,0,0,0.45);
+    pointer-events: none;
+    z-index: 10;
+  }
+  #attack-charge div { height: 100%; width: 0; background: rgba(255,255,255,0.9); }
+  #throw-charge {
+    position: fixed;
+    top: calc(50% + 22px);
+    left: calc(50% - 30px);
+    width: 60px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.45);
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #throw-charge div { height: 100%; width: 0; background: linear-gradient(90deg, #ffd35a, #ff7a2a); }
+  #throw-charge.full div { background: #ff4a2a; box-shadow: 0 0 6px #ff6a3a; }
+  #mode-badge {
+    position: fixed;
+    top: 8px;
+    right: 10px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(0,0,0,0.35);
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: #9fe3ff;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #status-bars {
+    position: fixed;
+    bottom: 72px;
+    left: 50%;
+    width: 464px;
+    transform: translateX(-50%);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #hearts, #bubbles { display: flex; gap: 1px; }
+  #bubbles { flex-direction: row-reverse; }
+  #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
+  #item-name {
+    position: fixed;
+    bottom: 96px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 15px;
+    font-weight: 600;
+    text-shadow: 1px 1px 0 #000, 0 0 4px rgba(0,0,0,0.8);
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 0;
+    z-index: 10;
+  }
+  #damage-flash {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(255,0,0,0) 45%, rgba(210,0,0,0.75) 100%);
+    opacity: 0;
+    z-index: 9;
+  }
+  #scope-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 11;
+    display: none;
+  }
+  #scope-overlay.visible { display: block; }
+  #scope-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at center, transparent 0, transparent 29.5%, #000 30%),
+      linear-gradient(#000, #000);
+  }
+  #scope-overlay::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 1px;
+    height: 60vmin;
+    background: rgba(0,0,0,0.55);
+    transform: translate(-50%, -50%);
+    box-shadow: 60vmin 0 0 -0.5px rgba(0,0,0,0.55) inset;
+  }
+  #scope-crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 30vmin;
+    height: 30vmin;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: 1px solid rgba(20,20,20,0.7);
+  }
+  #scope-crosshair::before, #scope-crosshair::after {
+    content: "";
+    position: absolute;
+    background: rgba(20,20,20,0.8);
+  }
+  #scope-crosshair::before { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); }
+  #scope-crosshair::after { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-50%); }
+  .slot-count {
+    position: absolute;
+    right: 3px;
+    bottom: 1px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 1px 1px 0 #3f3f3f;
+    pointer-events: none;
+  }
+  .slot-dur {
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    bottom: 3px;
+    height: 3px;
+    background: #000;
+    pointer-events: none;
+  }
+  .slot-dur div { height: 100%; }
+
+  /* --- Inventory / crafting screen --- */
+  #inventory-screen {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 90;
+  }
+  .inv-panel {
+    background: #c6c6c6;
+    border: 3px solid;
+    border-color: #fdfdfd #555 #555 #fdfdfd;
+    border-radius: 5px;
+    padding: 10px 14px 14px;
+    color: #3f3f3f;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+  }
+  .inv-title, .inv-label { font-size: 14px; margin: 2px 0 6px; font-weight: 600; }
+  .inv-body { display: flex; gap: 14px; align-items: flex-start; }
+  .inv-grid { display: grid; grid-template-columns: repeat(9, 38px); gap: 2px; }
+  .inv-hotbar { margin-top: 8px; }
+  .inv-palette {
+    display: grid;
+    grid-template-columns: repeat(9, 38px);
+    gap: 2px;
+    max-height: 196px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    padding-right: 2px;
+  }
+  .inv-craft { display: flex; align-items: center; gap: 14px; margin: 4px 0 12px 64px; }
+  .craft-grid { display: grid; gap: 2px; }
+  .craft-arrow { font-size: 26px; color: #6d6d6d; }
+  .slot {
+    width: 38px;
+    height: 38px;
+    box-sizing: border-box;
+    background: #8b8b8b;
+    border: 2px solid;
+    border-color: #373737 #fff #fff #373737;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .slot:hover { background: #a9a9a9; }
+  .slot canvas { width: 32px; height: 32px; image-rendering: pixelated; pointer-events: none; }
+  .slot.result-slot { width: 50px; height: 50px; }
+  .slot.result-slot.ready { background: #9bb48e; }
+  .slot.cursor-slot {
+    position: fixed;
+    left: 0;
+    top: 0;
+    background: none;
+    border: none;
+    pointer-events: none;
+    z-index: 95;
+  }
+  .recipe-book { width: 162px; }
+  .recipe-list {
+    display: grid;
+    grid-template-columns: repeat(4, 38px);
+    gap: 2px;
+    max-height: 292px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .slot.recipe { opacity: 0.4; }
+  .slot.recipe.craftable { opacity: 1; background: #86a877; }
+  .inv-tooltip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    background: rgba(16,4,20,0.94);
+    border: 2px solid #2d0f63;
+    border-radius: 3px;
+    color: #fff;
+    padding: 4px 8px;
+    font-size: 13px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 96;
+  }
+
+  /* --- Death screen --- */
+  #death-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(150,0,0,0.5) 0%, rgba(70,0,0,0.82) 65%, rgba(18,0,0,0.95) 100%);
+  }
+  #death-screen.show { animation: death-fade 0.7s ease-out both; }
+  .noob-shake { animation: noob-shake 0.28s linear infinite; }
+  .noob {
+    font-family: Impact, "Arial Black", "Helvetica Neue", Arial, sans-serif;
+    font-size: min(24vw, 200px);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 6px;
+    color: #ff2323;
+    text-shadow: 0 0 40px rgba(255,20,20,0.85), 7px 7px 0 #2a0000, -2px -2px 0 #ffb0b0;
+    animation: noob-slam 0.55s cubic-bezier(0.2, 1.5, 0.4, 1) both, noob-pulse 1.1s ease-in-out 0.55s infinite;
+  }
+  #death-cause {
+    margin-top: 18px;
+    font-size: 24px;
+    font-weight: 600;
+    color: #ffd6d6;
+    text-shadow: 2px 2px 0 #300;
+    animation: death-fade 0.8s ease-out 0.3s both;
+  }
+  #respawn-btn {
+    margin-top: 34px;
+    padding: 13px 44px;
+    font-size: 19px;
+    font-weight: 700;
+    background: #b3261e;
+    border: 2px solid #ff8a80;
+    animation: death-fade 0.8s ease-out 0.6s both;
+  }
+  #respawn-btn:hover { background: #d23a30; }
+  #respawn-btn:disabled { opacity: 0.5; cursor: default; }
+  @keyframes death-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes noob-slam {
+    0% { transform: scale(3.2) rotate(-8deg); opacity: 0; }
+    60% { opacity: 1; }
+    100% { transform: scale(1) rotate(-3deg); opacity: 1; }
+  }
+  @keyframes noob-pulse {
+    0%, 100% { transform: scale(1) rotate(-3deg); }
+    50% { transform: scale(1.08) rotate(-3deg); }
+  }
+  @keyframes noob-shake {
+    0% { transform: translate(0, 0); }
+    25% { transform: translate(-3px, 2px); }
+    50% { transform: translate(2px, -2px); }
+    75% { transform: translate(-2px, -1px); }
+    100% { transform: translate(0, 0); }
+  }
+  /* --- Settings (pause menu) --- */
+  .panel.wide { max-width: 600px; }
+  .settings-tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+  .settings-tab {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.65);
+    padding: 7px 14px;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .settings-tab:hover { color: #fff; }
+  .settings-tab.active { color: #fff; border-bottom-color: #6fc35a; }
+  .settings-page { min-height: 250px; }
+  .row .val { width: 48px; text-align: right; font-size: 13px; opacity: 0.85; }
+  .row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #5aa845; }
+  .subhead { font-size: 13px; font-weight: 600; opacity: 0.9; margin: 8px 0 8px; }
+  .badge { font-size: 10px; background: #8a6d1d; border-radius: 3px; padding: 1px 5px; margin-left: 6px; text-transform: uppercase; letter-spacing: 1px; }
+  .option-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
+  .option-grid .row select { width: 128px; }
+  .menu-buttons.small { margin-top: 4px; }
+  .menu-buttons.small .btn { padding: 6px 12px; font-size: 12px; }
+
+  /* --- Debug overlay (F3) --- */
+  #debug-overlay {
+    position: fixed;
+    top: 36px;
+    left: 8px;
+    margin: 0;
+    font: 12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: #f0f0f0;
+    background: rgba(0,0,0,0.45);
+    padding: 6px 9px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 12;
+    white-space: pre;
+  }
+  /* F1 hides every HUD element (the held item is hidden by the game). */
+  body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay { visibility: hidden; }
+</style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <div id="damage-flash"></div>
+  <div id="scope-overlay"><div id="scope-crosshair"></div></div>
+  <div id="hud" class="hidden">
+    <div id="crosshair"></div>
+    <div id="attack-charge" class="hidden"><div></div></div>
+    <div id="throw-charge" class="hidden"><div></div></div>
+    <div id="fps-counter">FPS: --</div>
+    <div id="mode-badge" class="hidden"></div>
+    <div id="item-name"></div>
+    <div id="status-bars"><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="hotbar"></div>
+  </div>
+
+  <pre id="debug-overlay" class="hidden"></pre>
+
+  <div id="inventory-screen" class="hidden"></div>
+
+  <div id="death-screen" class="hidden">
+    <div class="noob-shake"><div class="noob">NOOB!</div></div>
+    <div id="death-cause">You died</div>
+    <button class="btn" id="respawn-btn">Respawn</button>
+  </div>
+
+  <!-- Until the game has started: a loading message, or what went wrong and
+       what to try (filled in by the script at the end of the page). -->
+  <div id="boot" class="overlay">
+    <div class="panel">
+      <h1>Voxelands</h1>
+      <div id="boot-status" class="subtitle">Loading&hellip;</div>
+      <div id="boot-error" class="hidden">
+        <h2 id="boot-error-title"></h2>
+        <p id="boot-error-help"></p>
+        <pre id="boot-error-detail"></pre>
+        <div class="menu-buttons">
+          <button class="btn" id="boot-reload">Reload</button>
+          <a class="btn secondary" id="boot-low" href="?graphics=low">Start with Low graphics</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="start-menu" class="overlay hidden">
+    <div class="panel">
+      <h1>Voxelands</h1>
+      <div class="subtitle">A tiny procedural voxel world, built for the browser.</div>
+      <div class="controls-list">
+        <b>WASD</b> move &nbsp; <b>Mouse</b> look &nbsp; <b>Space</b> jump / swim<br/>
+        <b>Shift</b> sneak &nbsp; <b>Ctrl</b> or <b>double-tap W</b> sprint<br/>
+        <b>Left Click</b> mine / attack (hold) &nbsp; <b>Right Click</b> place / use / eat<br/>
+        <b>1-9 / Scroll</b> hotbar &nbsp; <b>E</b> inventory &amp; crafting &nbsp; <b>Q</b> drop item<br/>
+        <b>Grenade:</b> hold Right Click to charge, release to throw &nbsp; <b>Pistol / Bazooka:</b> Right Click fires<br/>
+        <b>Machine Gun:</b> hold Right Click for auto fire &nbsp; <b>Sniper:</b> Right Click scopes, Left Click fires<br/>
+        <b>Airstrike:</b> aim the laser, Right Click to call it in<br/>
+        <b>Creative:</b> double-tap Space to fly, middle click picks a block<br/>
+        <b>F1</b> hide HUD &nbsp; <b>F3</b> debug info &nbsp; <b>F5</b> camera view &nbsp; <b>Esc</b> pause menu &amp; settings
+      </div>
+      <div class="row">
+        <label for="mode-select">Game mode</label>
+        <select id="mode-select">
+          <option value="survival">Survival</option>
+          <option value="creative">Creative</option>
+        </select>
+      </div>
+      <div id="mode-hint" class="hint"></div>
+      <div class="row">
+        <label for="start-graphics-preset">Graphics</label>
+        <select id="start-graphics-preset">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="ultra">Ultra</option>
+        </select>
+      </div>
+      <div id="start-notice" class="hint"></div>
+      <div id="seed-display">Seed: <span id="seed-value">-</span></div>
+      <div class="menu-buttons">
+        <button class="btn" id="play-btn">Click to Play</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pause-menu" class="overlay hidden">
+    <div class="panel wide">
+      <h2>Paused</h2>
+      <div class="settings-tabs">
+        <button class="settings-tab" data-page="video">Video</button>
+        <button class="settings-tab" data-page="controls">Controls</button>
+        <button class="settings-tab" data-page="audio">Audio</button>
+        <button class="settings-tab" data-page="gameplay">Gameplay</button>
+      </div>
+
+      <div class="settings-page" data-page="video">
+        <div class="row">
+          <label>Render distance (chunks)</label>
+          <input type="range" id="render-distance" min="2" max="100" step="1" value="10" />
+          <span id="render-distance-value" class="val">10</span>
+        </div>
+        <div class="row">
+          <label for="graphics-preset">Graphics preset</label>
+          <select id="graphics-preset">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="ultra">Ultra</option>
+          </select>
+        </div>
+        <div id="graphics-hint" class="hint"></div>
+        <div class="subhead">Individual options <span id="gfx-custom-badge" class="badge hidden">custom</span></div>
+        <div id="gfx-options" class="option-grid"></div>
+        <div class="row">
+          <label for="show-fps">Show FPS counter</label>
+          <input type="checkbox" id="show-fps" />
+        </div>
+        <div class="menu-buttons small"><button class="btn secondary" id="gfx-reset-btn">Reset options to preset</button></div>
+      </div>
+
+      <div class="settings-page hidden" data-page="controls">
+        <div class="row">
+          <label>Field of view</label>
+          <input type="range" id="fov" min="50" max="110" step="1" value="75" />
+          <span id="fov-value" class="val">75</span>
+        </div>
+        <div class="row">
+          <label>Mouse sensitivity</label>
+          <input type="range" id="sensitivity" min="0.1" max="4" step="0.05" value="1" />
+          <span id="sensitivity-value" class="val">1.00x</span>
+        </div>
+        <div class="row">
+          <label for="invert-y">Invert mouse Y</label>
+          <input type="checkbox" id="invert-y" />
+        </div>
+        <div class="controls-list">
+        <b>WASD</b> move &nbsp; <b>Mouse</b> look &nbsp; <b>Space</b> jump / swim<br/>
+        <b>Shift</b> sneak &nbsp; <b>Ctrl</b> or <b>double-tap W</b> sprint<br/>
+        <b>Left Click</b> mine / attack (hold) &nbsp; <b>Right Click</b> place / use / eat<br/>
+        <b>1-9 / Scroll</b> hotbar &nbsp; <b>E</b> inventory &amp; crafting &nbsp; <b>Q</b> drop item<br/>
+        <b>Grenade:</b> hold Right Click to charge, release to throw &nbsp; <b>Pistol / Bazooka:</b> Right Click fires<br/>
+        <b>Machine Gun:</b> hold Right Click for auto fire &nbsp; <b>Sniper:</b> Right Click scopes, Left Click fires<br/>
+        <b>Airstrike:</b> aim the laser, Right Click to call it in<br/>
+        <b>Creative:</b> double-tap Space to fly, middle click picks a block<br/>
+        <b>F1</b> hide HUD &nbsp; <b>F3</b> debug info &nbsp; <b>F5</b> camera (first person / behind / in front)
+        </div>
+      </div>
+
+      <div class="settings-page hidden" data-page="audio">
+        <div id="audio-options"></div>
+      </div>
+
+      <div class="settings-page hidden" data-page="gameplay">
+        <div class="row">
+          <label for="pause-mode-select">Game mode</label>
+          <select id="pause-mode-select">
+            <option value="survival">Survival</option>
+            <option value="creative">Creative</option>
+          </select>
+        </div>
+        <div id="pause-mode-hint" class="hint"></div>
+        <div class="row">
+          <label for="difficulty">Difficulty</label>
+          <select id="difficulty">
+            <option value="peaceful">Peaceful (no hostile creatures)</option>
+            <option value="easy">Easy (half damage)</option>
+            <option value="normal">Normal</option>
+            <option value="hard">Hard (1.5x damage)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="mob-spawning">Creatures spawn</label>
+          <input type="checkbox" id="mob-spawning" />
+        </div>
+        <div class="row">
+          <label>Time of day</label>
+          <input type="range" id="time-of-day" min="0" max="23.95" step="0.05" value="12" />
+          <span id="time-of-day-value" class="val">12:00</span>
+        </div>
+        <div class="row">
+          <label for="time-lock">Lock time of day</label>
+          <input type="checkbox" id="time-lock" />
+        </div>
+        <div class="row">
+          <label>Grenade blast size</label>
+          <input type="range" id="explosion-grenade" min="0.4" max="2" step="0.05" value="1" />
+          <span id="explosion-grenade-value" class="val">1.0x</span>
+        </div>
+        <div class="row">
+          <label>Bazooka blast size</label>
+          <input type="range" id="explosion-bazooka" min="0.4" max="2" step="0.05" value="1" />
+          <span id="explosion-bazooka-value" class="val">1.0x</span>
+        </div>
+        <div class="row">
+          <label>Airstrike blast size</label>
+          <input type="range" id="explosion-airstrike" min="0.4" max="2" step="0.05" value="1" />
+          <span id="explosion-airstrike-value" class="val">1.0x</span>
+        </div>
+      </div>
+
+      <div id="pause-seed" style="font-size:12px; opacity:0.7; margin: 12px 0 0 0;">Seed: <span id="pause-seed-value">-</span></div>
+      <div class="menu-buttons">
+        <button class="btn" id="resume-btn">Resume</button>
+        <button class="btn secondary" id="copy-link-btn">Copy world link</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="webgl-block" class="overlay hidden">
+    <div class="panel">
+      <h2>WebGL 2 Required</h2>
+      <p style="font-size:14px; line-height:1.5; opacity:0.9;">
+        Voxelands needs a browser with WebGL 2 support (any recent version of
+        Chrome, Edge, Firefox or Safari). Please update your browser, or enable
+        hardware acceleration in its settings, and reload the page.
+      </p>
+    </div>
+  </div>
+
+  <div id="gpu-lost" class="overlay hidden">
+    <div class="panel">
+      <h2>The graphics card stopped responding</h2>
+      <p style="font-size:14px; line-height:1.5; opacity:0.9;">
+        The browser lost its connection to the graphics card (the WebGL
+        context was lost), usually because drawing a frame took too long.
+        Your world is saved. The graphics setting is lowered to
+        <b id="gpu-lost-preset">High</b> for the next start<span
+        id="gpu-lost-reset" class="hidden">, with individual graphics options
+        reset</span>: reload to go on playing.
+      </p>
+      <div class="menu-buttons">
+        <button class="btn" id="gpu-lost-reload">Reload</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mobile-block" class="overlay hidden">
+    <div class="panel">
+      <h2>Keyboard &amp; Mouse Required</h2>
+      <p style="font-size:14px; line-height:1.5; opacity:0.9;">
+        Voxelands is a first-person 3D game that needs a physical keyboard and mouse
+        for movement and looking around. Please open this page on a desktop or laptop
+        computer to play.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    // Startup safety net. Until js/main.js reports that the game has started
+    // (__voxelandsBoot.done()), an error is shown on the page with what to
+    // try, instead of leaving it blank: the page opened as a file, a game
+    // file that failed to load, a script error, or WebGL not starting.
+    (function () {
+      var boot = { started: false, failed: false };
+      window.__voxelandsBoot = boot;
+      function $(id) { return document.getElementById(id); }
+      var GENERAL = "Reload the page to try again. If it keeps happening, start with Low graphics (below), update your browser, and look in the browser's console (F12) for details.";
+      var MIXED = "Parts of the game don't match, most likely because the browser mixed old cached files with new ones after an update. Reload with <b>Ctrl+Shift+R</b> (<b>Cmd+Shift+R</b> on a Mac).";
+      var low = new URL(location.href);
+      low.searchParams.set("graphics", "low");
+      $("boot-low").href = low.href;
+      $("boot-reload").onclick = function () { location.reload(); };
+      // title and help are fixed strings from the game (help may hold markup);
+      // detail is shown as plain text.
+      boot.fail = function (title, help, detail) {
+        if (boot.started || boot.failed) return;
+        boot.failed = true;
+        $("boot").classList.remove("hidden");
+        $("boot-status").classList.add("hidden");
+        $("boot-error").classList.remove("hidden");
+        $("boot-error-title").textContent = title;
+        $("boot-error-help").innerHTML = help || GENERAL;
+        $("boot-error-detail").textContent = detail || "";
+        $("boot-error-detail").classList.toggle("hidden", !detail);
+      };
+      boot.status = function (text) {
+        if (!boot.failed) $("boot-status").textContent = text;
+      };
+      boot.done = function () {
+        boot.started = true;
+        $("boot").classList.add("hidden");
+      };
+      boot.loadFailed = function () {
+        boot.fail(
+          "A game file couldn't be loaded",
+          "Check that you're online (the 3D engine, three.js, comes from cdn.jsdelivr.net) and that the game is served by its web server (<b>start.bat</b> or <b>./start.sh</b>), then reload. If you just updated the game, reload with <b>Ctrl+Shift+R</b> (<b>Cmd+Shift+R</b> on a Mac)."
+        );
+      };
+      if (location.protocol === "file:") {
+        boot.fail(
+          "Open the game through its web server",
+          "Browsers don't run this game straight from a file. In the game folder, run <b>start.bat</b> (Windows) or <b>./start.sh</b> (macOS/Linux), then open the address it prints (usually http://localhost:5173)."
+        );
+        $("boot-low").classList.add("hidden");
+      }
+      window.addEventListener("error", function (e) {
+        var detail = (e.error && e.error.stack) || e.message || String(e);
+        boot.fail("The game failed to start", /does not provide an export named|Importing a module script failed|dynamically imported module/i.test(detail) ? MIXED : GENERAL, detail);
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        // Refused pointer locks, blocked audio and the like aren't startup failures.
+        if (r && /^(NotAllowedError|AbortError|NotSupportedError|SecurityError)$/.test(r.name)) return;
+        boot.fail("The game failed to start", GENERAL, (r && (r.stack || r.message)) || String(r));
+      });
+    })();
+  </script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="./js/main.js" onerror="__voxelandsBoot.loadFailed()"></script>
+</body>
+</html>
