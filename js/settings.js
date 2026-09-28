@@ -1,7 +1,15 @@
-// Player settings: defaults, validation, and the tabbed settings panel in the
-// pause menu. Everything here is saved in localStorage (storage.js) under one
-// JSON object, so a setting added later simply falls back to its default in
-// older saves, and garbage values are clamped back into range on load.
+// Player settings: defaults, validation, and the tabbed settings screen.
+//
+// Everything is saved in localStorage (storage.js) under one JSON object, so
+// a setting added later simply falls back to its default in older saves, and
+// garbage values are clamped back into range on load.
+//
+// Most settings are declared once in SCHEMA below (where they live in the
+// settings object, their group, type, range and default). The settings
+// screen builds its rows from it, validates saved values with it, and resets
+// a whole group to its defaults with it. A few older settings with custom
+// behavior (render distance, graphics preset and options, time of day) keep
+// hand-written rows in index.html and plug into the same group reset.
 
 export const DIFFICULTIES = ["peaceful", "easy", "normal", "hard"];
 
@@ -18,43 +26,136 @@ export const AUDIO_CATEGORIES = [
   ["ui", "Menus and pickups"],
 ];
 
+// Tabs of the settings screen, in order. `page` is the tab's data-page
+// (the first four keep their old names).
+export const SETTING_GROUPS = [
+  { page: "video", label: "Graphics" },
+  { page: "performance", label: "Performance" },
+  { page: "controls", label: "Controls" },
+  { page: "audio", label: "Audio" },
+  { page: "gameplay", label: "Gameplay" },
+  { page: "weapons", label: "Weapons" },
+  { page: "mobs", label: "Mobs" },
+  { page: "ufos", label: "UFOs" },
+  { page: "vehicles", label: "Vehicles" },
+];
+
+const pct = (v) => `${Math.round(v * 100)}%`;
+const times = (v) => `${Number(v).toFixed(v < 10 ? 2 : 1).replace(/\.?0+$/, "")}x`;
+const int = (v) => String(Math.round(v));
+const secs = (v) => `${Number(v).toFixed(1)} s`;
+const deg = (v) => `${Math.round(v)}°`;
+
+// Zombie spawn rate: a multiplier on the normal rate, shown with a name at
+// the top end. Beyond ~5x it is really a zombie apocalypse.
+function spawnRateLabel(v) {
+  if (v === 0) return "Off";
+  if (v >= 40) return "APOCALYPSE";
+  return times(v);
+}
+
+// type: "range" | "select" | "checkbox". A range with `values` is a slider
+// over those steps (for settings with a huge range, like zombie counts). `key` is the path in the settings
+// object. `id` is the element id (defaults to the key with dots turned into
+// dashes). `note(v)` returns a warning shown next to heavy values. `sub`
+// starts a sub-heading above the row; `advanced` rows are folded away under
+// an "Advanced" toggle in their group.
+export const SCHEMA = [
+  // ----- Graphics (hand-written rows: render distance, preset, options) -----
+  { key: "showFps", id: "show-fps", group: "video", type: "checkbox", label: "Show FPS counter", def: true, static: true },
+
+  // ----- Performance -----
+  { key: "perf.detailDistance", group: "performance", type: "range", label: "Full-detail distance (chunks)", min: 0, max: 16, step: 1, def: 0, fmt: (v) => (v === 0 ? "Auto" : int(v)), hint: "Chunks drawn in full detail around you (Auto: the graphics preset's). Beyond them the land is drawn as simplified tiles.", note: (v) => (v >= 12 ? "Heavy: every full-detail chunk is meshed and lit on the main thread." : "") },
+  { key: "perf.lodQuality", group: "performance", type: "select", label: "Far terrain (LOD) quality", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]], def: "medium", hint: "How detailed the simplified distant land is. The far terrain distance is the render distance on the Graphics tab." },
+  { key: "perf.resolution", group: "performance", type: "range", label: "Resolution scale", min: 0.5, max: 1, step: 0.05, def: 1, fmt: pct, hint: "Draws fewer pixels and scales the picture up: the biggest speed-up on weak graphics cards." },
+  { key: "perf.effects", group: "performance", type: "select", label: "Effects detail", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "Particles in explosions, trails and smoke." },
+
+  // ----- Controls -----
+  { key: "fov", id: "fov", group: "controls", type: "range", label: "Field of view", min: 50, max: 110, step: 1, def: 75, fmt: int, static: true },
+  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 1, fmt: (v) => `${v.toFixed(2)}x`, static: true },
+  { key: "invertY", id: "invert-y", group: "controls", type: "checkbox", label: "Invert mouse Y", def: false, static: true },
+  { key: "binocularZoom", group: "controls", type: "range", label: "Binocular zoom (hold both mouse buttons)", min: 2, max: 12, step: 0.5, def: 6, fmt: times },
+
+  // ----- Gameplay -----
+  { key: "difficulty", id: "difficulty", group: "gameplay", type: "select", label: "Difficulty", choices: DIFFICULTIES.map((d) => [d, d]), def: "normal", static: true },
+  { key: "mobSpawning", id: "mob-spawning", group: "gameplay", type: "checkbox", label: "Creatures spawn", def: true, static: true },
+  { key: "timeLocked", id: "time-lock", group: "gameplay", type: "checkbox", label: "Lock time of day", def: false, static: true },
+  { key: "statsOverlay", group: "gameplay", type: "checkbox", label: "Stats on the HUD (UFOs shot down, play time)", def: false },
+
+  // ----- Weapons -----
+  { key: "explosionScale.grenade", id: "explosion-grenade", group: "weapons", type: "range", label: "Grenade blast size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
+  { key: "explosionScale.bazooka", id: "explosion-bazooka", group: "weapons", type: "range", label: "Bazooka blast size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
+  { key: "weapons.blasterColor", group: "weapons", type: "select", label: "Laser blaster color", choices: [["red", "Red"], ["green", "Green"], ["blue", "Blue"]], def: "red", sub: "Laser blaster" },
+  { key: "weapons.airstrike.count", group: "weapons", type: "range", label: "Meteors per strike", min: 1, max: 40, step: 1, def: 7, fmt: int, sub: "Airstrike", note: (v) => (v > 20 ? "Many craters at once: expect a short hitch on each impact wave." : "") },
+  { key: "weapons.airstrike.spread", group: "weapons", type: "range", label: "Spread radius (blocks)", min: 0, max: 80, step: 1, def: 22, fmt: int },
+  { key: "weapons.airstrike.delay", group: "weapons", type: "range", label: "Delay until impact", min: 1, max: 20, step: 0.5, def: 5, fmt: secs },
+  { key: "weapons.airstrike.angle", group: "weapons", type: "range", label: "Fall angle (from vertical)", min: 0, max: 70, step: 1, def: 35, fmt: deg },
+  { key: "weapons.airstrike.speed", group: "weapons", type: "range", label: "Fall speed (blocks/s)", min: 30, max: 250, step: 5, def: 95, fmt: int },
+  { key: "explosionScale.airstrike", id: "explosion-airstrike", group: "weapons", type: "range", label: "Meteor explosion size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
+
+  // ----- Mobs -----
+  { key: "zombies.spawnRate", group: "mobs", type: "range", label: "Zombie spawn rate", values: [0, 0.25, 0.5, 1, 1.5, 2, 3, 5, 8, 12, 20, 30, 50], min: 0, max: 50, def: 1, fmt: spawnRateLabel, sub: "Zombies", note: (v) => (v >= 10 ? "Zombie apocalypse: far zombies are drawn as simple crowds and think less, but a slow CPU will feel it." : "") },
+  { key: "zombies.max", group: "mobs", type: "range", label: "Max zombies", values: [0, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 400], min: 0, max: 400, def: 8, fmt: int, note: (v) => (v > 150 ? "Hundreds of zombies: fine on a fast PC, heavy on a laptop." : v > 60 ? "Lots of zombies: far ones are simplified to stay smooth." : "") },
+  { key: "zombies.health", group: "mobs", type: "range", label: "Zombie health", min: 0.25, max: 5, step: 0.25, def: 1, fmt: times },
+  { key: "zombies.damage", group: "mobs", type: "range", label: "Zombie damage", min: 0.25, max: 5, step: 0.25, def: 1, fmt: times },
+  { key: "zombies.daylight", group: "mobs", type: "checkbox", label: "Daylight zombies (spawn by day, don't burn)", def: false },
+];
+
+const SCHEMA_BY_KEY = new Map(SCHEMA.map((e) => [e.key, e]));
+
+export function schemaEntry(key) {
+  return SCHEMA_BY_KEY.get(key);
+}
+
+export function getPath(obj, path) {
+  let o = obj;
+  for (const k of path.split(".")) {
+    if (o == null || typeof o !== "object") return undefined;
+    o = o[k];
+  }
+  return o;
+}
+
+export function setPath(obj, path, value) {
+  const keys = path.split(".");
+  let o = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (o[keys[i]] == null || typeof o[keys[i]] !== "object") o[keys[i]] = {};
+    o = o[keys[i]];
+  }
+  o[keys[keys.length - 1]] = value;
+}
+
+// A valid value for schema entry `e` from whatever was saved.
+export function validValue(e, raw) {
+  if (e.type === "checkbox") return typeof raw === "boolean" ? raw : e.def;
+  if (e.type === "select") return e.choices.some(([v]) => v === raw) ? raw : e.def;
+  const n = Number(raw);
+  if (raw === null || raw === undefined || raw === "" || !Number.isFinite(n)) return e.def;
+  if (e.values) return e.values.reduce((best, v) => (Math.abs(v - n) < Math.abs(best - n) ? v : best), e.values[0]);
+  return Math.max(e.min, Math.min(e.max, n));
+}
+
 export const DEFAULT_SETTINGS = {
   renderDistance: 10,
-  graphics: "ultra",
+  graphics: "medium",
   gfxOverrides: {},
-  fov: 75,
-  sensitivity: 1,
-  invertY: false,
   volume: { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
-  explosionScale: { grenade: 1, bazooka: 1, airstrike: 1 },
-  mobSpawning: true,
-  difficulty: "normal",
-  timeLocked: false,
-  showFps: true,
+  mods: true,
 };
-
-function num(v, lo, hi, fallback) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(lo, Math.min(hi, n));
-}
+for (const e of SCHEMA) setPath(DEFAULT_SETTINGS, e.key, e.def);
 
 // Returns a complete, valid settings object from whatever was saved.
 export function normalizeSettings(raw) {
   const s = raw && typeof raw === "object" ? raw : {};
-  const d = DEFAULT_SETTINGS;
-  const out = { ...s };
-  out.fov = num(s.fov, 50, 110, d.fov);
-  out.sensitivity = num(s.sensitivity, 0.1, 4, d.sensitivity);
-  out.invertY = s.invertY === true;
+  const out = JSON.parse(JSON.stringify(s));
+  for (const e of SCHEMA) setPath(out, e.key, validValue(e, getPath(s, e.key)));
   out.volume = {};
-  for (const [k] of AUDIO_CATEGORIES) out.volume[k] = num(s.volume?.[k], 0, 1, 1);
-  out.explosionScale = {};
-  for (const k of Object.keys(d.explosionScale)) out.explosionScale[k] = num(s.explosionScale?.[k], 0.4, 2, 1);
-  out.mobSpawning = s.mobSpawning !== false;
-  out.difficulty = DIFFICULTIES.includes(s.difficulty) ? s.difficulty : d.difficulty;
-  out.timeLocked = s.timeLocked === true;
-  out.showFps = s.showFps !== false;
+  for (const [k] of AUDIO_CATEGORIES) {
+    const n = Number(s.volume?.[k]);
+    out.volume[k] = Number.isFinite(n) && s.volume?.[k] !== null ? Math.max(0, Math.min(1, n)) : 1;
+  }
+  out.mods = s.mods !== false;
   out.gfxOverrides = s.gfxOverrides && typeof s.gfxOverrides === "object" ? { ...s.gfxOverrides } : {};
   return out;
 }
@@ -66,15 +167,22 @@ export function formatHours(h) {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
-// ---------- Settings panel ----------
-// Wires the tabbed settings panel in the pause menu. `hooks` receives each
-// change: { onChange(key, value) }. Controls are plain DOM elements declared
-// in index.html; this only switches tabs and keeps the value labels in sync.
+// ---------- Settings screen ----------
+// Switches tabs, builds a row for every schema setting that has no
+// hand-written row in index.html, binds every row to the settings object,
+// saves on change, and resets a group to its defaults.
 export class SettingsPanel {
-  constructor() {
+  // settings: the live settings object; save(): persists it.
+  constructor(settings, save) {
+    this.settings = settings;
+    this.save = save;
     this.tabs = [...document.querySelectorAll(".settings-tab")];
     this.pages = [...document.querySelectorAll(".settings-page")];
     for (const tab of this.tabs) tab.addEventListener("click", () => this.show(tab.dataset.page));
+    this._appliers = new Map(); // key -> [fn(value)]
+    this._controls = new Map(); // key -> { set(value) }
+    this._resetHooks = new Map(); // page -> [fn()]
+    this._build();
     this.show("video");
   }
 
@@ -84,7 +192,169 @@ export class SettingsPanel {
     this.current = page;
   }
 
-  // Binds a range input + its value label. format(v) -> label text.
+  // Current value of a schema setting.
+  get(key) {
+    return getPath(this.settings, key);
+  }
+
+  // Calls fn(value) whenever setting `key` changes, and once right away.
+  on(key, fn, { now = true } = {}) {
+    if (!this._appliers.has(key)) this._appliers.set(key, []);
+    this._appliers.get(key).push(fn);
+    if (now) fn(this.get(key));
+  }
+
+  // Changes a setting from code (updates its row, applies and saves it).
+  set(key, value) {
+    const e = SCHEMA_BY_KEY.get(key);
+    const v = e ? validValue(e, value) : value;
+    setPath(this.settings, key, v);
+    this._controls.get(key)?.set(v);
+    this._apply(key, v);
+    this.save();
+  }
+
+  // Extra work for a group's "Reset to defaults" (hand-written settings).
+  onReset(page, fn) {
+    if (!this._resetHooks.has(page)) this._resetHooks.set(page, []);
+    this._resetHooks.get(page).push(fn);
+  }
+
+  resetGroup(page) {
+    for (const e of SCHEMA) if (e.group === page) this.set(e.key, e.def);
+    for (const fn of this._resetHooks.get(page) || []) fn();
+    this.save();
+  }
+
+  _apply(key, v) {
+    for (const fn of this._appliers.get(key) || []) fn(v);
+    const note = this._notes?.get(key);
+    const e = SCHEMA_BY_KEY.get(key);
+    if (note && e?.note) {
+      const text = e.note(v);
+      note.textContent = text ? `⚠ ${text}` : "";
+      note.classList.toggle("hidden", !text);
+    }
+  }
+
+  _build() {
+    this._notes = new Map();
+    const pageEl = (page) => document.querySelector(`.settings-page[data-page="${page}"]`);
+    const lastSub = new Map();
+    for (const e of SCHEMA) {
+      const page = pageEl(e.group);
+      if (!page) continue;
+      let input;
+      if (e.static) {
+        input = document.getElementById(e.id);
+        if (!input) continue;
+      } else {
+        const container = page.querySelector(e.advanced ? ".auto-rows-advanced" : ".auto-rows") || page;
+        if (e.sub && lastSub.get(e.group + !!e.advanced) !== e.sub) {
+          const h = document.createElement("div");
+          h.className = "subhead";
+          h.textContent = e.sub;
+          container.appendChild(h);
+          lastSub.set(e.group + !!e.advanced, e.sub);
+        }
+        const id = e.id || e.key.replace(/\./g, "-");
+        const row = document.createElement("div");
+        row.className = "row";
+        const label = document.createElement("label");
+        label.textContent = e.label;
+        label.htmlFor = id;
+        row.appendChild(label);
+        if (e.type === "range") {
+          input = document.createElement("input");
+          input.type = "range";
+          input.min = String(e.values ? 0 : e.min);
+          input.max = String(e.values ? e.values.length - 1 : e.max);
+          input.step = String(e.values ? 1 : e.step);
+          const val = document.createElement("span");
+          val.className = "val";
+          val.id = `${id}-value`;
+          row.append(input, val);
+        } else if (e.type === "select") {
+          input = document.createElement("select");
+          for (const [v, text] of e.choices) {
+            const o = document.createElement("option");
+            o.value = v;
+            o.textContent = text;
+            input.appendChild(o);
+          }
+          row.appendChild(input);
+        } else {
+          input = document.createElement("input");
+          input.type = "checkbox";
+          row.appendChild(input);
+        }
+        input.id = id;
+        container.appendChild(row);
+        if (e.hint) {
+          const hint = document.createElement("div");
+          hint.className = "hint";
+          hint.textContent = e.hint;
+          container.appendChild(hint);
+        }
+        if (e.note) {
+          const note = document.createElement("div");
+          note.className = "hint perf-note hidden";
+          container.appendChild(note);
+          this._notes.set(e.key, note);
+        }
+      }
+      this._bind(e, input);
+    }
+    // Every group gets a "Reset to defaults" button.
+    for (const { page } of SETTING_GROUPS) {
+      const el = pageEl(page);
+      if (!el || el.querySelector(".reset-group-btn")) continue;
+      const bar = document.createElement("div");
+      bar.className = "menu-buttons small";
+      const btn = document.createElement("button");
+      btn.className = "btn secondary reset-group-btn";
+      btn.dataset.page = page;
+      btn.textContent = "Reset to defaults";
+      btn.addEventListener("click", () => this.resetGroup(page));
+      bar.appendChild(btn);
+      el.appendChild(bar);
+    }
+    // "Advanced" folds.
+    for (const toggle of document.querySelectorAll(".advanced-toggle")) {
+      toggle.addEventListener("click", () => {
+        const box = toggle.nextElementSibling;
+        const open = box.classList.toggle("hidden") === false;
+        toggle.textContent = `${open ? "▾" : "▸"} Advanced`;
+      });
+    }
+  }
+
+  _bind(e, input) {
+    const label = e.type === "range" ? document.getElementById(`${input.id}-value`) : null;
+    const fmt = e.fmt || ((v) => String(v));
+    const show = (v) => {
+      if (e.type === "checkbox") input.checked = !!v;
+      else if (e.values) input.value = String(Math.max(0, e.values.indexOf(v)));
+      else input.value = String(v);
+      if (label) label.textContent = fmt(Number(v));
+    };
+    this._controls.set(e.key, { set: show });
+    show(this.get(e.key));
+    const onChange = () => {
+      const raw = e.type === "checkbox" ? input.checked : e.values ? e.values[Number(input.value)] : e.type === "range" ? Number(input.value) : input.value;
+      const v = validValue(e, raw);
+      setPath(this.settings, e.key, v);
+      if (label) label.textContent = fmt(v);
+      this._apply(e.key, v);
+      this.save();
+    };
+    input.addEventListener(e.type === "range" ? "input" : "change", onChange);
+    // Show any warning for the saved value.
+    if (e.note) this._apply(e.key, this.get(e.key));
+  }
+
+  // Binds a hand-written range input + its value label. format(v) -> label
+  // text. (Settings with custom behavior, like the time of day.)
   static range(id, value, format, onInput) {
     const input = document.getElementById(id);
     const label = document.getElementById(`${id}-value`);
@@ -102,19 +372,5 @@ export class SettingsPanel {
         if (label) label.textContent = format(Number(v));
       },
     };
-  }
-
-  static select(id, value, onChange) {
-    const el = document.getElementById(id);
-    el.value = String(value);
-    el.addEventListener("change", () => onChange(el.value));
-    return el;
-  }
-
-  static checkbox(id, value, onChange) {
-    const el = document.getElementById(id);
-    el.checked = !!value;
-    el.addEventListener("change", () => onChange(el.checked));
-    return el;
   }
 }

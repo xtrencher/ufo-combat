@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BLOCK } from "./blocks.js";
+import { BLOCK, IS_WET } from "./blocks.js";
 import { sweepAxis } from "./physics.js";
 
 const EYE_HEIGHT = 1.62;
@@ -338,7 +338,7 @@ export class Player {
 
   _waterAt(yOffset) {
     const p = this.position;
-    return this.world.getBlock(Math.floor(p.x), Math.floor(p.y + yOffset), Math.floor(p.z)) === BLOCK.WATER;
+    return IS_WET[this.world.getBlock(Math.floor(p.x), Math.floor(p.y + yOffset), Math.floor(p.z))] === 1;
   }
 
   update(dt) {

@@ -4,7 +4,7 @@
 // trail that explodes on terrain or mobs with a huge blast). No ammo and no
 // reloading: every click fires, with only a tiny minimum interval.
 import * as THREE from "three";
-import { BLOCK, IS_SOLID } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { itemInfo } from "./items.js";
 import { grenadeGeometry, rocketGeometry } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
@@ -421,7 +421,7 @@ export class WeaponSystem {
     const w = this.world;
     const pos = g.pos;
     const vel = g.vel;
-    const inWater = w.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z)) === BLOCK.WATER;
+    const inWater = IS_WET[w.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))] === 1;
     vel.y += GRENADE_GRAVITY * (inWater ? 0.3 : 1) * dt;
     if (inWater) vel.multiplyScalar(Math.exp(-2.5 * dt));
     // Sub-stepped, axis-separated movement with bounces.

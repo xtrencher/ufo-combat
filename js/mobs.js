@@ -10,7 +10,7 @@
 // a player can reach quickly (real targets at sniper range), with a total
 // mob cap and simplified, cheaper AI for anything far from the player.
 import * as THREE from "three";
-import { BLOCK, IS_SOLID, IS_LEAVES } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
 import { ITEM, meleeDamage } from "./items.js";
 import { sweepAxis, rayAabb } from "./physics.js";
 import { createMobModel } from "./mob-models.js";
@@ -253,7 +253,7 @@ export class MobManager {
   _freeAt(x, y, z, h) {
     for (let k = 0; k < Math.ceil(h); k++) {
       const id = this.world.getBlock(x, y + k, z);
-      if (IS_SOLID[id] || id === BLOCK.WATER) return false;
+      if (IS_SOLID[id] || IS_WET[id]) return false;
     }
     return true;
   }
@@ -424,10 +424,10 @@ export class MobManager {
       return "step";
     }
     for (let k = 1; k < cells; k++) if (solid(by + k)) return "wall";
-    if (w.getBlock(bx, by, bz) === BLOCK.WATER) return "water";
+    if (IS_WET[w.getBlock(bx, by, bz)]) return "water";
     let drop = 0;
     while (drop < 6 && !solid(by - 1 - drop)) {
-      if (w.getBlock(bx, by - 1 - drop, bz) === BLOCK.WATER) return "water";
+      if (IS_WET[w.getBlock(bx, by - 1 - drop, bz)]) return "water";
       drop++;
     }
     return drop > m.spec.maxDrop ? "cliff" : "open";
@@ -737,7 +737,7 @@ export class MobManager {
     m.pos.z += dz;
     m.blocked = Math.abs(dx - ax) > 1e-6 || Math.abs(dy - ay) > 1e-6 || Math.abs(dz - az) > 1e-6;
     m.onGround = false;
-    m.inWater = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y), Math.floor(m.pos.z)) === BLOCK.WATER;
+    m.inWater = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y), Math.floor(m.pos.z))] === 1;
     // A fish stranded out of water heads home (its spawn point, in water) fast.
     if (spec.swims && !m.inWater) {
       m.flyTarget = { x: m.home.x, y: m.home.y, z: m.home.z };
@@ -753,8 +753,8 @@ export class MobManager {
   _physics(m, dt, want) {
     const w = this.world;
     const spec = m.spec;
-    const waterFeet = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.2), Math.floor(m.pos.z)) === BLOCK.WATER;
-    const waterBody = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + spec.h * 0.55), Math.floor(m.pos.z)) === BLOCK.WATER;
+    const waterFeet = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.2), Math.floor(m.pos.z))] === 1;
+    const waterBody = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + spec.h * 0.55), Math.floor(m.pos.z))] === 1;
     m.inWater = waterFeet || waterBody;
 
     // A mob reeling from a hit doesn't steer, so the knockback carries it.

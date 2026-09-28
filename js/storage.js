@@ -12,7 +12,9 @@
 // The original v1 format (a flat [x,y,z,id, ...] array) is still read.
 import { CHUNK_SIZE, WORLD_HEIGHT, blockIndex, floorDiv, chunkKey } from "./constants.js";
 
-const PREFIX = "voxelands_v1_";
+// Distinct from the original game (Voxelands, "voxelands_v1_"), which may be
+// hosted on the same domain: the two must never share saves or settings.
+const PREFIX = "ufocombat_v1_";
 const BLOCKS_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
 
 export function editsKey(seed) {
@@ -100,7 +102,7 @@ export function parseEdits(data) {
       edits.set(key, decodeChunkEdits(encoded));
     } catch (err) {
       // One corrupted chunk shouldn't discard the rest of the world's edits.
-      console.warn(`Voxelands: skipping unreadable saved edits for chunk ${key}`, err);
+      console.warn(`UFO COMBAT: skipping unreadable saved edits for chunk ${key}`, err);
     }
   }
   return edits;
@@ -128,7 +130,7 @@ export function loadEdits(seed) {
     if (!raw) return new Map();
     return parseEdits(JSON.parse(raw));
   } catch (err) {
-    console.warn("Voxelands: failed to load saved edits", err);
+    console.warn("UFO COMBAT: failed to load saved edits", err);
     return new Map();
   }
 }
@@ -138,7 +140,7 @@ export function saveEdits(seed, edits, cache = null, dirtyKeys = null) {
     localStorage.setItem(editsKey(seed), JSON.stringify(serializeEdits(edits, cache, dirtyKeys)));
     return true;
   } catch (err) {
-    console.warn("Voxelands: failed to save world edits (storage full or unavailable)", err);
+    console.warn("UFO COMBAT: failed to save world edits (storage full or unavailable)", err);
     return false;
   }
 }
@@ -158,7 +160,7 @@ export function saveSettings(settings) {
   try {
     localStorage.setItem(`${PREFIX}settings`, JSON.stringify(settings));
   } catch (err) {
-    console.warn("Voxelands: failed to save settings", err);
+    console.warn("UFO COMBAT: failed to save settings", err);
   }
 }
 
@@ -207,7 +209,39 @@ export function savePlayer(seed, data) {
     localStorage.setItem(playerKey(seed), JSON.stringify({ v: 1, ...data }));
     return true;
   } catch (err) {
-    console.warn("Voxelands: failed to save player state", err);
+    console.warn("UFO COMBAT: failed to save player state", err);
     return false;
   }
 }
+
+// Small JSON records outside any one world: the last world played (so the
+// main menu can offer to continue it), and the all-time stats.
+export function loadJSON(name, fallback = null) {
+  try {
+    const raw = localStorage.getItem(`${PREFIX}${name}`);
+    if (!raw) return fallback;
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" ? data : fallback;
+  } catch (err) {
+    return fallback;
+  }
+}
+
+export function saveJSON(name, data) {
+  try {
+    localStorage.setItem(`${PREFIX}${name}`, JSON.stringify(data));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export function hasSavedWorld(seed) {
+  try {
+    return localStorage.getItem(playerKey(seed)) !== null;
+  } catch (err) {
+    return false;
+  }
+}
+
+export const STORAGE_PREFIX = PREFIX;

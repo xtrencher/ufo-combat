@@ -20,7 +20,7 @@ const args = Object.fromEntries(
   process.argv
     .slice(3)
     .filter((a) => a.startsWith("--"))
-    .map((a) => a.slice(2).split("="))
+    .map((a) => { const [k, ...rest] = a.slice(2).split("="); return [k, rest.length ? rest.join("=") : true]; })
 );
 const scenarioPath = path.resolve(process.argv[2] || "");
 const PORT = 8940 + Math.floor(Math.random() * 50);
@@ -71,9 +71,13 @@ await page.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil:
 await page.waitForFunction(() => !!window.__voxelands, null, { timeout: 60000 });
 // Boot on Low (fast under software rendering), then switch to the preset asked for.
 await page.evaluate(() => window.__voxelands.setGraphics("low"));
-await page.click("#play-btn", { timeout: 120000 });
-await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 60000 });
 if (args.preset) await page.evaluate((p) => window.__voxelands.setGraphics(p), args.preset);
+// --noplay stays on the main menu (for menu screenshots).
+if (!args.noplay) {
+  await page.waitForFunction(() => window.__voxelands.graphicsReady, null, { timeout: 120000 });
+  await page.click("#play-btn", { timeout: 120000 });
+  await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 60000 });
+}
 // Nothing is drawn until the preset's shaders are ready (see prepareGraphics in main.js).
 await page.waitForFunction(() => window.__voxelands.graphicsReady, null, { timeout: 120000 });
 console.log(`  booted in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

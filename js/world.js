@@ -11,6 +11,7 @@ import {
   BLOCK,
   BLOCK_INFO,
   IS_SOLID,
+  IS_WATERLOGGED,
   IS_SELECTABLE,
   SHAPE_OF,
   SHAPE,
@@ -198,6 +199,8 @@ export class World {
       const lx = x & 15;
       const lz = z & 15;
       const idx = blockIndex(lx, y, lz);
+      // Removing a waterlogged plant (seagrass, kelp) leaves its water behind.
+      if (id === BLOCK.AIR && IS_WATERLOGGED[chunk.blocks[idx]]) id = BLOCK.WATER;
       if (chunk.blocks[idx] === id) return false;
       chunk.blocks[idx] = id;
       changed.push(x, y, z);

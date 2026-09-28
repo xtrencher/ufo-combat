@@ -124,6 +124,7 @@ const DEFAULTS = {
   support: null, // "solid": needs a solid block below; "soil": needs grass/dirt below
   liquid: false,
   gravity: false, // falls when nothing solid is underneath (sand, gravel)
+  waterlogged: false, // an underwater plant: its cell is also full of water (breaking it leaves water)
   leaves: false, // tree foliage (fancy leaf cards, light shining through, no mob spawns)
   log: false, // tree trunk
   // Mining (survival): hardness (-1 = unbreakable), the tool type that mines
@@ -258,7 +259,8 @@ const DEFS = {
     shape: SHAPE.CROSS,
     solid: false,
     opaque: false,
-    skyPass: true,
+    lightFilter: 1, // light dims through it like the water it stands in
+    waterlogged: true,
     wave: true,
     replaceable: true,
     support: "soil",
@@ -272,7 +274,8 @@ const DEFS = {
     shape: SHAPE.CROSS,
     solid: false,
     opaque: false,
-    skyPass: true,
+    lightFilter: 1, // light dims through it like the water it stands in
+    waterlogged: true,
     wave: true,
     replaceable: true,
     support: "soil",
@@ -323,6 +326,9 @@ export const IS_SELECTABLE = table((b) => (b.selectable ? 1 : 0));
 export const IS_REPLACEABLE = table((b) => (b.replaceable ? 1 : 0));
 export const HAS_GRAVITY = table((b) => (b.gravity ? 1 : 0));
 export const IS_LEAVES = table((b) => (b.leaves ? 1 : 0));
+export const IS_WATERLOGGED = table((b) => (b.waterlogged ? 1 : 0));
+// Water, or a waterlogged plant standing in water: swims, drowns and renders as water.
+export const IS_WET = table((b) => (b.liquid || b.waterlogged ? 1 : 0));
 export const IS_LOG = table((b) => (b.log ? 1 : 0));
 for (let id = 0; id < 256; id++) {
   if (!BLOCK_INFO[id]) {

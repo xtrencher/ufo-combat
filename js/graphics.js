@@ -104,7 +104,7 @@ export const PRESETS = {
 };
 
 export const PRESET_ORDER = ["low", "medium", "high", "ultra"];
-export const DEFAULT_PRESET = "ultra";
+export const DEFAULT_PRESET = "medium";
 
 export function normalizePreset(name) {
   return PRESET_ORDER.includes(name) ? name : DEFAULT_PRESET;
@@ -234,7 +234,8 @@ export function applyPreset(name, ctx) {
   const p = resolvePreset(name, ctx.overrides);
   const { renderer, postfx, sky } = ctx;
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, p.maxPixelRatio));
+  // Resolution scale (Performance settings) draws fewer pixels on weak GPUs.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, p.maxPixelRatio) * (ctx.resolutionScale || 1));
 
   // Cascaded sun shadows (filtered in the shaders, see SUN_SHADOW).
   const shadows = p.cascades.length > 0;

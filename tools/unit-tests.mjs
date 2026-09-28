@@ -371,6 +371,34 @@ function generateRegion(seed, size, ox = 0, oz = 0) {
   return { gen, chunks, get };
 }
 
+await test("no stray water: every generated water block is walled in (no air beside or below it), and seagrass/kelp stand in water", async () => {
+  const { BLOCK: B, IS_WET: WET } = await import("../js/blocks.js");
+  for (const seed of [42, 2024, 7]) {
+    const { get } = generateRegion(seed, 7);
+    let water = 0;
+    for (let x = 1; x < 7 * 16 - 1; x++) {
+      for (let z = 1; z < 7 * 16 - 1; z++) {
+        for (let y = 1; y < H - 1; y++) {
+          const id = get(x, y, z);
+          if (id === B.WATER) {
+            water++;
+            for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) {
+              assert.notEqual(get(x + dx, y + dy, z + dz), B.AIR, `seed ${seed}: water at ${x},${y},${z} has air at +${dx},${dy},${dz}`);
+            }
+          } else if (id === B.SEAGRASS || id === B.KELP) {
+            for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const n = get(x + dx, y, z + dz);
+              assert.ok(n !== B.AIR || y >= SEA_LEVEL, `seed ${seed}: underwater plant at ${x},${y},${z} next to air`);
+            }
+            assert.ok(WET[id], "underwater plants count as water");
+          }
+        }
+      }
+    }
+    assert.ok(water > 0, `seed ${seed}: some water generated`);
+  }
+});
+
 await test("generation is deterministic and keeps the original height map", () => {
   const a = generateRegion(1234, 2);
   const b = generateRegion(1234, 2);

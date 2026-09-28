@@ -2,13 +2,13 @@ import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
 import { UI, isMobileDevice } from "./ui.js";
-import { BLOCK, BLOCK_INFO, HOTBAR } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, HOTBAR, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, loadPlayer, savePlayer, loadBootRecord, saveBootRecord } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
-import { PRESETS, PRESET_ORDER, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
+import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
 import { normalizeSettings, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
@@ -27,18 +27,27 @@ import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem } from "./weapons.js";
 import { BulletHoles } from "./decals.js";
-import { GRENADE_RADIUS, explosionScale } from "./effects.js";
+import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
+import { MenuScreens, MenuFlyover, renderControls } from "./menu.js";
 
 // ---------- Seed ----------
+// ?seed=N opens that world. Without it, the last world played is loaded
+// (the main menu offers to continue it); on a first visit, a random one.
 function parseSeedFromURL() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("seed");
   if (raw !== null && raw !== "" && !Number.isNaN(Number(raw))) {
     return Math.abs(Math.floor(Number(raw))) >>> 0;
   }
+  const last = loadJSON("last");
+  if (last && Number.isInteger(last.seed) && last.seed >= 0) return last.seed >>> 0;
+  return randomSeed();
+}
+
+function randomSeed() {
   return Math.floor(Math.random() * 2147483647) >>> 0;
 }
 
@@ -46,19 +55,19 @@ const SEED = parseSeedFromURL();
 
 // ---------- Startup ----------
 // index.html shows a loading message until the game has started, and any
-// error before that (see __voxelandsBoot there).
+// error before that (see __ufoBoot there).
 function bootDone() {
-  window.__voxelandsBoot?.done();
+  window.__ufoBoot?.done();
 }
 function bootFail(title, help, detail) {
-  window.__voxelandsBoot?.fail(title, help, detail);
+  window.__ufoBoot?.fail(title, help, detail);
 }
 
 // ---------- Mobile guard ----------
 if (isMobileDevice()) {
   bootDone();
   document.getElementById("mobile-block").classList.remove("hidden");
-  throw new Error("Voxelands: mobile device detected, game not started.");
+  throw new Error("UFO COMBAT: mobile device detected, game not started.");
 }
 
 // ---------- Renderer / scene / camera ----------
@@ -77,7 +86,7 @@ try {
 if (!renderer.capabilities.isWebGL2) {
   bootDone();
   document.getElementById("webgl-block").classList.remove("hidden");
-  throw new Error("Voxelands: WebGL 2 is required.");
+  throw new Error("UFO COMBAT: WebGL 2 is required.");
 }
 // The graphics driver can drop the WebGL context (a frame that took far too
 // long, a driver crash); nothing can be drawn after that (see onGraphicsLost).
@@ -132,8 +141,6 @@ if (!urlPreset && lastBoot && lastBoot.ok === false && lastBoot.preset === graph
 // The preset with the user's individual graphics options applied.
 let activePreset = resolvePreset(graphicsPreset, settings.gfxOverrides);
 
-// Per-weapon explosion-size multipliers (settings sliders), persisted.
-Object.assign(explosionScale, settings.explosionScale);
 
 // Built-in three.js materials (debris, particles) use this fog; the world's
 // own shaders use the shared uniforms in shaders.js (same distances).
@@ -244,14 +251,12 @@ ui.renderDistanceInput.value = String(renderDistance);
 ui.renderDistanceValueEl.textContent = String(renderDistance);
 ui.graphicsSelect.value = graphicsPreset;
 
-for (const kind of ["grenade", "bazooka", "airstrike"]) {
-  SettingsPanel.range(`explosion-${kind}`, explosionScale[kind], (v) => `${v.toFixed(2)}x`, (value) => {
-    const v = Math.max(0.4, Math.min(2, Number(value) || 1));
-    explosionScale[kind] = v;
-    settings.explosionScale[kind] = v;
-    saveSettings(settings);
-  });
-}
+// Sub-screens of the main and pause menus (settings, mods, controls, stats).
+const screens = new MenuScreens();
+// The settings screen (tabs, rows built from the schema in settings.js).
+const settingsPanel = new SettingsPanel(settings, () => saveSettings(settings));
+// Per-weapon explosion-size multipliers.
+for (const kind of ["grenade", "bazooka", "airstrike"]) settingsPanel.on(`explosionScale.${kind}`, (v) => (explosionScale[kind] = v));
 
 const player = new Player(camera, world, canvas);
 const inventory = new Inventory();
@@ -315,6 +320,11 @@ if (savedPlayer) {
 let newWorld = !savedPlayer;
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
+ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
+document.getElementById("world-state").textContent = savedPlayer ? `(saved ${savedPlayer.mode === "creative" ? "creative" : "survival"} world)` : "(new world)";
+// The main menu's background: a slow flyover with a UFO drifting by.
+const flyover = new MenuFlyover(scene, world);
+flyover.setCenter(player.position);
 held.setItem(inventory.selectedStack?.id ?? 0, true);
 
 function playerState() {
@@ -359,7 +369,7 @@ function flushSave() {
 // for confirmation first; the world is saved either way.
 window.addEventListener("beforeunload", (e) => {
   flushSave();
-  if (gameState === "playing" || gameState === "inventory") {
+  if ((gameState === "playing" || gameState === "inventory") && !leavingToMenu) {
     e.preventDefault();
     e.returnValue = "";
   }
@@ -544,9 +554,10 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true }
     materials: allWorldMaterials,
     chunkMaterials: world.materials,
     onResize,
+    resolutionScale: settings.perf.resolution,
   });
   activePreset = preset;
-  lod.configure({ detailDistance: preset.detailDistance });
+  lod.configure({ detailDistance: settings.perf.detailDistance > 0 ? settings.perf.detailDistance : preset.detailDistance });
   grass.configure({ level: preset.grass });
   world.setMeshOptions({ fancyLeaves: preset.fancyLeaves });
   if (adoptRenderDistance) setRenderDistance(preset.renderDistance);
@@ -627,7 +638,7 @@ async function prepareGraphics() {
   try {
     await Promise.race([compileShaders(), delay(PREPARE_TIMEOUT_MS)]);
   } catch (err) {
-    console.warn("Voxelands: shader warm-up failed, compiling on first use instead", err);
+    console.warn("UFO COMBAT: shader warm-up failed, compiling on first use instead", err);
   }
   clearTimeout(slow);
   if (token !== prepareToken || graphicsLost) return;
@@ -661,7 +672,6 @@ function setRenderDistance(value) {
 }
 
 // ---------- Settings menu ----------
-const settingsPanel = new SettingsPanel();
 
 // Individual graphics options: one select per option. The value shown is
 // what's in effect (the preset's, unless overridden).
@@ -709,50 +719,35 @@ for (const select of [ui.graphicsSelect, ui.startGraphicsSelect]) {
 }
 
 const fpsEl = document.getElementById("fps-counter");
-function applyShowFps() {
-  fpsEl.style.display = settings.showFps ? "" : "none";
-}
-applyShowFps();
-SettingsPanel.checkbox("show-fps", settings.showFps, (v) => {
-  settings.showFps = v;
-  applyShowFps();
-  saveSettings(settings);
-});
+settingsPanel.on("showFps", (v) => (fpsEl.style.display = v ? "" : "none"));
 
 // Controls.
-player.baseFov = settings.fov;
-player.mouseSensitivity = settings.sensitivity;
-player.invertY = settings.invertY;
-SettingsPanel.range("fov", settings.fov, (v) => String(Math.round(v)), (v) => {
-  settings.fov = v;
-  player.baseFov = v;
-  saveSettings(settings);
-});
-SettingsPanel.range("sensitivity", settings.sensitivity, (v) => `${v.toFixed(2)}x`, (v) => {
-  settings.sensitivity = v;
-  player.mouseSensitivity = v;
-  saveSettings(settings);
-});
-SettingsPanel.checkbox("invert-y", settings.invertY, (v) => {
-  settings.invertY = v;
-  player.invertY = v;
-  saveSettings(settings);
-});
+settingsPanel.on("fov", (v) => (player.baseFov = v));
+settingsPanel.on("sensitivity", (v) => (player.mouseSensitivity = v));
+settingsPanel.on("invertY", (v) => (player.invertY = v));
 
 // Audio: a volume slider per category.
 const audioOptionsEl = document.getElementById("audio-options");
+const volumeSliders = {};
 for (const [key, label] of AUDIO_CATEGORIES) {
   const row = document.createElement("div");
   row.className = "row";
   row.innerHTML = `<label>${label}</label><input type="range" id="vol-${key}" min="0" max="1" step="0.01" /><span id="vol-${key}-value" class="val"></span>`;
   audioOptionsEl.appendChild(row);
   audio.setVolume(key, settings.volume[key]);
-  SettingsPanel.range(`vol-${key}`, settings.volume[key], (v) => `${Math.round(v * 100)}%`, (v) => {
+  volumeSliders[key] = SettingsPanel.range(`vol-${key}`, settings.volume[key], (v) => `${Math.round(v * 100)}%`, (v) => {
     settings.volume[key] = v;
     audio.setVolume(key, v);
     saveSettings(settings);
   });
 }
+settingsPanel.onReset("audio", () => {
+  for (const [key] of AUDIO_CATEGORIES) {
+    settings.volume[key] = 1;
+    audio.setVolume(key, 1);
+    volumeSliders[key].set(1);
+  }
+});
 
 // Gameplay: difficulty, creature spawning, time of day.
 function applyDifficulty() {
@@ -761,27 +756,72 @@ function applyDifficulty() {
   mobs.hostileSpawning = settings.difficulty !== "peaceful";
   if (settings.difficulty === "peaceful") mobs.removeHostiles();
 }
-applyDifficulty();
-SettingsPanel.select("difficulty", settings.difficulty, (v) => {
-  settings.difficulty = v;
-  applyDifficulty();
-  saveSettings(settings);
-});
-SettingsPanel.checkbox("mob-spawning", settings.mobSpawning, (v) => {
-  settings.mobSpawning = v;
-  applyDifficulty();
-  saveSettings(settings);
-});
-sky.locked = settings.timeLocked;
+settingsPanel.on("difficulty", applyDifficulty);
+settingsPanel.on("mobSpawning", applyDifficulty);
+settingsPanel.on("timeLocked", (v) => (sky.locked = v));
 const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v) => {
   sky.setHours(v);
   playerDirty = true;
 });
-SettingsPanel.checkbox("time-lock", settings.timeLocked, (v) => {
-  settings.timeLocked = v;
-  sky.locked = v;
-  saveSettings(settings);
+
+// Graphics: "Reset to defaults" goes back to the default preset, its render
+// distance, and no individual overrides.
+settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: true, keepOverrides: false }));
+
+// Performance: full-detail distance, far-terrain quality, resolution scale
+// and effects detail, plus one-click presets for different computers.
+const LOD_QUALITY = { low: 0.55, medium: 1, high: 1.5, ultra: 2 };
+function applyDetailDistance() {
+  const d = settings.perf.detailDistance;
+  lod.configure({ detailDistance: d > 0 ? d : activePreset.detailDistance });
+}
+settingsPanel.on("perf.detailDistance", applyDetailDistance);
+settingsPanel.on("perf.lodQuality", (v) => lod.configure({ quality: LOD_QUALITY[v] ?? 1 }));
+settingsPanel.on("perf.resolution", () => setGraphics(graphicsPreset), { now: false });
+settingsPanel.on("perf.effects", (v) => (effectsQuality.scale = { low: 0.35, medium: 0.65, high: 1 }[v] ?? 1));
+
+const PERF_PRESETS = {
+  potato: { label: "Potato", hint: "Old laptops", graphics: "low", renderDistance: 7, detail: 3, lod: "low", resolution: 0.7, effects: "low" },
+  balanced: { label: "Balanced", hint: "Most PCs", graphics: "medium", renderDistance: 12, detail: 0, lod: "medium", resolution: 1, effects: "medium" },
+  beautiful: { label: "Beautiful", hint: "Gaming PCs", graphics: "high", renderDistance: 20, detail: 0, lod: "high", resolution: 1, effects: "high" },
+  max: { label: "Max", hint: "High-end GPUs", graphics: "ultra", renderDistance: 32, detail: 10, lod: "ultra", resolution: 1, effects: "high" },
+};
+const perfPresetsEl = document.getElementById("perf-presets");
+for (const [key, p] of Object.entries(PERF_PRESETS)) {
+  const btn = document.createElement("button");
+  btn.className = "btn";
+  btn.dataset.preset = key;
+  btn.innerHTML = `${p.label}<small>${p.hint}</small>`;
+  btn.addEventListener("click", () => applyPerfPreset(key));
+  perfPresetsEl.appendChild(btn);
+}
+function applyPerfPreset(key) {
+  const p = PERF_PRESETS[key];
+  if (!p) return;
+  settings.perf.resolution = p.resolution; // applied by setGraphics below
+  settingsPanel.set("perf.detailDistance", p.detail);
+  settingsPanel.set("perf.lodQuality", p.lod);
+  settingsPanel.set("perf.effects", p.effects);
+  settingsPanel.set("perf.resolution", p.resolution);
+  setGraphics(p.graphics, { keepOverrides: false });
+  setRenderDistance(p.renderDistance);
+  refreshPerfPresets();
+}
+function refreshPerfPresets() {
+  for (const btn of perfPresetsEl.children) {
+    const p = PERF_PRESETS[btn.dataset.preset];
+    const match = p.graphics === graphicsPreset && p.renderDistance === renderDistance && p.detail === settings.perf.detailDistance && p.lod === settings.perf.lodQuality && p.resolution === settings.perf.resolution && p.effects === settings.perf.effects && Object.keys(settings.gfxOverrides).length === 0;
+    btn.classList.toggle("active", match);
+  }
+}
+settingsPanel.onReset("performance", () => {
+  setGraphics(graphicsPreset);
+  refreshPerfPresets();
 });
+screens.onOpen["settings-screen"] = () => {
+  refreshPerfPresets();
+  timeSlider.set(Math.round(sky.hours * 20) / 20);
+};
 
 // ---------- Lost graphics device ----------
 // After the WebGL context is lost nothing can be drawn: save, step the
@@ -828,7 +868,6 @@ function showPause() {
   interaction.release();
   ui.showHud(false);
   ui.showPauseMenu(SEED, renderDistance);
-  timeSlider.set(Math.round(sky.hours * 20) / 20);
 }
 
 ui.playBtn.addEventListener("click", () => {
@@ -836,7 +875,75 @@ ui.playBtn.addEventListener("click", () => {
   setMode(ui.modeSelect.value);
   if (newWorld) fillStartingWeapons();
   markInventoryChanged();
+  saveJSON("last", { seed: SEED });
   requestLock();
+});
+
+// ---------- Menu buttons ----------
+const openScreen = (id) => screens.show(id, gameState === "start" ? "start-menu" : "pause-menu");
+for (const [btn, id] of [
+  ["menu-settings-btn", "settings-screen"],
+  ["pause-settings-btn", "settings-screen"],
+  ["menu-mods-btn", "mods-screen"],
+  ["pause-mods-btn", "mods-screen"],
+  ["menu-controls-btn", "controls-screen"],
+  ["pause-controls-btn", "controls-screen"],
+  ["pause-stats-btn", "stats-screen"],
+  ["new-world-btn", "new-world-screen"],
+]) {
+  document.getElementById(btn).addEventListener("click", () => {
+    audio.ensureStarted();
+    audio.playClick();
+    openScreen(id);
+  });
+}
+renderControls(document.getElementById("controls-list"));
+
+// New world: an optional seed, then reload into it (the page is built
+// around one world's seed).
+const newSeedInput = document.getElementById("new-seed");
+const newSeedNote = document.getElementById("new-seed-note");
+function parseSeedInput() {
+  const raw = newSeedInput.value.trim();
+  if (raw === "") return null;
+  if (/^-?\d+$/.test(raw)) return Math.abs(Number(raw)) % 2147483647;
+  // Any text works as a seed too (hashed to a number).
+  let h = 2166136261;
+  for (let i = 0; i < raw.length; i++) h = Math.imul(h ^ raw.charCodeAt(i), 16777619);
+  return (h >>> 0) % 2147483647;
+}
+newSeedInput.addEventListener("input", () => {
+  const seed = parseSeedInput();
+  newSeedNote.textContent = seed !== null && hasSavedWorld(seed) ? `You already have a world with seed ${seed}: it will be continued where you left it.` : "";
+});
+document.getElementById("new-world-create").addEventListener("click", () => {
+  const seed = parseSeedInput() ?? randomSeed();
+  flushSave();
+  saveJSON("last", { seed });
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("seed", String(seed));
+  window.location.href = url.toString();
+});
+
+// Back to the main menu: save and reload this world's page (the menu
+// then offers to continue it).
+document.getElementById("main-menu-btn").addEventListener("click", () => {
+  playerDirty = true;
+  flushSave();
+  leavingToMenu = true;
+  const url = new URL(window.location.href);
+  url.searchParams.set("seed", String(SEED));
+  window.location.href = url.toString();
+});
+let leavingToMenu = false;
+
+// Esc steps back out of a sub-screen.
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Escape" && screens.open) {
+    e.preventDefault();
+    screens.back();
+  }
 });
 
 ui.resumeBtn.addEventListener("click", () => {
@@ -852,6 +959,8 @@ document.addEventListener("pointerlockchange", () => {
     player.enabled = true;
     ui.hideStartMenu();
     ui.hidePauseMenu();
+    screens.closeAll();
+    flyover.hide();
     ui.showHud(true);
   } else if (gameState === "playing" || gameState === "paused") {
     showPause();
@@ -958,7 +1067,7 @@ function updateDebug(dt, frameTime) {
   const info = renderer.info;
   const target = interaction.target;
   const lines = [
-    `Voxelands  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
+    `UFO COMBAT  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
     `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
@@ -1011,7 +1120,7 @@ let heldLight = { sky: 15, block: 0 };
 
 function updateEnvironment(dt) {
   // The view's position: the eyes, or the third-person camera.
-  const eye = player.thirdPerson ? camera.position.clone() : player.getEyePosition();
+  const eye = player.thirdPerson || gameState === "start" ? camera.position.clone() : player.getEyePosition();
   lookDir.copy(player.getForwardVector());
   sky.update(dt, eye, lookDir);
   worldUniforms.uTime.value += dt;
@@ -1028,7 +1137,7 @@ function updateEnvironment(dt) {
   if (underwater) {
     // The surface above (for the light shafts), and sunlight bent into the water.
     let y = Math.floor(eye.y);
-    while (y < 63 && world.getBlock(eye.x, y + 1, eye.z) === BLOCK.WATER) y++;
+    while (y < 63 && IS_WET[world.getBlock(eye.x, y + 1, eye.z)]) y++;
     waterSurfaceY = surfaceHeight(y, eye.x, eye.z, worldUniforms.uTime.value, worldUniforms.uWaveStrength.value);
     const L = worldUniforms.uLightDir.value;
     const h = Math.hypot(L.x, L.z);
@@ -1099,8 +1208,9 @@ function renderFrame() {
 // ---------- Debug / test hook ----------
 // Exposes live game objects so the headless smoke test (tools/smoke-test.mjs)
 // can verify behavior like movement direction, and for poking at the game
-// from the browser dev console. Not used by any game code.
-window.__voxelands = {
+// from the browser dev console. Not used by any game code. (Also available
+// under its old name, __voxelands, which the older tests use.)
+window.__ufo = window.__voxelands = {
   THREE,
   world,
   player,
@@ -1129,6 +1239,9 @@ window.__voxelands = {
   held,
   avatar,
   settings,
+  settingsPanel,
+  screens,
+  flyover,
   toggleHud,
   toggleDebug,
   uniforms: worldUniforms,
@@ -1225,6 +1338,8 @@ function animate() {
     // A drawn throw is dropped if the grenade leaves the hand (thrown away, swapped).
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
+  } else if (gameState === "start") {
+    flyover.update(dt, camera, worldUniforms.uNight.value);
   } else {
     player.syncCamera(); // keep the view behind the menus sensible
   }

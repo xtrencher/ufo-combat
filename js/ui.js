@@ -10,7 +10,7 @@ const MODE_HINTS = {
   creative: "Unlimited blocks from the E palette, instant mining, flight (double-tap Space), no damage.",
 };
 
-// Menus (start / pause), the FPS counter and the Blast Orb indicator. The
+// Menus (start / pause), the FPS counter and the scope overlay. The
 // hotbar, hearts and death screen live in hud.js.
 export class UI {
   constructor() {
@@ -36,17 +36,6 @@ export class UI {
     this.pauseModeHintEl = document.getElementById("pause-mode-hint");
     this.scopeOverlayEl = document.getElementById("scope-overlay");
     this.crosshairEl = document.getElementById("crosshair");
-    this.explosionInputs = {
-      grenade: document.getElementById("explosion-grenade"),
-      bazooka: document.getElementById("explosion-bazooka"),
-      airstrike: document.getElementById("explosion-airstrike"),
-    };
-    this.explosionValueEls = {
-      grenade: document.getElementById("explosion-grenade-value"),
-      bazooka: document.getElementById("explosion-bazooka-value"),
-      airstrike: document.getElementById("explosion-airstrike-value"),
-    };
-
     this._fpsFrames = 0;
     this._fpsTimer = 0;
   }
@@ -76,13 +65,20 @@ export class UI {
   // While the graphics are being prepared (shaders compiling, see main.js),
   // Play and Resume wait for them.
   setPreparing(preparing) {
+    this._preparing = preparing;
     for (const [btn, label] of [
-      [this.playBtn, "Click to Play"],
+      [this.playBtn, this.playLabel || "Play"],
       [this.resumeBtn, "Resume"],
     ]) {
       btn.disabled = preparing;
       btn.textContent = preparing ? "Preparing graphics\u2026" : label;
     }
+  }
+
+  // "Play" or "Continue" (a saved world).
+  setPlayLabel(label) {
+    this.playLabel = label;
+    if (!this._preparing) this.playBtn.textContent = label;
   }
 
   // A line under the start menu's graphics choice ("" hides it).

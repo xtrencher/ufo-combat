@@ -17,7 +17,7 @@
 // borrowing support from a cell that only ever existed because of it in the
 // first place (the same class of bug a naive flood-fill removal hits, and
 // the reason the voxel light engine two-phases its own removal).
-import { BLOCK, IS_REPLACEABLE } from "./blocks.js";
+import { BLOCK, IS_REPLACEABLE, IS_WET } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
 export const MAX_FLOW_DISTANCE = 4; // sideways reach of a flow from its source, in blocks
@@ -115,7 +115,7 @@ export class WaterSim {
     // Fall: an open cell directly below becomes full-strength falling water.
     if (y > 0) {
       const belowId = world.getBlock(x, y - 1, z);
-      if (belowId !== BLOCK.WATER && IS_REPLACEABLE[belowId]) this._place(x, y - 1, z, 0, [x, y, z]);
+      if (!IS_WET[belowId] && IS_REPLACEABLE[belowId]) this._place(x, y - 1, z, 0, [x, y, z]);
     }
 
     // Spread sideways into open cells, one level weaker each step, up to the
@@ -125,7 +125,7 @@ export class WaterSim {
         const nx = x + dx;
         const nz = z + dz;
         const id = world.getBlock(nx, y, nz);
-        if (id === BLOCK.WATER || !IS_REPLACEABLE[id]) continue;
+        if (IS_WET[id] || !IS_REPLACEABLE[id]) continue;
         this._place(nx, y, nz, level + 1, [x, y, z]);
       }
     }

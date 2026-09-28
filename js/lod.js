@@ -54,6 +54,7 @@ export class LodSystem {
 
     this.renderDistance = 20; // chunks
     this.detailDistance = 8; // chunks
+    this.quality = 1; // far tile detail (see configure)
     this.tiles = new Map(); // key -> { key, level, tx, tz, x0, z0, mesh, building, stale }
     this.roots = [];
     this._split = new Set(); // keys of split tiles in the current plan
@@ -250,7 +251,14 @@ export class LodSystem {
 
   // renderDistance: chunks to draw at all; detailDistance: chunks drawn in
   // full detail (roughly; see the file comment).
-  configure({ renderDistance, detailDistance }) {
+  // quality: how finely the distant tiles are split (0.5 coarse - 2 fine);
+  // scales the split distances of every level above the detail tiles (at
+  // 0.5 or more a tile still always splits when its detail chunks do).
+  configure({ renderDistance, detailDistance, quality }) {
+    if (quality !== undefined && quality !== this.quality) {
+      this.quality = Math.max(0.5, Math.min(2, quality));
+      this._replan = true;
+    }
     if (renderDistance !== undefined && renderDistance !== this.renderDistance) {
       this.renderDistance = renderDistance;
       this._replan = true;
@@ -307,7 +315,7 @@ export class LodSystem {
     const d = Math.hypot(dx, dz);
     if (d >= this.renderDistance) return null;
     const key = tileKey(level, tx, tz);
-    const threshold = this.detailDistance * 2 ** (level - 1);
+    const threshold = this.detailDistance * 2 ** (level - 1) * (level > 1 ? this.quality : 1);
     const split = d < threshold || (this._split.has(key) && d < threshold + c * 0.25);
     const node = { key, level, tx, tz, d, children: null, detail: false, ready: false };
     if (!split) {
