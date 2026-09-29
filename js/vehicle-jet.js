@@ -166,7 +166,8 @@ export class Jet extends Vehicle {
     }
     const acc = new THREE.Vector3().addScaledVector(liftDir, lift);
     // Thrust (the afterburner adds half again).
-    const thrust = accel * this.throttle * (this.afterburner ? 1.55 : 1);
+    // (A takeoff boost on the ground, so a ~60 block strip is enough.)
+    const thrust = accel * this.throttle * (this.afterburner ? 1.55 : 1) * (this.onGround ? 1.4 : 1);
     acc.addScaledVector(fwd, thrust);
     // Drag: top speed with the afterburner lit is the max speed setting.
     const kD = (accel * 1.55) / (maxSpeed * maxSpeed);
@@ -244,6 +245,8 @@ export class Jet extends Vehicle {
         this.aimYaw -= input.dx * sens;
         this.aimPitch = clamp(this.aimPitch - input.dy * sens * inv, -1.45, 1.45);
         this._assistStick(stick);
+        // Assist also rotates for takeoff once there's flying speed.
+        if (this.onGround && this.throttle > 0.5 && this.vel.length() > cfg.stallSpeed * 1.05) stick.x = Math.max(stick.x, 0.6);
       } else {
         // Direct stick: mouse up/down pitches, left/right rolls.
         this._manualIn.x += (clamp(-input.dy * sens * inv * 12, -1, 1) - this._manualIn.x) * Math.min(1, dt * 12);
@@ -369,7 +372,7 @@ export class Jet extends Vehicle {
     const fwd = this.forward(new THREE.Vector3());
     const right = this.right(new THREE.Vector3());
     // Autocannon: rapid fire with tracers.
-    if (input.buttons[0] && this.cannonT <= 0) {
+    if ((input.buttons[0] || input.pressed.has("mouse0")) && this.cannonT <= 0) {
       this.cannonT = 1 / CANNON_RATE;
       const from = this.pos.clone().addScaledVector(fwd, 6.6).addScaledVector(right, 0.9).addScaledVector(this.up(_v), 0.35);
       const dir = fwd.clone();
@@ -383,7 +386,7 @@ export class Jet extends Vehicle {
     }
     this._updateLock(dt, fwd);
     // Missiles: guided when locked, straight ahead otherwise.
-    if (input.buttons[2] && this.missileT <= 0) {
+    if ((input.buttons[2] || input.pressed.has("mouse2")) && this.missileT <= 0) {
       this.missileT = MISSILE_COOLDOWN;
       this._launchMissile(this.lock.locked ? this.lock.target : null);
     }

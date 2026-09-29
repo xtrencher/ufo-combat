@@ -118,7 +118,7 @@ async function play() {
 }
 
 // Starting partway through (--from): enter the game first.
-if (args.from) {
+if (args.from || args.only) {
   await play();
   await v((g) => g.setGraphics("low"));
 }
@@ -343,8 +343,11 @@ await check("zombies: apocalypse settings spawn crowds (drawn instanced far away
 // Puts the player in survival on a flat stone arena high up (open sky, no
 // trees in the way), at night, with UFO spawning off.
 async function arena(y = 60) {
+  await respawnIfDead();
   await v((g, y) => {
     const { world, player } = g;
+    if (g.vehicles.active) g.vehicles.exit();
+    g.vehicles.parachute.close(g.player);
     g.setMode("survival");
     g.settingsPanel.set("ufos.activity", 0);
     g.ufos.clear();
@@ -567,6 +570,10 @@ await check("shot down: the UFO falls burning, crash-lands (crater), leaves a bo
   await v((g) => {
     g.setMode("survival");
     for (const m of g.mobs.mobs) if (m.kind === "alien") m.attackCooldown = 0;
+    // Stand within sight of one (the crash site can be off in a crater).
+    const a = g.mobs.mobs.find((m) => m.kind === "alien");
+    g.player.position.set(a.pos.x + 12, a.pos.y + 0.5, a.pos.z);
+    g.player.velocity.set(0, 0, 0);
   });
   const shots = await until((g) => g.lasers.bolts.some((b) => b.owner === "alien"), 60000);
   assert(shots, "aliens fire their laser guns");
@@ -783,10 +790,11 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
     g.settingsPanel.set("vehicles.jetAirborne", false);
     // A long flat stone runway next to the player.
     const a = window.__arena;
+    g.world.prepareArea(a.x + 20, a.z - 80, 6);
     const edits = [];
-    for (let dz = -70; dz <= 12; dz++) for (let dx = -8; dx <= 8; dx++) {
+    for (let dz = -170; dz <= 12; dz++) for (let dx = -8; dx <= 8; dx++) {
       edits.push(a.x + 20 + dx, a.y, a.z + dz, 3);
-      for (let dy = 1; dy <= 9; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
+      for (let dy = 1; dy <= 14; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
     }
     g.world.setBlocks(edits);
     g.sky.setHours(11);
@@ -807,7 +815,7 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
   // Full throttle, afterburner, and pull up once fast.
   await page.keyboard.down("KeyW");
   await page.keyboard.down("ShiftLeft");
-  const fast = await until((g) => g.vehicles.active.speed > g.vehicles.config.jet.stallSpeed * 1.25, 120000);
+  const fast = await until((g) => g.vehicles.active.speed > g.vehicles.config.jet.stallSpeed * 1.05, 120000);
   assert(fast, "accelerates down the runway");
   await v((g) => {
     const j = g.vehicles.active;
@@ -838,7 +846,26 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
   });
 });
 
+// Later jet checks start from a flying jet even when an earlier one failed.
+async function ensureJet() {
+  if ((await v((g) => g.vehicles.active?.type)) === "jet") return;
+  await respawnIfDead();
+  await v((g) => {
+    if (g.vehicles.active) g.vehicles.exit();
+    g.settingsPanel.set("vehicles.jetAirborne", true);
+    g.setMode("creative");
+  });
+  await frames(2);
+  await v((g) => g.callJet(true));
+  await frames(2);
+  await v((g) => {
+    g.settingsPanel.set("vehicles.jetAirborne", false);
+    g.setMode("survival");
+  });
+}
+
 await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + tone) and track the target", async () => {
+  await ensureJet();
   await v((g) => {
     const j = g.vehicles.active;
     j.pos.y = Math.max(j.pos.y, 120);
@@ -858,6 +885,13 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
   const hit = await until((g) => window.__u.health < window.__h0, 60000);
   await page.mouse.up({ button: "left" });
   assert(hit, "cannon rounds hit the UFO");
+  // Put it well ahead again (the jet may have flown past it by now).
+  await v((g) => {
+    const j = g.vehicles.active;
+    const f = j.forward(new g.THREE.Vector3());
+    window.__u.pos.copy(j.pos).addScaledVector(f, 420);
+    window.__u.vel.set(0, 0, 0);
+  });
   const locked = await until((g) => {
     const j = g.vehicles.active;
     const d = window.__u.pos.clone().sub(j.pos).normalize();
@@ -871,14 +905,15 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
   await page.mouse.down({ button: "right" });
   await frames(2);
   await page.mouse.up({ button: "right" });
-  const missile = await v((g) => g.vehicles.active.missiles.length > 0 && !!g.vehicles.active.missiles[0].target);
-  assert(missile, "a guided missile is away");
+  const missile = await until((g) => g.vehicles.active.missiles.length > 0 && { guided: !!g.vehicles.active.missiles[0].target, dist: window.__u.pos.distanceTo(g.vehicles.active.pos) }, 20000);
+  assert(missile && missile.guided, `a guided missile is away: ${JSON.stringify(missile)}`);
   const down = await until(() => window.__u.falling || window.__u.health < window.__h0 - 150, 90000);
   assert(down, "the missile hit");
   await v((g) => g.ufos.clear());
 });
 
 await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones faster, fighters attack (incoming warning)", async () => {
+  await ensureJet();
   const r = await v((g) => {
     const j = g.vehicles.active;
     const mk = (personality) => {
@@ -907,6 +942,7 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
 });
 
 await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom cloud, and it counts", async () => {
+  await ensureJet();
   const r0 = await v((g) => {
     const j = g.vehicles.active;
     window.__nukes = g.stats.world.nukes;
@@ -925,6 +961,7 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
 });
 
 await check("crashing the jet into the ground destroys it: 'Crashed your jet'", async () => {
+  await ensureJet();
   await v((g) => {
     g.setMode("survival");
     const j = g.vehicles.active;

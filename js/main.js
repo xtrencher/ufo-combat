@@ -1,3 +1,4 @@
+import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
@@ -491,8 +492,26 @@ mobs.onKill = (m, byPlayer) => {
 // the cockpit). One jet at a time: calling again replaces a parked one.
 let playerJet = null;
 let lastJetCall = -99;
+// Runway search for the jet call-in: a straight, flat, dry, tree-free strip.
+// Column tops are cached per search (scanning down from a little above the
+// terrain height instead of from the sky keeps it cheap).
+let runwayTops = null;
+function columnTop(x, z) {
+  const key = x * 65536 + z;
+  let h = runwayTops.get(key);
+  if (h !== undefined) return h;
+  h = -1;
+  for (let y = Math.min(WORLD_HEIGHT - 1, world.heightAt(x, z) + 24); y >= 0; y--) {
+    if (world.isSolidAt(x, y, z)) {
+      h = y;
+      break;
+    }
+  }
+  runwayTops.set(key, h);
+  return h;
+}
 function stripOk(x0, z0, dx, dz, len) {
-  const h0 = world.surfaceY(Math.floor(x0), Math.floor(z0));
+  const h0 = columnTop(Math.floor(x0), Math.floor(z0));
   if (h0 < 0) return -1;
   const sideX = -dz;
   const sideZ = dx;
@@ -501,7 +520,7 @@ function stripOk(x0, z0, dx, dz, len) {
       const x = Math.floor(x0 + dx * t + sideX * s);
       const z = Math.floor(z0 + dz * t + sideZ * s);
       if (!world.getChunk(x >> 4, z >> 4)) return -1;
-      const h = world.surfaceY(x, z);
+      const h = columnTop(x, z);
       if (h < 0 || Math.abs(h - h0) > (s === 0 ? 1 : 2)) return -1;
       const top = world.getBlock(x, h, z);
       if (BLOCK_INFO[top]?.leaves || BLOCK_INFO[top]?.log || IS_WET[world.getBlock(x, h + 1, z)]) return -1;
@@ -511,29 +530,35 @@ function stripOk(x0, z0, dx, dz, len) {
 }
 function findRunway() {
   const p = player.position;
-  for (let r = 10; r <= 58; r += 8) {
-    for (let a = 0; a < 12; a++) {
-      const ang = (a / 12) * Math.PI * 2 + r;
-      const sx = p.x + Math.cos(ang) * r;
-      const sz = p.z + Math.sin(ang) * r;
-      for (let h = 0; h < 8; h++) {
-        const yaw = (h / 8) * Math.PI * 2;
-        const dx = -Math.sin(yaw);
-        const dz = -Math.cos(yaw);
-        const y = stripOk(sx, sz, dx, dz, 44);
-        if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
+  runwayTops = new Map();
+  try {
+    for (let r = 8; r <= 72; r += 4) {
+      const n = Math.max(12, Math.round(r * 0.8));
+      for (let a = 0; a < n; a++) {
+        const ang = (a / n) * Math.PI * 2 + r;
+        const sx = p.x + Math.cos(ang) * r;
+        const sz = p.z + Math.sin(ang) * r;
+        for (let h = 0; h < 8; h++) {
+          const yaw = (h / 8) * Math.PI * 2;
+          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 60);
+          if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
+        }
       }
     }
+    return null;
+  } finally {
+    runwayTops = null;
   }
-  return null;
 }
-function callJet() {
+function callJet(force = false) {
   if (!mods.enabled || player.dead || gameState !== "playing") return;
   if (vehicles.active) {
     toast("Get out of your vehicle first (F).", 2);
     return;
   }
-  if (ufos.time - lastJetCall < 8) {
+  // (The cooldown only stops spamming replacements; a lost jet can be
+  // replaced at once.)
+  if (!force && playerJet && vehicles.vehicles.includes(playerJet) && ufos.time - lastJetCall < 8) {
     toast("Your jet is on its way...", 1.5);
     return;
   }

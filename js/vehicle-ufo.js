@@ -281,7 +281,7 @@ export class PilotUfo extends Vehicle {
     const dir = this._viewDir(_v).clone();
     const hit = mgr.world.raycast(eye, dir, 400, { solidOnly: true });
     this._aim.copy(eye).addScaledVector(dir, hit ? hit.distance : 400);
-    if (input.buttons[0] && this._cannonT <= 0) {
+    if ((input.buttons[0] || input.pressed.has("mouse0")) && this._cannonT <= 0) {
       this._cannonT = 1 / CANNON_RATE;
       const from = this.pos.clone();
       from.y -= this.bottom * 0.6;
