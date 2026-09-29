@@ -853,37 +853,37 @@ UFO PART 1 COMPLETE
 
 ## UFO Part 2 checklist
 ### 2.0 Shared vehicle system
-- [ ] One vehicle framework (enter/exit, camera modes, HUD, input, damage, saving) reused by UFO and jet
-- [ ] Edge cases: exit into water / underground / mid-air; dying inside; save/load while in a vehicle; pausing; mod toggle while piloting
+- [x] One vehicle framework (enter/exit, camera modes, HUD, input, damage, saving) reused by UFO and jet
+- [x] Edge cases: exit into water / underground / mid-air; dying inside; save/load while in a vehicle; pausing; mod toggle while piloting
 ### 2.1 Enemy UFOs
-- [ ] Sizes small / medium / large / huge mothership; health and effects scale with size
-- [ ] Roam freely; notice the player by line of sight + chance-based detection, then attack
-- [ ] On-foot attack: fly in fast, stop above, blue tractor-beam cone lifts the player; reaching the UFO kills ("Abducted by a UFO"); escape by leaving the beam; beam stops if the UFO is shot down
-- [ ] Enemy UFOs fire laser blasts
+- [x] Sizes small / medium / large / huge mothership; health and effects scale with size
+- [x] Roam freely; notice the player by line of sight + chance-based detection, then attack
+- [x] On-foot attack: fly in fast, stop above, blue tractor-beam cone lifts the player; reaching the UFO kills ("Abducted by a UFO"); escape by leaving the beam; beam stops if the UFO is shot down
+- [x] Enemy UFOs fire laser blasts
 ### 2.1b Behavior and variety
-- [ ] Distinct shapes: classic saucer (glowing + non-glowing), tic-tac, sphere, pyramid, triangle, cigar, + own unusual shapes; blinking / color-cycling lights; readable at a distance
-- [ ] Free roaming at any altitude; idle tricks (abducting cows/animals, hovering over lakes, zig-zag, following animals)
-- [ ] Rare "leave forever" streak into the sky (likelier after abducting or when chased by a jet)
-- [ ] Spawn out of view (far / over the horizon) and fly in; much more activity at night
-- [ ] "UFO activity" slider from very rare to "UFO APOCALYPSE" (playable: simplified distant models, instancing, cheap far AI)
-- [ ] Advanced UFO settings: spawn chance, max count, aggression, detection range, beam lift strength, size distribution, night multiplier, toughness
+- [x] Distinct shapes: classic saucer (glowing + non-glowing), tic-tac, sphere, pyramid, triangle, cigar, + own unusual shapes; blinking / color-cycling lights; readable at a distance
+- [x] Free roaming at any altitude; idle tricks (abducting cows/animals, hovering over lakes, zig-zag, following animals)
+- [x] Rare "leave forever" streak into the sky (likelier after abducting or when chased by a jet)
+- [x] Spawn out of view (far / over the horizon) and fly in; much more activity at night
+- [x] "UFO activity" slider from very rare to "UFO APOCALYPSE" (playable: simplified distant models, instancing, cheap far AI)
+- [x] Advanced UFO settings: spawn chance, max count, aggression, detection range, beam lift strength, size distribution, night multiplier, toughness
 ### 2.1c Reactions and durability
-- [ ] When shot on foot: counterattack with lasers, fly in to beam, or evasive repositioning (dodge/strafe/altitude), mixed
-- [ ] Toughness scales with size with per-UFO variation
+- [x] When shot on foot: counterattack with lasers, fly in to beam, or evasive repositioning (dodge/strafe/altitude), mixed
+- [x] Toughness scales with size with per-UFO variation
 ### 2.1d UFOs vs player vehicles
-- [ ] Player in jet: UFO personalities (fleeing evaders vs attackers with lasers / aggressive passes)
-- [ ] Fleeing speed: most slightly slower than jet at full throttle; some faster and uncatchable
-- [ ] Player in UFO: other UFOs friendly unless provoked; shooting one turns it (and maybe nearby) hostile
+- [x] Player in jet: UFO personalities (fleeing evaders vs attackers with lasers / aggressive passes)
+- [x] Fleeing speed: most slightly slower than jet at full throttle; some faster and uncatchable
+- [x] Player in UFO: other UFOs friendly unless provoked; shooting one turns it (and maybe nearby) hostile
 ### 2.2 Shooting down UFOs
-- [ ] All weapons damage UFOs; destroyed UFOs fall with fire and smoke and crash-land (crater, debris)
-- [ ] Green alien mobs come out and attack with laser guns
-- [ ] Crashed UFO can be boarded and flown (damaged but working), keeps its shape
+- [x] All weapons damage UFOs; destroyed UFOs fall with fire and smoke and crash-land (crater, debris)
+- [x] Green alien mobs come out and attack with laser guns
+- [x] Crashed UFO can be boarded and flown (damaged but working), keeps its shape
 ### 2.3 Pilotable UFO
-- [ ] Fly a crashed UFO, or spawn one from the Mods menu in creative (choice of shape)
-- [ ] No physics limits: hover, instant acceleration, any direction, very wide speed range (setting)
-- [ ] Optional ghost mode: passes through terrain and burns a tunnel
-- [ ] Weapons: tractor beam (lifts mobs, optionally loose blocks) and laser cannon
-- [ ] Third-person chase camera; HUD with speed, altitude, weapon
+- [x] Fly a crashed UFO, or spawn one from the Mods menu in creative (choice of shape)
+- [x] No physics limits: hover, instant acceleration, any direction, very wide speed range (setting)
+- [x] Optional ghost mode: passes through terrain and burns a tunnel
+- [x] Weapons: tractor beam (lifts mobs, optionally loose blocks) and laser cannon
+- [x] Third-person chase camera; HUD with speed, altitude, weapon
 ### Finish
 - [ ] Full test suite run for Part 2, README updated, "UFO PART 2 COMPLETE"
 
@@ -937,3 +937,17 @@ UFO PART 1 COMPLETE
 - **Mods off** stashes mod items with the player (not deleted), so switching back restores them to the same slots. A world started with mods off gets the weapon loadout the first time it's played with mods on.
 - **Starting hotbar** is now 8 items (added the laser blaster and the Jet Radio for Part 3's jet). Creative gets one block slot; the full palette is on E.
 - **Performance presets** (Potato/Balanced/Beautiful/Max) set the graphics preset, render distance, full-detail distance, far-terrain (LOD) quality, resolution scale and effects detail. Resolution scale and effects detail are new knobs, added because they are the cheapest big wins on weak GPUs.
+
+### Part 2
+- **One vehicle framework** (`js/vehicles.js`) owns boarding, exits, input, camera, HUD, damage, saving and the mods switch; the UFO and the jet only implement flight, weapons and their HUD rows. Hits on a seated player go to the vehicle (`Player.damage` redirects), so zombies, aliens and lasers all "just work" against vehicles.
+- **Exits:** a safe spot is searched around the hull (2 free blocks with ground or water under them, preferring just outside the hull near its underside). No spot underground (a ghost-mode UFO inside rock) puts you on the surface above; high in the air you drop out under a parachute (a jet fires its seat up first). With mods switched off mid-flight you're set down on the ground below instead (the parachute is mod content too).
+- **UFO controls:** W/S move along the view (so looking down and pressing W dives), A/D strafe, Space/Shift up/down, Ctrl boost, the mouse wheel sets the cruising speed on a log scale between the slowest and top speed settings (0.5 to 1,200 blocks/s). Both weapons are always available (left click cannon, right click beam) rather than switching between them.
+- **Abducted creatures and lifted blocks go into your inventory** (their drops), so the tractor beam is useful, not just a toy.
+- **Crashed wrecks lift off by themselves** when boarded (straight up, clear of the crater rim), and a UFO whose collision box starts inside the ground can move freely until it's clear: a half-buried wreck used to be pushed deeper by the collision sweep.
+- **UFO personalities** are fixed at spawn: 55% evaders (flee a jet at 80-95% of its top speed), 17% "fast" (125-160%, uncatchable, likely to leave for good when chased), 28% fighters (attack runs); motherships always fight.
+- **Detection:** a line of sight is required (a world raycast from the UFO's underside), then a per-check chance growing with closeness, aggression and night, halved while sneaking. UFOs ignore Creative players unless shot (the beam couldn't hurt them anyway), and lose interest after 14 s without seeing the player, so hiding under trees or in a cave works.
+- **Escaping the beam:** the UFO follows at 2.6 blocks/s, slower than walking, so stepping out of the light is always possible (you can steer while lifted). A roof stops the lift. Breaking free after being lifted counts as an abduction survived.
+- **Spawning out of view:** new UFOs appear beyond the view distance (at least 320 blocks), in a direction at least ~75° away from where the camera looks; their halo fades in with distance so no light pops into the sky.
+- **Apocalypse cost:** the lights of each UFO are one instanced mesh, far UFOs (over 240 blocks) draw only hull and halo, and UFOs beyond 380 blocks think every fourth frame. 100 UFOs update in well under a millisecond.
+- **Aliens** are a mob species (reusing mob AI and physics) with a ranged "laser" attack through the shared laser system; they don't burn in daylight and drop iron, sometimes a diamond, rarely a laser blaster.
+- **Friendly fire:** enemy UFO bolts don't hit other UFOs, alien bolts don't hit aliens, and the player's shots never hit their own vehicle.
