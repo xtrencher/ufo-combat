@@ -33,6 +33,8 @@ import { LodSystem } from "./lod.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
 import { MenuScreens, MenuFlyover, renderControls } from "./menu.js";
+import { MouseChord, Binoculars } from "./binoculars.js";
+import { Mods } from "./mods.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -298,6 +300,8 @@ lasers.addProvider({
 const weapons = new WeaponSystem({ scene, world, player, effects, audio, mobs, held, decals, inventory, lasers });
 settingsPanel.on("weapons.blasterColor", (v) => (weapons.blasterColor = v));
 for (const k of ["count", "spread", "delay", "angle", "speed"]) settingsPanel.on(`weapons.airstrike.${k}`, (v) => (weapons.airstrike.config[k] = v));
+// The Mods switch (see mods.js); applied once the saved inventory is loaded.
+const mods = new Mods({ inventory, weapons, lasers, entities });
 interaction.weapons = weapons;
 interaction.combat = mobs;
 
@@ -308,12 +312,18 @@ function fillCreativeHotbar() {
   });
 }
 
-// A brand new game (either mode) starts with a full weapon loadout in slots
-// 1-6: pistol, grenade, bazooka, machine gun, airstrike designator, sniper
-// rifle. Always wins those slots (called once, right as a new game starts).
-function fillStartingWeapons() {
+// A brand new game (either mode, mods on) starts with a full weapon loadout
+// in slots 1-8: pistol, grenade, bazooka, machine gun, airstrike designator,
+// sniper rifle, laser blaster, jet radio. It always wins those slots in a
+// new world; a world that started with mods off gets it (in free slots) the
+// first time it's played with mods on.
+let loadoutGiven = false;
+function fillStartingWeapons(fresh) {
+  if (loadoutGiven || !mods.enabled) return;
+  loadoutGiven = true;
   STARTING_WEAPONS.forEach((id, i) => {
-    if (i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
+    if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
+    else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
   });
 }
 
@@ -335,10 +345,36 @@ if (savedPlayer) {
   inventory.load(savedPlayer.inv);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
+  // Worlds from before the loadout flag existed already had their weapons.
+  loadoutGiven = savedPlayer.loadout !== false;
 } else {
   player.spawnAt(spawnX, spawnZ);
 }
 let newWorld = !savedPlayer;
+mods.load(savedPlayer?.modStash);
+mods.set(settings.mods, { initial: true });
+
+// ---------- Mods screen ----------
+const modsCheckbox = document.getElementById("mods-enabled");
+modsCheckbox.checked = settings.mods;
+function refreshModsPills() {
+  for (const id of ["menu-mods-state", "pause-mods-state"]) {
+    const el = document.getElementById(id);
+    el.textContent = mods.enabled ? "ON" : "OFF";
+    el.classList.toggle("on", mods.enabled);
+  }
+}
+refreshModsPills();
+function setModsEnabled(on) {
+  settings.mods = on;
+  saveSettings(settings);
+  modsCheckbox.checked = on;
+  mods.set(on);
+  if (on && gameState !== "start") fillStartingWeapons(false);
+  markInventoryChanged();
+  refreshModsPills();
+}
+modsCheckbox.addEventListener("change", () => setModsEnabled(modsCheckbox.checked));
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
@@ -361,6 +397,8 @@ function playerState() {
     inv: inventory.serialize(),
     sel: inventory.selected,
     time: round3(sky.time),
+    modStash: mods.serialize(),
+    loadout: loadoutGiven,
   };
 }
 
@@ -454,6 +492,7 @@ player.onDeath = (cause) => {
   deathCause = cause;
   audio.playDeath();
   if (invScreen.isOpen) invScreen.close();
+  chord.reset();
   interaction.release();
   dropEverything();
   gameState = "dead";
@@ -893,6 +932,7 @@ function showPause() {
   if (document.pointerLockElement === canvas) return;
   gameState = "paused";
   player.enabled = false;
+  chord.reset();
   interaction.release();
   ui.showHud(false);
   ui.showPauseMenu(SEED, renderDistance);
@@ -901,7 +941,7 @@ function showPause() {
 ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
   setMode(ui.modeSelect.value);
-  if (newWorld) fillStartingWeapons();
+  fillStartingWeapons(newWorld);
   markInventoryChanged();
   saveJSON("last", { seed: SEED });
   requestLock();
@@ -998,6 +1038,7 @@ document.addEventListener("pointerlockerror", () => showPause());
 
 function openInventory(kind) {
   if (gameState !== "playing") return;
+  chord.reset();
   interaction.release();
   gameState = "inventory";
   invScreen.open(kind, player.creative);
@@ -1118,14 +1159,27 @@ canvas.addEventListener("wheel", (e) => {
 // ---------- Mouse ----------
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+// Presses go through the chord detector: both buttons together are the
+// binoculars (see binoculars.js), and never mine, place or fire.
+const binoculars = new Binoculars(player, world);
+settingsPanel.on("binocularZoom", (v) => {
+  binoculars.strength = v;
+  if (binoculars.active) binoculars.set(true);
+});
+const chord = new MouseChord({
+  press: (button) => interaction.mouseDown(button),
+  release: (button) => interaction.mouseUp(button),
+  zoom: (on) => binoculars.set(on),
+});
+
 document.addEventListener("mousedown", (e) => {
   if (gameState !== "playing") return;
   if (e.button === 1) e.preventDefault();
-  interaction.mouseDown(e.button);
+  chord.down(e.button);
 });
 
 document.addEventListener("mouseup", (e) => {
-  interaction.mouseUp(e.button);
+  chord.up(e.button);
 });
 
 canvas.addEventListener("click", () => {
@@ -1194,7 +1248,7 @@ function renderFrame() {
   const preset = activePreset;
   sky.material.uniforms.uWriteSkyMask.value = preset.post ? 1 : 0;
   // The item in hand is drawn on top of the world (fresh depth buffer).
-  const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden;
+  const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden && !binoculars.active;
   const overlay = showHeld ? { scene: held.scene, camera: held.camera } : null;
   if (preset.post) {
     sunWorldPos.copy(camera.position).addScaledVector(worldUniforms.uSunDir.value, 400);
@@ -1257,6 +1311,10 @@ window.__ufo = window.__voxelands = {
   waterSim,
   weapons,
   lasers,
+  mods,
+  setModsEnabled,
+  chord,
+  binoculars,
   decals,
   scorches,
   audio,
@@ -1379,6 +1437,8 @@ function animate() {
   lod.update();
   grass.update(player.position);
 
+  chord.update();
+  binoculars.update(dt, gameState === "playing");
   interaction.updateTarget(gameState === "playing");
   if (gameState === "playing") interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();

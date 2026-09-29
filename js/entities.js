@@ -70,6 +70,11 @@ export class ItemEntities {
     while (this.items.length) this._remove(this.items.length - 1);
   }
 
+  // Removes the dropped items for which pred(item) is true.
+  removeWhere(pred) {
+    for (let i = this.items.length - 1; i >= 0; i--) if (pred(this.items[i])) this._remove(i);
+  }
+
   _solid(x, y, z) {
     return IS_SOLID[this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))] === 1;
   }

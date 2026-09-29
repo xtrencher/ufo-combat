@@ -677,6 +677,17 @@ export class WeaponSystem {
     }
   }
 
+  // Removes every grenade, rocket and meteor in flight and every pending
+  // airstrike (mods switched off).
+  clearProjectiles() {
+    for (const g of this.grenades) this.scene.remove(g.mesh);
+    for (const r of this.rockets) this.scene.remove(r.mesh);
+    this.grenades.length = 0;
+    this.rockets.length = 0;
+    this.airstrike.clear();
+    this._updateLaser(false);
+  }
+
   // Direction and speed of a throw of the given power (for tests).
   static throwSpeed(power) {
     return THROW_SPEED_MIN + (THROW_SPEED_MAX - THROW_SPEED_MIN) * power;

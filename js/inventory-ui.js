@@ -4,7 +4,7 @@
 // of every item. Items are moved with the mouse like in classic voxel games:
 // left click picks up / puts down a stack, right click splits or places
 // one, shift-click moves between areas, number keys swap with the hotbar.
-import { itemInfo, maxStack, CREATIVE_ITEMS } from "./items.js";
+import { itemInfo, maxStack, CREATIVE_ITEMS, itemAllowed } from "./items.js";
 import { RECIPES, fitsGrid } from "./crafting.js";
 import { HOTBAR_SIZE, INVENTORY_SIZE, makeStack, clickSlot, craftResult, takeCraftResult, craftAllInto, quickMove } from "./inventory.js";
 import { SlotView, stackLabel } from "./slot-view.js";
@@ -121,6 +121,8 @@ export class InventoryScreen {
     this.width = kind === "table" ? 3 : 2;
     this.titleEl.textContent = kind === "table" ? "Crafting Table" : palette ? "Creative Inventory" : "Crafting";
     this.paletteEl.classList.toggle("hidden", !palette);
+    // Mod items only show in the creative palette with mods on.
+    this.paletteViews.forEach((v, i) => v.el.classList.toggle("hidden", !itemAllowed(CREATIVE_ITEMS[i])));
     this.craftEl.classList.toggle("hidden", palette);
     this.bookWrap.classList.toggle("hidden", palette);
     this.grid = new Array(this.width * this.width).fill(null);
@@ -287,7 +289,7 @@ export class InventoryScreen {
   // ---------- Recipe book ----------
 
   _recipesForBook() {
-    return RECIPES.filter((r) => fitsGrid(r, this.width));
+    return RECIPES.filter((r) => fitsGrid(r, this.width) && itemAllowed(r.result));
   }
 
   // Everything the player can use for crafting right now: inventory + grid + cursor.

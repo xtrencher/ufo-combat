@@ -198,3 +198,11 @@ export const STARTING_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.M
 // Items that exist only with mods on (guns, explosives, vehicles): put away
 // while mods are off. Swords and tools are vanilla.
 export const MOD_ITEMS = new Set([ITEM.GRENADE, ITEM.PISTOL, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.AIRSTRIKE, ITEM.LASER_BLASTER, ITEM.JET_RADIO]);
+
+// Whether mods are on (set by mods.js): gates mod items in crafting and the
+// creative palette.
+export const modState = { enabled: true };
+
+export function itemAllowed(id) {
+  return modState.enabled || !MOD_ITEMS.has(id);
+}

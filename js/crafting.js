@@ -5,7 +5,7 @@
 // mirrored left-to-right. Shapeless recipes match a multiset of items.
 // There is no furnace: "smelting" is crafting with coal as the fuel.
 import { BLOCK } from "./blocks.js";
-import { ITEM } from "./items.js";
+import { ITEM, itemAllowed } from "./items.js";
 
 const shaped = (pattern, key, result, count = 1) => ({ type: "shaped", pattern, key, result, count });
 const shapeless = (ingredients, result, count = 1) => ({ type: "shapeless", ingredients, result, count });
@@ -100,6 +100,7 @@ export function findRecipe(grid, width) {
   if (rows.length === 0) return null;
   const items = grid.filter((id) => id);
   for (const recipe of RECIPES) {
+    if (!itemAllowed(recipe.result)) continue; // mod items with mods off
     if (recipe.type === "shaped") {
       if (matchShaped(recipe, rows, false) || matchShaped(recipe, rows, true)) return recipe;
     } else if (matchShapeless(recipe, items)) {

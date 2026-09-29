@@ -87,6 +87,8 @@ export class Player {
     this.fov = BASE_FOV;
     this.zoomFov = null; // set by a scoped weapon to override the normal FOV
     this.zoomSensMul = 1; // mouse-look multiplier while zoomed (sniper scope)
+    this.binocularFov = null; // binoculars (both mouse buttons): overrides everything
+    this.binocularSens = 1;
     this.mouseSensitivity = 1; // user setting multiplier
     this.invertY = false;
     this.baseFov = BASE_FOV; // user setting
@@ -159,7 +161,7 @@ export class Player {
 
   _onMouseMove(e) {
     if (!this.locked || this.dead) return;
-    const sensitivity = 0.0022 * this.mouseSensitivity * this.zoomSensMul;
+    const sensitivity = 0.0022 * this.mouseSensitivity * (this.binocularFov != null ? this.binocularSens : this.zoomSensMul);
     this.yaw -= e.movementX * sensitivity;
     this.pitch -= e.movementY * sensitivity * (this.invertY ? -1 : 1);
     const limit = Math.PI / 2 - 0.01;
@@ -268,8 +270,8 @@ export class Player {
     const pitch = Math.min(Math.PI / 2, this.pitch + this.recoil);
     const eye = this.getEyePosition();
     eye.y -= drop;
-    // A scoped weapon always looks through the scope (first person).
-    const mode = this.zoomFov != null ? "first" : CAMERA_MODES[this.cameraMode] || "first";
+    // A scoped weapon or binoculars always look from the eyes (first person).
+    const mode = this.zoomFov != null || this.binocularFov != null ? "first" : CAMERA_MODES[this.cameraMode] || "first";
     if (mode === "first") {
       this.camera.rotation.set(pitch, this.yaw, roll);
       this.camera.position.copy(eye);
@@ -465,13 +467,25 @@ export class Player {
     // Camera: sneaking lowers the eyes; sprinting widens the field of view.
     const eyeTarget = this.sneaking ? SNEAK_EYE_DROP : 0;
     this._eyeOffset += (eyeTarget - this._eyeOffset) * Math.min(1, dt * 12);
-    const fovTarget = this.zoomFov != null ? this.zoomFov : this.baseFov + (this.sprinting ? 9 : 0) + (this.flying && this.sprinting ? 6 : 0);
-    this.fov += (fovTarget - this.fov) * Math.min(1, dt * 8);
+    const fovTarget = this._fovTarget();
+    this.fov += (fovTarget - this.fov) * Math.min(1, dt * (this.binocularFov != null ? 16 : 8));
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
     }
     this.syncCamera();
+  }
+
+  _fovTarget() {
+    if (this.binocularFov != null) return this.binocularFov;
+    return this.zoomFov != null ? this.zoomFov : this.baseFov + (this.sprinting ? 9 : 0) + (this.flying && this.sprinting ? 6 : 0);
+  }
+
+  // Jumps straight to the current field of view (no easing).
+  snapFov() {
+    this.fov = this._fovTarget();
+    this.camera.fov = this.fov;
+    this.camera.updateProjectionMatrix();
   }
 
   // Fall damage is based on the height fallen from the highest point of the
