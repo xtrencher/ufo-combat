@@ -811,33 +811,33 @@ This repository was copied from Voxelands and is becoming **UFO COMBAT**. The ch
 
 ## UFO Part 1 checklist
 ### 1.1 Rebrand and main menu
-- [ ] Rename to "UFO COMBAT" everywhere (page title, menus, README, console messages)
-- [ ] New unique localStorage key prefix (no sharing with the old game on the same domain)
-- [ ] New main menu: big stylized UFO COMBAT logo, animated background (slow flyover of the world with a UFO drifting across the sky)
-- [ ] Main menu buttons: Play (new world with optional seed / continue), Settings, Mods, Controls
-- [ ] Default graphics preset: Medium
+- [x] Rename to "UFO COMBAT" everywhere (page title, menus, README, console messages)
+- [x] New unique localStorage key prefix (no sharing with the old game on the same domain)
+- [x] New main menu: big stylized UFO COMBAT logo, animated background (slow flyover of the world with a UFO drifting across the sky)
+- [x] Main menu buttons: Play (new world with optional seed / continue), Settings, Mods, Controls
+- [x] Default graphics preset: Medium
 ### 1.2 Mods toggle
-- [ ] "Mods" setting, ON by default; OFF = vanilla (no guns, explosives, vehicles, UFOs, aliens; swords/tools stay)
-- [ ] Toggling mid-game cleanly removes/restores mod entities and items
+- [x] "Mods" setting, ON by default; OFF = vanilla (no guns, explosives, vehicles, UFOs, aliens; swords/tools stay)
+- [x] Toggling mid-game cleanly removes/restores mod entities and items
 ### 1.3 Bug fixes
-- [ ] Sniper scope black screen fixed (zoomed view + scope overlay)
-- [ ] All weapons fully independent (airstrike pending no longer blocks the bazooka etc.)
-- [ ] World gen: no single stray water blocks on land (fix the cause)
-- [ ] Seagrass/kelp waterlogged: water around and inside them, never air pockets
+- [x] Sniper scope black screen fixed (zoomed view + scope overlay)
+- [x] All weapons fully independent (airstrike pending no longer blocks the bazooka etc.)
+- [x] World gen: no single stray water blocks on land (fix the cause)
+- [x] Seagrass/kelp waterlogged: water around and inside them, never air pockets
 ### 1.4 Airstrike upgrade
-- [ ] Meteors fall at an angle from much higher/farther, glowing fiery core, smoke trail, heat glow, impact flash, shockwave
-- [ ] Settings: meteor count, spread radius, delay, fall angle, fall speed, explosion size
+- [x] Meteors fall at an angle from much higher/farther, glowing fiery core, smoke trail, heat glow, impact flash, shockwave
+- [x] Settings: meteor count, spread radius, delay, fall angle, fall speed, explosion size
 ### 1.5 Zombie settings
-- [ ] Settings: zombie spawn rate (up to extreme), max zombie count, toughness (health + damage multipliers)
-- [ ] Playable at high counts (instanced far rendering, simplified AI far away); performance note next to extreme values
+- [x] Settings: zombie spawn rate (up to extreme), max zombie count, toughness (health + damage multipliers)
+- [x] Playable at high counts (instanced far rendering, simplified AI far away); performance note next to extreme values
 ### 1.6 Laser blaster
-- [ ] Laser blaster weapon: short glowing bolts, color red/green/blue (setting), bloom glow, impact sparks, scorch marks, blaster sound
+- [x] Laser blaster weapon: short glowing bolts, color red/green/blue (setting), bloom glow, impact sparks, scorch marks, blaster sound
 ### 1.7 Render settings
-- [ ] Separate controls for full-detail chunk distance and LOD distance/quality
-- [ ] One-click performance presets (Potato / Balanced / Beautiful / Max)
+- [x] Separate controls for full-detail chunk distance and LOD distance/quality
+- [x] One-click performance presets (Potato / Balanced / Beautiful / Max)
 ### 1.8 Binocular zoom
-- [ ] Hold both mouse buttons = strong binocular zoom with subtle vignette; release = instant normal view
-- [ ] Chord detection never fires weapons / breaks / places blocks by accident; works in vanilla mode; zoom strength setting
+- [x] Hold both mouse buttons = strong binocular zoom with subtle vignette; release = instant normal view
+- [x] Chord detection never fires weapons / breaks / places blocks by accident; works in vanilla mode; zoom strength setting
 ### Finish
 - [ ] Full test suite run for Part 1, README updated, "UFO PART 1 COMPLETE"
 
@@ -912,3 +912,18 @@ This repository was copied from Voxelands and is becoming **UFO COMBAT**. The ch
 
 ## Decisions log
 (Notable decisions made without being able to ask, with the reason.)
+
+### Part 1
+- **Internal names.** The debug hook is now `window.__ufo`; the old name `window.__voxelands` stays as an alias because the ~2,600-line smoke suite uses it everywhere. Neither is visible to players.
+- **Continue vs. new world.** Without `?seed=` the page now opens the last world played (the menu says Continue); New World takes an optional seed (numbers, or any text, hashed) and reloads into it. "Save & main menu" in the pause menu reloads the same world to the title.
+- **Settings are schema-driven** (`js/settings.js`): one table declares every setting's group, range and default; rows, validation of saved values and per-group "Reset to defaults" all come from it. The tabs Graphics/Controls/Audio/Gameplay keep their old internal page names so older tests and saves keep working.
+- **Stray water cause:** swamp "puddles" put a water block *on top of* the ground (y = h + 1) instead of in it. They are now sunk into the ground, only where all four neighbours are at least as high, and never where a cave would open beside or under them. A unit test now scans generated land for any water block with air beside or below it.
+- **Waterlogged plants:** seagrass and kelp are "waterlogged" blocks: they render water in their own cell, count as water for swimming, drowning, the underwater view and the water sim, and breaking one leaves water behind (`IS_WET`, `IS_WATERLOGGED`).
+- **Sniper scope black screen:** the overlay's mask had a solid black second background layer under its transparent circle. It's a single radial gradient now (and a nicer reticle).
+- **Weapon independence:** one shared cooldown (8 s after an airstrike) blocked every weapon. Each weapon has its own cooldown now; airstrikes queue independently.
+- **Binocular chord:** single presses are delayed by 70 ms to detect a two-button chord (the approach suggested in the brief). A quick click still goes through as a click. Pressing the second button while the first is held (mining, machine gun) also becomes the binoculars once both are held past the window: the first action is released and the second never starts. The held item is hidden while zoomed; a rangefinder reading shows the distance.
+- **Zombie apocalypse performance:** zombies beyond 44 blocks (26 when there are more than 60) are drawn as an instanced crowd (two alternating walk poses, 2 draw calls total); mobs beyond 64 blocks think every third frame; mob separation uses a spatial grid instead of all pairs. Spawn rate and max count use stepped sliders (0-50x, 0-400) because a linear slider made the normal values unusably small. "Daylight zombies" is a separate switch rather than something the spawn rate silently turns on.
+- **Airstrike "delay"** is the time from calling the strike to the first impact: meteors launch early enough (they start ~200 blocks up, and far off to the side at steep angles) to hit at that moment.
+- **Mods off** stashes mod items with the player (not deleted), so switching back restores them to the same slots. A world started with mods off gets the weapon loadout the first time it's played with mods on.
+- **Starting hotbar** is now 8 items (added the laser blaster and the Jet Radio for Part 3's jet). Creative gets one block slot; the full palette is on E.
+- **Performance presets** (Potato/Balanced/Beautiful/Max) set the graphics preset, render distance, full-detail distance, far-terrain (LOD) quality, resolution scale and effects detail. Resolution scale and effects detail are new knobs, added because they are the cheapest big wins on weak GPUs.

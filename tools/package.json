@@ -1,12 +1,13 @@
 {
-  "name": "voxelands-tools",
+  "name": "ufo-combat-tools",
   "private": true,
   "version": "1.0.0",
-  "description": "Headless browser smoke test tooling for Voxelands (not part of the shipped game).",
+  "description": "Headless browser test tooling for UFO COMBAT (not part of the shipped game).",
   "type": "module",
   "scripts": {
-    "test": "node unit-tests.mjs && node smoke-test.mjs",
+    "test": "node unit-tests.mjs && node ufo-tests.mjs && node smoke-test.mjs",
     "test:unit": "node unit-tests.mjs",
+    "test:ufo": "node ufo-tests.mjs",
     "test:smoke": "node smoke-test.mjs"
   },
   "devDependencies": {
