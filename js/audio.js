@@ -588,6 +588,155 @@ export class Audio {
     this._hit({ type: "highpass", f: 2500, q: 0.7, d: 0.15, v: 0.15 });
   }
 
+  // ---------- Jet ----------
+
+  // The jet engine: a continuous turbine whine plus a roar that grows with
+  // the throttle; the afterburner adds a deep rumble. active = false fades
+  // it out (out of the jet).
+  setJetEngine(throttle, afterburner, speed, active) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._jet) {
+      if (!active) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.buses.weapons || this.master);
+      // Roar: filtered noise (looped).
+      const roar = this._noise(ctx.currentTime, 10);
+      roar.loop = true;
+      const roarF = ctx.createBiquadFilter();
+      roarF.type = "lowpass";
+      roarF.frequency.value = 600;
+      const roarG = ctx.createGain();
+      roar.connect(roarF).connect(roarG).connect(out);
+      // Turbine whine.
+      const whine = ctx.createOscillator();
+      whine.type = "sawtooth";
+      whine.frequency.value = 800;
+      const whineF = ctx.createBiquadFilter();
+      whineF.type = "bandpass";
+      whineF.frequency.value = 2400;
+      whineF.Q.value = 6;
+      const whineG = ctx.createGain();
+      whineG.gain.value = 0.05;
+      whine.connect(whineF).connect(whineG).connect(out);
+      whine.start();
+      // Afterburner rumble.
+      const ab = this._noise(ctx.currentTime, 10);
+      ab.loop = true;
+      const abF = ctx.createBiquadFilter();
+      abF.type = "lowpass";
+      abF.frequency.value = 160;
+      const abG = ctx.createGain();
+      abG.gain.value = 0;
+      ab.connect(abF).connect(abG).connect(out);
+      this._jet = { out, roarF, roarG, whine, whineF, abG };
+    }
+    const j = this._jet;
+    const t = ctx.currentTime;
+    j.out.gain.setTargetAtTime(active ? 0.55 : 0, t, active ? 0.2 : 0.4);
+    j.roarF.frequency.setTargetAtTime(350 + throttle * 1400 + speed * 3, t, 0.2);
+    j.roarG.gain.setTargetAtTime(0.25 + throttle * 0.6, t, 0.2);
+    j.whine.frequency.setTargetAtTime(600 + throttle * 900, t, 0.3);
+    j.whineF.frequency.setTargetAtTime(1800 + throttle * 1800, t, 0.3);
+    j.abG.gain.setTargetAtTime(afterburner ? 1.4 : 0, t, 0.15);
+  }
+
+  // One autocannon round (a very short, low crack; they come 16 a second).
+  playCannon() {
+    this._cat("weapons");
+    this._hit({ type: "lowpass", f: 900, q: 0.8, d: 0.045, v: 0.22, attack: 0.001 });
+    this._hit({ type: "highpass", f: 2600, q: 0.7, d: 0.02, v: 0.08, attack: 0.001 });
+  }
+
+  // Missile lock: a short beep while locking, a high tone once locked.
+  playLockTone(locked) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "square";
+    o.frequency.value = locked ? 1750 : 1100;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.005);
+    g.gain.setValueAtTime(0.05, t + (locked ? 0.07 : 0.05));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (locked ? 0.085 : 0.07));
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + 0.1);
+  }
+
+  // A warning beep-beep (nuke away, incoming).
+  playWarning() {
+    this._cat("ui");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    for (let i = 0; i < 2; i++) {
+      const t = ctx.currentTime + i * 0.18;
+      const o = ctx.createOscillator();
+      o.type = "triangle";
+      o.frequency.value = 880;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      o.connect(g).connect(this._out || this.master);
+      o.start(t);
+      o.stop(t + 0.15);
+    }
+  }
+
+  // Wheels touching down.
+  playLanding() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 900, q: 1.5, d: 0.3, v: 0.25, n: 2, spread: 0.12 });
+    this._hit({ type: "lowpass", f: 200, q: 1, d: 0.2, v: 0.4 });
+  }
+
+  // The nuke: an enormous, long, low boom that arrives late from far away
+  // (and is still heard kilometres off).
+  playNuke(distance = 0, radius = 28) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const delay = Math.min(distance / 343, 6);
+    const gain = 1.6 / (1 + distance / 400);
+    const muffle = Math.max(140, 12000 * Math.exp(-distance / 500));
+    const t0 = ctx.currentTime + delay;
+    const out = ctx.createGain();
+    out.gain.value = gain;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = muffle;
+    lp.connect(out).connect(this._out || this.master);
+    const sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(55, t0);
+    sub.frequency.exponentialRampToValueAtTime(18, t0 + 5);
+    const subG = ctx.createGain();
+    subG.gain.setValueAtTime(0.0001, t0);
+    subG.gain.exponentialRampToValueAtTime(1.2, t0 + 0.05);
+    subG.gain.exponentialRampToValueAtTime(0.0001, t0 + 7);
+    sub.connect(subG).connect(lp);
+    sub.start(t0);
+    sub.stop(t0 + 7.2);
+    const body = this._noise(t0, 9);
+    const bodyF = ctx.createBiquadFilter();
+    bodyF.type = "lowpass";
+    bodyF.frequency.setValueAtTime(2500, t0);
+    bodyF.frequency.exponentialRampToValueAtTime(90, t0 + 8);
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = this._shaperCurve;
+    const bodyG = ctx.createGain();
+    bodyG.gain.setValueAtTime(0.0001, t0);
+    bodyG.gain.exponentialRampToValueAtTime(1.6, t0 + 0.02);
+    bodyG.gain.exponentialRampToValueAtTime(0.4, t0 + 2);
+    bodyG.gain.exponentialRampToValueAtTime(0.0001, t0 + 9);
+    body.connect(bodyF).connect(shaper).connect(bodyG).connect(lp);
+  }
+
   // A pickup/notice chime (UFO down, abductions escaped).
   playNotice() {
     this._cat("ui");

@@ -217,6 +217,56 @@ moves instantly in any direction.
 the terrain, burning a tunnel), and whether the beam lifts blocks. Creatures
 you beam up are "stored": their drops go to your inventory, as do the blocks.
 
+### Fighter jet
+
+Press **J** (or right click with the **Jet Radio**) to call in your F-22
+style stealth fighter. It lands on a flat strip nearby (walk up and press
+**F**), or, if there's no flat ground around (or **Settings > Vehicles >
+Called-in jet arrives airborne** is on), it arrives in the air with you
+already in the cockpit.
+
+It flies like a jet: thrust from the throttle (and the afterburner), lift
+that needs airspeed, drag, gravity, and a stall below the stall speed (the
+nose drops). It can't hover. Take off by building speed on the ground and
+pulling up; land gently, level and wheels first. Hitting the ground any
+other way destroys it, and you with it, unless you **eject** (F in the air:
+the seat fires you out and a parachute opens). UFOs can shoot it down.
+
+| Action | Key |
+| --- | --- |
+| Steer | Mouse (with **flight assist**, the default: fly toward the crosshair; the little nose marker shows where the jet points) |
+| Throttle up / down | `W` / `S` |
+| Afterburner | `Shift` |
+| Roll | `A` / `D` |
+| Rudder (yaw) | `Q` / `E` |
+| Air brake / wheel brakes | `Space` |
+| Autocannon (tracers) | Left click |
+| Missile | Right click (it locks onto a UFO or creature kept in front of the nose: a box closes on the target, the tone speeds up, then **LOCK**) |
+| Nuclear bomb | `B` (it drops on a parachute: get clear!) |
+| Chase / cockpit view | `F5` |
+| Get out / eject | `F` |
+
+The HUD shows speed, altitude, throttle, heading, the missile lock, the nuke
+reload, the jet's health, and warnings: **STALL**, **PULL UP**, **INCOMING
+ATTACK**. With flight assist off, the mouse is the stick (up/down pitch,
+left/right roll). **Settings > Vehicles:** top speed, acceleration, turn
+rate, stall speed, flight assist, and whether the jet arrives airborne.
+
+**The nuke** goes off with a blinding white flash, a fireball, a shockwave
+racing over the ground, a huge crater, a scorched blast zone and a
+mushroom cloud that climbs for half a minute; the boom is heard, late and
+muffled, from far away. **Settings > Weapons:** nuke size and effects
+intensity.
+
+## Stats
+
+The pause menu's **Stats** screen counts, for this world and for all your
+worlds: UFOs shot down, play time, aliens and zombies killed, deaths,
+abductions survived, times abducted, creatures you abducted, UFOs boarded,
+jets called in, missile hits and nukes dropped. **Settings > Gameplay >
+Stats on the HUD** shows UFOs shot down and play time in a corner (off by
+default).
+
 ## Mods
 
 **Mods** (main menu or pause menu) switches all the UFO COMBAT content on

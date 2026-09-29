@@ -80,6 +80,8 @@ export class CameraShake {
   }
 }
 
+export { makeCraterShape };
+
 export class EffectsSystem {
   constructor(scene, world, audio) {
     this.scene = scene;
@@ -151,11 +153,13 @@ export class EffectsSystem {
   // isn't loaded yet (a very long-range shot into distant/LOD terrain) are
   // carved approximately against the deterministic height map instead, and
   // queued as block edits that apply automatically once that chunk loads.
-  _carve(center, radius) {
+  // opts.shape: a crater shape to share between calls; opts.x0/x1: carve
+  // only that range of x (a nuke carves its crater in slices over frames).
+  _carve(center, radius, opts = {}) {
     const world = this.world;
     const lumpiness = Math.max(0.75, radius * 0.1);
     const r = Math.min(radius, MAX_BLAST_RADIUS) - lumpiness;
-    const shape = makeCraterShape(lumpiness);
+    const shape = opts.shape || makeCraterShape(lumpiness);
     const reach = Math.ceil(r + lumpiness);
     const vReach = Math.ceil(reach / CRATER_VERTICAL_SCALE);
     const bx = Math.floor(center.x);
@@ -166,7 +170,9 @@ export class EffectsSystem {
     const y0 = Math.max(0, by - vReach);
     const y1 = Math.min(WORLD_HEIGHT - 1, by + vReach);
     const maxR2 = (r + lumpiness) * (r + lumpiness);
-    for (let x = bx - reach; x <= bx + reach; x++) {
+    const xa = Math.max(bx - reach, opts.x0 ?? -Infinity);
+    const xb = Math.min(bx + reach, opts.x1 ?? Infinity);
+    for (let x = xa; x <= xb; x++) {
       for (let z = bz - reach; z <= bz + reach; z++) {
         const ox = x + 0.5 - center.x;
         const oz = z + 0.5 - center.z;

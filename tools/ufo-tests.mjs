@@ -764,6 +764,336 @@ await check("UFO tricks and leaving forever run cleanly", async () => {
   assert(r.tricks.length >= 3 && r.gone, JSON.stringify(r));
 });
 
+// ================= Part 3 =================
+
+// Aims the jet (flight assist) at a point, like moving the mouse there.
+async function aimJetAt(fn) {
+  await v((g, src) => {
+    const jet = g.vehicles.active;
+    const target = new Function("g", `return (${src})(g);`)(g);
+    const d = target.clone().sub(jet.pos).normalize();
+    jet.aimYaw = Math.atan2(-d.x, -d.z);
+    jet.aimPitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+  }, fn.toString());
+}
+
+await check("jet: called in on a flat strip nearby; takes off with throttle and afterburner; flies (and can't hover)", async () => {
+  await arena(50);
+  await v((g) => {
+    g.settingsPanel.set("vehicles.jetAirborne", false);
+    // A long flat stone runway next to the player.
+    const a = window.__arena;
+    const edits = [];
+    for (let dz = -70; dz <= 12; dz++) for (let dx = -8; dx <= 8; dx++) {
+      edits.push(a.x + 20 + dx, a.y, a.z + dz, 3);
+      for (let dy = 1; dy <= 9; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
+    }
+    g.world.setBlocks(edits);
+    g.sky.setHours(11);
+  });
+  await page.keyboard.press("KeyJ");
+  await frames(2);
+  const jet = await v((g) => {
+    const j = g.vehicles.vehicles.find((x) => x.type === "jet");
+    return j && { onGround: j.onGround, y: j.pos.y, dist: j.pos.distanceTo(g.player.position) };
+  });
+  assert(jet && jet.onGround && jet.dist < 70, `jet parked nearby: ${JSON.stringify(jet)}`);
+  const boarded = await v((g) => {
+    const j = g.vehicles.vehicles.find((x) => x.type === "jet");
+    g.player.position.set(j.pos.x + 3, j.pos.y, j.pos.z);
+    return g.vehicles.toggle() && g.vehicles.active === j;
+  });
+  assert(boarded, "boarded the jet");
+  // Full throttle, afterburner, and pull up once fast.
+  await page.keyboard.down("KeyW");
+  await page.keyboard.down("ShiftLeft");
+  const fast = await until((g) => g.vehicles.active.speed > g.vehicles.config.jet.stallSpeed * 1.25, 120000);
+  assert(fast, "accelerates down the runway");
+  await v((g) => {
+    const j = g.vehicles.active;
+    j.aimPitch = 0.35;
+  });
+  const up = await until((g) => !g.vehicles.active.onGround && g.vehicles.active.pos.y > window.__arena.y + 15, 120000);
+  await page.keyboard.up("ShiftLeft");
+  assert(up, "took off and climbed");
+  // Throttle off, nose up: it slows, stalls and sinks (no hovering).
+  await page.keyboard.up("KeyW");
+  await v((g) => {
+    const j = g.vehicles.active;
+    j.throttle = 0;
+    j.aimPitch = 0.6;
+  });
+  await page.keyboard.down("KeyS");
+  const stall = await until((g) => g.vehicles.active.stalled && { speed: g.vehicles.active.speed, vy: g.vehicles.active.vel.y }, 120000);
+  await page.keyboard.up("KeyS");
+  assert(stall && stall.speed > 3, `stalls instead of hovering: ${JSON.stringify(stall)}`);
+  const hud = await v(() => document.getElementById("vehicle-hud").textContent);
+  assert(/Speed/.test(hud) && /Altitude/.test(hud) && /Throttle/.test(hud) && /Heading/.test(hud) && /Missile/.test(hud) && /STALL/.test(hud), `HUD: ${hud.slice(0, 200)}`);
+  // Recover: full throttle, nose level.
+  await v((g) => {
+    const j = g.vehicles.active;
+    j.throttle = 1;
+    j.aimPitch = -0.2;
+    j.pos.y += 60;
+  });
+});
+
+await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + tone) and track the target", async () => {
+  await v((g) => {
+    const j = g.vehicles.active;
+    j.pos.y = Math.max(j.pos.y, 120);
+    j.vel.copy(j.forward(new g.THREE.Vector3()).multiplyScalar(110));
+    j.aimPitch = 0;
+    j.q.setFromEuler(new g.THREE.Euler(0, j.aimYaw, 0, "YXZ"));
+    const f = j.forward(new g.THREE.Vector3());
+    const u = g.ufos.spawn({ size: "large", design: "saucer", pos: j.pos.clone().addScaledVector(f, 260), personality: "fighter" });
+    u.state = "trick";
+    u.trick = "hover";
+    u.timer = 999;
+    window.__u = u;
+    window.__h0 = u.health;
+  });
+  await aimJetAt((g) => window.__u.pos);
+  await page.mouse.down({ button: "left" });
+  const hit = await until((g) => window.__u.health < window.__h0, 60000);
+  await page.mouse.up({ button: "left" });
+  assert(hit, "cannon rounds hit the UFO");
+  const locked = await until((g) => {
+    const j = g.vehicles.active;
+    const d = window.__u.pos.clone().sub(j.pos).normalize();
+    j.aimYaw = Math.atan2(-d.x, -d.z);
+    j.aimPitch = Math.asin(d.y);
+    return j.lock.locked;
+  }, 90000);
+  assert(locked, "locked on");
+  const box = await v(() => ({ shown: !document.getElementById("lock-box").classList.contains("hidden"), locked: document.getElementById("lock-box").classList.contains("locked") }));
+  assert(box.shown && box.locked, `lock box ${JSON.stringify(box)}`);
+  await page.mouse.down({ button: "right" });
+  await frames(2);
+  await page.mouse.up({ button: "right" });
+  const missile = await v((g) => g.vehicles.active.missiles.length > 0 && !!g.vehicles.active.missiles[0].target);
+  assert(missile, "a guided missile is away");
+  const down = await until(() => window.__u.falling || window.__u.health < window.__h0 - 150, 90000);
+  assert(down, "the missile hit");
+  await v((g) => g.ufos.clear());
+});
+
+await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones faster, fighters attack (incoming warning)", async () => {
+  const r = await v((g) => {
+    const j = g.vehicles.active;
+    const mk = (personality) => {
+      const u = g.ufos.spawn({ size: "small", pos: j.pos.clone().add(new g.THREE.Vector3(150, 10, 0)), personality });
+      u.state = "attack";
+      u.lastSeen = g.ufos.time;
+      return u;
+    };
+    const ev = mk("evader");
+    const fast = mk("fast");
+    const fighter = mk("fighter");
+    j.incoming = 0;
+    for (let i = 0; i < 80; i++) {
+      g.ufos.update(0.05);
+      ev.shotT = 99;
+      fast.shotT = 99;
+    }
+    const max = g.vehicles.config.jet.maxSpeed;
+    const out = { evader: ev.vel.length() / max, fast: fast.vel.length() / max, fighterFired: g.lasers.bolts.some((b) => b.source === fighter), incoming: j.incoming > 0 };
+    g.ufos.clear();
+    return out;
+  });
+  assert(r.evader > 0.7 && r.evader < 1, `evader speed ratio ${r.evader}`);
+  assert(r.fast > 1.1, `fast UFO outruns the jet: ${r.fast}`);
+  assert(r.fighterFired && r.incoming, `fighter attacks with a warning: ${JSON.stringify(r)}`);
+});
+
+await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom cloud, and it counts", async () => {
+  const r0 = await v((g) => {
+    const j = g.vehicles.active;
+    window.__nukes = g.stats.world.nukes;
+    window.__cloud = 0;
+    j.nukeT = 0;
+    return true;
+  });
+  await page.keyboard.press("KeyB");
+  await frames(2);
+  const bomb = await v((g) => g.vehicles.active.bombs.length);
+  assert(r0 && bomb === 1, "bomb away");
+  const boom = await until((g) => g.nuke.active.length > 0 && g.nuke.active[0].center.toArray(), 240000);
+  assert(boom, "detonated");
+  const after = await until((g) => g.nuke.active[0]?.slice >= 10 && { cloud: g.nuke.cloud.particles.length, air: g.world.getBlock(Math.floor(g.nuke.active[0].center.x), Math.floor(g.nuke.active[0].center.y - 3), Math.floor(g.nuke.active[0].center.z)), nukes: g.stats.world.nukes - window.__nukes }, 120000);
+  assert(after && after.cloud > 20 && after.nukes === 1, `nuke aftermath ${JSON.stringify(after)}`);
+});
+
+await check("crashing the jet into the ground destroys it: 'Crashed your jet'", async () => {
+  await v((g) => {
+    g.setMode("survival");
+    const j = g.vehicles.active;
+    j.aimPitch = -1.3;
+    j.q.setFromEuler(new g.THREE.Euler(-1.2, j.aimYaw, 0, "YXZ"));
+    j.vel.set(0, -80, 0);
+    j.pos.y = g.world.heightAt(Math.floor(j.pos.x), Math.floor(j.pos.z)) + 12;
+  });
+  const dead = await until((g) => g.gameState === "dead" && g.deathCause, 60000);
+  assert(dead === "jet_crash", `cause ${dead}`);
+  await respawnIfDead();
+});
+
+await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -> land -> fight aliens -> board the wreck -> fly off past friendly UFOs", async () => {
+  await arena(55);
+  // 1. The jet, already airborne.
+  await v((g) => {
+    g.sky.setHours(10);
+    g.settingsPanel.set("vehicles.jetAirborne", true);
+  });
+  await page.keyboard.press("KeyJ");
+  await frames(2);
+  assert((await v((g) => g.vehicles.active?.type)) === "jet", "in the jet, airborne");
+  // 2. An enemy UFO over the horizon ahead: it notices the jet and flees.
+  await v((g) => {
+    const j = g.vehicles.active;
+    j.pos.y = Math.max(j.pos.y, 110);
+    const f = j.forward(new g.THREE.Vector3());
+    f.y = 0;
+    f.normalize();
+    const u = g.ufos.spawn({ size: "medium", design: "saucer", pos: j.pos.clone().addScaledVector(f, 320).add(new g.THREE.Vector3(0, 10, 0)), personality: "evader" });
+    u.fleeFactor = 0.85;
+    window.__u = u;
+    window.__downs = g.stats.world.ufosDown;
+  });
+  // 3. Chase it on afterburner, keeping it in front of the nose.
+  await page.keyboard.down("KeyW");
+  await page.keyboard.down("ShiftLeft");
+  const d0 = await v((g) => window.__u.pos.distanceTo(g.vehicles.active.pos));
+  const locked = await until((g) => {
+    const j = g.vehicles.active;
+    const d = window.__u.pos.clone().sub(j.pos).normalize();
+    j.aimYaw = Math.atan2(-d.x, -d.z);
+    j.aimPitch = Math.asin(d.y);
+    return j.lock.locked && window.__u.state === "attack" && { dist: window.__u.pos.distanceTo(j.pos), fleeing: window.__u.vel.length() };
+  }, 180000);
+  assert(locked, "chased the fleeing UFO and locked on");
+  // 4. Missile away.
+  await page.mouse.down({ button: "right" });
+  await frames(2);
+  await page.mouse.up({ button: "right" });
+  const falling = await until((g) => {
+    const j = g.vehicles.active;
+    const d = window.__u.pos.clone().sub(j.pos).normalize();
+    j.aimYaw = Math.atan2(-d.x, -d.z);
+    j.aimPitch = Math.asin(Math.max(-0.3, d.y));
+    return window.__u.falling;
+  }, 120000);
+  await page.keyboard.up("ShiftLeft");
+  await page.keyboard.up("KeyW");
+  assert(falling, "the missile hit and the UFO is going down");
+  // 5. It crash-lands (a crater and a wreck), counted as shot down.
+  const wreck = await until((g) => {
+    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed);
+    return w && w.pos.toArray();
+  }, 150000);
+  assert(wreck, "crash-landed as a wreck");
+  assert((await v((g) => g.stats.world.ufosDown - window.__downs)) === 1, "one UFO shot down");
+  // 6. Eject over the crash site: a parachute opens.
+  await v((g, w) => {
+    const j = g.vehicles.active;
+    j.pos.set(w[0] + 30, Math.max(w[1] + 40, j.pos.y), w[2] + 30);
+  }, wreck);
+  await page.keyboard.press("KeyF");
+  const chute = await until((g) => g.vehicles.parachute.active && g.player.parachute && !g.vehicles.active, 30000);
+  assert(chute, "ejected with a parachute");
+  const vy = await until((g) => g.player.velocity.y < -1 && g.player.velocity.y, 30000);
+  assert(vy > -4, `drifting down slowly (vy ${vy})`);
+  // (Speed-up for the software renderer: drop the last stretch.)
+  await v((g, w) => {
+    const top = g.world.surfaceY(Math.floor(w[0] + 14), Math.floor(w[2] + 14));
+    g.player.position.set(w[0] + 14.5, top + 6, w[2] + 14.5);
+    g.player.velocity.set(0, -3, 0);
+  }, wreck);
+  const landed = await until((g) => g.player.onGround && !g.vehicles.parachute.active, 120000);
+  assert(landed && (await v((g) => g.gameState)) === "playing", "landed safely");
+  // 7. The aliens come out and fight: shoot them with the laser blaster.
+  const aliens = await until((g) => g.mobs.countKind("alien") > 0, 90000);
+  assert(aliens, "aliens climbed out");
+  await v((g) => {
+    g.setMode("creative"); // keep the test player alive while the aliens fire
+    g.inventory.selected = 6;
+  });
+  const cleared = await until((g) => {
+    const a = g.mobs.mobs.find((m) => m.kind === "alien" && !m.dead);
+    if (!a) return true;
+    const e = g.player.getEyePosition();
+    const d = a.pos.clone().add(new g.THREE.Vector3(0, 1, 0)).sub(e);
+    g.player.yaw = Math.atan2(-d.x, -d.z);
+    g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    // Walk up close, then blast.
+    if (d.length() > 8) g.player.position.addScaledVector(d.clone().setY(0).normalize(), 0.8);
+    g.weapons._cooldowns.blaster = 0;
+    g.weapons.press("blaster");
+    g.weapons.release();
+    return false;
+  }, 240000);
+  assert(cleared, "fought off the aliens");
+  const killed = await v((g) => g.stats.world.aliensKilled);
+  assert(killed > 0, "aliens killed counted");
+  // 8. Walk to the wreck and board it.
+  await v((g) => {
+    g.setMode("survival");
+    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed);
+    g.player.position.set(w.pos.x + w.radius + 1.2, w.pos.y + 0.5, w.pos.z);
+  });
+  await page.keyboard.press("KeyF");
+  const inUfo = await until((g) => g.vehicles.active?.type === "ufo" && g.vehicles.active.liftOff <= 0, 60000);
+  assert(inUfo, "boarded the wreck and lifted off");
+  // 9. Other UFOs around take us for one of their own.
+  await v((g) => {
+    const me = g.vehicles.active;
+    window.__others = [0, 1, 2].map((i) => {
+      const u = g.ufos.spawn({ size: "small", pos: me.pos.clone().add(new g.THREE.Vector3(40 + i * 15, 10, 20)), personality: "fighter" });
+      u.state = "attack";
+      u.lastSeen = g.ufos.time;
+      return u;
+    });
+    window.__fired = g.lasers.fired;
+  });
+  await page.keyboard.down("KeyW");
+  await page.keyboard.down("Space");
+  const start = await v((g) => g.vehicles.active.pos.toArray());
+  await until((g) => g.ufos.time > 0 && window.__others.every((u) => u.state !== "attack"), 60000);
+  await frames(30);
+  await page.keyboard.up("Space");
+  await page.keyboard.up("KeyW");
+  const end = await v((g, s0) => ({
+    moved: g.vehicles.active.pos.distanceTo(new g.THREE.Vector3(...s0)),
+    peaceful: window.__others.every((u) => !u.hostile && u.state !== "attack" && u.state !== "react"),
+    shotsAtUs: g.lasers.bolts.filter((b) => window.__others.includes(b.source)).length,
+  }), start);
+  assert(end.moved > 5 && end.peaceful && end.shotsAtUs === 0, `flew away peacefully: ${JSON.stringify(end)}`);
+  await v((g) => g.ufos.clear());
+});
+
+await check("stats: world and total counts persist; the HUD overlay shows UFOs down and play time when switched on", async () => {
+  await v((g) => g.settingsPanel.set("statsOverlay", true));
+  await frames(40);
+  const r = await v((g) => ({
+    overlay: document.getElementById("stats-overlay").textContent,
+    shown: !document.getElementById("stats-overlay").classList.contains("hidden"),
+    total: JSON.parse(localStorage.getItem("ufocombat_v1_stats_total") || "{}"),
+    world: g.stats.world,
+  }));
+  assert(r.shown && /UFOs shot down: \d+/.test(r.overlay), `overlay: ${r.overlay}`);
+  assert(r.world.ufosDown >= 2 && r.world.playTime > 10 && r.world.aliensKilled > 0 && r.world.deaths > 0 && r.world.abductionsSurvived > 0, `world stats ${JSON.stringify(r.world)}`);
+  assert(r.total.ufosDown >= r.world.ufosDown, `totals saved ${JSON.stringify(r.total)}`);
+  await v((g) => g.settingsPanel.set("statsOverlay", false));
+  // The Stats screen in the pause menu.
+  await page.evaluate(() => document.exitPointerLock());
+  await page.waitForFunction(() => window.__ufo.gameState === "paused", null, { timeout: 10000 });
+  await page.click("#pause-stats-btn");
+  const table = await v(() => document.getElementById("stats-table").textContent);
+  assert(/UFOs shot down/.test(table) && /All worlds/.test(table), "stats screen");
+  await page.keyboard.press("Escape");
+  await play();
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

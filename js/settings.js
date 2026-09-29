@@ -92,6 +92,8 @@ export const SCHEMA = [
   { key: "weapons.airstrike.angle", group: "weapons", type: "range", label: "Fall angle (from vertical)", min: 0, max: 70, step: 1, def: 35, fmt: deg },
   { key: "weapons.airstrike.speed", group: "weapons", type: "range", label: "Fall speed (blocks/s)", min: 30, max: 250, step: 5, def: 95, fmt: int },
   { key: "explosionScale.airstrike", id: "explosion-airstrike", group: "weapons", type: "range", label: "Meteor explosion size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
+  { key: "weapons.nukeSize", group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 48, step: 1, def: 28, fmt: int, sub: "Jet nuke", note: (v) => (v > 36 ? "A crater this size takes a moment to carve and rebuild on slower PCs." : "") },
+  { key: "weapons.nukeIntensity", group: "weapons", type: "select", label: "Nuke effects intensity", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "How much smoke and fire the mushroom cloud uses." },
 
   // ----- Mobs -----
   { key: "zombies.spawnRate", group: "mobs", type: "range", label: "Zombie spawn rate", values: [0, 0.25, 0.5, 1, 1.5, 2, 3, 5, 8, 12, 20, 30, 50], min: 0, max: 50, def: 1, fmt: spawnRateLabel, sub: "Zombies", note: (v) => (v >= 10 ? "Zombie apocalypse: far zombies are drawn as simple crowds and think less, but a slow CPU will feel it." : "") },
@@ -116,6 +118,12 @@ export const SCHEMA = [
   { key: "vehicles.ufoMinSpeed", group: "vehicles", type: "range", label: "UFO slowest speed (blocks/s)", values: [0.5, 1, 2, 4, 8], min: 0.5, max: 8, def: 2, fmt: (v) => String(v) },
   { key: "vehicles.ufoGhost", group: "vehicles", type: "checkbox", label: "Ghost mode: fly through terrain, burning a tunnel", def: false },
   { key: "vehicles.beamBlocks", group: "vehicles", type: "checkbox", label: "Tractor beam also lifts loose blocks", def: true },
+  { key: "vehicles.jetAssist", group: "vehicles", type: "checkbox", label: "Flight assist (the jet flies toward the crosshair)", def: true, sub: "Fighter jet", hint: "Off: the mouse is the stick (up/down pitch, left/right roll), for experienced pilots." },
+  { key: "vehicles.jetAirborne", group: "vehicles", type: "checkbox", label: "Called-in jet arrives airborne (you start in the cockpit)", def: false },
+  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed", min: 80, max: 320, step: 5, def: 160, fmt: (v) => `${Math.round(v * 3.6)} km/h` },
+  { key: "vehicles.jetAccel", group: "vehicles", type: "range", label: "Jet acceleration (thrust)", min: 0.5, max: 2.5, step: 0.1, def: 1, fmt: times },
+  { key: "vehicles.jetTurn", group: "vehicles", type: "range", label: "Jet turn rate", min: 0.5, max: 2, step: 0.1, def: 1, fmt: times },
+  { key: "vehicles.jetStall", group: "vehicles", type: "range", label: "Jet stall speed", min: 25, max: 70, step: 1, def: 42, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "Below this the wings can't hold the jet up: it sinks and drops its nose." },
 ];
 
 const ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];

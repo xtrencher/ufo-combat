@@ -180,6 +180,9 @@ export class WeaponSystem {
           this.fireBlaster();
         }
         return;
+      case "jetradio":
+        this.onJetRadio?.();
+        return;
       case "airstrike":
         if (cd.airstrike > 0) return;
         cd.airstrike = MIN_INTERVAL.airstrike;

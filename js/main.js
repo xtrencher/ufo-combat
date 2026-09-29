@@ -38,6 +38,8 @@ import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
 import "./vehicle-ufo.js";
+import "./vehicle-jet.js";
+import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES } from "./ufo-models.js";
 import { Stats } from "./stats.js";
@@ -326,6 +328,45 @@ settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = 
 settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
+// The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
+vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false };
+settingsPanel.on("vehicles.jetMaxSpeed", (v) => {
+  vehicles.config.jet.maxSpeed = v;
+  ufos.jetMaxSpeed = v;
+});
+settingsPanel.on("vehicles.jetAccel", (v) => (vehicles.config.jet.accel = v));
+settingsPanel.on("vehicles.jetTurn", (v) => (vehicles.config.jet.turnRate = v));
+settingsPanel.on("vehicles.jetStall", (v) => (vehicles.config.jet.stallSpeed = v));
+settingsPanel.on("vehicles.jetAssist", (v) => (vehicles.config.jet.assist = v));
+settingsPanel.on("vehicles.jetAirborne", (v) => (vehicles.config.jet.airborne = v));
+// The nuke dropped from the jet.
+const nuke = new NukeSystem({ scene, world, effects, audio });
+vehicles.nuke = nuke;
+vehicles.ufos = ufos;
+settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
+settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
+nuke.onDetonate = (center, R) => {
+  stats.add("nukes");
+  mobs.explosion(center, R * 1.4, true);
+  ufos.explosion(center, R * 2.2, true);
+  vehicles.explosion(center, R * 1.6);
+  // The player: deadly within about twice the crater radius, thrown far.
+  if (!player.dead && !player.vehicle) {
+    const off = player.position.clone().sub(center);
+    const d = off.length();
+    if (d < R * 2.6) {
+      const f = 1 - d / (R * 2.6);
+      if (player.damage(Math.ceil(70 * f * f + 2), "nuke", { pierce: true })) {
+        lastBlastHitTime = performance.now();
+        lastBlastSource = "nuke";
+      }
+      off.y = Math.max(off.y, 0) + d * 0.3;
+      player.applyImpulse(off.normalize().multiplyScalar(40 * f));
+    }
+  }
+};
+vehicles.onMissileHit = () => stats.add("missilesHit");
+vehicles.onNukeDropped = () => {};
 settingsPanel.on("sensitivity", (v) => (vehicles.mouseSensitivity = v));
 settingsPanel.on("invertY", (v) => (vehicles.invertY = v));
 
@@ -442,6 +483,79 @@ mobs.onKill = (m, byPlayer) => {
   else stats.add("mobsKilled");
 };
 
+// ---------- Calling in the jet ----------
+// J or the Jet Radio: your F-22 lands on a flat strip nearby (or, with the
+// setting on, or with no flat ground around, arrives in the air with you in
+// the cockpit). One jet at a time: calling again replaces a parked one.
+let playerJet = null;
+let lastJetCall = -99;
+function stripOk(x0, z0, dx, dz, len) {
+  const h0 = world.surfaceY(Math.floor(x0), Math.floor(z0));
+  if (h0 < 0) return -1;
+  const sideX = -dz;
+  const sideZ = dx;
+  for (let t = -8; t <= len; t += 4) {
+    for (const s of [-6, 0, 6]) {
+      const x = Math.floor(x0 + dx * t + sideX * s);
+      const z = Math.floor(z0 + dz * t + sideZ * s);
+      if (!world.getChunk(x >> 4, z >> 4)) return -1;
+      const h = world.surfaceY(x, z);
+      if (h < 0 || Math.abs(h - h0) > (s === 0 ? 1 : 2)) return -1;
+      const top = world.getBlock(x, h, z);
+      if (BLOCK_INFO[top]?.leaves || BLOCK_INFO[top]?.log || IS_WET[world.getBlock(x, h + 1, z)]) return -1;
+    }
+  }
+  return h0;
+}
+function findRunway() {
+  const p = player.position;
+  for (let r = 10; r <= 58; r += 8) {
+    for (let a = 0; a < 12; a++) {
+      const ang = (a / 12) * Math.PI * 2 + r;
+      const sx = p.x + Math.cos(ang) * r;
+      const sz = p.z + Math.sin(ang) * r;
+      for (let h = 0; h < 8; h++) {
+        const yaw = (h / 8) * Math.PI * 2;
+        const dx = -Math.sin(yaw);
+        const dz = -Math.cos(yaw);
+        const y = stripOk(sx, sz, dx, dz, 44);
+        if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
+      }
+    }
+  }
+  return null;
+}
+function callJet() {
+  if (!mods.enabled || player.dead || gameState !== "playing") return;
+  if (vehicles.active) {
+    toast("Get out of your vehicle first (F).", 2);
+    return;
+  }
+  if (ufos.time - lastJetCall < 8) {
+    toast("Your jet is on its way...", 1.5);
+    return;
+  }
+  lastJetCall = ufos.time;
+  if (playerJet && vehicles.vehicles.includes(playerJet)) vehicles.remove(playerJet);
+  playerJet = null;
+  const cfg = vehicles.config.jet;
+  const strip = cfg.airborne ? null : findRunway();
+  if (strip) {
+    playerJet = vehicles.create("jet", { pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
+    const dir = Math.round(((Math.atan2(strip.x - player.position.x, -(strip.z - player.position.z)) * 180) / Math.PI + 360) % 360);
+    toast(`Your jet has landed ${Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z))} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
+  } else {
+    const p = player.position;
+    const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
+    playerJet = vehicles.create("jet", { pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
+    vehicles.enter(playerJet);
+    toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
+  }
+  stats.add("jetsCalled");
+  audio.playNotice();
+}
+weapons.onJetRadio = callJet;
+
 // Entering and leaving vehicles.
 vehicles.onEnter = (v) => {
   chord.reset();
@@ -557,6 +671,8 @@ modsTools.innerHTML = `
   <div class="row"><label for="spawn-ufo-size">Size</label><select id="spawn-ufo-size">
     <option value="4">Small</option><option value="7" selected>Medium</option><option value="14">Large</option><option value="36">Mothership</option></select></div>
   <div class="spawn-grid" id="spawn-ufo-grid"></div>
+  <div class="subhead">Your fighter jet</div>
+  <div class="spawn-grid"><button class="btn" id="mods-call-jet">Call the jet (J)</button></div>
   <div class="subhead">Summon an enemy UFO (Creative, in game)</div>
   <div class="spawn-grid"><button class="btn" id="summon-ufo">Random UFO</button><button class="btn" id="summon-ufo-attack">One that attacks</button><button class="btn" id="summon-ufo-crash">A crashed one</button></div>
   <div id="mods-tools-note" class="hint"></div>`;
@@ -591,6 +707,17 @@ function creativeSpawnUfo(design) {
   screens.closeAll();
   requestLock();
 }
+let pendingJetCall = false;
+document.getElementById("mods-call-jet").addEventListener("click", () => {
+  const note = document.getElementById("mods-tools-note");
+  if (!mods.enabled) note.textContent = "Switch mods on first.";
+  else if (gameState === "start") note.textContent = "Start playing first, then press J (or use this button from the pause menu).";
+  else {
+    pendingJetCall = true;
+    screens.closeAll();
+    requestLock();
+  }
+});
 document.getElementById("summon-ufo").addEventListener("click", () => {
   if (!creativeToolCheck()) return;
   ufos.spawn({ pos: inFront(60, 30) });
@@ -1196,6 +1323,7 @@ function showPause() {
   gameState = "paused";
   player.enabled = false;
   chord.reset();
+  audio.setJetEngine(0, false, 0, false);
   interaction.release();
   ui.showHud(false);
   ui.showPauseMenu(SEED, renderDistance);
@@ -1293,6 +1421,10 @@ document.addEventListener("pointerlockchange", () => {
     screens.closeAll();
     flyover.hide();
     ui.showHud(true);
+    if (pendingJetCall) {
+      pendingJetCall = false;
+      setTimeout(callJet, 50);
+    }
   } else if (gameState === "playing" || gameState === "paused") {
     showPause();
   }
@@ -1371,6 +1503,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
+  else if (e.code === "KeyJ" && mods.enabled) callJet();
 });
 
 // F1: hide the whole HUD (and the item in hand) for clean screenshots.
@@ -1593,6 +1726,9 @@ window.__ufo = window.__voxelands = {
   waterSim,
   weapons,
   lasers,
+  nuke,
+  callJet,
+  findRunway,
   vehicles,
   ufos,
   stats,
@@ -1698,6 +1834,27 @@ function updateBeamFeedback() {
   if (held && !beamWarned) toast("TRACTOR BEAM! Run out of the light, or shoot the UFO!", 3);
   beamWarned = held;
 }
+// The jet's lock box (on the target) and nose marker (where it points).
+const lockBoxEl = document.getElementById("lock-box");
+const jetNoseEl = document.getElementById("jet-nose");
+function updateJetOverlay() {
+  const v = vehicles.active;
+  const o = v?.type === "jet" && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
+  const place = (el, p) => {
+    el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
+    el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
+  };
+  lockBoxEl.classList.toggle("hidden", !o?.lock);
+  if (o?.lock) {
+    place(lockBoxEl, o.lock);
+    lockBoxEl.classList.toggle("locked", o.lock.locked);
+    const size = o.lock.locked ? 40 : 80 - o.lock.progress * 40;
+    lockBoxEl.style.width = lockBoxEl.style.height = `${size}px`;
+    lockBoxEl.style.margin = `${-size / 2}px 0 0 ${-size / 2}px`;
+  }
+  jetNoseEl.classList.toggle("hidden", !o?.nose || v.cameraModes[v.cameraMode] === "cockpit");
+  if (o?.nose) place(jetNoseEl, o.nose);
+}
 function updateStatsOverlay(dt) {
   statsOverlayT -= dt;
   if (statsOverlayT > 0 || !settings.statsOverlay) return;
@@ -1739,6 +1896,7 @@ function animate() {
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     ufos.viewDistance = renderDistance * 16;
     ufos.update(dt);
+    nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition());
     effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());
     effects.update(dt);
     effects.shake.apply(camera);
@@ -1768,6 +1926,7 @@ function animate() {
   vehicles.updateHud(dt, gameState === "playing");
   stats.tick(dt, gameState === "playing");
   updateBeamFeedback();
+  updateJetOverlay();
   updateStatsOverlay(dt);
   if (gameState === "playing") interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();

@@ -750,6 +750,34 @@
   #beam-overlay.show { opacity: 1; }
   @keyframes beam-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
 
+  #nuke-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 60; }
+  #lock-box {
+    position: fixed;
+    width: 46px;
+    height: 46px;
+    margin: -23px 0 0 -23px;
+    border: 2px solid #ffd84a;
+    box-shadow: 0 0 6px rgba(0,0,0,0.6);
+    pointer-events: none;
+    z-index: 10;
+    transition: width 0.1s, height 0.1s, margin 0.1s;
+  }
+  #lock-box.locked { border-color: #ff3a2a; border-width: 3px; }
+  #lock-box.locked::after { content: "LOCK"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font: 700 11px ui-monospace, Consolas, monospace; color: #ff3a2a; letter-spacing: 1px; }
+  #jet-nose {
+    position: fixed;
+    width: 26px;
+    height: 10px;
+    margin: -5px 0 0 -13px;
+    pointer-events: none;
+    z-index: 10;
+    border-bottom: 2px solid rgba(160,255,190,0.9);
+    border-left: 2px solid rgba(160,255,190,0.9);
+    border-right: 2px solid rgba(160,255,190,0.9);
+    border-radius: 0 0 8px 8px;
+  }
+  .vh-lock { color: #ff5a4a; font-weight: 700; }
+
   /* F1 hides every HUD element (the held item is hidden by the game). */
   body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay, body.hud-off #binocular-overlay { visibility: hidden; }
 </style>
@@ -758,6 +786,7 @@
   <canvas id="game-canvas"></canvas>
 
   <div id="damage-flash"></div>
+  <div id="nuke-flash"></div>
   <div id="binocular-overlay"><div class="reading" id="binocular-reading"></div></div>
   <div id="scope-overlay"><div id="scope-crosshair"><div id="scope-dot"></div></div></div>
   <div id="hud" class="hidden">
@@ -775,6 +804,8 @@
     <div id="stats-overlay" class="hidden"></div>
     <div id="hit-marker"></div>
     <div id="beam-overlay"></div>
+    <div id="lock-box" class="hidden"></div>
+    <div id="jet-nose" class="hidden"></div>
   </div>
 
   <pre id="debug-overlay" class="hidden"></pre>

@@ -844,6 +844,7 @@ export class UfoManager {
       if (u.shotT <= 0 && dist < 160 && Math.random() < 0.3) {
         u.shotT = rand(2, 4);
         this._fireAt(u, v.pos, v.vel);
+        v.incoming = 2;
       }
       if (dist > 900) {
         u.state = "roam";
@@ -863,7 +864,10 @@ export class UfoManager {
     if (u.shotT <= 0 && dist < 220 && this._canSee(u, v.pos)) {
       u.shotT = rand(0.5, 1.2) / (0.5 + this.config.aggression * 0.5);
       this._fireAt(u, v.pos, v.vel, u.size === "mothership" ? 3 : 1);
+      v.incoming = 2;
     }
+    // A fighter lining up a head-on pass sets off the warning too.
+    if (dist < 220 && u.vel.lengthSq() > 1 && _v.copy(v.pos).sub(u.pos).normalize().dot(_w.copy(u.vel).normalize()) > 0.85) v.incoming = Math.max(v.incoming || 0, 1);
   }
 
   // ---------- Shot down ----------
