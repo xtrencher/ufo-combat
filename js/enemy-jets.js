@@ -85,8 +85,13 @@ export class EnemyJet extends Jet {
     let ab = false;
     // How far above the ground it is, now and a moment ahead along its path.
     const lookT = 2.4 + this.speed * 0.012;
-    const ahead = _q2.copy(this.pos).addScaledVector(this.vel, lookT);
-    const groundClear = this.pos.y - Math.max(mgr.groundBelow(ahead.x, WORLD_HEIGHT, ahead.z), mgr.groundBelow(this.pos.x, WORLD_HEIGHT, this.pos.z));
+    // (Several points along the path: a hill in the middle would be missed by looking only at the end.)
+    let highest = mgr.groundBelow(this.pos.x, WORLD_HEIGHT, this.pos.z);
+    for (const f of [0.35, 0.7, 1]) {
+      const ahead = _q2.copy(this.pos).addScaledVector(this.vel, lookT * f);
+      highest = Math.max(highest, mgr.groundBelow(ahead.x, WORLD_HEIGHT, ahead.z));
+    }
+    const groundClear = this.pos.y - highest;
 
     // Incoming missiles (the player's): break and drop flares.
     let threat = null;

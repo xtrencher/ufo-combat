@@ -445,8 +445,9 @@ await check("range: a UFO 500 blocks away can be hit; a UFO's shots reach the pl
     const startFired = g.lasers.fired;
     const hp0 = p.health;
     let t = 0;
+    const rnd = Math.random;
+    Math.random = () => 0.5; // (no aim scatter: this checks the reach, not the marksmanship)
     for (let k = 0; k < 8 && p.health >= hp0; k++) {
-      // (A few shots: the aim error is a block or two at this range.)
       p._invulnerable = 0;
       g.ufos._fireAt(u, p.position.clone().setY(p.position.y + 1), new g.THREE.Vector3(), 1);
       let s = 0;
@@ -456,6 +457,7 @@ await check("range: a UFO 500 blocks away can be hit; a UFO's shots reach the pl
         t += 0.05;
       }
     }
+    Math.random = rnd;
     return { hp0, hp1: p.health, t, fired: g.lasers.fired - startFired };
   });
   assert(r2.fired >= 1 && r2.hp1 < r2.hp0, `a shot from 380 blocks away hit the player: ${JSON.stringify(r2)}`);
@@ -535,7 +537,7 @@ await check("aliens face the player when they shoot, and chase at once after lea
     // Near, behind the player: they must turn to shoot.
     const near = [place("alien", 26, -3), place("alien_gray", 34, 0), place("alien_red", 18, 3)];
     // Far: they must come to the player at once.
-    const far = [place("alien", 110, 8)];
+    const far = [place("alien", 110, 8), place("alien_gray", -110, -30), place("alien", 30, 110)]; // (mobs have no path-finding: one may be stuck behind a cliff or water)
     const angles = [];
     const orig = g.mobs._shootLaser.bind(g.mobs);
     g.mobs._shootLaser = (m, follow) => {
@@ -549,17 +551,22 @@ await check("aliens face the player when they shoot, and chase at once after lea
       }
       return orig(m, follow);
     };
-    const farD0 = Math.hypot(far[0].pos.x - p.position.x, far[0].pos.z - p.position.z);
+    const dist = (m) => Math.hypot(m.pos.x - p.position.x, m.pos.z - p.position.z);
+    const farStart = far.map(dist);
+    const farD0 = farStart[0];
     let t = 0;
     while (t < 16) {
       g.mobs.update(0.05);
       t += 0.05;
       p.health = 20;
     }
-    const farD1 = Math.hypot(far[0].pos.x - p.position.x, far[0].pos.z - p.position.z);
+    const farEnd = far.map(dist);
+    const best = far.reduce((b, m, i) => (farStart[i] - farEnd[i] > farStart[b] - farEnd[b] ? i : b), 0);
+    const farD0b = farStart[best];
+    const farD1 = farEnd[best];
     g.mobs._shootLaser = orig;
-    const f = far[0];
-    return { angles, farD0, farD1, farInfo: { dead: f.dead, inList: g.mobs.mobs.includes(f), chunk: !!g.world.getChunk(Math.floor(f.pos.x) >> 4, Math.floor(f.pos.z) >> 4), aggro: f.aggro, state: f.ai?.state, yMob: f.pos.y, mode: g.player.mode, health: g.player.health, dead: g.player.dead } };
+    const f = far[best];
+    return { angles, farD0: farD0b, farD1, farInfo: { dead: f.dead, inList: g.mobs.mobs.includes(f), chunk: !!g.world.getChunk(Math.floor(f.pos.x) >> 4, Math.floor(f.pos.z) >> 4), aggro: f.aggro, state: f.ai?.state, yMob: f.pos.y, mode: g.player.mode, health: g.player.health, dead: g.player.dead } };
   });
   assert(r.angles.length >= 3, `they shoot: ${r.angles.length} shots`);
   assert(r.angles.every((a) => a < 0.45), `every shot was fired facing the player: max ${Math.max(...r.angles).toFixed(2)} rad`);
@@ -1254,7 +1261,7 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
       shots = g.lasers.fired - fired1;
       if (missiles > 0 || shots > 3) attacked = true;
     }
-    const out = { quiet, attacked, missiles, shots, hostile: e.hostile, alive: e.alive, cause: e.lastHitBy, dist: Math.round(e.pos.distanceTo(p)), agl: Math.round(e.pos.y - g.world.heightAt(Math.floor(e.pos.x), Math.floor(e.pos.z))), state: `${e.provoked > 0} ${e.ai.burstLeft} ${e.ai.missileT.toFixed(1)}` };
+    const out = { quiet, attacked, missiles, shots, hostile: e.hostile, alive: e.alive, cause: e.lastHitBy, dist: Math.round(e.pos.distanceTo(p)), agl: Math.round(e.pos.y - g.world.heightAt(Math.floor(e.pos.x), Math.floor(e.pos.z))), state: `${e.provoked > 0} ${e.ai.burstLeft} ${e.ai.missileT.toFixed(1)}`, player: [p.x, p.y, p.z].map(Math.round), jet: [e.pos.x, e.pos.y, e.pos.z].map(Math.round), groundP: g.world.heightAt(Math.floor(p.x), Math.floor(p.z)) };
     g.vehicles.remove(e);
     g.setMode("creative");
     g.enemyJets.config.count = 0;
