@@ -140,7 +140,7 @@ export class LodTerrain {
       out.depth = SEA_LEVEL - h;
     } else {
       out.top = h + 1;
-      out.id = surfaceBlocks(t.biomeAt(wx, wz), h).top;
+      out.id = t.sites.surfaceAt(wx, wz) || surfaceBlocks(t.biomeAt(wx, wz), h).top;
       out.depth = 0;
     }
     return out;

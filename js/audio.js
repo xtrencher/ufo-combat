@@ -679,6 +679,71 @@ export class Audio {
     o.stop(t + 0.1);
   }
 
+  // ---------- Jet and UFO gadgets ----------
+
+  _tone(freq, dur, { type = "square", vol = 0.06, at = 0, fEnd = null, attack = 0.005 } = {}) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime + at;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (fEnd) o.frequency.exponentialRampToValueAtTime(fEnd, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  // The missile salvo is ready: a rising two-note chirp.
+  playSalvoTone() {
+    this._cat("weapons");
+    this._tone(1400, 0.08, { vol: 0.07 });
+    this._tone(2100, 0.12, { vol: 0.07, at: 0.09 });
+  }
+
+  // Flares fired: a quick hiss and pops.
+  playFlare() {
+    this._cat("weapons");
+    this._hit({ type: "highpass", f: 3500, q: 0.6, d: 0.5, v: 0.18, attack: 0.01 });
+    for (let i = 0; i < 4; i++) this._hit({ type: "bandpass", f: 1800 + i * 300, q: 2, d: 0.08, v: 0.1, attack: 0.001 }, i * 0.06);
+  }
+
+  // Missile warning: a harsh double beep, higher and more urgent when close.
+  playMissileWarning(urgent = false) {
+    this._cat("ui");
+    this._tone(urgent ? 1900 : 1250, 0.09, { type: "sawtooth", vol: 0.09 });
+    if (urgent) this._tone(1900, 0.09, { type: "sawtooth", vol: 0.09, at: 0.11 });
+  }
+
+  // The autocannon is too hot: a dull click.
+  playOverheat() {
+    this._cat("weapons");
+    this._hit({ type: "lowpass", f: 400, q: 1, d: 0.08, v: 0.25, attack: 0.001 });
+    this._tone(300, 0.15, { type: "sawtooth", vol: 0.05, fEnd: 120 });
+  }
+
+  // The UFO's teleport dash: a rising zip and a soft boom on arrival.
+  playTeleport() {
+    this._cat("weapons");
+    this._tone(200, 0.22, { type: "sawtooth", vol: 0.1, fEnd: 2600 });
+    this._hit({ type: "lowpass", f: 200, q: 1, d: 0.4, v: 0.4, attack: 0.02 }, 0.2);
+    this._tone(1800, 0.3, { type: "sine", vol: 0.05, fEnd: 300, at: 0.2 });
+  }
+
+  // The UFO superweapon: a rising charge whine, then a huge roaring beam.
+  playSuperLaser(charge = 1.2, beam = 2.2) {
+    this._cat("weapons");
+    this._tone(90, charge, { type: "sawtooth", vol: 0.12, fEnd: 1400, attack: 0.3 });
+    this._tone(45, charge, { type: "sine", vol: 0.2, fEnd: 200, attack: 0.3 });
+    this._hit({ type: "lowpass", f: 120, q: 1, d: beam, v: 1.0, attack: 0.05 }, charge);
+    this._hit({ type: "bandpass", f: 600, fEnd: 250, q: 0.7, d: beam, v: 0.55, attack: 0.05 }, charge);
+    this._hit({ type: "highpass", f: 2500, q: 0.6, d: beam * 0.6, v: 0.25, attack: 0.05 }, charge);
+  }
+
   // A warning beep-beep (nuke away, incoming).
   playWarning() {
     this._cat("ui");

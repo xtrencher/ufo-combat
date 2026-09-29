@@ -15,7 +15,8 @@ import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
 import { Inventory, HOTBAR_SIZE, makeStack } from "./inventory.js";
-import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT } from "./items.js";
+import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM } from "./items.js";
+const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
 import { InventoryScreen } from "./inventory-ui.js";
@@ -34,12 +35,16 @@ import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
-import { MenuScreens, MenuFlyover, renderControls } from "./menu.js";
+import { MenuScreens, MenuFlyover, MenuPerf, renderControls } from "./menu.js";
 import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
 import "./vehicle-ufo.js";
 import "./vehicle-jet.js";
+import { EnemyJetManager } from "./enemy-jets.js";
+import { AirportManager } from "./airports.js";
+import { Progress, MISSIONS, rollLoot, alienColour } from "./progression.js";
+import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
@@ -338,7 +343,7 @@ settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = 
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
 // The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
-vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false };
+vehicles.config.jet = { maxSpeed: 220, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 settingsPanel.on("vehicles.jetMaxSpeed", (v) => {
   vehicles.config.jet.maxSpeed = v;
   ufos.jetMaxSpeed = v;
@@ -348,6 +353,17 @@ settingsPanel.on("vehicles.jetTurn", (v) => (vehicles.config.jet.turnRate = v));
 settingsPanel.on("vehicles.jetStall", (v) => (vehicles.config.jet.stallSpeed = v));
 settingsPanel.on("vehicles.jetAssist", (v) => (vehicles.config.jet.assist = v));
 settingsPanel.on("vehicles.jetAirborne", (v) => (vehicles.config.jet.airborne = v));
+settingsPanel.on("vehicles.jetAimAssist", (v) => (vehicles.config.jet.aimAssist = v));
+// Airports and cities (sites.js): aircraft parked on the aprons, runways to call the jet to.
+const airports = new AirportManager({ sites: world.terrain.sites, vehicles, world, player });
+// Enemy jets (patrolling neutral, hostile once provoked).
+const enemyJets = new EnemyJetManager({ vehicles, ufos, player, world });
+enemyJets.onDown = (jet, cause) => {
+  stats.add("enemyJetsDown");
+  if (hooks.onEnemyJetDown) hooks.onEnemyJetDown(jet, cause);
+};
+const hooks = {}; // late-bound game hooks (progression), see below
+settingsPanel.on("vehicles.enemyJets", (v) => (enemyJets.config.count = v));
 // The nuke dropped from the jet.
 const nuke = new NukeSystem({ scene, world, effects, audio });
 vehicles.nuke = nuke;
@@ -461,7 +477,7 @@ weapons.getLockables = () => {
 player.damageFilter = (amount, cause) => weapons.shieldFilter(amount, cause);
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
-  ignores: (b) => b.owner === "ufo" && !b.friendlyFire,
+  ignores: (b) => (b.owner === "ufo" || b.owner === "enemyjet") && !b.friendlyFire,
   raycast(origin, dir, maxDist, bolt) {
     const h = ufos.raycast(origin, dir, maxDist, (u) => u !== bolt.source);
     if (!h) return null;
@@ -480,7 +496,7 @@ lasers.addProvider({
   raycast(origin, dir, maxDist, bolt) {
     const h = vehicles.raycast(origin, dir, maxDist, bolt.source);
     if (!h) return null;
-    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : "player") };
+    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" ? "enemyjet" : "player") };
   },
 });
 // Enemy bolts hit the player on foot.
@@ -498,7 +514,7 @@ lasers.addProvider({
     return {
       distance: t,
       hit(b, point, d) {
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : "ufo_laser")) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" ? "enemyjet" : "ufo_laser")) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
@@ -521,7 +537,10 @@ vehicles.onAbduct = () => stats.add("animalsAbducted");
 ufos.onShotDown = (u, byPlayer) => {
   if (byPlayer) {
     stats.add("ufosDown");
+    if (u.size === "mothership" || u.size === "giant") stats.add("ufosDownBig");
     audio.playNotice();
+    // The wreck and its crew are loot (Survival): what falls out gets better as you go.
+    if (!player.creative && mods.enabled) dropLoot(rollLoot("ufo", u.size, progressTier(), ownedItems()), u.pos);
   }
 };
 ufos.onAbductPlayer = () => {
@@ -534,7 +553,10 @@ ufos.onEscape = () => {
 };
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
-  if (m.spec.alien) stats.add("aliensKilled");
+  if (m.spec.alien) {
+    stats.add("aliensKilled");
+    if (!player.creative && mods.enabled) dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), ownedItems()), new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z));
+  }
   else if (m.kind === "zombie") stats.add("zombiesKilled");
   else stats.add("mobsKilled");
 };
@@ -593,7 +615,7 @@ function findRunway() {
         const sz = p.z + Math.sin(ang) * r;
         for (let h = 0; h < 8; h++) {
           const yaw = (h / 8) * Math.PI * 2;
-          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 60);
+          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 110);
           if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
         }
       }
@@ -618,7 +640,9 @@ function callJet(force = false) {
   lastJetCall = ufos.time;
   removePlayerJets();
   const cfg = vehicles.config.jet;
-  const strip = cfg.airborne ? null : findRunway();
+  // An airport's runway if one is near (a long, flat, marked strip), else any flat strip.
+  const rw = cfg.airborne ? null : airports.runwayNear(player.position.x, player.position.z, 700);
+  const strip = rw ? { x: rw.x, y: rw.y, z: rw.z, yaw: rw.yaw, airport: rw.site } : cfg.airborne ? null : findRunway();
   const spawnAirborne = () => {
     const p = player.position;
     const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
@@ -634,7 +658,8 @@ function callJet(force = false) {
     playerJet.isPlayerJet = true;
     jetWatchT = 2.5;
     const dir = Math.round(((Math.atan2(strip.x - player.position.x, -(strip.z - player.position.z)) * 180) / Math.PI + 360) % 360);
-    toast(`Your jet has landed ${Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z))} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
+    const away = Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z));
+    toast(strip.airport ? `Your jet is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your jet has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
   } else {
     playerJet = spawnAirborne();
     toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
@@ -686,7 +711,8 @@ vehicles.onExit = () => {
   playerDirty = true;
 };
 vehicles.onPilotKilled = (cause, v) => {
-  player.damage(9999, v.type === "jet" ? (cause === "crash" ? "jet_crash" : "jet_down") : "ufo_down", { pierce: true });
+  const shotDown = cause === "enemyjet" || cause === "enemymissile";
+  player.damage(9999, shotDown ? cause : v.type === "jet" ? (cause === "crash" ? "jet_crash" : "jet_down") : "ufo_down", { pierce: true });
 };
 vehicles.onPilotHurt = () => {
   hud.hurt();
@@ -748,6 +774,53 @@ mods.onChange((on) => {
 });
 mods.set(settings.mods, { initial: true });
 stats.loadWorld(savedPlayer?.stats);
+
+// ---------- Missions, loot, supply crates ----------
+const progress = new Progress();
+progress.load(savedPlayer?.missions, stats.world);
+const progressTier = () => progress.tier(stats.world);
+const ownedItems = () => {
+  const set = new Set();
+  for (const s of inventory.slots) if (s) set.add(s.id);
+  return set;
+};
+// Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
+function dropLoot(list, at) {
+  for (const [id, n] of list) {
+    entities.spawn(id, n, new THREE.Vector3(at.x + (Math.random() - 0.5) * 1.5, at.y + 0.6, at.z + (Math.random() - 0.5) * 1.5), new THREE.Vector3((Math.random() - 0.5) * 4, 4 + Math.random() * 3, (Math.random() - 0.5) * 4));
+  }
+  if (list.length) stats.add("lootDropped", list.length);
+}
+hooks.onEnemyJetDown = (jet) => {
+  if (!player.creative && mods.enabled) dropLoot(rollLoot("enemyjet", null, progressTier(), ownedItems()), jet.pos.clone().setY(Math.max(jet.pos.y - 2, 3)));
+};
+const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
+crates.getTier = progressTier;
+crates.onMessage = (t) => toast(t, 5);
+function refreshSurvivalSystems() {
+  const on = mods.enabled && !player.creative;
+  crates.enabled = on;
+  progress.enabled = on;
+  if (!on) crates.clear();
+}
+mods.onChange(refreshSurvivalSystems);
+refreshSurvivalSystems();
+progress.onComplete = (m) => {
+  const owned = ownedItems();
+  const names = [];
+  for (const [id, n] of m.reward) {
+    // A weapon you already have becomes golden apples instead.
+    const isWeapon = !!itemInfo(id)?.weapon;
+    const give = isWeapon && owned.has(id) ? [ITEM_GOLDEN_APPLE, 2] : [id, n];
+    const left = inventory.add(give[0], give[1]);
+    if (left > 0) entities.spawn(give[0], left, player.position.clone().add(new THREE.Vector3(0, 1, 0)));
+    names.push(`${give[1] > 1 ? `${give[1]} x ` : ""}${itemInfo(give[0])?.name ?? "item"}`);
+  }
+  toast(`MISSION COMPLETE: ${m.title}. Reward: ${names.join(", ")}`, 6);
+  audio.playMission?.();
+  markInventoryChanged();
+  playerDirty = true;
+};
 
 // ---------- Mods screen ----------
 const modsCheckbox = document.getElementById("mods-enabled");
@@ -854,8 +927,48 @@ ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
 document.getElementById("world-state").textContent = savedPlayer ? `(saved ${savedPlayer.mode === "creative" ? "creative" : "survival"} world)` : "(new world)";
 // The main menu's background: a slow flyover with a UFO drifting by.
-const flyover = new MenuFlyover(scene, world);
+const flyover = new MenuFlyover(scene, world, { effects, audio });
 flyover.setCenter(player.position);
+// Shoot it: click the saucer that flies by (a few hits and it blows up).
+const menuScoreEl = document.getElementById("menu-score");
+const menuScoreN = document.getElementById("menu-score-n");
+const menuUfoHint = document.getElementById("menu-ufo-hint");
+flyover.onScore = (n) => {
+  menuScoreN.textContent = String(n);
+  menuScoreEl.classList.remove("hidden");
+};
+const menuNdc = (e) => {
+  const r = canvas.getBoundingClientRect();
+  return [((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1)];
+};
+ui.startMenuEl.addEventListener("mousedown", (e) => {
+  if (gameState !== "start" || e.target !== ui.startMenuEl || e.button !== 0) return;
+  audio.ensureStarted();
+  const [nx, ny] = menuNdc(e);
+  const r = flyover.shoot(nx, ny);
+  if (!r) audio.playRicochet?.(30); // a miss: a whiz past
+});
+ui.startMenuEl.addEventListener("mousemove", (e) => {
+  if (gameState !== "start") return;
+  const [nx, ny] = menuNdc(e);
+  ui.startMenuEl.classList.toggle("aim-ufo", e.target === ui.startMenuEl && flyover.hovering(nx, ny));
+});
+// The frame rate readout, the advice for slow computers, and rotating tips.
+const menuPerf = new MenuPerf({
+  fpsEl: document.getElementById("menu-fps"),
+  recEl: document.getElementById("fps-recommend"),
+  recTextEl: document.getElementById("fps-recommend-text"),
+  recBtn: document.getElementById("fps-recommend-apply"),
+  tipEl: document.getElementById("menu-tip"),
+  onApply: (preset) => {
+    if (!PRESET_ORDER.includes(preset)) {
+      document.getElementById("fps-recommend").classList.add("hidden");
+      return;
+    }
+    ui.startGraphicsSelect.value = preset;
+    ui.startGraphicsSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  },
+});
 held.setItem(inventory.selectedStack?.id ?? 0, true);
 
 function playerState() {
@@ -873,6 +986,7 @@ function playerState() {
     time: round3(sky.time),
     modStash: mods.serialize(),
     loadout: loadoutGiven,
+    missions: progress.serialize(),
     vehicles: vehicles.serialize(),
     stats: stats.world,
   };
@@ -973,6 +1087,9 @@ const DEATH_MESSAGES = {
   nuke_fall: "Blown away by your own nuke",
   missile: "Hit by your own missile",
   cannon: "Hit by your own jet's cannon",
+  enemyjet: "Shot down by an enemy fighter",
+  enemymissile: "Hit by an enemy missile",
+  enemymissile_fall: "Blown out of the sky by an enemy missile",
 };
 let lastBlastHitTime = -Infinity;
 let lastBlastSource = "grenade";
@@ -1056,7 +1173,7 @@ hud.respawnBtn.addEventListener("click", respawn);
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
 effects.onExplosion = (center, radius, source) => {
-  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom";
+  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile";
   mobs.explosion(center, radius, byPlayer);
   ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
   vehicles.explosion(center, radius);
@@ -1093,14 +1210,18 @@ effects.onExplosion = (center, radius, source) => {
 function setMode(mode) {
   const before = player.mode;
   player.setMode(mode);
+  refreshSurvivalSystems();
   ui.setModeShown(player.mode);
-  if (player.creative && before !== "creative") {
-    if (inventory.isEmpty()) fillCreativeHotbar();
-    // Creative has every weapon.
-    if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
-    markInventoryChanged();
-  }
+  // (On the start menu the items are only handed out when Play is pressed.)
+  if (player.creative && before !== "creative" && gameState !== "start") giveCreativeItems();
   playerDirty = true;
+}
+
+// Creative: the starter blocks if the inventory is empty, and every weapon.
+function giveCreativeItems() {
+  if (inventory.isEmpty()) fillCreativeHotbar();
+  if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
+  markInventoryChanged();
 }
 
 ui.modeSelect.addEventListener("change", () => setMode(ui.modeSelect.value));
@@ -1469,6 +1590,8 @@ function showPause() {
 ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
   setMode(ui.modeSelect.value);
+  // (A world that hasn't had its starting loadout yet gets Creative's from fillStartingWeapons.)
+  if (player.creative && loadoutGiven) giveCreativeItems();
   fillStartingWeapons(newWorld);
   markInventoryChanged();
   saveJSON("last", { seed: SEED });
@@ -1630,6 +1753,7 @@ window.addEventListener("keydown", (e) => {
   if (vehicles.active) {
     if (!e.repeat) vehicles.keyDown(e.code);
     if (e.code === "KeyF" && !e.repeat) vehicles.toggle();
+    if (e.code === "KeyI" && !e.repeat) vehicles.toggleInfo();
     return;
   }
   const idx = DIGIT_CODES.indexOf(e.code);
@@ -1656,6 +1780,16 @@ function toggleDebug() {
   debugShown = !debugShown;
   debugEl.classList.toggle("hidden", !debugShown);
   debugTimer = 0;
+}
+
+// F3: the nearest airport or city (a jet needs a runway: J calls one to it).
+function airportLine(p) {
+  const a = airports.nearest(3500);
+  if (!a) return "Airports: none within 3500 blocks";
+  const dx = a.site.x - p.x;
+  const dz = a.site.z - p.z;
+  const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) / 45) % 8];
+  return `Nearest ${a.site.kind === "city" ? "city (with airport)" : "airport"}: ${Math.round(a.dist)} blocks ${dir}  (${a.site.x}, ${a.site.z})`;
 }
 
 const FACING = ["north (-Z)", "west (-X)", "south (+Z)", "east (+X)"];
@@ -1686,6 +1820,7 @@ function updateDebug(dt, frameTime) {
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
     `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
     `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
+    airportLine(p),
     `Draw calls: ${info.render.calls}   Triangles: ${info.render.triangles}   Geometries: ${info.memory.geometries}   Textures: ${info.memory.textures}`,
   ];
   if (target && target.block) lines.push(`Looking at: ${target.block.join(" ")}  (${BLOCK_INFO[target.id]?.name ?? target.id})`);
@@ -1866,6 +2001,13 @@ window.__ufo = window.__voxelands = {
   weapons,
   lasers,
   nuke,
+  enemyJets,
+  airports,
+  sites: world.terrain.sites,
+  progress,
+  crates,
+  dropLoot,
+  rollLoot,
   perf,
   callJet,
   findRunway,
@@ -1978,6 +2120,8 @@ function updateBeamFeedback() {
 // The jet's lock box (on the target) and nose marker (where it points).
 const lockBoxEl = document.getElementById("lock-box");
 const jetNoseEl = document.getElementById("jet-nose");
+const missileWarnEl = document.getElementById("missile-warn");
+const missileWarnTextEl = missileWarnEl.querySelector(".mw-text");
 const _lockV = new THREE.Vector3();
 function updateJetOverlay() {
   const v = vehicles.active;
@@ -1997,12 +2141,58 @@ function updateJetOverlay() {
   if (lock) {
     place(lockBoxEl, lock);
     lockBoxEl.classList.toggle("locked", lock.locked);
+    lockBoxEl.classList.toggle("salvo", !!lock.salvo);
     const size = lock.locked ? 40 : 80 - lock.progress * 40;
     lockBoxEl.style.width = lockBoxEl.style.height = `${size}px`;
     lockBoxEl.style.margin = `${-size / 2}px 0 0 ${-size / 2}px`;
   }
   jetNoseEl.classList.toggle("hidden", !o?.nose || v.cameraModes[v.cameraMode] === "cockpit");
   if (o?.nose) place(jetNoseEl, o.nose);
+  // Incoming missile: an arrow pointing where it comes from, blinking faster as it closes.
+  const w = o?.warn;
+  missileWarnEl.classList.toggle("hidden", !w);
+  if (w) {
+    missileWarnEl.firstElementChild.style.transform = `rotate(${w.angle}rad)`;
+    missileWarnEl.classList.toggle("fast", w.dist < 350);
+    missileWarnEl.classList.toggle("slow", w.dist >= 350);
+    missileWarnTextEl.textContent = w.kind === "missile" ? `MISSILE ${Math.round(w.dist)}` : "INCOMING";
+  }
+}
+// The mission tracker (Survival): the current mission, its objectives, and
+// the way to a supply crate that is on the ground.
+const missionEl = document.getElementById("mission-tracker");
+let missionT = 0;
+let missionSig = "";
+function updateMissions(dt) {
+  const show = gameState === "playing" && crates.enabled && !hudHidden;
+  ufos.difficulty = player.creative ? 0.5 : progress.difficulty(stats.world);
+  if (!show) {
+    if (!missionEl.classList.contains("hidden")) missionEl.classList.add("hidden");
+    return;
+  }
+  missionT -= dt;
+  if (missionT > 0) return;
+  missionT = 0.4;
+  progress.update(stats.world);
+  const m = progress.mission;
+  const parts = [];
+  if (m) {
+    parts.push(`<div class="mt-title">MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}</div><div class="mt-text">${m.text}</div>`);
+    for (const o of progress.objectives(stats.world)) parts.push(`<div class="mt-obj${o.value >= o.goal ? " done" : ""}">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${o.label}: ${o.value}/${o.goal}</div>`);
+  } else {
+    parts.push(`<div class="mt-title">ALL MISSIONS COMPLETE</div>`);
+  }
+  const c = crates.nearest(player.position.x, player.position.z);
+  if (c) {
+    const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((Math.atan2(c.dx, -c.dz) * 180) / Math.PI + 360) / 45) % 8];
+    parts.push(`<div class="mt-crate">Supply crate: ${Math.round(c.dist)} blocks ${dir}</div>`);
+  }
+  const html = parts.join("");
+  if (html !== missionSig) {
+    missionSig = html;
+    missionEl.innerHTML = html;
+  }
+  missionEl.classList.remove("hidden");
 }
 // First-time hints: short tips at the moments they're useful (once per
 // session each).
@@ -2091,10 +2281,14 @@ function animate() {
     // Vehicles (the seated player rides along) and UFOs.
     vehicles.night = worldUniforms.uNight.value;
     vehicles.update(dt);
+    enemyJets.update(dt);
+    airports.update(dt);
+    crates.update(dt);
     updateJetWatch(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     updateAltitudeView(dt);
     ufos.viewDistance = viewRD * 16;
+    vehicles.viewRange = viewRD * 16;
     weapons.viewRange = viewRD * 16;
     ufos.update(dt);
     nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition());
@@ -2111,6 +2305,10 @@ function animate() {
     lasers.update(dt);
   } else if (gameState === "start") {
     flyover.update(dt, camera, worldUniforms.uNight.value);
+    effects.listener.copy(camera.position);
+    effects.update(dt);
+    menuPerf.update(frameTime, graphicsPreset);
+    menuUfoHint.classList.toggle("hidden", !(flyover.ufoVisible && flyover.score === 0));
   } else if (vehicles.active) {
     vehicles.updateCamera(camera, 0); // keep the view behind the menus sensible
   } else {
@@ -2129,6 +2327,7 @@ function animate() {
   updateBeamFeedback();
   updateJetOverlay();
   updateHints(dt);
+  updateMissions(dt);
   updateStatsOverlay(dt);
   if (gameState === "playing") interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();

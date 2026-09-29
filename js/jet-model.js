@@ -5,14 +5,24 @@
 // outward, and twin engines with square thrust-vectoring nozzles and an
 // afterburner glow that grows with the throttle.
 //
+// Detail: a dark radome and pitot probe, weapon-bay and panel lines,
+// leading-edge flaps, engine nozzle petals, retractable landing gear (down
+// on the ground, folded away in the air), wingtip navigation lights and a
+// layered afterburner (white-hot core, orange plume, shock diamonds).
+// `paint`: "raptor" (the player's grey) or "enemy" (charcoal with red).
+//
 // Model space: nose toward -Z, up +Y, right +X; about 15 blocks long.
 import * as THREE from "three";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { LAYER_FX } from "./layers.js";
 
-const GREY = 0x7c848c;
-const GREY_DARK = 0x5d646c;
-const GREY_LIGHT = 0x9aa2a9;
+const PAINTS = {
+  raptor: { grey: 0x7c848c, dark: 0x5d646c, light: 0x9aa2a9, accent: 0x3a3e44, canopy: 0xb89a3c },
+  enemy: { grey: 0x3e4148, dark: 0x25272c, light: 0x585c66, accent: 0x8a1c1c, canopy: 0x8a3030 },
+};
+let GREY = PAINTS.raptor.grey;
+let GREY_DARK = PAINTS.raptor.dark;
+let GREY_LIGHT = PAINTS.raptor.light;
 
 function colorize(geo, hex, shade = null) {
   const c = new THREE.Color(hex).convertSRGBToLinear();
@@ -120,10 +130,14 @@ function section(z, w, top, bottom, chine = 0) {
   };
 }
 
-let cached = null;
+const cachedByPaint = {};
 
-function buildGeometry() {
-  if (cached) return cached;
+function buildGeometry(paint = "raptor") {
+  if (cachedByPaint[paint]) return cachedByPaint[paint];
+  const pal = PAINTS[paint] || PAINTS.raptor;
+  GREY = pal.grey;
+  GREY_DARK = pal.dark;
+  GREY_LIGHT = pal.light;
   const parts = [];
   // Fuselage: the pointed nose, the widening chined forebody, the broad
   // body between the intakes and engines, and the tail end.
@@ -207,6 +221,31 @@ function buildGeometry() {
   }
   // Landing gear doors / belly details (a darker strip) and a probe light.
   parts.push(colorize(new THREE.BoxGeometry(1.2, 0.05, 5).translate(0, -0.58, 0.8), GREY_DARK));
+  // Radome (dark nose cone) and the pitot probe.
+  parts.push(colorize(new THREE.ConeGeometry(0.3, 1.5, 8).rotateX(-Math.PI / 2).translate(0, 0, -6.95), pal.accent));
+  parts.push(colorize(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5).rotateX(Math.PI / 2).translate(0, 0, -8.05), 0xb8bcc2));
+  // Weapon bays (long dark outlines under the belly) and panel lines on the back.
+  for (const x of [-0.42, 0.42]) parts.push(colorize(new THREE.BoxGeometry(0.03, 0.02, 3.2).translate(x, -0.6, -0.9), 0x22252a));
+  parts.push(colorize(new THREE.BoxGeometry(0.9, 0.02, 0.03).translate(0, -0.6, -2.5), 0x22252a));
+  parts.push(colorize(new THREE.BoxGeometry(0.9, 0.02, 0.03).translate(0, -0.6, 0.7), 0x22252a));
+  for (const z of [-1.2, 1.5, 3.4]) parts.push(colorize(new THREE.BoxGeometry(2.4, 0.015, 0.03).translate(0, 0.62, z), GREY_DARK));
+  parts.push(colorize(new THREE.BoxGeometry(0.03, 0.015, 6).translate(0, 0.66, 0.4), GREY_DARK));
+  // Wing leading-edge flaps and trailing-edge flaperons (darker strips).
+  for (const s of [1, -1]) {
+    parts.push(colorize(new THREE.BoxGeometry(4.6, 0.03, 0.22).rotateY(s * -0.62).translate(s * 4.0, -0.04, 0.05), GREY_DARK));
+    parts.push(colorize(new THREE.BoxGeometry(3.4, 0.03, 0.35).rotateY(s * 0.2).translate(s * 3.4, -0.04, 3.55), GREY_DARK));
+    // A red / dark accent on the tail fins (roundel-free markings).
+    const stripe = new THREE.BoxGeometry(0.03, 0.5, 0.9).rotateZ(-s * 0.49).translate(s * 2.1, 1.75, 6.0);
+    parts.push(colorize(stripe, pal.accent));
+  }
+  // Engine nozzle petals: a ring of small plates around each nozzle.
+  for (const s of [1, -1]) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const petal = new THREE.BoxGeometry(0.2, 0.03, 0.55).rotateZ(a).translate(s * 0.62 + Math.cos(a) * 0.5, -0.02 + Math.sin(a) * 0.34, 7.45);
+      parts.push(colorize(petal, 0x2a2d32));
+    }
+  }
   const hull = merge(parts);
 
   // Canopy: a long, gold-tinted bubble.
@@ -214,8 +253,21 @@ function buildGeometry() {
   canopy.scale(0.52, 0.5, 1.9);
   canopy.translate(0, 0.42, -3.9);
 
-  cached = { hull, canopy };
-  return cached;
+  cachedByPaint[paint] = { hull, canopy, pal };
+  return cachedByPaint[paint];
+}
+
+// Landing gear: strut, wheel(s) and a door plate, hanging down from a pivot
+// at the origin (the strut's top). Returns { group, wheelGeo shared }.
+function gearLeg(wheels, wheelR, len, spread) {
+  const parts = [];
+  parts.push(colorize(new THREE.CylinderGeometry(0.07, 0.07, len, 6).translate(0, -len / 2, 0), 0xb8bcc2));
+  for (const w of wheels) {
+    parts.push(colorize(new THREE.CylinderGeometry(wheelR, wheelR, 0.2, 12).rotateZ(Math.PI / 2).translate(w, -len, 0), 0x16171a));
+    parts.push(colorize(new THREE.CylinderGeometry(wheelR * 0.5, wheelR * 0.5, 0.22, 8).rotateZ(Math.PI / 2).translate(w, -len, 0), 0x9aa0a8));
+  }
+  parts.push(colorize(new THREE.BoxGeometry(spread, 0.05, 0.3).translate(0, -0.3, 0), GREY_DARK));
+  return merge(parts);
 }
 
 function flameTexture() {
@@ -240,9 +292,26 @@ function flameTexture() {
 
 let flameTex = null;
 
-// Creates a jet model: { root, light, setThrottle(throttle, afterburner, t) }.
-export function createJetModel(scale = 1) {
-  const { hull, canopy } = buildGeometry();
+let glowTex = null;
+function softGlowTexture() {
+  if (glowTex) return glowTex;
+  const c = document.createElement("canvas");
+  c.width = c.height = 32;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.4, "rgba(255,255,255,0.35)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 32, 32);
+  glowTex = new THREE.CanvasTexture(c);
+  return glowTex;
+}
+
+// Creates a jet model: { root, light, setThrottle(throttle, afterburner, t),
+// setGear(0-1, 1 = down), setLights(t, night) }.
+export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
+  const { hull, canopy, pal } = buildGeometry(paint);
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.scale.setScalar(scale);
@@ -252,9 +321,24 @@ export function createJetModel(scale = 1) {
   hullMesh.castShadow = true;
   bindEntityLight(hullMesh, () => light);
   body.add(hullMesh);
-  const canopyMesh = new THREE.Mesh(canopy, new THREE.MeshStandardMaterial({ color: 0xb89a3c, metalness: 0.9, roughness: 0.15, envMapIntensity: 1, transparent: true, opacity: 0.85 }));
+  const canopyMesh = new THREE.Mesh(canopy, new THREE.MeshStandardMaterial({ color: pal.canopy, metalness: 0.9, roughness: 0.15, envMapIntensity: 1, transparent: true, opacity: 0.85 }));
   body.add(canopyMesh);
-  // Afterburner flames: additive cones out of each nozzle.
+  // Landing gear: nose leg forward, main legs under the intakes.
+  GREY_DARK = pal.dark;
+  const gearMat = createEntityMaterial("color");
+  const mkGear = (geo, x, y, z) => {
+    const m = new THREE.Mesh(geo, gearMat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    bindEntityLight(m, () => light);
+    body.add(m);
+    return m;
+  };
+  const noseGeo = gearLeg([-0.13, 0.13], 0.2, 0.65, 0.5);
+  const mainGeo = gearLeg([0], 0.3, 0.6, 0.5);
+  const gear = { nose: mkGear(noseGeo, 0, -0.5, -4.6), left: mkGear(mainGeo, -1.6, -0.45, 2.0), right: mkGear(mainGeo, 1.6, -0.45, 2.0) };
+  let gearT = 1;
+  // Afterburner flames: layered additive cones out of each nozzle.
   if (!flameTex) flameTex = flameTexture();
   const flames = [];
   for (const s of [1, -1]) {
@@ -266,12 +350,43 @@ export function createJetModel(scale = 1) {
     flame.layers.set(LAYER_FX);
     flame.renderOrder = 12;
     body.add(flame);
-    // A hot glowing disc inside the nozzle.
+    // The white-hot core inside the plume.
+    const core = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1, 10, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 4.2, 5), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true }));
+    core.position.set(s * 0.62, -0.02, 7.62);
+    core.layers.set(LAYER_FX);
+    core.renderOrder = 13;
+    body.add(core);
+    // Shock diamonds: bright beads along the afterburner plume.
+    const diamonds = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color: new THREE.Color(3.2, 3.4, 5), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+      d.layers.set(LAYER_FX);
+      d.visible = false;
+      d.position.set(s * 0.62, -0.02, 8.4 + i * 0.95);
+      body.add(d);
+      diamonds.push(d);
+    }
+    // A hot glowing disc inside the nozzle, and a soft halo behind it.
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.4).rotateY(Math.PI), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 1.2, 0.5), fog: true }));
     glow.position.set(s * 0.62, -0.02, 7.6);
     body.add(glow);
-    flames.push({ flame, glow });
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color: new THREE.Color(2, 1.1, 0.5), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+    halo.layers.set(LAYER_FX);
+    halo.position.set(s * 0.62, -0.02, 7.9);
+    halo.scale.setScalar(1.5);
+    body.add(halo);
+    flames.push({ flame, core, glow, halo, diamonds });
   }
+  // Navigation lights: red (left) and green (right) wingtips, white tail strobes.
+  const navSprite = (color, x, y, z, size) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+    sp.layers.set(LAYER_FX);
+    sp.position.set(x, y, z);
+    sp.scale.setScalar(size);
+    body.add(sp);
+    return sp;
+  };
+  const nav = [navSprite(new THREE.Color(4, 0.2, 0.2), -6.6, -0.05, 2.0, 0.9), navSprite(new THREE.Color(0.2, 4, 0.3), 6.6, -0.05, 2.0, 0.9), navSprite(new THREE.Color(4, 4, 4.5), -3.6, 2.2, 6.4, 0.8), navSprite(new THREE.Color(4, 4, 4.5), 3.6, 2.2, 6.4, 0.8)];
   return {
     root,
     body,
@@ -284,14 +399,47 @@ export function createJetModel(scale = 1) {
     setThrottle(throttle, afterburner, t) {
       for (const f of flames) {
         const flicker = 0.9 + Math.sin(t * 43 + f.flame.position.x * 7) * 0.1;
-        const len = afterburner ? 4.5 + Math.sin(t * 31) * 0.4 : 0.4 + throttle * 1.6;
-        f.flame.scale.set(afterburner ? 1.1 : 0.8, afterburner ? 1.1 : 0.8, len * flicker);
+        const len = afterburner ? 5.6 + Math.sin(t * 31) * 0.5 : 0.4 + throttle * 1.8;
+        f.flame.scale.set(afterburner ? 1.15 : 0.8, afterburner ? 1.15 : 0.8, len * flicker);
         f.flame.visible = throttle > 0.05 || afterburner;
         f.flame.material.color.setRGB(afterburner ? 2.2 : 3, afterburner ? 2.2 : 1.6, afterburner ? 3.2 : 0.8);
         f.flame.material.opacity = afterburner ? 1 : 0.35 + throttle * 0.5;
+        f.core.visible = f.flame.visible && throttle > 0.3;
+        f.core.scale.set(afterburner ? 1.05 : 0.7, afterburner ? 1.05 : 0.7, len * 0.55 * flicker);
+        f.core.material.opacity = afterburner ? 0.95 : 0.35 * throttle;
+        for (let i = 0; i < f.diamonds.length; i++) {
+          const d = f.diamonds[i];
+          d.visible = afterburner;
+          if (afterburner) d.scale.setScalar((0.55 - i * 0.09) * (0.85 + 0.25 * Math.sin(t * 60 + i * 2)));
+        }
         const g = 0.4 + throttle * 1.6 + (afterburner ? 2 : 0);
         f.glow.material.color.setRGB(g * 1.3, g * 0.6, g * 0.3);
+        f.halo.visible = throttle > 0.05;
+        f.halo.material.color.setRGB(g * 0.8, g * 0.4, g * 0.25 + (afterburner ? 0.5 : 0));
+        f.halo.scale.setScalar(1.2 + throttle * 1.2 + (afterburner ? 1.6 : 0));
       }
+    },
+    // 1 = wheels down (on the ground, taking off), 0 = folded away.
+    setGear(down) {
+      gearT = down;
+      const v = down > 0.02;
+      for (const g of Object.values(gear)) g.visible = v;
+      // The nose leg folds forward, the main legs inward.
+      gear.nose.rotation.x = (1 - down) * 1.5;
+      gear.left.rotation.z = (1 - down) * -1.4;
+      gear.right.rotation.z = (1 - down) * 1.4;
+      gear.nose.position.y = -0.5 + (1 - down) * 0.2;
+    },
+    get gear() {
+      return gearT;
+    },
+    // Wingtip navigation lights and tail strobes (t: time; dark: 0-1 night).
+    setLights(t, dark = 0) {
+      const strobe = (t % 1.2) < 0.08 ? 1 : 0;
+      nav[0].visible = nav[1].visible = true;
+      nav[0].material.color.setRGB(4 * (0.6 + 0.4 * dark), 0.2, 0.2);
+      nav[1].material.color.setRGB(0.2, 4 * (0.6 + 0.4 * dark), 0.3);
+      nav[2].visible = nav[3].visible = strobe > 0 || (t % 1.2) > 0.4 && (t % 1.2) < 0.47;
     },
   };
 }

@@ -32,6 +32,14 @@ export class UI {
     this.startNoticeEl = document.getElementById("start-notice");
     this.modeSelect = document.getElementById("mode-select");
     this.modeHintEl = document.getElementById("mode-hint");
+    // The two mode cards on the main menu drive the (hidden) select.
+    this.modeCards = [...document.querySelectorAll(".mode-card")];
+    for (const card of this.modeCards) {
+      card.addEventListener("click", () => {
+        this.modeSelect.value = card.dataset.mode;
+        this.modeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
     this.pauseModeSelect = document.getElementById("pause-mode-select");
     this.pauseModeHintEl = document.getElementById("pause-mode-hint");
     this.scopeOverlayEl = document.getElementById("scope-overlay");
@@ -43,6 +51,7 @@ export class UI {
   setModeShown(mode) {
     this.modeSelect.value = mode;
     this.pauseModeSelect.value = mode;
+    for (const card of this.modeCards) card.classList.toggle("active", card.dataset.mode === mode);
     this.modeHintEl.textContent = MODE_HINTS[mode] || "";
     this.pauseModeHintEl.textContent = MODE_HINTS[mode] || "";
   }

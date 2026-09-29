@@ -8,6 +8,7 @@ import { BLOCK } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME, BiomeSource, isSnowy, isOceanBiome } from "./biomes.js";
 import { VillageGrower } from "./village.js";
+import { SiteGrower } from "./sites.js";
 
 const BASE_HEIGHT = 26;
 const AMPLITUDE = 14;
@@ -88,6 +89,7 @@ export class TerrainGenerator {
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
     this.biomes = new BiomeSource(this.seed);
+    this.sites = new SiteGrower(this); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
   }
@@ -97,6 +99,13 @@ export class TerrainGenerator {
   // river channel), computed together so callers that need both (chunk
   // generation) don't pay for the noise twice.
   _terrainInfo(wx, wz) {
+    const info = this._baseInfo(wx, wz);
+    info.height = this.sites.adjust(wx, wz, info.height);
+    return info;
+  }
+
+  // The natural terrain, before airports and cities flatten their pads.
+  _baseInfo(wx, wz) {
     const n = this.noise;
     const continent = n.fbm2(wx, wz, 3, 0.5, 2, CONTINENT_FREQ);
     const detail = n.fbm2(wx, wz, 4, 0.5, 2, 1 / 80);
@@ -319,6 +328,8 @@ export class TerrainGenerator {
     // Villages: placed last so they overwrite any trees or ground cover in
     // their footprint with a flattened pad, houses, paths and a farm plot.
     this.villages.placeInChunk(blocks, chunk.cx, chunk.cz);
+    // Airports and cities: levelled pads with runways, hangars, streets, towers.
+    this.sites.placeInChunk(blocks, chunk.cx, chunk.cz);
   }
 
   _carveCaves(blocks, baseX, baseZ, hAt) {

@@ -146,6 +146,7 @@ export class UfoManager {
     this.attackers = 0; // UFOs attacking the player right now (at most MAX_ATTACKERS)
     // Hooks.
     this.onShotDown = null; // (ufo, byPlayer) => void
+    this.difficulty = 0.35; // 0-1, from the player's progress (progression.js): a gentle sky first, bigger and angrier UFOs later
     this.onCrash = null; // ({ ufo, pos, exploded, wreck, byPlayer }) => void
     this.onAbductPlayer = null; // (ufo) => void
     this.onEscape = null; // (ufo) => void: the player escaped a beam
@@ -194,10 +195,28 @@ export class UfoManager {
 
   // ---------- Spawning ----------
 
+  // The aggression setting, scaled by the difficulty curve (0.6x at the start, 1.4x at the end).
+  _agg() {
+    return this.config.aggression * (0.6 + 0.8 * this.difficulty);
+  }
+
+  // Size odds: with "balanced" they follow the difficulty curve: small and
+  // medium saucers at first, motherships and giants only much later.
+  _sizeWeights() {
+    const base = SIZE_WEIGHTS[this.config.sizes] || SIZE_WEIGHTS.balanced;
+    if (this.config.sizes !== "balanced") return base;
+    const easy = { small: 6, medium: 3, large: 0.5, mothership: 0.03, giant: 0 };
+    const hard = { small: 2.5, medium: 4, large: 3, mothership: 0.7, giant: 0.18 };
+    const d = Math.max(0, Math.min(1, this.difficulty));
+    const out = {};
+    for (const k in easy) out[k] = easy[k] + (hard[k] - easy[k]) * d;
+    return out;
+  }
+
   // Spawns a UFO. opts: { design | spec, size, radius, pos, hidden, state, personality, glow }.
   // Without a position it appears somewhere the player can't see.
   spawn(opts = {}) {
-    const size = opts.size || pickWeighted(SIZE_WEIGHTS[this.config.sizes] || SIZE_WEIGHTS.balanced);
+    const size = opts.size || pickWeighted(this._sizeWeights());
     const S = SIZES[size] || SIZES.small;
     const spec = opts.spec || (opts.design ? { design: opts.design, seed: (Math.random() * 1e6) | 0, glow: opts.glow ?? !opts.design.includes("dark") } : randomUfoSpec(Math.random, { glow: opts.glow }));
     const design = spec.design;
@@ -424,6 +443,7 @@ export class UfoManager {
     u.hurtTime = 0;
     if (byPlayer) {
       u.byPlayer = true;
+      this.lastPlayerAttack = this.time; // the alien air force takes notice
       this._provoked(u);
     }
     if (u.health <= 0) this._shotDown(u);
@@ -452,7 +472,7 @@ export class UfoManager {
     } else if (!pv && !u.hostile) {
       // Shooting one on foot can stir up its neighbours a little.
       for (const o of this.ufos) {
-        if (o !== u && !o.hostile && !o.falling && o.pos.distanceTo(u.pos) < 120 && Math.random() < 0.15 * this.config.aggression) this.anger(o, rand(20, 40));
+        if (o !== u && !o.hostile && !o.falling && o.pos.distanceTo(u.pos) < 120 && Math.random() < 0.15 * this._agg()) this.anger(o, rand(20, 40));
       }
     }
     this.anger(u);
@@ -467,7 +487,7 @@ export class UfoManager {
     // React (on foot): counterattack, fly in to beam, or evade.
     if (!pv) {
       const w = u.personality === "fighter" ? { counter: 5, beam: 3, evade: 2 } : u.personality === "evader" ? { counter: 2.5, beam: 1.5, evade: 6 } : { counter: 3, beam: 2, evade: 4 };
-      const agg = this.config.aggression;
+      const agg = this._agg();
       w.counter *= 0.4 + agg;
       w.beam *= agg * (this.player.creative ? 0 : 1) * (u.style === "abductor" ? 2.5 : 0.6);
       u.reaction = pickWeighted(w);
@@ -757,7 +777,7 @@ export class UfoManager {
   // Temper: calms down, gets stared at, snaps on its own.
   _updateMood(u, dt, tgt, dist) {
     const cfg = this.config;
-    const agg = cfg.aggression;
+    const agg = this._agg();
     if (u.hostile) {
       u.hostileT -= dt;
       const lost = this.time - u.lastSeen > 25 || dist > this.range * 1.4;
@@ -1142,7 +1162,7 @@ export class UfoManager {
     // Fire on the way in and while it holds position.
     if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, tgt.pos)) {
       const st = STYLES[u.style] || STYLES.volley;
-      u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this.config.aggression * 0.5);
+      u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this._agg() * 0.5);
       if (u.style === "abductor") u.shotT *= 1.6;
       this._fireAt(u, tgt.pos, tgt.vel, u.S.idx >= 3 ? 3 : 1);
     }
@@ -1291,7 +1311,7 @@ export class UfoManager {
     this._steer(u, goal, topSpeed, dt, 2.2);
     if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, v.pos)) {
       const st = STYLES[u.style] || STYLES.volley;
-      u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this.config.aggression * 0.5);
+      u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this._agg() * 0.5);
       this._fireAt(u, v.pos, v.vel, u.S.idx >= 3 ? 3 : 1, v);
       v.incoming = 2;
     }

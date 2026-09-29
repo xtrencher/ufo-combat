@@ -8,7 +8,7 @@ import { worldUniforms, createSkyMaterial } from "./shaders.js";
 export const DAY_LENGTH = 600; // seconds for a full day/night cycle
 const DAY_SHARE = 0.62; // fraction of the cycle with the sun above the horizon
 const SUN_TILT = 0.42; // radians the sun's path is tilted off the zenith
-const START_ANGLE = 0.33 * Math.PI; // mid-morning
+const START_ANGLE = ((17 + 50 / 60 - 6) / 12) * Math.PI; // a new world starts at 17:50, in the golden hour before sunset
 
 // Keyframes indexed by sun elevation e = sunDir.y (-1..1). Colors are HDR linear.
 const KEYS = [

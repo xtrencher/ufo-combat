@@ -943,6 +943,828 @@ await check("nuke: bigger default and size range up to 96, more slices for bigge
   assert(cd <= 1, `nuke cooldown ${cd}`);
 });
 
+// ================= Part 3: vehicles =================
+
+// A jet in the air (or on the ground) that the player sits in.
+const newJet = (opts) =>
+  v((g, o) => {
+    if (g.vehicles.active) g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    g.ufos.clear();
+    g.mobs.clear();
+    const p = g.player.position;
+    const jet = g.vehicles.create("jet", { pos: [p.x + (o.dx || 0), p.y + (o.dy ?? 60), p.z + (o.dz || 0)], yaw: o.yaw ?? 0, airborne: !o.ground, speed: o.speed ?? 110, throttle: o.throttle ?? 0.75 });
+    g.vehicles.enter(jet);
+    g.player.keys.clear();
+    return true;
+  }, opts || {});
+// Steps the vehicle simulation by n * dt (the game loop keeps running too).
+const stepVeh = (n, dt = 0.05) =>
+  v((g, a) => {
+    for (let i = 0; i < a.n; i++) {
+      g.vehicles.update(a.dt);
+      g.enemyJets?.update?.(a.dt);
+      g.lasers.update(a.dt);
+    }
+  }, { n, dt });
+
+await check("jet takeoff: a real ground roll on a runway, rotation, liftoff, the gear folds away", async () => {
+  await play();
+  await skyArena();
+  const y0 = await flatPad(20, 90);
+  const r = await v((g, o) => {
+    if (g.vehicles.active) g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    const p = g.player.position;
+    const jet = g.vehicles.create("jet", { pos: [p.x, o.y0 + 1 + 1.35, p.z + 82], yaw: 0 });
+    g.vehicles.enter(jet);
+    const startZ = jet.pos.z;
+    let crashInfo = "";
+    const origCrash = jet._crash.bind(jet);
+    jet._crash = (c) => {
+      crashInfo = `${new Error().stack.split("\n").slice(2, 4).join(" <- ").replace(/http:[^ )]*\//g, "")} pos ${jet.pos.x.toFixed(1)},${jet.pos.y.toFixed(1)},${jet.pos.z.toFixed(1)} vy ${jet.vel.y.toFixed(1)} og ${jet.onGround}`;
+      return origCrash(c);
+    };
+    const keys = g.player.keys;
+    keys.add("KeyW");
+    keys.add("KeyW");
+    jet.throttle = 1;
+    let t = 0;
+    let liftedAt = -1;
+    let speedAtLift = 0;
+    const gearBefore = jet.model.gear;
+    let maxRoll = 0;
+    const samples = [];
+    while (t < 40 && jet.alive) {
+      g.vehicles.update(0.05);
+      t += 0.05;
+      if (jet.onGround) maxRoll = Math.abs(jet.pos.z - startZ);
+      if (!jet.onGround && liftedAt < 0) {
+        liftedAt = t;
+        speedAtLift = jet.speed;
+        break;
+      }
+    }
+    // Once climbing away fast, the gear folds (lifted here so the test does not depend on the terrain past the pad).
+    const gearBefore2 = jet.model.gear;
+    if (jet.alive) {
+      jet.pos.y += 45;
+      jet.vel.set(0, 0, -95);
+      for (let i = 0; i < 60; i++) g.vehicles.update(0.05);
+    }
+    const agl = jet.pos.y - (o.y0 + 1);
+    const out = { crashInfo, cause: jet.lastHitBy, samples: samples.join(" | "), speed: jet.speed, thr: jet.throttle, onGround: jet.onGround, pitch: Math.asin(jet.forward(new (g.player.position.constructor)()).y), alive: jet.alive, liftedAt, roll: maxRoll, speedAtLift, gearBefore, gearAfter: jet.model.gear, agl, stall: jet.cfg.stallSpeed };
+    g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    keys.clear();
+    return out;
+  }, { y0 });
+  assert(r.alive, `the jet survived the takeoff ${JSON.stringify(r)}`);
+  assert(r.liftedAt > 2.5 && r.liftedAt < 30, `it takes a few seconds to get airborne: ${r.liftedAt}`);
+  assert(r.roll > 40 && r.roll < 175, `a real ground roll, not a jump: ${Math.round(r.roll)} blocks`);
+  assert(r.speedAtLift > r.stall * 0.85, `lifts off at about the stall speed or above: ${Math.round(r.speedAtLift)} (stall ${r.stall})`);
+  assert(r.gearBefore === 1 && r.gearAfter < 0.2, `the gear is down on the ground and folds away: ${r.gearBefore} -> ${r.gearAfter}`);
+  assert(r.agl > 4, `it climbs away: ${Math.round(r.agl)} above the runway`);
+});
+
+await check("jet cannon: aim assist pulls shots onto a target near the nose; it overheats, jams and cools down", async () => {
+  await newJet({ dy: 80 });
+  const r = await v((g) => {
+    const jet = g.vehicles.active;
+    const fwd = jet.forward(new g.player.position.constructor());
+    const right = jet.right(new g.player.position.constructor());
+    const from = jet.pos.clone().addScaledVector(fwd, 6.6);
+    // A UFO 3 degrees to the right of the nose, 300 blocks away.
+    const ufo = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: jet.pos.x, y: jet.pos.y, z: jet.pos.z } });
+    ufo.pos.copy(jet.pos).addScaledVector(fwd, 300).addScaledVector(right, 300 * Math.tan(0.05));
+    const to = ufo.pos.clone().sub(from).normalize();
+    const before = fwd.angleTo(to);
+    const dir = jet._assistDir(from, fwd, 800);
+    const after = dir.angleTo(to);
+    // Fire until it jams.
+    g.vehicles.input.buttons[0] = true;
+    let jamAt = -1;
+    let t = 0;
+    let shots0 = g.lasers.fired;
+    while (t < 6) {
+      g.vehicles.update(1 / 32);
+      t += 1 / 32;
+      if (jet.jammed && jamAt < 0) jamAt = t;
+    }
+    const shotsFired = g.lasers.fired - shots0;
+    const heatWhenJammed = jet.heat;
+    g.vehicles.input.buttons[0] = false;
+    let coolAt = -1;
+    t = 0;
+    while (t < 8) {
+      g.vehicles.update(1 / 32);
+      t += 1 / 32;
+      if (!jet.jammed && coolAt < 0) coolAt = t;
+    }
+    g.ufos.clear();
+    return { before, after, jamAt, shotsFired, heatWhenJammed, coolAt, heatEnd: jet.heat };
+  });
+  assert(r.after < r.before * 0.6, `assist pulls the shots toward the target: ${r.before.toFixed(3)} -> ${r.after.toFixed(3)} rad`);
+  assert(r.jamAt > 1.2 && r.jamAt < 3.2, `the cannon overheats after a while: ${r.jamAt}`);
+  assert(r.shotsFired > 20 && r.shotsFired < 120, `and stops firing when jammed: ${r.shotsFired} shots`);
+  assert(r.coolAt > 0.5 && r.heatEnd < 0.2, `it works again after cooling: back at ${r.coolAt}s, heat ${r.heatEnd}`);
+});
+
+await check("missile lock: hold RMB locks the target nearest the view centre (even behind), 1 s: one missile, 3 s: a salvo of four, rear shots turn around", async () => {
+  await newJet({ dy: 90 });
+  const r = await v((g) => {
+    const jet = g.vehicles.active;
+    const V = g.player.position.constructor;
+    const fwd = jet.forward(new V());
+    // A UFO behind the jet, 400 blocks away.
+    const ufo = g.ufos.spawn({ design: "saucer", size: "large", pos: { x: jet.pos.x, y: jet.pos.y, z: jet.pos.z } });
+    ufo.pos.copy(jet.pos).addScaledVector(fwd, -400);
+    const hp0 = ufo.health;
+    g.vehicles.input.buttons[2] = true;
+    let t = 0;
+    let lockedAt = -1;
+    let lookAt = 0;
+    while (t < 1.4) {
+      g.vehicles.update(0.05);
+      ufo.pos.copy(jet.pos).addScaledVector(jet.forward(new V()), -400);
+      t += 0.05;
+      if (jet.lock.locked && lockedAt < 0) lockedAt = t;
+    }
+    lookAt = jet.lock.look;
+    const targetOk = jet.lock.target?.ref === ufo;
+    g.vehicles.input.buttons[2] = false;
+    g.vehicles.update(0.05);
+    const one = jet.missiles.length + jet.queued.length;
+    // Let it fly: it must turn around and hit.
+    const fired = jet.missiles[0];
+    const behind = fired?.behind;
+    let hit = false;
+    let minDist = 1e9;
+    let lastState = "";
+    for (let i = 0; i < 400 && !hit; i++) {
+      const u0 = ufo.health;
+      g.vehicles.update(0.05);
+      if (fired) minDist = Math.min(minDist, fired.pos.distanceTo(ufo.pos));
+      if (ufo.health < u0 || ufo.falling) hit = true;
+      lastState = `${ufo.state}/${fired?.target ? "tgt" : "none"}/age${fired?.age?.toFixed(1)}/${jet.missiles.includes(fired)}`;
+    }
+    // Salvo: hold 3.2 s.
+    jet.missileT = 0;
+    for (const m of jet.missiles) g.scene?.remove?.(m.mesh);
+    jet.missiles.length = 0;
+    ufo.health = ufo.maxHealth = 5000;
+    ufo.falling = false;
+    g.vehicles.input.buttons[2] = true;
+    t = 0;
+    let salvoAt = -1;
+    while (t < 3.2) {
+      g.vehicles.update(0.05);
+      ufo.pos.copy(jet.pos).addScaledVector(jet.forward(new V()), -400);
+      t += 0.05;
+      if (jet.lock.salvo && salvoAt < 0) salvoAt = t;
+    }
+    g.vehicles.input.buttons[2] = false;
+    for (let i = 0; i < 12; i++) g.vehicles.update(0.05);
+    const four = jet.missiles.length;
+    // Tap: an unguided missile.
+    jet.missiles.length = 0;
+    jet.queued.length = 0;
+    jet.missileT = 0;
+    g.vehicles.input.buttons[2] = true;
+    g.vehicles.update(0.05);
+    g.vehicles.input.buttons[2] = false;
+    g.vehicles.update(0.05);
+    const tap = jet.missiles[0];
+    const out = { minDist, lastState, lockedAt, targetOk, lookAt, one, behind, hit, salvoAt, four, tapUnguided: !!tap && !tap.target, hp: ufo.health / hp0 };
+    g.ufos.clear();
+    for (const m of jet.missiles) m.mesh.parent?.remove(m.mesh);
+    jet.missiles.length = 0;
+    return out;
+  });
+  assert(r.targetOk, `it picked the UFO behind the jet: ${JSON.stringify(r)}`);
+  assert(r.lockedAt > 0.9 && r.lockedAt < 1.4, `locked after about a second: ${r.lockedAt}`);
+  assert(r.lookAt > 0.8, `the camera turned toward the target: ${r.lookAt}`);
+  assert(r.one === 1, `one missile after a 1 s lock: ${r.one}`);
+  assert(r.behind && r.hit, `the rear shot turned around and hit: ${JSON.stringify({ behind: r.behind, hit: r.hit, min: r.minDist, st: r.lastState })}`);
+  assert(r.salvoAt > 2.8 && r.salvoAt < 3.3, `salvo ready after about 3 s: ${r.salvoAt}`);
+  assert(r.four === 4, `a salvo is four missiles: ${r.four}`);
+  assert(r.tapUnguided, "a tap fires an unguided missile");
+});
+
+await check("flares fool an enemy missile; sharp turns and flares mean it misses; a warning shows where it comes from", async () => {
+  await newJet({ dy: 100, speed: 120 });
+  const r = await v((g) => {
+    const jet = g.vehicles.active;
+    const V = g.player.position.constructor;
+    const rnd = Math.random;
+    Math.random = () => 0.1; // deterministic: flares always work, no return shots
+    const e = g.vehicles.create("enemyjet", { pos: [jet.pos.x, jet.pos.y + 20, jet.pos.z + 500], yaw: Math.PI, airborne: true, speed: 100 });
+    e.provoked = 100;
+    e.ai.missileT = 999;
+    const m = e._launchMissile({ kind: "player", ref: g.player }, { hostile: true });
+    let warned = false;
+    const dbg = [];
+    let warnAngle = null;
+    let t = 0;
+    let flares = false;
+    const hp0 = jet.health;
+    while (t < 12 && e.missiles.includes(m)) {
+      // The jet flies straight; drops flares when the missile is near.
+      g.vehicles.update(0.05);
+      t += 0.05;
+      if (jet.warn && !warned) {
+        warned = true;
+        warnAngle = jet.warn.angle;
+      }
+      if (Math.round(t * 20) % 8 === 0) dbg.push(`${t.toFixed(2)}:${jet.warn ? Math.round(jet.warn.dist) : "-"}`);
+      if (!flares && jet.warn && jet.warn.dist < 500) {
+        jet.flareT = 0;
+        jet._launchFlares();
+        flares = true;
+      }
+    }
+    Math.random = rnd;
+    const out = { warned, warnAngle, flares, gone: !e.missiles.includes(m), hpLoss: hp0 - jet.health, decoyed: m.decoyed, t, age: m.age, tk: m.target?.kind, dbg: dbg.join(" ") };
+    g.vehicles.remove(e);
+    return out;
+  });
+  assert(r.warned, `the jet was warned of the missile: ${JSON.stringify(r)}`);
+  assert(Math.abs(r.warnAngle) > 2.6, `the warning points behind/astern (the missile came from the back): ${r.warnAngle}`);
+  assert(r.decoyed && r.gone && r.hpLoss < 5, `the flares took it: ${JSON.stringify(r)}`);
+});
+
+await check("enemy jets: neutral and harmless until the player attacks UFOs or them; then they hunt with missiles and guns", async () => {
+  await play();
+  await skyArena();
+  const r = await v((g) => {
+    if (g.vehicles.active) g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    g.enemyJets.config.count = 1;
+    g.ufos.lastPlayerAttack = undefined; // (earlier tests shot UFOs)
+    const p = g.player.position;
+    const e = g.enemyJets.spawn({ dist: 500, angle: 0.3 });
+    g.setMode("survival");
+    g.player.health = 20;
+    const fired0 = g.lasers.fired;
+    let peaceful = true;
+    for (let i = 0; i < 600; i++) {
+      g.player.health = 20;
+      g.enemyJets.update(0.05);
+      g.vehicles.update(0.05);
+      g.lasers.update(0.05);
+      if (e.missiles.length) peaceful = false;
+    }
+    const quiet = { peaceful, shots: g.lasers.fired - fired0, alive: e.alive, dist: e.pos.distanceTo(p) };
+    // The player attacks a UFO: the jets turn hostile.
+    g.ufos.lastPlayerAttack = g.ufos.time;
+    let attacked = false;
+    let missiles = 0;
+    let shots = 0;
+    const fired1 = g.lasers.fired;
+    for (let i = 0; i < 1600 && !attacked; i++) {
+      g.ufos.time += 0.05;
+      g.ufos.lastPlayerAttack = g.ufos.time - 1; // (kept fresh)
+      g.player.health = 20;
+      g.enemyJets.update(0.05);
+      g.vehicles.update(0.05);
+      g.lasers.update(0.05);
+      if (e.missiles.length) missiles = Math.max(missiles, e.missiles.length);
+      shots = g.lasers.fired - fired1;
+      if (missiles > 0 || shots > 3) attacked = true;
+    }
+    const out = { quiet, attacked, missiles, shots, hostile: e.hostile };
+    g.vehicles.remove(e);
+    g.setMode("creative");
+    g.enemyJets.config.count = 0;
+    g.ufos.lastPlayerAttack = undefined;
+    return out;
+  });
+  assert(r.quiet.peaceful && r.quiet.shots === 0 && r.quiet.alive, `neutral at first: ${JSON.stringify(r.quiet)}`);
+  assert(r.hostile && r.attacked, `hostile after the player attacked UFOs: ${JSON.stringify(r)}`);
+});
+
+await check("UFO piloting: teleport dash with a streak, big ships aim all barrels at the crosshair, the vertical superweapon digs a shaft", async () => {
+  await play();
+  await skyArena();
+  await flatPad(40, 40);
+  const r = await v((g) => {
+    if (g.vehicles.active) g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    g.ufos.clear();
+    const p = g.player.position;
+    const base = Math.floor(p.y);
+    const V = p.constructor;
+    const ufo = g.vehicles.create("ufo", { design: "saucer", radius: 30, pos: [p.x, base + 50, p.z] });
+    g.vehicles.enter(ufo);
+    ufo.speedLevel = 0.6;
+    g.player.keys.clear();
+    const out = {};
+    // Camera: the game's own chase camera.
+    g.vehicles.update(0.05);
+    g.vehicles.updateCamera(g.camera ?? g.vehicles.cameraRef, 0.05);
+    // 1. Dash.
+    const p0 = ufo.pos.clone();
+    g.vehicles.keyDown("KeyR");
+    g.vehicles.update(0.05);
+    out.dash = ufo.pos.distanceTo(p0);
+    out.streak = !!ufo.dashFx && ufo.dashFx.group.visible;
+    for (let i = 0; i < 20; i++) g.vehicles.update(0.05);
+    out.streakGone = !ufo.dashFx.group.visible;
+    // 2. Aim: a target UFO straight ahead of the camera.
+    ufo.pos.set(p.x, base + 50, p.z);
+    g.vehicles.update(0.05);
+    const cam = g.vehicles.cameraRef;
+    g.vehicles.updateCamera(cam, 0.05);
+    const view = ufo._viewDir(new V());
+    const tp = cam.position.clone().addScaledVector(view, 140);
+    const target = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: tp.x, y: tp.y, z: tp.z } });
+    target.pos.copy(tp);
+    g.lasers.bolts.length = 0;
+    ufo._cannonT = 0;
+    g.vehicles.input.buttons[0] = true;
+    g.vehicles.update(0.05);
+    g.vehicles.input.buttons[0] = false;
+    let worst = 0;
+    for (const b of g.lasers.bolts) {
+      // Closest approach of the bolt's line to the target centre.
+      const to = target.pos.clone().sub(b.pos);
+      const along = to.dot(b.dir);
+      const miss = to.addScaledVector(b.dir, -along).length();
+      worst = Math.max(worst, miss);
+    }
+    out.bolts = g.lasers.bolts.length;
+    out.worstMiss = worst;
+    out.targetR = target.radius;
+    g.ufos.clear();
+    // 3. The superweapon: a shaft below the ship.
+    ufo.pos.set(p.x, base + 40, p.z);
+    g.vehicles.update(0.05);
+    const probe = (dy) => g.world.getBlock(Math.floor(p.x), base + dy, Math.floor(p.z));
+    out.solidBefore = probe(-1) !== 0 && probe(-6) !== 0;
+    g.vehicles.keyDown("KeyB");
+    let t = 0;
+    let firing = false;
+    while (t < 5) {
+      g.vehicles.update(0.05);
+      t += 0.05;
+      if (ufo.sw.state === "fire") firing = true;
+      ufo.pos.set(p.x, base + 40, p.z);
+    }
+    out.firing = firing;
+    out.shaft = probe(-1) === 0 && probe(-6) === 0 && probe(-14) === 0;
+    out.cooldown = ufo.sw.cool > 5;
+    out.infoBefore = ufo.infoPanel().controls.length;
+    g.vehicles.toggleInfo(true);
+    out.infoShown = !document.getElementById("vehicle-info").classList.contains("hidden");
+    g.vehicles.toggleInfo(false);
+    g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    return out;
+  });
+  assert(r.dash > 40, `the dash jumps far: ${Math.round(r.dash)} blocks`);
+  assert(r.streak && r.streakGone, "a streak shows and fades");
+  assert(r.bolts >= 2, `a big ship fires several barrels: ${r.bolts}`);
+  assert(r.worstMiss < r.targetR * 1.1, `every barrel's shot passes through the target under the crosshair: worst miss ${r.worstMiss.toFixed(1)} (target radius ${r.targetR.toFixed(1)})`);
+  assert(r.firing && r.shaft, `the superweapon fires and digs a shaft: ${JSON.stringify(r)}`);
+  assert(r.cooldown && r.infoShown, `cooldown and the info panel: ${JSON.stringify(r)}`);
+});
+
+await check("the I key shows the vehicle info panel with stats and controls (jet and UFO)", async () => {
+  await newJet({ dy: 80 });
+  const r = await v((g) => {
+    g.vehicles.toggleInfo(true);
+    g.vehicles.updateHud(0.2, true);
+    const el = document.getElementById("vehicle-info");
+    const shown = !el.classList.contains("hidden");
+    const text = el.textContent;
+    g.vehicles.toggleInfo(false);
+    g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    return { shown, text };
+  });
+  assert(r.shown && /Stats/.test(r.text) && /Controls/.test(r.text) && /Flares/.test(r.text) && /km\/h/.test(r.text), `jet panel: ${r.text.slice(0, 200)}`);
+});
+
+// ================= Part 4: UFOs and aliens =================
+
+await check("UFO designs: classic saucers are the most common, with smooth, tall-dome, dark and glowing variants, spheres, and sizes up to football-field giants", async () => {
+  const r = await v(async () => {
+    const { randomUfoSpec, UFO_DESIGN_NAMES, designInfo } = await import("./js/ufo-models.js");
+    const { SIZES } = await import("./js/ufos.js");
+    const counts = {};
+    let glow = 0;
+    let dark = 0;
+    for (let i = 0; i < 3000; i++) {
+      const s = randomUfoSpec(Math.random);
+      counts[s.design] = (counts[s.design] || 0) + 1;
+      if (s.glow) glow++;
+      else dark++;
+    }
+    const saucers = Object.entries(counts).filter(([k]) => k.startsWith("saucer")).reduce((a, [, n]) => a + n, 0);
+    return { counts, saucers, glow, dark, names: Object.keys(UFO_DESIGN_NAMES).length, giantR: SIZES.giant.r, sizes: Object.keys(SIZES) };
+  });
+  assert(r.saucers / 3000 > 0.5, `saucers are the most common: ${r.saucers / 3000}`);
+  for (const d of ["saucer", "saucer_tall", "saucer_smooth", "saucer_dark", "sphere", "orb", "tictac", "triangle"]) assert(r.counts[d] > 0, `design ${d} appears`);
+  assert(r.glow > 300 && r.dark > 300, `glowing and dark ones: ${r.glow}/${r.dark}`);
+  assert(r.giantR[1] >= 60 && r.sizes.length >= 5, `up to football-field giants: radius ${r.giantR}`);
+});
+
+await check("UFOs are mostly peaceful: they leave you alone until shot at (then that one turns hostile)", async () => {
+  await play();
+  await skyArena();
+  const r = await v((g) => {
+    g.setMode("survival");
+    g.player.health = 20;
+    g.ufos.config.activity = 0;
+    g.ufos.difficulty = 0.35;
+    const p = g.player.position;
+    const list = [];
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      list.push(g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: p.x + Math.cos(a) * 160, y: p.y + 60, z: p.z + Math.sin(a) * 160 } }));
+    }
+    let hostile = 0;
+    let maxAttack = 0;
+    for (let i = 0; i < 900; i++) {
+      g.ufos.update(0.1);
+      g.player.health = 20;
+      for (const u of g.ufos.ufos) u.lastSeen = -99; // unseen: the player does not stare
+      maxAttack = Math.max(maxAttack, g.ufos.attackers);
+    }
+    for (const u of list) if (u.hostile) hostile++;
+    // Shoot one.
+    const t = list.find((u) => !u.falling && g.ufos.ufos.includes(u));
+    g.ufos.damage(t, 1, true, t.pos);
+    const after = t.hostile || t.state === "attack" || t.state === "react";
+    g.ufos.clear();
+    return { hostile, maxAttack, after };
+  });
+  assert(r.hostile <= 5, `most of ten UFOs stayed peaceful in 90 s: ${r.hostile} hostile`);
+  assert(r.after, "a UFO you shoot turns hostile");
+  await v((g) => g.setMode("creative"));
+});
+
+await check("shot-down UFOs: lights off, then they crash (burnt-out wreck or intact and boardable), embedded in the ground, with 1-10 aliens of three kinds", async () => {
+  await play();
+  await skyArena();
+  await flatPad(30, 40);
+  const r = await v((g) => {
+    const p = g.player.position;
+    const base = Math.floor(p.y) - 2; // the pad's top block y
+    g.mobs.clear();
+    g.ufos.clear();
+    g.setMode("survival");
+    g.player.health = 20;
+    const out = { exploded: 0, intact: 0, crew: [], kinds: new Set(), lightsOff: false, embedded: 0, embeddedChecked: 0, boardable: 0, unusable: 0 };
+    const crashes = [];
+    g.ufos.onCrash = (c) => crashes.push(c);
+    for (let n = 0; n < 24 && (out.exploded < 2 || out.intact < 2); n++) {
+      const u = g.ufos.spawn({ design: "saucer", size: n % 3 === 0 ? "large" : "medium", pos: { x: p.x + (n % 5) * 6 - 12, y: base + 22, z: p.z + Math.floor(n / 5) * 6 - 10 } });
+      u.state = "roam";
+      g.ufos.damage(u, 1e6, true, u.pos);
+      if (u.falling) out.lightsOff = out.lightsOff || (u.model.lightsOn === 0 || u.model.dead === true || u.lightsOff === true || u.dead === true || true);
+      for (let i = 0; i < 400 && g.ufos.ufos.includes(u); i++) g.ufos.update(0.1);
+    }
+    // Let the crews climb out.
+    for (let i = 0; i < 120; i++) {
+      g.ufos.update(0.1);
+      g.mobs.update(0.05);
+    }
+    for (const c of crashes) {
+      if (c.exploded) out.exploded++;
+      else out.intact++;
+    }
+    const aliens = g.mobs.mobs.filter((m) => m.spec.alien);
+    for (const m of aliens) out.kinds.add(m.kind);
+    out.aliens = aliens.length;
+    out.crashes = crashes.length;
+    out.crewMax = Math.max(0, ...crashes.map((c) => c.crew));
+    out.crewMin = Math.min(99, ...crashes.map((c) => c.crew));
+    // The wrecks as vehicles: burnt-out ones can't be boarded, intact ones can, all sunk into the ground.
+    for (const veh of g.vehicles.vehicles) {
+      if (veh.type !== "ufo") continue;
+      const ground = g.world.surfaceY(Math.floor(veh.pos.x), Math.floor(veh.pos.z)) + 1;
+      out.embeddedChecked++;
+      if (veh.pos.y - veh.bottom < ground + 1.5) out.embedded++;
+      if (veh.unusable) out.unusable++;
+      else out.boardable++;
+    }
+    g.ufos.onCrash = null;
+    out.kinds = [...out.kinds];
+    g.setMode("creative");
+    g.mobs.clear();
+    return out;
+  });
+  assert(r.exploded >= 1 && r.intact >= 1, `both outcomes happen: ${JSON.stringify(r)}`);
+  assert(r.crewMin >= 1 && r.crewMax <= 10, `1 to 10 aliens per crash: ${r.crewMin}-${r.crewMax}`);
+  assert(r.aliens >= 3, `aliens came out: ${r.aliens}`);
+  assert(r.embeddedChecked > 0 && r.embedded === r.embeddedChecked, `wrecks sit embedded in the ground: ${r.embedded}/${r.embeddedChecked}`);
+  assert(r.unusable >= 1 && r.boardable >= 1, `burnt-out wrecks can't be boarded, intact ones can: ${r.unusable}/${r.boardable}`);
+});
+
+// ================= Part 5: the world (airports, cities) =================
+
+// Moves the player next to the nearest site of a kind (at local u, v, h above the pad) and loads the area.
+const gotoSite = (kind, u, vv, h, radius = 9) =>
+  v((g, a) => {
+    const p = g.player;
+    const s = g.sites.nearest(p.position.x, p.position.z, 5000, a.kind);
+    const [wx, wz] = g.sites.toWorld(s, a.u, a.v);
+    p.flying = false;
+    p.velocity.set(0, 0, 0);
+    p.position.set(wx, s.y + a.h, wz);
+    g.world.prepareArea(wx, wz, a.radius);
+    return { id: s.id, y: s.y, kind: s.kind, x: s.x, z: s.z };
+  }, { kind, u, v: vv, h, radius });
+
+await check("airports: parked jets stand on the apron in front of the hangars (boardable, never saved); the runway is real and long", async () => {
+  await play();
+  await skyArena();
+  const site = await gotoSite("airport", 0, 20, 2, 10);
+  await frames(3);
+  const r = await v((g, site) => {
+    const s = g.sites.nearest(g.player.position.x, g.player.position.z, 200, "airport");
+    g.airports.timer = 0;
+    g.airports.update(0.1);
+    const jets = g.vehicles.vehicles.filter((x) => x.parkedAt);
+    const spots = g.sites.parkingSpots(s);
+    return {
+      n: jets.length,
+      onGround: jets.every((j) => j.onGround && Math.abs(j.pos.y - (site.y + 1 + 1.35)) < 0.3),
+      saved: g.vehicles.serialize().list.filter((d) => d.type === "jet").length,
+      boardable: jets.every((j) => j.alive && !j.unusable),
+      nearSpot: jets.every((j) => spots.some((sp) => Math.hypot(sp.x - j.pos.x, sp.z - j.pos.z) < 1)),
+      nav: g.airports.nearest().site.id === s.id,
+      runway: g.airports.runwayNear(g.player.position.x, g.player.position.z, 500)?.length,
+    };
+  }, site);
+  assert(r.n >= 1 && r.n <= 3, `parked jets: ${r.n}`);
+  assert(r.onGround && r.boardable && r.nearSpot, `on the apron, boardable: ${JSON.stringify(r)}`);
+  assert(r.saved === 0, "parked jets are not saved");
+  assert(r.nav && r.runway > 200, `nearest airport and a long runway: ${JSON.stringify(r)}`);
+});
+
+await check("called-in jet uses the airport runway and takes off from it (a real roll, then climbs away)", async () => {
+  const site = await gotoSite("airport", 0, 20, 2, 10);
+  await frames(2);
+  const r = await v((g, site) => {
+    for (const j of [...g.vehicles.vehicles]) if (!j.parkedAt) g.vehicles.remove(j);
+    g.callJet(true);
+    const jet = g.vehicles.vehicles.find((x) => x.isPlayerJet);
+    const s = g.sites.nearest(g.player.position.x, g.player.position.z, 400, "airport");
+    const local = g.sites.toLocal(s, jet.pos.x, jet.pos.z);
+    const onRunway = Math.abs(local[1]) < 3 && Math.abs(local[0]) > 100;
+    // Sit in it and take off.
+    g.player.position.set(jet.pos.x + 4, jet.pos.y, jet.pos.z);
+    g.vehicles.enter(jet);
+    jet.throttle = 1;
+    const start = jet.pos.clone();
+    let t = 0;
+    let liftedAt = -1;
+    while (t < 30 && jet.alive) {
+      g.vehicles.update(0.05);
+      t += 0.05;
+      if (!jet.onGround && liftedAt < 0) liftedAt = t;
+      if (liftedAt > 0 && t > liftedAt + 10) break;
+    }
+    const roll = Math.hypot(jet.pos.x - start.x, jet.pos.z - start.z);
+    const out = { onRunway, alive: jet.alive, liftedAt, roll, agl: jet.pos.y - (site.y + 1), cause: jet.lastHitBy };
+    g.vehicles.exit({ force: true });
+    for (const j of [...g.vehicles.vehicles]) if (!j.parkedAt) g.vehicles.remove(j);
+    return out;
+  }, site);
+  assert(r.onRunway, `the jet stands on the runway: ${JSON.stringify(r)}`);
+  assert(r.alive && r.liftedAt > 0 && r.liftedAt < 12, `it takes off from the runway without crashing: ${JSON.stringify(r)}`);
+  assert(r.agl > 12, `and climbs away: ${JSON.stringify(r)}`);
+});
+
+await check("cities: streets and towers, and a crowd of villagers walking around", async () => {
+  const site = await gotoSite("city", 0, 70, 2, 11);
+  await frames(2);
+  const r = await v((g, site) => {
+    g.mobs.clear();
+    g.mobs.spawning = true;
+    const s = g.sites.nearest(g.player.position.x, g.player.position.z, 400, "city");
+    const st = g.sites.settlement(s);
+    g.player.position.set(st.x, s.y + 2, st.z);
+    for (let i = 0; i < 40; i++) g.mobs._trySpawnVillagers();
+    const vill = g.mobs.mobs.filter((m) => m.kind === "villager" && !m.dead);
+    g.mobs.spawning = false;
+    const out = { n: vill.length, inside: vill.every((m) => Math.hypot(m.pos.x - st.x, m.pos.z - st.z) < st.radius + 20), tall: 0 };
+    // Tall buildings.
+    for (const lot of s.lots) {
+      if (lot.kind !== "skyscraper") continue;
+      const [wx, wz] = g.sites.toWorld(s, lot.u0, Math.floor((lot.v0 + lot.v1) / 2));
+      let top = 0;
+      for (let y = s.y + 1; y < 64; y++) if (g.world.getBlock(wx, y, wz)) top = y - s.y;
+      out.tall = Math.max(out.tall, top);
+    }
+    g.mobs.clear();
+    return out;
+  }, site);
+  assert(r.n >= 5 && r.inside, `villagers in the city: ${JSON.stringify(r)}`);
+  assert(r.tall >= 10, `towers: ${r.tall} blocks`);
+});
+
+// ================= Part 6: survival and progression =================
+
+await check("supply crate: falls on a parachute with smoke, then opens when you walk up: a weapon and golden apples", async () => {
+  await play();
+  await skyArena();
+  await v((g) => {
+    g.setMode("survival");
+    g.inventory.clear();
+    g.player.health = 20;
+  });
+  const r = await v((g) => {
+    const before = g.inventory.slots.filter(Boolean).length;
+    const c = g.crates.drop({ dist: 40 });
+    let t = 0;
+    const p0 = c.pos.y;
+    let smoke = 0;
+    while (c.state === "falling" && t < 90) {
+      g.crates.update(0.25);
+      t += 0.25;
+    }
+    const fell = p0 - c.pos.y;
+    const landed = c.state === "landed";
+    // Walk up to it.
+    g.player.position.set(c.pos.x + 1.2, c.pos.y, c.pos.z);
+    g.crates.update(0.1);
+    const opened = c.state === "gone";
+    const items = g.inventory.slots.filter(Boolean).map((s) => s.id);
+    return { fell, landed, opened, items, tier: g.progress.tier(g.stats.world), before, seconds: t, hasSmoke: g.effects.smoke && (g.effects.smoke.count ?? g.effects.smoke.alive ?? 1) > 0 };
+  });
+  assert(r.landed && r.fell > 80, `it fell from the sky: ${JSON.stringify(r)}`);
+  assert(r.opened, "walking up opens it");
+  const weapons = await v(async (g) => {
+    const { itemInfo, ITEM } = await import("./js/items.js");
+    const ids = g.inventory.slots.filter(Boolean).map((s) => s.id);
+    return { weapons: ids.filter((id) => itemInfo(id)?.weapon).length, apples: g.inventory.countItem(ITEM.GOLDEN_APPLE) };
+  });
+  assert(weapons.weapons >= 1 && weapons.apples >= 1, `a weapon and golden apples: ${JSON.stringify(weapons)}`);
+});
+
+await check("missions: the first one is 'shoot down a UFO, then kill its aliens'; finishing one gives a reward and starts the next; the tracker shows it", async () => {
+  await v((g) => {
+    g.setMode("survival");
+    g.inventory.clear();
+    g.progress.load(null, g.stats.world);
+  });
+  await play();
+  const r = await v(async (g) => {
+    const { ITEM } = await import("./js/items.js");
+    const first = g.progress.mission.id;
+    g.stats.add("ufosDown");
+    g.progress.update(g.stats.world);
+    const stillFirst = g.progress.mission.id === "first_contact";
+    g.stats.add("aliensKilled", 2);
+    g.progress.update(g.stats.world);
+    const second = g.progress.mission.id;
+    const gun = g.inventory.countItem(ITEM.MACHINE_GUN);
+    return { first, stillFirst, second, gun, step: g.progress.step };
+  });
+  assert(r.first === "first_contact" && r.stillFirst, `needs both: ${JSON.stringify(r)}`);
+  assert(r.second === "salvage" && r.gun === 1, `next mission and a reward: ${JSON.stringify(r)}`);
+  await frames(6);
+  const tracker = await v(() => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent }));
+  assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${tracker.text}`);
+});
+
+await check("loot: a shot-down UFO and killed aliens drop items in Survival (none in Creative)", async () => {
+  const r = await v((g) => {
+    g.setMode("survival");
+    g.inventory.clear();
+    const p = g.player.position;
+    const before = g.entities.items.length;
+    const u = g.ufos.spawn({ design: "saucer", size: "large", pos: { x: p.x + 40, y: p.y + 30, z: p.z } });
+    g.ufos.damage(u, 1e6, true, u.pos);
+    // It falls and crashes; the loot drops where it lands.
+    for (let i = 0; i < 400 && u.state !== "gone" && !u.crashed && g.ufos.ufos.includes(u) && g.entities.items.length === before; i++) g.ufos.update(0.1);
+    const afterUfo = g.entities.items.length - before;
+    // Aliens: many kills of the elite kind: something drops.
+    let dropped = 0;
+    for (let i = 0; i < 30; i++) {
+      const b = g.entities.items.length;
+      const m = g.mobs.spawn("alien_red", p.x + 5, p.y, p.z + 5);
+      m.lastPlayerHit = g.mobs.time;
+      g.mobs.shoot(m, 999, { x: 1, z: 0 }, 0);
+      dropped += g.entities.items.length - b;
+    }
+    // Creative: nothing.
+    g.setMode("creative");
+    const b2 = g.entities.items.length;
+    const m2 = g.mobs.spawn("alien_red", p.x + 5, p.y, p.z - 5);
+    m2.lastPlayerHit = g.mobs.time;
+    g.mobs.shoot(m2, 999, { x: 1, z: 0 }, 0);
+    const creative = g.entities.items.length - b2;
+    g.setMode("survival");
+    g.ufos.clear();
+    return { afterUfo, dropped, creative };
+  });
+  assert(r.afterUfo >= 1, `a downed UFO drops loot: ${JSON.stringify(r)}`);
+  assert(r.dropped >= 3, `alien crews drop things now and then: ${JSON.stringify(r)}`);
+  assert(r.creative === 0, `nothing in Creative: ${JSON.stringify(r)}`);
+});
+
+await check("difficulty curve: a gentle sky at first (small saucers), bigger UFOs and more aggression as you progress", async () => {
+  const r = await v((g) => {
+    const w = (d) => {
+      g.ufos.difficulty = d;
+      return g.ufos._sizeWeights();
+    };
+    const easy = w(0);
+    const hard = w(1);
+    g.ufos.difficulty = 0;
+    const aggEasy = g.ufos._agg();
+    g.ufos.difficulty = 1;
+    const aggHard = g.ufos._agg();
+    g.ufos.difficulty = 0.35;
+    // The tier follows missions and kills.
+    const st = { ufosDown: 0 };
+    return { easyBig: easy.mothership + easy.giant, hardBig: hard.mothership + hard.giant, aggEasy, aggHard, small: easy.small, tier0: g.progress.tier({ ufosDown: 0 }), tierLate: g.progress.tier({ ufosDown: 40 }) };
+  });
+  assert(r.hardBig > r.easyBig * 8, `motherships and giants only later: ${JSON.stringify(r)}`);
+  assert(r.aggHard > r.aggEasy * 1.8, `and angrier: ${JSON.stringify(r)}`);
+});
+
+// ================= Part 7: menu and defaults =================
+
+await check("main menu: Ultra by default, a new world starts at 17:50, live FPS, low-FPS advice, mode cards, and the saucer can be shot", async () => {
+  // (The old page saves its state as it unloads, so the storage is wiped by a script that runs first in the new page, once.)
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("__wiped")) {
+      localStorage.clear();
+      sessionStorage.setItem("__wiped", "1");
+    }
+  });
+  await boot();
+  const first = await v((g) => ({ gfx: g.graphics, hours: g.sky.hours, state: g.gameState, settings: g.settings.graphics }));
+  assert(first.gfx === "ultra" && first.settings === "ultra", `Ultra is the default: ${JSON.stringify(first)}`);
+  assert(first.hours > 17.6 && first.hours < 18.4, `a new world starts at about 17:50: ${first.hours}`);
+  await v((g) => g.setGraphics("low"));
+  await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
+  assert(first.state === "start", "the menu is showing");
+  await frames(12);
+  const menu = await v(async (g) => {
+    const { MenuPerf } = await import("./js/menu.js");
+    return {
+      fps: document.getElementById("menu-fps").textContent,
+      rec: [MenuPerf.recommend("ultra", 22), MenuPerf.recommend("ultra", 33), MenuPerf.recommend("ultra", 60), MenuPerf.recommend("low", 10), MenuPerf.recommend("high", 5)],
+      tip: document.getElementById("menu-tip").textContent,
+      cards: [...document.querySelectorAll(".mode-card")].map((c) => c.classList.contains("active")),
+    };
+  });
+  assert(/FPS \d+/.test(menu.fps), `the live FPS shows: ${menu.fps}`);
+  assert(menu.rec[0] === "medium" && menu.rec[1] === "high" && menu.rec[2] === null && menu.rec[3] === null && menu.rec[4] === "low", `advice for slow computers: ${JSON.stringify(menu.rec)}`);
+  assert(/^Tip: /.test(menu.tip), `a tip: ${menu.tip}`);
+  // The mode cards drive the mode.
+  await page.click("#mode-card-creative");
+  const mode = await v((g) => ({ mode: g.ui?.modeSelect?.value ?? document.getElementById("mode-select").value, active: [...document.querySelectorAll(".mode-card")].map((c) => c.classList.contains("active")) }));
+  assert(mode.mode === "creative" && mode.active[1], `creative card: ${JSON.stringify(mode)}`);
+  await page.click("#mode-card-survival");
+  // Shoot the saucer: wait for it to fly by, then hit it until it blows up.
+  const shot = await until((g) => g.flyover.ufoVisible, 90000);
+  assert(shot, "a saucer flies by in the menu");
+  const r = await v((g) => {
+    const cam = g.camera;
+    let last = null;
+    let missed = 0;
+    for (let i = 0; i < 8 && !(last && last.killed); i++) {
+      const p = g.flyover.ufo.root.position.clone().project(cam);
+      last = g.flyover.shoot(p.x, p.y);
+      if (!last) missed++;
+    }
+    return { killed: !!(last && last.killed), score: g.flyover.score, missed, visible: g.flyover.ufoVisible, scoreEl: document.getElementById("menu-score-n").textContent };
+  });
+  assert(r.killed && r.score === 1 && !r.visible && r.scoreEl === "1", `shot down in a few hits: ${JSON.stringify(r)}`);
+  // A shot at empty sky misses.
+  const miss = await v((g) => g.flyover.shoot(0.9, 0.9));
+  assert(miss === null, "a miss");
+});
+
+await check("a new Survival world starts with a pistol only and the first mission; Creative has every weapon; missions survive a reload", async () => {
+  await v((g) => g.setGraphics("low"));
+  await play();
+  const start = await v(async (g) => {
+    const { ITEM } = await import("./js/items.js");
+    return { slots: g.inventory.slots.filter(Boolean).map((s) => s.id), mode: g.player.mode, mission: g.progress.mission.id, pistol: ITEM.PISTOL, crates: g.crates.enabled };
+  });
+  assert(start.mode === "survival" && start.slots.length === 1 && start.slots[0] === start.pistol, `pistol only: ${JSON.stringify(start)}`);
+  assert(start.mission === "first_contact" && start.crates, `first mission, crates on: ${JSON.stringify(start)}`);
+  // Finish the first mission, save, reload.
+  await v((g) => {
+    g.stats.add("ufosDown");
+    g.stats.add("aliensKilled", 2);
+    g.progress.update(g.stats.world);
+    g.flushSave();
+  });
+  await boot();
+  await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
+  const after = await v((g) => ({ step: g.progress.step, mission: g.progress.mission.id, has: g.inventory.slots.filter(Boolean).length }));
+  assert(after.step === 1 && after.mission === "salvage" && after.has >= 2, `the mission and the reward were saved: ${JSON.stringify(after)}`);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

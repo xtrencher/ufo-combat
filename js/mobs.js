@@ -388,15 +388,31 @@ export class MobManager {
   // If the player is near a generated village, keep it populated with a
   // couple of villagers (walking around, original design, no combat AI).
   _trySpawnVillagers() {
-    const villages = this.world.terrain?.villages;
+    const terrain = this.world.terrain;
+    const villages = terrain?.villages;
     if (!villages) return;
     const p = this.player.position;
-    const village = villages.nearestVillage(p.x, p.z, VILLAGE_SEARCH_RADIUS);
+    let village = villages.nearestVillage(p.x, p.z, VILLAGE_SEARCH_RADIUS);
+    let radius = 20;
+    let cap = VILLAGERS_PER_VILLAGE;
+    let spread = 8;
+    // Airports and cities (sites.js) have their people too: a few around an
+    // airport's apron, a crowd in a city.
+    const site = terrain.sites?.nearest(p.x, p.z, 320);
+    if (site) {
+      const st = terrain.sites.settlement(site);
+      if (Math.hypot(st.x - p.x, st.z - p.z) < st.radius + 50 && (!village || Math.hypot(st.x - p.x, st.z - p.z) < Math.hypot(village.x - p.x, village.z - p.z))) {
+        village = st;
+        radius = st.radius + 10;
+        cap = site.kind === "city" ? 9 : 3;
+        spread = st.radius * 0.8;
+      }
+    }
     if (!village) return;
-    const nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && Math.hypot(m.pos.x - village.x, m.pos.z - village.z) < 20).length;
-    if (nearby >= VILLAGERS_PER_VILLAGE) return;
+    const nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && Math.hypot(m.pos.x - village.x, m.pos.z - village.z) < radius).length;
+    if (nearby >= cap) return;
     const ang = Math.random() * Math.PI * 2;
-    const d = 3 + Math.random() * 8;
+    const d = 3 + Math.random() * spread;
     const sx = Math.floor(village.x + Math.cos(ang) * d);
     const sz = Math.floor(village.z + Math.sin(ang) * d);
     if (!this._chunkReady(sx, sz)) return;

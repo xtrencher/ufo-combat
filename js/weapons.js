@@ -63,7 +63,7 @@ const SHIELD_RECHARGE = 14;
 const SHIELD_COST = 3.2; // energy per point of damage absorbed
 const SHIELD_BREAK_TIME = 4.5;
 // Explosions get through at a quarter, every other attack at about a third.
-const SHIELD_EXPLOSIVE = new Set(["grenade", "bazooka", "airstrike", "meteor", "nuke", "missile", "ufo_crash", "ufo_boom", "ufo_laser_blast", "jet_boom", "ufocannon", "ufo_beam", "railgun", "explosion"]);
+const SHIELD_EXPLOSIVE = new Set(["grenade", "bazooka", "airstrike", "meteor", "nuke", "missile", "ufo_crash", "ufo_boom", "ufo_laser_blast", "jet_boom", "enemymissile", "ufocannon", "ufo_beam", "railgun", "explosion"]);
 // Damage the shield can't stop: the environment and crashes.
 const SHIELD_PASS = new Set(["fall", "drown", "void", "starve", "cactus", "lava", "fire", "jet_crash", "jet_down", "ufo_down"]);
 

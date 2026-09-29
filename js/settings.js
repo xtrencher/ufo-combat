@@ -120,7 +120,9 @@ export const SCHEMA = [
   { key: "vehicles.beamBlocks", group: "vehicles", type: "checkbox", label: "Tractor beam also lifts loose blocks", def: true },
   { key: "vehicles.jetAssist", group: "vehicles", type: "checkbox", label: "Flight assist (the jet flies toward the crosshair)", def: true, sub: "Fighter jet", hint: "Off: the mouse is the stick (up/down pitch, left/right roll), for experienced pilots." },
   { key: "vehicles.jetAirborne", group: "vehicles", type: "checkbox", label: "Called-in jet arrives airborne (you start in the cockpit)", def: false },
-  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed", min: 80, max: 320, step: 5, def: 160, fmt: (v) => `${Math.round(v * 3.6)} km/h` },
+  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 220, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed. The default is about 800 km/h.", note: (v) => (v > 420 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
+  { key: "vehicles.jetAimAssist", group: "vehicles", type: "checkbox", label: "Cannon aim assist (pulls shots toward a target near the nose)", def: true },
+  { key: "vehicles.enemyJets", group: "vehicles", type: "range", label: "Enemy jets patrolling at once", min: 0, max: 3, step: 1, def: 1, fmt: int, hint: "Neutral until you attack them or the UFOs; then they hunt you with missiles and guns." },
   { key: "vehicles.jetAccel", group: "vehicles", type: "range", label: "Jet acceleration (thrust)", min: 0.5, max: 2.5, step: 0.1, def: 1, fmt: times },
   { key: "vehicles.jetTurn", group: "vehicles", type: "range", label: "Jet turn rate", min: 0.5, max: 2, step: 0.1, def: 1, fmt: times },
   { key: "vehicles.jetStall", group: "vehicles", type: "range", label: "Jet stall speed", min: 25, max: 70, step: 1, def: 42, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "Below this the wings can't hold the jet up: it sinks and drops its nose." },
@@ -165,7 +167,7 @@ export function validValue(e, raw) {
 
 export const DEFAULT_SETTINGS = {
   renderDistance: 10,
-  graphics: "medium",
+  graphics: "ultra",
   gfxOverrides: {},
   volume: { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,
