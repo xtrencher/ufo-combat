@@ -395,6 +395,12 @@ export class Audio {
     this._hit({ type: "bandpass", f: 900, fEnd: 1800, q: 3, d: 0.15, v: 0.25, attack: 0.005 });
   }
 
+  // The bazooka's lock building up: a short tick.
+  playLockTick() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 1500, q: 6, d: 0.05, v: 0.16, attack: 0.002 });
+  }
+
   // A bullet hitting a block `distance` blocks away: a small sharp tick.
   playRicochet(distance = 0) {
     this._cat("weapons");
@@ -673,6 +679,71 @@ export class Audio {
     o.stop(t + 0.1);
   }
 
+  // ---------- Jet and UFO gadgets ----------
+
+  _tone(freq, dur, { type = "square", vol = 0.06, at = 0, fEnd = null, attack = 0.005 } = {}) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime + at;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (fEnd) o.frequency.exponentialRampToValueAtTime(fEnd, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  // The missile salvo is ready: a rising two-note chirp.
+  playSalvoTone() {
+    this._cat("weapons");
+    this._tone(1400, 0.08, { vol: 0.07 });
+    this._tone(2100, 0.12, { vol: 0.07, at: 0.09 });
+  }
+
+  // Flares fired: a quick hiss and pops.
+  playFlare() {
+    this._cat("weapons");
+    this._hit({ type: "highpass", f: 3500, q: 0.6, d: 0.5, v: 0.18, attack: 0.01 });
+    for (let i = 0; i < 4; i++) this._hit({ type: "bandpass", f: 1800 + i * 300, q: 2, d: 0.08, v: 0.1, attack: 0.001 }, i * 0.06);
+  }
+
+  // Missile warning: a harsh double beep, higher and more urgent when close.
+  playMissileWarning(urgent = false) {
+    this._cat("ui");
+    this._tone(urgent ? 1900 : 1250, 0.09, { type: "sawtooth", vol: 0.09 });
+    if (urgent) this._tone(1900, 0.09, { type: "sawtooth", vol: 0.09, at: 0.11 });
+  }
+
+  // The autocannon is too hot: a dull click.
+  playOverheat() {
+    this._cat("weapons");
+    this._hit({ type: "lowpass", f: 400, q: 1, d: 0.08, v: 0.25, attack: 0.001 });
+    this._tone(300, 0.15, { type: "sawtooth", vol: 0.05, fEnd: 120 });
+  }
+
+  // The UFO's teleport dash: a rising zip and a soft boom on arrival.
+  playTeleport() {
+    this._cat("weapons");
+    this._tone(200, 0.22, { type: "sawtooth", vol: 0.1, fEnd: 2600 });
+    this._hit({ type: "lowpass", f: 200, q: 1, d: 0.4, v: 0.4, attack: 0.02 }, 0.2);
+    this._tone(1800, 0.3, { type: "sine", vol: 0.05, fEnd: 300, at: 0.2 });
+  }
+
+  // The UFO superweapon: a rising charge whine, then a huge roaring beam.
+  playSuperLaser(charge = 1.2, beam = 2.2) {
+    this._cat("weapons");
+    this._tone(90, charge, { type: "sawtooth", vol: 0.12, fEnd: 1400, attack: 0.3 });
+    this._tone(45, charge, { type: "sine", vol: 0.2, fEnd: 200, attack: 0.3 });
+    this._hit({ type: "lowpass", f: 120, q: 1, d: beam, v: 1.0, attack: 0.05 }, charge);
+    this._hit({ type: "bandpass", f: 600, fEnd: 250, q: 0.7, d: beam, v: 0.55, attack: 0.05 }, charge);
+    this._hit({ type: "highpass", f: 2500, q: 0.6, d: beam * 0.6, v: 0.25, attack: 0.05 }, charge);
+  }
+
   // A warning beep-beep (nuke away, incoming).
   playWarning() {
     this._cat("ui");
@@ -698,6 +769,184 @@ export class Audio {
     this._cat("weapons");
     this._hit({ type: "bandpass", f: 900, q: 1.5, d: 0.3, v: 0.25, n: 2, spread: 0.12 });
     this._hit({ type: "lowpass", f: 200, q: 1, d: 0.2, v: 0.4 });
+  }
+
+  // ---------- Railgun, minigun, shield, and other gadgets ----------
+
+  // The railgun charging: a rising electrical whine over `dur` seconds.
+  playRailCharge(dur = 1) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const out = this._out || this.master;
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(2600, t + dur);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(500, t);
+    f.frequency.exponentialRampToValueAtTime(6000, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + dur * 0.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.04);
+    o.connect(f).connect(g).connect(out);
+    o.start(t);
+    o.stop(t + dur + 0.08);
+    const o2 = ctx.createOscillator();
+    o2.type = "sine";
+    o2.frequency.setValueAtTime(60, t);
+    o2.frequency.exponentialRampToValueAtTime(900, t + dur);
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.exponentialRampToValueAtTime(0.2, t + dur * 0.95);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.04);
+    o2.connect(g2).connect(out);
+    o2.start(t);
+    o2.stop(t + dur + 0.08);
+    // Crackling static that builds.
+    for (let i = 0; i < 10; i++) this._hit({ type: "highpass", f: 3000 + i * 300, q: 0.8, d: 0.03, v: 0.03 + i * 0.008, attack: 0.001 }, dur * (i / 10) + Math.random() * 0.05);
+  }
+
+  // The railgun's shot: a sharp crack, a falling tone and a deep thump.
+  playRailFire(distance = 0) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const gain = 1 / (1 + distance / 250);
+    this._hit({ type: "highpass", f: 2200, q: 0.7, d: 0.16, v: 0.7 * gain, attack: 0.001 });
+    this._hit({ type: "bandpass", f: 900, q: 0.8, d: 0.4, v: 0.7 * gain, attack: 0.002, fEnd: 200 });
+    this._hit({ type: "lowpass", f: 150, q: 1, d: 0.6, v: 1.1 * gain, attack: 0.004 });
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(3400, t);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.55);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.28 * gain, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + 0.65);
+  }
+
+  // The minigun's motor: a whine that follows the barrel spin (0-1) and
+  // fades out when it isn't spinning. Call every frame; firing adds a rasp.
+  setMinigun(spin, firing) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._mini) {
+      if (spin <= 0.01) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.buses.weapons || this.master);
+      const whine = ctx.createOscillator();
+      whine.type = "sawtooth";
+      whine.frequency.value = 80;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 600;
+      f.Q.value = 4;
+      const g = ctx.createGain();
+      g.gain.value = 0.4;
+      whine.connect(f).connect(g).connect(out);
+      whine.start();
+      const buzz = ctx.createOscillator();
+      buzz.type = "square";
+      buzz.frequency.value = 40;
+      const bg = ctx.createGain();
+      bg.gain.value = 0;
+      buzz.connect(bg).connect(out);
+      buzz.start();
+      this._mini = { out, whine, f, buzz, bg };
+    }
+    const m = this._mini;
+    const t = ctx.currentTime;
+    m.out.gain.setTargetAtTime(spin > 0.01 ? 0.22 * Math.min(1, spin * 2) : 0, t, 0.08);
+    m.whine.frequency.setTargetAtTime(70 + spin * 520, t, 0.06);
+    m.f.frequency.setTargetAtTime(300 + spin * 1500, t, 0.06);
+    m.buzz.frequency.setTargetAtTime(30 + spin * 60, t, 0.06);
+    m.bg.gain.setTargetAtTime(firing ? 0.12 : 0, t, 0.03);
+  }
+
+  // One minigun laser bolt (they come ~30 a second: tiny and cheap).
+  playMinigunShot() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 2400, q: 1.6, d: 0.03, v: 0.08, attack: 0.001, fEnd: 1200 });
+  }
+
+  // The shield: a rising hum when raised, a soft falling one when lowered, a
+  // ping when it soaks a hit, and a glassy shatter when it breaks.
+  playShieldUp() {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 500, q: 3, d: 0.3, v: 0.25, fEnd: 1800, attack: 0.03 });
+    this._hit({ type: "highpass", f: 3500, q: 0.6, d: 0.2, v: 0.06, attack: 0.05 });
+  }
+
+  playShieldDown() {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 1500, q: 3, d: 0.25, v: 0.16, fEnd: 400, attack: 0.02 });
+  }
+
+  playShieldHit(strength = 1) {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 2400, q: 8, d: 0.14, v: 0.26 * Math.min(1.4, strength), fEnd: 1500, attack: 0.002 });
+    this._hit({ type: "lowpass", f: 300, q: 1, d: 0.1, v: 0.3 * Math.min(1.4, strength), attack: 0.002 });
+  }
+
+  playShieldBreak() {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 4200, q: 10, d: 0.35, v: 0.5, n: 6, spread: 0.03, jitter: 0.5 });
+    this._hit({ type: "lowpass", f: 200, q: 1, d: 0.5, v: 0.6 });
+  }
+
+  // A supply crate falling: a descending whistle.
+  playSupplyDrop() {
+    this._cat("ui");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(1600, t);
+    o.frequency.exponentialRampToValueAtTime(400, t + 2.4);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.07, t + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.5);
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + 2.6);
+  }
+
+  // The crate landing (with a soft chime for "loot").
+  playCrateLand() {
+    this._cat("ui");
+    this._hit({ type: "lowpass", f: 220, q: 1, d: 0.3, v: 0.5 });
+    this._hit({ type: "bandpass", f: 1000, q: 2, d: 0.1, v: 0.2, n: 3, spread: 0.05 });
+  }
+
+  // A mission step done: a little rising chime.
+  playMissionDone() {
+    this._cat("ui");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    [523, 659, 784, 1046].forEach((f, i) => {
+      const t = ctx.currentTime + i * 0.09;
+      const o = ctx.createOscillator();
+      o.type = "triangle";
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.1, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      o.connect(g).connect(this._out || this.master);
+      o.start(t);
+      o.stop(t + 0.32);
+    });
   }
 
   // The nuke: an enormous, long, low boom that arrives late from far away
@@ -764,7 +1013,8 @@ export class Audio {
     this._cat("creatures");
     if (!this.ctx || distance > 40) return;
     const gain = 1 / (1 + distance / 7);
-    const parts = VOICES[kind]?.[event];
+    // Variants ("alien_gray") share their family's voice.
+    const parts = (VOICES[kind] || VOICES[String(kind).split("_")[0]])?.[event];
     if (!parts) return;
     for (const part of parts) {
       if (part.noise) this._hit({ ...part.noise, v: part.noise.v * gain }, part.delay || 0);

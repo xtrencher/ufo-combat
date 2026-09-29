@@ -681,48 +681,10 @@ await test("terrain generation is fast enough to stream (< 3 ms per chunk)", () 
 });
 
 // ---------------------------------------------------------------------------
-console.log("\nItems, crafting and inventory (items.js, crafting.js, inventory.js)");
+console.log("\nItems and inventory (items.js, inventory.js)");
 
 const { ITEM, itemInfo, breakTime, canHarvest, blockDrops, maxStack } = await import("../js/items.js");
-const { findRecipe, RECIPES } = await import("../js/crafting.js");
-const { Inventory, clickSlot, takeCraftResult, craftAllInto, quickMove, makeStack } = await import("../js/inventory.js");
-
-await test("every recipe's ingredients and results are real items", () => {
-  for (const r of RECIPES) {
-    assert.ok(itemInfo(r.result), `unknown result ${r.result}`);
-    const ids = r.type === "shaped" ? Object.values(r.key) : r.ingredients;
-    for (const id of ids) assert.ok(itemInfo(id), `unknown ingredient ${id}`);
-  }
-});
-
-await test("recipes match anywhere in the grid, mirrored, and not with extra items", () => {
-  const P = BLOCK.PLANKS;
-  const S = ITEM.STICK;
-  // Log -> 4 planks in any slot of the 2x2 grid.
-  for (let i = 0; i < 4; i++) {
-    const g = [0, 0, 0, 0];
-    g[i] = BLOCK.WOOD;
-    const r = findRecipe(g, 2);
-    assert.equal(r?.result, BLOCK.PLANKS);
-    assert.equal(r.count, 4);
-  }
-  // Sticks: two planks stacked vertically, in either column of a 3x3 grid.
-  assert.equal(findRecipe([0, 0, P, 0, 0, P, 0, 0, 0], 3)?.result, ITEM.STICK);
-  assert.equal(findRecipe([P, 0, 0, P, 0, 0, 0, 0, 0], 3)?.result, ITEM.STICK);
-  assert.equal(findRecipe([P, P, 0, 0], 2), null, "two planks side by side are not sticks");
-  // Pickaxe needs the exact T shape.
-  const C = BLOCK.COBBLESTONE;
-  assert.equal(findRecipe([C, C, C, 0, S, 0, 0, S, 0], 3)?.result, ITEM.STONE_PICKAXE);
-  assert.equal(findRecipe([C, C, C, 0, S, 0, S, 0, 0], 3), null);
-  // Axe matches mirrored.
-  assert.equal(findRecipe([C, C, 0, C, S, 0, 0, S, 0], 3)?.result, ITEM.STONE_AXE);
-  assert.equal(findRecipe([C, C, 0, S, C, 0, S, 0, 0], 3)?.result, ITEM.STONE_AXE);
-  // Shapeless smelting ignores order and position.
-  assert.equal(findRecipe([ITEM.COAL, 0, 0, BLOCK.IRON_ORE], 2)?.result, ITEM.IRON_INGOT);
-  assert.equal(findRecipe([ITEM.COAL, BLOCK.IRON_ORE, BLOCK.IRON_ORE, 0], 2), null, "extra ore should not match");
-  // The 5-ingredient glass recipe can't fit in the 2x2 grid but works in the table.
-  assert.equal(findRecipe([BLOCK.SAND, BLOCK.SAND, BLOCK.SAND, BLOCK.SAND, ITEM.COAL, 0, 0, 0, 0], 3)?.result, BLOCK.GLASS);
-});
+const { Inventory, clickSlot, quickMove, makeStack } = await import("../js/inventory.js");
 
 await test("mining: tool tiers gate drops and speed up breaking", () => {
   const woodPick = itemInfo(ITEM.WOOD_PICKAXE).tool;
@@ -789,22 +751,20 @@ await test("slot clicks: pick up, place, split, merge, swap", () => {
   assert.equal(cursor.count, 5);
 });
 
-await test("crafting output: take, shift-craft all, quick-move", () => {
+await test("quick-move: a stack moves between the hotbar and the main area", () => {
   const inv = new Inventory();
-  const grid = [makeStack(BLOCK.WOOD, 3), null, null, null];
-  let cursor = takeCraftResult(grid, 2, null);
-  assert.equal(cursor.id, BLOCK.PLANKS);
-  assert.equal(cursor.count, 4);
-  assert.equal(grid[0].count, 2);
-  cursor = takeCraftResult(grid, 2, cursor); // stacks onto the cursor
-  assert.equal(cursor.count, 8);
-  assert.equal(craftAllInto(grid, 2, inv), 1);
-  assert.equal(inv.countItem(BLOCK.PLANKS), 4);
-  assert.equal(grid[0], null);
   inv.add(BLOCK.SAND, 5);
   const sandSlot = inv.slots.findIndex((s) => s && s.id === BLOCK.SAND);
   assert.ok(quickMove(inv, sandSlot));
   assert.ok(inv.slots.findIndex((s) => s && s.id === BLOCK.SAND) >= 9, "hotbar -> main");
+});
+
+await test("no crafting: the module is gone, and the starting loadouts are pistol-only (Survival) and every weapon (Creative)", async () => {
+  await assert.rejects(() => import("../js/crafting.js"));
+  const { SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ALL_WEAPONS } = await import("../js/items.js");
+  assert.deepEqual(SURVIVAL_LOADOUT, [ITEM.PISTOL]);
+  assert.equal(CREATIVE_LOADOUT.length, ALL_WEAPONS.length);
+  for (const id of ALL_WEAPONS) assert.ok(itemInfo(id)?.weapon, `weapon ${id}`);
 });
 
 await test("inventory survives serialize/load and rejects garbage", () => {
@@ -883,7 +843,7 @@ console.log("\nExplosion falloff (falloff.js)");
 console.log("\nDistant terrain (lod-mesher.js)");
 {
   const { LodTerrain, buildLodTile, makeLodPalette, tileSpan, LOD_CELLS, LOD_WATER_TOP, LOD_KIND } = await import("../js/lod-mesher.js");
-  const { BLOCK } = await import("../js/blocks.js");
+  const { BLOCK, IS_LOG, IS_LEAVES } = await import("../js/blocks.js");
   const { SEA_LEVEL } = await import("../js/constants.js");
   const flat = new Float32Array(256 * 3).fill(0.4);
   const pal = makeLodPalette({ top: flat, side: flat });
@@ -923,8 +883,12 @@ console.log("\nDistant terrain (lod-mesher.js)");
           const cz = j * step + step / 2;
           const hits = tops.filter((f) => f.x0 < cx && f.x1 > cx && f.z0 < cz && f.z1 > cz);
           assert.equal(hits.length, 1, `cell ${i},${j} at level ${level}: ${hits.length} tops`);
+          const s = {};
+          lt.sample(m.x0 + cx, m.z0 + cz, s, level >= 2 ? (step >> 1) * 0.7 : 0);
+          assert.ok(Math.abs(hits[0].y0 - s.top) < 1e-4, `cell ${i},${j}: top ${hits[0].y0}, ground ${s.top}`);
+          // Never below the height at the cell's centre (peaks are kept), and never far above it.
           const h = lt.terrain.heightAt(m.x0 + cx, m.z0 + cz);
-          assert.ok(Math.abs(hits[0].y0 - (h < SEA_LEVEL ? LOD_WATER_TOP : h + 1)) < 1e-4, `cell ${i},${j}: top ${hits[0].y0}, ground ${h}`);
+          assert.ok(s.top >= (h < SEA_LEVEL ? LOD_WATER_TOP : h + 1) - 1e-4 && s.top <= Math.max(LOD_WATER_TOP, h + 1 + step * 3) + 1e-4, `cell ${i},${j}: top ${s.top} vs centre ${h}`);
         }
       }
       assert.equal(m.span, tileSpan(level));
@@ -942,7 +906,7 @@ console.log("\nDistant terrain (lod-mesher.js)");
         const row = [];
         for (let i = 0; i < N; i++) {
           const out = {};
-          lt.sample(m.x0 + i * step + step / 2, m.z0 + j * step + step / 2, out);
+          lt.sample(m.x0 + i * step + step / 2, m.z0 + j * step + step / 2, out, level >= 2 ? (step >> 1) * 0.7 : 0);
           row.push(out.top);
         }
         heights.push(row);
@@ -974,6 +938,46 @@ console.log("\nDistant terrain (lod-mesher.js)");
         for (const f of side) assert.ok(f.y0 <= lowest - step, "skirts reach below the tile's lowest surface");
       }
     }
+  });
+
+  await test("distant terrain and full-detail chunks agree: heights inside the world, same top blocks", () => {
+    const lt = new LodTerrain(seed);
+    const gen = lt.terrain;
+    let max = 0;
+    let mountains = 0;
+    for (let z = -3000; z < 3000; z += 47) for (let x = -3000; x < 3000; x += 53) {
+      const h = gen.heightAt(x, z);
+      max = Math.max(max, h);
+      if (h >= 50) mountains++;
+    }
+    assert.ok(max <= WORLD_HEIGHT - 2, `heights stay inside the world (max ${max})`);
+    assert.ok(mountains > 20, `there are mountains to compare (${mountains})`);
+    // Full chunks in mountain and lowland areas: the top natural block of every column is the
+    // one the distant terrain colours by (the same surface function), at the same height.
+    let checked = 0;
+    let bad = 0;
+    for (const [cx, cz] of [[-40, 30], [12, -55], [80, 80], [-100, -20], [3, 3], [60, -90], [-30, 110], [140, 20]]) {
+      const chunk = { cx, cz, blocks: new Uint8Array(16 * 16 * WORLD_HEIGHT) };
+      gen.generate(chunk);
+      for (let lz = 0; lz < 16; lz++) for (let lx = 0; lx < 16; lx++) {
+        const wx = cx * 16 + lx;
+        const wz = cz * 16 + lz;
+        const h = gen.heightAt(wx, wz);
+        if (h < SEA_LEVEL || gen.villages && gen.villages._villagesNear(wx, wz, wx, wz).length) continue;
+        const id = chunk.blocks[(h * 16 + lz) * 16 + lx];
+        const above = chunk.blocks[((h + 1) * 16 + lz) * 16 + lx];
+        if (id === 0 || above !== 0 && !(above >= 1 && false)) {
+          // A cave opened the surface, or a tree/plant stands here: skip.
+          if (id === 0 || IS_LOG[above] || IS_LEAVES[above]) continue;
+        }
+        const s = {};
+        lt.sample(wx, wz, s, 0);
+        checked++;
+        if (s.top !== h + 1 || s.id !== id) bad++;
+      }
+    }
+    assert.ok(checked > 800, `columns compared: ${checked}`);
+    assert.equal(bad, 0, `${bad} of ${checked} columns differ between the chunk and the distant terrain`);
   });
 
   await test("trees become canopy boxes on near levels and a grass tint far away", () => {
@@ -1133,6 +1137,201 @@ console.log("\nFlowing water (watersim.js)");
       calls++;
     }
     assert.ok(calls > 1, `spreading across several cells should take more than one throttled call (took ${calls})`);
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nAirports and cities (sites.js)");
+{
+  const { TerrainGenerator } = await import("../js/terrain.js");
+  const { SITE_CELL, RUNWAY_HALF } = await import("../js/sites.js");
+  const { LodTerrain } = await import("../js/lod-mesher.js");
+  const { BLOCK } = await import("../js/blocks.js");
+
+  function findSites(seed, kind = null) {
+    const t = new TerrainGenerator(seed);
+    const list = [];
+    for (let cz = -4; cz <= 4; cz++) for (let cx = -4; cx <= 4; cx++) {
+      const s = t.sites._site(cx, cz);
+      if (s && (!kind || s.kind === kind)) list.push(s);
+    }
+    return { t, list };
+  }
+
+  await test("sites are deterministic, fairly common, and there is one within ~1200 blocks of the start", () => {
+    const a = findSites(42);
+    const b = findSites(42);
+    assert.deepEqual(a.list.map((s) => s.id), b.list.map((s) => s.id));
+    assert.ok(a.list.length >= 12, `sites in 81 cells: ${a.list.length}`);
+    assert.ok(a.list.some((s) => s.kind === "airport") && a.list.some((s) => s.kind === "city"), "both kinds exist");
+    let near = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const t = new TerrainGenerator(seed * 7919);
+      const [sx, sz] = t.spawnColumn();
+      if (t.sites.nearest(sx, sz, 1300)) near++;
+    }
+    assert.ok(near >= 7, `nearby sites for ${near}/8 seeds`);
+  });
+
+  await test("a site is dead flat across its whole footprint (chunks and distant terrain agree), with gentle slopes around it", () => {
+    const { t, list } = findSites(42);
+    const lt = new LodTerrain(t.seed);
+    for (const s of list.slice(0, 6)) {
+      const r = s.rect;
+      const tmp = { top: 0, id: 0, depth: 0 };
+      for (let u = r.u0; u <= r.u1; u += 7) {
+        for (let v = r.v0; v <= r.v1; v += 7) {
+          const [wx, wz] = t.sites.toWorld(s, u, v);
+          assert.equal(t.heightAt(wx, wz), s.y, `${s.id} (${u},${v})`);
+          lt.sample(wx, wz, tmp);
+          assert.equal(tmp.top, s.y + 1, "distant terrain draws the same flat pad");
+        }
+      }
+      // The slope outside: monotone-ish and never a cliff (steps of at most 2 per block).
+      let prev = s.y;
+      const [dx, dz] = t.sites.dirU(s);
+      for (let k = 0; k < 40; k++) {
+        const [wx, wz] = t.sites.toWorld(s, r.u1 + k, 10);
+        const h = t.heightAt(wx, wz);
+        assert.ok(Math.abs(h - prev) <= 3, `${s.id} slope step ${prev} -> ${h} at ${k}`);
+        prev = h;
+      }
+      void dx;
+      void dz;
+    }
+  });
+
+  await test("chunk generation builds the runway (dark, with markings), an apron, hangars, a tower; a runway is long and level", () => {
+    const { t, list } = findSites(42, "airport");
+    const s = list[0];
+    const S = 16;
+    const blockAt = (chunks, wx, y, wz) => {
+      const cx = wx >> 4;
+      const cz = wz >> 4;
+      const key = `${cx},${cz}`;
+      if (!chunks.has(key)) {
+        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 64) };
+        t.generate(chunk);
+        chunks.set(key, chunk);
+      }
+      return chunks.get(key).blocks[(y * S + (wz & 15)) * S + (wx & 15)];
+    };
+    const chunks = new Map();
+    let runway = 0;
+    let markings = 0;
+    for (let u = -RUNWAY_HALF + 4; u <= RUNWAY_HALF - 4; u++) {
+      const [wx, wz] = t.sites.toWorld(s, u, 3);
+      const id = blockAt(chunks, wx, s.y, wz);
+      if (id === BLOCK.BEDROCK) runway++;
+      const [mx, mz] = t.sites.toWorld(s, u, 0);
+      if (blockAt(chunks, mx, s.y, mz) === BLOCK.WOOL) markings++;
+      // Clear sky above the runway.
+      for (let y = s.y + 1; y <= s.y + 12; y++) assert.equal(blockAt(chunks, wx, y, wz), 0, "nothing stands on the runway");
+    }
+    assert.ok(runway >= 230, `dark runway blocks: ${runway}`);
+    assert.ok(markings >= 60, `centre line dashes: ${markings}`);
+    // A hangar wall and the tower's brick shaft.
+    const h = s.hangars[1];
+    const [hx, hz] = t.sites.toWorld(s, h.u0, (h.v0 + h.v1) / 2);
+    assert.notEqual(blockAt(chunks, hx, s.y + 4, hz), 0, "hangar wall");
+    const [tx, tz] = t.sites.toWorld(s, s.tower.u0, s.tower.v0 + 2);
+    assert.equal(blockAt(chunks, tx, s.y + 6, tz), BLOCK.BRICKS, "tower shaft");
+  });
+
+  await test("cities have streets and buildings of different heights with windows and doors", () => {
+    const { t, list } = findSites(7, "city");
+    const s = list[0];
+    const S = 16;
+    const chunks = new Map();
+    const blockAt = (wx, y, wz) => {
+      const cx = wx >> 4;
+      const cz = wz >> 4;
+      const key = `${cx},${cz}`;
+      if (!chunks.has(key)) {
+        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 64) };
+        t.generate(chunk);
+        chunks.set(key, chunk);
+      }
+      return chunks.get(key).blocks[(y * S + (wz & 15)) * S + (wx & 15)];
+    };
+    const heights = new Set();
+    let glass = 0;
+    for (const lot of s.lots) {
+      if (lot.kind === "plaza") continue;
+      const cu = Math.floor((lot.u0 + lot.u1) / 2);
+      const [wx, wz] = t.sites.toWorld(s, lot.u0, Math.floor((lot.v0 + lot.v1) / 2));
+      let top = 0;
+      for (let y = s.y + 1; y < 64; y++) {
+        const id = blockAt(wx, y, wz);
+        if (id) top = y - s.y;
+        if (id === BLOCK.GLASS) glass++;
+      }
+      heights.add(top);
+      void cu;
+    }
+    assert.ok(heights.size >= 4, `building heights vary: ${[...heights]}`);
+    assert.ok(glass > 10, `windows: ${glass}`);
+    assert.ok(s.lots.some((l) => l.kind === "skyscraper") && s.lots.some((l) => l.kind === "house"), "towers and houses");
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nProgression (progression.js)");
+{
+  const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS } = await import("../js/progression.js");
+  const { ITEM } = await import("../js/items.js");
+
+  await test("the mission chain advances as the stats do, rewards fire, and it survives save/load", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, ufosBoarded: 0, jetsCalled: 0, enemyJetsDown: 0, ufosDownBig: 0 };
+    const p = new Progress();
+    p.load(null, stats);
+    let done = [];
+    p.onComplete = (m) => done.push(m.id);
+    assert.equal(p.mission.id, "first_contact");
+    stats.ufosDown = 1;
+    p.update(stats);
+    assert.equal(done.length, 0, "needs the aliens too");
+    stats.aliensKilled = 2;
+    p.update(stats);
+    assert.deepEqual(done, ["first_contact"]);
+    assert.equal(p.mission.id, "salvage");
+    assert.equal(p.objectives(stats)[0].value, 0, "the next mission counts from now");
+    const saved = JSON.parse(JSON.stringify(p.serialize()));
+    const q = new Progress();
+    q.load(saved, stats);
+    assert.equal(q.mission.id, "salvage");
+    stats.ufosBoarded = 1;
+    q.update(stats);
+    assert.equal(q.mission.id, "wings");
+    // Everything through to the end.
+    for (let i = 0; i < 10; i++) {
+      for (const k of Object.keys(stats)) stats[k] += 50; // (each mission counts from when it starts)
+      q.update(stats);
+    }
+    assert.equal(q.mission, null);
+    assert.equal(q.completed, MISSIONS.length);
+  });
+
+  await test("loot gets better with the tier: no heavy weapons early, and never a weapon you already own", () => {
+    let rng = 1;
+    const rand = () => ((rng = (rng * 16807) % 2147483647) / 2147483647);
+    const heavy = new Set([ITEM.RAILGUN, ITEM.MINIGUN, ITEM.BAZOOKA, ITEM.AIRSTRIKE]);
+    for (let i = 0; i < 400; i++) {
+      for (const [id] of rollLoot("ufo", "large", 0, new Set([ITEM.PISTOL]), rand)) assert.ok(!heavy.has(id) || false, `tier 0 dropped ${id}`);
+    }
+    let sawHeavy = false;
+    for (let i = 0; i < 400; i++) for (const [id] of rollLoot("ufo", "giant", 5, new Set([ITEM.PISTOL]), rand)) if (heavy.has(id)) sawHeavy = true;
+    assert.ok(sawHeavy, "a top-tier giant drops heavy weapons");
+    const all = new Set(WEAPON_TIERS.map(([id]) => id));
+    assert.equal(pickWeapon(5, all), null, "everything owned: nothing to pick");
+    for (let i = 0; i < 200; i++) {
+      const owned = new Set([ITEM.PISTOL, ITEM.MACHINE_GUN, ITEM.LASER_BLASTER]);
+      for (const [id] of rollLoot("crate", null, 3, owned, rand)) assert.ok(!owned.has(id), "crates never repeat a weapon");
+    }
+    // A crate always brings a weapon while there is one to find, and golden apples.
+    const crate = rollLoot("crate", null, 2, new Set([ITEM.PISTOL]), rand);
+    assert.ok(crate.some(([id]) => WEAPON_TIERS.some(([w]) => w === id)), "a weapon");
+    assert.ok(crate.some(([id]) => id === ITEM.GOLDEN_APPLE), "golden apples");
   });
 }
 

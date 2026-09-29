@@ -44,7 +44,10 @@ console.log(`Static server on http://localhost:${PORT}`);
 const errors = [];
 const passed = [];
 
+// SMOKE_GREP=text runs only the checks whose name contains it (the ones that need the main page still find it, and the startup checks use their own pages).
+const GREP = process.env.SMOKE_GREP || "";
 async function check(name, fn) {
+  if (GREP && !GREP.split(",").some((g) => name.includes(g))) return;
   const t0 = Date.now();
   try {
     await fn();
@@ -178,9 +181,9 @@ try {
     await page.waitForTimeout(1500);
   });
 
-  await check("default graphics preset is Medium and renders a real image", async () => {
+  await check("default graphics preset is Ultra and renders a real image", async () => {
     const preset = await page.evaluate(() => window.__voxelands.graphics);
-    assert(preset === "medium", `default preset is ${preset}`);
+    assert(preset === "ultra", `default preset is ${preset}`);
     const stats = await page.evaluate(() => window.__voxelands.captureStats());
     console.log(`        ultra: mean luminance ${stats.mean.toFixed(3)}, std ${stats.std.toFixed(3)}, black ${(stats.blackFraction * 100).toFixed(1)}%`);
     assert(stats.mean > 0.08 && stats.std > 0.03 && stats.blackFraction < 0.5, `ultra frame looks blank: ${JSON.stringify(stats)}`);
@@ -236,9 +239,9 @@ try {
         spawnGround: v.world.heightAt(v.spawn.x, v.spawn.z),
       };
     });
-    // 1 pistol, 2 grenade, 3 bazooka, 4 machine gun, 5 airstrike designator, 6 sniper rifle, 7 laser blaster, 8 jet radio.
-    assert(JSON.stringify(s.hotbar.slice(0, 8)) === JSON.stringify([287, 286, 288, 289, 291, 290, 292, 293]), `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
-    assert(s.rest && s.hotbar.slice(8).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
+    // A new Survival game starts with only a pistol (everything else is loot).
+    assert(s.hotbar[0] === 287, `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
+    assert(s.rest && s.hotbar.slice(1).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
     assert(s.mode === "survival" && s.health === 20, `unexpected start state ${JSON.stringify(s)}`);
     assert(s.hearts === 10 && s.heartsVisible, `expected 10 visible hearts: ${JSON.stringify(s)}`);
     assert(s.spawnTop === s.spawnGround, `the player should start on the ground, not on a tree: ${JSON.stringify(s)}`);
@@ -374,7 +377,7 @@ try {
     await page.selectOption("#graphics-preset", "low");
     // Restore the default for the rest of the run.
     await page.$eval("#render-distance", (el) => {
-      el.value = "20";
+      el.value = "10";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.click("#settings-back-btn");
@@ -1798,7 +1801,7 @@ try {
     assert(pick.id === 274 && pick.dur === 59, `pickaxe should lose 1 durability: ${JSON.stringify(pick)}`);
   });
 
-  await check("inventory screen: E opens it, a log crafts into planks by hand, E closes it", async () => {
+  await check("inventory screen: E opens it (no crafting), items move with the mouse, E closes it", async () => {
     await page.evaluate(() => {
       const v = window.__voxelands;
       v.inventory.clear();
@@ -1809,50 +1812,16 @@ try {
     await page.waitForFunction(() => window.__voxelands.gameState === "inventory", null, { timeout: 10000 });
     const visible = await page.$eval("#inventory-screen", (el) => !el.classList.contains("hidden"));
     assert(visible, "inventory screen should be visible");
-    // Pick up the logs, put one into the 2x2 grid, the rest back.
+    assert((await page.$$(".craft-grid, .recipe-book, .result-slot")).length === 0, "there is no crafting UI");
+    // Pick up the logs, put one into another slot, the rest back.
     await page.click(".inv-hotbar .slot:nth-child(1)", { timeout: 20000 });
-    await page.click(".craft-grid .slot:nth-child(1)", { button: "right", timeout: 20000 });
+    await page.click(".inv-hotbar .slot:nth-child(2)", { button: "right", timeout: 20000 });
     await page.click(".inv-hotbar .slot:nth-child(1)", { timeout: 20000 });
-    const result = await page.evaluate(() => window.__voxelands.invScreen.resultView.stack);
-    assert(result && result.id === 8 && result.count === 4, `a log should craft into 4 planks: ${JSON.stringify(result)}`);
-    await page.click(".result-slot", { timeout: 20000 });
-    await page.click(".inv-hotbar .slot:nth-child(2)", { timeout: 20000 });
     await page.screenshot({ path: path.join(__dirname, "screenshot-inventory.png") }).catch(() => {});
     await page.keyboard.press("KeyE");
     await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 10000 });
     const inv = await invState();
-    console.log(`        after crafting: ${JSON.stringify(inv.slots.filter(Boolean))}`);
-    assert(JSON.stringify(inv.slots[0]) === "[6,1]" && JSON.stringify(inv.slots[1]) === "[8,4]", `expected 1 log + 4 planks, got ${JSON.stringify(inv.slots.slice(0, 3))}`);
-  });
-
-  await check("crafting table: the recipe book fills the 3x3 grid and crafts a pickaxe", async () => {
-    const site = await setupArena(page);
-    const table = [site.x, site.y + 1, site.z - 2];
-    await page.evaluate(([x, y, z]) => {
-      const v = window.__voxelands;
-      v.inventory.clear();
-      v.inventory.slots[0] = { id: 8, count: 3 }; // planks
-      v.inventory.slots[1] = { id: 256, count: 2 }; // sticks
-      v.world.setBlock(x, y, z, 19);
-    }, table);
-    await aimAt(page, table);
-    await page.mouse.down({ button: "right" });
-    await page.waitForTimeout(50);
-    await page.mouse.up({ button: "right" });
-    await page.waitForFunction(() => window.__voxelands.gameState === "inventory", null, { timeout: 10000 });
-    const kind = await page.evaluate(() => ({ kind: window.__voxelands.invScreen.kind, cells: window.__voxelands.invScreen.grid.length }));
-    assert(kind.kind === "table" && kind.cells === 9, `right-clicking a crafting table should open a 3x3 grid: ${JSON.stringify(kind)}`);
-    const craftable = await page.$$eval(".recipe.craftable", (els) => els.map((e) => e.title.split(":")[0]));
-    console.log(`        craftable with 3 planks + 2 sticks: ${craftable.join(", ")}`);
-    assert(craftable.includes("Wooden Pickaxe") && !craftable.includes("Crafting Table"), "the recipe book should mark what can be crafted");
-    await page.click('.recipe.craftable[title^="Wooden Pickaxe"]', { timeout: 20000 });
-    const result = await page.evaluate(() => window.__voxelands.invScreen.resultView.stack);
-    assert(result && result.id === 274, `recipe book should set up a wooden pickaxe: ${JSON.stringify(result)}`);
-    await page.click(".result-slot", { modifiers: ["Shift"], timeout: 20000 });
-    await page.keyboard.press("KeyE");
-    await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 10000 });
-    const count = await page.evaluate(() => ({ pick: window.__voxelands.inventory.countItem(274), planks: window.__voxelands.inventory.countItem(8), sticks: window.__voxelands.inventory.countItem(256) }));
-    assert(count.pick === 1 && count.planks === 0 && count.sticks === 0, `expected a pickaxe and no leftovers: ${JSON.stringify(count)}`);
+    assert(JSON.stringify(inv.slots[0]) === "[6,1]" && JSON.stringify(inv.slots[1]) === "[6,1]", `expected a log in each of two slots, got ${JSON.stringify(inv.slots.slice(0, 3))}`);
   });
 
   await check("survival: eating an apple heals", async () => {
@@ -2480,7 +2449,7 @@ try {
     assert(s.fcp > 0, "the page should paint (the loading panel) right away");
     assert(s.readyAtMenu === false && s.playAtMenu.disabled && /Preparing/.test(s.playAtMenu.text), `the start menu should come up before the world is drawn, with Play waiting: ${JSON.stringify(s)}`);
     assert(!s.play.disabled && /^(Play|Continue)$/.test(s.play.text), `Play should be ready once the shaders are: ${JSON.stringify(s.play)}`);
-    assert(s.preset === "medium" && s.startSelect === "medium" && s.boot.preset === "medium", `default start: ${JSON.stringify(s)}`);
+    assert(s.preset === "ultra" && s.startSelect === "ultra" && s.boot.preset === "ultra", `default start: ${JSON.stringify(s)}`);
     // Like picking a preset in the menu, ?graphics= also clears individual options.
     await p.evaluate(() => {
       const saved = JSON.parse(localStorage.getItem("ufocombat_v1_settings"));
@@ -2517,8 +2486,9 @@ try {
       overrides: JSON.parse(localStorage.getItem("ufocombat_v1_settings")).gfxOverrides,
     }));
     console.log(`        ${JSON.stringify(s)}`);
-    assert(s.preset === "high" && /lowered to High/.test(s.notice) && /options were reset/.test(s.notice), `expected High with a notice: ${JSON.stringify(s)}`);
-    assert(Object.keys(s.overrides).length === 0, `individual options should be reset: ${JSON.stringify(s.overrides)}`);
+    assert(s.preset === "high" && /lowered to High/.test(s.notice) && /saved graphics setting is unchanged/.test(s.notice), `expected High with a notice: ${JSON.stringify(s)}`);
+    // (Round 2: the step-down is for this session only; what the player saved is never rewritten.)
+    assert(s.overrides && s.overrides.water === "ssr", `the saved individual options stay: ${JSON.stringify(s.overrides)}`);
     assert(s.boot.preset === "high" && s.boot.ok === true, `the boot record should now say High works: ${JSON.stringify(s.boot)}`);
     assert(errs.length === 0, `errors: ${errs.join(" | ")}`);
     await ctx.close();
@@ -2585,8 +2555,8 @@ try {
       player: !!localStorage.getItem("ufocombat_v1_player_42"),
     }));
     console.log(`        ${JSON.stringify(s)}`);
-    assert(s.label === "Low" && s.saved.graphics === "low" && s.boot.preset === "low" && s.boot.ok, `expected Low for the next start: ${JSON.stringify(s)}`);
-    assert(Object.keys(s.saved.gfxOverrides).length === 0 && s.resetShown, `individual options should be reset, and the panel should say so: ${JSON.stringify(s)}`);
+    assert(s.label === "Low" && s.saved.graphics === "medium" && s.boot.preset === "medium" && !s.boot.ok, `expected Low for the next start (saved settings unchanged, the failed boot recorded): ${JSON.stringify(s)}`);
+    assert(s.saved.gfxOverrides.bloom === "off" && s.resetShown, `the saved options stay, and the panel should say the next start is lowered: ${JSON.stringify(s)}`);
     assert(s.player, "the player should be saved");
     await ctx.close();
   });

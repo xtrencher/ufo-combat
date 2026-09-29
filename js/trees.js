@@ -83,6 +83,8 @@ export class TreeGrower {
   _candidate(wx, wz) {
     const r = hash2((this.seed ^ PLACE_SALT) >>> 0, wx, wz);
     if (r >= MAX_DENSITY) return null;
+    // No trees on airports and in cities (or leaning over them).
+    if (this.terrain.sites.covers(wx, wz, 8)) return null;
     const h = this.terrain.heightAt(wx, wz);
     if (h <= SEA_LEVEL + 1 || h >= WORLD_HEIGHT - 16) return null;
     const biome = this.terrain.biomeAt(wx, wz);

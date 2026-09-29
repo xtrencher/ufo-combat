@@ -18,15 +18,11 @@
 //   color    Uint8   x4  [sRGB r, g, b, ambient occlusion] (normalized)
 //   info     Uint8   x4  [normal index (as in the chunk mesher), kind, water depth, 0]
 //   index    Uint16/Uint32
-import { TerrainGenerator } from "./terrain.js";
+import { TerrainGenerator, surfaceBlocks } from "./terrain.js";
 import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET } from "./blocks.js";
 import { TREE } from "./trees.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
-import { BIOME, isSnowy } from "./biomes.js";
-
-const MOUNTAIN_SNOW_LINE = 58;
-const MOUNTAIN_BARE_ROCK_LINE = 44;
 
 export const LOD_CELLS = 32;
 // Trees are drawn as boxes up to this level; beyond, they only tint the grass.
@@ -112,7 +108,15 @@ export class LodTerrain {
 
   // The visible surface of column (wx, wz): out.top (y of the top face),
   // out.id (its block) and out.depth (water depth, 0 on land).
-  sample(wx, wz, out) {
+  //
+  // `spread` (blocks, 0 = a single point): for a coarse cell, the terrain is
+  // also probed at its four quarter points and the surface leans toward the
+  // highest one, so a narrow ridge or peak that falls between two sample
+  // points is still drawn (a mountain seen from afar keeps its silhouette).
+  // The column itself comes from the same functions as chunk generation
+  // (heightAt, biomeAt, surfaceBlocks), so what is drawn here is what the
+  // full-detail chunks will show.
+  sample(wx, wz, out, spread = 0) {
     if (this.edits.size > 0) {
       const c = this._editedChunk(wx >> 4, wz >> 4);
       if (c) {
@@ -123,20 +127,20 @@ export class LodTerrain {
         return out;
       }
     }
-    const h = this.terrain.heightAt(wx, wz);
+    const t = this.terrain;
+    let h = t.heightAt(wx, wz);
+    if (spread > 0) {
+      let hi = h;
+      hi = Math.max(hi, t.heightAt(wx - spread, wz - spread), t.heightAt(wx + spread, wz - spread), t.heightAt(wx - spread, wz + spread), t.heightAt(wx + spread, wz + spread));
+      if (hi > h) h += Math.round((hi - h) * 0.6);
+    }
     if (h < SEA_LEVEL) {
       out.top = LOD_WATER_TOP;
       out.id = BLOCK.WATER;
       out.depth = SEA_LEVEL - h;
     } else {
       out.top = h + 1;
-      const biome = this.terrain.biomeAt(wx, wz);
-      if (h <= SEA_LEVEL + 1 || biome === BIOME.DESERT) out.id = BLOCK.SAND;
-      else if (biome === BIOME.BADLANDS) out.id = BLOCK.TERRACOTTA;
-      else if (biome === BIOME.MOUNTAINS && h > MOUNTAIN_SNOW_LINE) out.id = BLOCK.SNOW;
-      else if (biome === BIOME.MOUNTAINS && h > MOUNTAIN_BARE_ROCK_LINE) out.id = BLOCK.STONE;
-      else if (isSnowy(biome)) out.id = BLOCK.SNOW;
-      else out.id = BLOCK.GRASS;
+      out.id = t.sites.surfaceAt(wx, wz) || surfaceBlocks(t.biomeAt(wx, wz), h).top;
       out.depth = 0;
     }
     return out;
@@ -306,9 +310,10 @@ export function buildLodTile(lt, level, tx, tz, pal) {
   const id = new Uint8Array(P * P);
   const depth = new Uint8Array(P * P);
   let lowest = Infinity;
+  const spread = level >= 2 ? half * 0.7 : 0;
   for (let j = 0; j < P; j++) {
     for (let i = 0; i < P; i++) {
-      lt.sample(x0 + (i - 1) * step + half, z0 + (j - 1) * step + half, _s);
+      lt.sample(x0 + (i - 1) * step + half, z0 + (j - 1) * step + half, _s, spread);
       const k = j * P + i;
       top[k] = _s.top;
       id[k] = _s.id;

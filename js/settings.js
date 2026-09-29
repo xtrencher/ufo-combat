@@ -92,7 +92,7 @@ export const SCHEMA = [
   { key: "weapons.airstrike.angle", group: "weapons", type: "range", label: "Fall angle (from vertical)", min: 0, max: 70, step: 1, def: 35, fmt: deg },
   { key: "weapons.airstrike.speed", group: "weapons", type: "range", label: "Fall speed (blocks/s)", min: 30, max: 250, step: 5, def: 95, fmt: int },
   { key: "explosionScale.airstrike", id: "explosion-airstrike", group: "weapons", type: "range", label: "Meteor explosion size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
-  { key: "weapons.nukeSize", group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 48, step: 1, def: 28, fmt: int, sub: "Jet nuke", note: (v) => (v > 36 ? "A crater this size takes a moment to carve and rebuild on slower PCs." : "") },
+  { key: "weapons.nukeSize", group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 96, step: 1, def: 44, fmt: int, sub: "Jet nuke", note: (v) => (v > 60 ? "A crater this size takes a moment to carve and rebuild on slower PCs." : "") },
   { key: "weapons.nukeIntensity", group: "weapons", type: "select", label: "Nuke effects intensity", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "How much smoke and fire the mushroom cloud uses." },
 
   // ----- Mobs -----
@@ -120,7 +120,9 @@ export const SCHEMA = [
   { key: "vehicles.beamBlocks", group: "vehicles", type: "checkbox", label: "Tractor beam also lifts loose blocks", def: true },
   { key: "vehicles.jetAssist", group: "vehicles", type: "checkbox", label: "Flight assist (the jet flies toward the crosshair)", def: true, sub: "Fighter jet", hint: "Off: the mouse is the stick (up/down pitch, left/right roll), for experienced pilots." },
   { key: "vehicles.jetAirborne", group: "vehicles", type: "checkbox", label: "Called-in jet arrives airborne (you start in the cockpit)", def: false },
-  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed", min: 80, max: 320, step: 5, def: 160, fmt: (v) => `${Math.round(v * 3.6)} km/h` },
+  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 220, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed. The default is about 800 km/h.", note: (v) => (v > 420 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
+  { key: "vehicles.jetAimAssist", group: "vehicles", type: "checkbox", label: "Cannon aim assist (pulls shots toward a target near the nose)", def: true },
+  { key: "vehicles.enemyJets", group: "vehicles", type: "range", label: "Enemy jets patrolling at once", min: 0, max: 3, step: 1, def: 1, fmt: int, hint: "Neutral until you attack them or the UFOs; then they hunt you with missiles and guns." },
   { key: "vehicles.jetAccel", group: "vehicles", type: "range", label: "Jet acceleration (thrust)", min: 0.5, max: 2.5, step: 0.1, def: 1, fmt: times },
   { key: "vehicles.jetTurn", group: "vehicles", type: "range", label: "Jet turn rate", min: 0.5, max: 2, step: 0.1, def: 1, fmt: times },
   { key: "vehicles.jetStall", group: "vehicles", type: "range", label: "Jet stall speed", min: 25, max: 70, step: 1, def: 42, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "Below this the wings can't hold the jet up: it sinks and drops its nose." },
@@ -165,7 +167,7 @@ export function validValue(e, raw) {
 
 export const DEFAULT_SETTINGS = {
   renderDistance: 10,
-  graphics: "medium",
+  graphics: "ultra",
   gfxOverrides: {},
   volume: { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,

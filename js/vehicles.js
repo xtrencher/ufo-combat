@@ -230,6 +230,10 @@ export class VehicleManager {
     this.onMessage = null; // (text) => void: a short HUD notice
     this.hudEl = document.getElementById("vehicle-hud");
     this.promptEl = document.getElementById("vehicle-prompt");
+    this.infoEl = document.getElementById("vehicle-info");
+    this.infoOpen = false;
+    this.viewRange = 400; // how far you can see (blocks; set by the game)
+    this.night = 0;
     this._hudTimer = 0;
     this._seat = new THREE.Vector3();
   }
@@ -324,7 +328,7 @@ export class VehicleManager {
     let best = null;
     let bestD = Infinity;
     for (const v of this.vehicles) {
-      if (!v.alive) continue;
+      if (!v.alive || v.unusable) continue;
       const d = v.pos.distanceTo(p) - v.radius;
       const dCenter = Math.hypot(v.pos.x - p.x, v.pos.z - p.z);
       if ((d < ENTER_REACH || dCenter < v.radius + 1.5) && d < bestD) {
@@ -538,6 +542,12 @@ export class VehicleManager {
     this._hudTimer -= dt;
     const v = this.active;
     if (this.hudEl) this.hudEl.classList.toggle("hidden", !v || !playing);
+    const sig = `${this.infoOpen}:${v ? v.id : 0}:${playing}`;
+    if (sig !== this._infoSig) {
+      this._infoSig = sig;
+      if (!playing || !v) this.infoOpen = this.infoOpen && !!v && playing;
+      this.refreshInfo();
+    }
     const near = playing && !v ? this.nearestEnterable() : null;
     if (this.promptEl) {
       this.promptEl.classList.toggle("hidden", !near);
@@ -547,13 +557,33 @@ export class VehicleManager {
     this._hudTimer = 0.1;
     const h = v.hud();
     const rows = h.rows.map(([k, val]) => `<div class="vh-row"><span>${k}</span><b>${val}</b></div>`).join("");
+    const bars = (h.bars || []).map((b) => `<div class="vh-bar-row"><span>${b.label}</span><div class="vh-bar"><div class="${b.hot ? "hot" : ""}" style="width:${Math.round(Math.max(0, Math.min(1, b.value)) * 100)}%"></div></div></div>`).join("");
     const hp = Math.max(0, Math.min(1, h.health));
     this.hudEl.innerHTML =
-      `<div class="vh-title">${h.title}</div>${rows}` +
+      `<div class="vh-title">${h.title}</div>${rows}${bars}` +
       `<div class="vh-health"><div style="width:${(hp * 100).toFixed(0)}%;background:${hp > 0.5 ? "#4fdc8a" : hp > 0.25 ? "#ffc94a" : "#ff4a3a"}"></div></div>` +
       (h.weapon ? `<div class="vh-weapon">${h.weapon}</div>` : "") +
       (h.warning ? `<div class="vh-warning">${h.warning}</div>` : "") +
       (h.help ? `<div class="vh-help">${h.help}</div>` : "");
+  }
+
+  // The vehicle info panel (I): stats and controls of the vehicle you are in.
+  toggleInfo(force) {
+    this.infoOpen = force ?? !this.infoOpen;
+    this.refreshInfo();
+  }
+
+  refreshInfo() {
+    const el = this.infoEl;
+    if (!el) return;
+    const v = this.active;
+    const show = this.infoOpen && !!v && typeof v.infoPanel === "function";
+    el.classList.toggle("hidden", !show);
+    if (!show) return;
+    const info = v.infoPanel();
+    const stats = info.stats.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join("");
+    const controls = info.controls.map(([k, val]) => `<tr><td><kbd>${k}</kbd></td><td>${val}</td></tr>`).join("");
+    el.innerHTML = `<h3>${info.title}</h3><h4>Stats</h4><table>${stats}</table><h4>Controls</h4><table>${controls}</table><div class="vi-close">Press I to close</div>`;
   }
 
   // Mods switched off: a seated player is set down safely (on the ground
@@ -590,7 +620,7 @@ export class VehicleManager {
     const list = [];
     let active = -1;
     for (const v of this.vehicles) {
-      if (!v.alive) continue;
+      if (!v.alive || v.transient) continue;
       if (v === this.active) active = list.length;
       list.push(v.serialize());
     }

@@ -256,7 +256,12 @@
     pointer-events: none;
     z-index: 10;
   }
-  #hearts, #bubbles { display: flex; gap: 1px; }
+  #hearts, #bubbles, #absorb { display: flex; gap: 1px; }
+  #absorb { position: absolute; left: 0; bottom: 21px; }
+  #absorb canvas { image-rendering: pixelated; filter: drop-shadow(0 0 3px rgba(255,200,50,0.7)); }
+  #shield-bar { position: absolute; right: 0; bottom: 22px; width: 140px; height: 6px; background: rgba(0,0,0,0.5); border: 1px solid rgba(120,200,255,0.5); border-radius: 2px; overflow: hidden; }
+  #shield-bar > div { height: 100%; width: 100%; background: linear-gradient(90deg, #35a7ff, #a5e9ff); transition: background 0.2s; }
+  #shield-bar.broken > div { background: #ff5a4a; }
   #bubbles { flex-direction: row-reverse; }
   #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
   #item-name {
@@ -348,7 +353,7 @@
   }
   .slot-dur div { height: 100%; }
 
-  /* --- Inventory / crafting screen --- */
+  /* --- Inventory screen --- */
   #inventory-screen {
     position: fixed;
     inset: 0;
@@ -380,9 +385,9 @@
     margin-bottom: 10px;
     padding-right: 2px;
   }
-  .inv-craft { display: flex; align-items: center; gap: 14px; margin: 4px 0 12px 64px; }
-  .craft-grid { display: grid; gap: 2px; }
-  .craft-arrow { font-size: 26px; color: #6d6d6d; }
+  .inv-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+  .inv-tab { font: inherit; font-size: 13px; padding: 3px 12px; background: #9a9a9a; color: #2b2b2b; border: 2px solid; border-color: #fdfdfd #555 #555 #fdfdfd; cursor: pointer; }
+  .inv-tab.active { background: #e2e2e2; font-weight: 700; }
   .slot {
     width: 38px;
     height: 38px;
@@ -398,8 +403,6 @@
   }
   .slot:hover { background: #a9a9a9; }
   .slot canvas { width: 32px; height: 32px; image-rendering: pixelated; pointer-events: none; }
-  .slot.result-slot { width: 50px; height: 50px; }
-  .slot.result-slot.ready { background: #9bb48e; }
   .slot.cursor-slot {
     position: fixed;
     left: 0;
@@ -409,17 +412,6 @@
     pointer-events: none;
     z-index: 95;
   }
-  .recipe-book { width: 162px; }
-  .recipe-list {
-    display: grid;
-    grid-template-columns: repeat(4, 38px);
-    gap: 2px;
-    max-height: 292px;
-    overflow-y: auto;
-    padding-right: 2px;
-  }
-  .slot.recipe { opacity: 0.4; }
-  .slot.recipe.craftable { opacity: 1; background: #86a877; }
   .inv-tooltip {
     position: fixed;
     left: 0;
@@ -585,6 +577,56 @@
   .btn.big.primary { background: linear-gradient(180deg, #37c98e, #1e8f62); border-color: #7dffd6; font-size: 20px; }
   .btn.big.primary:hover { background: linear-gradient(180deg, #45dca0, #25a472); }
   .btn.big:disabled, .btn.big:disabled:hover { background: #3b4450; border-color: transparent; }
+
+  /* Main menu polish: a glass card, segmented mode cards, lit-up buttons, drifting stars. */
+  .menu-sky { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .menu-sky i { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: 0; animation: star-twinkle 5s ease-in-out infinite; }
+  .menu-sky i:nth-child(1) { left: 58%; top: 12%; animation-delay: 0s; }
+  .menu-sky i:nth-child(2) { left: 71%; top: 22%; animation-delay: 1.3s; }
+  .menu-sky i:nth-child(3) { left: 84%; top: 9%; animation-delay: 2.1s; }
+  .menu-sky i:nth-child(4) { left: 65%; top: 5%; animation-delay: 3.4s; }
+  .menu-sky i:nth-child(5) { left: 92%; top: 26%; animation-delay: 0.7s; }
+  .menu-sky i:nth-child(6) { left: 77%; top: 15%; animation-delay: 4.2s; }
+  @keyframes star-twinkle { 0%, 100% { opacity: 0; transform: scale(0.6); } 50% { opacity: 0.9; transform: scale(1.4); } }
+  .menu-card { background: rgba(10,16,28,0.52); -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px); border: 1px solid rgba(255,255,255,0.13); border-radius: 14px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08); margin-bottom: 10px; }
+  .logo-light { animation: logo-blink 1.6s ease-in-out infinite; }
+  .logo-light.l2 { animation-delay: 0.4s; }
+  .logo-light.l3 { animation-delay: 0.8s; }
+  .logo-beam { animation: logo-beam 3.2s ease-in-out infinite; transform-origin: 60px 30px; }
+  @keyframes logo-blink { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+  @keyframes logo-beam { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+  .btn.big { display: flex; align-items: center; justify-content: center; gap: 10px; transition: transform 0.12s, background 0.15s, box-shadow 0.15s, border-color 0.15s; }
+  .btn.big:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(80,200,255,0.25); border-color: rgba(160,235,255,0.55); }
+  .btn.big:active { transform: translateY(1px); }
+  .btn.big.primary { box-shadow: 0 4px 20px rgba(60,220,160,0.32); }
+  .btn.big.primary:hover { box-shadow: 0 6px 26px rgba(60,240,180,0.5); }
+  #play-btn::before { content: "\25B6"; font-size: 0.8em; }
+  #new-world-btn::before { content: "\271A"; font-size: 0.85em; opacity: 0.85; }
+  #menu-settings-btn::before { content: "\2699"; opacity: 0.85; }
+  #menu-mods-btn::before { content: "\26A1"; opacity: 0.85; }
+  #menu-controls-btn::before { content: "\2328"; opacity: 0.85; }
+  .button-pair .btn.big { font-size: 15px; padding: 11px 8px; }
+  .mode-cards { display: flex; gap: 8px; }
+  .mode-card { flex: 1; text-align: left; font: inherit; color: #d9e6f2; background: rgba(30,42,58,0.75); border: 1px solid rgba(255,255,255,0.14); border-radius: 9px; padding: 8px 10px; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.12s; }
+  .mode-card b { display: block; font-size: 15px; letter-spacing: 0.4px; }
+  .mode-card small { display: block; font-size: 11px; opacity: 0.7; margin-top: 2px; line-height: 1.3; }
+  .mode-card:hover { background: rgba(48,66,90,0.9); transform: translateY(-1px); }
+  .mode-card.active { background: linear-gradient(180deg, rgba(40,160,120,0.55), rgba(24,100,80,0.55)); border-color: #7dffd6; color: #fff; box-shadow: 0 0 14px rgba(80,255,200,0.25); }
+  .mode-select-row { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; pointer-events: none; }
+  #mode-hint { min-height: 30px; }
+  .menu-footer .row { display: flex; align-items: center; gap: 8px; }
+  .menu-footer .row select { flex: 1; }
+  .menu-fps { font: 700 12px ui-monospace, Consolas, monospace; padding: 2px 8px; border-radius: 10px; background: rgba(60,220,160,0.18); color: #7dffd6; white-space: nowrap; }
+  .menu-fps.warn { background: rgba(255,190,60,0.2); color: #ffd45a; }
+  .menu-fps.bad { background: rgba(255,80,60,0.2); color: #ff8a7a; }
+  .fps-recommend { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; padding: 6px 8px; border-radius: 6px; background: rgba(255,190,60,0.14); border: 1px solid rgba(255,200,80,0.4); color: #ffe6a8; font-size: 12px; line-height: 1.35; }
+  .fps-recommend span { flex: 1; }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .menu-tip { text-align: center; font-size: 12px; opacity: 0.75; min-height: 32px; padding: 0 10px; margin-top: 6px; transition: opacity 0.4s; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+  .menu-ufo-hint { position: absolute; right: 5vw; top: 14vh; font-size: 14px; letter-spacing: 1px; color: #bff6ff; text-shadow: 0 0 10px rgba(0,0,0,0.9); animation: hint-bob 2.4s ease-in-out infinite; pointer-events: none; }
+  @keyframes hint-bob { 0%, 100% { transform: translateY(0); opacity: 0.75; } 50% { transform: translateY(-5px); opacity: 1; } }
+  .menu-score { position: absolute; right: 18px; bottom: 16px; font: 13px ui-monospace, Consolas, monospace; color: #ffe08a; text-shadow: 0 0 8px rgba(0,0,0,0.9); pointer-events: none; }
+  .menu-overlay.aim-ufo { cursor: crosshair; }
   .button-pair { display: flex; gap: 9px; }
   .button-pair .btn { flex: 1; }
   .pill { font-size: 10px; padding: 1px 6px; border-radius: 9px; margin-left: 6px; vertical-align: middle; background: #6b2a2a; }
@@ -764,6 +806,8 @@
     transition: width 0.1s, height 0.1s, margin 0.1s;
   }
   #lock-box.locked { border-color: #ff3a2a; border-width: 3px; }
+  #lock-box.salvo { border-style: double; border-width: 5px; }
+  #lock-box.salvo::after { content: "SALVO x4" !important; }
   #lock-box.locked::after { content: "LOCK"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font: 700 11px ui-monospace, Consolas, monospace; color: #ff3a2a; letter-spacing: 1px; }
   #jet-nose {
     position: fixed;
@@ -778,6 +822,85 @@
     border-radius: 0 0 8px 8px;
   }
   .vh-lock { color: #ff5a4a; font-weight: 700; }
+  .vh-bar-row { display: flex; align-items: center; gap: 8px; }
+  .vh-bar-row > span { flex: 0 0 auto; }
+  .vh-bar { flex: 1; height: 6px; background: rgba(0,0,0,0.5); border-radius: 3px; overflow: hidden; }
+  .vh-bar div { height: 100%; background: linear-gradient(90deg, #ffd45a, #ff9a3a); }
+  .vh-bar div.hot { background: #ff3a2a; }
+  #vehicle-info {
+    position: fixed;
+    right: 16px;
+    top: 16px;
+    width: min(420px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    background: rgba(6,16,24,0.86);
+    border: 1px solid rgba(120,230,255,0.45);
+    border-radius: 8px;
+    padding: 10px 14px 12px;
+    font: 12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: #bff6ff;
+    pointer-events: none;
+    z-index: 12;
+  }
+  #vehicle-info h3 { margin: 0 0 6px; color: #fff; font-size: 14px; letter-spacing: 1px; }
+  #vehicle-info h4 { margin: 8px 0 3px; color: #ffe08a; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; }
+  #vehicle-info table { border-collapse: collapse; width: 100%; }
+  #vehicle-info td { padding: 1px 4px; vertical-align: top; }
+  #vehicle-info td:first-child { color: #fff; white-space: nowrap; }
+  #vehicle-info kbd { background: rgba(255,255,255,0.12); border-radius: 3px; padding: 0 4px; font: inherit; }
+  #vehicle-info .vi-close { margin-top: 8px; opacity: 0.6; font-size: 11px; }
+  #mission-tracker {
+    position: fixed;
+    top: 44px;
+    right: 14px;
+    width: min(300px, calc(100vw - 28px));
+    background: rgba(8,14,22,0.55);
+    border-left: 3px solid #ffd45a;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font: 12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: #e8f1f8;
+    pointer-events: none;
+    z-index: 9;
+    text-shadow: 0 0 3px rgba(0,0,0,0.8);
+  }
+  #mission-tracker .mt-title { color: #ffd45a; font-weight: 700; letter-spacing: 0.5px; }
+  #mission-tracker .mt-text { opacity: 0.85; font-size: 11px; margin: 2px 0 4px; }
+  #mission-tracker .mt-obj.done { color: #7fe39a; }
+  #mission-tracker .mt-crate { margin-top: 5px; color: #ff9a4a; font-weight: 700; }
+  body.in-vehicle #mission-tracker { top: auto; bottom: 14px; right: 14px; }
+  /* Incoming missile warning: a red arrow on a ring around the crosshair. */
+  #missile-warn {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 11;
+  }
+  #missile-warn .mw-arrow {
+    position: absolute;
+    left: -16px;
+    top: -16px;
+    width: 32px;
+    height: 32px;
+    transform-origin: 16px 16px;
+    filter: drop-shadow(0 0 6px rgba(255,40,20,0.9));
+  }
+  #missile-warn .mw-arrow::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: -118px;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-bottom: 26px solid #ff3a2a;
+  }
+  #missile-warn.fast .mw-arrow { animation: vh-blink 0.16s steps(2) infinite; }
+  #missile-warn.slow .mw-arrow { animation: vh-blink 0.5s steps(2) infinite; }
+  #missile-warn .mw-text { position: absolute; left: -90px; top: 150px; width: 180px; text-align: center; color: #ff5a4a; font-weight: 800; letter-spacing: 2px; text-shadow: 0 0 6px #000; }
 
   /* F1 hides every HUD element (the held item is hidden by the game). */
   body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay, body.hud-off #binocular-overlay { visibility: hidden; }
@@ -797,9 +920,12 @@
     <div id="fps-counter">FPS: --</div>
     <div id="mode-badge" class="hidden"></div>
     <div id="item-name"></div>
-    <div id="status-bars"><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="status-bars"><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div><div id="shield-bar" class="hidden"><div></div></div></div>
     <div id="hotbar"></div>
     <div id="vehicle-hud" class="hidden"></div>
+    <div id="vehicle-info" class="hidden"></div>
+    <div id="mission-tracker" class="hidden"></div>
+    <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>
     <div id="vehicle-prompt" class="hidden"></div>
     <div id="hud-toast"></div>
     <div id="stats-overlay" class="hidden"></div>
@@ -840,6 +966,7 @@
   <!-- Main menu: the logo over a slow flyover of the world (drawn by the
        game behind this transparent overlay). -->
   <div id="start-menu" class="overlay menu-overlay hidden">
+    <div class="menu-sky" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="menu-col">
       <div class="logo" aria-label="UFO COMBAT">
         <svg class="logo-ufo" viewBox="0 0 120 52" aria-hidden="true">
@@ -848,31 +975,37 @@
             <linearGradient id="lg-dome" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9fff4"/><stop offset="1" stop-color="#3ee6b8"/></linearGradient>
             <radialGradient id="lg-beam" cx="0.5" cy="0" r="1"><stop offset="0" stop-color="#7fe8ff" stop-opacity="0.8"/><stop offset="1" stop-color="#7fe8ff" stop-opacity="0"/></radialGradient>
           </defs>
-          <path d="M44 30 L20 52 L100 52 L76 30 Z" fill="url(#lg-beam)"/>
+          <path class="logo-beam" d="M44 30 L20 52 L100 52 L76 30 Z" fill="url(#lg-beam)"/>
           <ellipse cx="60" cy="18" rx="17" ry="13" fill="url(#lg-dome)"/>
           <ellipse cx="60" cy="27" rx="56" ry="11" fill="url(#lg-hull)"/>
           <ellipse cx="60" cy="31" rx="30" ry="4" fill="#1d2735"/>
-          <circle cx="22" cy="27" r="2.6" fill="#ff5a4a"/><circle cx="41" cy="31" r="2.6" fill="#ffe14a"/><circle cx="60" cy="33" r="2.6" fill="#5affc8"/><circle cx="79" cy="31" r="2.6" fill="#ffe14a"/><circle cx="98" cy="27" r="2.6" fill="#ff5a4a"/>
+          <circle class="logo-light l1" cx="22" cy="27" r="2.6" fill="#ff5a4a"/><circle class="logo-light l2" cx="41" cy="31" r="2.6" fill="#ffe14a"/><circle class="logo-light l3" cx="60" cy="33" r="2.6" fill="#5affc8"/><circle class="logo-light l2" cx="79" cy="31" r="2.6" fill="#ffe14a"/><circle class="logo-light l1" cx="98" cy="27" r="2.6" fill="#ff5a4a"/>
         </svg>
         <div class="logo-text"><span class="logo-ufo-word">UFO</span><span class="logo-combat">COMBAT</span></div>
         <div class="logo-tag">A voxel sandbox under alien attack</div>
       </div>
-      <div class="main-buttons">
-        <button class="btn big primary" id="play-btn">Click to Play</button>
-        <div class="row mode-row">
-          <label for="mode-select">Game mode</label>
-          <select id="mode-select">
-            <option value="survival">Survival</option>
-            <option value="creative">Creative</option>
-          </select>
+      <div class="menu-card">
+        <div class="main-buttons">
+          <button class="btn big primary" id="play-btn">Click to Play</button>
+          <div class="mode-cards" role="group" aria-label="Game mode">
+            <button class="mode-card" id="mode-card-survival" data-mode="survival" type="button"><b>Survival</b><small>Start with a pistol. Loot UFOs, missions, supply drops.</small></button>
+            <button class="mode-card" id="mode-card-creative" data-mode="creative" type="button"><b>Creative</b><small>Every weapon and block. Fly. No damage.</small></button>
+          </div>
+          <div class="row mode-row mode-select-row">
+            <label for="mode-select">Game mode</label>
+            <select id="mode-select">
+              <option value="survival">Survival</option>
+              <option value="creative">Creative</option>
+            </select>
+          </div>
+          <div id="mode-hint" class="hint"></div>
+          <button class="btn big" id="new-world-btn">New World</button>
+          <div class="button-pair">
+            <button class="btn big" id="menu-settings-btn">Settings</button>
+            <button class="btn big" id="menu-mods-btn">Mods <span id="menu-mods-state" class="pill on">ON</span></button>
+          </div>
+          <button class="btn big" id="menu-controls-btn">Controls</button>
         </div>
-        <div id="mode-hint" class="hint"></div>
-        <button class="btn big" id="new-world-btn">New World</button>
-        <div class="button-pair">
-          <button class="btn big" id="menu-settings-btn">Settings</button>
-          <button class="btn big" id="menu-mods-btn">Mods <span id="menu-mods-state" class="pill on">ON</span></button>
-        </div>
-        <button class="btn big" id="menu-controls-btn">Controls</button>
       </div>
       <div class="menu-footer">
         <div class="row">
@@ -883,11 +1016,19 @@
             <option value="high">High</option>
             <option value="ultra">Ultra</option>
           </select>
+          <span id="menu-fps" class="menu-fps" title="Frames per second, live">FPS --</span>
+        </div>
+        <div id="fps-recommend" class="fps-recommend hidden">
+          <span id="fps-recommend-text"></span>
+          <button class="btn small" id="fps-recommend-apply" type="button">Apply</button>
         </div>
         <div id="start-notice" class="hint"></div>
         <div id="seed-display">World seed: <span id="seed-value">-</span> <span id="world-state"></span></div>
       </div>
+      <div id="menu-tip" class="menu-tip"></div>
     </div>
+    <div id="menu-ufo-hint" class="menu-ufo-hint hidden">Psst! Click the flying saucer to shoot it.</div>
+    <div id="menu-score" class="menu-score hidden">Menu UFOs shot down: <b id="menu-score-n">0</b></div>
   </div>
 
   <!-- New world: an optional seed, then the page reloads into that world. -->
@@ -1124,10 +1265,10 @@
       <p style="font-size:14px; line-height:1.5; opacity:0.9;">
         The browser lost its connection to the graphics card (the WebGL
         context was lost), usually because drawing a frame took too long.
-        Your world is saved. The graphics setting is lowered to
-        <b id="gpu-lost-preset">High</b> for the next start<span
-        id="gpu-lost-reset" class="hidden">, with individual graphics options
-        reset</span>: reload to go on playing.
+        Your world and settings are saved. The next start runs one step lower
+        (<b id="gpu-lost-preset">High</b>) for that session only<span
+        id="gpu-lost-reset" class="hidden">, without your individual graphics options</span>,
+        and your saved graphics setting stays as it is: reload to go on playing.
       </p>
       <div class="menu-buttons">
         <button class="btn" id="gpu-lost-reload">Reload</button>

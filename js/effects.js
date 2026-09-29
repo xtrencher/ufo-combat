@@ -15,7 +15,7 @@ export const GRENADE_RADIUS = 7;
 // Was 5x a grenade's radius; reduced to a third of that size.
 export const BAZOOKA_RADIUS = (GRENADE_RADIUS * 5) / 3;
 export const AIRSTRIKE_METEOR_RADIUS = GRENADE_RADIUS * 1.3;
-const MAX_BLAST_RADIUS = 40; // hard cap on the carve radius (cost grows with r^3)
+const MAX_BLAST_RADIUS = 100; // hard cap on the carve radius (cost grows with r^3)
 const MAX_FLOOD_CELLS = 12000; // bound on how much water one blast can let in
 // Craters are wide, flat ellipsoids (roughly this many times wider than
 // deep) rather than spheres, closer to how a real blast digs into the ground.

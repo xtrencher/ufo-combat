@@ -37,7 +37,8 @@ export class VillageGrower {
       const z = cellZ * CELL + Math.floor(jz * (CELL - VILLAGE_REACH * 2)) + VILLAGE_REACH;
       const h = this.terrain.heightAt(x, z);
       const biome = this.terrain.biomeAt(x, z);
-      if (h > SEA_LEVEL + 2 && GOOD_BIOMES.has(biome)) center = { x, z, groundY: h };
+      // (not on an airport or in a city: those have their own people)
+      if (h > SEA_LEVEL + 2 && GOOD_BIOMES.has(biome) && !this.terrain.sites.covers(x, z, VILLAGE_REACH + 40)) center = { x, z, groundY: h };
     }
     this._centers.set(key, center);
     if (this._centers.size > 400) this._centers.clear();

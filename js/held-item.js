@@ -3,7 +3,7 @@
 // clips into walls. Animated with a swing (mining, attacking, placing), an
 // equip dip when switching items, and a little walk bob.
 import * as THREE from "three";
-import { itemModel, MUZZLE } from "./models.js";
+import { itemModel, MUZZLE, minigunBarrels } from "./models.js";
 import { itemInfo } from "./items.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 
@@ -39,6 +39,47 @@ function makeFlashTexture() {
   return t;
 }
 const EQUIP_TIME = 0.2;
+
+// The energy shield: a curved hexagonal force field in front of the view,
+// nearly clear in the middle and bright toward the edges, flashing where it
+// is hit. Drawn with the held item (over the world).
+const shieldVertex = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+const shieldFragment = /* glsl */ `
+uniform float uTime;
+uniform float uLevel;   // 0-1: raised
+uniform float uFlash;   // 0-1: a hit
+uniform float uEnergy;  // 0-1: what's left
+varying vec2 vUv;
+// Distance to the nearest edge of a hexagonal cell grid (0 at the edges).
+float hexEdge(vec2 p) {
+  p *= vec2(1.0, 1.1547);
+  vec2 q = vec2(p.x * 1.1547, p.y + p.x * 0.5773);
+  vec2 f = fract(q) - 0.5;
+  // Simplified: a triangle-lattice edge distance.
+  vec2 a = abs(f);
+  return min(min(a.x, a.y), abs(a.x + a.y - 0.5) * 0.7071 + 0.0) * 2.0;
+}
+void main() {
+  vec2 c = vUv - 0.5;
+  float r = length(c * vec2(1.0, 1.35));
+  float edge = smoothstep(0.18, 0.55, r);
+  float hex = 1.0 - smoothstep(0.02, 0.09, hexEdge(vUv * vec2(9.0, 7.0) + vec2(uTime * 0.05, 0.0)));
+  float scan = 0.5 + 0.5 * sin((vUv.y * 40.0) - uTime * 3.0);
+  float a = (0.05 + 0.55 * edge + 0.5 * hex * (0.35 + edge) + 0.05 * scan * edge) * uLevel;
+  a += uFlash * (0.25 + 0.6 * hex) * (0.4 + edge);
+  a *= smoothstep(0.62, 0.42, r + 0.02); // round off the panel
+  vec3 low = vec3(1.4, 0.35, 0.2);
+  vec3 col = mix(low, vec3(0.3, 1.6, 3.2), smoothstep(0.15, 0.6, uEnergy));
+  col += vec3(1.5, 1.5, 1.6) * uFlash;
+  gl_FragColor = vec4(col * (0.7 + hex), clamp(a, 0.0, 0.9));
+}
+`;
 
 function armGeometry() {
   const g = new THREE.BoxGeometry(0.2, 0.2, 0.72);
@@ -77,8 +118,32 @@ export class HeldItem {
     this._kickPower = 1;
     this._flash = 99; // seconds since the last muzzle flash
     this.windUp = 0; // 0-1: how far a throw is drawn back (charging)
+    this.spin = 0; // the minigun's barrel angle (radians)
+    this.charge = 0; // 0-1: a railgun charging (its coils glow)
     this.flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeFlashTexture(), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, color: new THREE.Color(6, 4.2, 2.2) }));
     this.flash.visible = false;
+    this.railGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash.material.map, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, color: new THREE.Color(1.5, 3.2, 6) }));
+    this.railGlow.visible = false;
+    // The shield's force field (raised while the shield is held up).
+    this.shieldMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uLevel: { value: 0 }, uFlash: { value: 0 }, uEnergy: { value: 1 } },
+      vertexShader: shieldVertex,
+      fragmentShader: shieldFragment,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.shieldPanel = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.55), this.shieldMat);
+    this.shieldPanel.position.set(0, -0.02, -0.75);
+    this.shieldPanel.visible = false;
+    this.shieldPanel.renderOrder = 5;
+    this.pivot.add(this.shieldPanel);
+    this.shieldLevel = 0; // 0-1 raise animation
+    this.shieldFlash = 0;
+    this.shieldEnergy = 1;
+    this.shieldUp = false;
     this.setItem(0, true);
   }
 
@@ -135,6 +200,16 @@ export class HeldItem {
         this.mesh.position.set(0.26, -0.22, -0.55);
         this.mesh.rotation.set(0.02, 0.04, 0);
         this.kind = "gun";
+      } else if (model.gun === "railgun") {
+        this.mesh.scale.setScalar(0.55);
+        this.mesh.position.set(0.26, -0.22, -0.55);
+        this.mesh.rotation.set(0.0, 0.06, 0);
+        this.kind = "gun";
+      } else if (model.gun === "minigun") {
+        this.mesh.scale.setScalar(0.6);
+        this.mesh.position.set(0.28, -0.26, -0.5);
+        this.mesh.rotation.set(0.0, 0.05, 0);
+        this.kind = "gun";
       } else if (model.gun === "sniper") {
         this.mesh.scale.setScalar(0.6);
         this.mesh.position.set(0.25, -0.23, -0.6);
@@ -155,6 +230,17 @@ export class HeldItem {
         this.mesh.position.set(0.4, -0.27, -0.62);
         this.mesh.rotation.set(0.05, -1.05, 0.28);
         this.kind = "item";
+      }
+      // The minigun's barrels are their own mesh, spun by the game.
+      this.barrels = null;
+      if (model.barrels) {
+        this.barrels = new THREE.Mesh(minigunBarrels(), this.materials.color);
+        this.barrels.position.set(0, 0.04, -0.56);
+        this.mesh.add(this.barrels);
+      }
+      if (model.gun === "railgun") {
+        this.railGlow.position.copy(MUZZLE.railgun).add(new THREE.Vector3(0, 0, 0.06));
+        this.mesh.add(this.railGlow);
       }
       if (model.gun) {
         this.flash.position.copy(MUZZLE[model.gun]).add(new THREE.Vector3(0, 0, -0.06));
@@ -227,6 +313,29 @@ export class HeldItem {
       m.position.z += k * 0.12;
       m.position.y += k * 0.03;
       m.rotation.x += k * 0.35;
+    }
+    if (this.barrels) this.barrels.rotation.z = this.spin;
+    // The railgun charging: its muzzle glows and the gun trembles.
+    const charging = this.charge > 0 && itemInfo(this.itemId)?.weapon?.kind === "railgun";
+    this.railGlow.visible = charging;
+    if (charging) {
+      const ch = Math.min(1, this.charge);
+      this.railGlow.scale.setScalar(0.06 + 0.55 * ch * ch + Math.random() * 0.03 * ch);
+      m.position.x += (Math.random() - 0.5) * 0.012 * ch;
+      m.position.y += (Math.random() - 0.5) * 0.012 * ch;
+    }
+    // The shield's force field.
+    const raise = itemInfo(this.itemId)?.weapon?.kind === "shield" && this.shieldUp ? 1 : 0;
+    this.shieldLevel += (raise - this.shieldLevel) * Math.min(1, dt * 12);
+    this.shieldFlash = Math.max(0, this.shieldFlash - dt * 3.5);
+    this.shieldPanel.visible = this.shieldLevel > 0.02 || this.shieldFlash > 0.02;
+    if (this.shieldPanel.visible) {
+      const u = this.shieldMat.uniforms;
+      u.uTime.value += dt;
+      u.uLevel.value = this.shieldLevel;
+      u.uFlash.value = this.shieldFlash;
+      u.uEnergy.value = this.shieldEnergy;
+      this.shieldPanel.scale.setScalar(0.85 + 0.15 * this.shieldLevel);
     }
     this._flash += dt;
     this._flashFrames = this._flash === dt ? 0 : (this._flashFrames || 0) + 1;

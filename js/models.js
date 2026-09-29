@@ -155,6 +155,8 @@ export const MUZZLE = {
   machinegun: new THREE.Vector3(0, 0.06, -0.58),
   sniper: new THREE.Vector3(0, 0.05, -0.85),
   blaster: new THREE.Vector3(0, 0.035, -0.44),
+  railgun: new THREE.Vector3(0, 0.045, -0.98),
+  minigun: new THREE.Vector3(0, 0.05, -0.95),
 };
 
 // A chunky sci-fi blaster: a pale body, a finned barrel shroud and glowing
@@ -245,6 +247,67 @@ function sniperGeometry() {
   ]);
 }
 
+// A long, sleek railgun: a dark receiver, two parallel rails with glowing
+// capacitor coils around them, a capacitor block and a stock.
+function railgunGeometry() {
+  const steel = 0x2b2e34;
+  const dark = 0x1b1c20;
+  const rail = 0x9aa3ad;
+  const coil = 0x7fd0ff;
+  const grip = 0x3c2a1c;
+  const parts = [
+    { geometry: box(0.1, 0.11, 0.42), color: steel, matrix: at(0, 0.03, 0.05) }, // receiver
+    { geometry: box(0.03, 0.03, 0.95), color: rail, matrix: at(-0.035, 0.07, -0.5) }, // rails
+    { geometry: box(0.03, 0.03, 0.95), color: rail, matrix: at(0.035, 0.07, -0.5) },
+    { geometry: box(0.028, 0.028, 0.95), color: dark, matrix: at(0, 0.0, -0.5) }, // lower spine
+    { geometry: box(0.09, 0.17, 0.16), color: dark, matrix: at(0, -0.12, 0.02) }, // capacitor block
+    { geometry: box(0.06, 0.24, 0.09), color: grip, matrix: at(0, -0.19, 0.13, 0.28) }, // grip
+    { geometry: box(0.07, 0.1, 0.44), color: steel, matrix: at(0, 0.03, 0.42) }, // stock
+    { geometry: box(0.04, 0.02, 0.1), color: dark, matrix: at(0, 0.115, -0.1) }, // sight
+    { geometry: box(0.09, 0.012, 0.32), color: coil, matrix: at(0, 0.09, 0.05) }, // a glowing strip on the receiver
+  ];
+  for (let i = 0; i < 5; i++) parts.push({ geometry: new THREE.TorusGeometry(0.07, 0.013, 6, 16), color: coil, matrix: at(0, 0.05, -0.25 - i * 0.16) });
+  return mergeColored(parts);
+}
+
+// The laser minigun: a body with a carry handle, a grip and an ammo box; the
+// barrel cluster is a separate mesh so it can spin (see minigunBarrels).
+function minigunGeometry() {
+  const steel = 0x2b2e34;
+  const dark = 0x1b1c20;
+  const olive = 0x4d5c2a;
+  const grip = 0x3c2a1c;
+  const glow = 0x7fd0ff;
+  return mergeColored([
+    { geometry: new THREE.CylinderGeometry(0.1, 0.11, 0.42, 14), color: steel, matrix: at(0, 0.04, -0.1, Math.PI / 2) }, // drum housing
+    { geometry: box(0.13, 0.13, 0.26), color: dark, matrix: at(0, 0.04, 0.2) }, // motor
+    { geometry: box(0.15, 0.13, 0.2), color: olive, matrix: at(0.02, -0.09, -0.05) }, // ammo box
+    { geometry: box(0.07, 0.22, 0.09), color: grip, matrix: at(0, -0.15, 0.16, 0.25) }, // grip
+    { geometry: box(0.03, 0.03, 0.34), color: dark, matrix: at(0, 0.17, 0) }, // carry handle (top)
+    { geometry: box(0.03, 0.09, 0.03), color: dark, matrix: at(0, 0.125, -0.15) },
+    { geometry: box(0.03, 0.09, 0.03), color: dark, matrix: at(0, 0.125, 0.15) },
+    { geometry: new THREE.CylinderGeometry(0.04, 0.04, 0.03, 10), color: glow, matrix: at(0, 0.04, 0.34, Math.PI / 2) }, // rear light
+    { geometry: box(0.135, 0.02, 0.2), color: glow, matrix: at(0, 0.115, -0.08) }, // a glowing strip
+  ]);
+}
+
+// The minigun's six barrels, centered on their spin axis (Z), 0.72 long.
+export function minigunBarrels() {
+  const steel = 0x3a3e46;
+  const dark = 0x1b1c20;
+  const glow = 0x7fd0ff;
+  const parts = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    parts.push({ geometry: new THREE.CylinderGeometry(0.02, 0.022, 0.72, 8), color: steel, matrix: at(Math.cos(a) * 0.055, Math.sin(a) * 0.055, 0, Math.PI / 2) });
+    parts.push({ geometry: new THREE.CylinderGeometry(0.014, 0.014, 0.05, 8), color: glow, matrix: at(Math.cos(a) * 0.055, Math.sin(a) * 0.055, -0.375, Math.PI / 2) });
+  }
+  parts.push({ geometry: new THREE.CylinderGeometry(0.085, 0.085, 0.03, 16), color: dark, matrix: at(0, 0, -0.32, Math.PI / 2) });
+  parts.push({ geometry: new THREE.CylinderGeometry(0.085, 0.085, 0.03, 16), color: dark, matrix: at(0, 0, -0.05, Math.PI / 2) });
+  parts.push({ geometry: new THREE.CylinderGeometry(0.03, 0.03, 0.72, 8), color: dark, matrix: at(0, 0, 0, Math.PI / 2) });
+  return mergeColored(parts);
+}
+
 // A thrown grenade (about 0.3 blocks tall), centered at the origin.
 export function grenadeGeometry() {
   return mergeColored([
@@ -277,14 +340,16 @@ export function itemModel(id) {
     const b = BLOCK_INFO[info.block];
     if (b.shape === SHAPE.CUBE) model = { geometry: blockCubeGeometry(info.block), kind: "array", cube: true };
     else model = { geometry: spriteGeometry(paintTile(TILE_NAMES[b.faces.side])), kind: "color", cube: false };
-  } else if (info?.weapon && ["pistol", "bazooka", "machinegun", "sniper", "blaster"].includes(info.weapon.kind)) {
+  } else if (info?.weapon && ["pistol", "bazooka", "machinegun", "sniper", "blaster", "railgun", "minigun"].includes(info.weapon.kind)) {
     const geometry =
-      info.weapon.kind === "blaster" ? blasterGeometry()
+      info.weapon.kind === "railgun" ? railgunGeometry()
+      : info.weapon.kind === "minigun" ? minigunGeometry()
+      : info.weapon.kind === "blaster" ? blasterGeometry()
       : info.weapon.kind === "pistol" ? pistolGeometry()
       : info.weapon.kind === "bazooka" ? bazookaGeometry()
       : info.weapon.kind === "machinegun" ? machineGunGeometry()
       : sniperGeometry();
-    model = { geometry, kind: "color", cube: false, gun: info.weapon.kind };
+    model = { geometry, kind: "color", cube: false, gun: info.weapon.kind, barrels: info.weapon.kind === "minigun" };
   } else if (info) {
     model = { geometry: spriteGeometry(itemIconPixels(id)), kind: "color", cube: false };
   }

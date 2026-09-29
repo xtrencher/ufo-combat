@@ -40,6 +40,9 @@ const COLORS = {
   w: "#ffffff",
   b: "#4aa8ff",
   c: "#2c6fc9",
+  G: "#ffd23a",
+  g: "#c8890a",
+  y: "#fff3a0",
 };
 
 // Draws pixel art rows; `fill(x, ch)` may substitute colors per column.
@@ -67,6 +70,18 @@ function heartArt(kind, flash = false) {
     return ch;
   };
   return drawArt(HEART, inner);
+}
+
+// A golden heart (absorption): the red shades swapped for gold.
+function goldHeartArt(half = false) {
+  return drawArt(HEART, (x, ch) => {
+    if (ch === ".") return ".";
+    if (half && x > 4 && ch !== "k") return "e";
+    if (ch === "r") return "G";
+    if (ch === "d") return "g";
+    if (ch === "h") return "y";
+    return ch;
+  });
 }
 
 export class Hud {
@@ -109,6 +124,21 @@ export class Hud {
       this.heartsEl.appendChild(c);
       this.hearts.push({ el: c, ctx: c.getContext("2d"), shown: "" });
     }
+    // Golden hearts (absorption), a second row above the hearts.
+    this.goldEl = document.getElementById("absorb");
+    this.goldArt = { full: goldHeartArt(), half: goldHeartArt(true) };
+    this.gold = [];
+    for (let i = 0; i < 10; i++) {
+      const c = document.createElement("canvas");
+      c.width = this.art.full.width;
+      c.height = this.art.full.height;
+      c.className = "heart";
+      this.goldEl.appendChild(c);
+      this.gold.push({ el: c, ctx: c.getContext("2d"), shown: -1 });
+    }
+    this._shownGold = -1;
+    this.shieldEl = document.getElementById("shield-bar");
+    this.shieldFill = this.shieldEl.firstElementChild;
     this.bubbles = [];
     for (let i = 0; i < MAX_AIR; i++) {
       const c = document.createElement("canvas");
@@ -221,6 +251,19 @@ export class Hud {
         h.ctx.drawImage(art, 0, 0);
       }
     }
+    // Golden hearts.
+    const gold = player.creative ? 0 : Math.ceil(player.absorption || 0);
+    if (gold !== this._shownGold) {
+      this._shownGold = gold;
+      this.goldEl.classList.toggle("hidden", gold <= 0);
+      this.itemNameEl.style.bottom = gold > 0 ? "118px" : ""; // (above the golden row)
+      for (let i = 0; i < this.gold.length; i++) {
+        const v = gold - i * 2;
+        const g = this.gold[i];
+        g.ctx.clearRect(0, 0, g.el.width, g.el.height);
+        if (v >= 1) g.ctx.drawImage(v >= 2 ? this.goldArt.full : this.goldArt.half, 0, 0);
+      }
+    }
     // Low health: the hearts jitter.
     const low = !player.creative && !player.dead && hp <= 4;
     if (low || this._wasLow) {
@@ -251,6 +294,24 @@ export class Hud {
     if (opacity !== this._shownFlash) {
       this._shownFlash = opacity;
       this.damageEl.style.opacity = String(opacity);
+    }
+  }
+
+  // The energy shield's bar: shown while the shield item is selected.
+  setShield(frac, visible, broken) {
+    if (visible !== this._shieldVis) {
+      this._shieldVis = visible;
+      this.shieldEl.classList.toggle("hidden", !visible);
+    }
+    if (!visible) return;
+    const w = `${Math.round(frac * 100)}%`;
+    if (w !== this._shieldW) {
+      this._shieldW = w;
+      this.shieldFill.style.width = w;
+    }
+    if (broken !== this._shieldBroken) {
+      this._shieldBroken = broken;
+      this.shieldEl.classList.toggle("broken", broken);
     }
   }
 

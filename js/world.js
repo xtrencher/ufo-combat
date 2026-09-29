@@ -101,6 +101,7 @@ export class World {
     this.meshOptions = { fancyLeaves: false }; // see mesher.js; setMeshOptions() rebuilds
     this.light = new LightEngine(this);
 
+    this._heightCache = new Map(); // see heightAt
     this.genQueue = []; // { cx, cz, dist }
     this.genQueued = new Set(); // numKeys
     this.meshQueue = []; // chunks awaiting their first mesh
@@ -130,8 +131,18 @@ export class World {
     return this.chunks.get(numKey(cx, cz));
   }
 
+  // The terrain height of a column. Cached: long ray casts over unloaded
+  // ground (distant UFO shots, hidden spawn tests, missiles) ask for
+  // hundreds of columns, and the noise behind each one is not cheap.
   heightAt(wx, wz) {
-    return this.terrain.heightAt(wx, wz);
+    const key = (wx + 2097152) * 4194304 + (wz + 2097152);
+    let h = this._heightCache.get(key);
+    if (h === undefined) {
+      if (this._heightCache.size > 300000) this._heightCache.clear();
+      h = this.terrain.heightAt(wx, wz);
+      this._heightCache.set(key, h);
+    }
+    return h;
   }
 
   getBlock(wx, wy, wz) {

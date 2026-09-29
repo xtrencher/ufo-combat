@@ -3,9 +3,8 @@
 // A stack is { id, count } plus `dur` (remaining uses) for tools. The
 // player's inventory has 36 slots: 0-8 are the hotbar, 9-35 the main area.
 // UI screens hold one "cursor" stack (what the mouse is carrying) and call
-// clickSlot()/quickMove()/takeCraftResult() on arrays of slots.
+// clickSlot()/quickMove() on arrays of slots.
 import { maxStack, itemInfo } from "./items.js";
-import { findRecipe } from "./crafting.js";
 
 export const HOTBAR_SIZE = 9;
 export const INVENTORY_SIZE = 36;
@@ -189,53 +188,6 @@ export function clickSlot(slots, i, cursor, button) {
   }
   slots[i] = cursor;
   return slot;
-}
-
-// The item a crafting grid (array of stacks or null) currently produces, or null.
-export function craftResult(grid, width) {
-  const recipe = findRecipe(
-    grid.map((s) => (s ? s.id : 0)),
-    width
-  );
-  return recipe ? { recipe, stack: makeStack(recipe.result, recipe.count) } : null;
-}
-
-// Consumes one of each ingredient from the grid.
-function consumeGrid(grid) {
-  for (let i = 0; i < grid.length; i++) {
-    if (!grid[i]) continue;
-    grid[i].count -= 1;
-    if (grid[i].count <= 0) grid[i] = null;
-  }
-}
-
-// Clicking the crafting output while carrying `cursor`. Returns the new cursor.
-export function takeCraftResult(grid, width, cursor) {
-  const res = craftResult(grid, width);
-  if (!res) return cursor;
-  const out = res.stack;
-  if (cursor) {
-    if (!canMerge(cursor, out) || cursor.count + out.count > maxStack(out.id)) return cursor;
-    cursor.count += out.count;
-  } else {
-    cursor = out;
-  }
-  consumeGrid(grid);
-  return cursor;
-}
-
-// Shift-clicking the crafting output: crafts as many times as possible
-// straight into the inventory. Returns the number of crafts made.
-export function craftAllInto(grid, width, inventory) {
-  let made = 0;
-  for (let guard = 0; guard < 64 * 9; guard++) {
-    const res = craftResult(grid, width);
-    if (!res || !inventory.canFit(res.stack.id, res.stack.count)) break;
-    inventory.add(res.stack.id, res.stack.count, res.stack.dur);
-    consumeGrid(grid);
-    made++;
-  }
-  return made;
 }
 
 // Shift-click on inventory slot i: moves the stack between the hotbar and

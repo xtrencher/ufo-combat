@@ -5,9 +5,13 @@
 // direction (W/S along the view, A/D sideways, Space/Shift up and down),
 // and its cruising speed spans slow hovering to ludicrous (mouse wheel;
 // Ctrl for a boost). Optional ghost mode flies through terrain, burning a
-// tunnel. Weapons: a laser cannon (left click) and a tractor beam (hold
+// tunnel. Weapons: a laser cannon (left click; big ships fire from several
+// barrels, all aimed at what is under the crosshair), a tractor beam (hold
 // right click) that lifts creatures, and optionally loose blocks, up into
-// the ship. Third-person chase camera (F5: chase / far / belly view).
+// the ship, a teleport dash (R: a bright streak, then you are there) and a
+// superweapon (B): after a short charge a huge laser straight down that
+// burns a shaft through the ground and everything in it. Third-person chase
+// camera (F5: chase / far / belly view).
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
 import { createUfoModel, designInfo, UFO_DESIGN_NAMES } from "./ufo-models.js";
@@ -27,25 +31,35 @@ const CANNON_DAMAGE = 16;
 const CANNON_BLAST = 1.7;
 const BEAM_LIFT = 6; // blocks per second
 const MAX_LIFTED_BLOCKS = 12;
+const DASH_COOLDOWN = 2.5;
+const SUPER_CHARGE = 1.3; // seconds
+const SUPER_TIME = 2.6; // seconds of beam
+const SUPER_COOLDOWN = 15;
+const SUPER_DIG_SPEED = 55; // blocks per second the shaft deepens
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 function sizeName(radius) {
-  return radius < 5 ? "small" : radius < 9 ? "medium" : radius < 20 ? "large" : "mothership";
+  return radius < 5 ? "small" : radius < 9 ? "medium" : radius < 20 ? "large" : radius < 50 ? "mothership" : "giant";
 }
 
 export class PilotUfo extends Vehicle {
-  // data: { design, radius, pos, yaw, health, crashed }
+  // data: { spec | design, radius, pos, yaw, health, crashed, wreck, tilt }
   constructor(manager, data = {}) {
-    const radius = Math.max(2.5, Math.min(45, Number(data.radius) || 5));
+    const radius = Math.max(2.5, Math.min(80, Number(data.radius) || 5));
     super(manager, { type: "ufo", name: "UFO", radius, maxHealth: Math.round(120 + radius * 40) });
-    this.design = data.design || "saucer";
+    this.spec = data.spec && data.spec.design ? { design: data.spec.design, seed: data.spec.seed | 0, glow: !!data.spec.glow } : { design: data.design || "saucer", seed: Number.isFinite(data.seed) ? data.seed : 0, glow: data.glow ?? !String(data.design || "").includes("dark") };
+    this.design = this.spec.design;
     this.name = `${UFO_DESIGN_NAMES[this.design] || "UFO"} (${sizeName(radius)})`;
-    this.model = createUfoModel(this.design, radius);
+    this.model = createUfoModel(this.spec, radius);
     this.root.add(this.model.root);
-    this.info = designInfo(this.design);
+    this.info = designInfo(this.spec);
+    // A wreck that blew up is burnt out for good: it can't be boarded.
+    this.wreck = !!data.wreck;
+    this.unusable = this.wreck;
+    if (this.wreck) this.model.setCharred(true);
     this.cameraModes = ["chase", "far", "belly"];
     if (Array.isArray(data.pos)) this.pos.fromArray(data.pos);
     else if (data.pos) this.pos.copy(data.pos);
@@ -66,7 +80,10 @@ export class PilotUfo extends Vehicle {
     this.lifted = []; // blocks rising in the beam: { mesh, pos, id }
     this.abducted = 0;
     this._aim = new THREE.Vector3();
-    this.keep = true; // the player's ship is never cleaned up as clutter
+    this.dashT = 0;
+    this.dashFx = null; // the streak left by a dash
+    this.sw = { state: "idle", t: 0, cool: 0, depth: 0, hitT: 0, mesh: null, glow: null };
+    this.keep = !this.wreck; // the player's ship is never cleaned up as clutter (a burnt-out wreck is)
     this._place();
   }
 
@@ -99,8 +116,9 @@ export class PilotUfo extends Vehicle {
 
   onEnter() {
     if (this.crashed) {
-      // Lifting out of the crater.
+      // Lifting out of the crater; the lights come back on.
       this.crashed = false;
+      this.model.setDead(false);
       this.boardedWreck = true;
       // Rise straight out of the crater first (clear of its rim).
       this.liftOff = this.radius * 0.5 + 5;
@@ -110,6 +128,11 @@ export class PilotUfo extends Vehicle {
 
   onExit() {
     this.beam.set(false);
+  }
+
+  onDestroyedCleanup() {
+    if (this.sw.mesh) this.manager.scene.remove(this.sw.mesh, this.sw.orb);
+    if (this.dashFx) this.manager.scene.remove(this.dashFx.group);
   }
 
   // ---------- Flight ----------
@@ -239,6 +262,8 @@ export class PilotUfo extends Vehicle {
         this._carved = null;
       }
       this._weapons(dt, input);
+      if (input.pressed.has("KeyR")) this._dash(view);
+      if (input.pressed.has("KeyB")) this._startSuper();
     } else if (this.crashed) {
       // A smoking wreck.
       this._smokeT -= dt;
@@ -251,6 +276,9 @@ export class PilotUfo extends Vehicle {
     if (!input) this.beam.set(false);
     this.beam.update(dt, this.manager.effects);
     this._updateLifted(dt);
+    this.dashT = Math.max(0, this.dashT - dt);
+    this._updateDashFx(dt);
+    this._updateSuper(dt, !!input);
 
     // The saucer turns slowly to its heading and banks with its motion.
     const target = input ? this.camYaw : this.yaw;
@@ -263,7 +291,8 @@ export class PilotUfo extends Vehicle {
     }
     this._place();
     const night = this.manager.night ?? 0;
-    m.lightsOn = this.crashed ? (Math.sin(this.time * 9) > 0.6 ? 0.4 : 0.05) : 1;
+    m.lightsOn = this.crashed ? 0 : 1; // a wreck never glows: every light is off
+    if (this.crashed) m.setDead(true);
     m.animate(this.time, { night, damage: 1 - this.health / this.maxHealth, beam: this.beam.strength, speed: this.vel.length() });
   }
 
@@ -282,21 +311,47 @@ export class PilotUfo extends Vehicle {
   _weapons(dt, input) {
     const mgr = this.manager;
     this._cannonT = Math.max(0, this._cannonT - dt);
-    // Aim: whatever the camera's center ray hits.
+    // Aim: whatever the camera's centre ray hits first (terrain, a UFO, a
+    // creature, a vehicle). Every barrel then fires at that point, so shots
+    // from a huge ship converge on the crosshair instead of passing beside it.
     const cam = mgr.cameraRef;
     const eye = cam ? cam.position : this.pos;
     const dir = this._viewDir(_v).clone();
-    const hit = mgr.world.raycast(eye, dir, 400, { solidOnly: true });
-    this._aim.copy(eye).addScaledVector(dir, hit ? hit.distance : 400);
+    let range = 500;
+    const hit = mgr.world.raycast(eye, dir, range, { solidOnly: true });
+    if (hit) range = hit.distance;
+    const uh = mgr.ufos?.raycast(eye, dir, range, (u) => u.state !== "gone");
+    if (uh) range = Math.min(range, uh.distance);
+    const mh = mgr.mobs.raycast(eye, dir, range);
+    if (mh) range = Math.min(range, mh.distance);
+    const vh = mgr.raycast(eye, dir, range, this);
+    if (vh) range = Math.min(range, vh.distance);
+    // Nothing near: converge far out (the bolts are straight past that).
+    this._aim.copy(eye).addScaledVector(dir, hit || uh || mh || vh ? range : 500);
     if ((input.buttons[0] || input.pressed.has("mouse0")) && this._cannonT <= 0) {
       this._cannonT = 1 / CANNON_RATE;
-      const from = this.pos.clone();
-      from.y -= this.bottom * 0.6;
-      const d = this._aim.clone().sub(from);
-      if (d.lengthSq() < 1) d.copy(dir);
-      d.normalize();
-      from.addScaledVector(d, this.radius * 0.9);
-      mgr.lasers.fire({ from, dir: d, color: LASER_COLORS.cyan, speed: 170, damage: CANNON_DAMAGE, owner: "playerufo", source: this, range: 420, radius: 0.13, length: 3.2, blast: CANNON_BLAST });
+      const r = this.radius;
+      // Bigger ships: more barrels, faster and fatter bolts.
+      const barrels = r < 5 ? 1 : r < 9 ? 2 : r < 20 ? 3 : r < 50 ? 4 : 6;
+      const speed = 170 + Math.min(220, r * 4);
+      const boltR = 0.13 + Math.min(0.5, r * 0.01);
+      this._barrel = ((this._barrel ?? -1) + 1) % barrels;
+      const list = barrels > 2 ? [this._barrel, (this._barrel + Math.floor(barrels / 2)) % barrels] : [this._barrel];
+      for (const b of list) {
+        const a = (b / barrels) * Math.PI * 2 + this.yaw;
+        const from = this.pos.clone();
+        from.y -= this.bottom * 0.5;
+        if (barrels > 1) {
+          from.x += Math.cos(a) * r * 0.62;
+          from.z += Math.sin(a) * r * 0.62;
+        }
+        const d = this._aim.clone().sub(from);
+        if (d.lengthSq() < 1) d.copy(dir);
+        d.normalize();
+        // Never start inside the hull's own rim: step out along the shot.
+        from.addScaledVector(d, Math.min(r * 0.35, 6));
+        mgr.lasers.fire({ from, dir: d, color: LASER_COLORS.cyan, speed, damage: CANNON_DAMAGE, owner: "playerufo", source: this, range: 500 + Math.min(300, r * 6), radius: boltR, length: 3.2 + r * 0.06, blast: CANNON_BLAST * (1 + Math.min(1.5, r * 0.02)) });
+      }
     }
     // Tractor beam: straight down to the ground below.
     const beaming = input.buttons[2];
@@ -310,6 +365,296 @@ export class PilotUfo extends Vehicle {
       for (const mob of took) this._abducted(mob);
       if (this.cfg.beamBlocks) this._liftBlocks(dt, top, ground, radius);
     }
+  }
+
+  // ---------- Teleport dash (R) ----------
+
+  // Jump a long way along the view in an instant: a bright streak marks the
+  // path, and you arrive at its end (short of any terrain in the way, unless
+  // in ghost mode).
+  _dash(view) {
+    const mgr = this.manager;
+    if (this.dashT > 0 || this.liftOff > 0) return;
+    this.dashT = DASH_COOLDOWN;
+    const dist = THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700);
+    const from = this.pos.clone();
+    let d = dist;
+    if (!this.cfg.ghost) {
+      const hit = mgr.world.raycast(from, view, dist + this.radius, { solidOnly: true });
+      if (hit) d = Math.max(0, hit.distance - this.radius - 1.5);
+    }
+    if (d < 3) {
+      mgr.onMessage?.("No room to dash");
+      this.dashT = 0.4;
+      return;
+    }
+    const to = from.clone().addScaledVector(view, d);
+    to.y = Math.max(1 + this.bottom, Math.min(250, to.y));
+    this.pos.copy(to);
+    this._carved = null;
+    this._streak(from, to);
+    mgr.audio?.playTeleport?.();
+    mgr.effects.shake.add(0.25);
+    // A flash of light at both ends.
+    const c = this._dashC || (this._dashC = new THREE.Color(1.6, 4.2, 6));
+    for (const p of [from, to]) mgr.effects.glow.spawn({ x: p.x, y: p.y, z: p.z, life: 0.5, size0: this.radius * 2.6, size1: this.radius * 0.5, color0: c, alpha: 0.9 });
+  }
+
+  _streak(from, to) {
+    const mgr = this.manager;
+    if (!this.dashFx) {
+      const geo = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true).rotateX(Math.PI / 2);
+      const mk = (color, op) => {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+        m.frustumCulled = false;
+        return m;
+      };
+      const group = new THREE.Group();
+      const core = mk(new THREE.Color(5, 8, 10), 1);
+      const halo = mk(new THREE.Color(0.5, 2.2, 5), 0.6);
+      group.add(halo, core);
+      mgr.scene.add(group);
+      this.dashFx = { group, core, halo, age: 99, w: 1 };
+    }
+    const fx = this.dashFx;
+    const len = from.distanceTo(to);
+    fx.group.position.copy(from).add(to).multiplyScalar(0.5);
+    fx.group.lookAt(to);
+    fx.group.scale.set(1, 1, len);
+    fx.w = Math.max(0.5, this.radius * 0.45);
+    fx.age = 0;
+    fx.group.visible = true;
+  }
+
+  _updateDashFx(dt) {
+    const fx = this.dashFx;
+    if (!fx || !fx.group.visible) return;
+    fx.age += dt;
+    const k = fx.age / 0.7;
+    if (k >= 1) {
+      fx.group.visible = false;
+      return;
+    }
+    const fade = (1 - k) * (1 - k);
+    fx.core.material.opacity = fade;
+    fx.halo.material.opacity = 0.6 * fade;
+    fx.core.scale.x = fx.core.scale.y = fx.w * 0.35 * (1 - k * 0.8);
+    fx.halo.scale.x = fx.halo.scale.y = fx.w * (1 + k * 1.2);
+  }
+
+  // ---------- Superweapon (B) ----------
+
+  // Charges for a moment (the belly glows, a rising whine), then fires a
+  // huge laser straight down that digs a shaft through the ground and
+  // burns everything inside it.
+  _startSuper() {
+    const sw = this.sw;
+    if (sw.state !== "idle") return;
+    if (sw.cool > 0) {
+      this.manager.onMessage?.(`Superweapon recharging (${Math.ceil(sw.cool)} s)`);
+      return;
+    }
+    sw.state = "charge";
+    sw.t = 0;
+    this.manager.audio?.playSuperLaser?.(SUPER_CHARGE, SUPER_TIME);
+    this.manager.onMessage?.("SUPERWEAPON CHARGING");
+  }
+
+  get superRadius() {
+    return THREE.MathUtils.clamp(this.radius * 0.35, 3, 24);
+  }
+
+  _superMeshes() {
+    const sw = this.sw;
+    if (sw.mesh) return sw;
+    const mgr = this.manager;
+    const geo = new THREE.CylinderGeometry(1, 1, 1, 20, 1, true);
+    const mk = (color, op) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    sw.mesh = new THREE.Group();
+    sw.core = mk(new THREE.Color(8, 9, 10), 1);
+    sw.halo = mk(new THREE.Color(1, 3, 7), 0.55);
+    sw.mesh.add(sw.halo, sw.core);
+    sw.mesh.visible = false;
+    for (const m of [sw.mesh, sw.core, sw.halo]) m.frustumCulled = false;
+    mgr.scene.add(sw.mesh);
+    sw.orb = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 6, 9), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    sw.orb.visible = false;
+    sw.orb.frustumCulled = false;
+    mgr.scene.add(sw.orb);
+    return sw;
+  }
+
+  _updateSuper(dt, piloted) {
+    const sw = this.sw;
+    const mgr = this.manager;
+    sw.cool = Math.max(0, sw.cool - dt);
+    if (sw.state === "idle") {
+      if (sw.mesh) {
+        sw.mesh.visible = false;
+        sw.orb.visible = false;
+      }
+      return;
+    }
+    if (!this.alive || (!piloted && sw.state === "charge")) {
+      sw.state = "idle";
+      return;
+    }
+    this._superMeshes();
+    sw.t += dt;
+    const top = this.pos.clone();
+    top.y -= this.bottom;
+    const R = this.superRadius;
+    if (sw.state === "charge") {
+      // A glowing orb gathers under the belly.
+      const k = Math.min(1, sw.t / SUPER_CHARGE);
+      sw.orb.visible = true;
+      sw.orb.position.copy(top);
+      sw.orb.scale.setScalar(R * (0.2 + 0.9 * k) * (0.9 + 0.1 * Math.sin(sw.t * 40)));
+      if (Math.random() < 0.5) {
+        const a = Math.random() * Math.PI * 2;
+        const c = this._swC || (this._swC = new THREE.Color(1.5, 3.5, 6));
+        mgr.effects.glow.spawn({ x: top.x + Math.cos(a) * R * 1.6, y: top.y - Math.random() * 3, z: top.z + Math.sin(a) * R * 1.6, vx: -Math.cos(a) * R * 1.4, vy: 0, vz: -Math.sin(a) * R * 1.4, life: 0.5, size0: 0.9, size1: 0.1, color0: c, alpha: 0.8 });
+      }
+      if (sw.t >= SUPER_CHARGE) {
+        sw.state = "fire";
+        sw.t = 0;
+        sw.depth = 0;
+        sw.lastBottom = undefined;
+        sw.hitT = 0;
+        sw.floor = mgr.groundBelow(top.x, top.y - 0.5, top.z);
+        mgr.effects.shake.add(0.6);
+      }
+      return;
+    }
+    // Firing: the beam from the belly down to the bottom of the shaft.
+    sw.orb.visible = true;
+    sw.orb.position.copy(top);
+    sw.orb.scale.setScalar(R * 1.1);
+    const groundTop = sw.floor ?? 0;
+    sw.depth += SUPER_DIG_SPEED * dt;
+    const bottomY = Math.max(1, groundTop - sw.depth);
+    const flick = 0.92 + 0.08 * Math.sin(sw.t * 90);
+    const fade = sw.t > SUPER_TIME - 0.5 ? Math.max(0, (SUPER_TIME - sw.t) / 0.5) : 1;
+    const h = Math.max(1, top.y - bottomY);
+    sw.mesh.visible = true;
+    sw.mesh.position.set(top.x, (top.y + bottomY) / 2, top.z);
+    sw.mesh.scale.set(1, h, 1); // the cylinders are unit-high along Y: the group stretches them to the beam's length
+    sw.core.scale.set(R * 0.5 * flick * fade, 1, R * 0.5 * flick * fade);
+    sw.halo.scale.set(R * 1.15 * fade, 1, R * 1.15 * fade);
+    sw.core.material.opacity = fade;
+    sw.halo.material.opacity = 0.55 * fade;
+    // Dig: every column in the cylinder loses the blocks between the shaft depth reached.
+    this._digShaft(top, R, groundTop, bottomY);
+    // Everything in the beam takes a beating.
+    sw.hitT -= dt;
+    if (sw.hitT <= 0) {
+      sw.hitT = 0.12;
+      this._superDamage(top, R, bottomY);
+    }
+    // Sparks and fire at the bottom.
+    const fx = mgr.effects;
+    const c = this._swFire || (this._swFire = [new THREE.Color(4, 3, 2), new THREE.Color(0.2, 0.19, 0.18), new THREE.Color(0.5, 0.48, 0.45)]);
+    for (let i = 0; i < 5 * effectsQuality.scale; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.random() * R;
+      fx.glow.spawn({ x: top.x + Math.cos(a) * rr, y: bottomY + Math.random() * 2, z: top.z + Math.sin(a) * rr, vx: Math.cos(a) * 6, vy: 6 + Math.random() * 14, vz: Math.sin(a) * 6, life: 0.6, size0: 0.8, size1: 0.1, color0: c[0], gravity: 1, drag: 1 });
+    }
+    if (Math.random() < 0.5) fx.smoke.spawn({ x: top.x + (Math.random() - 0.5) * R, y: Math.min(top.y, bottomY + 2), z: top.z + (Math.random() - 0.5) * R, vx: 0, vy: 5 + Math.random() * 5, vz: 0, life: 2.5, size0: 2, size1: 8 + R * 0.5, color0: c[1], color1: c[2], alpha: 0.55, drag: 0.6 });
+    fx.shake.add(0.03 * fade);
+    if (sw.t >= SUPER_TIME) {
+      sw.state = "idle";
+      sw.cool = SUPER_COOLDOWN;
+      sw.mesh.visible = false;
+      sw.orb.visible = false;
+    }
+  }
+
+  // Clears the cylinder of every solid block between the ship and the shaft
+  // bottom reached so far (only the newly reached depths after the first frame).
+  _digShaft(top, R, groundTop, bottomY) {
+    const w = this.manager.world;
+    const sw = this.sw;
+    const yTop = Math.min(WORLD_HEIGHT - 1, Math.floor(top.y), Math.floor(groundTop + 40));
+    const from = Math.min(yTop, (sw.lastBottom ?? yTop + 1) - 1);
+    const y0 = Math.max(1, Math.floor(bottomY));
+    const cx = top.x;
+    const cz = top.z;
+    const ri = Math.ceil(R);
+    const removed = [];
+    const edits = [];
+    for (let x = Math.floor(cx) - ri; x <= Math.floor(cx) + ri; x++) {
+      for (let z = Math.floor(cz) - ri; z <= Math.floor(cz) + ri; z++) {
+        const dx = x + 0.5 - cx;
+        const dz = z + 0.5 - cz;
+        if (dx * dx + dz * dz > R * R) continue;
+        if (!w.getChunk(x >> 4, z >> 4)) continue;
+        for (let y = from; y >= y0; y--) {
+          const id = w.getBlock(x, y, z);
+          if (!IS_SOLID[id] || id === BLOCK.BEDROCK) continue;
+          removed.push(x, y, z, id);
+          edits.push(x, y, z, BLOCK.AIR);
+        }
+      }
+    }
+    sw.lastBottom = Math.min(sw.lastBottom ?? yTop + 1, y0);
+    if (edits.length) {
+      w.setBlocks(edits);
+      this.manager.effects.floodInto(removed);
+    }
+  }
+
+  _superDamage(top, R, bottomY) {
+    const mgr = this.manager;
+    const out = [];
+    for (const m of mgr.mobs.mobs) {
+      if (m.dead) continue;
+      if (Math.hypot(m.pos.x - top.x, m.pos.z - top.z) < R + 1.2 && m.pos.y < top.y && m.pos.y > bottomY - 2) out.push(m);
+    }
+    for (const m of out) mgr.mobs.shoot(m, 60, { x: 0, z: 0 }, 0);
+    for (const u of mgr.ufos?.ufos ?? []) {
+      if (u.state === "gone" || u.falling) continue;
+      if (Math.hypot(u.pos.x - top.x, u.pos.z - top.z) < R + u.radius * 0.6 && u.pos.y < top.y && u.pos.y > bottomY - 5) mgr.ufos.damage(u, 90, true, u.pos);
+    }
+    for (const v of mgr.vehicles) {
+      if (v === this || !v.alive) continue;
+      if (Math.hypot(v.pos.x - top.x, v.pos.z - top.z) < R + v.radius * 0.5 && v.pos.y < top.y && v.pos.y > bottomY - 5) v.damage(120, "player", true);
+    }
+    // A blast ring where it meets the ground, now and then.
+    if (Math.random() < 0.35) mgr.effects.explode(new THREE.Vector3(top.x, Math.max(bottomY + 2, 3), top.z), { radius: Math.min(9, 3 + R * 0.3), source: "ufocannon" });
+  }
+
+  // The vehicle info panel (I).
+  infoPanel() {
+    const cfg = this.cfg;
+    const r = this.radius;
+    return {
+      title: `${this.name}: your UFO`,
+      stats: [
+        ["Design", `${UFO_DESIGN_NAMES[this.design] || "UFO"}, ${sizeName(r)} (${(r * 2).toFixed(0)} blocks across)`],
+        ["Hull", `${Math.round(this.health)} / ${this.maxHealth}`],
+        ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl boosts 3x`],
+        ["Laser cannon", `${CANNON_RATE} shots/s, ${CANNON_DAMAGE} damage + blast; ${r < 5 ? 1 : r < 9 ? 2 : r < 20 ? 3 : r < 50 ? 4 : 6} barrels, all aimed at the crosshair`],
+        ["Teleport dash", `R: jump ~${Math.round(THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700))} blocks along the view; ${DASH_COOLDOWN} s cooldown`],
+        ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
+        ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship"],
+        ["Ghost mode", cfg.ghost ? "on: burns through terrain" : "off (Mods menu)"],
+      ],
+      controls: [
+        ["Mouse", "Look and steer"],
+        ["W / S", "Fly along the view / back"],
+        ["A / D", "Sideways"],
+        ["Space / Shift", "Up / down"],
+        ["Mouse wheel", "Cruising speed"],
+        ["Ctrl", "Boost"],
+        ["Left click", "Laser cannon"],
+        ["Right click (hold)", "Tractor beam"],
+        ["R", "Teleport dash"],
+        ["B", "Superweapon: vertical laser"],
+        ["F", "Get out"],
+        ["F5", "Camera: chase / far / belly"],
+        ["I", "This panel"],
+      ],
+    };
   }
 
   // A creature pulled all the way up: it's "stored" (its drops go to the
@@ -408,9 +753,13 @@ export class PilotUfo extends Vehicle {
         ["Ghost mode", this.cfg.ghost ? "ON: burns through terrain" : "off"],
         ...(this.abducted ? [["Abducted", String(this.abducted)]] : []),
       ],
+      bars: [
+        { label: "Dash (R)", value: this.dashT > 0 ? 1 - this.dashT / DASH_COOLDOWN : 1 },
+        { label: "Superweapon (B)", value: this.sw.state === "charge" ? this.sw.t / SUPER_CHARGE : this.sw.state === "fire" ? 1 : this.sw.cool > 0 ? 1 - this.sw.cool / SUPER_COOLDOWN : 1, hot: this.sw.state !== "idle" },
+      ],
       weapon: `LMB laser cannon · RMB tractor beam${beam ? ` · <span class="vh-on">${beam}</span>` : ""}`,
       health: this.health / this.maxHealth,
-      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · F5 camera · F leave",
+      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · R dash · B superweapon · F5 camera · F leave · I info",
     };
   }
 
@@ -424,11 +773,12 @@ export class PilotUfo extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), design: this.design, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
+    return { ...super.serialize(), design: this.design, spec: this.spec, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
   }
 
   dispose() {
     super.dispose();
+    this.onDestroyedCleanup();
     this.beam.dispose();
     for (const b of this.lifted) this.manager.scene.remove(b.mesh);
     this.model.dispose();

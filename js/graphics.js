@@ -104,7 +104,7 @@ export const PRESETS = {
 };
 
 export const PRESET_ORDER = ["low", "medium", "high", "ultra"];
-export const DEFAULT_PRESET = "medium";
+export const DEFAULT_PRESET = "ultra";
 
 export function normalizePreset(name) {
   return PRESET_ORDER.includes(name) ? name : DEFAULT_PRESET;

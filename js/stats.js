@@ -18,6 +18,9 @@ export const STAT_LABELS = [
   ["jetsCalled", "Jets called in"],
   ["missilesHit", "Missile hits"],
   ["nukes", "Nukes dropped"],
+  ["enemyJetsDown", "Enemy jets shot down"],
+  ["ufosDownBig", "Motherships and giants shot down"],
+  ["cratesOpened", "Supply crates opened"],
 ];
 
 function blank() {

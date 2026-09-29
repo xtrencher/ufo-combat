@@ -16,9 +16,11 @@ import { BLOCK, IS_LEAVES } from "./blocks.js";
 import { LAYER_FX } from "./layers.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
-export const NUKE_DEFAULTS = { size: 28, intensity: "high" };
+export const NUKE_MIN_SIZE = 12;
+export const NUKE_MAX_SIZE = 96;
+export const NUKE_DEFAULTS = { size: 44, intensity: "high" };
 const INTENSITY = { low: 0.4, medium: 0.7, high: 1 };
-const SLICES = 10;
+const SLICES_MIN = 10;
 
 export class NukeSystem {
   constructor({ scene, world, effects, audio }) {
@@ -58,7 +60,7 @@ export class NukeSystem {
   }
 
   get radius() {
-    return Math.max(10, Math.min(48, this.config.size));
+    return Math.max(NUKE_MIN_SIZE, Math.min(NUKE_MAX_SIZE, this.config.size));
   }
 
   get intensity() {
@@ -76,7 +78,8 @@ export class NukeSystem {
       removed: [],
       scorched: false,
       cloudT: 0,
-      height: Math.min(150, 40 + R * 3.2), // mushroom cap height above the ground
+      slices: Math.max(SLICES_MIN, Math.ceil(R / 4)), // the crater is carved in this many slices over frames
+      height: Math.min(300, 50 + R * 3.8), // mushroom cap height above the ground
     };
     this.active.push(d);
     this.count++;
@@ -105,7 +108,7 @@ export class NukeSystem {
     const c = d.center;
     const R = d.R;
     const x0 = Math.floor(c.x) - R - 2;
-    const width = Math.ceil((2 * R + 5) / SLICES);
+    const width = Math.ceil((2 * R + 5) / d.slices);
     const a = x0 + d.slice * width;
     const removed = this.effects._carve(c, R, { shape: d.shape, x0: a, x1: a + width - 1 });
     this.effects.floodInto(removed);
@@ -174,7 +177,7 @@ export class NukeSystem {
       const c = d.center;
       const R = d.R;
       // Crater: one slice per frame.
-      if (d.slice < SLICES) this._carveSlice(d);
+      if (d.slice < d.slices) this._carveSlice(d);
       else if (!d.scorched) d.scorched = this._scorch(d, 900);
       // Fireball: swells, then cools and rises.
       const tb = d.t;
@@ -240,7 +243,7 @@ export class NukeSystem {
           this.fire.spawn({ x: c.x + Math.cos(a) * rr, y: capY - R * 0.1, z: c.z + Math.sin(a) * rr, vy: 2, life: 1.5, size0: R * 0.35, size1: R * 0.6, color0: this._c.fire, color1: this._c.fireEnd, alpha: 0.45 * lit, drag: 0.5 });
         }
       }
-      if (d.t > 40 && d.slice >= SLICES && d.scorched) this.active.splice(i, 1);
+      if (d.t > 40 && d.slice >= d.slices && d.scorched) this.active.splice(i, 1);
     }
     if (!anyBall) this.ball.visible = false;
   }
