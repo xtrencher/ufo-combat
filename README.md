@@ -227,8 +227,9 @@ already in the cockpit.
 
 It flies like a jet: thrust from the throttle (and the afterburner), lift
 that needs airspeed, drag, gravity, and a stall below the stall speed (the
-nose drops). It can't hover. Take off by building speed on the ground and
-pulling up; land gently, level and wheels first. Hitting the ground any
+nose drops). It can't hover. Take off with full throttle and the
+afterburner down the strip: with flight assist the jet rotates by itself
+once it has flying speed (without assist, pull up). Land gently, level and wheels first. Hitting the ground any
 other way destroys it, and you with it, unless you **eject** (F in the air:
 the seat fires you out and a parachute opens). UFOs can shoot it down.
 

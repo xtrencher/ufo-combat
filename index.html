@@ -654,6 +654,7 @@
     left: 14px;
     bottom: 14px;
     min-width: 250px;
+    max-width: min(340px, calc(100vw - 28px));
     background: rgba(6,16,24,0.62);
     border: 1px solid rgba(120,230,255,0.35);
     border-radius: 6px;
@@ -735,7 +736,7 @@
   }
   #hit-marker.show { opacity: 1; transition: none; }
   #hit-marker.fade { opacity: 0; transition: opacity 0.25s; }
-  body.in-vehicle #hotbar, body.in-vehicle #item-name, body.in-vehicle #attack-charge, body.in-vehicle #throw-charge { display: none; }
+  body.in-vehicle #hotbar, body.in-vehicle #status-bars, body.in-vehicle #item-name, body.in-vehicle #attack-charge, body.in-vehicle #throw-charge { display: none; }
 
   #beam-overlay {
     position: fixed;

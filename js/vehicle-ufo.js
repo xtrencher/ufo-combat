@@ -86,6 +86,13 @@ export class PilotUfo extends Vehicle {
     return lo * Math.pow(hi / lo, this.speedLevel);
   }
 
+  // A wreck waiting in its crater can't be blown apart (stray shots at the
+  // aliens around it would otherwise take away the ride home).
+  damage(amount, cause, byPlayer) {
+    if (this.crashed) return false;
+    return super.damage(amount, cause, byPlayer);
+  }
+
   seatPosition(out = new THREE.Vector3()) {
     return out.set(this.pos.x, this.pos.y - this.bottom + 0.2, this.pos.z);
   }

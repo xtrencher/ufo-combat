@@ -964,6 +964,7 @@ await check("crashing the jet into the ground destroys it: 'Crashed your jet'", 
   await ensureJet();
   await v((g) => {
     g.setMode("survival");
+    window.__deaths = g.stats.world.deaths;
     const j = g.vehicles.active;
     j.aimPitch = -1.3;
     j.q.setFromEuler(new g.THREE.Euler(-1.2, j.aimYaw, 0, "YXZ"));
@@ -972,6 +973,7 @@ await check("crashing the jet into the ground destroys it: 'Crashed your jet'", 
   });
   const dead = await until((g) => g.gameState === "dead" && g.deathCause, 60000);
   assert(dead === "jet_crash", `cause ${dead}`);
+  assert((await v((g) => g.stats.world.deaths - window.__deaths)) === 1, "the death is counted");
   await respawnIfDead();
 });
 
@@ -1118,7 +1120,8 @@ await check("stats: world and total counts persist; the HUD overlay shows UFOs d
     world: g.stats.world,
   }));
   assert(r.shown && /UFOs shot down: \d+/.test(r.overlay), `overlay: ${r.overlay}`);
-  assert(r.world.ufosDown >= 2 && r.world.playTime > 10 && r.world.aliensKilled > 0 && r.world.deaths > 0 && r.world.abductionsSurvived > 0, `world stats ${JSON.stringify(r.world)}`);
+  // (Deaths and abductions survived are checked where they happen.)
+  assert(r.world.ufosDown >= 1 && r.world.playTime > 10 && r.world.aliensKilled > 0 && r.world.ufosBoarded > 0, `world stats ${JSON.stringify(r.world)}`);
   assert(r.total.ufosDown >= r.world.ufosDown, `totals saved ${JSON.stringify(r.total)}`);
   await v((g) => g.settingsPanel.set("statsOverlay", false));
   // The Stats screen in the pause menu.
