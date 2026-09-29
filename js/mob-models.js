@@ -1060,3 +1060,19 @@ export function skinCanvas(kind) {
   canvas.getContext("2d").putImageData(new ImageData(skin.data, skin.W, skin.H), 0, 0);
   return canvas;
 }
+
+// One merged geometry of a whole model frozen in a pose (state is what
+// animate() takes), with the species material: for drawing crowds of far
+// away mobs as a single instanced mesh (see crowd.js).
+export function createPoseGeometry(kind, state) {
+  const model = createMobModel(kind);
+  model.animate({ walkPhase: 0, walk: 0, headYaw: 0, headPitch: 0, time: 0, vy: 0, graze: 0, hide: 0, attack: 1, swing: 0, ...state });
+  model.root.updateMatrixWorld(true);
+  const list = model.meshes.map((mesh) => {
+    const g = mesh.geometry.clone();
+    g.applyMatrix4(mesh.matrixWorld);
+    return g;
+  });
+  const { texture } = buildSpecies(kind);
+  return { geometry: mergeGeometries(list), texture };
+}

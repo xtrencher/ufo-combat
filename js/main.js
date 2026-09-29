@@ -780,6 +780,13 @@ function applyDifficulty() {
 settingsPanel.on("difficulty", applyDifficulty);
 settingsPanel.on("mobSpawning", applyDifficulty);
 settingsPanel.on("timeLocked", (v) => (sky.locked = v));
+// Zombies: spawn rate (up to an apocalypse), cap and toughness.
+for (const k of ["spawnRate", "max", "health", "damage", "daylight"]) {
+  settingsPanel.on(`zombies.${k}`, (v) => {
+    mobs.zombies[k] = v;
+    if (k === "max") mobs.trimZombies();
+  });
+}
 const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v) => {
   sky.setHours(v);
   playerDirty = true;
