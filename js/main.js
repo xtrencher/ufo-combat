@@ -23,6 +23,7 @@ import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
 import { MobManager } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
+import { rayAabb } from "./physics.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem } from "./weapons.js";
@@ -35,6 +36,11 @@ import { UnderwaterMotes } from "./motes.js";
 import { MenuScreens, MenuFlyover, renderControls } from "./menu.js";
 import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
+import { VehicleManager } from "./vehicles.js";
+import "./vehicle-ufo.js";
+import { UfoManager } from "./ufos.js";
+import { UFO_DESIGNS, UFO_DESIGN_NAMES } from "./ufo-models.js";
+import { Stats } from "./stats.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -302,6 +308,167 @@ settingsPanel.on("weapons.blasterColor", (v) => (weapons.blasterColor = v));
 for (const k of ["count", "spread", "delay", "angle", "speed"]) settingsPanel.on(`weapons.airstrike.${k}`, (v) => (weapons.airstrike.config[k] = v));
 // The Mods switch (see mods.js); applied once the saved inventory is loaded.
 const mods = new Mods({ inventory, weapons, lasers, entities });
+
+// ---------- Vehicles, UFOs, stats ----------
+const stats = new Stats();
+const vehicles = new VehicleManager({ scene, world, player, effects, audio, lasers, mobs, inventory, entities });
+vehicles.cameraRef = camera;
+const ufos = new UfoManager({ scene, world, player, effects, audio, lasers, mobs, vehicles, sky, camera });
+mobs.lasers = lasers;
+
+// UFOs: activity and the advanced options.
+for (const k of ["activity", "spawnChance", "maxCount", "aggression", "detection", "beamLift", "sizes", "nightMultiplier", "toughness"]) {
+  settingsPanel.on(`ufos.${k}`, (v) => (ufos.config[k] = v));
+}
+// Your UFO: speed range, ghost mode, beam lifting blocks.
+vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
+settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = v));
+settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
+settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
+settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
+settingsPanel.on("sensitivity", (v) => (vehicles.mouseSensitivity = v));
+settingsPanel.on("invertY", (v) => (vehicles.invertY = v));
+
+// What bullets, rockets, grenades, lasers and meteors can hit besides
+// blocks and creatures: UFOs, and vehicles.
+const fromPlayer = (owner) => owner === "player" || owner === "playerufo" || owner === "jet";
+const hullSparkColor = new THREE.Color(2.2, 1.6, 0.8);
+function ufoHitFx(point) {
+  for (let i = 0; i < 6; i++) effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: (Math.random() - 0.5) * 8, vy: Math.random() * 5, vz: (Math.random() - 0.5) * 8, life: 0.3, size0: 0.14, size1: 0.03, color0: hullSparkColor, gravity: 0.5, drag: 2 });
+}
+const ufoTarget = {
+  raycast(origin, dir, maxDist) {
+    const h = ufos.raycast(origin, dir, maxDist);
+    if (!h) return null;
+    return {
+      distance: h.distance,
+      hit(damage, d, point) {
+        ufos.damage(h.ufo, damage, true, point);
+        audio.playUfoHit(point.distanceTo(effects.listener));
+        hud.hitMarker?.();
+      },
+    };
+  },
+  sphereHit: (p, r) => !!ufos.sphereHit(p, r),
+};
+const vehicleTarget = {
+  raycast(origin, dir, maxDist) {
+    const h = vehicles.raycast(origin, dir, maxDist, vehicles.active);
+    return h && { distance: h.distance, hit: (damage) => h.vehicle.damage(damage, "player") };
+  },
+  sphereHit: (p, r) => {
+    const v = vehicles.sphereHit(p, r);
+    return !!v && v !== vehicles.active;
+  },
+};
+weapons.targets.push(ufoTarget, vehicleTarget);
+weapons.airstrike.targets.push(ufoTarget);
+lasers.addProvider({
+  ignores: (b) => b.owner === "ufo" && !b.friendlyFire,
+  raycast(origin, dir, maxDist, bolt) {
+    const h = ufos.raycast(origin, dir, maxDist, (u) => u !== bolt.source);
+    if (!h) return null;
+    return {
+      distance: h.distance,
+      hit(b, point) {
+        ufos.damage(h.ufo, b.damage, fromPlayer(b.owner), point);
+        ufoHitFx(point);
+        audio.playUfoHit(point.distanceTo(effects.listener));
+        if (fromPlayer(b.owner)) hud.hitMarker?.();
+      },
+    };
+  },
+});
+lasers.addProvider({
+  raycast(origin, dir, maxDist, bolt) {
+    const h = vehicles.raycast(origin, dir, maxDist, bolt.source);
+    if (!h) return null;
+    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : "player") };
+  },
+});
+// Enemy bolts hit the player on foot.
+const playerBoxMin = new THREE.Vector3();
+const playerBoxMax = new THREE.Vector3();
+lasers.addProvider({
+  ignores: (b) => fromPlayer(b.owner),
+  raycast(origin, dir, maxDist) {
+    if (player.dead || player.vehicle) return null;
+    const p = player.position;
+    playerBoxMin.set(p.x - 0.35, p.y, p.z - 0.35);
+    playerBoxMax.set(p.x + 0.35, p.y + 1.85, p.z + 0.35);
+    const t = rayAabb(origin, dir, playerBoxMin, playerBoxMax, maxDist);
+    if (t === null) return null;
+    return {
+      distance: t,
+      hit(b, point, d) {
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : "ufo_laser")) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+      },
+    };
+  },
+});
+// The UFO cannon's bolts (and big enemy ones) blow small holes.
+lasers.onBlast = (point, bolt) => effects.explode(point, { radius: bolt.blast, source: bolt.owner === "playerufo" ? "ufocannon" : "ufo_laser" });
+
+// Messages across the middle of the screen.
+const toastEl = document.getElementById("hud-toast");
+let toastTimer = null;
+function toast(text, seconds = 3) {
+  toastEl.textContent = text;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), seconds * 1000);
+}
+vehicles.onMessage = (t) => toast(t);
+ufos.onMessage = (t) => toast(t, 2.5);
+vehicles.onAbduct = () => stats.add("animalsAbducted");
+ufos.onShotDown = (u, byPlayer) => {
+  if (byPlayer) {
+    stats.add("ufosDown");
+    audio.playNotice();
+  }
+};
+ufos.onAbductPlayer = () => {
+  stats.add("abducted");
+  player.damage(9999, "abducted", { pierce: true });
+};
+ufos.onEscape = () => {
+  stats.add("abductionsSurvived");
+  toast("You broke free of the beam!", 2.5);
+};
+mobs.onKill = (m, byPlayer) => {
+  if (!byPlayer) return;
+  if (m.kind === "alien") stats.add("aliensKilled");
+  else if (m.kind === "zombie") stats.add("zombiesKilled");
+  else stats.add("mobsKilled");
+};
+
+// Entering and leaving vehicles.
+vehicles.onEnter = (v) => {
+  chord.reset();
+  interaction.release();
+  weapons.cancel();
+  player.mouseCapture = (e) => vehicles.mouseMove(e.movementX, e.movementY);
+  document.body.classList.add("in-vehicle");
+  if (v.boardedWreck) {
+    stats.add("ufosBoarded");
+    v.boardedWreck = false;
+  }
+  playerDirty = true;
+};
+vehicles.onExit = () => {
+  player.mouseCapture = null;
+  document.body.classList.remove("in-vehicle");
+  vehicles.releaseAll();
+  player.syncCamera();
+  playerDirty = true;
+};
+vehicles.onPilotKilled = (cause, v) => {
+  player.damage(9999, v.type === "jet" ? (cause === "crash" ? "jet_crash" : "jet_down") : "ufo_down", { pierce: true });
+};
+vehicles.onPilotHurt = () => {
+  hud.hurt();
+  audio.playHurt();
+};
 interaction.weapons = weapons;
 interaction.combat = mobs;
 
@@ -352,7 +519,13 @@ if (savedPlayer) {
 }
 let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
+mods.onChange((on) => {
+  ufos.setEnabled(on);
+  vehicles.setEnabled(on);
+  if (!on) mobs.removeKind("alien");
+});
 mods.set(settings.mods, { initial: true });
+stats.loadWorld(savedPlayer?.stats);
 
 // ---------- Mods screen ----------
 const modsCheckbox = document.getElementById("mods-enabled");
@@ -375,6 +548,72 @@ function setModsEnabled(on) {
   refreshModsPills();
 }
 modsCheckbox.addEventListener("change", () => setModsEnabled(modsCheckbox.checked));
+
+// Creative tools on the Mods screen: spawn your own UFO (any shape and
+// size) to fly, or summon an enemy UFO nearby.
+const modsTools = document.getElementById("mods-tools");
+modsTools.innerHTML = `
+  <div class="subhead">Spawn a UFO to fly (Creative, in game)</div>
+  <div class="row"><label for="spawn-ufo-size">Size</label><select id="spawn-ufo-size">
+    <option value="4">Small</option><option value="7" selected>Medium</option><option value="14">Large</option><option value="36">Mothership</option></select></div>
+  <div class="spawn-grid" id="spawn-ufo-grid"></div>
+  <div class="subhead">Summon an enemy UFO (Creative, in game)</div>
+  <div class="spawn-grid"><button class="btn" id="summon-ufo">Random UFO</button><button class="btn" id="summon-ufo-attack">One that attacks</button><button class="btn" id="summon-ufo-crash">A crashed one</button></div>
+  <div id="mods-tools-note" class="hint"></div>`;
+const spawnGrid = document.getElementById("spawn-ufo-grid");
+for (const design of UFO_DESIGNS) {
+  const b = document.createElement("button");
+  b.className = "btn";
+  b.textContent = UFO_DESIGN_NAMES[design];
+  b.addEventListener("click", () => creativeSpawnUfo(design));
+  spawnGrid.appendChild(b);
+}
+function creativeToolCheck() {
+  const note = document.getElementById("mods-tools-note");
+  if (!mods.enabled) note.textContent = "Switch mods on first.";
+  else if (gameState === "start") note.textContent = "Start playing first: these place things in front of you.";
+  else if (!player.creative) note.textContent = "Only in Creative mode (switch it in the pause menu).";
+  else return true;
+  return false;
+}
+function inFront(dist, up) {
+  const f = player.getForwardVector();
+  f.y = 0;
+  f.normalize();
+  return player.position.clone().addScaledVector(f, dist).add(new THREE.Vector3(0, up, 0));
+}
+function creativeSpawnUfo(design) {
+  if (!creativeToolCheck()) return;
+  const radius = Number(document.getElementById("spawn-ufo-size").value) || 7;
+  const pos = inFront(radius + 5, radius * 0.5 + 2);
+  const v = vehicles.create("ufo", { design, radius, pos: [pos.x, pos.y, pos.z], yaw: player.yaw });
+  if (v) toast(`${UFO_DESIGN_NAMES[design]} ready: walk up to it and press F`, 3);
+  screens.closeAll();
+  requestLock();
+}
+document.getElementById("summon-ufo").addEventListener("click", () => {
+  if (!creativeToolCheck()) return;
+  ufos.spawn({ pos: inFront(60, 30) });
+  screens.closeAll();
+  requestLock();
+});
+document.getElementById("summon-ufo-attack").addEventListener("click", () => {
+  if (!creativeToolCheck()) return;
+  const u = ufos.spawn({ pos: inFront(70, 30), size: "small" });
+  u.state = "react";
+  u.reaction = "counter";
+  u.timer = 6;
+  u.lastSeen = ufos.time;
+  screens.closeAll();
+  requestLock();
+});
+document.getElementById("summon-ufo-crash").addEventListener("click", () => {
+  if (!creativeToolCheck()) return;
+  const u = ufos.spawn({ pos: inFront(30, 25), size: "medium" });
+  ufos.damage(u, 99999, true);
+  screens.closeAll();
+  requestLock();
+});
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
@@ -399,6 +638,8 @@ function playerState() {
     time: round3(sky.time),
     modStash: mods.serialize(),
     loadout: loadoutGiven,
+    vehicles: vehicles.serialize(),
+    stats: stats.world,
   };
 }
 
@@ -416,6 +657,7 @@ function flushSave() {
     pendingSave = false;
   }
   lastSaveTime = performance.now();
+  stats.save();
   if (!newWorld || playerDirty) {
     savePlayer(SEED, playerState());
     playerDirty = false;
@@ -475,6 +717,21 @@ const DEATH_MESSAGES = {
   zombie: "Killed by a zombie",
   skeleton: "Shot by a skeleton",
   spider: "Killed by a spider",
+  abducted: "Abducted by a UFO",
+  ufo_laser: "Zapped by a UFO",
+  alien: "Shot by an alien",
+  ufo_crash: "Crushed by a crashing UFO",
+  ufo_crash_fall: "Thrown by a crashing UFO",
+  ufocannon: "Blasted by your own UFO cannon",
+  ufocannon_fall: "Blasted off a cliff by your own UFO cannon",
+  ufo_down: "Went down with your UFO",
+  ufo_boom: "Caught in an exploding UFO",
+  jet_crash: "Crashed your jet",
+  jet_down: "Shot down in your jet",
+  nuke: "Too close to your own nuke",
+  nuke_fall: "Blown away by your own nuke",
+  missile: "Hit by your own missile",
+  cannon: "Hit by your own jet's cannon",
 };
 let lastBlastHitTime = -Infinity;
 let lastBlastSource = "grenade";
@@ -487,6 +744,9 @@ player.onHurt = (amount, cause) => {
 };
 
 player.onDeath = (cause) => {
+  stats.add("deaths");
+  if (vehicles.active) vehicles.exit({ force: true });
+  vehicles.parachute.close(player);
   // A fall right after being launched by an explosion was the explosive's doing.
   if (cause === "fall" && performance.now() - lastBlastHitTime < 6000) cause = `${lastBlastSource}_fall`;
   deathCause = cause;
@@ -554,7 +814,10 @@ hud.respawnBtn.addEventListener("click", respawn);
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
 effects.onExplosion = (center, radius, source) => {
-  mobs.explosion(center, radius);
+  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom";
+  mobs.explosion(center, radius, byPlayer);
+  ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
+  vehicles.explosion(center, radius);
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center
@@ -1090,15 +1353,24 @@ window.addEventListener("keydown", (e) => {
     if (gameState !== "playing" || e.repeat) return;
     if (e.code === "F1") toggleHud();
     else if (e.code === "F3") toggleDebug();
+    else if (vehicles.active) toast(`Camera: ${vehicles.active.cycleCamera()}`, 1.2);
     else player.cycleCamera();
     return;
   }
   if (gameState !== "playing") return;
+  // In a vehicle the keys fly it (it reads the held keys itself); only F
+  // (get out) and its own key presses are handled here.
+  if (vehicles.active) {
+    if (!e.repeat) vehicles.keyDown(e.code);
+    if (e.code === "KeyF" && !e.repeat) vehicles.toggle();
+    return;
+  }
   const idx = DIGIT_CODES.indexOf(e.code);
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
+  else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
 });
 
 // F1: hide the whole HUD (and the item in hand) for clean screenshots.
@@ -1144,7 +1416,8 @@ function updateDebug(dt, frameTime) {
     `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}`,
-    `Mobs: ${mobs.mobs.length}   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
+    `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
+    `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
     `Draw calls: ${info.render.calls}   Triangles: ${info.render.triangles}   Geometries: ${info.memory.geometries}   Textures: ${info.memory.textures}`,
   ];
   if (target && target.block) lines.push(`Looking at: ${target.block.join(" ")}  (${BLOCK_INFO[target.id]?.name ?? target.id})`);
@@ -1153,6 +1426,10 @@ function updateDebug(dt, frameTime) {
 
 canvas.addEventListener("wheel", (e) => {
   if (gameState !== "playing") return;
+  if (vehicles.active) {
+    vehicles.wheel(e.deltaY);
+    return;
+  }
   selectSlot(inventory.selected + (e.deltaY > 0 ? 1 : -1));
 });
 
@@ -1175,10 +1452,15 @@ const chord = new MouseChord({
 document.addEventListener("mousedown", (e) => {
   if (gameState !== "playing") return;
   if (e.button === 1) e.preventDefault();
+  if (vehicles.active) {
+    vehicles.mouseDown(e.button);
+    return;
+  }
   chord.down(e.button);
 });
 
 document.addEventListener("mouseup", (e) => {
+  vehicles.mouseUp(e.button);
   chord.up(e.button);
 });
 
@@ -1202,7 +1484,7 @@ let heldLight = { sky: 15, block: 0 };
 
 function updateEnvironment(dt) {
   // The view's position: the eyes, or the third-person camera.
-  const eye = player.thirdPerson || gameState === "start" ? camera.position.clone() : player.getEyePosition();
+  const eye = player.thirdPerson || gameState === "start" || vehicles.active ? camera.position.clone() : player.getEyePosition();
   lookDir.copy(player.getForwardVector());
   sky.update(dt, eye, lookDir);
   worldUniforms.uTime.value += dt;
@@ -1248,7 +1530,7 @@ function renderFrame() {
   const preset = activePreset;
   sky.material.uniforms.uWriteSkyMask.value = preset.post ? 1 : 0;
   // The item in hand is drawn on top of the world (fresh depth buffer).
-  const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden && !binoculars.active;
+  const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden && !binoculars.active && !vehicles.active;
   const overlay = showHeld ? { scene: held.scene, camera: held.camera } : null;
   if (preset.post) {
     sunWorldPos.copy(camera.position).addScaledVector(worldUniforms.uSunDir.value, 400);
@@ -1311,6 +1593,10 @@ window.__ufo = window.__voxelands = {
   waterSim,
   weapons,
   lasers,
+  vehicles,
+  ufos,
+  stats,
+  toast,
   mods,
   setModsEnabled,
   chord,
@@ -1400,6 +1686,37 @@ window.__ufo = window.__voxelands = {
   },
 };
 
+// ---------- Stats overlay, hit marker, stats screen ----------
+const statsOverlayEl = document.getElementById("stats-overlay");
+let statsOverlayT = 0;
+settingsPanel.on("statsOverlay", (v) => statsOverlayEl.classList.toggle("hidden", !v));
+const beamOverlayEl = document.getElementById("beam-overlay");
+let beamWarned = false;
+function updateBeamFeedback() {
+  const held = !!ufos.beamingPlayer && gameState === "playing";
+  beamOverlayEl.classList.toggle("show", held);
+  if (held && !beamWarned) toast("TRACTOR BEAM! Run out of the light, or shoot the UFO!", 3);
+  beamWarned = held;
+}
+function updateStatsOverlay(dt) {
+  statsOverlayT -= dt;
+  if (statsOverlayT > 0 || !settings.statsOverlay) return;
+  statsOverlayT = 0.5;
+  statsOverlayEl.textContent = `UFOs shot down: ${stats.world.ufosDown}  \u00b7  ${stats.format("playTime", stats.world.playTime)}`;
+}
+const hitMarkerEl = document.getElementById("hit-marker");
+let hitMarkerTimer = null;
+hud.hitMarker = () => {
+  hitMarkerEl.classList.remove("fade");
+  hitMarkerEl.classList.add("show");
+  clearTimeout(hitMarkerTimer);
+  hitMarkerTimer = setTimeout(() => {
+    hitMarkerEl.classList.remove("show");
+    hitMarkerEl.classList.add("fade");
+  }, 90);
+};
+screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById("stats-table"));
+
 // ---------- Main loop ----------
 const clock = new THREE.Clock();
 const MAX_DT = 0.05;
@@ -1416,7 +1733,13 @@ function animate() {
     player.update(dt);
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
     if (player.splashEvent) audio.playSplash();
-    effects.listener.copy(player.getEyePosition());
+    // Vehicles (the seated player rides along) and UFOs.
+    vehicles.night = worldUniforms.uNight.value;
+    vehicles.update(dt);
+    if (vehicles.active) vehicles.updateCamera(camera, dt);
+    ufos.viewDistance = renderDistance * 16;
+    ufos.update(dt);
+    effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());
     effects.update(dt);
     effects.shake.apply(camera);
     entities.update(dt, player);
@@ -1429,6 +1752,8 @@ function animate() {
     lasers.update(dt);
   } else if (gameState === "start") {
     flyover.update(dt, camera, worldUniforms.uNight.value);
+  } else if (vehicles.active) {
+    vehicles.updateCamera(camera, 0); // keep the view behind the menus sensible
   } else {
     player.syncCamera(); // keep the view behind the menus sensible
   }
@@ -1439,7 +1764,11 @@ function animate() {
 
   chord.update();
   binoculars.update(dt, gameState === "playing");
-  interaction.updateTarget(gameState === "playing");
+  interaction.updateTarget(gameState === "playing" && !vehicles.active);
+  vehicles.updateHud(dt, gameState === "playing");
+  stats.tick(dt, gameState === "playing");
+  updateBeamFeedback();
+  updateStatsOverlay(dt);
   if (gameState === "playing") interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();
 
@@ -1456,7 +1785,7 @@ function animate() {
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
   held.update(dt, player, heldLight, camera, interaction.eating);
-  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start", swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0 });
+  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0 });
   updateDebug(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
@@ -1469,6 +1798,8 @@ function animate() {
   }
 }
 
+// Vehicles last: the player may have saved while seated in one.
+if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 animate();
 ui.setStartNotice(startNotice);
 bootDone();

@@ -949,6 +949,78 @@ const PLAYER = {
   },
 };
 
+// A small grey-green alien in a silver suit: an oversized head with huge
+// glossy black eyes, thin limbs, and a laser gun in its right hand (the
+// gun is part of the arm, so it aims when the arm comes up).
+const ALIEN = {
+  parts: [
+    { name: "legL", size: [3, 9, 3], pivot: [-1.5, 9, 0], from: [-1.5, -9, -1.5] },
+    { name: "legR", size: [3, 9, 3], pivot: [1.5, 9, 0], from: [-1.5, -9, -1.5] },
+    { name: "body", size: [6, 8, 3], pivot: [0, 9, 0], from: [-3, 0, -1.5] },
+    { name: "head", size: [10, 9, 9], pivot: [0, 17, 0], from: [-5, 0, -4.5], parent: "body" },
+    { name: "armL", size: [2, 9, 2], pivot: [-4, 16, 0], from: [-1, -8, -1], parent: "body" },
+    { name: "armR", size: [2, 9, 2], pivot: [4, 16, 0], from: [-1, -8, -1], parent: "body" },
+    { name: "gun", size: [2, 3, 7], pivot: [4, 8, 0], from: [-1, -2, -6], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const skinA = hex(0x86d160);
+    const skinB = hex(0x5fae47);
+    const suit = hex(0xb8c2cc);
+    const suitDark = hex(0x7e8a96);
+    const eye = [8, 10, 14];
+    const green = (x, y, seed) => grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * 0.7), x, y, seed + 1, 0.08);
+    s.part("head", (f, x, y, w, h) => {
+      let c = green(x, y, 301);
+      if (f === "top") c = shade(c, 1.05);
+      if (f === "bottom") c = shade(c, 0.8);
+      if (f === "front") {
+        // Two huge almond eyes tilted up at the outside, with a glint.
+        for (const [cx, dir] of [[5.2, -1], [w - 6.2, 1]]) {
+          const dx = x + 0.5 - cx;
+          const dy = y + 0.5 - (8 - dx * dir * 0.35);
+          if ((dx * dx) / 12 + (dy * dy) / 5.5 < 1) c = eye;
+          if (Math.abs(dx + dir * 1.2) < 0.8 && Math.abs(y - 6.5) < 0.8) c = [160, 200, 190];
+        }
+        if (y === 14 && x >= 8 && x < 12) c = shade(c, 0.6); // a small mouth
+        if (y >= 11 && y < 13 && (x === 9 || x === 10)) c = shade(c, 0.85); // nostrils
+      }
+      return c;
+    });
+    s.part("body", (f, x, y, w, h) => {
+      let c = grain(suit, x, y, 311, 0.08);
+      if (y >= 11 && y < 13) c = grain(suitDark, x, y, 312, 0.1); // belt
+      if (f === "front" && y >= 11 && y < 13 && x >= 5 && x < 7) c = [90, 255, 140]; // glowing buckle
+      if (f === "front" && y < 5 && x >= 4 && x < 8) c = shade(c, 1.12); // chest plate
+      return c;
+    });
+    for (const arm of ["armL", "armR"]) {
+      s.part(arm, (f, x, y, w, h) => (y < 7 ? grain(suit, x, y, 321, 0.08) : green(x, y, 322)));
+    }
+    for (const leg of ["legL", "legR"]) {
+      s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? grain(suitDark, x, y, 331, 0.12) : grain(suit, x, y, 332, 0.08)));
+    }
+    s.part("gun", (f, x, y, w, h) => {
+      let c = grain(hex(0x3a3f48), x, y, 341, 0.12);
+      if (f === "front" || (f !== "back" && fromFront(f, x, w) < 2 && f !== "top" && f !== "bottom")) c = [80, 255, 120]; // emitter
+      return c;
+    });
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.8 * st.walk;
+    p.legL.rotation.x = swing;
+    p.legR.rotation.x = -swing;
+    p.armL.rotation.x = -swing * 0.7;
+    // The gun arm comes up to aim at its target.
+    const aim = st.aim ?? 0;
+    p.armR.rotation.x = aim > 0 ? -1.5 - st.headPitch * 0.9 : swing * 0.7 - 0.2;
+    p.armR.rotation.z = 0;
+    p.body.rotation.x = 0.05;
+    p.head.rotation.x = -st.headPitch;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.z = Math.sin(st.time * 1.3) * 0.06; // curious tilt
+  },
+};
+
 export const MODELS = {
   fluffalo: FLUFFALO,
   hoplet: HOPLET,
@@ -964,6 +1036,7 @@ export const MODELS = {
   butterfly: BUTTERFLY,
   parrot: PARROT,
   fish: FISH,
+  alien: ALIEN,
 };
 
 // Shared per species: skin texture, material and part geometries.

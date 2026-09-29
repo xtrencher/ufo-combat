@@ -99,7 +99,26 @@ export const SCHEMA = [
   { key: "zombies.health", group: "mobs", type: "range", label: "Zombie health", min: 0.25, max: 5, step: 0.25, def: 1, fmt: times },
   { key: "zombies.damage", group: "mobs", type: "range", label: "Zombie damage", min: 0.25, max: 5, step: 0.25, def: 1, fmt: times },
   { key: "zombies.daylight", group: "mobs", type: "checkbox", label: "Daylight zombies (spawn by day, don't burn)", def: false },
+
+  // ----- UFOs -----
+  { key: "ufos.activity", group: "ufos", type: "range", label: "UFO activity", values: [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16], min: 0, max: 16, def: 1, fmt: (v) => ACTIVITY_NAMES[[0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16].indexOf(v)] ?? times(v), hint: "From rare sightings to a sky full of them. Far more activity at night.", note: (v) => (v >= 8 ? "The sky will be full of UFOs: far ones are drawn simply and think less, but expect a heavier load." : "") },
+  { key: "ufos.spawnChance", group: "ufos", advanced: true, type: "range", label: "Spawn chance", min: 0.25, max: 4, step: 0.25, def: 1, fmt: times },
+  { key: "ufos.maxCount", group: "ufos", advanced: true, type: "range", label: "Max UFOs at once", values: [0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 150], min: 0, max: 150, def: 0, fmt: (v) => (v === 0 ? "Auto" : int(v)) },
+  { key: "ufos.aggression", group: "ufos", advanced: true, type: "range", label: "Aggression", min: 0, max: 2, step: 0.1, def: 1, fmt: (v) => (v === 0 ? "Never attack" : times(v)) },
+  { key: "ufos.detection", group: "ufos", advanced: true, type: "range", label: "Detection range (blocks)", min: 40, max: 300, step: 10, def: 130, fmt: int },
+  { key: "ufos.beamLift", group: "ufos", advanced: true, type: "range", label: "Tractor beam lift (blocks/s)", min: 1, max: 12, step: 0.5, def: 4, fmt: (v) => v.toFixed(1) },
+  { key: "ufos.sizes", group: "ufos", advanced: true, type: "select", label: "Sizes", choices: [["small", "Mostly small"], ["balanced", "Balanced"], ["big", "More big ones and motherships"]], def: "balanced" },
+  { key: "ufos.nightMultiplier", group: "ufos", advanced: true, type: "range", label: "Night activity multiplier", min: 1, max: 6, step: 0.5, def: 3, fmt: times },
+  { key: "ufos.toughness", group: "ufos", advanced: true, type: "range", label: "Toughness", min: 0.25, max: 4, step: 0.25, def: 1, fmt: times },
+
+  // ----- Vehicles -----
+  { key: "vehicles.ufoTopSpeed", group: "vehicles", type: "range", label: "UFO top speed (blocks/s)", values: [20, 50, 100, 200, 300, 500, 800, 1200], min: 20, max: 1200, def: 300, fmt: int, sub: "Your UFO", hint: "The mouse wheel sets the cruising speed between the slowest and the top speed; Ctrl boosts it 3x.", note: (v) => (v >= 800 ? "Faster than the world can load: you'll outrun the terrain." : "") },
+  { key: "vehicles.ufoMinSpeed", group: "vehicles", type: "range", label: "UFO slowest speed (blocks/s)", values: [0.5, 1, 2, 4, 8], min: 0.5, max: 8, def: 2, fmt: (v) => String(v) },
+  { key: "vehicles.ufoGhost", group: "vehicles", type: "checkbox", label: "Ghost mode: fly through terrain, burning a tunnel", def: false },
+  { key: "vehicles.beamBlocks", group: "vehicles", type: "checkbox", label: "Tractor beam also lifts loose blocks", def: true },
 ];
+
+const ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];
 
 const SCHEMA_BY_KEY = new Map(SCHEMA.map((e) => [e.key, e]));
 

@@ -40,6 +40,15 @@ const MATERIALS = {
 // Creature voices. Each call: f0 -> f1 pitch glide, formants [freq, q, gain]
 // (vowel shape), vib: vibrato depth (fraction), breath: noise mixed in.
 const VOICES = {
+  alien: {
+    // Warbling, high chatter.
+    idle: [
+      { f0: 620, f1: 900, d: 0.16, v: 0.16, formants: [[1400, 7, 1], [2600, 8, 0.5]], vib: 0.12, breath: 0.1 },
+      { f0: 880, f1: 540, d: 0.2, v: 0.14, formants: [[1500, 7, 1]], vib: 0.15, breath: 0.1, delay: 0.18 },
+    ],
+    hurt: [{ f0: 1200, f1: 700, d: 0.18, v: 0.2, formants: [[1700, 5, 1], [3000, 6, 0.4]], vib: 0.1, breath: 0.2 }],
+    death: [{ f0: 900, f1: 180, d: 0.7, v: 0.2, formants: [[1300, 5, 1], [2400, 6, 0.4]], vib: 0.18, breath: 0.2 }],
+  },
   fluffalo: {
     // A low, nasal grumble.
     idle: [{ f0: 92, f1: 78, d: 0.9, v: 0.32, formants: [[260, 5, 1.2], [620, 6, 0.5]], vib: 0.02, breath: 0.2 }],
@@ -473,6 +482,114 @@ export class Audio {
     rg.gain.exponentialRampToValueAtTime(peak * 2.2, t + d * 0.95);
     rg.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
     rumble.connect(lp).connect(rg).connect(this._out || this.master);
+  }
+
+  // ---------- UFOs and vehicles ----------
+
+  // A continuous, wobbling UFO hum for the nearest UFO (volume 0-1), with a
+  // shimmering tone on top while a tractor beam holds the player (beam 0-1).
+  setUfoHum(volume, beam = 0) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._hum) {
+      if (volume <= 0.001 && beam <= 0) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 900;
+      out.connect(this.buses.creatures || this.master);
+      lp.connect(out);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 3.2;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 9;
+      lfo.connect(lfoGain);
+      for (const [f, type, g] of [[62, "sine", 0.6], [93.5, "triangle", 0.35], [187, "sine", 0.12]]) {
+        const o = ctx.createOscillator();
+        o.type = type;
+        o.frequency.value = f;
+        lfoGain.connect(o.frequency);
+        const og = ctx.createGain();
+        og.gain.value = g;
+        o.connect(og).connect(lp);
+        o.start();
+      }
+      lfo.start();
+      // The beam's shimmer.
+      const beamGain = ctx.createGain();
+      beamGain.gain.value = 0;
+      const shimmer = ctx.createOscillator();
+      shimmer.type = "sine";
+      shimmer.frequency.value = 740;
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 11;
+      const vibGain = ctx.createGain();
+      vibGain.gain.value = 60;
+      vib.connect(vibGain).connect(shimmer.frequency);
+      const sweep = ctx.createOscillator();
+      sweep.frequency.value = 0.5;
+      const sweepGain = ctx.createGain();
+      sweepGain.gain.value = 180;
+      sweep.connect(sweepGain).connect(shimmer.frequency);
+      shimmer.connect(beamGain).connect(this.buses.creatures || this.master);
+      shimmer.start();
+      vib.start();
+      sweep.start();
+      this._hum = { out, beamGain };
+    }
+    const t = ctx.currentTime;
+    this._hum.out.gain.setTargetAtTime(Math.max(0, Math.min(1, volume)) * 0.32, t, 0.15);
+    this._hum.beamGain.gain.setTargetAtTime(beam > 0 ? 0.05 : 0, t, 0.2);
+  }
+
+  // A UFO shooting off into the sky: a rising whoosh and zap.
+  playUfoLeave(distance = 0) {
+    this._cat("creatures");
+    const v = 0.35 / (1 + distance / 60);
+    if (v < 0.01) return;
+    this._hit({ type: "bandpass", f: 300, fEnd: 4000, q: 2, d: 0.9, v, attack: 0.05 });
+    this._voice({ f0: 200, f1: 2400, d: 0.8, v: v * 0.6, formants: [[1200, 3, 1]], vib: 0.05 });
+  }
+
+  // A hit on a UFO's hull (a metallic crunch; heavier when it goes down).
+  playUfoHit(distance = 0, big = false) {
+    this._cat("weapons");
+    const v = (big ? 0.5 : 0.22) / (1 + distance / 40);
+    if (v < 0.01) return;
+    this._hit({ type: "bandpass", f: big ? 700 : 1800, q: 5, d: big ? 0.5 : 0.12, v, n: big ? 3 : 1, spread: 0.08, jitter: 0.3 });
+    if (big) this._hit({ type: "lowpass", f: 200, q: 1, d: 0.8, v: v * 1.4, attack: 0.01 });
+  }
+
+  playVehicleEnter(type) {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: type === "ufo" ? 600 : 300, fEnd: type === "ufo" ? 1600 : 900, q: 3, d: 0.3, v: 0.2, attack: 0.02 });
+    this._hit({ type: "lowpass", f: 300, q: 1, d: 0.1, v: 0.25 });
+  }
+
+  playVehicleExit(type) {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: type === "ufo" ? 1600 : 900, fEnd: type === "ufo" ? 500 : 250, q: 3, d: 0.25, v: 0.16, attack: 0.02 });
+  }
+
+  // Ejection seat: a bang and a rocket hiss.
+  playEject() {
+    this._cat("player");
+    this._hit({ type: "lowpass", f: 400, q: 1, d: 0.2, v: 0.8, attack: 0.002 });
+    this._hit({ type: "highpass", f: 1500, q: 0.7, d: 0.9, v: 0.3, attack: 0.02 });
+  }
+
+  // A parachute snapping open.
+  playParachute() {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 500, q: 1.2, d: 0.35, v: 0.45, attack: 0.01, fEnd: 200 });
+    this._hit({ type: "highpass", f: 2500, q: 0.7, d: 0.15, v: 0.15 });
+  }
+
+  // A pickup/notice chime (UFO down, abductions escaped).
+  playNotice() {
+    this._cat("ui");
+    this._voice({ f0: 880, f1: 1320, d: 0.25, v: 0.12, formants: [[1500, 2, 1]] });
   }
 
   // A grenade bouncing: a small metallic clink and a thud (strength 0-1).

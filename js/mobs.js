@@ -124,6 +124,14 @@ export const SPECIES = {
     speed: 1.6, maxDrop: 0, weight: 0, flies: true, homeRadius: 14,
     drops: [],
   },
+  // Green aliens climb out of crashed UFOs and fight with laser guns (see
+  // ufos.js). Never spawned as ordinary night creatures ("special").
+  alien: {
+    name: "Alien", hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3,
+    speed: 1.4, chaseSpeed: 2.9, maxDrop: 3, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 3,
+    shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true,
+    drops: [[ITEM.IRON_INGOT, 1, 2, 0.6], [ITEM.DIAMOND, 1, 1, 0.12], [ITEM.LASER_BLASTER, 1, 1, 0.04]],
+  },
   fish: {
     name: "Fish", hostile: false, health: 3, r: 0.2, h: 0.3, eye: 0.15,
     speed: 1.0, maxDrop: 1, weight: 0, flies: true, swims: true, homeRadius: 10,
@@ -188,6 +196,8 @@ export class MobManager {
     this._frame = 0;
     this.crowd = new Crowd(this.group, "zombie", 512);
     this.onKill = null; // (mob, byPlayer) => void
+    this.lasers = null; // the laser bolt system (aliens' guns)
+    this.alienLaserColor = new THREE.Color(0.5, 5, 0.7);
     this.onPlayerHurt = null; // (mob) => void
     this._tmp = new THREE.Vector3();
     this._flashColor = new THREE.Color();
@@ -410,11 +420,46 @@ export class MobManager {
     }
   }
 
+  // A tractor beam (tractor-beam.js) lifts every creature inside it at
+  // `lift` blocks/s, pulling it to the middle; the ones that reach `topY`
+  // (the ship) are taken aboard: removed, and returned.
+  beamLift(beam, lift, topY) {
+    const took = [];
+    for (let i = this.mobs.length - 1; i >= 0; i--) {
+      const m = this.mobs[i];
+      if (m.dead) continue;
+      const c = this._tmp.set(m.pos.x, m.pos.y + m.spec.h * 0.5, m.pos.z);
+      if (!beam.contains(c, m.spec.r)) continue;
+      m.beamLift = lift;
+      m.stagger = Math.max(m.stagger, 0.3);
+      m.knock.x += (beam.top.x - m.pos.x) * 0.05;
+      m.knock.z += (beam.top.z - m.pos.z) * 0.05;
+      if (m.pos.y + m.spec.h >= topY) {
+        took.push(m);
+        this._abductFx(m);
+        this._remove(i);
+      }
+    }
+    return took;
+  }
+
+  _abductFx(m) {
+    const c = this._c0.setRGB(0.6, 1.8, 2.4);
+    for (let k = 0; k < 14; k++) {
+      this.effects.glow.spawn({ x: m.pos.x, y: m.pos.y + m.spec.h * 0.5, z: m.pos.z, vx: (Math.random() - 0.5) * 4, vy: Math.random() * 3, vz: (Math.random() - 0.5) * 4, life: 0.5, size0: 0.3, size1: 0.05, color0: c.clone(), drag: 2 });
+    }
+  }
+
   // Lowering the zombie cap removes the farthest zombies over it.
   trimZombies() {
     const p = this.player.position;
     const zombies = this.mobs.filter((m) => m.kind === "zombie" && !m.dead).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
     for (let k = 0; k < zombies.length - this.zombies.max; k++) this._remove(this.mobs.indexOf(zombies[k]));
+  }
+
+  // Removes every creature of a kind (aliens, when mods are switched off).
+  removeKind(kind) {
+    for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].kind === kind) this._remove(i);
   }
 
   // Removes every hostile creature at once (switching to Peaceful).
@@ -558,7 +603,8 @@ export class MobManager {
             speed = m.spec.chaseSpeed;
           }
           if (m.stagger <= 0 && m.attackCooldown <= 0 && distH >= m.spec.shootMin * 0.6 && distH <= m.spec.shootMax * 1.3 && Math.abs(dy) < 10) {
-            this._shootArrow(m, dx, dy, dz);
+            if (m.spec.laser) this._shootLaser(m);
+            else this._shootArrow(m, dx, dy, dz);
             m.attackCooldown = m.spec.shootCooldown;
             m.attack = 0;
           }
@@ -688,6 +734,27 @@ export class MobManager {
     this.audio.playSwing?.();
   }
 
+  // Aliens: a green laser bolt at the player's chest (or the vehicle the
+  // player is in), a little off at long range.
+  _shootLaser(m) {
+    if (!this.lasers) return;
+    const from = m.pos.clone();
+    from.y += m.spec.eye - 0.4;
+    const target = this.player.getEyePosition();
+    target.y -= 0.6;
+    const dir = target.sub(from);
+    const dist = dir.length() || 1;
+    dir.divideScalar(dist);
+    const spread = 0.03 + dist * 0.0012;
+    dir.x += (Math.random() - 0.5) * spread * 2;
+    dir.y += (Math.random() - 0.5) * spread;
+    dir.z += (Math.random() - 0.5) * spread * 2;
+    dir.normalize();
+    from.addScaledVector(dir, m.spec.r + 0.4);
+    m.aimTime = this.time;
+    this.lasers.fire({ from, dir, color: this.alienLaserColor, speed: 62, damage: m.spec.laserDamage, owner: "alien", source: m, range: 70, radius: 0.05, length: 1.3 });
+  }
+
   // Whether the player's body is hit somewhere along the arrow's step this
   // frame; returns the distance along the step, or null.
   _arrowHitsPlayer(pos, dir, maxDist) {
@@ -776,6 +843,10 @@ export class MobManager {
     const k = Math.min(1, dt * 2.5);
     m.vel.x += (want.x * want.speed - m.vel.x) * k;
     m.vel.y += (want.y * want.speed - m.vel.y) * k;
+    if (m.beamLift) {
+      m.vel.y = m.beamLift;
+      m.beamLift = 0;
+    }
     m.vel.z += (want.z * want.speed - m.vel.z) * k;
     const ax = m.vel.x * dt;
     const dx = sweepAxis(w, m.pos, spec.r, spec.h, "x", ax);
@@ -820,7 +891,12 @@ export class MobManager {
     m.vel.x = m.move.x + m.knock.x;
     m.vel.z = m.move.y + m.knock.z;
 
-    if (m.inWater) {
+    if (m.beamLift) {
+      // Held in a tractor beam: rising, legs kicking.
+      m.vel.y = m.beamLift;
+      m.beamLift = 0;
+      m.peakY = null;
+    } else if (m.inWater) {
       m.vel.y += (waterBody ? 16 : -12) * dt;
       m.vel.y = THREE.MathUtils.clamp(m.vel.y, -3, 2.4);
     } else if (spec.climbs && m.blocked && speed > 0 && !m.onGround) {
@@ -1250,6 +1326,7 @@ export class MobManager {
       graze: m.graze,
       hide: m.hide,
       attack: m.attack,
+      aim: m.ai.target ? 1 : 0,
     });
   }
 }

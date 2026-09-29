@@ -92,6 +92,9 @@ export class WeaponSystem {
     this._blasterFiring = false;
     this.blasterColor = "red";
     this.enabled = true; // false with mods off: every weapon is inert
+    // Extra things bullets, rockets and grenades can hit (UFOs, vehicles):
+    // { raycast(origin, dir, maxDist) -> { distance, hit(damage, dir, point) }, sphereHit(p, r) }.
+    this.targets = [];
     this._mgFiring = false;
     this._mgTimer = 0;
     this._mgHeat = 0; // 0-1: climbs while firing, drives spread and recoil
@@ -235,6 +238,7 @@ export class WeaponSystem {
     this.held.fire(1.6);
     p.kick(0.07);
     this.audio.playSniperShot ? this.audio.playSniperShot() : this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : SNIPER_RANGE, SNIPER_DAMAGE, muzzle)) return { type: "target" };
     const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
     const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : SNIPER_RANGE;
     const endPoint = eye.clone().addScaledVector(dir, dist);
@@ -276,6 +280,7 @@ export class WeaponSystem {
     this.held.fire(0.55);
     p.kick(0.016 + this._mgHeat * 0.022);
     this.audio.playMachineGun ? this.audio.playMachineGun() : this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : MACHINEGUN_RANGE, MACHINEGUN_DAMAGE, muzzle)) return;
     const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
     const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : MACHINEGUN_RANGE;
     const endPoint = eye.clone().addScaledVector(dir, dist);
@@ -326,6 +331,41 @@ export class WeaponSystem {
     p.kick(0.02);
     this.effects.muzzleFlash(muzzle, 0.8);
     return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED, damage: BLASTER_DAMAGE, owner: "player", source: p, range: BLASTER_RANGE });
+  }
+
+  // The nearest extra target (UFO, vehicle) along a ray, or null.
+  _targetHit(origin, dir, maxDist) {
+    let best = null;
+    for (const t of this.targets) {
+      const h = t.raycast(origin, dir, maxDist);
+      if (h && (!best || h.distance < best.distance)) best = h;
+    }
+    return best;
+  }
+
+  _targetSphere(p, r) {
+    for (const t of this.targets) if (t.sphereHit(p, r)) return true;
+    return false;
+  }
+
+  // Metal sparks off a UFO's hull.
+  _hullSparks(point, dir, n = 8) {
+    for (let i = 0; i < n; i++) {
+      const v = dir.clone().multiplyScalar(-3 - Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6));
+      this.effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.2 + Math.random() * 0.3, size0: 0.1, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
+    }
+  }
+
+  // A hitscan shot against the extra targets, if one is nearer than
+  // `nearest` (the block or mob hit). Returns true if it hit one.
+  _shootTargets(eye, dir, nearest, damage, muzzle) {
+    const t = this._targetHit(eye, dir, nearest);
+    if (!t) return false;
+    const point = eye.clone().addScaledVector(dir, t.distance);
+    t.hit(damage, dir, point);
+    this._hullSparks(point, dir);
+    if (muzzle) this._spawnTracer(muzzle, point);
+    return true;
   }
 
   // A block hit is "real" (a loaded chunk) vs. an approximate heightfield
@@ -464,7 +504,7 @@ export class WeaponSystem {
     }
 
     // A direct hit on a mob sets it off at once.
-    if (g.age > 0.05 && this.mobs.sphereHit(pos, GRENADE_R)) return true;
+    if (g.age > 0.05 && (this.mobs.sphereHit(pos, GRENADE_R) || this._targetSphere(pos, GRENADE_R))) return true;
     return g.age >= GRENADE_FUSE || pos.y < -20;
   }
 
@@ -487,6 +527,7 @@ export class WeaponSystem {
     this.held.fire(1);
     p.kick(0.035);
     this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : PISTOL_RANGE, PISTOL_DAMAGE, null)) return { type: "target" };
     if (mobHit) {
       const hitPoint = eye.clone().addScaledVector(dir, mobHit.distance);
       this.mobs.shoot(mobHit.mob, PISTOL_DAMAGE, dir, 3.5);
@@ -574,6 +615,8 @@ export class WeaponSystem {
     const dir = step.clone().divideScalar(len || 1);
     const blockHit = this.world.raycast(r.pos, dir, len, { solidOnly: true });
     const mobHit = this.mobs.raycast(r.pos, dir, blockHit ? blockHit.distance : len);
+    const tHit = this._targetHit(r.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
+    if (tHit) return r.pos.clone().addScaledVector(dir, tHit.distance);
     if (mobHit) return r.pos.clone().addScaledVector(dir, mobHit.distance);
     if (blockHit) return r.pos.clone().addScaledVector(dir, Math.max(0, blockHit.distance - 0.3));
     // Smoke trail and glowing exhaust along the path.

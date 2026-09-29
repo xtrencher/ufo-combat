@@ -96,6 +96,12 @@ export class Player {
     this.cameraMode = 0; // index into CAMERA_MODES
     this._camDist = 0; // smoothed third-person camera distance
 
+    this.vehicle = null; // the vehicle the player is in (vehicles.js)
+    this.parachute = false; // descending under a parachute (no fall damage)
+    this.beamLift = 0; // a UFO's tractor beam lifting the player (blocks/s), set every frame
+    this.beamPull = new THREE.Vector3(); // ...and pulling toward the beam's middle
+    this.mouseCapture = null; // (event) => void: a vehicle takes the mouse
+
     this.enabled = false;
     this.onFlightToggle = null;
     this.onHurt = null; // (amount, cause) => void
@@ -161,6 +167,10 @@ export class Player {
 
   _onMouseMove(e) {
     if (!this.locked || this.dead) return;
+    if (this.mouseCapture) {
+      this.mouseCapture(e);
+      return;
+    }
     const sensitivity = 0.0022 * this.mouseSensitivity * (this.binocularFov != null ? this.binocularSens : this.zoomSensMul);
     this.yaw -= e.movementX * sensitivity;
     this.pitch -= e.movementY * sensitivity * (this.invertY ? -1 : 1);
@@ -208,7 +218,13 @@ export class Player {
 
   // Deals damage in half-hearts. Returns true if it was applied (creative
   // players, the dead and the briefly invulnerable take none).
-  damage(amount, cause) {
+  damage(amount, cause, { pierce = false } = {}) {
+    // In a vehicle, hits land on the vehicle instead (unless `pierce`: the
+    // vehicle itself was destroyed with the pilot inside).
+    if (this.vehicle && !pierce) {
+      this.vehicle.damage(amount, cause);
+      return false;
+    }
     if (MOB_CAUSES.has(cause) && this.mobDamageScale !== 1) {
       if (this.mobDamageScale <= 0) return false;
       amount = Math.max(1, Math.round(amount * this.mobDamageScale));
@@ -352,6 +368,17 @@ export class Player {
     this.hurtTime += dt;
     this.recoil *= Math.exp(-14 * dt);
 
+    // Seated in a vehicle: it moves us (vehicles.js); only health comes back.
+    if (this.vehicle && !this.dead) {
+      this.inWater = false;
+      this.headInWater = false;
+      this.air = Math.min(MAX_AIR, this.air + dt * 4);
+      this._airborneMaxY = null;
+      this._sinceDamage += dt;
+      this._updateRegen(dt);
+      return;
+    }
+
     if (this.dead) {
       this._deathTime += dt;
       this.syncCamera();
@@ -401,7 +428,16 @@ export class Player {
     this.knockback.z *= knockbackDecay;
 
     const space = this.keys.has("Space");
-    if (this.flying) {
+    const beamed = this.beamLift > 0;
+    if (beamed) {
+      // Caught in a tractor beam: lifted, and pulled to the middle (you can
+      // still walk out of it).
+      this.velocity.y = this.beamLift;
+      this.velocity.x += this.beamPull.x;
+      this.velocity.z += this.beamPull.z;
+      this.beamLift = 0;
+      this._airborneMaxY = null;
+    } else if (this.flying) {
       let vy = 0;
       if (space) vy += 1;
       if (shift) vy -= 1;
@@ -409,6 +445,10 @@ export class Player {
     } else if (this.inWater) {
       this.velocity.y = Math.max(this.velocity.y + WATER_GRAVITY * dt, WATER_MAX_SINK);
       if (space) this.velocity.y = Math.min(this.velocity.y + 28 * dt, 3.6);
+    } else if (this.parachute) {
+      // Under a canopy: a slow, steady descent.
+      this.velocity.y = Math.max(this.velocity.y + GRAVITY * dt, -3.2);
+      if (this.velocity.y > 0) this.velocity.y *= Math.exp(-2 * dt);
     } else {
       this.velocity.y += GRAVITY * dt;
       if (this.velocity.y < MAX_FALL_SPEED) this.velocity.y = MAX_FALL_SPEED;
@@ -490,9 +530,14 @@ export class Player {
 
   // Fall damage is based on the height fallen from the highest point of the
   // jump/fall, so jumping in place never hurts and water breaks any fall.
+  // Forgets the height fallen so far (teleports, getting out of a vehicle).
+  resetFall() {
+    this._airborneMaxY = null;
+  }
+
   _updateFall() {
     const y = this.position.y;
-    if (this.flying || this.inWater || this.creative) {
+    if (this.flying || this.inWater || this.creative || this.parachute) {
       this._airborneMaxY = null;
       return;
     }
@@ -538,7 +583,11 @@ export class Player {
         }
       }
     }
-    // Natural regeneration after a while without damage.
+    this._updateRegen(dt);
+  }
+
+  // Natural regeneration after a while without damage.
+  _updateRegen(dt) {
     if (this.health < MAX_HEALTH && this._sinceDamage > REGEN_DELAY) {
       this._regenTimer += dt;
       if (this._regenTimer >= REGEN_INTERVAL) {

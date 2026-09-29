@@ -648,6 +648,108 @@
   #binocular-overlay.visible { display: block; }
   #binocular-overlay .reading { position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%); font: 12px ui-monospace, Consolas, monospace; color: rgba(200,255,230,0.8); letter-spacing: 2px; text-shadow: 0 0 4px #000; }
 
+  /* --- Vehicles --- */
+  #vehicle-hud {
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    min-width: 250px;
+    background: rgba(6,16,24,0.62);
+    border: 1px solid rgba(120,230,255,0.35);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: #bff6ff;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 0 3px rgba(0,0,0,0.8);
+  }
+  .vh-title { font-weight: 700; color: #fff; letter-spacing: 1px; margin-bottom: 3px; }
+  .vh-row { display: flex; justify-content: space-between; gap: 12px; }
+  .vh-row b { color: #fff; font-weight: 600; }
+  .vh-health { height: 5px; background: rgba(0,0,0,0.5); border-radius: 3px; margin: 5px 0; overflow: hidden; }
+  .vh-health div { height: 100%; }
+  .vh-weapon { color: #ffe08a; margin-top: 2px; }
+  .vh-on { color: #7ff3ff; font-weight: 700; }
+  .vh-warning { color: #ff5a4a; font-weight: 700; animation: vh-blink 0.5s steps(2) infinite; }
+  .vh-help { opacity: 0.6; font-size: 10px; margin-top: 4px; }
+  @keyframes vh-blink { 50% { opacity: 0.25; } }
+  #vehicle-prompt {
+    position: fixed;
+    top: calc(50% + 40px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.5);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 0 3px #000;
+  }
+  #hud-toast {
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 8px rgba(0,0,0,0.9), 1px 1px 0 #000;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+  #hud-toast.show { opacity: 1; }
+  #stats-overlay {
+    position: fixed;
+    top: 8px;
+    right: 10px;
+    margin-top: 28px;
+    font: 12px/1.4 ui-monospace, Consolas, monospace;
+    background: rgba(0,0,0,0.35);
+    padding: 4px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10;
+    text-align: right;
+  }
+  #hit-marker {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    background:
+      linear-gradient(45deg, transparent 45%, #fff 45% 55%, transparent 55%),
+      linear-gradient(-45deg, transparent 45%, #fff 45% 55%, transparent 55%);
+    -webkit-mask: radial-gradient(circle, transparent 0 5px, #000 5px);
+    mask: radial-gradient(circle, transparent 0 5px, #000 5px);
+  }
+  #hit-marker.show { opacity: 1; transition: none; }
+  #hit-marker.fade { opacity: 0; transition: opacity 0.25s; }
+  body.in-vehicle #hotbar, body.in-vehicle #item-name, body.in-vehicle #attack-charge, body.in-vehicle #throw-charge { display: none; }
+
+  #beam-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 8;
+    opacity: 0;
+    transition: opacity 0.4s;
+    background: radial-gradient(ellipse at 50% 20%, rgba(120,220,255,0.35) 0%, rgba(60,160,255,0.18) 45%, rgba(20,60,160,0.4) 100%);
+    animation: beam-pulse 0.9s ease-in-out infinite;
+  }
+  #beam-overlay.show { opacity: 1; }
+  @keyframes beam-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+
   /* F1 hides every HUD element (the held item is hidden by the game). */
   body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay, body.hud-off #binocular-overlay { visibility: hidden; }
 </style>
@@ -667,6 +769,12 @@
     <div id="item-name"></div>
     <div id="status-bars"><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
     <div id="hotbar"></div>
+    <div id="vehicle-hud" class="hidden"></div>
+    <div id="vehicle-prompt" class="hidden"></div>
+    <div id="hud-toast"></div>
+    <div id="stats-overlay" class="hidden"></div>
+    <div id="hit-marker"></div>
+    <div id="beam-overlay"></div>
   </div>
 
   <pre id="debug-overlay" class="hidden"></pre>
