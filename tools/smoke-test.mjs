@@ -44,7 +44,10 @@ console.log(`Static server on http://localhost:${PORT}`);
 const errors = [];
 const passed = [];
 
+// SMOKE_GREP=text runs only the checks whose name contains it (the ones that need the main page still find it, and the startup checks use their own pages).
+const GREP = process.env.SMOKE_GREP || "";
 async function check(name, fn) {
+  if (GREP && !GREP.split(",").some((g) => name.includes(g))) return;
   const t0 = Date.now();
   try {
     await fn();
@@ -374,7 +377,7 @@ try {
     await page.selectOption("#graphics-preset", "low");
     // Restore the default for the rest of the run.
     await page.$eval("#render-distance", (el) => {
-      el.value = "20";
+      el.value = "10";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.click("#settings-back-btn");
@@ -2483,8 +2486,9 @@ try {
       overrides: JSON.parse(localStorage.getItem("ufocombat_v1_settings")).gfxOverrides,
     }));
     console.log(`        ${JSON.stringify(s)}`);
-    assert(s.preset === "high" && /lowered to High/.test(s.notice) && /options were reset/.test(s.notice), `expected High with a notice: ${JSON.stringify(s)}`);
-    assert(Object.keys(s.overrides).length === 0, `individual options should be reset: ${JSON.stringify(s.overrides)}`);
+    assert(s.preset === "high" && /lowered to High/.test(s.notice) && /saved graphics setting is unchanged/.test(s.notice), `expected High with a notice: ${JSON.stringify(s)}`);
+    // (Round 2: the step-down is for this session only; what the player saved is never rewritten.)
+    assert(s.overrides && s.overrides.water === "ssr", `the saved individual options stay: ${JSON.stringify(s.overrides)}`);
     assert(s.boot.preset === "high" && s.boot.ok === true, `the boot record should now say High works: ${JSON.stringify(s.boot)}`);
     assert(errs.length === 0, `errors: ${errs.join(" | ")}`);
     await ctx.close();
@@ -2551,8 +2555,8 @@ try {
       player: !!localStorage.getItem("ufocombat_v1_player_42"),
     }));
     console.log(`        ${JSON.stringify(s)}`);
-    assert(s.label === "Low" && s.saved.graphics === "low" && s.boot.preset === "low" && s.boot.ok, `expected Low for the next start: ${JSON.stringify(s)}`);
-    assert(Object.keys(s.saved.gfxOverrides).length === 0 && s.resetShown, `individual options should be reset, and the panel should say so: ${JSON.stringify(s)}`);
+    assert(s.label === "Low" && s.saved.graphics === "medium" && s.boot.preset === "medium" && !s.boot.ok, `expected Low for the next start (saved settings unchanged, the failed boot recorded): ${JSON.stringify(s)}`);
+    assert(s.saved.gfxOverrides.bloom === "off" && s.resetShown, `the saved options stay, and the panel should say the next start is lowered: ${JSON.stringify(s)}`);
     assert(s.player, "the player should be saved");
     await ctx.close();
   });

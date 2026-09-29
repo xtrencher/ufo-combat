@@ -833,7 +833,7 @@ export class UfoManager {
     if (u.state !== "leave" && u.state !== "emerge") {
       let leaveChance = 0.0004; // per second
       if (pv?.type === "jet" && dist < 350 && u.personality !== "fighter" && u.hostile) leaveChance = u.personality === "fast" ? 0.04 : 0.008;
-      if (Math.random() < leaveChance * dt) this._leave(u);
+      if (!u.noLeave && Math.random() < leaveChance * dt) this._leave(u); // (noLeave: for tests)
     }
 
     // A sudden blink to a spot nearby, when it's calm, or to dodge when angry.
@@ -1401,7 +1401,8 @@ export class UfoManager {
     const water = floor < SEA_LEVEL + 1 && this._waterAt(u.pos.x, u.pos.z);
     // Random outcome: a huge explosion that leaves a burnt-out, unusable
     // wreck (likelier for big ships), or an intact ship that can be flown.
-    const exploded = Math.random() < 0.38 + 0.06 * u.S.idx;
+    // (u.crashPlan = { exploded, crew } fixes the outcome: for tests.)
+    const exploded = u.crashPlan?.exploded ?? Math.random() < 0.38 + 0.06 * u.S.idx;
     const radius = exploded ? Math.min(34, 7 + u.radius * 1.0) : Math.min(15, 3.5 + u.radius * 0.6);
     const at = new THREE.Vector3(u.pos.x, Math.max(floor + 0.5, u.pos.y - bottom * 0.5), u.pos.z);
     fx.explode(at, { radius: water ? Math.min(radius, 12) : radius, source: "ufo_crash" });
@@ -1431,7 +1432,7 @@ export class UfoManager {
     // Its crew climbs out: a random number, and a random mix of kinds. (They
     // come out of an exploded wreck too: the survivors.)
     const [lo, hi] = u.S.crew;
-    const crew = Math.max(1, Math.round(lo + Math.pow(Math.random(), 1.5) * (hi - lo) + (Math.random() < 0.15 ? hi - lo : 0)));
+    const crew = u.crashPlan?.crew ?? Math.max(1, Math.round(lo + Math.pow(Math.random(), 1.5) * (hi - lo) + (Math.random() < 0.15 ? hi - lo : 0)));
     this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx });
     if (this.onShotDown) this.onShotDown(u, u.byPlayer);
     if (this.onCrash) this.onCrash({ ufo: u, pos: at, exploded, wreck, byPlayer: u.byPlayer, crew: Math.min(10, crew) });
@@ -1479,6 +1480,10 @@ export class UfoManager {
           m.aggro = true; // they hunt the player at once
           spawned++;
         }
+      }
+      if (spawned === 0 && (c.tries = (c.tries || 0) + 1) < 8) {
+        c.delay = 0.6; // no room found around the wreck this time (rock, trees, water): try again
+        continue;
       }
       if (spawned > 0 && this.audio?.playMob) this.audio.playMob("alien", "idle", c.pos.distanceTo(this.player.position));
       this.pendingCrews.splice(i, 1);

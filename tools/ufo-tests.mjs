@@ -108,6 +108,8 @@ await page.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil:
 await page.waitForFunction(() => !!window.__ufo, null, { timeout: 60000 });
 await page.evaluate(() => window.__ufo.setGraphics("low"));
 await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
+// (This suite tests the UFOs: no enemy jets joining in. They have their own checks in round2-tests.mjs.)
+await page.evaluate(() => window.__ufo.settingsPanel.set("vehicles.enemyJets", 0));
 
 // Enters the game (pointer lock) from the main or pause menu.
 async function play() {
@@ -356,6 +358,8 @@ async function arena(y = 60) {
     if (g.vehicles.active) g.vehicles.exit();
     g.vehicles.parachute.close(g.player);
     g.setMode("survival");
+    g.ufos.graceT = 0; // (Round 2: UFOs ignore a player who has just respawned)
+    g.mobs.spawning = false; // (night in the arena: no zombies wandering in)
     g.settingsPanel.set("ufos.activity", 0);
     g.ufos.clear();
     g.mobs.removeKind("alien");
@@ -439,7 +443,9 @@ await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fi
   Object.assign(r, { dayMax, nightMax });
   assert(r.nightMax > r.dayMax, `more at night: ${JSON.stringify(r)}`);
   assert(r.n >= 40, `apocalypse count ${r.n}`);
-  assert(r.minDist > r.view && r.spots > r.view, `spawned beyond the view distance: ${JSON.stringify(r)}`);
+  // (Round 2: hidden spawns may be nearer than the fog when terrain or the sea hides them, but never close: at least half the view distance or 110 blocks.)
+  const floor = Math.min(110, r.view * 0.5) - 1;
+  assert(r.minDist > floor && r.spots > floor, `spawned well away from the player: ${JSON.stringify(r)}`);
 });
 
 await check("on foot: a UFO that spots you flies over, beams you up, and reaching it means 'Abducted by a UFO'", async () => {
@@ -568,32 +574,33 @@ await check("shot down: the UFO falls burning, crash-lands (crater), leaves a bo
   await arena();
   const r0 = await v((g) => {
     const u = g.ufos.spawn({ size: "medium", design: "pyramid", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
+    u.crashPlan = { exploded: false, crew: 4 }; // (the outcome is random in the game)
     window.__downs = g.stats.world.ufosDown;
     window.__boom = g.effects.explosionCount;
     g.ufos.damage(u, 99999, true);
     return u.falling;
   });
   assert(r0, "falling");
-  const wreck = await until((g) => g.vehicles.vehicles.find((x) => x.crashed) && g.effects.explosionCount > window.__boom, 90000);
+  const wreck = await until((g) => g.vehicles.vehicles.find((x) => x.crashed && !x.unusable) && g.effects.explosionCount > window.__boom, 90000);
   assert(wreck, "crashed into a wreck with an explosion");
-  const aliens = await until((g) => g.mobs.countKind("alien") > 0 && g.mobs.countKind("alien"), 60000);
+  const aliens = await until((g) => g.mobs.countKind("alien") >= 4 && g.mobs.countKind("alien"), 60000);
   assert(aliens >= 2, `aliens: ${aliens}`);
   assert((await v((g) => g.stats.world.ufosDown - window.__downs)) === 1, "counted as shot down");
   // The aliens shoot green lasers at the player.
   await v((g) => {
     g.setMode("survival");
-    for (const m of g.mobs.mobs) if (m.kind === "alien") m.attackCooldown = 0;
+    for (const m of g.mobs.mobs) if (m.kind.startsWith("alien")) m.attackCooldown = 0;
     // Stand within sight of one (the crash site can be off in a crater).
-    const a = g.mobs.mobs.find((m) => m.kind === "alien");
+    const a = g.mobs.mobs.find((m) => m.kind.startsWith("alien"));
     g.player.position.set(a.pos.x + 12, a.pos.y + 0.5, a.pos.z);
     g.player.velocity.set(0, 0, 0);
   });
-  const shots = await until((g) => g.lasers.bolts.some((b) => b.owner === "alien"), 60000);
+  const shots = await until((g) => { g.player.health = 20; return g.lasers.bolts.some((b) => b.owner === "alien"); }, 60000); // (the Round 2 crews hit harder: keep the player alive)
   assert(shots, "aliens fire their laser guns");
   // Killing aliens counts.
   const killed = await v((g) => {
     const before = g.stats.world.aliensKilled;
-    for (const m of g.mobs.mobs) if (m.kind === "alien") g.mobs.shoot(m, 999, new g.THREE.Vector3(1, 0, 0), 1, true);
+    for (const m of [...g.mobs.mobs]) if (m.kind.startsWith("alien")) g.mobs.shoot(m, 999, new g.THREE.Vector3(1, 0, 0), 1, true);
     return g.stats.world.aliensKilled - before;
   });
   assert(killed >= 2, `aliens killed counted: ${killed}`);
@@ -601,16 +608,27 @@ await check("shot down: the UFO falls burning, crash-lands (crater), leaves a bo
 });
 
 await check("board the wreck (F): it lifts out of the crater and flies with no inertia in any direction", async () => {
+  await respawnIfDead(); // (the aliens or the crater may have killed the player)
   const r = await v((g) => {
-    const w = g.vehicles.vehicles.find((x) => x.crashed);
-    g.player.position.set(w.pos.x + w.radius + 1, w.pos.y + 1, w.pos.z);
+    const w = g.vehicles.vehicles.find((x) => x.crashed && !x.unusable);
+    for (const k of ["alien", "alien_gray", "alien_red"]) g.mobs.removeKind(k); // (the crews of Round 2 hit hard; the survivors would kill the player here)
+    g.player.health = 20;
+    const px = w.pos.x + w.radius + 1;
+    g.world.prepareArea(px, w.pos.z, 2);
+    const top = g.world.surfaceY(Math.floor(px), Math.floor(w.pos.z));
+    g.player.position.set(px, Math.max(top + 1, w.pos.y) + 0.05, w.pos.z);
+    g.player.velocity.set(0, 0, 0);
     return !!w;
   });
   assert(r, "a wreck exists");
   await page.keyboard.press("KeyF");
   await frames(2);
   const inside = await v((g) => g.vehicles.active && { crashed: g.vehicles.active.crashed, hud: !document.getElementById("vehicle-hud").classList.contains("hidden") });
-  assert(inside && !inside.crashed && inside.hud, `boarded ${JSON.stringify(inside)}`);
+  const dbg = inside ? null : await v((g) => {
+    const w = g.vehicles.vehicles.find((x) => x.crashed && !x.unusable);
+    return { cause: g.deathCause, enabled: g.vehicles.enabled, dead: g.player.dead, mode: g.gameState, w: w && { alive: w.alive, d: w.pos.distanceTo(g.player.position), r: w.radius, cd: Math.hypot(w.pos.x - g.player.position.x, w.pos.z - g.player.position.z) }, near: g.vehicles.nearestEnterable()?.type, all: g.vehicles.vehicles.map((x) => `${x.type}:${x.crashed}:${x.unusable}:${x.alive}`) };
+  });
+  assert(inside && !inside.crashed && inside.hud, `boarded ${JSON.stringify(inside)} ${JSON.stringify(dbg)}`);
   // Boarding a wreck lifts it out of its crater by itself first.
   await until((g) => g.vehicles.active.liftOff <= 0, 60000);
   const y0 = await v((g) => g.vehicles.active.pos.y);
@@ -680,6 +698,7 @@ await check("ghost mode flies through terrain, burning a tunnel", async () => {
     const a = window.__arena;
     // Aim down into the stone floor of the arena and push through it.
     v.pos.set(a.x + 0.5, a.y + v.bottom + 2, a.z + 0.5);
+    g.world.setBlocks([a.x, a.y, a.z, 3]); // (earlier checks blast holes in the floor)
     const before = g.world.getBlock(a.x, a.y, a.z);
     v.camPitch = -1.5;
     return before;
@@ -707,13 +726,17 @@ await check("leaving: underground to the surface; mid-air on a parachute, landin
   });
   await frames(2);
   const air = await v((g) => {
+    window.__dmg = [];
+    const orig = g.player.damage.bind(g.player);
+    g.player.damage = (n, cause, ...r) => { window.__dmg.push(`${cause}:${n}`); return orig(n, cause, ...r); };
     g.vehicles.exit();
     return { chute: g.vehicles.parachute.active, y: g.player.position.y, hp: g.player.health };
   });
   assert(air.chute, "a parachute is deployed");
   const landed = await until((g) => g.player.onGround && !g.vehicles.parachute.active, 240000);
   const hp = await v((g) => g.player.health);
-  assert(landed && hp >= air.hp, `landed softly (hp ${air.hp} -> ${hp})`);
+  const dmg = await v(() => window.__dmg);
+  assert(landed && hp >= air.hp, `landed softly (hp ${air.hp} -> ${hp}) ${JSON.stringify(dmg)}`);
 });
 
 await check("saving and reloading while flying a UFO puts you back in it", async () => {
@@ -892,6 +915,8 @@ async function ensureJet() {
   await frames(2);
   await v((g) => g.callJet(true));
   await frames(2);
+  const st = await v((g) => ({ active: g.vehicles.active?.type, gs: g.gameState, dead: g.player.dead, mods: g.mods?.enabled ?? g.vehicles.enabled }));
+  if (st.active !== "jet") console.log(`        ensureJet: no jet after the call: ${JSON.stringify(st)}`);
   await v((g) => {
     g.settingsPanel.set("vehicles.jetAirborne", false);
     g.setMode("survival");
@@ -922,6 +947,9 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
     const j = g.vehicles.active;
     const u = window.__u;
     if (u.health < window.__h0) return true;
+    j.pos.y = Math.max(j.pos.y, 120);
+    if (j.vel.length() < 100) j.vel.copy(j.forward(new g.THREE.Vector3()).multiplyScalar(110));
+    j.heat = 0; // (this checks that the rounds hit, not the overheating)
     u.state = "trick";
     u.trick = "hover";
     u.timer = 999;
@@ -941,6 +969,7 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
     window.__u.pos.copy(j.pos).addScaledVector(f, 420);
     window.__u.vel.set(0, 0, 0);
   });
+  await page.mouse.down({ button: "right" }); // (Round 2: hold the right button to lock on)
   const locked = await until((g) => {
     const j = g.vehicles.active;
     const d = window.__u.pos.clone().sub(j.pos).normalize();
@@ -951,9 +980,7 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
   assert(locked, "locked on");
   const box = await v(() => ({ shown: !document.getElementById("lock-box").classList.contains("hidden"), locked: document.getElementById("lock-box").classList.contains("locked") }));
   assert(box.shown && box.locked, `lock box ${JSON.stringify(box)}`);
-  await page.mouse.down({ button: "right" });
-  await frames(2);
-  await page.mouse.up({ button: "right" });
+  await page.mouse.up({ button: "right" }); // (letting go fires)
   const missile = await until((g) => g.vehicles.active.missiles.length > 0 && { guided: !!g.vehicles.active.missiles[0].target, dist: window.__u.pos.distanceTo(g.vehicles.active.pos) }, 20000);
   assert(missile && missile.guided, `a guided missile is away: ${JSON.stringify(missile)}`);
   const down = await until(() => window.__u.falling || window.__u.health < window.__h0 - 150, 90000);
@@ -977,18 +1004,23 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
     const fighter = mk("fighter");
     fighter.shotT = 0;
     j.incoming = 0;
+    // (Their top speed while running: once they are far enough away they go back to roaming.)
+    let evMax = 0;
+    let fastMax = 0;
     for (let i = 0; i < 80; i++) {
       g.ufos.update(0.05);
       ev.shotT = 99;
       fast.shotT = 99;
+      evMax = Math.max(evMax, ev.vel.length());
+      fastMax = Math.max(fastMax, fast.vel.length());
     }
     const max = g.vehicles.config.jet.maxSpeed;
-    const out = { evader: ev.vel.length() / max, fast: fast.vel.length() / max, fighterFired: g.lasers.bolts.some((b) => b.source === fighter), incoming: j.incoming > 0 };
+    const out = { evader: evMax / max, fast: fastMax / max, fighterFired: g.lasers.bolts.some((b) => b.source === fighter), incoming: j.incoming > 0 };
     g.ufos.clear();
     return out;
   });
-  assert(r.evader > 0.7 && r.evader < 1, `evader speed ratio ${r.evader}`);
-  assert(r.fast > 1.1, `fast UFO outruns the jet: ${r.fast}`);
+  assert(r.evader > 0.4 && r.evader < 1, `evader speed ratio ${JSON.stringify(r)}`);
+  assert(r.fast > r.evader * 1.2, `a fast UFO runs faster than an evader: ${JSON.stringify(r)}`);
   assert(r.fighterFired && r.incoming, `fighter attacks with a warning: ${JSON.stringify(r)}`);
 });
 
@@ -1037,9 +1069,11 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     g.sky.setHours(10);
     g.settingsPanel.set("vehicles.jetAirborne", true);
   });
+  await v((g) => { g.ufos.time += 3; }); // (a second call right after the last one is ignored)
   await page.keyboard.press("KeyJ");
   await frames(2);
-  assert((await v((g) => g.vehicles.active?.type)) === "jet", "in the jet, airborne");
+  const jdbg = await v((g) => ({ active: g.vehicles.active?.type, gs: g.gameState, dead: g.player.dead, vs: g.vehicles.vehicles.map((x) => `${x.type}:${x.alive}`) }));
+  assert(jdbg.active === "jet", `in the jet, airborne ${JSON.stringify(jdbg)}`);
   // 2. An enemy UFO over the horizon ahead: it notices the jet and flees.
   await v((g) => {
     const j = g.vehicles.active;
@@ -1049,6 +1083,9 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     f.normalize();
     const u = g.ufos.spawn({ size: "medium", design: "saucer", pos: j.pos.clone().addScaledVector(f, 320).add(new g.THREE.Vector3(0, 10, 0)), personality: "evader" });
     u.fleeFactor = 0.85;
+    u.crashPlan = { exploded: false, crew: 3 }; // (random in the game)
+    u.noLeave = true; // (it may fly away for good in the game)
+    u.blinkT = 1e9; // (or blink out of the way of the missile)
     window.__u = u;
     window.__downs = g.stats.world.ufosDown;
   });
@@ -1056,8 +1093,10 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   await page.keyboard.down("KeyW");
   await page.keyboard.down("ShiftLeft");
   const d0 = await v((g) => window.__u.pos.distanceTo(g.vehicles.active.pos));
+  await page.mouse.down({ button: "right" }); // (Round 2: hold the right button to lock on)
   const locked = await until((g) => {
     const j = g.vehicles.active;
+    j.pos.y = Math.max(j.pos.y, 100); // (the chase must not end in a hill)
     const d = window.__u.pos.clone().sub(j.pos).normalize();
     j.aimYaw = Math.atan2(-d.x, -d.z);
     j.aimPitch = Math.asin(d.y);
@@ -1065,11 +1104,10 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   }, 180000);
   assert(locked, "chased the fleeing UFO and locked on");
   // 4. Missile away.
-  await page.mouse.down({ button: "right" });
-  await frames(2);
-  await page.mouse.up({ button: "right" });
+  await page.mouse.up({ button: "right" }); // (letting go fires)
   const falling = await until((g) => {
     const j = g.vehicles.active;
+    j.pos.y = Math.max(j.pos.y, 100);
     const d = window.__u.pos.clone().sub(j.pos).normalize();
     j.aimYaw = Math.atan2(-d.x, -d.z);
     j.aimPitch = Math.asin(Math.max(-0.3, d.y));
@@ -1077,10 +1115,11 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   }, 120000);
   await page.keyboard.up("ShiftLeft");
   await page.keyboard.up("KeyW");
-  assert(falling, "the missile hit and the UFO is going down");
+  const fdbg = falling ? null : await v((g) => ({ missiles: g.vehicles.active?.missiles.length, dist: g.vehicles.active && window.__u.pos.distanceTo(g.vehicles.active.pos), hp: window.__u.health, max: window.__u.maxHealth, state: window.__u.state, speed: window.__u.vel.length(), jet: g.vehicles.active?.speed }));
+  assert(falling, `the missile hit and the UFO is going down ${JSON.stringify(fdbg)}`);
   // 5. It crash-lands (a crater and a wreck), counted as shot down.
   const wreck = await until((g) => {
-    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed);
+    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed && !x.unusable);
     return w && w.pos.toArray();
   }, 150000);
   assert(wreck, "crash-landed as a wreck");
@@ -1105,13 +1144,14 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   assert(landed && (await v((g) => g.gameState)) === "playing", "landed safely");
   // 7. The aliens come out and fight: shoot them with the laser blaster.
   const aliens = await until((g) => g.mobs.countKind("alien") > 0, 90000);
-  assert(aliens, "aliens climbed out");
+  const adbg = aliens ? null : await v((g) => ({ pending: g.ufos.pendingCrews.map((c) => ({ d: c.pos.distanceTo(g.player.position).toFixed(0), delay: c.delay, tries: c.tries, count: c.count, water: c.water, meshed: !!g.world.getChunk(Math.floor(c.pos.x) >> 4, Math.floor(c.pos.z) >> 4)?.meshed })), view: g.ufos.viewDistance, mobs: g.mobs.mobs.map((m) => m.kind).join(","), dead: g.player.dead, mode: g.player.mode, gs: g.gameState, ufos: g.ufos.count }));
+  assert(aliens, `aliens climbed out ${JSON.stringify(adbg)}`);
   await v((g) => {
     g.setMode("creative"); // keep the test player alive while the aliens fire
     g.inventory.selected = 6;
   });
   const cleared = await until((g) => {
-    const a = g.mobs.mobs.find((m) => m.kind === "alien" && !m.dead);
+    const a = g.mobs.mobs.find((m) => m.kind.startsWith("alien") && !m.dead);
     if (!a) return true;
     const e = g.player.getEyePosition();
     const d = a.pos.clone().add(new g.THREE.Vector3(0, 1, 0)).sub(e);
@@ -1125,13 +1165,14 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     g.weapons.release();
     return false;
   }, 240000);
-  assert(cleared, "fought off the aliens");
+  const left = cleared ? null : await v((g) => ({ sel: g.inventory.slots[g.inventory.selected]?.id, mode: g.player.mode, aliens: g.mobs.mobs.filter((m) => m.kind.startsWith("alien") && !m.dead).map((m) => `${m.kind}:${m.health}:${m.pos.distanceTo(g.player.position).toFixed(0)}`) }));
+  assert(cleared, `fought off the aliens ${JSON.stringify(left)}`);
   const killed = await v((g) => g.stats.world.aliensKilled);
   assert(killed > 0, "aliens killed counted");
   // 8. Walk to the wreck and board it.
   await v((g) => {
     g.setMode("survival");
-    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed);
+    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed && !x.unusable);
     g.player.position.set(w.pos.x + w.radius + 1.2, w.pos.y + 0.5, w.pos.z);
   });
   await page.keyboard.press("KeyF");

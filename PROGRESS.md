@@ -1194,13 +1194,13 @@ Source of truth for this round. Tick items as they are finished; decisions go in
 - [x] 7.4 Default time 17:50, saved settings take priority
 
 ## Final polish
-- [ ] F1 Regression pass
-- [ ] F2 Player's-eye review
-- [ ] F3 Performance check on low presets
-- [ ] F4 Full test suite
-- [ ] F5 README updated
-- [ ] F6 PROGRESS summary, decisions, known issues, how to test in 10 minutes
-- [ ] F7 "ROUND 2 COMPLETE", commit, push
+- [x] F1 Regression pass
+- [x] F2 Player's-eye review
+- [x] F3 Performance check on low presets
+- [x] F4 Full test suite
+- [x] F5 README updated
+- [x] F6 PROGRESS summary, decisions, known issues, how to test in 10 minutes
+- [x] F7 "ROUND 2 COMPLETE", commit, push
 
 ## Round 2 decisions and notes
 (appended as work proceeds)
@@ -1209,5 +1209,56 @@ Source of truth for this round. Tick items as they are finished; decisions go in
 - Part 3: the jet's ground roll uses 70% of the thrust on the wheels (about 100 blocks, 60 with the afterburner); flight assist holds a gentle climb-out just after liftoff so the jet doesn't settle back. The missile lock holds the jet on a straight course while the camera looks at the target, so a rear target never flips the jet round. The lock is proximity-fused, missiles turn with a real rotation (not a vector blend), lose the target when the line of sight swings too fast (sharp turns) and can be decoyed by flares (85%); a decoyed missile may return to its shooter. Enemy jets are `EnemyJet` vehicles (same flight model, an autopilot instead of input) and are never saved. Keys: `C` flares, `I` vehicle panel, `R` UFO dash, `B` UFO superweapon (B is also the jet's nuke): none clash with existing bindings in their vehicle.
 - Part 5: sites (airports and cities) are decided by hashes on a 700-block grid and bend the terrain function itself, so chunks, distant terrain (LOD), mob spawning and every height query agree on the level pad; structures are placed per chunk from analytic column functions (nothing big is stored). The runway is bedrock (indestructible, dark): a deliberate choice for a takeoff strip that explosions can't wreck. Parked jets come from an `AirportManager` (never saved), villagers use the same spawner as villages.
 - Part 6: crates and loot are Survival only; missions count from the moment they start using the world's stat counters, and are saved with the player. Difficulty (0-1) comes from missions done plus UFOs shot down; it scales UFO size odds and aggression.
+- Final: enemy jets now sample the ground at several points along their path (a hill in the middle of a pursuit was missed); a crew that finds no room around its wreck retries a few times before giving up. The superweapon beam was checked in a screenshot (a white column from the ship to the ground) and does render.
 - Part 7: default preset Ultra (the safe-start step-down still protects weak machines, and the menu suggests a lower preset from the live FPS); a new world starts at 17:50. The menu UFO is a random design each pass, can be shot with a click, and its explosion uses particles only (no crater).
 
+## Round 2 (UFO COMBAT): final summary
+
+Everything in the brief is in, in the order given, each part committed and pushed as it was finished.
+
+**Part 1, critical fixes.** Settings: the root causes were a session-only graphics step-down being written back into the saved settings (on page hide and GPU loss), and some settings only being applied once their panel was opened; every setting now survives a reload and the saved value always wins over a default (reload test covers every group). Jet respawn: rebuilt the call-in so a new jet is always created, visible and in the scene (`removePlayerJets`, a watchdog `updateJetWatch`, test). Terrain: chunks and distant terrain use one height/biome/surface function (a soft height cap keeps mountains inside the world), so mountains match; the view distance grows with altitude in a jet or UFO. UFO spawn distance follows the view distance and is never visible; every weapon reaches at least as far as you can see, and UFO shots reach you from as far; crashed UFOs in water sink below the surface; aliens and skeletons face the player when they shoot and aliens chase at once; skeleton redesigned without a glow; the chicken has a neck and the butterfly's wings fold up; at most four UFOs attack at once.
+
+**Part 2, weapons and inventory.** Crafting is gone (E is the inventory, in Creative a tabbed palette of everything); Creative starts with all weapons, Survival with a pistol. New: **railgun** (about 1 s charge with glowing coils and a rising whine, then an extremely bright beam that carves a tunnel through every block and hits every creature, UFO and vehicle on the line), **laser minigun** (spin-up, then 32 huge bolts a second), **bazooka lock-on** (hold to lock, indicator, homing rocket), **energy shield** (soaks explosions and attacks, force-field visual, energy bar), golden hearts, a bigger **nuke** (size 12-96, default 44, no cooldown).
+
+**Part 3, vehicles.** Jet: top speed setting up to 2520 km/h (default 792), a real ground roll and rotation with folding landing gear, a much more detailed F-22 model with a layered afterburner and shock diamonds, cannon aim assist and overheating with a heat bar, missile lock (hold RMB: nearest to the view centre, even behind, the camera turns to it; 1 s one missile, 3 s a salvo of four, rear shots turn around), flares that fool missiles and seeking UFO shots, a missile warning (arrow and beeping), missiles that lose you in sharp turns. Enemy jets patrol neutral and hunt you (missiles, guns, flares, breaks) once you attack them or their UFOs. UFO: teleport dash with a streak, barrels that converge on the crosshair (big ships fire several), a vertical superweapon on B. `I` shows stats and controls of the vehicle you are in.
+
+**Part 4, UFOs and aliens.** Thirteen designs (classic saucers by far the most common, with detailed, smooth minimal, tall-dome, dark and glowing variants, plus a pure sphere), five sizes up to football-field giants, blink moves, diving into mountains and under water, mostly peaceful with hostility when shot at, stared at or now and then, five attack styles with their own laser colours, lights-out when shot down, a random crash outcome (burnt-out unusable wreck or intact and boardable), wrecks embedded in the ground, and 1-10 aliens of three kinds (green pistol, gray burst, red plasma).
+
+**Part 5, world.** Airports and cities (levelled pads visible in distant terrain too): a 260-block marked runway with edge lights, taxiway, apron, three hangars, a tower and fuel tanks, parked fighters you can board, villagers; cities add a street grid with towers, houses and windows.
+
+**Part 6, survival.** Pistol-only start, loot from UFOs, aliens and enemy jets that improves with progress and never repeats a weapon you own, parachuting supply crates with orange smoke, a seven-step mission chain (first: shoot down a UFO and kill its aliens) with a tracker, a difficulty curve that scales UFO sizes and aggression.
+
+**Part 7, menu.** A glass-card main menu with mode cards, animated logo, live FPS, low-FPS advice and rotating tips; a saucer (a different design each pass) that can be shot; Ultra as the default preset; new worlds start at 17:50.
+
+### Tests
+
+Run in `tools/` (`npm install` once for three.js and Playwright; everything runs against the local files, headless, with software rendering, so it is slow):
+
+- `node unit-tests.mjs`: **49 passed, 0 failed** (terrain/LOD parity, airports and cities, missions and loot, ...).
+- `node round2-tests.mjs` (`npm run test:round2`): **39 passed, 0 failed** (settings reload, jet respawn, view distance, UFO spawns, weapons, jet, UFO piloting, airports, crates, missions, menu, a performance check). About 8 minutes.
+- `node ufo-tests.mjs` (the older UFO suite, adapted to Round 2): **34 of 35 passed** in the last complete run; the one that does not pass every time is the long "FULL SCENARIO" (see below). About 15 minutes.
+- `node smoke-test.mjs` (the original base-game suite, adapted): 64 of 67 checks passed in the last complete run, and the 3 that did not (two startup-recovery checks written for the old "rewrite the saved setting" behaviour, and one Ultra check that ran into its 5-minute limit under CPU contention) were fixed and pass when run alone (`SMOKE_GREP="startup"`, `SMOKE_GREP="lost graphics"`, `SMOKE_GREP="page loads,Play button,Ultra: tall grass"`). A full run takes 45+ minutes with software rendering and Ultra as the default, so the complete file was not re-run after those last three fixes.
+
+### Known issues and honest limits
+
+- Existing worlds: where an airport or city now appears, the terrain is levelled, so blocks a player built there earlier can end up floating or buried.
+- Parked jets, supply crates and enemy jets are not saved (they are set out again); missions, loot and stats are.
+- The runway is bedrock (unbreakable, dark): a choice, so explosions can't wreck the takeoff strip.
+- The shield stops explosions and attacks but not falls, drowning or the nuke's blast (a pierce hit).
+- Enemy jets patrol within about 0.85x the view distance so they can be seen; on very low view distances they are only glimpsed.
+- Mobs have no path-finding: an alien that comes out of a wreck can get stuck behind a cliff or in water.
+- `ufo-tests.mjs` "FULL SCENARIO" (jet chase, missile, crash, eject, alien fight, board the wreck, fly off) is timing-sensitive on software rendering: it passed in 2 of 3 standalone runs and in an earlier full run, and fails on some runs at a step that depends on chance (the missile missing a UFO that dodges, or the jet call being ignored right after another call). The game behaviour it checks is covered deterministically by `round2-tests.mjs`.
+- Hooks added for the tests only: `ufo.crashPlan` (fixes the crash outcome and crew size), `ufo.noLeave`, `SMOKE_GREP`. Nothing in the game sets them.
+- Ultra as the default can be heavy for weak GPUs: the safe start still steps a session down if the first start fails, and the menu suggests a lower preset from the measured FPS.
+- The screenshots used for the visual review came from software rendering (about 1-2 FPS), so no real-GPU frame times were measured; the performance check counts simulation cost (frame work per update in a busy scene), not GPU time.
+
+### How to test in 10 minutes
+
+1. Open the game, wait for the menu: watch the FPS counter, click the flying saucer (4 hits) to shoot it down.
+2. **Survival**, Play: you have a pistol. Watch the mission tracker (top right). Within a minute or two a **supply crate** drops with orange smoke: walk to it (it shows the distance) for a weapon and golden apples.
+3. Press **F3**: the nearest **airport/city** is listed with distance and direction. Fly there (Creative: double-tap Space to fly) or just press **J**: your jet waits on the airport runway (walk to it, press **F**). Throttle up (W), afterburner (Shift): the jet rolls about 60 blocks and lifts off by itself; **I** shows all controls.
+4. In the jet: hold the **right mouse button** on a UFO for 1 s and release (one missile), or 3 s for a salvo of four; **C** drops flares; the cannon (left click) overheats after ~2 s. Shoot at a UFO and an enemy jet appears and hunts you.
+5. Back on foot in **Creative**: E shows all weapons. Try the **railgun** (hold RMB ~1 s at a hill), the **minigun**, the **shield** (hold RMB, then throw a grenade at your feet), the **bazooka** (hold RMB on a UFO to lock, release).
+6. Board a crashed intact UFO (F) and press **R** (teleport dash) and **B** (vertical superweapon).
+
+ROUND 2 COMPLETE
