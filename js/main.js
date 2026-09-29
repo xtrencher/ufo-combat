@@ -41,7 +41,9 @@ import "./vehicle-ufo.js";
 import "./vehicle-jet.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
-import { UFO_DESIGNS, UFO_DESIGN_NAMES } from "./ufo-models.js";
+import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
+import { createJetModel } from "./jet-model.js";
+import { TractorBeam } from "./tractor-beam.js";
 import { Stats } from "./stats.js";
 
 // ---------- Seed ----------
@@ -1045,6 +1047,17 @@ const shaderStandIns = new THREE.Group();
   }
 }
 
+// Warm up the new materials' shaders with the others (see prepareGraphics),
+// so the first UFO, beam or jet doesn't stall a frame compiling them.
+{
+  const warm = new THREE.Group();
+  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root);
+  const beam = new TractorBeam(warm);
+  beam.mesh.visible = true;
+  beam.pool.visible = true;
+  shaderStandIns.add(warm);
+}
+
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1541,7 +1554,7 @@ function updateDebug(dt, frameTime) {
   const info = renderer.info;
   const target = interaction.target;
   const lines = [
-    `UFO COMBAT  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
+    `UFO COMBAT  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (sim ${perf.simMs.toFixed(1)} ms, draw ${perf.renderMs.toFixed(1)} ms)  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
     `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
@@ -1707,6 +1720,10 @@ function renderFrame() {
 // can verify behavior like movement direction, and for poking at the game
 // from the browser dev console. Not used by any game code. (Also available
 // under its old name, __voxelands, which the older tests use.)
+// Frame timing (F3 and the performance tests): exponential averages of the
+// main-thread simulation time and the time spent issuing draw calls.
+const perf = { simMs: 0, renderMs: 0, maxSimMs: 0 };
+
 window.__ufo = window.__voxelands = {
   THREE,
   world,
@@ -1727,6 +1744,7 @@ window.__ufo = window.__voxelands = {
   weapons,
   lasers,
   nuke,
+  perf,
   callJet,
   findRunway,
   vehicles,
@@ -1855,6 +1873,27 @@ function updateJetOverlay() {
   jetNoseEl.classList.toggle("hidden", !o?.nose || v.cameraModes[v.cameraMode] === "cockpit");
   if (o?.nose) place(jetNoseEl, o.nose);
 }
+// First-time hints: short tips at the moments they're useful (once per
+// session each).
+const hintsShown = new Set();
+let hintT = 0;
+function hint(key, text, seconds = 5) {
+  if (hintsShown.has(key)) return;
+  hintsShown.add(key);
+  toast(text, seconds);
+}
+function updateHints(dt) {
+  if (gameState !== "playing" || !mods.enabled) return;
+  hintT -= dt;
+  if (hintT > 0) return;
+  hintT = 0.5;
+  if (stats.world.playTime < 20) hint("welcome", "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars.", 6);
+  const v = vehicles.active;
+  if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
+  else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift to fly, wheel for speed. Left click laser, hold right click to beam things up.", 6);
+  if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
+  if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! They shoot back. Clear them out, then board their wrecked UFO (F).", 5);
+}
 function updateStatsOverlay(dt) {
   statsOverlayT -= dt;
   if (statsOverlayT > 0 || !settings.statsOverlay) return;
@@ -1880,6 +1919,7 @@ const MAX_DT = 0.05;
 
 function animate() {
   requestAnimationFrame(animate);
+  const frameStart = performance.now();
   const frameTime = clock.getDelta();
   const dt = Math.min(frameTime, MAX_DT); // simulation step (clamped after hitches)
 
@@ -1927,6 +1967,7 @@ function animate() {
   stats.tick(dt, gameState === "playing");
   updateBeamFeedback();
   updateJetOverlay();
+  updateHints(dt);
   updateStatsOverlay(dt);
   if (gameState === "playing") interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();
@@ -1948,9 +1989,14 @@ function animate() {
   updateDebug(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
+  const simEnd = performance.now();
+  const simMs = simEnd - frameStart;
+  perf.simMs += (simMs - perf.simMs) * 0.1;
+  perf.maxSimMs = Math.max(perf.maxSimMs, simMs);
   if (graphicsReady) {
     renderer.info.reset(); // counted over all of a frame's passes (debug overlay)
     renderFrame();
+    perf.renderMs += (performance.now() - simEnd - perf.renderMs) * 0.1;
     // A few frames in, the GPU has finished drawing the first ones: this
     // preset works here (see the safe start above).
     if (++framesSinceReady === 3) saveBootRecord({ preset: graphicsPreset, ok: true });

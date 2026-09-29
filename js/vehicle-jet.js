@@ -200,6 +200,15 @@ export class Jet extends Vehicle {
   _assistStick(out) {
     const aim = _v.set(-Math.sin(this.aimYaw) * Math.cos(this.aimPitch), Math.sin(this.aimPitch), -Math.cos(this.aimYaw) * Math.cos(this.aimPitch));
     const local = _w.copy(aim).applyQuaternion(_q.copy(this.q).invert());
+    if (local.z > 0.2) {
+      // Aiming behind: bank hard toward that side and pull around.
+      // Bank about 60 degrees toward that side, then pull hard.
+      const side = local.x >= 0 ? 1 : -1;
+      const right = this.right(new THREE.Vector3());
+      const roll = clamp((right.y + 0.85 * side) * 3, -1, 1);
+      out.set(Math.abs(right.y) > 0.5 ? 1 : 0.3, side * 0.5, roll);
+      return out;
+    }
     const fwd = this.forward(new THREE.Vector3());
     const angleOff = fwd.angleTo(aim);
     const right = this.right(new THREE.Vector3());

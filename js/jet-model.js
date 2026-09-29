@@ -73,8 +73,9 @@ function loft(sections) {
       tri(a1, b0, b1);
     }
   }
-  // End caps (fans).
-  for (const [sec, flip] of [[sections[0], false], [sections[sections.length - 1], true]]) {
+  // End caps (fans), facing out: -Z at the first section, +Z at the last
+  // (the points go clockwise seen from +Z).
+  for (const [sec, flip] of [[sections[0], true], [sections[sections.length - 1], false]]) {
     const c = sec.pts.reduce((acc, p) => [acc[0] + p[0] / sec.pts.length, acc[1] + p[1] / sec.pts.length], [0, 0]);
     for (let i = 0; i < sec.pts.length; i++) {
       const j = (i + 1) % sec.pts.length;
@@ -140,10 +141,13 @@ function buildGeometry() {
   parts.push(colorize(fus, GREY, (x, y, z) => (y > 0 ? 1.05 : 0.86) * (Math.abs(x) > 1.2 && z > -2 && z < 3 ? 0.95 : 1)));
   // Caret intakes on both sides, just behind the cockpit.
   for (const s of [1, -1]) {
+    // Mirrored points run the other way round: reverse them on the left so
+    // the faces still point outward.
+    const ring = (pts) => (s > 0 ? pts : pts.slice().reverse());
     const intake = loft([
-      { z: -2.6, pts: [[s * 1.1, 0.45], [s * 1.75, 0.2], [s * 1.75, -0.45], [s * 1.1, -0.5]] },
-      { z: 0.6, pts: [[s * 1.35, 0.5], [s * 2.0, 0.3], [s * 2.0, -0.55], [s * 1.35, -0.6]] },
-      { z: 2.4, pts: [[s * 1.3, 0.35], [s * 1.7, 0.2], [s * 1.7, -0.45], [s * 1.3, -0.5]] },
+      { z: -2.6, pts: ring([[s * 1.1, 0.45], [s * 1.75, 0.2], [s * 1.75, -0.45], [s * 1.1, -0.5]]) },
+      { z: 0.6, pts: ring([[s * 1.35, 0.5], [s * 2.0, 0.3], [s * 2.0, -0.55], [s * 1.35, -0.6]]) },
+      { z: 2.4, pts: ring([[s * 1.3, 0.35], [s * 1.7, 0.2], [s * 1.7, -0.45], [s * 1.3, -0.5]]) },
     ]);
     parts.push(colorize(intake, GREY_DARK));
     // The dark intake mouth.
@@ -221,7 +225,8 @@ function flameTexture() {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  const g = ctx.createLinearGradient(0, 0, 0, h);
+  // Bright at the nozzle (the cone's base, v = 0: the bottom of the canvas).
+  const g = ctx.createLinearGradient(0, h, 0, 0);
   g.addColorStop(0, "rgba(255,255,255,1)");
   g.addColorStop(0.15, "rgba(255,230,180,0.95)");
   g.addColorStop(0.45, "rgba(255,140,60,0.6)");
@@ -253,7 +258,8 @@ export function createJetModel(scale = 1) {
   if (!flameTex) flameTex = flameTexture();
   const flames = [];
   for (const s of [1, -1]) {
-    const cone = new THREE.ConeGeometry(0.34, 1, 12, 1, true).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
+    // Wide at the nozzle (z = 0), tapering to a point behind (z = 1).
+    const cone = new THREE.ConeGeometry(0.34, 1, 12, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
     const mat = new THREE.MeshBasicMaterial({ map: flameTex, color: new THREE.Color(3, 2, 1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true });
     const flame = new THREE.Mesh(cone, mat);
     flame.position.set(s * 0.62, -0.02, 7.62);

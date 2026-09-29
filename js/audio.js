@@ -601,9 +601,15 @@ export class Audio {
       const out = ctx.createGain();
       out.gain.value = 0;
       out.connect(this.buses.weapons || this.master);
-      // Roar: filtered noise (looped).
-      const roar = this._noise(ctx.currentTime, 10);
-      roar.loop = true;
+      // Roar: filtered noise (looped for as long as the engine runs).
+      const loopNoise = () => {
+        const src = ctx.createBufferSource();
+        src.buffer = this._noiseBuffer;
+        src.loop = true;
+        src.start();
+        return src;
+      };
+      const roar = loopNoise();
       const roarF = ctx.createBiquadFilter();
       roarF.type = "lowpass";
       roarF.frequency.value = 600;
@@ -622,8 +628,7 @@ export class Audio {
       whine.connect(whineF).connect(whineG).connect(out);
       whine.start();
       // Afterburner rumble.
-      const ab = this._noise(ctx.currentTime, 10);
-      ab.loop = true;
+      const ab = loopNoise();
       const abF = ctx.createBiquadFilter();
       abF.type = "lowpass";
       abF.frequency.value = 160;
