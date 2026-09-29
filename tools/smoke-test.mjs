@@ -1480,7 +1480,7 @@ try {
     await waitForExplosion(prevCount, 150000);
     const t1 = await page.evaluate(() => window.__voxelands.uniforms.uTime.value);
     // Let the rest of the meteor rain land.
-    await page.waitForFunction(() => window.__voxelands.weapons.meteors.length === 0 && window.__voxelands.weapons.airstrikes.length === 0, null, { timeout: 90000, polling: 50 });
+    await page.waitForFunction(() => window.__voxelands.weapons.airstrike.meteors.length === 0 && window.__voxelands.weapons.airstrike.pending.length === 0, null, { timeout: 150000, polling: 50 });
     const after = await page.evaluate(() => window.__voxelands.effects.explosionCount);
     console.log(`        first meteor landed ${(t1 - t0).toFixed(1)}s after firing; ${after - prevCount} meteor blasts total`);
     assert(t1 - t0 > 4.5, "meteors should start landing only after the delay");

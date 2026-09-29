@@ -95,6 +95,8 @@ export class PilotUfo extends Vehicle {
       // Lifting out of the crater.
       this.crashed = false;
       this.boardedWreck = true;
+      // Rise straight out of the crater first (clear of its rim).
+      this.liftOff = this.radius * 0.5 + 5;
       this.manager.onMessage?.("The wreck still flies! Damaged, but working.");
     }
   }
@@ -112,7 +114,7 @@ export class PilotUfo extends Vehicle {
 
   _collide(delta) {
     const w = this.manager.world;
-    const r = Math.min(8, this.radius * 0.85);
+    const r = Math.min(6, this.radius * 0.6);
     const h = Math.min(6, Math.max(1, this.info.h * this.radius));
     _feet.set(this.pos.x, this.pos.y - this.bottom, this.pos.z);
     // A wreck half buried in its crater starts inside the ground: let it
@@ -211,7 +213,13 @@ export class PilotUfo extends Vehicle {
       else this.vel.set(0, 0, 0);
       const before = this.pos.clone();
       const step = this.vel.clone().multiplyScalar(dt);
-      if (this.cfg.ghost) {
+      if (this.liftOff > 0) {
+        // Leaving the crater: straight up, through anything in the way.
+        const up = Math.min(this.liftOff, 7 * dt);
+        this.liftOff -= up;
+        this.pos.y += up;
+        this.vel.set(0, 7, 0);
+      } else if (this.cfg.ghost) {
         this.pos.add(step);
         this.pos.y = Math.max(2 + this.bottom, Math.min(250, this.pos.y));
         if (this._carved === null || this._carved.distanceTo(this.pos) > 0.8) {

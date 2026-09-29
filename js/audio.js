@@ -218,6 +218,7 @@ export class Audio {
   // A creature voice: a buzzy source through formant filters.
   _voice({ f0, f1, d, v, formants, vib = 0, breath = 0, delay = 0 }, gainScale = 1) {
     const ctx = this.ctx;
+    if (!ctx) return;
     const t = ctx.currentTime + delay;
     const bus = ctx.createGain();
     bus.gain.setValueAtTime(0.0001, t);
@@ -546,6 +547,7 @@ export class Audio {
   // A UFO shooting off into the sky: a rising whoosh and zap.
   playUfoLeave(distance = 0) {
     this._cat("creatures");
+    if (!this.ctx) return;
     const v = 0.35 / (1 + distance / 60);
     if (v < 0.01) return;
     this._hit({ type: "bandpass", f: 300, fEnd: 4000, q: 2, d: 0.9, v, attack: 0.05 });
@@ -589,6 +591,7 @@ export class Audio {
   // A pickup/notice chime (UFO down, abductions escaped).
   playNotice() {
     this._cat("ui");
+    if (!this.ctx) return;
     this._voice({ f0: 880, f1: 1320, d: 0.25, v: 0.12, formants: [[1500, 2, 1]] });
   }
 

@@ -150,6 +150,73 @@ Explosions shake the camera and sound quieter, more muffled and later the
 farther away they are. Sand and gravel fall when the ground under them is
 blown away.
 
+## UFOs (Mods on)
+
+UFOs roam the skies anywhere from treetop height to high overhead, in ten
+designs: glowing and dark saucers, tic-tacs, orbs, pyramids, black
+triangles, cigars, rings, spinning diamonds and a black cube inside a
+glowing sphere, each with its own blinking or color-cycling lights, in four
+sizes from small scouts to huge motherships. They arrive from far away
+(never popping up in plain sight), and there are far more of them at night.
+When idle they hover over lakes, zig-zag, follow animals, or beam up a cow;
+rarely one shoots off into the sky at enormous speed and is gone for good.
+
+- **On foot:** a UFO that spots you (it needs a line of sight; the closer
+  you are the likelier) races over, stops above you and lifts you in a cone
+  of blue light. Reach the ship and you're **abducted**. Get out of the
+  light (you can still move), hide under a roof, or shoot it down.
+- **Shooting at one** makes it react: laser volleys, a dive to beam you up,
+  or evasive jinks and altitude changes. Every weapon hurts UFOs; big ones
+  are very tough.
+- **Shot down**, a UFO falls burning, crash-lands in a crater, and **green
+  aliens** with laser guns climb out. Kill them, then walk up to the wreck
+  and press **F** to fly it (damaged, but it works).
+- **In your jet** each UFO has a personality: most flee (a bit slower than
+  the jet at full throttle, so you can catch them), some are faster and get
+  away, and fighters attack you with lasers and head-on passes.
+- **In a UFO** the others take you for one of their own... until you shoot
+  one.
+
+**Settings > UFOs:** one **UFO activity** slider from Off and Very rare up to
+**UFO APOCALYPSE**, and **Advanced** options: spawn chance, max count,
+aggression, detection range, beam lift strength, sizes, night multiplier and
+toughness.
+
+## Vehicles (Mods on)
+
+| Action | Key |
+| --- | --- |
+| Board a vehicle / get out | `F` (near it) |
+| Camera view | `F5` |
+
+Getting out puts you on the ground beside the vehicle (or in the water, or
+out of a tunnel). From high up you drop out under a **parachute** (a jet
+ejects you upward first). Hits on you while seated damage the vehicle; if it
+is destroyed with you inside, you go down with it. Vehicles are saved with
+the world, including the one you're sitting in.
+
+### Your UFO
+
+Board a crashed UFO, or in Creative spawn one from the **Mods** screen (any
+shape and size). It has no physics limits: it hovers perfectly still and
+moves instantly in any direction.
+
+| Action | Key |
+| --- | --- |
+| Look / steer | Mouse |
+| Move along the view / back | `W` / `S` |
+| Sideways | `A` / `D` |
+| Up / down | `Space` / `Shift` |
+| Cruising speed | Mouse wheel (from a slow hover to extremely fast) |
+| Boost (3x) | `Ctrl` |
+| Laser cannon | Left click |
+| Tractor beam (lifts creatures, and loose blocks, into the ship) | Hold right click |
+| Chase camera / far / belly view | `F5` |
+
+**Settings > Vehicles:** top and slowest speed, **ghost mode** (fly through
+the terrain, burning a tunnel), and whether the beam lifts blocks. Creatures
+you beam up are "stored": their drops go to your inventory, as do the blocks.
+
 ## Mods
 
 **Mods** (main menu or pause menu) switches all the UFO COMBAT content on
