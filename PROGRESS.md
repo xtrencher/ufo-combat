@@ -1129,3 +1129,78 @@ Automated: `cd tools && npm install && npm test` (unit tests, the UFO
 feature suite `ufo-tests.mjs`, then the long smoke suite).
 
 UFO FINAL COMPLETE
+
+---
+
+# Round 2 (UFO COMBAT) checklist
+
+Source of truth for this round. Tick items as they are finished; decisions go in the "Round 2 decisions" list at the end.
+
+## Part 1: Critical bug fixes
+- [ ] 1.1 Settings persistence (root cause + fix for every setting + reload test)
+- [ ] 1.2 Jet respawn bug (new jet after exiting)
+- [ ] 1.3 LOD matches full-detail terrain (same terrain function), altitude-aware view distance in jet/UFO
+- [ ] 1.4 UFO spawn distance scales with view distance, never visible pop-in
+- [ ] 1.5 Projectile ranges consistent with visible distances (player -> UFO, UFO -> player)
+- [ ] 1.6 Crashed UFOs in water sink below the surface
+- [ ] 1.7 Aliens face the player when shooting; chase immediately after leaving UFO
+- [ ] 1.8 Skeletons face the player when shooting; better look, no glow
+- [ ] 1.9 Chicken neck; butterfly model fixed
+- [ ] 1.10 At most 4 UFOs attack the player at once
+
+## Part 2: Weapons and inventory
+- [ ] 2.1 Remove crafting; E opens inventory with all weapons/items; Creative has all weapons
+- [ ] 2.2 Railgun (1 s charge, beam cuts through blocks, mobs, UFOs)
+- [ ] 2.3 Laser minigun (spin-up, huge stream of bolts)
+- [ ] 2.4 Bazooka lock-on (hold to lock, homing rocket)
+- [ ] 2.5 Nuke bigger, wider size range, no cooldown
+- [ ] 2.6 Shield item (reduces explosion/attack damage, visual)
+
+## Part 3: Vehicles
+- [ ] 3.1a Jet max speed higher in settings
+- [ ] 3.1b Realistic ground takeoff from airports/flat areas (runway roll, rotation, liftoff)
+- [ ] 3.1c Better F-22 style model, exhaust and afterburner visuals
+- [ ] 3.1d Autocannon aim assist + overheating with HUD heat bar
+- [ ] 3.1e Missile lock: hold RMB, lock nearest-to-center target (incl. behind), camera turns, 1 s lock -> 1 missile, 3 s -> salvo of 4, rear shots turn around
+- [ ] 3.1f Flares (decoy missiles and UFO shots)
+- [ ] 3.1g Missile warning HUD (direction + sound), sharp turns make missiles miss
+- [ ] 3.2 Enemy jets (neutral unless provoked; missiles + guns)
+- [ ] 3.3a UFO teleport dash (visible streak)
+- [ ] 3.3b UFO aiming fix for big ships
+- [ ] 3.3c UFO superweapon on B (vertical laser)
+- [ ] 3.4 Vehicle info panel on I (stats + controls)
+
+## Part 4: UFOs and aliens
+- [ ] 4.1 New/improved designs: classic saucers most common with variety; detailed vs smooth minimal (pure sphere); tall-dome saucer; glowing vs dark; size range up to football-field giants
+- [ ] 4.2 Behavior: blink moves, mountains/underwater, aggression rules (shot / stared at / occasional), varied attacks + laser colors
+- [ ] 4.3 Shot down: lights off, random crash outcome (explosion+wreck / intact boardable), wrecks embedded in terrain
+- [ ] 4.4 Aliens: random 1-10 per crash, green/gray/red types with different weapons and stats
+
+## Part 5: World
+- [ ] 5.1 Villages and cities with airports (runways, hangars, parked aircraft), villagers
+- [ ] 5.2 Airports flat and long enough for takeoff
+
+## Part 6: Survival and progression
+- [ ] 6.1 Creative unchanged; Survival starts with pistol only
+- [ ] 6.2 Loot drops from UFOs/aliens, improving with progress
+- [ ] 6.3 Supply crates (parachute, smoke)
+- [ ] 6.4 Mission chain
+- [ ] 6.5 Difficulty curve and tuned defaults
+
+## Part 7: Menu and defaults
+- [ ] 7.1 Polished main menu
+- [ ] 7.2 Shootable menu UFO
+- [ ] 7.3 Default preset Ultra, live FPS on menu + low-FPS recommendation
+- [ ] 7.4 Default time 17:50, saved settings take priority
+
+## Final polish
+- [ ] F1 Regression pass
+- [ ] F2 Player's-eye review
+- [ ] F3 Performance check on low presets
+- [ ] F4 Full test suite
+- [ ] F5 README updated
+- [ ] F6 PROGRESS summary, decisions, known issues, how to test in 10 minutes
+- [ ] F7 "ROUND 2 COMPLETE", commit, push
+
+## Round 2 decisions and notes
+(appended as work proceeds)

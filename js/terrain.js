@@ -29,8 +29,31 @@ const MOUNTAIN_RIDGE_FREQ = 1 / 130;
 const MOUNTAIN_AMP = 50;
 const RIVER_FREQ = 1 / 240;
 const RIVER_WIDTH = 0.05;
-const SNOW_LINE = 58; // mountain peaks above this height are snow-capped
-const BARE_ROCK_LINE = 44; // mountain slopes above this are exposed stone
+export const SNOW_LINE = 58; // mountain peaks above this height are snow-capped
+export const BARE_ROCK_LINE = 44; // mountain slopes above this are exposed stone
+// The world is WORLD_HEIGHT blocks tall, but the raw height field reaches ~100
+// in big mountain ranges. Cutting that off at the top of the world made flat
+// stone plateaus in the full-detail chunks while the distant (LOD) terrain,
+// sampled from the same field, still drew the full peaks, so a mountain seen
+// from far away changed shape (or lost its top) when you flew closer. Heights
+// above SOFT_CAP_START are now smoothly compressed toward the world's ceiling
+// instead (slope 1 at the start, flattening gently), so peaks keep their
+// shape, and the height every system samples is already inside the world.
+const SOFT_CAP_START = 40;
+const SOFT_CAP_RANGE = 22; // asymptote: SOFT_CAP_START + SOFT_CAP_RANGE (62)
+
+// The block that tops a land column of biome `biome` at height `h`, and the
+// block just below it. One function for chunk generation and for the distant
+// terrain, so both always agree.
+export function surfaceBlocks(biome, h) {
+  const isBeach = h <= SEA_LEVEL + 1;
+  if (isBeach || isOceanBiome(biome) || biome === BIOME.RIVER || biome === BIOME.DESERT) return { top: BLOCK.SAND, sub: BLOCK.SAND };
+  if (biome === BIOME.BADLANDS) return { top: BLOCK.TERRACOTTA, sub: BLOCK.TERRACOTTA };
+  if (biome === BIOME.MOUNTAINS && h > SNOW_LINE) return { top: BLOCK.SNOW, sub: BLOCK.STONE };
+  if (biome === BIOME.MOUNTAINS && h > BARE_ROCK_LINE) return { top: BLOCK.STONE, sub: BLOCK.STONE };
+  if (isSnowy(biome)) return { top: BLOCK.SNOW, sub: BLOCK.DIRT };
+  return { top: BLOCK.GRASS, sub: BLOCK.DIRT };
+}
 
 // Caves: tunnels where two independent 3D noise fields are both near zero
 // (their intersection forms long winding "spaghetti" worms), plus rare large
@@ -85,6 +108,7 @@ export class TerrainGenerator {
       ridged = Math.pow(1 - Math.abs(r), 1.6);
     }
     let height = BASE_HEIGHT + continent * CONTINENT_AMP + detail * AMPLITUDE + ridged * mountainT * MOUNTAIN_AMP;
+    if (height > SOFT_CAP_START) height = SOFT_CAP_START + SOFT_CAP_RANGE * Math.tanh((height - SOFT_CAP_START) / (SOFT_CAP_RANGE + 2));
     const riverN = n.fbm2(wx - 2000, wz + 2000, 2, 0.5, 2, RIVER_FREQ);
     const riverBand = 1 - Math.abs(riverN);
     let river = false;
@@ -209,27 +233,7 @@ export class TerrainGenerator {
         const biome = biomeAt(lx, lz);
         const isBeach = h <= SEA_LEVEL + 1;
         const top = Math.min(WORLD_HEIGHT - 1, Math.max(h, SEA_LEVEL));
-        let topId;
-        let subId;
-        if (isBeach || isOceanBiome(biome) || biome === BIOME.RIVER || biome === BIOME.DESERT) {
-          topId = BLOCK.SAND;
-          subId = BLOCK.SAND;
-        } else if (biome === BIOME.BADLANDS) {
-          topId = BLOCK.TERRACOTTA;
-          subId = BLOCK.TERRACOTTA;
-        } else if (biome === BIOME.MOUNTAINS && h > SNOW_LINE) {
-          topId = BLOCK.SNOW;
-          subId = BLOCK.STONE;
-        } else if (biome === BIOME.MOUNTAINS && h > BARE_ROCK_LINE) {
-          topId = BLOCK.STONE;
-          subId = BLOCK.STONE;
-        } else if (isSnowy(biome)) {
-          topId = BLOCK.SNOW;
-          subId = BLOCK.DIRT;
-        } else {
-          topId = BLOCK.GRASS;
-          subId = BLOCK.DIRT;
-        }
+        const { top: topId, sub: subId } = surfaceBlocks(biome, h);
         for (let y = 0; y <= top; y++) {
           let id;
           if (y > h) id = BLOCK.WATER;

@@ -140,20 +140,23 @@ if (urlPreset) settings.gfxOverrides = {};
 let graphicsPreset = normalizePreset(urlPreset ?? settings.graphics);
 // Safe start: if the last start never got as far as drawing the world at
 // this preset (the tab hung, or the graphics driver gave up, typically while
-// compiling the shaders of a heavy preset), this one steps down a level, and
-// drops individual graphics options, which could keep the heavy features on.
+// compiling the shaders of a heavy preset), this one steps down a level for
+// this session only. The step-down is NEVER written into the saved settings
+// (`graphicsLowered` keeps setGraphics from persisting it, and the saved
+// individual options stay untouched): the player's chosen graphics survive a
+// bad start, a sleeping laptop, or a reload during shader compilation. Only
+// picking a preset (or options) again in a menu changes what's saved.
 let startNotice = "";
+let graphicsLowered = false;
 const lastBoot = loadBootRecord();
 if (!urlPreset && lastBoot && lastBoot.ok === false && lastBoot.preset === graphicsPreset && lowerPreset(graphicsPreset) !== graphicsPreset) {
   graphicsPreset = lowerPreset(graphicsPreset);
-  startNotice = `The last start didn't get as far as showing the world, so graphics were lowered to ${PRESETS[graphicsPreset].label}.`;
-  if (Object.keys(settings.gfxOverrides).length > 0) {
-    settings.gfxOverrides = {};
-    startNotice += " Individual graphics options were reset.";
-  }
+  graphicsLowered = true;
+  startNotice = `The last start didn't get as far as showing the world, so graphics are lowered to ${PRESETS[graphicsPreset].label} for this session. Your saved graphics setting is unchanged; pick a preset in Settings to keep a different one.`;
 }
-// The preset with the user's individual graphics options applied.
-let activePreset = resolvePreset(graphicsPreset, settings.gfxOverrides);
+// The preset with the user's individual graphics options applied (a lowered
+// start ignores them, since they could keep the heavy features on).
+let activePreset = resolvePreset(graphicsPreset, graphicsLowered ? {} : settings.gfxOverrides);
 
 
 // Built-in three.js materials (debris, particles) use this fog; the world's
@@ -822,6 +825,12 @@ function flushSave() {
 
 // Leaving the page mid-game (e.g. Ctrl+W while sprinting with Ctrl) asks
 // for confirmation first; the world is saved either way.
+// A page closed or reloaded while it was still responsive (e.g. during shader
+// compilation, or from a background tab that never drew a frame) is not a
+// failed start: only a hang or a driver crash, which never gets here, is.
+window.addEventListener("pagehide", () => {
+  if (!graphicsLost && (!graphicsReady || framesSinceReady < 3)) saveBootRecord({ preset: graphicsPreset, ok: true });
+});
 window.addEventListener("beforeunload", (e) => {
   flushSave();
   if ((gameState === "playing" || gameState === "inventory") && !leavingToMenu) {
@@ -1019,11 +1028,15 @@ ui.pauseModeSelect.addEventListener("change", () => setMode(ui.pauseModeSelect.v
 // ---------- Graphics ----------
 const allWorldMaterials = [world.materials.opaque, world.materials.cutout, world.materials.water, world.materials.cutoutDepth, lod.material, grass.material];
 
-function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true } = {}) {
+// userPick: the player chose this in a menu (so it is remembered, ending any
+// session-only step-down). Internal re-applies (resolution changes, the
+// start-up call) don't overwrite a saved preset while the session is lowered.
+function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, userPick = false } = {}) {
   graphicsPreset = normalizePreset(name);
+  if (userPick) graphicsLowered = false;
   if (!keepOverrides) settings.gfxOverrides = {};
   const preset = applyPreset(graphicsPreset, {
-    overrides: settings.gfxOverrides,
+    overrides: graphicsLowered ? {} : settings.gfxOverrides,
     renderer,
     postfx,
     sunLight,
@@ -1043,8 +1056,10 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true }
   ui.startGraphicsSelect.value = graphicsPreset;
   ui.graphicsHintEl.textContent = describePreset(preset);
   refreshGfxOptions();
-  settings.graphics = graphicsPreset;
-  saveSettings(settings);
+  if (!graphicsLowered) {
+    settings.graphics = graphicsPreset;
+    saveSettings(settings);
+  }
   prepareGraphics();
 }
 
@@ -1184,7 +1199,7 @@ for (const [key, opt] of Object.entries(GFX_OPTIONS)) {
     const presetValue = opt.get(resolvePreset(graphicsPreset, {}));
     if (select.value === presetValue) delete settings.gfxOverrides[key];
     else settings.gfxOverrides[key] = select.value;
-    setGraphics(graphicsPreset);
+    setGraphics(graphicsPreset, { userPick: true });
   });
   row.append(label, select);
   gfxOptionsEl.appendChild(row);
@@ -1196,7 +1211,7 @@ function refreshGfxOptions() {
   document.getElementById("gfx-custom-badge").classList.toggle("hidden", Object.keys(settings.gfxOverrides).length === 0);
 }
 
-document.getElementById("gfx-reset-btn").addEventListener("click", () => setGraphics(graphicsPreset, { keepOverrides: false }));
+document.getElementById("gfx-reset-btn").addEventListener("click", () => setGraphics(graphicsPreset, { keepOverrides: false, userPick: true }));
 
 setGraphics(graphicsPreset);
 
@@ -1204,7 +1219,7 @@ setGraphics(graphicsPreset);
 // suggested render distance (the slider can still be changed afterwards) and
 // clears individual overrides.
 for (const select of [ui.graphicsSelect, ui.startGraphicsSelect]) {
-  select.addEventListener("change", () => setGraphics(select.value, { adoptRenderDistance: true, keepOverrides: false }));
+  select.addEventListener("change", () => setGraphics(select.value, { adoptRenderDistance: true, keepOverrides: false, userPick: true }));
 }
 
 const fpsEl = document.getElementById("fps-counter");
@@ -1262,7 +1277,7 @@ const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v
 
 // Graphics: "Reset to defaults" goes back to the default preset, its render
 // distance, and no individual overrides.
-settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: true, keepOverrides: false }));
+settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: true, keepOverrides: false, userPick: true }));
 
 // Performance: full-detail distance, far-terrain quality, resolution scale
 // and effects detail, plus one-click presets for different computers.
@@ -1299,7 +1314,7 @@ function applyPerfPreset(key) {
   settingsPanel.set("perf.lodQuality", p.lod);
   settingsPanel.set("perf.effects", p.effects);
   settingsPanel.set("perf.resolution", p.resolution);
-  setGraphics(p.graphics, { keepOverrides: false });
+  setGraphics(p.graphics, { keepOverrides: false, userPick: true });
   setRenderDistance(p.renderDistance);
   refreshPerfPresets();
 }
@@ -1329,10 +1344,11 @@ function onGraphicsLost() {
   graphicsReady = false;
   const lower = lowerPreset(graphicsPreset);
   const hadOverrides = Object.keys(settings.gfxOverrides).length > 0;
-  settings.graphics = lower;
-  settings.gfxOverrides = {}; // they could keep the heavy features on
-  saveSettings(settings);
-  saveBootRecord({ preset: lower, ok: true }); // already stepped down: don't again
+  // The saved settings are left alone (a sleeping laptop or a GPU switch also
+  // loses the context, and that must not silently downgrade the player's
+  // choice). The next start runs one step lower for that session only (the
+  // safe start above), because the last one didn't finish cleanly.
+  saveBootRecord({ preset: graphicsPreset, ok: false });
   playerDirty = true;
   flushSave();
   if (document.pointerLockElement) document.exitPointerLock();
