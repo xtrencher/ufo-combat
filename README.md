@@ -1,8 +1,10 @@
-# Voxelands
+# UFO COMBAT
 
-A procedurally generated voxel survival sandbox that runs entirely in the
-browser: no install, no build step, no accounts. Inspired by block-building
-survival games, built from scratch with plain JavaScript and
+A procedurally generated voxel sandbox under alien attack, running entirely
+in the browser: no install, no build step, no accounts. Build and survive in
+a block world, then take on UFOs with guns, a laser blaster, meteor
+airstrikes, a fighter jet and, once you've shot one down, a flying saucer of
+your own. Built from scratch with plain JavaScript and
 [Three.js](https://threejs.org/).
 
 Everything is generated in code at runtime: the terrain, every block
@@ -11,9 +13,21 @@ There are no image, model or audio files.
 
 ## Play
 
-Open the game (see **Running locally** below), pick **Survival** or
-**Creative** on the start screen, and click **Click to Play** to lock your
-mouse.
+Open the game (see **Running locally** below). The main menu flies slowly
+over your world while a UFO drifts by:
+
+- **Play / Continue** enters the world (the last world you played is
+  continued; pick **Survival** or **Creative** under the button).
+- **New World** starts a fresh world, with an optional seed (a number, or any
+  text).
+- **Settings** has every option, in tabs (Graphics, Performance, Controls,
+  Audio, Gameplay, Weapons, Mobs, UFOs, Vehicles), each with **Reset to
+  defaults**.
+- **Mods** switches the UFO COMBAT content on or off (see below).
+- **Controls** lists every key.
+
+Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
+Settings, Mods, Stats, Controls, Copy world link, Save & main menu).
 
 - **Survival:** start with nothing. Punch a tree for logs, turn them into
   planks and a crafting table, make a wooden pickaxe, dig down for stone,
@@ -36,16 +50,20 @@ mode, your position, inventory and health.
 | Sprint | `Ctrl` + `W`, or double-tap `W` |
 | Sneak (slow, won't walk off edges) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
-| Place a block / use / eat (hold to eat) | Right click |
-| Throw a grenade | Hold right click to charge (bar under the crosshair), release to throw |
-| Fire the pistol or bazooka | Right click (every click fires; no ammo, no reloading) |
+| Place a block / use / eat (hold to eat) / fire the weapon in hand | Right click |
+| **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Open a crafting table | Right click it (`Shift` + right click places against it) |
 | Select hotbar slot | `1`-`9` or scroll wheel |
 | Inventory and crafting | `E` |
 | Drop the held item (whole stack with `Ctrl`) | `Q` |
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
 | Pick the targeted block (Creative) | Middle click |
-| Pause menu (render distance, graphics, game mode) | `Esc` |
+| Pause menu | `Esc` (also steps back out of any menu screen) |
+| Hide the HUD / debug info / camera view | `F1` / `F3` / `F5` |
+
+Pressing both mouse buttons together never mines, places or fires: a single
+press waits a few hundredths of a second to see whether the other button
+follows. The zoom strength is in **Settings > Controls**.
 
 **In the inventory screen:** left click picks up, puts down or swaps a stack;
 right click takes half or places one; `Shift` + click moves a stack between
@@ -79,17 +97,27 @@ make right now highlighted: click one to fill the grid.
 - **Hoplet:** a striped little hopper with tall ears. Quick to flee.
 - **Mossback:** a slow, moss-covered tortoise that hides in its shell when
   hit.
+- **Cows, pigs and chickens** graze in the meadows; **villagers** wander
+  their villages; **butterflies**, **parrots** and **fish** add life.
 - **Zombie:** comes out in the dark (at night, or in unlit caves), chases
   you, and hits hard. Zombies burn in daylight. Swords recharge between
   swings (watch the bar under the crosshair); hit while falling for a
   critical hit.
+- **Skeletons** shoot real arrows; **spiders** climb walls.
 
-### Weapons
+**Zombie settings** (Settings > Mobs): spawn rate (off to 50x, the
+"APOCALYPSE"), maximum count (up to 400), health and damage multipliers,
+and daylight zombies (they spawn by day and don't burn). Far zombies are
+drawn as simplified crowds and think less often, so hundreds stay playable;
+a note warns next to the heavy values.
 
-Weapons sit in the hotbar like any other item (all three are in the
-Creative inventory, and can be crafted in Survival). With one selected,
-right click uses it instead of placing a block. There's no ammo and no
-reloading.
+### Weapons (Mods on)
+
+A new game starts with every weapon in the hotbar (slots 1-8). They can
+also be crafted in Survival and are in the Creative inventory. With one
+selected, right click uses it instead of placing a block. There's no ammo
+and no reloading, and every weapon has its own cooldown, so none of them
+blocks another.
 
 - **Grenade** (1 iron ingot + 2 coal): hold right click to charge the throw
   (the bar under the crosshair fills in about 1.5 s), release to throw. A
@@ -101,23 +129,46 @@ reloading.
   and recoil. Bullets spark and leave holes in blocks, and hurt and push
   back creatures.
 - **Bazooka** (8 iron ingots around a grenade): a fast rocket with a smoke
-  trail that explodes on terrain or creatures, with five times a grenade's
-  blast radius. It can hit you too: keep your distance.
+  trail that explodes on terrain or creatures. It can hit you too: keep your
+  distance.
+- **Machine gun:** hold right click for automatic fire with tracers and
+  climbing recoil.
+- **Sniper rifle:** right click scopes in (a zoomed view through a scope),
+  left click fires a long-range, high-damage shot.
+- **Laser blaster** (lumen crystal, diamond and iron ingots): short glowing
+  sci-fi bolts in red, green or blue (**Settings > Weapons**) that glow,
+  spark on impact and leave scorch marks. Hold right click for repeat fire.
+- **Airstrike designator:** aim its laser and right click. After the delay a
+  shower of meteors screams in at an angle from high up and far away: each
+  one has a glowing, white-hot core, a heat glow, a fiery tail and a long
+  smoke trail, and lands with a flash, a shockwave and a crater. Settings:
+  meteors per strike, spread radius, delay, fall angle, fall speed and
+  explosion size.
+- **Jet Radio:** calls in your fighter jet (see **Vehicles**).
 
 Explosions shake the camera and sound quieter, more muffled and later the
 farther away they are. Sand and gravel fall when the ground under them is
 blown away.
 
-## Graphics
+## Mods
 
-The start and pause menus have a **Graphics** setting, saved in your browser:
+**Mods** (main menu or pause menu) switches all the UFO COMBAT content on
+or off. It's on by default. Off gives plain vanilla survival and creative:
+no guns, explosives, vehicles, UFOs or aliens (swords and tools stay).
+Switching mid-game is instant and clean: mod items are put away and come
+back to the same slots when you switch mods on again; projectiles, UFOs,
+aliens and vehicles leave the world.
+
+## Graphics and performance
+
+**Graphics presets** (start menu, or Settings > Graphics):
 
 - **Low:** no shadows or post-processing. For weak laptops.
-- **Medium:** sun shadows and bloom.
+- **Medium** (default): sun shadows and bloom.
 - **High:** two cascades of soft sun shadows, normal-mapped textures with
   specular light, refractive water, light shafts, 3D grass, reeds, ferns
   and flowers, and fuller tree crowns.
-- **Ultra** (default): everything on High, plus a third shadow cascade with
+- **Ultra:** everything on High, plus a third shadow cascade with
   contact-hardening soft shadows, parallax (3D) textures up close, water
   reflections of the world, denser plants, and full resolution on high-DPI
   screens.
@@ -127,11 +178,23 @@ haze that thickens with distance, and low mist over water at sunrise and
 sunset. Under water, High and Ultra add light shafts from the surface, and
 every preset shows drifting particles.
 
-**Render distance** goes up to 100 chunks (default 20). The area around you
-is drawn in full detail, and the land beyond it in simplified level-of-detail
-tiles, so you can see hills, lakes and forests to the horizon. Picking a
-preset also sets its suggested render distance (Low 12, Medium 16, High and
-Ultra 20), which you can still change with the slider.
+**Settings > Performance** has one-click presets for different computers:
+
+| Preset | For | Graphics | View distance | Details |
+| --- | --- | --- | --- | --- |
+| Potato | old laptops | Low | 7 chunks | 3 full-detail chunks, coarse far terrain, 70% resolution, few particles |
+| Balanced | most PCs | Medium | 12 chunks | preset detail, medium far terrain and effects |
+| Beautiful | gaming PCs | High | 20 chunks | fine far terrain, full effects |
+| Max | high-end GPUs | Ultra | 32 chunks | 10 full-detail chunks, finest far terrain |
+
+and the individual controls: **full-detail distance** (chunks drawn in
+full detail; Auto uses the preset's), **far terrain (LOD) quality**,
+**resolution scale** (50-100%) and **effects detail** (particles).
+
+**Render distance** (Settings > Graphics) goes up to 100 chunks (default
+10). The area around you is drawn in full detail, and the land beyond it in
+simplified level-of-detail tiles, so you can see hills, lakes and forests to
+the horizon.
 
 ## The world
 
@@ -209,23 +272,29 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has two test suites (`cd tools && npm install && npm test`; the
-smoke test needs a Chromium binary, set with the `CHROMIUM_PATH` environment
-variable):
+`/tools` has three test suites (`cd tools && npm install && npm test`; the
+browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
+environment variable):
 
 - `unit-tests.mjs`: fast Node tests of the pure logic (save format, the
-  voxel light engine against a brute-force reference, terrain, caves and
-  trees, recipes, mining rules, inventory, collision, explosion falloff,
+  voxel light engine against a brute-force reference, terrain, caves, trees
+  and water, recipes, mining rules, inventory, collision, explosion falloff,
   distant-terrain meshes).
+- `ufo-tests.mjs`: the UFO COMBAT features in the real game in headless
+  Chromium (menus, settings and presets, weapons, the airstrike, the laser
+  blaster, the sniper scope, binoculars, mods on/off, zombie crowds, and the
+  UFO, alien and vehicle features). A few minutes; `--only=word` runs a
+  subset.
 - `smoke-test.mjs`: loads the real game in headless Chromium and plays it
   with real keyboard and mouse input: movement, every graphics preset,
-  lighting, the level-of-detail terrain, grenades, the pistol and the
-  bazooka, falling sand, mining and pickup, crafting through the inventory
-  screens, eating, fall and drowning damage, the death screen, zombies
-  chasing and fighting, the water, shadows, plants and atmosphere on Ultra,
-  saving and reloading, and startup (the menu before the shaders, the error
-  messages, recovering from graphics trouble). It fails on any console
-  error.
+  lighting, the level-of-detail terrain, every weapon, falling sand, mining
+  and pickup, crafting through the inventory screens, eating, fall and
+  drowning damage, the death screen, mobs, the water, shadows, plants and
+  atmosphere on Ultra, saving and reloading, and startup. It fails on any
+  console error. (It takes over an hour with software rendering.)
+
+`tools/probe.mjs` boots the game and runs a small scenario file, for quick
+experiments and screenshots.
 
 ## Tech notes
 
