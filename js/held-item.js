@@ -119,7 +119,7 @@ export class HeldItem {
         this.mesh.position.set(0.46, -0.27, -0.8);
         this.mesh.rotation.set(0.1, Math.PI / 4 + 0.25, 0);
         this.kind = "block";
-      } else if (model.gun === "pistol") {
+      } else if (model.gun === "pistol" || model.gun === "blaster") {
         this.mesh.scale.setScalar(0.6);
         this.mesh.position.set(0.22, -0.2, -0.55);
         this.mesh.rotation.set(0.02, 0.05, 0);

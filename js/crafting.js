@@ -41,6 +41,8 @@ export const RECIPES = [
   shaped(["III", "ISI", "I.I"], { I: ITEM.IRON_INGOT, S: ITEM.STICK }, ITEM.MACHINE_GUN),
   shaped(["..D", "III", "S.."], { D: ITEM.DIAMOND, I: ITEM.IRON_INGOT, S: ITEM.STICK }, ITEM.SNIPER_RIFLE),
   shaped(["IGI", "ICI", "III"], { I: ITEM.IRON_INGOT, G: ITEM.GOLD_INGOT, C: ITEM.COAL }, ITEM.AIRSTRIKE),
+  shaped(["LDI", ".II"], { L: BLOCK.LUMEN, D: ITEM.DIAMOND, I: ITEM.IRON_INGOT }, ITEM.LASER_BLASTER),
+  shaped(["G.G", "ILI", "III"], { G: ITEM.GOLD_INGOT, I: ITEM.IRON_INGOT, L: BLOCK.LUMEN }, ITEM.JET_RADIO),
 ];
 for (const [mat, m] of TOOL_MATERIALS) {
   RECIPES.push(shaped(["M", "M", "S"], { M: m, S: ITEM.STICK }, ITEM[`${mat}_SWORD`]));

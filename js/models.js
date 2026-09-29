@@ -154,7 +154,26 @@ export const MUZZLE = {
   bazooka: new THREE.Vector3(0, 0, -0.78),
   machinegun: new THREE.Vector3(0, 0.06, -0.58),
   sniper: new THREE.Vector3(0, 0.05, -0.85),
+  blaster: new THREE.Vector3(0, 0.035, -0.44),
 };
+
+// A chunky sci-fi blaster: a pale body, a finned barrel shroud and glowing
+// emitter coils.
+function blasterGeometry() {
+  const body = 0xd9dde2;
+  const dark = 0x2a2e36;
+  const coil = 0x7ff3ff;
+  const parts = [
+    { geometry: box(0.1, 0.11, 0.34), color: body, matrix: at(0, 0.04, -0.08) }, // body
+    { geometry: new THREE.CylinderGeometry(0.035, 0.045, 0.2, 10), color: dark, matrix: at(0, 0.035, -0.33, Math.PI / 2) }, // barrel
+    { geometry: box(0.07, 0.24, 0.1), color: dark, matrix: at(0, -0.12, 0.06, 0.3) }, // grip
+    { geometry: box(0.12, 0.03, 0.2), color: dark, matrix: at(0, 0.11, -0.08) }, // top rail
+    { geometry: box(0.02, 0.06, 0.02), color: dark, matrix: at(0, -0.05, -0.02) }, // trigger
+    { geometry: box(0.13, 0.05, 0.05), color: 0x9aa3ad, matrix: at(0, 0.02, 0.1) }, // power cell
+  ];
+  for (let i = 0; i < 3; i++) parts.push({ geometry: new THREE.TorusGeometry(0.05, 0.012, 6, 14), color: coil, matrix: at(0, 0.035, -0.27 - i * 0.045) });
+  return mergeColored(parts);
+}
 
 function pistolGeometry() {
   const steel = 0x2f3238;
@@ -258,9 +277,10 @@ export function itemModel(id) {
     const b = BLOCK_INFO[info.block];
     if (b.shape === SHAPE.CUBE) model = { geometry: blockCubeGeometry(info.block), kind: "array", cube: true };
     else model = { geometry: spriteGeometry(paintTile(TILE_NAMES[b.faces.side])), kind: "color", cube: false };
-  } else if (info?.weapon && ["pistol", "bazooka", "machinegun", "sniper"].includes(info.weapon.kind)) {
+  } else if (info?.weapon && ["pistol", "bazooka", "machinegun", "sniper", "blaster"].includes(info.weapon.kind)) {
     const geometry =
-      info.weapon.kind === "pistol" ? pistolGeometry()
+      info.weapon.kind === "blaster" ? blasterGeometry()
+      : info.weapon.kind === "pistol" ? pistolGeometry()
       : info.weapon.kind === "bazooka" ? bazookaGeometry()
       : info.weapon.kind === "machinegun" ? machineGunGeometry()
       : sniperGeometry();

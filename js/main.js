@@ -26,6 +26,7 @@ import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem } from "./weapons.js";
+import { LaserBolts } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
@@ -276,7 +277,27 @@ const avatar = new PlayerAvatar(scene, world.atlas);
 const falling = new FallingBlocks(scene, world);
 const waterSim = new WaterSim(world);
 const decals = new BulletHoles(scene, world);
-const weapons = new WeaponSystem({ scene, world, player, effects, audio, mobs, held, decals, inventory });
+// Laser bolts (the blaster; later UFOs and aliens), with scorch marks.
+const scorches = new BulletHoles(scene, world, { kind: "scorch" });
+const lasers = new LaserBolts({ scene, world, effects, decals: scorches, audio });
+lasers.listener = () => effects.listener;
+const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
+lasers.addProvider({
+  raycast(origin, dir, maxDist, bolt) {
+    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && m.kind === "alien"));
+    if (!hit) return null;
+    return {
+      distance: hit.distance,
+      hit(b, point, d) {
+        if (mobs.shoot(hit.mob, b.damage, d, 2.5) && b.owner === "player") hud.hitMarker?.();
+        for (let i = 0; i < 6; i++) effects.debris.spawn(point.x, point.y, point.z, (Math.random() - 0.5) * 3, Math.random() * 3, (Math.random() - 0.5) * 3, 0.05, bloodColor, 0.5);
+      },
+    };
+  },
+});
+const weapons = new WeaponSystem({ scene, world, player, effects, audio, mobs, held, decals, inventory, lasers });
+settingsPanel.on("weapons.blasterColor", (v) => (weapons.blasterColor = v));
+for (const k of ["count", "spread", "delay", "angle", "speed"]) settingsPanel.on(`weapons.airstrike.${k}`, (v) => (weapons.airstrike.config[k] = v));
 interaction.weapons = weapons;
 interaction.combat = mobs;
 
@@ -1228,7 +1249,9 @@ window.__ufo = window.__voxelands = {
   falling,
   waterSim,
   weapons,
+  lasers,
   decals,
+  scorches,
   audio,
   lod,
   grass,
@@ -1338,6 +1361,7 @@ function animate() {
     // A drawn throw is dropped if the grenade leaves the hand (thrown away, swapped).
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
+    lasers.update(dt);
   } else if (gameState === "start") {
     flyover.update(dt, camera, worldUniforms.uNight.value);
   } else {

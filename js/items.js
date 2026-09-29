@@ -37,6 +37,8 @@ export const ITEM = Object.freeze({
   MACHINE_GUN: 289,
   SNIPER_RIFLE: 290,
   AIRSTRIKE: 291,
+  LASER_BLASTER: 292,
+  JET_RADIO: 293,
 });
 
 // Tool materials: tier (what they can harvest), mining speed multiplier,
@@ -68,6 +70,8 @@ const ITEM_DEFS = {
   [ITEM.MACHINE_GUN]: { name: "Machine Gun", icon: "machinegun", stack: 1, weapon: { kind: "machinegun" } },
   [ITEM.SNIPER_RIFLE]: { name: "Sniper Rifle", icon: "sniper", stack: 1, weapon: { kind: "sniper" } },
   [ITEM.AIRSTRIKE]: { name: "Airstrike Designator", icon: "airstrike", stack: 1, weapon: { kind: "airstrike" } },
+  [ITEM.LASER_BLASTER]: { name: "Laser Blaster", icon: "blaster", stack: 1, weapon: { kind: "blaster" } },
+  [ITEM.JET_RADIO]: { name: "Jet Radio", icon: "jet_radio", stack: 1, weapon: { kind: "jetradio" } },
 };
 
 const TOOL_KINDS = [
@@ -184,9 +188,13 @@ export const CREATIVE_ITEMS = [
   ITEM.WOOD_PICKAXE, ITEM.STONE_PICKAXE, ITEM.IRON_PICKAXE, ITEM.DIAMOND_PICKAXE,
   ITEM.WOOD_AXE, ITEM.STONE_AXE, ITEM.IRON_AXE, ITEM.DIAMOND_AXE,
   ITEM.WOOD_SHOVEL, ITEM.STONE_SHOVEL, ITEM.IRON_SHOVEL, ITEM.DIAMOND_SHOVEL,
-  ITEM.GRENADE, ITEM.PISTOL, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.AIRSTRIKE,
+  ITEM.GRENADE, ITEM.PISTOL, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.AIRSTRIKE, ITEM.LASER_BLASTER, ITEM.JET_RADIO,
 ];
 
-// Slots 0-5 of a brand new game's hotbar (both modes): a full loadout so a
-// new player has every weapon to try immediately.
-export const STARTING_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.AIRSTRIKE, ITEM.SNIPER_RIFLE];
+// Slots 0-7 of a brand new game's hotbar (both modes): a full loadout so a
+// new player has every weapon to try immediately (with mods on).
+export const STARTING_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.AIRSTRIKE, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.JET_RADIO];
+
+// Items that exist only with mods on (guns, explosives, vehicles): put away
+// while mods are off. Swords and tools are vanilla.
+export const MOD_ITEMS = new Set([ITEM.GRENADE, ITEM.PISTOL, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.AIRSTRIKE, ITEM.LASER_BLASTER, ITEM.JET_RADIO]);

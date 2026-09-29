@@ -966,12 +966,13 @@ export class MobManager {
   }
 
   // The nearest living mob under the crosshair within `reach`, or null.
-  raycast(origin, dir, reach) {
+  // filter(mob) -> false skips a mob (e.g. the one that fired a bolt).
+  raycast(origin, dir, reach, filter = null) {
     let best = null;
-    const min = new THREE.Vector3();
-    const max = new THREE.Vector3();
+    const min = this._rmin || (this._rmin = new THREE.Vector3());
+    const max = this._rmax || (this._rmax = new THREE.Vector3());
     for (const m of this.mobs) {
-      if (m.dead) continue;
+      if (m.dead || (filter && !filter(m))) continue;
       const r = m.spec.r + 0.08;
       min.set(m.pos.x - r, m.pos.y, m.pos.z - r);
       max.set(m.pos.x + r, m.pos.y + m.spec.h + 0.05, m.pos.z + r);

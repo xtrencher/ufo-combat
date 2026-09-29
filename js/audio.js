@@ -178,6 +178,7 @@ export class Audio {
   _noise(when, duration) {
     const src = this.ctx.createBufferSource();
     src.buffer = this._noiseBuffer;
+    if (duration > NOISE_SECONDS - 0.1) src.loop = true; // long sounds (engines, meteors)
     const maxOffset = Math.max(0, NOISE_SECONDS - duration - 0.05);
     src.start(when, Math.random() * maxOffset, duration + 0.05);
     return src;
@@ -396,6 +397,82 @@ export class Audio {
     this._hit({ type: "lowpass", f: 160, q: 1, d: 0.25, v: 0.7, attack: 0.002 });
     this._hit({ type: "bandpass", f: 400, fEnd: 1500, q: 1.1, d: 0.5, v: 0.4, attack: 0.01 });
     this._hit({ type: "highpass", f: 3000, q: 0.7, d: 0.4, v: 0.14, attack: 0.02 });
+  }
+
+  // A sci-fi blaster "pew": a bright tone that dives in pitch, with a
+  // ringing overtone and a short electric crackle. Enemy lasers (UFOs,
+  // aliens) are lower and buzzier. Quieter and later with distance.
+  playBlaster(distance = 0, owner = "player") {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx || distance > 180) return;
+    const enemy = owner !== "player" && owner !== "playerufo";
+    const gain = 0.34 / (1 + distance / 14);
+    if (gain < 0.004) return;
+    const t = ctx.currentTime + Math.min(distance / 343, 0.4);
+    const f0 = (enemy ? 1300 : 2300) * (0.93 + Math.random() * 0.14);
+    const f1 = enemy ? 110 : 190;
+    const d = enemy ? 0.26 : 0.19;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = Math.max(700, 9000 / (1 + distance / 30));
+    out.connect(lp).connect(this._out || this.master);
+    for (const [type, mul, g] of [[enemy ? "sawtooth" : "square", 1, 0.55], ["sine", 1.51, 0.45]]) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0 * mul, t);
+      osc.frequency.exponentialRampToValueAtTime(f1 * mul, t + d);
+      const og = ctx.createGain();
+      og.gain.value = g;
+      osc.connect(og).connect(out);
+      osc.start(t);
+      osc.stop(t + d + 0.02);
+    }
+    this._hit({ type: "highpass", f: 4000, q: 0.7, d: 0.025, v: gain * 0.6, attack: 0.001 }, t - ctx.currentTime);
+  }
+
+  // A laser bolt hitting a block: a sizzling crackle.
+  playLaserHit(distance = 0) {
+    this._cat("weapons");
+    const v = 0.16 / (1 + distance / 10);
+    if (v < 0.004) return;
+    this._hit({ type: "bandpass", f: 3200, fEnd: 900, q: 1.4, d: 0.12, v, n: 2, spread: 0.03, jitter: 0.3 }, Math.min(distance / 343, 0.4));
+  }
+
+  // A meteor screaming in: a rising roar and a falling whistle over its
+  // whole flight (`duration` s), from `distance` blocks away at the start.
+  playMeteorIncoming(duration = 3, distance = 150) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const d = Math.max(0.5, Math.min(8, duration));
+    const peak = 0.16 / (1 + Math.max(0, distance - 150) / 120);
+    const roar = this._noise(t, d);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 2.2;
+    bp.frequency.setValueAtTime(2600, t);
+    bp.frequency.exponentialRampToValueAtTime(420, t + d);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak * 0.3, t + d * 0.4);
+    g.gain.exponentialRampToValueAtTime(peak, t + d * 0.95);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
+    roar.connect(bp).connect(g).connect(this._out || this.master);
+    const rumble = this._noise(t, d);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 180;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.exponentialRampToValueAtTime(peak * 2.2, t + d * 0.95);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
+    rumble.connect(lp).connect(rg).connect(this._out || this.master);
   }
 
   // A grenade bouncing: a small metallic clink and a thud (strength 0-1).
