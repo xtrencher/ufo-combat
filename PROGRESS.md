@@ -930,12 +930,12 @@ UFO PART 2 COMPLETE
 UFO PART 3 COMPLETE
 
 ## UFO Final checklist
-- [ ] 1. Regression pass (terrain, biomes, presets, water, mobs, combat, crafting, saving, death screen, mods OFF)
-- [ ] 2. Player's-eye review (menu, first minutes, every weapon/vehicle, UFO encounters on foot / jet / UFO, full scenario); fix what's found
-- [ ] 3. Performance check: Potato and Balanced smooth with UFOs at high activity, many zombies, explosions
+- [x] 1. Regression pass (terrain, biomes, presets, water, mobs, combat, crafting, saving, death screen, mods OFF)
+- [x] 2. Player's-eye review (menu, first minutes, every weapon/vehicle, UFO encounters on foot / jet / UFO, full scenario); fix what's found
+- [x] 3. Performance check: Potato and Balanced smooth with UFOs at high activity, many zombies, explosions
 - [ ] 4. Full test suite one last time
-- [ ] 5. README: all controls, features, settings
-- [ ] 6. PROGRESS.md: summary, decisions, known issues, "How to test in 10 minutes"
+- [x] 5. README: all controls, features, settings
+- [x] 6. PROGRESS.md: summary, decisions, known issues, "How to test in 10 minutes"
 - [ ] 7. "UFO FINAL COMPLETE", commit, push
 
 ## Decisions log
@@ -1013,6 +1013,54 @@ lighting, water, mobs and graphics presets are unchanged):
   scenario playable and tested end to end; grouped settings with per-group
   reset; world and all-time stats, an optional HUD overlay and a Stats
   screen.
+
+## Final polish notes
+
+- **Regression pass:** the smoke suite (terrain, biomes, all graphics
+  presets, LOD, water, lighting, mobs, combat, crafting, saving and
+  reloading, the death screen, startup errors) ran in full after Parts 2/3;
+  mods off is covered by the UFO suite (vanilla hotbar, recipes and palette;
+  UFOs, aliens and vehicles gone; everything back when switched on) and
+  checked by eye.
+- **Player's-eye review** (screenshots of the menu, first minute, an enemy
+  UFO overhead, flying a UFO, the jet in chase and cockpit view, the nuke,
+  the pause/Mods/Stats screens, mods off). Fixed from it: the player's
+  hearts drew over the vehicle HUD (now hidden in vehicles, and the panel
+  is narrower); a jet called onto a short strip ran off the end before
+  rotating (longer strip search, takeoff thrust boost, assist rotates);
+  quick clicks at low frame rates were lost in vehicles; a jet lost within
+  8 s of calling couldn't be replaced; the crashed UFO could be blown up by
+  shots at its aliens.
+- **GitHub Pages:** `probe.mjs --base=/ufo-combat/` serves the game only
+  under that subpath: it boots, plays, streams (including the LOD worker)
+  and calls the jet with zero console errors. All paths are relative and
+  every import matches its file name exactly.
+- **Performance:** see the Part 3 results (Potato and Balanced with a sky
+  full of UFOs, 100+ zombies and explosions).
+
+## Known issues
+
+- **All automated testing is headless with software rendering** (1-3 fps).
+  Frame rates on real hardware were not measured, and nothing was played
+  by a human with a real mouse: flight feel (jet assist, UFO speed range)
+  is tuned by reasoning and tests, not by hand.
+- **Sounds** are procedural and were checked to play without errors, not
+  listened to.
+- **Smoke: Ultra plants check** can time out at 300 s in software rendering
+  (pre-existing; it passes on some runs).
+- **Smoke: zombies and the moat** once saw the player lose 3 health from an
+  unknown source (probably a night-time enemy UFO); not reproduced in
+  isolation. Creature arenas now switch UFOs off.
+- **Jet realism is game-tuned:** 40% more thrust on the ground for short
+  takeoffs, lower gravity (14 blocks/s^2), and flight assist rolls and pulls
+  for you. It still stalls and can't hover.
+- **Crashed UFOs can't be destroyed** until boarded (deliberate, see
+  decisions).
+- **The world is 64 blocks tall**, so jets and UFOs fly mostly above the
+  terrain's block space; collisions with terrain are checked, but nothing
+  can be built up there.
+- `ufo-tests.mjs --only=...` enters the game first, so the menu checks
+  (rebrand, main menu) only run in a full run.
 
 ## How to test in 10 minutes
 

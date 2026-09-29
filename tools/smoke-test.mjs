@@ -170,6 +170,10 @@ try {
     const t0 = Date.now();
     await page.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil: "load", timeout: 30000 });
     await page.waitForFunction(() => !!window.__voxelands, null, { timeout: 30000 });
+    // This suite tests the base game: no enemy UFOs (a mod feature, tested
+    // in ufo-tests.mjs) dropping in to abduct the player mid-check. The
+    // setting is saved, so it holds across the reloads below.
+    await page.evaluate(() => window.__voxelands.settingsPanel.set("ufos.activity", 0));
     console.log(`        (page ready in ${Date.now() - t0} ms)`);
     await page.waitForTimeout(1500);
   });

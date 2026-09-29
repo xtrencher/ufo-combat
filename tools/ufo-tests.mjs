@@ -882,7 +882,22 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
   });
   await aimJetAt((g) => window.__u.pos);
   await page.mouse.down({ button: "left" });
-  const hit = await until((g) => window.__u.health < window.__h0, 60000);
+  // (Kept hovering right ahead of the nose: this checks the gun, not the
+  // chase.)
+  const hit = await until((g) => {
+    const j = g.vehicles.active;
+    const u = window.__u;
+    if (u.health < window.__h0) return true;
+    u.state = "trick";
+    u.trick = "hover";
+    u.timer = 999;
+    u.vel.set(0, 0, 0);
+    u.pos.copy(j.pos).addScaledVector(j.forward(new g.THREE.Vector3()), 180);
+    const d = u.pos.clone().sub(j.pos).normalize();
+    j.aimYaw = Math.atan2(-d.x, -d.z);
+    j.aimPitch = Math.asin(d.y);
+    return false;
+  }, 60000);
   await page.mouse.up({ button: "left" });
   assert(hit, "cannon rounds hit the UFO");
   // Put it well ahead again (the jet may have flown past it by now).
@@ -922,9 +937,11 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
       u.lastSeen = g.ufos.time;
       return u;
     };
+    j.pos.y = Math.max(j.pos.y, 150); // clear skies between them
     const ev = mk("evader");
     const fast = mk("fast");
     const fighter = mk("fighter");
+    fighter.shotT = 0;
     j.incoming = 0;
     for (let i = 0; i < 80; i++) {
       g.ufos.update(0.05);
@@ -1064,8 +1081,9 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     const d = a.pos.clone().add(new g.THREE.Vector3(0, 1, 0)).sub(e);
     g.player.yaw = Math.atan2(-d.x, -d.z);
     g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
-    // Walk up close, then blast.
-    if (d.length() > 8) g.player.position.addScaledVector(d.clone().setY(0).normalize(), 0.8);
+    // Walk right up to it (so the wreck it may stand under isn't in the
+    // way), then blast.
+    if (d.length() > 3) g.player.position.addScaledVector(d.clone().setY(0).normalize(), Math.min(0.8, d.length() - 3));
     g.weapons._cooldowns.blaster = 0;
     g.weapons.press("blaster");
     g.weapons.release();
