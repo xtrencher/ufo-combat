@@ -256,6 +256,7 @@ export class Hud {
     if (gold !== this._shownGold) {
       this._shownGold = gold;
       this.goldEl.classList.toggle("hidden", gold <= 0);
+      this.itemNameEl.style.bottom = gold > 0 ? "118px" : ""; // (above the golden row)
       for (let i = 0; i < this.gold.length; i++) {
         const v = gold - i * 2;
         const g = this.gold[i];

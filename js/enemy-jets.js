@@ -253,7 +253,10 @@ export class EnemyJetManager {
     // Flying across (tangent), or straight at the player when hostile.
     const yaw = opts.toward ? Math.atan2(-(p.x - x), -(p.z - z)) : Math.atan2(Math.sin(a), -Math.cos(a)) + (Math.random() - 0.5);
     const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7 });
-    if (jet && opts.hostile) jet.provoked = HOSTILE_TIME;
+    if (jet && opts.hostile) {
+      jet.provoked = HOSTILE_TIME;
+      this.vehicles.onMessage?.("ENEMY FIGHTER SCRAMBLED! The aliens have an air force.");
+    }
     return jet;
   }
 
