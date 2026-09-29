@@ -300,7 +300,7 @@ lasers.listener = () => effects.listener;
 const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
 lasers.addProvider({
   raycast(origin, dir, maxDist, bolt) {
-    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && m.kind === "alien"));
+    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && m.spec.alien));
     if (!hit) return null;
     return {
       distance: hit.distance,
@@ -484,7 +484,7 @@ ufos.onEscape = () => {
 };
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
-  if (m.kind === "alien") stats.add("aliensKilled");
+  if (m.spec.alien) stats.add("aliensKilled");
   else if (m.kind === "zombie") stats.add("zombiesKilled");
   else stats.add("mobsKilled");
 };
@@ -559,30 +559,59 @@ function callJet(force = false) {
     toast("Get out of your vehicle first (F).", 2);
     return;
   }
-  // (The cooldown only stops spamming replacements; a lost jet can be
-  // replaced at once.)
-  if (!force && playerJet?.alive && vehicles.vehicles.includes(playerJet) && ufos.time - lastJetCall < 8) {
-    toast("Your jet is on its way...", 1.5);
-    return;
-  }
+  // Only a double press is ignored. Calling again always replaces the old
+  // jet, whatever state it is in (parked, flying on unmanned after an
+  // eject, wrecked): the player has just told us they want a new one, and
+  // the old "on its way" cooldown made a second call look like it did
+  // nothing.
+  if (!force && ufos.time - lastJetCall < 1.5) return;
   lastJetCall = ufos.time;
-  if (playerJet && vehicles.vehicles.includes(playerJet)) vehicles.remove(playerJet);
-  playerJet = null;
+  removePlayerJets();
   const cfg = vehicles.config.jet;
   const strip = cfg.airborne ? null : findRunway();
+  const spawnAirborne = () => {
+    const p = player.position;
+    const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
+    const jet = vehicles.create("jet", { pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
+    jet.keep = true;
+    jet.isPlayerJet = true;
+    vehicles.enter(jet);
+    return jet;
+  };
   if (strip) {
     playerJet = vehicles.create("jet", { pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
+    playerJet.keep = true; // never evicted by the vehicle cap
+    playerJet.isPlayerJet = true;
+    jetWatchT = 2.5;
     const dir = Math.round(((Math.atan2(strip.x - player.position.x, -(strip.z - player.position.z)) * 180) / Math.PI + 360) % 360);
     toast(`Your jet has landed ${Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z))} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
   } else {
-    const p = player.position;
-    const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
-    playerJet = vehicles.create("jet", { pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
-    vehicles.enter(playerJet);
+    playerJet = spawnAirborne();
     toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
   }
+  jetSpawnAirborne = spawnAirborne;
   stats.add("jetsCalled");
   audio.playNotice();
+}
+// Every jet the player called in that nobody is sitting in goes away.
+function removePlayerJets() {
+  for (const v of [...vehicles.vehicles]) if (v.type === "jet" && !v.occupied && (v === playerJet || v.isPlayerJet)) vehicles.remove(v);
+  playerJet = null;
+}
+// A jet that is destroyed right after landing on its strip (something in the
+// way we didn't see) is replaced by one in the air, so a call never ends
+// with no jet at all.
+let jetWatchT = 0;
+let jetSpawnAirborne = null;
+function updateJetWatch(dt) {
+  if (jetWatchT <= 0) return;
+  jetWatchT -= dt;
+  if (playerJet && !playerJet.alive && !vehicles.active && !player.dead && jetSpawnAirborne) {
+    jetWatchT = 0;
+    removePlayerJets();
+    playerJet = jetSpawnAirborne();
+    toast("Your jet had to be replaced: it arrives in the air.", 3);
+  }
 }
 weapons.onJetRadio = callJet;
 
@@ -1975,6 +2004,7 @@ function animate() {
     // Vehicles (the seated player rides along) and UFOs.
     vehicles.night = worldUniforms.uNight.value;
     vehicles.update(dt);
+    updateJetWatch(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     ufos.viewDistance = renderDistance * 16;
     ufos.update(dt);

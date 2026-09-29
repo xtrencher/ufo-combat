@@ -764,7 +764,8 @@ export class Audio {
     this._cat("creatures");
     if (!this.ctx || distance > 40) return;
     const gain = 1 / (1 + distance / 7);
-    const parts = VOICES[kind]?.[event];
+    // Variants ("alien_gray") share their family's voice.
+    const parts = (VOICES[kind] || VOICES[String(kind).split("_")[0]])?.[event];
     if (!parts) return;
     for (const part of parts) {
       if (part.noise) this._hit({ ...part.noise, v: part.noise.v * gain }, part.delay || 0);

@@ -496,48 +496,77 @@ const ZOMBIE = {
 
 const SKELETON = {
   parts: [
-    { name: "legL", size: [4, 12, 4], pivot: [-2, 12, 0], from: [-2, -12, -2] },
-    { name: "legR", size: [4, 12, 4], pivot: [2, 12, 0], from: [-2, -12, -2] },
-    { name: "body", size: [7, 12, 3], pivot: [0, 12, 0], from: [-3.5, 0, -1.5] },
-    { name: "head", size: [7, 7, 7], pivot: [0, 24, 0], from: [-3.5, 0, -3.5], parent: "body" },
-    { name: "armL", size: [3, 12, 3], pivot: [-5, 23, 0], from: [-1.5, -11, -1.5], parent: "body" },
-    { name: "armR", size: [3, 12, 3], pivot: [5, 23, 0], from: [-1.5, -11, -1.5], parent: "body" },
+    { name: "legL", size: [3, 12, 3], pivot: [-2, 12, 0], from: [-1.5, -12, -1.5] },
+    { name: "legR", size: [3, 12, 3], pivot: [2, 12, 0], from: [-1.5, -12, -1.5] },
+    { name: "body", size: [6, 10, 3], pivot: [0, 12, 0], from: [-3, 0, -1.5] },
+    { name: "pelvis", size: [7, 3, 3], pivot: [0, 12, 0], from: [-3.5, -1, -1.5], parent: "body", rigid: true },
+    { name: "spine", size: [2, 2, 2], pivot: [0, 12, 0], from: [-1, 10, -1], parent: "body", rigid: true },
+    { name: "head", size: [8, 8, 8], pivot: [0, 24, 0], from: [-4, 0, -4], parent: "body" },
+    { name: "armL", size: [2, 11, 2], pivot: [-4.5, 21.5, 0], from: [-1, -10.5, -1], parent: "body" },
+    { name: "armR", size: [2, 11, 2], pivot: [4.5, 21.5, 0], from: [-1, -10.5, -1], parent: "body" },
+    // A bow held out in the left hand: with the arm raised, local +Z is
+    // world up, so the limbs run along Z and curve back toward the archer (+Y).
+    { name: "bowGrip", size: [1.5, 2, 4], pivot: [-4.5, 21.5, 0], from: [-0.75, -13, -2], parent: "armL", rigid: true },
+    { name: "bowUp", size: [1, 1.5, 5], pivot: [-4.5, 21.5, 0], from: [-0.5, -12, 2], parent: "armL", rigid: true },
+    { name: "bowDown", size: [1, 1.5, 5], pivot: [-4.5, 21.5, 0], from: [-0.5, -12, -7], parent: "armL", rigid: true },
+    { name: "string", size: [0.5, 0.5, 15], pivot: [-4.5, 21.5, 0], from: [-0.25, -9.5, -7.5], parent: "armL", rigid: true },
   ],
   paint(s) {
-    const bone = hex(0xd8d2bf);
-    const boneDark = hex(0xb3ab90);
-    const strap = hex(0x4a3b2a);
+    const bone = hex(0xd9d3c0);
+    const boneDark = hex(0xa79f86);
+    const boneShadow = hex(0x7f7860);
+    const wood = hex(0x6b4a2b);
     const boned = (x, y, seed) => {
-      let c = grain(bone, x, y, seed, 0.1);
-      if (hash(x, y >> 1, seed + 1) > 0.9) c = boneDark;
+      let c = grain(bone, x, y, seed, 0.09);
+      if (hash(x, y >> 1, seed + 1) > 0.92) c = boneDark;
       return c;
     };
     s.part("head", (f, x, y, w, h) => {
       let c = boned(x, y, 121);
+      if (f === "top" || f === "back") c = shade(c, 0.95);
       if (f === "front") {
-        for (const ex of [1, 9]) if (y >= 3 && y < 5 && x >= ex && x < ex + 3) c = y === 3 ? [180, 220, 235] : [10, 10, 10];
-        if (y === 9 && x >= 2 && x < 12) c = boneDark; // jaw line
+        // Deep eye sockets with a dim spark, a nose hole, and a row of teeth.
+        for (const ex of [2, w - 7]) {
+          if (y >= 5 && y < 9 && x >= ex && x < ex + 5) c = y === 5 || x === ex ? boneShadow : [12, 10, 10];
+          if (y === 7 && x === ex + 2) c = [120, 150, 170];
+        }
+        if (y >= 10 && y < 12 && x >= w / 2 - 1 && x < w / 2 + 1) c = [16, 12, 10];
+        if (y >= 12 && y < 15 && x >= 3 && x < w - 3) c = (x + 1) % 2 === 0 ? boneShadow : [232, 228, 214]; // teeth
+        if (y >= 14) c = shade(c, 0.9);
       }
+      if ((f === "left" || f === "right") && y >= 6 && y < 8 && x >= 4 && x < 10) c = shade(c, 0.7); // temple hollow
       return c;
     });
     s.part("body", (f, x, y, w, h) => {
       let c = boned(x, y, 122);
-      if (f === "front" && ((x + y) % 5 === 0)) c = shade(c, 0.85); // ribs
-      if (f === "front" && y >= h - 4) c = grain(strap, x, y, 123, 0.15); // a quiver strap
+      if (f === "front") {
+        // A ribcage: curved ribs around a dark gap, with the breastbone down the middle.
+        const mid = Math.abs(x - (w - 1) / 2);
+        if (y < h - 3 && y % 3 === 1 && mid > 1) c = shade(c, 0.78);
+        else if (y < h - 3 && mid > 1) c = [24, 20, 16];
+        if (mid <= 1) c = boned(x, y, 125);
+      }
+      if (f === "back" && Math.abs(x - (w - 1) / 2) <= 1) c = boneDark; // the spine
       return c;
     });
-    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => boned(x, y, 124));
-    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => boned(x, y, 125));
+    s.part("pelvis", (f, x, y, w, h) => boned(x, y, 126));
+    s.part("spine", (f, x, y, w, h) => boneDark);
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y % 8 === 4 ? boneShadow : boned(x, y, 124)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y % 12 === 6 || y % 12 === 7 ? boneShadow : boned(x, y, 127)));
+    for (const bow of ["bowGrip", "bowUp", "bowDown"]) s.part(bow, (f, x, y, w, h) => grain(wood, x, y, 128, 0.2));
+    s.part("string", () => [222, 216, 190]);
   },
   animate(p, st) {
     const swing = Math.sin(st.walkPhase) * 0.6 * st.walk;
     p.legL.rotation.x = swing;
     p.legR.rotation.x = -swing;
-    const draw = st.attack < 1 ? (1 - st.attack) * 0.9 : 0; // draws the bow before releasing
-    p.armL.rotation.x = -1.1 - draw * 0.3;
-    p.armR.rotation.x = -1.1 + draw * 0.5;
+    // The bow arm stays up; the string arm draws back before each shot.
+    const draw = st.attack < 1 ? (1 - st.attack) * 0.9 : 0;
+    const aiming = (st.aim ?? 0) > 0;
+    p.armL.rotation.x = aiming ? -1.45 - st.headPitch * 0.5 : -0.25 + swing * 0.5;
+    p.armR.rotation.x = aiming ? -1.2 - draw * 0.5 : swing * -0.5 - 0.1;
     p.armL.rotation.z = -0.1;
-    p.armR.rotation.z = 0.1;
+    p.armR.rotation.z = aiming ? 0.5 + draw * 0.4 : 0.1;
     p.body.rotation.z = Math.sin(st.walkPhase * 0.5) * 0.04 * st.walk;
     p.head.rotation.y = st.headYaw;
     p.head.rotation.x = -st.headPitch;
@@ -683,9 +712,13 @@ const PIG = {
 const CHICKEN = {
   parts: [
     { name: "body", size: [6, 7, 8], pivot: [0, 8, 0], from: [-3, -3.5, -4] },
-    { name: "head", size: [4, 4, 4], pivot: [0, 12, 3], from: [-2, -1, 0], parent: "body" },
-    { name: "beak", size: [2, 1, 2], pivot: [0, 12, 7], from: [-1, -1, 0], parent: "head", rigid: true },
-    { name: "comb", size: [2, 2, 2], pivot: [0, 15, 5], from: [-1, -1, -1], parent: "head", rigid: true },
+    // The neck rises from the front of the body to the head (there was none:
+    // the head floated a hand's width above the body).
+    { name: "neck", size: [2, 4, 2], pivot: [0, 10, 3], from: [-1, 0, -0.5], parent: "body", rigid: true },
+    { name: "head", size: [4, 4, 4], pivot: [0, 14, 3], from: [-2, -1, -0.5], parent: "body" },
+    { name: "beak", size: [2, 2, 2], pivot: [0, 15, 6.5], from: [-1, -1, 0], parent: "head", rigid: true },
+    { name: "wattle", size: [1, 2, 1], pivot: [0, 14, 6], from: [-0.5, -1.5, 0.5], parent: "head", rigid: true },
+    { name: "comb", size: [1, 2, 3], pivot: [0, 17, 3], from: [-0.5, 0, 0], parent: "head", rigid: true },
     { name: "wingL", size: [1, 4, 5], pivot: [-3, 9, 0], from: [-1, -4, -2.5], parent: "body" },
     { name: "wingR", size: [1, 4, 5], pivot: [3, 9, 0], from: [0, -4, -2.5], parent: "body" },
     { name: "tail", size: [1, 5, 3], pivot: [0, 10, -4], from: [-0.5, -1, -3], parent: "body", rigid: true },
@@ -699,53 +732,85 @@ const CHICKEN = {
     const beakC = hex(0xe8b23a);
     const feather = (x, y, seed) => grain(mix(white, brown, hash(x >> 1, y >> 2, seed) * 0.3), x, y, seed + 1, 0.12);
     s.part("body", (f, x, y, w, h) => feather(x, y, 161));
+    s.part("neck", (f, x, y, w, h) => feather(x, y, 165));
     s.part("head", (f, x, y, w, h) => {
-      if (f === "front" && y === 1 && (x === 0 || x === w - 1)) return [20, 16, 12];
+      // An eye on each side of the head, near the front.
+      if ((f === "left" || f === "right") && y === 3 && fromFront(f, x, w) === 2) return [20, 16, 12];
       return feather(x, y, 162);
     });
     s.part("beak", () => beakC);
+    s.part("wattle", () => comb);
     s.part("comb", () => comb);
     for (const wing of ["wingL", "wingR"]) s.part(wing, (f, x, y, w, h) => feather(x, y, 163));
     s.part("tail", (f, x, y, w, h) => feather(x, y, 164));
     for (const leg of ["legL", "legR"]) s.part(leg, () => beakC);
   },
   animate(p, st) {
-    const peck = Math.sin(st.time * 4) * 0.02;
+    // Pecking: the head bobs forward and down while the chicken grazes, and
+    // nods a little as it walks.
+    const graze = st.graze ?? 0;
+    const peck = graze * (0.35 + Math.max(0, Math.sin(st.time * 7)) * 0.8) + st.walk * Math.sin(st.walkPhase * 2) * 0.12;
     p.legL.rotation.x = Math.sin(st.walkPhase) * 0.6 * st.walk;
     p.legR.rotation.x = -Math.sin(st.walkPhase) * 0.6 * st.walk;
     p.wingL.rotation.z = 0.15 + Math.sin(st.time * 6) * 0.06 * st.walk;
     p.wingR.rotation.z = -0.15 - Math.sin(st.time * 6) * 0.06 * st.walk;
     p.head.rotation.y = st.headYaw;
     p.head.rotation.x = -st.headPitch + peck;
-    p.head.position.y = 12 * PX - Math.max(0, Math.sin(st.time * 4)) * 0.03;
+    // The head's rest height above the body pivot: (14 - 8) model pixels.
+    p.head.position.y = 6 * PX - graze * 0.03;
   },
 };
 
 // Small flying/decorative critters (butterflies, parrots, fish): a lighter
 // rig, animated by simple wing/tail flaps rather than the walk cycle.
+// The butterfly's wings are flat panels hinged at the sides of its body; they
+// flap up and down together (they used to be upright and flapped downward).
 const BUTTERFLY = {
   parts: [
-    { name: "body", size: [1, 1, 3], pivot: [0, 0, 0], from: [-0.5, -0.5, -1.5] },
-    { name: "wingL", size: [5, 3, 1], pivot: [0, 0.5, 0], from: [-5, -1.5, -0.5] },
-    { name: "wingR", size: [5, 3, 1], pivot: [0, 0.5, 0], from: [0, -1.5, -0.5] },
+    { name: "body", size: [1, 1, 4], pivot: [0, 0, 0], from: [-0.5, -0.5, -2] },
+    { name: "head", size: [1, 1, 1], pivot: [0, 0, 2], from: [-0.5, -0.5, 0], parent: "body", rigid: true },
+    { name: "antL", size: [1, 1, 2], pivot: [0, 0, 3], from: [-1.5, 0, 0], parent: "body", rigid: true },
+    { name: "antR", size: [1, 1, 2], pivot: [0, 0, 3], from: [0.5, 0, 0], parent: "body", rigid: true },
+    { name: "wingL", size: [6, 1, 5], pivot: [-0.5, 0.5, 0], from: [-6, -0.5, -2.5] },
+    { name: "wingR", size: [6, 1, 5], pivot: [0.5, 0.5, 0], from: [0, -0.5, -2.5] },
   ],
   paint(s) {
-    const hues = [hex(0xf7b733), hex(0xe94f9b), hex(0x4cc9f0), hex(0xf72585)];
-    const hue = hues[Math.floor(hash(1, 1, s.seed) * hues.length)];
+    const orange = hex(0xf08a1c);
+    const orange2 = hex(0xf6b13a);
+    const black = hex(0x1c1410);
+    const white = hex(0xfff3d6);
+    const wingPixel = (part, x, y, w, h) => {
+      // x runs across the wing; the body edge is the right side of the left
+      // wing and the left side of the right wing. y: 0 = back, h - 1 = front.
+      const d = part === "wingL" ? w - 1 - x : x; // 0 at the body
+      const t = d / (w - 1); // 0 body ... 1 tip
+      const front = y / (h - 1);
+      let c = mix(orange2, orange, Math.min(1, t * 1.2));
+      // Dark veins fanning out from the body, and a black border with white dots.
+      if (Math.abs(y - (h - 1) * (0.25 + 0.5 * t)) < 0.7 && d > 1) c = black;
+      if (d === w - 1 || y === 0 || y === h - 1 || d > w - 3) c = black;
+      if ((d === w - 3 || d === w - 4) && y % 3 === 1 && y > 0 && y < h - 1) c = white;
+      if (front < 0.3 && t > 0.3 && t < 0.85 && (y + d) % 4 === 0) c = shade(c, 0.85); // hindwing markings
+      return c;
+    };
     s.part("body", () => hex(0x2a2018));
+    s.part("head", () => hex(0x2a2018));
+    s.part("antL", () => hex(0x2a2018));
+    s.part("antR", () => hex(0x2a2018));
     for (const wing of ["wingL", "wingR"]) {
       s.part(wing, (f, x, y, w, h) => {
-        if (f !== "front" && f !== "back") return shade(hue, 0.7);
-        const d = Math.hypot(x - w * 0.6, y - h * 0.4);
-        return d < w * 0.35 ? hex(0xfff6d8) : hue;
+        if (f === "top" || f === "bottom") return wingPixel(wing, x, y, w, h);
+        return shade(orange, 0.5);
       });
     }
   },
   animate(p, st) {
-    const flap = Math.sin(st.time * 14) * 0.9 + 0.9;
-    p.wingL.rotation.z = flap;
-    p.wingR.rotation.z = -flap;
-    p.body.rotation.y = st.headYaw;
+    // Flap between slightly above and well above the body's plane (radians).
+    const a = 0.25 + (Math.sin(st.time * 16) * 0.5 + 0.5) * 0.85;
+    p.wingL.rotation.z = -a; // the left wing extends toward -X, so up is negative
+    p.wingR.rotation.z = a;
+    // A slight nose bob with each flap.
+    p.body.rotation.x = Math.sin(st.time * 16) * 0.08;
   },
 };
 
@@ -952,6 +1017,41 @@ const PLAYER = {
 // A small grey-green alien in a silver suit: an oversized head with huge
 // glossy black eyes, thin limbs, and a laser gun in its right hand (the
 // gun is part of the arm, so it aims when the arm comes up).
+// ---------- Aliens ----------
+// Three kinds of crew from a crashed UFO, all on one rig (animate below):
+//   green: a small grey-green alien in a silver suit with a laser pistol;
+//   gray:  a tall, thin sharpshooter with huge black eyes and a long rifle;
+//   red:   a broad armoured brute with horns and a glowing plasma cannon.
+// The gun is a box continuing the arm past the hand: raised toward the target
+// the whole arm points along +Z (the direction the alien faces).
+
+function alienAnimate(p, st) {
+  const swing = Math.sin(st.walkPhase) * 0.8 * st.walk;
+  p.legL.rotation.x = swing;
+  p.legR.rotation.x = -swing;
+  p.armL.rotation.x = -swing * 0.7;
+  // The gun arm comes up to aim at its target.
+  const aim = st.aim ?? 0;
+  const recoil = st.attack < 1 ? (1 - st.attack) * 0.22 : 0;
+  p.armR.rotation.x = aim > 0 ? -1.5 - st.headPitch * 0.9 + recoil : swing * 0.7 - 0.2;
+  p.armR.rotation.z = 0;
+  p.body.rotation.x = 0.05;
+  p.head.rotation.x = -st.headPitch;
+  p.head.rotation.y = st.headYaw;
+  p.head.rotation.z = Math.sin(st.time * 1.3) * 0.06; // curious tilt
+}
+
+// The alien's big almond eyes on a head's front face (green and gray).
+function almondEyes(c, x, y, w, h, eye, big) {
+  for (const [cx, dir] of [[w * 0.27, -1], [w * 0.73, 1]]) {
+    const dx = x + 0.5 - cx;
+    const dy = y + 0.5 - (h * 0.5 - dx * dir * 0.35);
+    if ((dx * dx) / (big ? 20 : 12) + (dy * dy) / (big ? 9 : 5.5) < 1) c = eye;
+    if (Math.abs(dx + dir * 1.2) < 0.8 && Math.abs(y - (h * 0.42)) < 0.8) c = [160, 200, 190];
+  }
+  return c;
+}
+
 const ALIEN = {
   parts: [
     { name: "legL", size: [3, 9, 3], pivot: [-1.5, 9, 0], from: [-1.5, -9, -1.5] },
@@ -960,7 +1060,7 @@ const ALIEN = {
     { name: "head", size: [10, 9, 9], pivot: [0, 17, 0], from: [-5, 0, -4.5], parent: "body" },
     { name: "armL", size: [2, 9, 2], pivot: [-4, 16, 0], from: [-1, -8, -1], parent: "body" },
     { name: "armR", size: [2, 9, 2], pivot: [4, 16, 0], from: [-1, -8, -1], parent: "body" },
-    { name: "gun", size: [2, 3, 7], pivot: [4, 8, 0], from: [-1, -2, -6], parent: "armR", rigid: true },
+    { name: "gun", size: [2, 6, 3], pivot: [4, 16, 0], from: [-1, -14, -1.5], parent: "armR", rigid: true },
   ],
   paint(s) {
     const skinA = hex(0x86d160);
@@ -974,13 +1074,7 @@ const ALIEN = {
       if (f === "top") c = shade(c, 1.05);
       if (f === "bottom") c = shade(c, 0.8);
       if (f === "front") {
-        // Two huge almond eyes tilted up at the outside, with a glint.
-        for (const [cx, dir] of [[5.2, -1], [w - 6.2, 1]]) {
-          const dx = x + 0.5 - cx;
-          const dy = y + 0.5 - (8 - dx * dir * 0.35);
-          if ((dx * dx) / 12 + (dy * dy) / 5.5 < 1) c = eye;
-          if (Math.abs(dx + dir * 1.2) < 0.8 && Math.abs(y - 6.5) < 0.8) c = [160, 200, 190];
-        }
+        c = almondEyes(c, x, y, w, h, eye, false);
         if (y === 14 && x >= 8 && x < 12) c = shade(c, 0.6); // a small mouth
         if (y >= 11 && y < 13 && (x === 9 || x === 10)) c = shade(c, 0.85); // nostrils
       }
@@ -1001,24 +1095,110 @@ const ALIEN = {
     }
     s.part("gun", (f, x, y, w, h) => {
       let c = grain(hex(0x3a3f48), x, y, 341, 0.12);
-      if (f === "front" || (f !== "back" && fromFront(f, x, w) < 2 && f !== "top" && f !== "bottom")) c = [80, 255, 120]; // emitter
+      if (y < 3) c = [80, 255, 120]; // the emitter at the muzzle
       return c;
     });
   },
-  animate(p, st) {
-    const swing = Math.sin(st.walkPhase) * 0.8 * st.walk;
-    p.legL.rotation.x = swing;
-    p.legR.rotation.x = -swing;
-    p.armL.rotation.x = -swing * 0.7;
-    // The gun arm comes up to aim at its target.
-    const aim = st.aim ?? 0;
-    p.armR.rotation.x = aim > 0 ? -1.5 - st.headPitch * 0.9 : swing * 0.7 - 0.2;
-    p.armR.rotation.z = 0;
-    p.body.rotation.x = 0.05;
-    p.head.rotation.x = -st.headPitch;
-    p.head.rotation.y = st.headYaw;
-    p.head.rotation.z = Math.sin(st.time * 1.3) * 0.06; // curious tilt
+  animate: alienAnimate,
+};
+
+const ALIEN_GRAY = {
+  parts: [
+    { name: "legL", size: [2, 11, 2], pivot: [-1.5, 11, 0], from: [-1, -11, -1] },
+    { name: "legR", size: [2, 11, 2], pivot: [1.5, 11, 0], from: [-1, -11, -1] },
+    { name: "body", size: [5, 9, 3], pivot: [0, 11, 0], from: [-2.5, 0, -1.5] },
+    { name: "head", size: [9, 10, 8], pivot: [0, 20, 0], from: [-4.5, 0, -4], parent: "body" },
+    { name: "armL", size: [2, 12, 2], pivot: [-3.5, 19, 0], from: [-1, -11, -1], parent: "body" },
+    { name: "armR", size: [2, 12, 2], pivot: [3.5, 19, 0], from: [-1, -11, -1], parent: "body" },
+    { name: "gun", size: [2, 12, 3], pivot: [3.5, 19, 0], from: [-1, -22, -1.5], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const skinA = hex(0xb6bec6);
+    const skinB = hex(0x99a3ad);
+    const belt = hex(0x2b3138);
+    const gray = (x, y, seed) => grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * 0.8), x, y, seed + 1, 0.07);
+    s.part("head", (f, x, y, w, h) => {
+      let c = gray(x, y, 401);
+      if (f === "top") c = shade(c, 1.06);
+      if (f === "bottom") c = shade(c, 0.8);
+      if (f === "front") {
+        // Huge, glossy black eyes slanting down toward the middle.
+        for (const [cx, dir] of [[w * 0.26, -1], [w * 0.74, 1]]) {
+          const dx = x + 0.5 - cx;
+          const dy = y + 0.5 - (h * 0.55 - dx * dir * 0.5);
+          if ((dx * dx) / 12 + (dy * dy) / 8 < 1) c = [6, 8, 12];
+          if (Math.abs(dx + dir * 1.6) < 0.9 && Math.abs(y - h * 0.48) < 0.9) c = [90, 110, 130];
+        }
+        if (y === h - 4 && x >= w * 0.42 && x < w * 0.58) c = shade(c, 0.55); // a thin mouth
+      }
+      return c;
+    });
+    s.part("body", (f, x, y, w, h) => {
+      let c = gray(x, y, 411);
+      if (y >= h - 7 && y < h - 5) c = grain(belt, x, y, 412, 0.1); // belt
+      if (f === "front" && y >= h - 7 && y < h - 5 && x >= w * 0.4 && x < w * 0.6) c = [90, 220, 255]; // buckle
+      if (f === "front" && y < h * 0.4 && (x + y) % 6 === 0) c = shade(c, 0.88); // faint ribs
+      return c;
+    });
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y >= h - 5 ? shade(gray(x, y, 421), 0.9) : gray(x, y, 422)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 4 ? grain(belt, x, y, 431, 0.1) : gray(x, y, 432)));
+    s.part("gun", (f, x, y, w, h) => {
+      let c = grain(hex(0x2a3038), x, y, 441, 0.14);
+      if (y < 3) c = [90, 220, 255];
+      if (y > 5 && y < 9 && (f === "front" || f === "back")) c = [60, 170, 210]; // a glowing coil
+      return c;
+    });
   },
+  animate: alienAnimate,
+};
+
+const ALIEN_RED = {
+  parts: [
+    { name: "legL", size: [4, 9, 4], pivot: [-2.5, 9, 0], from: [-2, -9, -2] },
+    { name: "legR", size: [4, 9, 4], pivot: [2.5, 9, 0], from: [-2, -9, -2] },
+    { name: "body", size: [9, 11, 5], pivot: [0, 9, 0], from: [-4.5, 0, -2.5] },
+    { name: "head", size: [8, 8, 8], pivot: [0, 20, 0], from: [-4, 0, -4], parent: "body" },
+    { name: "hornL", size: [2, 4, 2], pivot: [0, 20, 0], from: [-5, 6, -1], parent: "head", rigid: true },
+    { name: "hornR", size: [2, 4, 2], pivot: [0, 20, 0], from: [3, 6, -1], parent: "head", rigid: true },
+    { name: "armL", size: [4, 10, 4], pivot: [-6.5, 19, 0], from: [-2, -9, -2], parent: "body" },
+    { name: "armR", size: [4, 10, 4], pivot: [6.5, 19, 0], from: [-2, -9, -2], parent: "body" },
+    { name: "gun", size: [5, 8, 5], pivot: [6.5, 19, 0], from: [-2.5, -17, -2.5], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const skinA = hex(0xb8352a);
+    const skinB = hex(0x8c281f);
+    const plate = hex(0x3f2f2c);
+    const plateLight = hex(0x5b4642);
+    const red = (x, y, seed) => grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * 0.8), x, y, seed + 1, 0.1);
+    const armour = (x, y, seed) => grain(mix(plate, plateLight, hash(x >> 2, y >> 2, seed) * 0.6), x, y, seed + 1, 0.08);
+    s.part("head", (f, x, y, w, h) => {
+      let c = red(x, y, 501);
+      if (f === "front") {
+        // Two burning slit eyes under a heavy brow, and a tusked mouth.
+        if (y >= 5 && y < 7 && ((x >= 3 && x < 8) || (x >= w - 8 && x < w - 3))) c = [255, 200, 40];
+        if (y >= 3 && y < 5) c = shade(c, 0.7);
+        if (y >= 11 && y < 13 && x >= 5 && x < w - 5) c = [30, 10, 10];
+        if (y >= 11 && y < 14 && (x === 5 || x === w - 6)) c = [235, 226, 200]; // tusks
+      }
+      return c;
+    });
+    for (const horn of ["hornL", "hornR"]) s.part(horn, (f, x, y, w, h) => grain(hex(0xd9cfb4), x, y, 502, 0.12));
+    s.part("body", (f, x, y, w, h) => {
+      let c = armour(x, y, 511);
+      if (y >= h - 5) c = red(x, y, 512);
+      if (f === "front" && x >= w * 0.4 && x < w * 0.6 && y > 6 && y < h - 8) c = [255, 120, 40]; // a glowing core
+      return c;
+    });
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y < 8 ? armour(x, y, 521) : red(x, y, 522)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y < h * 0.6 ? armour(x, y, 531) : red(x, y, 532)));
+    s.part("gun", (f, x, y, w, h) => {
+      let c = grain(hex(0x2e2624), x, y, 541, 0.14);
+      if (y < 4) c = [255, 140, 40]; // the glowing muzzle
+      if (y > 9 && y < 13) c = [255, 90, 30]; // a heat coil
+      return c;
+    });
+  },
+  animate: alienAnimate,
 };
 
 export const MODELS = {
@@ -1037,6 +1217,8 @@ export const MODELS = {
   parrot: PARROT,
   fish: FISH,
   alien: ALIEN,
+  alien_gray: ALIEN_GRAY,
+  alien_red: ALIEN_RED,
 };
 
 // Shared per species: skin texture, material and part geometries.

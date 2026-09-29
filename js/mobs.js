@@ -41,6 +41,8 @@ const ARROW_GRAVITY = -16;
 const ARROW_DAMAGE = 3;
 const ARROW_LIFE = 5;
 
+const ALIEN_LASER_COLORS = { burst: new THREE.Color(0.5, 3.6, 5), plasma: new THREE.Color(5, 1.6, 0.25) };
+
 function colorGeometry(geo, colorHex) {
   const c = new THREE.Color().setHex(colorHex, THREE.SRGBColorSpace);
   const n = geo.getAttribute("position").count;
@@ -72,7 +74,7 @@ export const SPECIES = {
     drops: [[ITEM.RAW_MEAT, 1, 3, 1], [ITEM.APPLE, 1, 1, 0.15]],
   },
   zombie: {
-    name: "Zombie", hostile: true, health: 20, r: 0.3, h: 1.95, eye: 1.7,
+    name: "Zombie", hostile: true, glows: true, health: 20, r: 0.3, h: 1.95, eye: 1.7,
     speed: 1.1, chaseSpeed: 2.9, maxDrop: 3, damage: 3, sight: 20,
     drops: [[ITEM.COAL, 0, 2, 1], [ITEM.IRON_INGOT, 1, 1, 0.08], [ITEM.APPLE, 1, 1, 0.05]],
   },
@@ -83,7 +85,7 @@ export const SPECIES = {
     drops: [[ITEM.COAL, 0, 1, 0.5], [ITEM.STICK, 0, 2, 0.6]],
   },
   spider: {
-    name: "Spider", hostile: true, health: 16, r: 0.55, h: 0.9, eye: 0.6,
+    name: "Spider", hostile: true, glows: true, health: 16, r: 0.55, h: 0.9, eye: 0.6,
     speed: 1.3, chaseSpeed: 2.6, maxDrop: 5, damage: 2, sight: 18, climbs: true, noBurn: true,
     drops: [[ITEM.STICK, 0, 2, 0.3]],
   },
@@ -98,7 +100,7 @@ export const SPECIES = {
     drops: [[ITEM.RAW_MEAT, 1, 2, 1]],
   },
   chicken: {
-    name: "Chicken", hostile: false, health: 3, r: 0.25, h: 0.6, eye: 0.5,
+    name: "Chicken", hostile: false, health: 3, r: 0.27, h: 0.95, eye: 0.8,
     speed: 1.4, fleeSpeed: 3.8, maxDrop: 1, weight: 3,
     drops: [[ITEM.RAW_MEAT, 1, 1, 1], [ITEM.FLUFF, 0, 1, 0.2]],
   },
@@ -126,11 +128,26 @@ export const SPECIES = {
   },
   // Green aliens climb out of crashed UFOs and fight with laser guns (see
   // ufos.js). Never spawned as ordinary night creatures ("special").
+  // Three kinds of alien crew. Green: the common foot soldier with a laser
+  // pistol. Gray: a tall, fast sharpshooter with a long-range burst rifle.
+  // Red: a slow armoured brute lobbing plasma that blasts the ground.
   alien: {
-    name: "Alien", hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3,
-    speed: 1.4, chaseSpeed: 2.9, maxDrop: 3, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 3,
-    shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true,
-    drops: [[ITEM.IRON_INGOT, 1, 2, 0.6], [ITEM.DIAMOND, 1, 1, 0.12], [ITEM.LASER_BLASTER, 1, 1, 0.04]],
+    name: "Green alien", alien: true, hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3, glows: true,
+    speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 40, ranged: true, laser: true, laserDamage: 3, strafes: true,
+    weapon: "pistol", shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true,
+    drops: [[ITEM.IRON_INGOT, 1, 2, 0.6], [ITEM.DIAMOND, 1, 1, 0.12]],
+  },
+  alien_gray: {
+    name: "Gray alien", alien: true, hostile: true, special: true, health: 14, r: 0.28, h: 1.78, eye: 1.45, glows: true,
+    speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 48, ranged: true, laser: true, laserDamage: 2, strafes: true,
+    weapon: "burst", shootMin: 10, shootMax: 46, shootCooldown: 2.1, noBurn: true,
+    drops: [[ITEM.IRON_INGOT, 1, 2, 0.5], [ITEM.DIAMOND, 1, 1, 0.18]],
+  },
+  alien_red: {
+    name: "Red alien", alien: true, hostile: true, special: true, health: 46, r: 0.42, h: 2.1, eye: 1.7, glows: true,
+    speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 6,
+    weapon: "plasma", shootMin: 4, shootMax: 24, shootCooldown: 2.3, noBurn: true,
+    drops: [[ITEM.IRON_INGOT, 2, 3, 0.8], [ITEM.DIAMOND, 1, 2, 0.3], [ITEM.GOLD_INGOT, 1, 2, 0.4]],
   },
   fish: {
     name: "Fish", hostile: false, health: 3, r: 0.2, h: 0.3, eye: 0.15,
@@ -215,9 +232,10 @@ export class MobManager {
     return n;
   }
 
+  // kind "alien" counts every kind of alien.
   countKind(kind) {
     let n = 0;
-    for (const m of this.mobs) if (!m.dead && m.kind === kind) n++;
+    for (const m of this.mobs) if (!m.dead && (m.kind === kind || (kind === "alien" && m.spec.alien))) n++;
     return n;
   }
 
@@ -262,7 +280,9 @@ export class MobManager {
       burning: false,
       soundTimer: 3 + Math.random() * 8,
       ai: { state: "idle", timer: Math.random() * 3, dirX: 0, dirZ: 1, detour: 0, detourX: 0, detourZ: 0, side: Math.random() < 0.5 ? 1 : -1, target: false },
-      light: { sky: 15, block: 0, flash: new THREE.Color(), glow: spec.hostile ? 1 : 0 },
+      // Only mobs with glowing parts (eyes, emitters) get the glow: it makes
+      // every bright texel glow, which made skeletons shine like lamps.
+      light: { sky: 15, block: 0, flash: new THREE.Color(), glow: spec.glows ? 1 : 0 },
       lazy: 0, // accumulated time while thinking lazily (far away)
       crowd: false, // drawn in the crowd instead of by its own model
     };
@@ -459,7 +479,7 @@ export class MobManager {
 
   // Removes every creature of a kind (aliens, when mods are switched off).
   removeKind(kind) {
-    for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].kind === kind) this._remove(i);
+    for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].kind === kind || (kind === "alien" && this.mobs[i].spec.alien)) this._remove(i);
   }
 
   // Removes every hostile creature at once (switching to Peaceful).
@@ -567,9 +587,11 @@ export class MobManager {
 
   // ---------- AI ----------
 
-  _canTarget() {
+  // Aliens fight anyone (a Creative player too, who just can't be hurt);
+  // everything else leaves Creative players alone.
+  _canTarget(m) {
     const p = this.player;
-    return !p.dead && !p.creative;
+    return !p.dead && (!p.creative || !!m?.spec.alien);
   }
 
   _think(m, dt, dist = 0) {
@@ -584,13 +606,21 @@ export class MobManager {
     let goalZ = 0;
     let speed = 0;
     let lookAtPlayer = distH < 6;
+    // Shooters keep their body turned toward the player, even while backing
+    // away or standing still, and only fire when they actually face them.
+    let faceTarget = false;
 
     if (m.spec.hostile) {
       const dy = p.y - m.pos.y;
-      if (this._canTarget() && distH < (ai.target ? m.spec.sight * 1.4 : m.spec.sight) && Math.abs(dy) < 10) ai.target = true;
+      // A crew that has just climbed out of a wreck (m.aggro) hunts the
+      // player from wherever they are, at any height.
+      const sight = m.aggro ? Math.max(m.spec.sight, 160) : m.spec.sight;
+      const vertical = m.aggro ? 60 : 10;
+      if (this._canTarget(m) && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
       else ai.target = false;
       if (ai.target) {
         lookAtPlayer = true;
+        faceTarget = !!m.spec.ranged;
         if (m.spec.ranged) {
           // Keeps a comfortable shooting distance instead of closing to melee.
           if (distH < m.spec.shootMin) {
@@ -601,8 +631,15 @@ export class MobManager {
             goalX = dx / distH;
             goalZ = dz / distH;
             speed = m.spec.chaseSpeed;
+          } else if (m.spec.strafes) {
+            // Circles the player while shooting (aliens don't stand still).
+            const s = (Math.floor(this.time / 2.2 + m.id) % 2 ? 1 : -1) * 0.6;
+            goalX = (-dz / distH) * s;
+            goalZ = (dx / distH) * s;
+            speed = m.spec.speed * 0.8;
           }
-          if (m.stagger <= 0 && m.attackCooldown <= 0 && distH >= m.spec.shootMin * 0.6 && distH <= m.spec.shootMax * 1.3 && Math.abs(dy) < 10) {
+          const facing = Math.abs(angleDiff(Math.atan2(dx, dz), m.yaw)) < 0.28;
+          if (m.stagger <= 0 && m.attackCooldown <= 0 && facing && distH >= m.spec.shootMin * 0.6 && distH <= m.spec.shootMax * 1.3 && Math.abs(dy) < vertical) {
             if (m.spec.laser) this._shootLaser(m);
             else this._shootArrow(m, dx, dy, dz);
             m.attackCooldown = m.spec.shootCooldown;
@@ -677,8 +714,10 @@ export class MobManager {
     if (m.spec.hop && speed > 0 && m.onGround) jump = true;
 
     // Head and body orientation.
-    const moveYaw = speed > 0 ? Math.atan2(goalX, goalZ) : m.yaw;
-    m.yaw += THREE.MathUtils.clamp(angleDiff(moveYaw, m.yaw), -6 * dt, 6 * dt);
+    let moveYaw = speed > 0 ? Math.atan2(goalX, goalZ) : m.yaw;
+    if (faceTarget && !this.player.dead) moveYaw = Math.atan2(dx, dz);
+    const turnRate = faceTarget ? 9 : 6;
+    m.yaw += THREE.MathUtils.clamp(angleDiff(moveYaw, m.yaw), -turnRate * dt, turnRate * dt);
     let headYaw = 0;
     let headPitch = 0;
     if (lookAtPlayer && !this.player.dead) {
@@ -734,25 +773,42 @@ export class MobManager {
     this.audio.playSwing?.();
   }
 
-  // Aliens: a green laser bolt at the player's chest (or the vehicle the
-  // player is in), a little off at long range.
-  _shootLaser(m) {
+  // Aliens: a laser bolt at the player's chest (or the vehicle the player
+  // is in), a little off at long range. Each kind has its own weapon: a
+  // green pistol bolt, a gray burst of three fast cyan bolts, or a slow red
+  // plasma ball that blasts a small hole where it lands.
+  _shootLaser(m, follow = false) {
     if (!this.lasers) return;
+    const weapon = m.spec.weapon || "pistol";
+    if (weapon === "burst" && !follow) {
+      m.burst = 2; // two more follow the first
+      m.burstT = 0.12;
+    }
     const from = m.pos.clone();
     from.y += m.spec.eye - 0.4;
     const target = this.player.getEyePosition();
     target.y -= 0.6;
+    const aimVel = this.player.vehicle ? this.player.vehicle.vel : this.player.velocity;
+    const speed = weapon === "plasma" ? 38 : weapon === "burst" ? 110 : 62;
+    const dist0 = target.distanceTo(from);
+    // Leads a moving player a little.
+    target.addScaledVector(aimVel, Math.min(1.2, (dist0 / speed) * 0.7));
     const dir = target.sub(from);
     const dist = dir.length() || 1;
     dir.divideScalar(dist);
-    const spread = 0.03 + dist * 0.0012;
+    const spread = (weapon === "burst" ? 0.012 : 0.03) + dist * (weapon === "burst" ? 0.0006 : 0.0012);
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;
     dir.normalize();
     from.addScaledVector(dir, m.spec.r + 0.4);
     m.aimTime = this.time;
-    this.lasers.fire({ from, dir, color: this.alienLaserColor, speed: 62, damage: m.spec.laserDamage, owner: "alien", source: m, range: 70, radius: 0.05, length: 1.3 });
+    const range = dist * 1.4 + 40;
+    if (weapon === "plasma") {
+      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage: m.spec.laserDamage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
+    } else {
+      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage: m.spec.laserDamage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
+    }
   }
 
   // Whether the player's body is hit somewhere along the arrow's step this
@@ -1196,6 +1252,14 @@ export class MobManager {
       m.attackCooldown -= dt;
       m.attack = Math.min(1, m.attack + dt / 0.35);
       m.stagger = Math.max(0, m.stagger - dt);
+      if (m.burst > 0) {
+        m.burstT -= dt;
+        if (m.burstT <= 0 && !m.dead) {
+          m.burst--;
+          m.burstT = 0.12;
+          this._shootLaser(m, true);
+        }
+      }
       const dist = Math.hypot(m.pos.x - p.x, m.pos.z - p.z);
 
       if (m.dead) {
