@@ -3,7 +3,7 @@
 // pulled toward a nearby player, merge with identical stacks nearby, and
 // despawn after a while. Items in unloaded chunks simply wait (no physics).
 import * as THREE from "three";
-import { BLOCK, IS_SOLID } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { maxStack } from "./items.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
@@ -70,6 +70,11 @@ export class ItemEntities {
     while (this.items.length) this._remove(this.items.length - 1);
   }
 
+  // Removes the dropped items for which pred(item) is true.
+  removeWhere(pred) {
+    for (let i = this.items.length - 1; i >= 0; i--) if (pred(this.items[i])) this._remove(i);
+  }
+
   _solid(x, y, z) {
     return IS_SOLID[this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))] === 1;
   }
@@ -112,7 +117,7 @@ export class ItemEntities {
       }
 
       // Physics: gravity (buoyant in water), axis-by-axis collision with blocks.
-      const inWater = world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z)) === BLOCK.WATER;
+      const inWater = IS_WET[world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z))] === 1;
       if (inWater) {
         it.vel.y += (4 - it.vel.y * 2) * dt;
         it.vel.x *= Math.exp(-2 * dt);

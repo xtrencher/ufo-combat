@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Voxelands</title>
+<title>UFO COMBAT</title>
 <style>
   html, body {
     margin: 0;
@@ -155,8 +155,8 @@
   .btn.secondary { background: #445; }
   .btn.secondary:hover { background: #556; }
   .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; }
-  .row label { font-size: 13px; opacity: 0.85; }
-  .row input[type="range"] { width: 160px; }
+  .row label { font-size: 13px; opacity: 0.85; flex: 1; }
+  .row input[type="range"] { width: 180px; flex: none; }
   .row select {
     background: #1c1f24;
     border: 1px solid rgba(255,255,255,0.25);
@@ -288,42 +288,45 @@
     display: none;
   }
   #scope-overlay.visible { display: block; }
+  /* Sniper scope: a clear, zoomed circle of the world (the game narrows the
+     field of view) inside a black mask with a soft lens edge. The mask is a
+     single gradient layer: its center must stay transparent (a second, solid
+     background layer under it used to turn the whole view black). */
   #scope-overlay::before {
     content: "";
     position: absolute;
     inset: 0;
-    background:
-      radial-gradient(circle at center, transparent 0, transparent 29.5%, #000 30%),
-      linear-gradient(#000, #000);
-  }
-  #scope-overlay::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 1px;
-    height: 60vmin;
-    background: rgba(0,0,0,0.55);
-    transform: translate(-50%, -50%);
-    box-shadow: 60vmin 0 0 -0.5px rgba(0,0,0,0.55) inset;
+    background: radial-gradient(circle at center, rgba(0,0,0,0) 0, rgba(0,0,0,0) 36vmin, rgba(0,0,0,0.35) 38.5vmin, rgba(0,0,0,0.92) 40vmin, #000 41vmin);
   }
   #scope-crosshair {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 30vmin;
-    height: 30vmin;
+    width: 80vmin;
+    height: 80vmin;
     transform: translate(-50%, -50%);
     border-radius: 50%;
-    border: 1px solid rgba(20,20,20,0.7);
+    box-shadow: inset 0 0 6vmin rgba(0,0,0,0.55);
   }
   #scope-crosshair::before, #scope-crosshair::after {
     content: "";
     position: absolute;
-    background: rgba(20,20,20,0.8);
+    background: rgba(10,10,10,0.85);
   }
-  #scope-crosshair::before { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); }
-  #scope-crosshair::after { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-50%); }
+  /* Thin center lines, thick posts toward the rim. */
+  #scope-crosshair::before { left: 50%; top: 2vmin; bottom: 2vmin; width: 2px; transform: translateX(-50%); background: linear-gradient(#0a0a0a 0 30%, rgba(10,10,10,0.85) 30% 70%, #0a0a0a 70%); clip-path: inset(0); }
+  #scope-crosshair::after { top: 50%; left: 2vmin; right: 2vmin; height: 2px; transform: translateY(-50%); background: linear-gradient(90deg, #0a0a0a 0 30%, rgba(10,10,10,0.85) 30% 70%, #0a0a0a 70%); }
+  #scope-dot {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin: -2.5px 0 0 -2.5px;
+    border-radius: 50%;
+    background: #ff3a2a;
+    box-shadow: 0 0 4px #ff3a2a;
+  }
   .slot-count {
     position: absolute;
     right: 3px;
@@ -531,15 +534,262 @@
     z-index: 12;
     white-space: pre;
   }
+  /* --- Main menu --- */
+  .menu-overlay {
+    background:
+      radial-gradient(ellipse at 50% 38%, rgba(8,12,24,0.05) 0%, rgba(8,12,24,0.35) 55%, rgba(4,6,14,0.82) 100%),
+      linear-gradient(90deg, rgba(4,8,18,0.55) 0%, rgba(4,8,18,0) 38%);
+    justify-content: flex-start;
+  }
+  .menu-col {
+    margin-left: max(4vw, 24px);
+    width: min(430px, 90vw);
+    max-height: 96vh;
+    overflow-y: auto;
+    padding: 12px 6px;
+  }
+  .logo { text-align: center; margin-bottom: 18px; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.6)); }
+  .logo-ufo { width: 150px; height: 66px; animation: logo-hover 3.2s ease-in-out infinite; }
+  .logo-text {
+    font-family: Impact, "Arial Black", "Helvetica Neue", Arial, sans-serif;
+    font-weight: 900;
+    line-height: 0.92;
+    letter-spacing: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .logo-ufo-word {
+    font-size: 92px;
+    background: linear-gradient(180deg, #eafff8 0%, #7dffd6 45%, #14b88a 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 28px rgba(80,255,200,0.45);
+    -webkit-text-stroke: 1px rgba(0,60,40,0.35);
+  }
+  .logo-combat {
+    font-size: 54px;
+    letter-spacing: 9px;
+    background: linear-gradient(180deg, #fff3c4 0%, #ffb23a 50%, #d2451f 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(70,20,0,0.35);
+  }
+  .logo-tag { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.8; margin-top: 8px; }
+  @keyframes logo-hover { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-6px) rotate(2deg); } }
+  .main-buttons, .pause-buttons { display: flex; flex-direction: column; gap: 9px; margin-bottom: 12px; }
+  .btn.big { font-size: 17px; padding: 12px 18px; width: 100%; background: rgba(40,52,70,0.88); border: 1px solid rgba(255,255,255,0.18); font-weight: 600; letter-spacing: 0.5px; }
+  .btn.big:hover { background: rgba(62,82,108,0.95); }
+  .btn.big.primary { background: linear-gradient(180deg, #37c98e, #1e8f62); border-color: #7dffd6; font-size: 20px; }
+  .btn.big.primary:hover { background: linear-gradient(180deg, #45dca0, #25a472); }
+  .btn.big:disabled, .btn.big:disabled:hover { background: #3b4450; border-color: transparent; }
+  .button-pair { display: flex; gap: 9px; }
+  .button-pair .btn { flex: 1; }
+  .pill { font-size: 10px; padding: 1px 6px; border-radius: 9px; margin-left: 6px; vertical-align: middle; background: #6b2a2a; }
+  .pill.on { background: #1f7a55; }
+  .mode-row { margin: 0; }
+  .menu-footer { background: rgba(10,14,22,0.6); border-radius: 6px; padding: 10px 12px; font-size: 12px; }
+  .menu-footer .row { margin-bottom: 6px; }
+  #world-state { color: #9fe3ff; }
+  .settings-panel { max-width: 760px; padding-bottom: 0; }
+  .settings-panel > .menu-buttons:last-child { position: sticky; bottom: 0; background: rgba(30,34,40,0.97); padding: 10px 0 16px; margin-top: 8px; }
+  .settings-tabs { flex-wrap: wrap; }
+  .perf-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+  .perf-presets .btn { padding: 10px 6px; font-size: 13px; background: #34414f; }
+  .perf-presets .btn.active { background: #1e8f62; }
+  .perf-presets .btn small { display: block; font-size: 10px; opacity: 0.75; margin-top: 2px; }
+  .perf-note { color: #ffcf6b; opacity: 0.95; }
+  .advanced-toggle { background: none; border: none; color: #9fe3ff; cursor: pointer; font-size: 13px; padding: 4px 0; margin: 4px 0 8px; }
+  .mods-master { font-size: 15px; background: rgba(40,120,90,0.25); padding: 8px 10px; border-radius: 5px; }
+  #mods-tools .subhead { margin-top: 14px; }
+  .spawn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+  .spawn-grid .btn { padding: 7px 4px; font-size: 12px; background: #34414f; }
+  #stats-table table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  #stats-table th, #stats-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  #stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .controls-list table { width: 100%; border-collapse: collapse; }
+  .controls-list td { padding: 3px 6px; vertical-align: top; }
+  .controls-list td:first-child { white-space: nowrap; color: #ffd76b; font-weight: 600; width: 38%; }
+  .controls-list h3 { font-size: 14px; margin: 12px 0 4px; color: #9fe3ff; }
+
+  @media (max-height: 760px) {
+    .logo { margin-bottom: 8px; }
+    .logo-ufo { width: 96px; height: 42px; }
+    .logo-ufo-word { font-size: 62px; }
+    .logo-combat { font-size: 36px; letter-spacing: 7px; }
+    .logo-tag { font-size: 11px; margin-top: 4px; }
+    .btn.big { padding: 8px 14px; font-size: 15px; }
+    .btn.big.primary { font-size: 17px; }
+    .main-buttons, .pause-buttons { gap: 6px; }
+    #mode-hint { display: none; }
+  }
+  /* --- Binoculars (hold both mouse buttons) --- */
+  #binocular-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 11;
+    display: none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(0,0,0,0.35) 80%, rgba(0,0,0,0.6) 100%);
+  }
+  /* Two soft overlapping lens circles: dark only outside both. */
+  #binocular-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.78);
+    -webkit-mask-image: radial-gradient(circle at calc(50% - 17vmin) 50%, transparent 0 36vmin, #000 44vmin), radial-gradient(circle at calc(50% + 17vmin) 50%, transparent 0 36vmin, #000 44vmin);
+    -webkit-mask-composite: source-in;
+    mask-image: radial-gradient(circle at calc(50% - 17vmin) 50%, transparent 0 36vmin, #000 44vmin), radial-gradient(circle at calc(50% + 17vmin) 50%, transparent 0 36vmin, #000 44vmin);
+    mask-composite: intersect;
+  }
+  #binocular-overlay.visible { display: block; }
+  #binocular-overlay .reading { position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%); font: 12px ui-monospace, Consolas, monospace; color: rgba(200,255,230,0.8); letter-spacing: 2px; text-shadow: 0 0 4px #000; }
+
+  /* --- Vehicles --- */
+  #vehicle-hud {
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    min-width: 250px;
+    max-width: min(340px, calc(100vw - 28px));
+    background: rgba(6,16,24,0.62);
+    border: 1px solid rgba(120,230,255,0.35);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: #bff6ff;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 0 3px rgba(0,0,0,0.8);
+  }
+  .vh-title { font-weight: 700; color: #fff; letter-spacing: 1px; margin-bottom: 3px; }
+  .vh-row { display: flex; justify-content: space-between; gap: 12px; }
+  .vh-row b { color: #fff; font-weight: 600; }
+  .vh-health { height: 5px; background: rgba(0,0,0,0.5); border-radius: 3px; margin: 5px 0; overflow: hidden; }
+  .vh-health div { height: 100%; }
+  .vh-weapon { color: #ffe08a; margin-top: 2px; }
+  .vh-on { color: #7ff3ff; font-weight: 700; }
+  .vh-warning { color: #ff5a4a; font-weight: 700; animation: vh-blink 0.5s steps(2) infinite; }
+  .vh-help { opacity: 0.6; font-size: 10px; margin-top: 4px; }
+  @keyframes vh-blink { 50% { opacity: 0.25; } }
+  #vehicle-prompt {
+    position: fixed;
+    top: calc(50% + 40px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.5);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 0 3px #000;
+  }
+  #hud-toast {
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 8px rgba(0,0,0,0.9), 1px 1px 0 #000;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+  #hud-toast.show { opacity: 1; }
+  #stats-overlay {
+    position: fixed;
+    top: 8px;
+    right: 10px;
+    margin-top: 28px;
+    font: 12px/1.4 ui-monospace, Consolas, monospace;
+    background: rgba(0,0,0,0.35);
+    padding: 4px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10;
+    text-align: right;
+  }
+  #hit-marker {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    background:
+      linear-gradient(45deg, transparent 45%, #fff 45% 55%, transparent 55%),
+      linear-gradient(-45deg, transparent 45%, #fff 45% 55%, transparent 55%);
+    -webkit-mask: radial-gradient(circle, transparent 0 5px, #000 5px);
+    mask: radial-gradient(circle, transparent 0 5px, #000 5px);
+  }
+  #hit-marker.show { opacity: 1; transition: none; }
+  #hit-marker.fade { opacity: 0; transition: opacity 0.25s; }
+  body.in-vehicle #hotbar, body.in-vehicle #status-bars, body.in-vehicle #item-name, body.in-vehicle #attack-charge, body.in-vehicle #throw-charge { display: none; }
+
+  #beam-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 8;
+    opacity: 0;
+    transition: opacity 0.4s;
+    background: radial-gradient(ellipse at 50% 20%, rgba(120,220,255,0.35) 0%, rgba(60,160,255,0.18) 45%, rgba(20,60,160,0.4) 100%);
+    animation: beam-pulse 0.9s ease-in-out infinite;
+  }
+  #beam-overlay.show { opacity: 1; }
+  @keyframes beam-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+
+  #nuke-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 60; }
+  #lock-box {
+    position: fixed;
+    width: 46px;
+    height: 46px;
+    margin: -23px 0 0 -23px;
+    border: 2px solid #ffd84a;
+    box-shadow: 0 0 6px rgba(0,0,0,0.6);
+    pointer-events: none;
+    z-index: 10;
+    transition: width 0.1s, height 0.1s, margin 0.1s;
+  }
+  #lock-box.locked { border-color: #ff3a2a; border-width: 3px; }
+  #lock-box.locked::after { content: "LOCK"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font: 700 11px ui-monospace, Consolas, monospace; color: #ff3a2a; letter-spacing: 1px; }
+  #jet-nose {
+    position: fixed;
+    width: 26px;
+    height: 10px;
+    margin: -5px 0 0 -13px;
+    pointer-events: none;
+    z-index: 10;
+    border-bottom: 2px solid rgba(160,255,190,0.9);
+    border-left: 2px solid rgba(160,255,190,0.9);
+    border-right: 2px solid rgba(160,255,190,0.9);
+    border-radius: 0 0 8px 8px;
+  }
+  .vh-lock { color: #ff5a4a; font-weight: 700; }
+
   /* F1 hides every HUD element (the held item is hidden by the game). */
-  body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay { visibility: hidden; }
+  body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay, body.hud-off #binocular-overlay { visibility: hidden; }
 </style>
 </head>
 <body>
   <canvas id="game-canvas"></canvas>
 
   <div id="damage-flash"></div>
-  <div id="scope-overlay"><div id="scope-crosshair"></div></div>
+  <div id="nuke-flash"></div>
+  <div id="binocular-overlay"><div class="reading" id="binocular-reading"></div></div>
+  <div id="scope-overlay"><div id="scope-crosshair"><div id="scope-dot"></div></div></div>
   <div id="hud" class="hidden">
     <div id="crosshair"></div>
     <div id="attack-charge" class="hidden"><div></div></div>
@@ -549,6 +799,14 @@
     <div id="item-name"></div>
     <div id="status-bars"><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
     <div id="hotbar"></div>
+    <div id="vehicle-hud" class="hidden"></div>
+    <div id="vehicle-prompt" class="hidden"></div>
+    <div id="hud-toast"></div>
+    <div id="stats-overlay" class="hidden"></div>
+    <div id="hit-marker"></div>
+    <div id="beam-overlay"></div>
+    <div id="lock-box" class="hidden"></div>
+    <div id="jet-nose" class="hidden"></div>
   </div>
 
   <pre id="debug-overlay" class="hidden"></pre>
@@ -565,7 +823,7 @@
        what to try (filled in by the script at the end of the page). -->
   <div id="boot" class="overlay">
     <div class="panel">
-      <h1>Voxelands</h1>
+      <h1>UFO COMBAT</h1>
       <div id="boot-status" class="subtitle">Loading&hellip;</div>
       <div id="boot-error" class="hidden">
         <h2 id="boot-error-title"></h2>
@@ -579,54 +837,117 @@
     </div>
   </div>
 
-  <div id="start-menu" class="overlay hidden">
+  <!-- Main menu: the logo over a slow flyover of the world (drawn by the
+       game behind this transparent overlay). -->
+  <div id="start-menu" class="overlay menu-overlay hidden">
+    <div class="menu-col">
+      <div class="logo" aria-label="UFO COMBAT">
+        <svg class="logo-ufo" viewBox="0 0 120 52" aria-hidden="true">
+          <defs>
+            <linearGradient id="lg-hull" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e9f3ff"/><stop offset="0.55" stop-color="#8aa3bd"/><stop offset="1" stop-color="#3b4b5e"/></linearGradient>
+            <linearGradient id="lg-dome" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9fff4"/><stop offset="1" stop-color="#3ee6b8"/></linearGradient>
+            <radialGradient id="lg-beam" cx="0.5" cy="0" r="1"><stop offset="0" stop-color="#7fe8ff" stop-opacity="0.8"/><stop offset="1" stop-color="#7fe8ff" stop-opacity="0"/></radialGradient>
+          </defs>
+          <path d="M44 30 L20 52 L100 52 L76 30 Z" fill="url(#lg-beam)"/>
+          <ellipse cx="60" cy="18" rx="17" ry="13" fill="url(#lg-dome)"/>
+          <ellipse cx="60" cy="27" rx="56" ry="11" fill="url(#lg-hull)"/>
+          <ellipse cx="60" cy="31" rx="30" ry="4" fill="#1d2735"/>
+          <circle cx="22" cy="27" r="2.6" fill="#ff5a4a"/><circle cx="41" cy="31" r="2.6" fill="#ffe14a"/><circle cx="60" cy="33" r="2.6" fill="#5affc8"/><circle cx="79" cy="31" r="2.6" fill="#ffe14a"/><circle cx="98" cy="27" r="2.6" fill="#ff5a4a"/>
+        </svg>
+        <div class="logo-text"><span class="logo-ufo-word">UFO</span><span class="logo-combat">COMBAT</span></div>
+        <div class="logo-tag">A voxel sandbox under alien attack</div>
+      </div>
+      <div class="main-buttons">
+        <button class="btn big primary" id="play-btn">Click to Play</button>
+        <div class="row mode-row">
+          <label for="mode-select">Game mode</label>
+          <select id="mode-select">
+            <option value="survival">Survival</option>
+            <option value="creative">Creative</option>
+          </select>
+        </div>
+        <div id="mode-hint" class="hint"></div>
+        <button class="btn big" id="new-world-btn">New World</button>
+        <div class="button-pair">
+          <button class="btn big" id="menu-settings-btn">Settings</button>
+          <button class="btn big" id="menu-mods-btn">Mods <span id="menu-mods-state" class="pill on">ON</span></button>
+        </div>
+        <button class="btn big" id="menu-controls-btn">Controls</button>
+      </div>
+      <div class="menu-footer">
+        <div class="row">
+          <label for="start-graphics-preset">Graphics</label>
+          <select id="start-graphics-preset">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="ultra">Ultra</option>
+          </select>
+        </div>
+        <div id="start-notice" class="hint"></div>
+        <div id="seed-display">World seed: <span id="seed-value">-</span> <span id="world-state"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New world: an optional seed, then the page reloads into that world. -->
+  <div id="new-world-screen" class="overlay hidden">
     <div class="panel">
-      <h1>Voxelands</h1>
-      <div class="subtitle">A tiny procedural voxel world, built for the browser.</div>
-      <div class="controls-list">
-        <b>WASD</b> move &nbsp; <b>Mouse</b> look &nbsp; <b>Space</b> jump / swim<br/>
-        <b>Shift</b> sneak &nbsp; <b>Ctrl</b> or <b>double-tap W</b> sprint<br/>
-        <b>Left Click</b> mine / attack (hold) &nbsp; <b>Right Click</b> place / use / eat<br/>
-        <b>1-9 / Scroll</b> hotbar &nbsp; <b>E</b> inventory &amp; crafting &nbsp; <b>Q</b> drop item<br/>
-        <b>Grenade:</b> hold Right Click to charge, release to throw &nbsp; <b>Pistol / Bazooka:</b> Right Click fires<br/>
-        <b>Machine Gun:</b> hold Right Click for auto fire &nbsp; <b>Sniper:</b> Right Click scopes, Left Click fires<br/>
-        <b>Airstrike:</b> aim the laser, Right Click to call it in<br/>
-        <b>Creative:</b> double-tap Space to fly, middle click picks a block<br/>
-        <b>F1</b> hide HUD &nbsp; <b>F3</b> debug info &nbsp; <b>F5</b> camera view &nbsp; <b>Esc</b> pause menu &amp; settings
-      </div>
+      <h2>New World</h2>
       <div class="row">
-        <label for="mode-select">Game mode</label>
-        <select id="mode-select">
-          <option value="survival">Survival</option>
-          <option value="creative">Creative</option>
-        </select>
+        <label for="new-seed">Seed (optional)</label>
+        <input type="text" id="new-seed" placeholder="random" maxlength="12" />
       </div>
-      <div id="mode-hint" class="hint"></div>
-      <div class="row">
-        <label for="start-graphics-preset">Graphics</label>
-        <select id="start-graphics-preset">
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-          <option value="ultra">Ultra</option>
-        </select>
-      </div>
-      <div id="start-notice" class="hint"></div>
-      <div id="seed-display">Seed: <span id="seed-value">-</span></div>
+      <div class="hint">Leave it empty for a random world. The same seed always makes the same land; share it with friends to play the same world.</div>
+      <div id="new-seed-note" class="hint"></div>
       <div class="menu-buttons">
-        <button class="btn" id="play-btn">Click to Play</button>
+        <button class="btn" id="new-world-create">Create world</button>
+        <button class="btn secondary back-btn">Back</button>
       </div>
     </div>
   </div>
 
   <div id="pause-menu" class="overlay hidden">
-    <div class="panel wide">
+    <div class="panel">
       <h2>Paused</h2>
+      <div class="pause-buttons">
+        <button class="btn big primary" id="resume-btn">Resume</button>
+        <button class="btn big" id="pause-settings-btn">Settings</button>
+        <div class="button-pair">
+          <button class="btn big" id="pause-mods-btn">Mods <span id="pause-mods-state" class="pill on">ON</span></button>
+          <button class="btn big" id="pause-stats-btn">Stats</button>
+        </div>
+        <button class="btn big" id="pause-controls-btn">Controls</button>
+        <div class="button-pair">
+          <button class="btn secondary" id="copy-link-btn">Copy world link</button>
+          <button class="btn secondary" id="main-menu-btn">Save &amp; main menu</button>
+        </div>
+      </div>
+      <div class="row">
+        <label for="pause-mode-select">Game mode</label>
+        <select id="pause-mode-select">
+          <option value="survival">Survival</option>
+          <option value="creative">Creative</option>
+        </select>
+      </div>
+      <div id="pause-mode-hint" class="hint"></div>
+      <div id="pause-seed" style="font-size:12px; opacity:0.7; margin: 12px 0 0 0;">Seed: <span id="pause-seed-value">-</span></div>
+    </div>
+  </div>
+
+  <div id="settings-screen" class="overlay hidden">
+    <div class="panel wide settings-panel">
+      <h2>Settings</h2>
       <div class="settings-tabs">
-        <button class="settings-tab" data-page="video">Video</button>
+        <button class="settings-tab" data-page="video">Graphics</button>
+        <button class="settings-tab" data-page="performance">Performance</button>
         <button class="settings-tab" data-page="controls">Controls</button>
         <button class="settings-tab" data-page="audio">Audio</button>
         <button class="settings-tab" data-page="gameplay">Gameplay</button>
+        <button class="settings-tab" data-page="weapons">Weapons</button>
+        <button class="settings-tab" data-page="mobs">Mobs</button>
+        <button class="settings-tab" data-page="ufos">UFOs</button>
+        <button class="settings-tab" data-page="vehicles">Vehicles</button>
       </div>
 
       <div class="settings-page" data-page="video">
@@ -635,6 +956,7 @@
           <input type="range" id="render-distance" min="2" max="100" step="1" value="10" />
           <span id="render-distance-value" class="val">10</span>
         </div>
+        <div class="hint">How far you can see. Beyond the full-detail area the land is drawn as simplified tiles (see Performance).</div>
         <div class="row">
           <label for="graphics-preset">Graphics preset</label>
           <select id="graphics-preset">
@@ -652,6 +974,14 @@
           <input type="checkbox" id="show-fps" />
         </div>
         <div class="menu-buttons small"><button class="btn secondary" id="gfx-reset-btn">Reset options to preset</button></div>
+        <div class="auto-rows"></div>
+      </div>
+
+      <div class="settings-page hidden" data-page="performance">
+        <div class="subhead">One-click performance presets</div>
+        <div class="perf-presets" id="perf-presets"></div>
+        <div id="perf-preset-hint" class="hint"></div>
+        <div class="auto-rows"></div>
       </div>
 
       <div class="settings-page hidden" data-page="controls">
@@ -669,17 +999,7 @@
           <label for="invert-y">Invert mouse Y</label>
           <input type="checkbox" id="invert-y" />
         </div>
-        <div class="controls-list">
-        <b>WASD</b> move &nbsp; <b>Mouse</b> look &nbsp; <b>Space</b> jump / swim<br/>
-        <b>Shift</b> sneak &nbsp; <b>Ctrl</b> or <b>double-tap W</b> sprint<br/>
-        <b>Left Click</b> mine / attack (hold) &nbsp; <b>Right Click</b> place / use / eat<br/>
-        <b>1-9 / Scroll</b> hotbar &nbsp; <b>E</b> inventory &amp; crafting &nbsp; <b>Q</b> drop item<br/>
-        <b>Grenade:</b> hold Right Click to charge, release to throw &nbsp; <b>Pistol / Bazooka:</b> Right Click fires<br/>
-        <b>Machine Gun:</b> hold Right Click for auto fire &nbsp; <b>Sniper:</b> Right Click scopes, Left Click fires<br/>
-        <b>Airstrike:</b> aim the laser, Right Click to call it in<br/>
-        <b>Creative:</b> double-tap Space to fly, middle click picks a block<br/>
-        <b>F1</b> hide HUD &nbsp; <b>F3</b> debug info &nbsp; <b>F5</b> camera (first person / behind / in front)
-        </div>
+        <div class="auto-rows"></div>
       </div>
 
       <div class="settings-page hidden" data-page="audio">
@@ -687,14 +1007,6 @@
       </div>
 
       <div class="settings-page hidden" data-page="gameplay">
-        <div class="row">
-          <label for="pause-mode-select">Game mode</label>
-          <select id="pause-mode-select">
-            <option value="survival">Survival</option>
-            <option value="creative">Creative</option>
-          </select>
-        </div>
-        <div id="pause-mode-hint" class="hint"></div>
         <div class="row">
           <label for="difficulty">Difficulty</label>
           <select id="difficulty">
@@ -717,6 +1029,10 @@
           <label for="time-lock">Lock time of day</label>
           <input type="checkbox" id="time-lock" />
         </div>
+        <div class="auto-rows"></div>
+      </div>
+
+      <div class="settings-page hidden" data-page="weapons">
         <div class="row">
           <label>Grenade blast size</label>
           <input type="range" id="explosion-grenade" min="0.4" max="2" step="0.05" value="1" />
@@ -727,17 +1043,66 @@
           <input type="range" id="explosion-bazooka" min="0.4" max="2" step="0.05" value="1" />
           <span id="explosion-bazooka-value" class="val">1.0x</span>
         </div>
+        <div class="auto-rows"></div>
         <div class="row">
-          <label>Airstrike blast size</label>
+          <label>Meteor explosion size</label>
           <input type="range" id="explosion-airstrike" min="0.4" max="2" step="0.05" value="1" />
           <span id="explosion-airstrike-value" class="val">1.0x</span>
         </div>
+        <div class="auto-rows-late"></div>
       </div>
 
-      <div id="pause-seed" style="font-size:12px; opacity:0.7; margin: 12px 0 0 0;">Seed: <span id="pause-seed-value">-</span></div>
+      <div class="settings-page hidden" data-page="mobs">
+        <div class="auto-rows"></div>
+      </div>
+
+      <div class="settings-page hidden" data-page="ufos">
+        <div class="auto-rows"></div>
+        <button class="advanced-toggle">&#9656; Advanced</button>
+        <div class="auto-rows-advanced hidden"></div>
+      </div>
+
+      <div class="settings-page hidden" data-page="vehicles">
+        <div class="auto-rows"></div>
+      </div>
+
       <div class="menu-buttons">
-        <button class="btn" id="resume-btn">Resume</button>
-        <button class="btn secondary" id="copy-link-btn">Copy world link</button>
+        <button class="btn back-btn" id="settings-back-btn">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mods-screen" class="overlay hidden">
+    <div class="panel wide">
+      <h2>Mods</h2>
+      <div class="row mods-master">
+        <label for="mods-enabled"><b>UFO COMBAT mods</b></label>
+        <input type="checkbox" id="mods-enabled" />
+      </div>
+      <div class="hint">On: guns, explosives, the laser blaster, UFOs, aliens and vehicles. Off: plain vanilla survival and creative (swords and tools stay). Switching takes effect at once: mod items are put away (and come back when you switch mods on again), and UFOs, aliens and vehicles leave the world.</div>
+      <div id="mods-tools"></div>
+      <div class="menu-buttons">
+        <button class="btn back-btn">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="controls-screen" class="overlay hidden">
+    <div class="panel wide">
+      <h2>Controls</h2>
+      <div class="controls-list" id="controls-list"></div>
+      <div class="menu-buttons">
+        <button class="btn back-btn">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="stats-screen" class="overlay hidden">
+    <div class="panel wide">
+      <h2>Stats</h2>
+      <div id="stats-table"></div>
+      <div class="menu-buttons">
+        <button class="btn back-btn">Back</button>
       </div>
     </div>
   </div>
@@ -746,7 +1111,7 @@
     <div class="panel">
       <h2>WebGL 2 Required</h2>
       <p style="font-size:14px; line-height:1.5; opacity:0.9;">
-        Voxelands needs a browser with WebGL 2 support (any recent version of
+        UFO COMBAT needs a browser with WebGL 2 support (any recent version of
         Chrome, Edge, Firefox or Safari). Please update your browser, or enable
         hardware acceleration in its settings, and reload the page.
       </p>
@@ -774,7 +1139,7 @@
     <div class="panel">
       <h2>Keyboard &amp; Mouse Required</h2>
       <p style="font-size:14px; line-height:1.5; opacity:0.9;">
-        Voxelands is a first-person 3D game that needs a physical keyboard and mouse
+        UFO COMBAT is a first-person 3D game that needs a physical keyboard and mouse
         for movement and looking around. Please open this page on a desktop or laptop
         computer to play.
       </p>
@@ -783,12 +1148,12 @@
 
   <script>
     // Startup safety net. Until js/main.js reports that the game has started
-    // (__voxelandsBoot.done()), an error is shown on the page with what to
+    // (__ufoBoot.done()), an error is shown on the page with what to
     // try, instead of leaving it blank: the page opened as a file, a game
     // file that failed to load, a script error, or WebGL not starting.
     (function () {
       var boot = { started: false, failed: false };
-      window.__voxelandsBoot = boot;
+      window.__ufoBoot = boot;
       function $(id) { return document.getElementById(id); }
       var GENERAL = "Reload the page to try again. If it keeps happening, start with Low graphics (below), update your browser, and look in the browser's console (F12) for details.";
       var MIXED = "Parts of the game don't match, most likely because the browser mixed old cached files with new ones after an update. Reload with <b>Ctrl+Shift+R</b> (<b>Cmd+Shift+R</b> on a Mac).";
@@ -848,6 +1213,6 @@
     }
   }
   </script>
-  <script type="module" src="./js/main.js" onerror="__voxelandsBoot.loadFailed()"></script>
+  <script type="module" src="./js/main.js" onerror="__ufoBoot.loadFailed()"></script>
 </body>
 </html>

@@ -132,6 +132,18 @@ export class TerrainGenerator {
     return [bx, bz];
   }
 
+  // Whether a cave would open up under or beside a puddle at (wx, h, wz)
+  // (caves are carved after the puddles, and would drain them into thin air).
+  _caveBesidePuddle(wx, h, wz) {
+    return (
+      this.isCarved(wx, h - 1, wz) ||
+      this.isCarved(wx + 1, h, wz) ||
+      this.isCarved(wx - 1, h, wz) ||
+      this.isCarved(wx, h, wz + 1) ||
+      this.isCarved(wx, h, wz - 1)
+    );
+  }
+
   // Whether the cave carver removes solid terrain at (wx, y, wz) above sea
   // level. Samples the same noise lattice as _carveCaves (lattice points sit
   // at world multiples of CAVE_STEP, stored as 32-bit floats there, so the
@@ -226,10 +238,20 @@ export class TerrainGenerator {
           else id = BLOCK.STONE;
           blocks[idx(lx, y, lz)] = id;
         }
-        // Swamps get scattered shallow puddles sitting in the ground.
-        if (biome === BIOME.SWAMP && !isBeach && h + 1 < WORLD_HEIGHT && hash2(this.seed ^ SWAMP_SALT, baseX + lx, baseZ + lz) < 0.16) {
-          blocks[idx(lx, h, lz)] = BLOCK.DIRT;
-          blocks[idx(lx, h + 1, lz)] = BLOCK.WATER;
+        // Swamps get scattered shallow puddles sunk into the ground: the
+        // water replaces the top block (it used to sit on top of it, a lone
+        // water block standing on dry land), and only where every side
+        // neighbour is at least as high, so the puddle is walled in.
+        if (
+          biome === BIOME.SWAMP &&
+          !isBeach &&
+          h > SEA_LEVEL + 1 &&
+          hash2(this.seed ^ SWAMP_SALT, baseX + lx, baseZ + lz) < 0.16 &&
+          Math.min(hAt(lx + 1, lz), hAt(lx - 1, lz), hAt(lx, lz + 1), hAt(lx, lz - 1)) >= h &&
+          !this._caveBesidePuddle(baseX + lx, h, baseZ + lz)
+        ) {
+          blocks[idx(lx, h - 1, lz)] = BLOCK.DIRT;
+          blocks[idx(lx, h, lz)] = BLOCK.WATER;
         }
         // Bedrock floor: solid at y=0, ragged at y=1.
         blocks[idx(lx, 0, lz)] = BLOCK.BEDROCK;

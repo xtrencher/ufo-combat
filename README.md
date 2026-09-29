@@ -1,8 +1,10 @@
-# Voxelands
+# UFO COMBAT
 
-A procedurally generated voxel survival sandbox that runs entirely in the
-browser: no install, no build step, no accounts. Inspired by block-building
-survival games, built from scratch with plain JavaScript and
+A procedurally generated voxel sandbox under alien attack, running entirely
+in the browser: no install, no build step, no accounts. Build and survive in
+a block world, then take on UFOs with guns, a laser blaster, meteor
+airstrikes, a fighter jet and, once you've shot one down, a flying saucer of
+your own. Built from scratch with plain JavaScript and
 [Three.js](https://threejs.org/).
 
 Everything is generated in code at runtime: the terrain, every block
@@ -11,9 +13,21 @@ There are no image, model or audio files.
 
 ## Play
 
-Open the game (see **Running locally** below), pick **Survival** or
-**Creative** on the start screen, and click **Click to Play** to lock your
-mouse.
+Open the game (see **Running locally** below). The main menu flies slowly
+over your world while a UFO drifts by:
+
+- **Play / Continue** enters the world (the last world you played is
+  continued; pick **Survival** or **Creative** under the button).
+- **New World** starts a fresh world, with an optional seed (a number, or any
+  text).
+- **Settings** has every option, in tabs (Graphics, Performance, Controls,
+  Audio, Gameplay, Weapons, Mobs, UFOs, Vehicles), each with **Reset to
+  defaults**.
+- **Mods** switches the UFO COMBAT content on or off (see below).
+- **Controls** lists every key.
+
+Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
+Settings, Mods, Stats, Controls, Copy world link, Save & main menu).
 
 - **Survival:** start with nothing. Punch a tree for logs, turn them into
   planks and a crafting table, make a wooden pickaxe, dig down for stone,
@@ -36,16 +50,22 @@ mode, your position, inventory and health.
 | Sprint | `Ctrl` + `W`, or double-tap `W` |
 | Sneak (slow, won't walk off edges) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
-| Place a block / use / eat (hold to eat) | Right click |
-| Throw a grenade | Hold right click to charge (bar under the crosshair), release to throw |
-| Fire the pistol or bazooka | Right click (every click fires; no ammo, no reloading) |
+| Place a block / use / eat (hold to eat) / fire the weapon in hand | Right click |
+| **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Open a crafting table | Right click it (`Shift` + right click places against it) |
 | Select hotbar slot | `1`-`9` or scroll wheel |
 | Inventory and crafting | `E` |
 | Drop the held item (whole stack with `Ctrl`) | `Q` |
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
 | Pick the targeted block (Creative) | Middle click |
-| Pause menu (render distance, graphics, game mode) | `Esc` |
+| Pause menu | `Esc` (also steps back out of any menu screen) |
+| Board / leave a vehicle (Mods on) | `F` |
+| Call your fighter jet (Mods on) | `J` |
+| Hide the HUD / debug info / camera view | `F1` / `F3` / `F5` |
+
+Pressing both mouse buttons together never mines, places or fires: a single
+press waits a few hundredths of a second to see whether the other button
+follows. The zoom strength is in **Settings > Controls**.
 
 **In the inventory screen:** left click picks up, puts down or swaps a stack;
 right click takes half or places one; `Shift` + click moves a stack between
@@ -79,17 +99,27 @@ make right now highlighted: click one to fill the grid.
 - **Hoplet:** a striped little hopper with tall ears. Quick to flee.
 - **Mossback:** a slow, moss-covered tortoise that hides in its shell when
   hit.
+- **Cows, pigs and chickens** graze in the meadows; **villagers** wander
+  their villages; **butterflies**, **parrots** and **fish** add life.
 - **Zombie:** comes out in the dark (at night, or in unlit caves), chases
   you, and hits hard. Zombies burn in daylight. Swords recharge between
   swings (watch the bar under the crosshair); hit while falling for a
   critical hit.
+- **Skeletons** shoot real arrows; **spiders** climb walls.
 
-### Weapons
+**Zombie settings** (Settings > Mobs): spawn rate (off to 50x, the
+"APOCALYPSE"), maximum count (up to 400), health and damage multipliers,
+and daylight zombies (they spawn by day and don't burn). Far zombies are
+drawn as simplified crowds and think less often, so hundreds stay playable;
+a note warns next to the heavy values.
 
-Weapons sit in the hotbar like any other item (all three are in the
-Creative inventory, and can be crafted in Survival). With one selected,
-right click uses it instead of placing a block. There's no ammo and no
-reloading.
+### Weapons (Mods on)
+
+A new game starts with every weapon in the hotbar (slots 1-8). They can
+also be crafted in Survival and are in the Creative inventory. With one
+selected, right click uses it instead of placing a block. There's no ammo
+and no reloading, and every weapon has its own cooldown, so none of them
+blocks another.
 
 - **Grenade** (1 iron ingot + 2 coal): hold right click to charge the throw
   (the bar under the crosshair fills in about 1.5 s), release to throw. A
@@ -101,23 +131,165 @@ reloading.
   and recoil. Bullets spark and leave holes in blocks, and hurt and push
   back creatures.
 - **Bazooka** (8 iron ingots around a grenade): a fast rocket with a smoke
-  trail that explodes on terrain or creatures, with five times a grenade's
-  blast radius. It can hit you too: keep your distance.
+  trail that explodes on terrain or creatures. It can hit you too: keep your
+  distance.
+- **Machine gun:** hold right click for automatic fire with tracers and
+  climbing recoil.
+- **Sniper rifle:** right click scopes in (a zoomed view through a scope),
+  left click fires a long-range, high-damage shot.
+- **Laser blaster** (lumen crystal, diamond and iron ingots): short glowing
+  sci-fi bolts in red, green or blue (**Settings > Weapons**) that glow,
+  spark on impact and leave scorch marks. Hold right click for repeat fire.
+- **Airstrike designator:** aim its laser and right click. After the delay a
+  shower of meteors screams in at an angle from high up and far away: each
+  one has a glowing, white-hot core, a heat glow, a fiery tail and a long
+  smoke trail, and lands with a flash, a shockwave and a crater. Settings:
+  meteors per strike, spread radius, delay, fall angle, fall speed and
+  explosion size.
+- **Jet Radio:** calls in your fighter jet (see **Vehicles**).
 
 Explosions shake the camera and sound quieter, more muffled and later the
 farther away they are. Sand and gravel fall when the ground under them is
 blown away.
 
-## Graphics
+## UFOs (Mods on)
 
-The start and pause menus have a **Graphics** setting, saved in your browser:
+UFOs roam the skies anywhere from treetop height to high overhead, in ten
+designs: glowing and dark saucers, tic-tacs, orbs, pyramids, black
+triangles, cigars, rings, spinning diamonds and a black cube inside a
+glowing sphere, each with its own blinking or color-cycling lights, in four
+sizes from small scouts to huge motherships. They arrive from far away
+(never popping up in plain sight), and there are far more of them at night.
+When idle they hover over lakes, zig-zag, follow animals, or beam up a cow;
+rarely one shoots off into the sky at enormous speed and is gone for good.
+
+- **On foot:** a UFO that spots you (it needs a line of sight; the closer
+  you are the likelier) races over, stops above you and lifts you in a cone
+  of blue light. Reach the ship and you're **abducted**. Get out of the
+  light (you can still move), hide under a roof, or shoot it down. After
+  you respawn, UFOs leave you alone for half a minute.
+- **Shooting at one** makes it react: laser volleys, a dive to beam you up,
+  or evasive jinks and altitude changes. Every weapon hurts UFOs; big ones
+  are very tough.
+- **Shot down**, a UFO falls burning, crash-lands in a crater, and **green
+  aliens** with laser guns climb out. Kill them, then walk up to the wreck
+  and press **F** to fly it (damaged, but it works).
+- **In your jet** each UFO has a personality: most flee (a bit slower than
+  the jet at full throttle, so you can catch them), some are faster and get
+  away, and fighters attack you with lasers and head-on passes.
+- **In a UFO** the others take you for one of their own... until you shoot
+  one.
+
+**Settings > UFOs:** one **UFO activity** slider from Off and Very rare up to
+**UFO APOCALYPSE**, and **Advanced** options: spawn chance, max count,
+aggression, detection range, beam lift strength, sizes, night multiplier and
+toughness.
+
+## Vehicles (Mods on)
+
+| Action | Key |
+| --- | --- |
+| Board a vehicle / get out | `F` (near it) |
+| Camera view | `F5` |
+
+Getting out puts you on the ground beside the vehicle (or in the water, or
+out of a tunnel). From high up you drop out under a **parachute** (a jet
+ejects you upward first). Hits on you while seated damage the vehicle; if it
+is destroyed with you inside, you go down with it. Vehicles are saved with
+the world, including the one you're sitting in.
+
+### Your UFO
+
+Board a crashed UFO, or in Creative spawn one from the **Mods** screen (any
+shape and size). It has no physics limits: it hovers perfectly still and
+moves instantly in any direction.
+
+| Action | Key |
+| --- | --- |
+| Look / steer | Mouse |
+| Move along the view / back | `W` / `S` |
+| Sideways | `A` / `D` |
+| Up / down | `Space` / `Shift` |
+| Cruising speed | Mouse wheel (from a slow hover to extremely fast) |
+| Boost (3x) | `Ctrl` |
+| Laser cannon | Left click |
+| Tractor beam (lifts creatures, and loose blocks, into the ship) | Hold right click |
+| Chase camera / far / belly view | `F5` |
+
+**Settings > Vehicles:** top and slowest speed, **ghost mode** (fly through
+the terrain, burning a tunnel), and whether the beam lifts blocks. Creatures
+you beam up are "stored": their drops go to your inventory, as do the blocks.
+
+### Fighter jet
+
+Press **J** (or right click with the **Jet Radio**) to call in your F-22
+style stealth fighter. It lands on a flat strip nearby (walk up and press
+**F**), or, if there's no flat ground around (or **Settings > Vehicles >
+Called-in jet arrives airborne** is on), it arrives in the air with you
+already in the cockpit.
+
+It flies like a jet: thrust from the throttle (and the afterburner), lift
+that needs airspeed, drag, gravity, and a stall below the stall speed (the
+nose drops). It can't hover. Take off with full throttle and the
+afterburner down the strip: with flight assist the jet rotates by itself
+once it has flying speed (without assist, pull up). Land gently, level and wheels first. Hitting the ground any
+other way destroys it, and you with it, unless you **eject** (F in the air:
+the seat fires you out and a parachute opens). UFOs can shoot it down.
+
+| Action | Key |
+| --- | --- |
+| Steer | Mouse (with **flight assist**, the default: fly toward the crosshair; the little nose marker shows where the jet points) |
+| Throttle up / down | `W` / `S` |
+| Afterburner | `Shift` |
+| Roll | `A` / `D` |
+| Rudder (yaw) | `Q` / `E` |
+| Air brake / wheel brakes | `Space` |
+| Autocannon (tracers) | Left click |
+| Missile | Right click (it locks onto a UFO or creature kept in front of the nose: a box closes on the target, the tone speeds up, then **LOCK**) |
+| Nuclear bomb | `B` (it drops on a parachute: get clear!) |
+| Chase / cockpit view | `F5` |
+| Get out / eject | `F` |
+
+The HUD shows speed, altitude, throttle, heading, the missile lock, the nuke
+reload, the jet's health, and warnings: **STALL**, **PULL UP**, **INCOMING
+ATTACK**. With flight assist off, the mouse is the stick (up/down pitch,
+left/right roll). **Settings > Vehicles:** top speed, acceleration, turn
+rate, stall speed, flight assist, and whether the jet arrives airborne.
+
+**The nuke** goes off with a blinding white flash, a fireball, a shockwave
+racing over the ground, a huge crater, a scorched blast zone and a
+mushroom cloud that climbs for half a minute; the boom is heard, late and
+muffled, from far away. **Settings > Weapons:** nuke size and effects
+intensity.
+
+## Stats
+
+The pause menu's **Stats** screen counts, for this world and for all your
+worlds: UFOs shot down, play time, aliens and zombies killed, deaths,
+abductions survived, times abducted, creatures you abducted, UFOs boarded,
+jets called in, missile hits and nukes dropped. **Settings > Gameplay >
+Stats on the HUD** shows UFOs shot down and play time in a corner (off by
+default).
+
+## Mods
+
+**Mods** (main menu or pause menu) switches all the UFO COMBAT content on
+or off. It's on by default. Off gives plain vanilla survival and creative:
+no guns, explosives, vehicles, UFOs or aliens (swords and tools stay).
+Switching mid-game is instant and clean: mod items are put away and come
+back to the same slots when you switch mods on again; projectiles, UFOs,
+aliens and vehicles leave the world.
+
+## Graphics and performance
+
+**Graphics presets** (start menu, or Settings > Graphics):
 
 - **Low:** no shadows or post-processing. For weak laptops.
-- **Medium:** sun shadows and bloom.
+- **Medium** (default): sun shadows and bloom.
 - **High:** two cascades of soft sun shadows, normal-mapped textures with
   specular light, refractive water, light shafts, 3D grass, reeds, ferns
   and flowers, and fuller tree crowns.
-- **Ultra** (default): everything on High, plus a third shadow cascade with
+- **Ultra:** everything on High, plus a third shadow cascade with
   contact-hardening soft shadows, parallax (3D) textures up close, water
   reflections of the world, denser plants, and full resolution on high-DPI
   screens.
@@ -127,11 +299,44 @@ haze that thickens with distance, and low mist over water at sunrise and
 sunset. Under water, High and Ultra add light shafts from the surface, and
 every preset shows drifting particles.
 
-**Render distance** goes up to 100 chunks (default 20). The area around you
-is drawn in full detail, and the land beyond it in simplified level-of-detail
-tiles, so you can see hills, lakes and forests to the horizon. Picking a
-preset also sets its suggested render distance (Low 12, Medium 16, High and
-Ultra 20), which you can still change with the slider.
+**Settings > Performance** has one-click presets for different computers:
+
+| Preset | For | Graphics | View distance | Details |
+| --- | --- | --- | --- | --- |
+| Potato | old laptops | Low | 7 chunks | 3 full-detail chunks, coarse far terrain, 70% resolution, few particles |
+| Balanced | most PCs | Medium | 12 chunks | preset detail, medium far terrain and effects |
+| Beautiful | gaming PCs | High | 20 chunks | fine far terrain, full effects |
+| Max | high-end GPUs | Ultra | 32 chunks | 10 full-detail chunks, finest far terrain |
+
+and the individual controls: **full-detail distance** (chunks drawn in
+full detail; Auto uses the preset's), **far terrain (LOD) quality**,
+**resolution scale** (50-100%) and **effects detail** (particles).
+
+**Render distance** (Settings > Graphics) goes up to 100 chunks (default
+10). The area around you is drawn in full detail, and the land beyond it in
+simplified level-of-detail tiles, so you can see hills, lakes and forests to
+the horizon.
+
+## Settings reference
+
+Settings (main menu or pause menu) are grouped in tabs; each tab has a
+**Reset to defaults** button for just that group, and everything is saved
+in the browser.
+
+| Tab | Settings (default) |
+| --- | --- |
+| Graphics | Render distance 2-100 chunks (10), graphics preset Low / **Medium** / High / Ultra with individual options, show FPS (on) |
+| Performance | One-click presets Potato / Balanced / Beautiful / Max; full-detail distance (Auto), far terrain quality (Medium), resolution scale 50-100% (100%), effects detail (High) |
+| Controls | Field of view 50-110 (75), mouse sensitivity (1x), invert Y (off), binocular zoom 2-12x (6x) |
+| Audio | Master, blocks and footsteps, weapons and explosions, creatures, player, menus |
+| Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, creatures spawn (on), time of day and lock, stats on the HUD (off) |
+| Weapons | Grenade and bazooka blast size (1x), laser blaster color Red / Green / Blue (Red); airstrike: meteors per strike 1-40 (7), spread 0-80 (22), delay 1-20 s (5 s), fall angle 0-70 degrees (35), fall speed 30-250 (95), meteor blast size (1x); nuke size 12-48 (28), nuke effects intensity Low / Medium / **High** |
+| Mobs | Zombie spawn rate Off to APOCALYPSE (1x), max zombies 0-400 (8), zombie health and damage 0.25-5x (1x), daylight zombies (off) |
+| UFOs | UFO activity Off to UFO APOCALYPSE (Normal); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
+| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), jet flight assist (on), jet arrives airborne (off), jet top speed 288-1152 km/h (576), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
+
+Heavy values show a short performance note next to the slider (for example
+hundreds of zombies, or a long full-detail distance).
 
 ## The world
 
@@ -209,23 +414,32 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has two test suites (`cd tools && npm install && npm test`; the
-smoke test needs a Chromium binary, set with the `CHROMIUM_PATH` environment
-variable):
+`/tools` has three test suites (`cd tools && npm install && npm test`; the
+browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
+environment variable):
 
 - `unit-tests.mjs`: fast Node tests of the pure logic (save format, the
-  voxel light engine against a brute-force reference, terrain, caves and
-  trees, recipes, mining rules, inventory, collision, explosion falloff,
+  voxel light engine against a brute-force reference, terrain, caves, trees
+  and water, recipes, mining rules, inventory, collision, explosion falloff,
   distant-terrain meshes).
+- `ufo-tests.mjs`: the UFO COMBAT features in the real game in headless
+  Chromium (menus, settings and presets, weapons, the airstrike, the laser
+  blaster, the sniper scope, binoculars, mods on/off, zombie crowds, and the
+  UFO, alien and vehicle features, the fighter jet and its weapons, the
+  nuke, the full jet-to-UFO scenario, and stats). About 40 minutes with
+  software rendering; `--only=word` runs matching checks, `--from=word`
+  starts at the first match.
 - `smoke-test.mjs`: loads the real game in headless Chromium and plays it
   with real keyboard and mouse input: movement, every graphics preset,
-  lighting, the level-of-detail terrain, grenades, the pistol and the
-  bazooka, falling sand, mining and pickup, crafting through the inventory
-  screens, eating, fall and drowning damage, the death screen, zombies
-  chasing and fighting, the water, shadows, plants and atmosphere on Ultra,
-  saving and reloading, and startup (the menu before the shaders, the error
-  messages, recovering from graphics trouble). It fails on any console
-  error.
+  lighting, the level-of-detail terrain, every weapon, falling sand, mining
+  and pickup, crafting through the inventory screens, eating, fall and
+  drowning damage, the death screen, mobs, the water, shadows, plants and
+  atmosphere on Ultra, saving and reloading, and startup. It fails on any
+  console error. (It takes over an hour with software rendering.)
+
+`tools/probe.mjs` boots the game and runs a small scenario file, for quick
+experiments and screenshots; `--base=/ufo-combat/` serves the game under a
+subpath only, like GitHub Pages.
 
 ## Tech notes
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BLOCK } from "./blocks.js";
+import { BLOCK, IS_WET } from "./blocks.js";
 import { sweepAxis } from "./physics.js";
 
 const EYE_HEIGHT = 1.62;
@@ -87,12 +87,20 @@ export class Player {
     this.fov = BASE_FOV;
     this.zoomFov = null; // set by a scoped weapon to override the normal FOV
     this.zoomSensMul = 1; // mouse-look multiplier while zoomed (sniper scope)
+    this.binocularFov = null; // binoculars (both mouse buttons): overrides everything
+    this.binocularSens = 1;
     this.mouseSensitivity = 1; // user setting multiplier
     this.invertY = false;
     this.baseFov = BASE_FOV; // user setting
     this.mobDamageScale = 1; // difficulty
     this.cameraMode = 0; // index into CAMERA_MODES
     this._camDist = 0; // smoothed third-person camera distance
+
+    this.vehicle = null; // the vehicle the player is in (vehicles.js)
+    this.parachute = false; // descending under a parachute (no fall damage)
+    this.beamLift = 0; // a UFO's tractor beam lifting the player (blocks/s), set every frame
+    this.beamPull = new THREE.Vector3(); // ...and pulling toward the beam's middle
+    this.mouseCapture = null; // (event) => void: a vehicle takes the mouse
 
     this.enabled = false;
     this.onFlightToggle = null;
@@ -159,7 +167,11 @@ export class Player {
 
   _onMouseMove(e) {
     if (!this.locked || this.dead) return;
-    const sensitivity = 0.0022 * this.mouseSensitivity * this.zoomSensMul;
+    if (this.mouseCapture) {
+      this.mouseCapture(e);
+      return;
+    }
+    const sensitivity = 0.0022 * this.mouseSensitivity * (this.binocularFov != null ? this.binocularSens : this.zoomSensMul);
     this.yaw -= e.movementX * sensitivity;
     this.pitch -= e.movementY * sensitivity * (this.invertY ? -1 : 1);
     const limit = Math.PI / 2 - 0.01;
@@ -206,7 +218,13 @@ export class Player {
 
   // Deals damage in half-hearts. Returns true if it was applied (creative
   // players, the dead and the briefly invulnerable take none).
-  damage(amount, cause) {
+  damage(amount, cause, { pierce = false } = {}) {
+    // In a vehicle, hits land on the vehicle instead (unless `pierce`: the
+    // vehicle itself was destroyed with the pilot inside).
+    if (this.vehicle && !pierce) {
+      this.vehicle.damage(amount, cause);
+      return false;
+    }
     if (MOB_CAUSES.has(cause) && this.mobDamageScale !== 1) {
       if (this.mobDamageScale <= 0) return false;
       amount = Math.max(1, Math.round(amount * this.mobDamageScale));
@@ -268,8 +286,8 @@ export class Player {
     const pitch = Math.min(Math.PI / 2, this.pitch + this.recoil);
     const eye = this.getEyePosition();
     eye.y -= drop;
-    // A scoped weapon always looks through the scope (first person).
-    const mode = this.zoomFov != null ? "first" : CAMERA_MODES[this.cameraMode] || "first";
+    // A scoped weapon or binoculars always look from the eyes (first person).
+    const mode = this.zoomFov != null || this.binocularFov != null ? "first" : CAMERA_MODES[this.cameraMode] || "first";
     if (mode === "first") {
       this.camera.rotation.set(pitch, this.yaw, roll);
       this.camera.position.copy(eye);
@@ -338,7 +356,7 @@ export class Player {
 
   _waterAt(yOffset) {
     const p = this.position;
-    return this.world.getBlock(Math.floor(p.x), Math.floor(p.y + yOffset), Math.floor(p.z)) === BLOCK.WATER;
+    return IS_WET[this.world.getBlock(Math.floor(p.x), Math.floor(p.y + yOffset), Math.floor(p.z))] === 1;
   }
 
   update(dt) {
@@ -349,6 +367,17 @@ export class Player {
     this._invulnerable = Math.max(0, this._invulnerable - dt);
     this.hurtTime += dt;
     this.recoil *= Math.exp(-14 * dt);
+
+    // Seated in a vehicle: it moves us (vehicles.js); only health comes back.
+    if (this.vehicle && !this.dead) {
+      this.inWater = false;
+      this.headInWater = false;
+      this.air = Math.min(MAX_AIR, this.air + dt * 4);
+      this._airborneMaxY = null;
+      this._sinceDamage += dt;
+      this._updateRegen(dt);
+      return;
+    }
 
     if (this.dead) {
       this._deathTime += dt;
@@ -399,7 +428,16 @@ export class Player {
     this.knockback.z *= knockbackDecay;
 
     const space = this.keys.has("Space");
-    if (this.flying) {
+    const beamed = this.beamLift > 0;
+    if (beamed) {
+      // Caught in a tractor beam: lifted, and pulled to the middle (you can
+      // still walk out of it).
+      this.velocity.y = this.beamLift;
+      this.velocity.x += this.beamPull.x;
+      this.velocity.z += this.beamPull.z;
+      this.beamLift = 0;
+      this._airborneMaxY = null;
+    } else if (this.flying) {
       let vy = 0;
       if (space) vy += 1;
       if (shift) vy -= 1;
@@ -407,6 +445,10 @@ export class Player {
     } else if (this.inWater) {
       this.velocity.y = Math.max(this.velocity.y + WATER_GRAVITY * dt, WATER_MAX_SINK);
       if (space) this.velocity.y = Math.min(this.velocity.y + 28 * dt, 3.6);
+    } else if (this.parachute) {
+      // Under a canopy: a slow, steady descent.
+      this.velocity.y = Math.max(this.velocity.y + GRAVITY * dt, -3.2);
+      if (this.velocity.y > 0) this.velocity.y *= Math.exp(-2 * dt);
     } else {
       this.velocity.y += GRAVITY * dt;
       if (this.velocity.y < MAX_FALL_SPEED) this.velocity.y = MAX_FALL_SPEED;
@@ -465,8 +507,8 @@ export class Player {
     // Camera: sneaking lowers the eyes; sprinting widens the field of view.
     const eyeTarget = this.sneaking ? SNEAK_EYE_DROP : 0;
     this._eyeOffset += (eyeTarget - this._eyeOffset) * Math.min(1, dt * 12);
-    const fovTarget = this.zoomFov != null ? this.zoomFov : this.baseFov + (this.sprinting ? 9 : 0) + (this.flying && this.sprinting ? 6 : 0);
-    this.fov += (fovTarget - this.fov) * Math.min(1, dt * 8);
+    const fovTarget = this._fovTarget();
+    this.fov += (fovTarget - this.fov) * Math.min(1, dt * (this.binocularFov != null ? 16 : 8));
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
@@ -474,11 +516,28 @@ export class Player {
     this.syncCamera();
   }
 
+  _fovTarget() {
+    if (this.binocularFov != null) return this.binocularFov;
+    return this.zoomFov != null ? this.zoomFov : this.baseFov + (this.sprinting ? 9 : 0) + (this.flying && this.sprinting ? 6 : 0);
+  }
+
+  // Jumps straight to the current field of view (no easing).
+  snapFov() {
+    this.fov = this._fovTarget();
+    this.camera.fov = this.fov;
+    this.camera.updateProjectionMatrix();
+  }
+
   // Fall damage is based on the height fallen from the highest point of the
   // jump/fall, so jumping in place never hurts and water breaks any fall.
+  // Forgets the height fallen so far (teleports, getting out of a vehicle).
+  resetFall() {
+    this._airborneMaxY = null;
+  }
+
   _updateFall() {
     const y = this.position.y;
-    if (this.flying || this.inWater || this.creative) {
+    if (this.flying || this.inWater || this.creative || this.parachute) {
       this._airborneMaxY = null;
       return;
     }
@@ -524,7 +583,11 @@ export class Player {
         }
       }
     }
-    // Natural regeneration after a while without damage.
+    this._updateRegen(dt);
+  }
+
+  // Natural regeneration after a while without damage.
+  _updateRegen(dt) {
     if (this.health < MAX_HEALTH && this._sinceDamage > REGEN_DELAY) {
       this._regenTimer += dt;
       if (this._regenTimer >= REGEN_INTERVAL) {

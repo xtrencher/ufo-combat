@@ -3,7 +3,7 @@
 // faster than the full smoke suite for iterating on one feature, and it can
 // save screenshots for visual checks.
 //
-//   node probe.mjs <scenario.mjs> [--preset=ultra] [--seed=42] [--size=960x540] [--out=dir]
+//   node probe.mjs <scenario.mjs> [--preset=ultra] [--seed=42] [--size=960x540] [--out=dir] [--base=/ufo-combat/]
 //
 // The scenario's default export gets { page, assert, shot(name), frames(n), v(fn, arg) }
 // where v evaluates fn(window.__voxelands, arg) in the page. The run fails on
@@ -20,18 +20,30 @@ const args = Object.fromEntries(
   process.argv
     .slice(3)
     .filter((a) => a.startsWith("--"))
-    .map((a) => a.slice(2).split("="))
+    .map((a) => { const [k, ...rest] = a.slice(2).split("="); return [k, rest.length ? rest.join("=") : true]; })
 );
 const scenarioPath = path.resolve(process.argv[2] || "");
 const PORT = 8940 + Math.floor(Math.random() * 50);
 const SEED = Number(args.seed ?? 42);
 const [W, H] = (args.size || "960x540").split("x").map(Number);
+const BASE = String(args.base || "/").replace(/\/?$/, "/");
 const OUT = path.resolve(args.out || path.join(__dirname, "probe-out"));
 fs.mkdirSync(OUT, { recursive: true });
 
 const MIME = { ".html": "text/html", ".js": "text/javascript" };
 const server = http.createServer((req, res) => {
-  let filePath = path.join(ROOT, decodeURIComponent(req.url.split("?")[0]));
+  // --base=/ufo-combat/ serves the game under a subpath (like GitHub Pages)
+  // and nothing outside it, to catch absolute paths.
+  let url = decodeURIComponent(req.url.split("?")[0]);
+  if (BASE !== "/") {
+    if (!url.startsWith(BASE)) {
+      res.writeHead(404);
+      res.end("outside the base path");
+      return;
+    }
+    url = "/" + url.slice(BASE.length);
+  }
+  let filePath = path.join(ROOT, url);
   if (filePath.endsWith("/")) filePath = path.join(filePath, "index.html");
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -67,13 +79,17 @@ function assert(cond, msg) {
 }
 
 const t0 = Date.now();
-await page.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil: "load", timeout: 60000 });
+await page.goto(`http://localhost:${PORT}${BASE}index.html?seed=${SEED}`, { waitUntil: "load", timeout: 60000 });
 await page.waitForFunction(() => !!window.__voxelands, null, { timeout: 60000 });
 // Boot on Low (fast under software rendering), then switch to the preset asked for.
 await page.evaluate(() => window.__voxelands.setGraphics("low"));
-await page.click("#play-btn", { timeout: 120000 });
-await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 60000 });
 if (args.preset) await page.evaluate((p) => window.__voxelands.setGraphics(p), args.preset);
+// --noplay stays on the main menu (for menu screenshots).
+if (!args.noplay) {
+  await page.waitForFunction(() => window.__voxelands.graphicsReady, null, { timeout: 120000 });
+  await page.click("#play-btn", { timeout: 120000 });
+  await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 60000 });
+}
 // Nothing is drawn until the preset's shaders are ready (see prepareGraphics in main.js).
 await page.waitForFunction(() => window.__voxelands.graphicsReady, null, { timeout: 120000 });
 console.log(`  booted in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

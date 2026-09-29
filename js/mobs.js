@@ -10,16 +10,26 @@
 // a player can reach quickly (real targets at sniper range), with a total
 // mob cap and simplified, cheaper AI for anything far from the player.
 import * as THREE from "three";
-import { BLOCK, IS_SOLID, IS_LEAVES } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
 import { ITEM, meleeDamage } from "./items.js";
 import { sweepAxis, rayAabb } from "./physics.js";
 import { createMobModel } from "./mob-models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { BIOME } from "./biomes.js";
+import { Crowd } from "./crowd.js";
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
-const MAX_HOSTILE = 12;
+const MAX_HOSTILE = 8; // skeletons and spiders (zombies have their own cap, a setting)
+// Zombie spawn attempts per second at spawn rate 1x (the old shared hostile
+// rate's share of zombies); the setting multiplies it.
+const ZOMBIE_ATTEMPTS_PER_SECOND = 0.9;
+// Beyond this (blocks) zombies are drawn as an instanced crowd instead of
+// full animated models; closer in when there are very many of them.
+const CROWD_DISTANCE = 44;
+const CROWD_DISTANCE_MANY = 26;
+// Beyond this, mobs think and move every few frames (a big dt) to save CPU.
+const LAZY_AI_DISTANCE = 64;
 const SPAWN_INTERVAL = 0.4;
 const DESPAWN_FAR = 160; // blocks: removed at once beyond this
 const HOSTILE_LINGER = 64; // blocks: hostile mobs this far away despawn over time
@@ -114,6 +124,14 @@ export const SPECIES = {
     speed: 1.6, maxDrop: 0, weight: 0, flies: true, homeRadius: 14,
     drops: [],
   },
+  // Green aliens climb out of crashed UFOs and fight with laser guns (see
+  // ufos.js). Never spawned as ordinary night creatures ("special").
+  alien: {
+    name: "Alien", hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3,
+    speed: 1.4, chaseSpeed: 2.9, maxDrop: 3, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 3,
+    shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true,
+    drops: [[ITEM.IRON_INGOT, 1, 2, 0.6], [ITEM.DIAMOND, 1, 1, 0.12], [ITEM.LASER_BLASTER, 1, 1, 0.04]],
+  },
   fish: {
     name: "Fish", hostile: false, health: 3, r: 0.2, h: 0.3, eye: 0.15,
     speed: 1.0, maxDrop: 1, weight: 0, flies: true, swims: true, homeRadius: 10,
@@ -123,6 +141,7 @@ export const SPECIES = {
 
 const PASSIVE_KINDS = Object.keys(SPECIES).filter((k) => !SPECIES[k].hostile && !SPECIES[k].flies && k !== "villager");
 const HOSTILE_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].hostile);
+const OTHER_HOSTILE_KINDS = HOSTILE_KINDS.filter((k) => k !== "zombie" && !SPECIES[k].special);
 const FLYER_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].flies);
 const VILLAGERS_PER_VILLAGE = 2;
 const MAX_FLYERS = 10;
@@ -169,6 +188,16 @@ export class MobManager {
     this.lastAttackTime = -10; // game time of the player's last swing
     this.time = 0;
     this.kills = 0;
+    this.killsByKind = {}; // stats
+    // Zombie settings (Mobs tab): spawn rate multiplier, cap, toughness,
+    // and daylight zombies (spawn by day, don't burn).
+    this.zombies = { spawnRate: 1, max: 8, health: 1, damage: 1, daylight: false };
+    this._zombieBudget = 0;
+    this._frame = 0;
+    this.crowd = new Crowd(this.group, "zombie", 512);
+    this.onKill = null; // (mob, byPlayer) => void
+    this.lasers = null; // the laser bolt system (aliens' guns)
+    this.alienLaserColor = new THREE.Color(0.5, 5, 0.7);
     this.onPlayerHurt = null; // (mob) => void
     this._tmp = new THREE.Vector3();
     this._flashColor = new THREE.Color();
@@ -182,7 +211,13 @@ export class MobManager {
 
   countOf(hostile) {
     let n = 0;
-    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile) n++;
+    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile && m.kind !== "zombie") n++;
+    return n;
+  }
+
+  countKind(kind) {
+    let n = 0;
+    for (const m of this.mobs) if (!m.dead && m.kind === kind) n++;
     return n;
   }
 
@@ -207,7 +242,8 @@ export class MobManager {
       yaw: Math.random() * Math.PI * 2,
       headYaw: 0,
       headPitch: 0,
-      health: spec.health,
+      health: spec.health * (kind === "zombie" ? this.zombies.health : 1),
+      maxHealth: spec.health * (kind === "zombie" ? this.zombies.health : 1),
       hurtTime: 99,
       invulnerable: 0,
       dead: false,
@@ -227,6 +263,8 @@ export class MobManager {
       soundTimer: 3 + Math.random() * 8,
       ai: { state: "idle", timer: Math.random() * 3, dirX: 0, dirZ: 1, detour: 0, detourX: 0, detourZ: 0, side: Math.random() < 0.5 ? 1 : -1, target: false },
       light: { sky: 15, block: 0, flash: new THREE.Color(), glow: spec.hostile ? 1 : 0 },
+      lazy: 0, // accumulated time while thinking lazily (far away)
+      crowd: false, // drawn in the crowd instead of by its own model
     };
     bindEntityLight(model.root, () => m.light);
     this.group.add(model.root);
@@ -253,7 +291,7 @@ export class MobManager {
   _freeAt(x, y, z, h) {
     for (let k = 0; k < Math.ceil(h); k++) {
       const id = this.world.getBlock(x, y + k, z);
-      if (IS_SOLID[id] || id === BLOCK.WATER) return false;
+      if (IS_SOLID[id] || IS_WET[id]) return false;
     }
     return true;
   }
@@ -304,7 +342,7 @@ export class MobManager {
   // Hostile mobs appear in darkness: on the surface at night, or in unlit
   // caves. Spawn well out (up to sniper range) so there are real targets at
   // a distance, not just underfoot.
-  _trySpawnHostile() {
+  _trySpawnHostile(kind = OTHER_HOSTILE_KINDS[Math.floor(Math.random() * OTHER_HOSTILE_KINDS.length)]) {
     const p = this.player.position;
     const a = Math.random() * Math.PI * 2;
     const d = 28 + Math.random() * 90;
@@ -313,14 +351,14 @@ export class MobManager {
     if (!this._chunkReady(x, z)) return false;
     const top = this.world.surfaceY(x, z);
     if (top < 0) return false;
-    const kind = HOSTILE_KINDS[Math.floor(Math.random() * HOSTILE_KINDS.length)];
+    const anyLight = kind === "zombie" && this.zombies.daylight;
     // Start from the surface or from a random depth, then look for a floor.
     let y = Math.random() < 0.5 ? top + 1 : 2 + Math.floor(Math.random() * Math.max(1, top - 3));
     for (let k = 0; k < 12 && y > 1; k++, y--) {
       const below = this.world.getBlock(x, y - 1, z);
       if (!IS_SOLID[below] || IS_LEAVES[below]) continue;
       if (!this._freeAt(x, y, z, SPECIES[kind].h)) continue;
-      if (this._effectiveLight(x, y, z) > 4) return false;
+      if (!anyLight && this._effectiveLight(x, y, z) > 4) return false;
       this.spawn(kind, x + 0.5, y, z + 0.5);
       return true;
     }
@@ -382,6 +420,48 @@ export class MobManager {
     }
   }
 
+  // A tractor beam (tractor-beam.js) lifts every creature inside it at
+  // `lift` blocks/s, pulling it to the middle; the ones that reach `topY`
+  // (the ship) are taken aboard: removed, and returned.
+  beamLift(beam, lift, topY) {
+    const took = [];
+    for (let i = this.mobs.length - 1; i >= 0; i--) {
+      const m = this.mobs[i];
+      if (m.dead) continue;
+      const c = this._tmp.set(m.pos.x, m.pos.y + m.spec.h * 0.5, m.pos.z);
+      if (!beam.contains(c, m.spec.r)) continue;
+      m.beamLift = lift;
+      m.stagger = Math.max(m.stagger, 0.3);
+      m.knock.x += (beam.top.x - m.pos.x) * 0.05;
+      m.knock.z += (beam.top.z - m.pos.z) * 0.05;
+      if (m.pos.y + m.spec.h >= topY) {
+        took.push(m);
+        this._abductFx(m);
+        this._remove(i);
+      }
+    }
+    return took;
+  }
+
+  _abductFx(m) {
+    const c = this._c0.setRGB(0.6, 1.8, 2.4);
+    for (let k = 0; k < 14; k++) {
+      this.effects.glow.spawn({ x: m.pos.x, y: m.pos.y + m.spec.h * 0.5, z: m.pos.z, vx: (Math.random() - 0.5) * 4, vy: Math.random() * 3, vz: (Math.random() - 0.5) * 4, life: 0.5, size0: 0.3, size1: 0.05, color0: c.clone(), drag: 2 });
+    }
+  }
+
+  // Lowering the zombie cap removes the farthest zombies over it.
+  trimZombies() {
+    const p = this.player.position;
+    const zombies = this.mobs.filter((m) => m.kind === "zombie" && !m.dead).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
+    for (let k = 0; k < zombies.length - this.zombies.max; k++) this._remove(this.mobs.indexOf(zombies[k]));
+  }
+
+  // Removes every creature of a kind (aliens, when mods are switched off).
+  removeKind(kind) {
+    for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].kind === kind) this._remove(i);
+  }
+
   // Removes every hostile creature at once (switching to Peaceful).
   removeHostiles() {
     for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].spec.hostile) this._remove(i);
@@ -396,12 +476,27 @@ export class MobManager {
       this._seeded = true;
       for (let i = 0; i < 40 && this.countOf(false) < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countOf(false));
     }
+    // Zombies: their own rate (a setting, up to an apocalypse) and cap.
+    if (this.hostileSpawning !== false && this.zombies.spawnRate > 0) {
+      this._zombieBudget = Math.min(8, this._zombieBudget + dt * ZOMBIE_ATTEMPTS_PER_SECOND * this.zombies.spawnRate);
+      let zombies = -1;
+      for (let tries = 0; this._zombieBudget >= 1 && tries < 6; tries++) {
+        this._zombieBudget -= 1;
+        if (zombies < 0) zombies = this.countKind("zombie");
+        if (zombies >= this.zombies.max) {
+          this._zombieBudget = 0;
+          break;
+        }
+        if (this._trySpawnHostile("zombie")) zombies++;
+      }
+    }
     this._spawnTimer -= dt;
     if (this._spawnTimer > 0) return;
     this._spawnTimer = SPAWN_INTERVAL;
-    if (this.mobs.length >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
+    const zombieCount = this.countKind("zombie");
+    if (this.mobs.length - zombieCount >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
     if (this.countOf(false) < MAX_PASSIVE && Math.random() < 0.3) this._trySpawnPassive(30, 80);
-    if (this.countOf(true) < MAX_HOSTILE && this.hostileSpawning !== false) this._trySpawnHostile();
+    if (this.countOf(true) < MAX_HOSTILE && this.hostileSpawning !== false && Math.random() < 0.67) this._trySpawnHostile();
     this._trySpawnVillagers();
     if (Math.random() < 0.4) this._trySpawnFlyers();
   }
@@ -424,10 +519,10 @@ export class MobManager {
       return "step";
     }
     for (let k = 1; k < cells; k++) if (solid(by + k)) return "wall";
-    if (w.getBlock(bx, by, bz) === BLOCK.WATER) return "water";
+    if (IS_WET[w.getBlock(bx, by, bz)]) return "water";
     let drop = 0;
     while (drop < 6 && !solid(by - 1 - drop)) {
-      if (w.getBlock(bx, by - 1 - drop, bz) === BLOCK.WATER) return "water";
+      if (IS_WET[w.getBlock(bx, by - 1 - drop, bz)]) return "water";
       drop++;
     }
     return drop > m.spec.maxDrop ? "cliff" : "open";
@@ -508,7 +603,8 @@ export class MobManager {
             speed = m.spec.chaseSpeed;
           }
           if (m.stagger <= 0 && m.attackCooldown <= 0 && distH >= m.spec.shootMin * 0.6 && distH <= m.spec.shootMax * 1.3 && Math.abs(dy) < 10) {
-            this._shootArrow(m, dx, dy, dz);
+            if (m.spec.laser) this._shootLaser(m);
+            else this._shootArrow(m, dx, dy, dz);
             m.attackCooldown = m.spec.shootCooldown;
             m.attack = 0;
           }
@@ -598,7 +694,8 @@ export class MobManager {
   _attackPlayer(m, nx, nz) {
     m.attackCooldown = 1.0;
     m.attack = 0;
-    const applied = this.player.damage(m.spec.damage, m.kind);
+    const dmg = m.kind === "zombie" ? Math.max(1, Math.round(m.spec.damage * this.zombies.damage)) : m.spec.damage;
+    const applied = this.player.damage(dmg, m.kind);
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
@@ -635,6 +732,27 @@ export class MobManager {
     mesh.position.copy(start);
     this.arrows.push(a);
     this.audio.playSwing?.();
+  }
+
+  // Aliens: a green laser bolt at the player's chest (or the vehicle the
+  // player is in), a little off at long range.
+  _shootLaser(m) {
+    if (!this.lasers) return;
+    const from = m.pos.clone();
+    from.y += m.spec.eye - 0.4;
+    const target = this.player.getEyePosition();
+    target.y -= 0.6;
+    const dir = target.sub(from);
+    const dist = dir.length() || 1;
+    dir.divideScalar(dist);
+    const spread = 0.03 + dist * 0.0012;
+    dir.x += (Math.random() - 0.5) * spread * 2;
+    dir.y += (Math.random() - 0.5) * spread;
+    dir.z += (Math.random() - 0.5) * spread * 2;
+    dir.normalize();
+    from.addScaledVector(dir, m.spec.r + 0.4);
+    m.aimTime = this.time;
+    this.lasers.fire({ from, dir, color: this.alienLaserColor, speed: 62, damage: m.spec.laserDamage, owner: "alien", source: m, range: 70, radius: 0.05, length: 1.3 });
   }
 
   // Whether the player's body is hit somewhere along the arrow's step this
@@ -725,6 +843,10 @@ export class MobManager {
     const k = Math.min(1, dt * 2.5);
     m.vel.x += (want.x * want.speed - m.vel.x) * k;
     m.vel.y += (want.y * want.speed - m.vel.y) * k;
+    if (m.beamLift) {
+      m.vel.y = m.beamLift;
+      m.beamLift = 0;
+    }
     m.vel.z += (want.z * want.speed - m.vel.z) * k;
     const ax = m.vel.x * dt;
     const dx = sweepAxis(w, m.pos, spec.r, spec.h, "x", ax);
@@ -737,7 +859,7 @@ export class MobManager {
     m.pos.z += dz;
     m.blocked = Math.abs(dx - ax) > 1e-6 || Math.abs(dy - ay) > 1e-6 || Math.abs(dz - az) > 1e-6;
     m.onGround = false;
-    m.inWater = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y), Math.floor(m.pos.z)) === BLOCK.WATER;
+    m.inWater = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y), Math.floor(m.pos.z))] === 1;
     // A fish stranded out of water heads home (its spawn point, in water) fast.
     if (spec.swims && !m.inWater) {
       m.flyTarget = { x: m.home.x, y: m.home.y, z: m.home.z };
@@ -753,8 +875,8 @@ export class MobManager {
   _physics(m, dt, want) {
     const w = this.world;
     const spec = m.spec;
-    const waterFeet = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.2), Math.floor(m.pos.z)) === BLOCK.WATER;
-    const waterBody = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + spec.h * 0.55), Math.floor(m.pos.z)) === BLOCK.WATER;
+    const waterFeet = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.2), Math.floor(m.pos.z))] === 1;
+    const waterBody = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + spec.h * 0.55), Math.floor(m.pos.z))] === 1;
     m.inWater = waterFeet || waterBody;
 
     // A mob reeling from a hit doesn't steer, so the knockback carries it.
@@ -769,7 +891,12 @@ export class MobManager {
     m.vel.x = m.move.x + m.knock.x;
     m.vel.z = m.move.y + m.knock.z;
 
-    if (m.inWater) {
+    if (m.beamLift) {
+      // Held in a tractor beam: rising, legs kicking.
+      m.vel.y = m.beamLift;
+      m.beamLift = 0;
+      m.peakY = null;
+    } else if (m.inWater) {
       m.vel.y += (waterBody ? 16 : -12) * dt;
       m.vel.y = THREE.MathUtils.clamp(m.vel.y, -3, 2.4);
     } else if (spec.climbs && m.blocked && speed > 0 && !m.onGround) {
@@ -817,27 +944,46 @@ export class MobManager {
   }
 
   // Mobs push each other (and away from the player) instead of overlapping.
+  // Neighbours are found through a coarse grid, so hundreds of zombies
+  // don't cost a pair check each.
   _separate(dt) {
     const list = this.mobs;
-    for (let i = 0; i < list.length; i++) {
-      const a = list[i];
+    const grid = this._grid || (this._grid = new Map());
+    grid.clear();
+    const CELL = 2;
+    const key = (x, z) => ((Math.floor(x / CELL) & 0xffff) << 16) | (Math.floor(z / CELL) & 0xffff);
+    for (const m of list) {
+      if (m.dead) continue;
+      const k = key(m.pos.x, m.pos.z);
+      let cell = grid.get(k);
+      if (!cell) grid.set(k, (cell = []));
+      cell.push(m);
+    }
+    const p = this.player.position;
+    for (const a of list) {
       if (a.dead) continue;
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j];
-        if (b.dead) continue;
-        const dx = b.pos.x - a.pos.x;
-        const dz = b.pos.z - a.pos.z;
-        const min = a.spec.r + b.spec.r;
-        const d2 = dx * dx + dz * dz;
-        if (d2 >= min * min || Math.abs(a.pos.y - b.pos.y) > 1.5) continue;
-        const d = Math.sqrt(d2) || 0.01;
-        const push = ((min - d) / min) * 6 * dt;
-        a.knock.x -= (dx / d) * push;
-        a.knock.z -= (dz / d) * push;
-        b.knock.x += (dx / d) * push;
-        b.knock.z += (dz / d) * push;
+      const cx = Math.floor(a.pos.x / CELL);
+      const cz = Math.floor(a.pos.z / CELL);
+      for (let gx = cx - 1; gx <= cx + 1; gx++) {
+        for (let gz = cz - 1; gz <= cz + 1; gz++) {
+          const cell = grid.get(((gx & 0xffff) << 16) | (gz & 0xffff));
+          if (!cell) continue;
+          for (const b of cell) {
+            if (b.id <= a.id) continue; // each pair once
+            const dx = b.pos.x - a.pos.x;
+            const dz = b.pos.z - a.pos.z;
+            const min = a.spec.r + b.spec.r;
+            const d2 = dx * dx + dz * dz;
+            if (d2 >= min * min || Math.abs(a.pos.y - b.pos.y) > 1.5) continue;
+            const d = Math.sqrt(d2) || 0.01;
+            const push = ((min - d) / min) * 6 * dt;
+            a.knock.x -= (dx / d) * push;
+            a.knock.z -= (dz / d) * push;
+            b.knock.x += (dx / d) * push;
+            b.knock.z += (dz / d) * push;
+          }
+        }
       }
-      const p = this.player.position;
       const dx = a.pos.x - p.x;
       const dz = a.pos.z - p.z;
       const min = a.spec.r + 0.3;
@@ -853,8 +999,9 @@ export class MobManager {
   // ---------- Damage ----------
 
   // Damages a mob; (nx, nz) is the knockback direction and `kb` its strength.
-  _hurt(m, amount, dir, kb) {
+  _hurt(m, amount, dir, kb, byPlayer = false) {
     if (m.dead || m.invulnerable > 0 || amount <= 0) return false;
+    if (byPlayer) m.lastPlayerHit = this.time;
     if (m.spec.hides && m.hide > 0.5) amount *= 0.5; // the shell takes most of it
     m.health -= amount;
     m.hurtTime = 0;
@@ -871,6 +1018,8 @@ export class MobManager {
       m.dead = true;
       m.deathTime = 0;
       this.kills++;
+      this.killsByKind[m.kind] = (this.killsByKind[m.kind] || 0) + 1;
+      if (this.onKill) this.onKill(m, this.time - (m.lastPlayerHit ?? -99) < 6);
       this.audio.playMob(m.kind, "death", dist);
       return true;
     }
@@ -919,7 +1068,7 @@ export class MobManager {
   }
 
   // Explosions hurt and fling mobs like they do the player, scaled by size.
-  explosion(center, radius) {
+  explosion(center, radius, byPlayer = true) {
     const reach = radius * 1.8;
     const size = Math.sqrt(radius / 7);
     for (const m of this.mobs) {
@@ -931,16 +1080,16 @@ export class MobManager {
       const dmg = Math.floor(30 * size * Math.pow(f, 1.3));
       const dir = { x: d.x / (dist || 1), z: d.z / (dist || 1) };
       m.invulnerable = 0;
-      this._hurt(m, dmg, dir, Math.min(30, f * 16 * size));
+      this._hurt(m, dmg, dir, Math.min(30, f * 16 * size), byPlayer);
       m.vel.y = Math.max(m.vel.y, Math.min(20, f * 12 * size));
     }
   }
 
   // A bullet (or other projectile) hits `mob` travelling along `dir`.
-  shoot(mob, damage, dir, knockback = 4) {
+  shoot(mob, damage, dir, knockback = 4, byPlayer = true) {
     const len = Math.hypot(dir.x, dir.z) || 1;
     mob.invulnerable = 0; // every shot counts
-    return this._hurt(mob, damage, { x: dir.x / len, z: dir.z / len }, knockback);
+    return this._hurt(mob, damage, { x: dir.x / len, z: dir.z / len }, knockback, byPlayer);
   }
 
   // The first living mob whose body is within `r` of point `p`, or null.
@@ -966,12 +1115,13 @@ export class MobManager {
   }
 
   // The nearest living mob under the crosshair within `reach`, or null.
-  raycast(origin, dir, reach) {
+  // filter(mob) -> false skips a mob (e.g. the one that fired a bolt).
+  raycast(origin, dir, reach, filter = null) {
     let best = null;
-    const min = new THREE.Vector3();
-    const max = new THREE.Vector3();
+    const min = this._rmin || (this._rmin = new THREE.Vector3());
+    const max = this._rmax || (this._rmax = new THREE.Vector3());
     for (const m of this.mobs) {
-      if (m.dead) continue;
+      if (m.dead || (filter && !filter(m))) continue;
       const r = m.spec.r + 0.08;
       min.set(m.pos.x - r, m.pos.y, m.pos.z - r);
       max.set(m.pos.x + r, m.pos.y + m.spec.h + 0.05, m.pos.z + r);
@@ -996,7 +1146,7 @@ export class MobManager {
     const dz = mob.pos.z - player.position.z;
     const d = Math.hypot(dx, dz) || 1;
     const kb = (5 + (player.sprinting ? 3 : 0)) * (0.4 + 0.6 * charge);
-    const hit = this._hurt(mob, dmg, { x: dx / d, z: dz / d }, kb);
+    const hit = this._hurt(mob, dmg, { x: dx / d, z: dz / d }, kb, true);
     if (hit) {
       this.audio.playHit(crit);
       if (crit) this._critSparks(mob);
@@ -1029,10 +1179,15 @@ export class MobManager {
 
   update(dt) {
     this.time += dt;
+    this._frame++;
     this._updateSpawning(dt);
     this._updateArrows(dt);
     const p = this.player.position;
     const daylight = this.sky.daylight;
+    // Many zombies: hand them over to the crowd closer in.
+    const zombieCount = this.zombies.max > 60 ? this.countKind("zombie") : 0;
+    const crowdDist = zombieCount > 60 ? CROWD_DISTANCE_MANY : CROWD_DISTANCE;
+    this.crowd.begin();
 
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
@@ -1041,6 +1196,7 @@ export class MobManager {
       m.attackCooldown -= dt;
       m.attack = Math.min(1, m.attack + dt / 0.35);
       m.stagger = Math.max(0, m.stagger - dt);
+      const dist = Math.hypot(m.pos.x - p.x, m.pos.z - p.z);
 
       if (m.dead) {
         m.deathTime += dt;
@@ -1050,7 +1206,6 @@ export class MobManager {
         }
       } else {
         // Despawning: far away, in unloaded terrain, or (zombies) lingering far off.
-        const dist = Math.hypot(m.pos.x - p.x, m.pos.z - p.z);
         if (dist > DESPAWN_FAR || !this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4) || m.pos.y < -10) {
           this._remove(i);
           continue;
@@ -1059,22 +1214,56 @@ export class MobManager {
           this._remove(i);
           continue;
         }
+        // Far away, think and move only every third frame (with the time
+        // saved up), staggered so the work spreads evenly over frames.
+        let step = dt;
+        if (dist > LAZY_AI_DISTANCE) {
+          m.lazy += dt;
+          if ((this._frame + m.id) % 3 !== 0) {
+            this._afterMove(m, dist, crowdDist);
+            continue;
+          }
+          step = Math.min(0.15, m.lazy);
+          m.lazy = 0;
+        }
         if (m.spec.flies) {
-          const want = this._thinkFly(m, dt);
-          this._physicsFly(m, dt, want);
+          const want = this._thinkFly(m, step);
+          this._physicsFly(m, step, want);
         } else {
-          const want = this._think(m, dt, dist);
-          this._physics(m, dt, want);
-          this._sounds(m, dt);
-          this._daylight(m, dt, daylight);
+          const want = this._think(m, step, dist);
+          this._physics(m, step, want);
+          this._sounds(m, step);
+          this._daylight(m, step, daylight);
         }
       }
-      const l = this.world.lightAt(m.pos.x, m.pos.y + m.spec.h * 0.6, m.pos.z);
-      m.light.sky = l.sky;
-      m.light.block = l.block;
-      this._place(m);
+      this._afterMove(m, dist, crowdDist);
     }
+    this.crowd.end();
     this._separate(dt);
+  }
+
+  // Light and drawing after a mob moved: its own model up close, or a
+  // place in the crowd far away (zombies).
+  _afterMove(m, dist, crowdDist) {
+    const l = this.world.lightAt(m.pos.x, m.pos.y + m.spec.h * 0.6, m.pos.z);
+    m.light.sky = l.sky;
+    m.light.block = l.block;
+    const crowd = m.kind === "zombie" && !m.dead && dist > crowdDist;
+    if (crowd !== m.crowd) {
+      m.crowd = crowd;
+      m.model.root.visible = !crowd;
+    }
+    if (crowd) {
+      const bright = Math.max(l.block / 15, (l.sky / 15) * (0.25 + 0.75 * this.sky.daylight));
+      const hurt = Math.max(0, 1 - m.hurtTime / 0.3);
+      if (!this.crowd.add(m.pos, m.yaw, m.walk > 0.2 ? m.walkPhase : Math.PI / 2, 0.35 + bright * 0.65, hurt)) {
+        m.crowd = false; // crowd full: draw it normally
+        m.model.root.visible = true;
+        this._place(m);
+      }
+      return;
+    }
+    this._place(m);
   }
 
   _sounds(m, dt) {
@@ -1087,7 +1276,7 @@ export class MobManager {
 
   // Zombies burn in direct daylight.
   _daylight(m, dt, daylight) {
-    m.burning = m.spec.hostile && !m.spec.noBurn && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
+    m.burning = m.spec.hostile && !m.spec.noBurn && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
     if (!m.burning) return;
     m.burnTimer += dt;
     if (m.burnTimer >= 1) {
@@ -1137,6 +1326,7 @@ export class MobManager {
       graze: m.graze,
       hide: m.hide,
       attack: m.attack,
+      aim: m.ai.target ? 1 : 0,
     });
   }
 }

@@ -57,11 +57,45 @@ function makeHoleTexture() {
   return t;
 }
 
+// A laser scorch: a soft black burn with a glowing-hot rim that fades
+// (the glow is baked in; the mark itself stays).
+function makeScorchTexture() {
+  const N = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = N;
+  canvas.height = N;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(N, N);
+  let seed = 11;
+  const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = (x + 0.5) / N - 0.5;
+      const dy = (y + 0.5) / N - 0.5;
+      const a = Math.atan2(dy, dx);
+      const r = Math.hypot(dx, dy) * 2 * (1 + Math.sin(a * 5 + 0.7) * 0.08 + (rand() - 0.5) * 0.08);
+      const i = (y * N + x) * 4;
+      const burn = Math.max(0, 1 - r) ** 0.8;
+      const v = r < 0.25 ? 8 : 18 + r * 30;
+      img.data[i] = v;
+      img.data[i + 1] = v * 0.85;
+      img.data[i + 2] = v * 0.8;
+      img.data[i + 3] = Math.round(235 * burn);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export class BulletHoles {
-  constructor(scene, world) {
+  // kind: "hole" (bullets) or "scorch" (lasers, larger and softer).
+  constructor(scene, world, { kind = "hole" } = {}) {
     this.world = world;
+    this.kind = kind;
     const material = new THREE.MeshBasicMaterial({
-      map: makeHoleTexture(),
+      map: kind === "scorch" ? makeScorchTexture() : makeHoleTexture(),
       transparent: true,
       depthWrite: false,
       polygonOffset: true,
@@ -69,7 +103,7 @@ export class BulletHoles {
       polygonOffsetUnits: -4,
       fog: true,
     });
-    const geometry = new THREE.PlaneGeometry(SIZE, SIZE);
+    const geometry = new THREE.PlaneGeometry(kind === "scorch" ? SIZE * 2.6 : SIZE, kind === "scorch" ? SIZE * 2.6 : SIZE);
     this.decals = [];
     for (let i = 0; i < MAX_DECALS; i++) {
       const mesh = new THREE.Mesh(geometry, material);

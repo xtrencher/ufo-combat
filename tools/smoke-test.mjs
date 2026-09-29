@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const PORT = 8934;
 const SEED = 42;
-const EDITS_KEY = `voxelands_v1_edits_${SEED}`;
+const EDITS_KEY = `ufocombat_v1_edits_${SEED}`;
 
 const MIME = {
   ".html": "text/html",
@@ -170,13 +170,17 @@ try {
     const t0 = Date.now();
     await page.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil: "load", timeout: 30000 });
     await page.waitForFunction(() => !!window.__voxelands, null, { timeout: 30000 });
+    // This suite tests the base game: no enemy UFOs (a mod feature, tested
+    // in ufo-tests.mjs) dropping in to abduct the player mid-check. The
+    // setting is saved, so it holds across the reloads below.
+    await page.evaluate(() => window.__voxelands.settingsPanel.set("ufos.activity", 0));
     console.log(`        (page ready in ${Date.now() - t0} ms)`);
     await page.waitForTimeout(1500);
   });
 
-  await check("default graphics preset is Ultra and renders a real image", async () => {
+  await check("default graphics preset is Medium and renders a real image", async () => {
     const preset = await page.evaluate(() => window.__voxelands.graphics);
-    assert(preset === "ultra", `default preset is ${preset}`);
+    assert(preset === "medium", `default preset is ${preset}`);
     const stats = await page.evaluate(() => window.__voxelands.captureStats());
     console.log(`        ultra: mean luminance ${stats.mean.toFixed(3)}, std ${stats.std.toFixed(3)}, black ${(stats.blackFraction * 100).toFixed(1)}%`);
     assert(stats.mean > 0.08 && stats.std > 0.03 && stats.blackFraction < 0.5, `ultra frame looks blank: ${JSON.stringify(stats)}`);
@@ -199,7 +203,7 @@ try {
       assert(stats.mean > 0.08 && stats.std > 0.03 && stats.blackFraction < 0.5, `${name} frame looks blank: ${JSON.stringify(stats)}`);
       await page.screenshot({ path: path.join(__dirname, `screenshot-${name}.png`) }).catch(() => {});
     }
-    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("voxelands_v1_settings") || "{}"));
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ufocombat_v1_settings") || "{}"));
     assert(saved.graphics === "low", `graphics setting not persisted: ${JSON.stringify(saved)}`);
   });
 
@@ -232,9 +236,9 @@ try {
         spawnGround: v.world.heightAt(v.spawn.x, v.spawn.z),
       };
     });
-    // 1 pistol, 2 grenade, 3 bazooka, 4 machine gun, 5 airstrike designator, 6 sniper rifle.
-    assert(JSON.stringify(s.hotbar.slice(0, 6)) === JSON.stringify([287, 286, 288, 289, 291, 290]), `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
-    assert(s.rest && s.hotbar.slice(6).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
+    // 1 pistol, 2 grenade, 3 bazooka, 4 machine gun, 5 airstrike designator, 6 sniper rifle, 7 laser blaster, 8 jet radio.
+    assert(JSON.stringify(s.hotbar.slice(0, 8)) === JSON.stringify([287, 286, 288, 289, 291, 290, 292, 293]), `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
+    assert(s.rest && s.hotbar.slice(8).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
     assert(s.mode === "survival" && s.health === 20, `unexpected start state ${JSON.stringify(s)}`);
     assert(s.hearts === 10 && s.heartsVisible, `expected 10 visible hearts: ${JSON.stringify(s)}`);
     assert(s.spawnTop === s.spawnGround, `the player should start on the ground, not on a tree: ${JSON.stringify(s)}`);
@@ -354,17 +358,18 @@ try {
   await check("render distance slider applies and persists", async () => {
     await page.evaluate(() => document.exitPointerLock());
     await page.waitForFunction(() => window.__voxelands.gameState === "paused", null, { timeout: 5000 });
+    await page.click("#pause-settings-btn");
     await page.$eval("#render-distance", (el) => {
       el.value = "6";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const live = await page.evaluate(() => window.__voxelands.renderDistance);
     assert(live === 6, `render distance is ${live} after slider change, expected 6`);
-    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("voxelands_v1_settings") || "{}"));
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ufocombat_v1_settings") || "{}"));
     assert(saved.renderDistance === 6, `saved settings: ${JSON.stringify(saved)}`);
     // The Graphics selector applies a preset and its suggested render distance.
     await page.selectOption("#graphics-preset", "medium");
-    const med = await page.evaluate(() => ({ g: window.__voxelands.graphics, rd: window.__voxelands.renderDistance, s: JSON.parse(localStorage.getItem("voxelands_v1_settings")) }));
+    const med = await page.evaluate(() => ({ g: window.__voxelands.graphics, rd: window.__voxelands.renderDistance, s: JSON.parse(localStorage.getItem("ufocombat_v1_settings")) }));
     assert(med.g === "medium" && med.rd === 16 && med.s.graphics === "medium", `graphics selector: ${JSON.stringify(med)}`);
     await page.selectOption("#graphics-preset", "low");
     // Restore the default for the rest of the run.
@@ -372,6 +377,7 @@ try {
       el.value = "20";
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    await page.click("#settings-back-btn");
     await page.click("#resume-btn", { timeout: 20000 });
     await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 10000 });
   });
@@ -443,7 +449,8 @@ try {
       }, v);
     let lockedStill = false;
     try {
-      // Tabs switch pages.
+      // Tabs switch pages (in the settings screen, opened from the pause menu).
+      await page.click("#pause-settings-btn");
       await page.click('.settings-tab[data-page="gameplay"]');
       assert(await page.isVisible("#time-of-day"), "gameplay tab shows the time slider");
       await setRange("#time-of-day", 18.5);
@@ -461,7 +468,7 @@ try {
       await page.selectOption("#gfx-bloom", "on"); // Low has no bloom: an override
       const live = await page.evaluate(() => {
         const v = window.__voxelands;
-        return { fov: v.player.baseFov, sens: v.player.mouseSensitivity, vol: v.audio.volumes.weapons, dmg: v.player.mobDamageScale, spawn: v.mobs.spawning, bloom: v.postfx.bloomLevels, s: JSON.parse(localStorage.getItem("voxelands_v1_settings")) };
+        return { fov: v.player.baseFov, sens: v.player.mouseSensitivity, vol: v.audio.volumes.weapons, dmg: v.player.mobDamageScale, spawn: v.mobs.spawning, bloom: v.postfx.bloomLevels, s: JSON.parse(localStorage.getItem("ufocombat_v1_settings")) };
       });
       assert(live.fov === 90 && live.sens === 1.5 && live.vol === 0.25 && live.dmg === 1.5 && live.spawn === false && live.bloom > 0, `live values: ${JSON.stringify(live)}`);
       assert(live.s.fov === 90 && live.s.sensitivity === 1.5 && live.s.volume.weapons === 0.25 && live.s.difficulty === "hard" && live.s.mobSpawning === false && live.s.timeLocked === true && live.s.gfxOverrides.bloom === "on", `saved: ${JSON.stringify(live.s)}`);
@@ -469,6 +476,7 @@ try {
       // Always resume, check the locked clock, and restore the defaults for
       // the rest of the run (unlocked mid-morning clock, Low, spawning on).
       if ((await page.evaluate(() => window.__voxelands.gameState)) !== "playing") {
+        if (await page.isVisible("#settings-back-btn")) await page.click("#settings-back-btn");
         await page.click("#resume-btn", { timeout: 20000 });
         await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 10000 });
       }
@@ -478,7 +486,7 @@ try {
       lockedStill = Math.abs(h1 - h0) < 1e-6;
       await page.evaluate(() => {
         const v = window.__voxelands;
-        localStorage.removeItem("voxelands_v1_settings");
+        localStorage.removeItem("ufocombat_v1_settings");
         Object.assign(v.settings, { timeLocked: false, difficulty: "normal", mobSpawning: true, fov: 75, sensitivity: 1, gfxOverrides: {} });
         v.settings.volume.weapons = 1;
         v.sky.locked = false;
@@ -1278,7 +1286,9 @@ try {
     }, a);
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
-    await page.waitForTimeout(300);
+    // (Waits on the game, not the clock: a few frames for the knockback to
+    // carry it, however slow the software renderer is.)
+    await page.waitForFunction((z0) => window.__zb.health < 20 && window.__zb.pos.z < z0 - 0.2, r.d0, { timeout: 15000 }).catch(() => {});
     const hit = await page.evaluate(() => ({ hp: window.__zb.health, z: window.__zb.pos.z, flash: window.__zb.hurtTime < 1 }));
     console.log(`        zombie hit: health 20 -> ${hit.hp}, pushed from z=${r.d0.toFixed(2)} to ${hit.z.toFixed(2)}`);
     assert(hit.hp === 15 && hit.flash, "a pistol shot should deal 5 damage");
@@ -1476,7 +1486,7 @@ try {
     await waitForExplosion(prevCount, 150000);
     const t1 = await page.evaluate(() => window.__voxelands.uniforms.uTime.value);
     // Let the rest of the meteor rain land.
-    await page.waitForFunction(() => window.__voxelands.weapons.meteors.length === 0 && window.__voxelands.weapons.airstrikes.length === 0, null, { timeout: 90000, polling: 50 });
+    await page.waitForFunction(() => window.__voxelands.weapons.airstrike.meteors.length === 0 && window.__voxelands.weapons.airstrike.pending.length === 0, null, { timeout: 150000, polling: 50 });
     const after = await page.evaluate(() => window.__voxelands.effects.explosionCount);
     console.log(`        first meteor landed ${(t1 - t0).toFixed(1)}s after firing; ${after - prevCount} meteor blasts total`);
     assert(t1 - t0 > 4.5, "meteors should start landing only after the delay");
@@ -1985,6 +1995,9 @@ try {
         v.mobs.clear();
         v.mobs.enabled = false;
         v.entities.clear();
+        // No enemy UFOs (a mod feature) joining in at midnight.
+        v.settingsPanel.set("ufos.activity", 0);
+        v.ufos.clear();
         const x0 = v.spawn.x + offX;
         const z0 = v.spawn.z + offZ;
         const y = 46;
@@ -2455,28 +2468,28 @@ try {
     });
     await p.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil: "load" });
     await waitReady(p);
-    await p.waitForFunction(() => JSON.parse(localStorage.getItem("voxelands_v1_boot") || "{}").ok === true, null, { timeout: 120000, polling: 200 });
+    await p.waitForFunction(() => JSON.parse(localStorage.getItem("ufocombat_v1_boot") || "{}").ok === true, null, { timeout: 120000, polling: 200 });
     const s = await p.evaluate(() => ({
       ...window.__startup,
       preset: window.__voxelands.graphics,
       play: { text: document.getElementById("play-btn").textContent, disabled: document.getElementById("play-btn").disabled },
-      boot: JSON.parse(localStorage.getItem("voxelands_v1_boot")),
+      boot: JSON.parse(localStorage.getItem("ufocombat_v1_boot")),
       startSelect: document.getElementById("start-graphics-preset").value,
     }));
     console.log(`        first paint (loading panel) at ${s.fcp?.toFixed(0)} ms; start menu up while shaders prepare: ${s.readyAtMenu === false}, Play then ${JSON.stringify(s.playAtMenu)}, now ${JSON.stringify(s.play)}; boot record ${JSON.stringify(s.boot)}`);
     assert(s.fcp > 0, "the page should paint (the loading panel) right away");
     assert(s.readyAtMenu === false && s.playAtMenu.disabled && /Preparing/.test(s.playAtMenu.text), `the start menu should come up before the world is drawn, with Play waiting: ${JSON.stringify(s)}`);
-    assert(!s.play.disabled && s.play.text === "Click to Play", `Play should be ready once the shaders are: ${JSON.stringify(s.play)}`);
-    assert(s.preset === "ultra" && s.startSelect === "ultra" && s.boot.preset === "ultra", `default start: ${JSON.stringify(s)}`);
+    assert(!s.play.disabled && /^(Play|Continue)$/.test(s.play.text), `Play should be ready once the shaders are: ${JSON.stringify(s.play)}`);
+    assert(s.preset === "medium" && s.startSelect === "medium" && s.boot.preset === "medium", `default start: ${JSON.stringify(s)}`);
     // Like picking a preset in the menu, ?graphics= also clears individual options.
     await p.evaluate(() => {
-      const saved = JSON.parse(localStorage.getItem("voxelands_v1_settings"));
-      localStorage.setItem("voxelands_v1_settings", JSON.stringify({ ...saved, gfxOverrides: { water: "ssr" } }));
+      const saved = JSON.parse(localStorage.getItem("ufocombat_v1_settings"));
+      localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ ...saved, gfxOverrides: { water: "ssr" } }));
     });
     await p.goto(`http://localhost:${PORT}/index.html?seed=${SEED}&graphics=low`, { waitUntil: "load" });
     await waitReady(p);
     const low = await p.evaluate(() => {
-      const saved = JSON.parse(localStorage.getItem("voxelands_v1_settings"));
+      const saved = JSON.parse(localStorage.getItem("ufocombat_v1_settings"));
       return { preset: window.__voxelands.graphics, saved: saved.graphics, overrides: saved.gfxOverrides };
     });
     assert(low.preset === "low" && low.saved === "low" && Object.keys(low.overrides).length === 0, `?graphics=low should start on plain Low and keep it: ${JSON.stringify(low)}`);
@@ -2490,18 +2503,18 @@ try {
         if (sessionStorage.getItem("primed")) return;
         sessionStorage.setItem("primed", "1");
         // An individual option could keep a heavy feature on at any preset.
-        localStorage.setItem("voxelands_v1_settings", JSON.stringify({ graphics: "ultra", gfxOverrides: { water: "ssr" } }));
-        localStorage.setItem("voxelands_v1_boot", JSON.stringify({ preset: "ultra", ok: false }));
+        localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ graphics: "ultra", gfxOverrides: { water: "ssr" } }));
+        localStorage.setItem("ufocombat_v1_boot", JSON.stringify({ preset: "ultra", ok: false }));
       });
     });
     await p.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil: "load" });
     await waitReady(p);
-    await p.waitForFunction(() => JSON.parse(localStorage.getItem("voxelands_v1_boot") || "{}").ok === true, null, { timeout: 120000, polling: 200 });
+    await p.waitForFunction(() => JSON.parse(localStorage.getItem("ufocombat_v1_boot") || "{}").ok === true, null, { timeout: 120000, polling: 200 });
     const s = await p.evaluate(() => ({
       preset: window.__voxelands.graphics,
       notice: document.getElementById("start-notice").textContent,
-      boot: JSON.parse(localStorage.getItem("voxelands_v1_boot")),
-      overrides: JSON.parse(localStorage.getItem("voxelands_v1_settings")).gfxOverrides,
+      boot: JSON.parse(localStorage.getItem("ufocombat_v1_boot")),
+      overrides: JSON.parse(localStorage.getItem("ufocombat_v1_settings")).gfxOverrides,
     }));
     console.log(`        ${JSON.stringify(s)}`);
     assert(s.preset === "high" && /lowered to High/.test(s.notice) && /options were reset/.test(s.notice), `expected High with a notice: ${JSON.stringify(s)}`);
@@ -2556,7 +2569,7 @@ try {
       await p.addInitScript(() => {
         if (!sessionStorage.getItem("primed")) {
           sessionStorage.setItem("primed", "1");
-          localStorage.setItem("voxelands_v1_settings", JSON.stringify({ graphics: "medium", gfxOverrides: { bloom: "off" } }));
+          localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ graphics: "medium", gfxOverrides: { bloom: "off" } }));
         }
       });
     });
@@ -2567,9 +2580,9 @@ try {
     const s = await p.evaluate(() => ({
       label: document.getElementById("gpu-lost-preset").textContent,
       resetShown: !document.getElementById("gpu-lost-reset").classList.contains("hidden"),
-      saved: JSON.parse(localStorage.getItem("voxelands_v1_settings")),
-      boot: JSON.parse(localStorage.getItem("voxelands_v1_boot")),
-      player: !!localStorage.getItem("voxelands_v1_player_42"),
+      saved: JSON.parse(localStorage.getItem("ufocombat_v1_settings")),
+      boot: JSON.parse(localStorage.getItem("ufocombat_v1_boot")),
+      player: !!localStorage.getItem("ufocombat_v1_player_42"),
     }));
     console.log(`        ${JSON.stringify(s)}`);
     assert(s.label === "Low" && s.saved.graphics === "low" && s.boot.preset === "low" && s.boot.ok, `expected Low for the next start: ${JSON.stringify(s)}`);

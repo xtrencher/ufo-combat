@@ -3,7 +3,7 @@
 // is drawn. The top of a water column is drawn WATER_SURFACE_HEIGHT into its
 // top block, lowered a little more and moved by travelling waves.
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
-import { BLOCK } from "./blocks.js";
+import { IS_WET } from "./blocks.js";
 
 export const WAVE_SINK = 0.06; // extra lowering of the surface (times wave strength)
 
@@ -24,7 +24,7 @@ export function isUnderwater(world, x, y, z, t, strength) {
   const bx = Math.floor(x);
   const by = Math.floor(y);
   const bz = Math.floor(z);
-  if (world.getBlock(bx, by, bz) !== BLOCK.WATER) return false;
-  if (world.getBlock(bx, by + 1, bz) === BLOCK.WATER) return true; // deeper than the top block
+  if (!IS_WET[world.getBlock(bx, by, bz)]) return false;
+  if (IS_WET[world.getBlock(bx, by + 1, bz)]) return true; // deeper than the top block
   return y < surfaceHeight(by, x, z, t, strength);
 }

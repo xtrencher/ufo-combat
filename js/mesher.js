@@ -20,6 +20,8 @@ import {
   WAVES,
   EMISSIVE,
   IS_LEAVES,
+  IS_WET,
+  IS_WATERLOGGED,
 } from "./blocks.js";
 
 // FOLIAGE: leaves and plants (sunlight shines through them).
@@ -245,7 +247,7 @@ export function grassTint(wx, wz) {
 function waterDepth(x, y, z) {
   let d = 0;
   let pi = pidx(x, y, z);
-  while (d < 15 && padBlocks[pi] === BLOCK.WATER) {
+  while (d < 15 && IS_WET[padBlocks[pi]]) {
     d++;
     pi -= OY;
   }
@@ -447,63 +449,16 @@ export function meshChunk(neighbors, options = {}) {
         const shape = SHAPE_OF[id];
         if (shape === SHAPE.CROSS) {
           emitCross(b, x, y, z, baseX + x, baseZ + z, id, pi);
+          // A waterlogged plant (seagrass, kelp) stands in water: its cell
+          // is drawn as water too, so it never looks like an air pocket.
+          if (IS_WATERLOGGED[id]) emitCube(builders[RENDER.WATER], BLOCK.WATER, RENDER.WATER, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);
           continue;
         }
         if (shape === SHAPE.TORCH) {
           emitTorch(b, x, y, z, id, pi);
           continue;
         }
-
-        const isWater = rt === RENDER.WATER;
-        let topY = 1;
-        if (isWater && padBlocks[pi + OY] !== BLOCK.WATER) topY = WATER_SURFACE_HEIGHT;
-        let baseFlags = 0;
-        if (WAVES[id]) baseFlags |= FLAG.WAVE;
-        if (EMISSIVE[id]) baseFlags |= FLAG.EMISSIVE;
-        const leaves = IS_LEAVES[id] === 1;
-        if (leaves) {
-          baseFlags |= FLAG.FOLIAGE;
-          b.tint = foliageTint(baseX + x, y, baseZ + z);
-        }
-        let exposed = false;
-
-        for (let f = 0; f < 6; f++) {
-          const face = FACES[f];
-          const nid = padBlocks[pi + face.neighbor];
-          if (IS_OPAQUE[nid]) continue;
-          if (rt !== RENDER.OPAQUE && nid === id) continue; // glass-glass, leaf-leaf, water-water
-          // Water's top face is visible from below the lowered surface even
-          // if something non-opaque (e.g. a plant) sits on top; other faces
-          // of water next to water were skipped above.
-          exposed = true;
-          shadeCorners(pi, face);
-          let flags = baseFlags;
-          if (id === BLOCK.GRASS) b.tint = f === 2 ? grassTint(baseX + x, baseZ + z) : 128;
-          let faceDepths = null;
-          if (isWater) {
-            if (f === 2) {
-              for (let c = 0; c < 4; c++) {
-                const cp = face.corners[c].pos;
-                // Average the depth of the (up to) 4 water columns meeting at this corner.
-                let sum = 0;
-                for (let k = 0; k < 4; k++) {
-                  const cx = x + cp[0] - (k & 1);
-                  const cz = z + cp[2] - (k >> 1);
-                  sum += waterDepth(cx, y, cz);
-                }
-                depths[c] = Math.min(255, Math.round((sum / 4) * 16));
-              }
-            } else {
-              depths[0] = depths[1] = depths[2] = depths[3] = 16;
-            }
-            faceDepths = depths;
-          } else if (nid === BLOCK.WATER) {
-            flags |= FLAG.UNDERWATER;
-          }
-          emitCubeFace(b, face, x, y, z, FACE_TILES[id * 6 + f], flags, isWater ? topY : 1, faceDepths);
-        }
-        if (fancyLeaves && exposed && leaves) emitLeafCards(b, x, y, z, baseX + x, baseZ + z, id, pi);
-        b.tint = 128;
+        emitCube(b, id, rt, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);
       }
     }
   }
@@ -513,4 +468,60 @@ export function meshChunk(neighbors, options = {}) {
     cutout: builders[RENDER.CUTOUT].result(),
     water: builders[RENDER.WATER].result(),
   };
+}
+
+// The visible faces of a full cube block `id` (render type `rt`) at padded
+// (x, y, z) / index pi, into builder b.
+function emitCube(b, id, rt, x, y, z, baseX, baseZ, pi, depths, fancyLeaves) {
+  const isWater = rt === RENDER.WATER;
+  let topY = 1;
+  if (isWater && !IS_WET[padBlocks[pi + OY]]) topY = WATER_SURFACE_HEIGHT;
+  let baseFlags = 0;
+  if (WAVES[id]) baseFlags |= FLAG.WAVE;
+  if (EMISSIVE[id]) baseFlags |= FLAG.EMISSIVE;
+  const leaves = IS_LEAVES[id] === 1;
+  if (leaves) {
+    baseFlags |= FLAG.FOLIAGE;
+    b.tint = foliageTint(baseX + x, y, baseZ + z);
+  }
+  let exposed = false;
+
+  for (let f = 0; f < 6; f++) {
+    const face = FACES[f];
+    const nid = padBlocks[pi + face.neighbor];
+    if (IS_OPAQUE[nid]) continue;
+    if (rt !== RENDER.OPAQUE && nid === id) continue; // glass-glass, leaf-leaf, water-water
+    if (isWater && IS_WET[nid]) continue; // water next to a waterlogged plant's water
+    // Water's top face is visible from below the lowered surface even
+    // if something non-opaque (e.g. a plant) sits on top; other faces
+    // of water next to water were skipped above.
+    exposed = true;
+    shadeCorners(pi, face);
+    let flags = baseFlags;
+    if (id === BLOCK.GRASS) b.tint = f === 2 ? grassTint(baseX + x, baseZ + z) : 128;
+    let faceDepths = null;
+    if (isWater) {
+      if (f === 2) {
+        for (let c = 0; c < 4; c++) {
+          const cp = face.corners[c].pos;
+          // Average the depth of the (up to) 4 water columns meeting at this corner.
+          let sum = 0;
+          for (let k = 0; k < 4; k++) {
+            const cx = x + cp[0] - (k & 1);
+            const cz = z + cp[2] - (k >> 1);
+            sum += waterDepth(cx, y, cz);
+          }
+          depths[c] = Math.min(255, Math.round((sum / 4) * 16));
+        }
+      } else {
+        depths[0] = depths[1] = depths[2] = depths[3] = 16;
+      }
+      faceDepths = depths;
+    } else if (IS_WET[nid]) {
+      flags |= FLAG.UNDERWATER;
+    }
+    emitCubeFace(b, face, x, y, z, FACE_TILES[id * 6 + f], flags, isWater ? topY : 1, faceDepths);
+  }
+  if (fancyLeaves && exposed && leaves) emitLeafCards(b, x, y, z, baseX + x, baseZ + z, id, pi);
+  b.tint = 128;
 }

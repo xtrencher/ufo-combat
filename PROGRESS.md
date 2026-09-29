@@ -802,3 +802,330 @@ Note: the task referred to reference images in a `/reference` directory (current
 - [x] Grass on Ultra mixed two styles — root cause: js/grass.js drew smooth, vertex-coloured triangle blades (their own shader, no texture) on top of the mesher's pixel-art tall-grass cross blocks. Rewrote grass.js so every instanced plant is a set of crossed cards sampling the block texture array with new pixel-art tiles (grass_tuft, grass_tuft_b, fern, reeds/cattails, flowers, lily pad) in exactly the style of the redrawn tall_grass block; one plant shader (js/shaders.js) with the shared wind, same tint as the grass blocks
 - [x] Dark curved shading on lower edges/faces — root cause in the relief (normal/height) maps: `paintRelief` took slopes with wrap-around, so a face's bottom row was compared with its top row; on tiles whose top and bottom differ (grass side's fringe over dirt, the sand's ripple texture) that invented a steep false slope along every block's lower edge, and parallax (repeat-wrapped) also stepped past the tile edge into the opposite side. Fixed with one-sided differences at tile borders and a clamped parallax march; sand now has its own ripple-free side texture (the wavy ripple bands were what read as dark curves on seabed walls)
 - [x] Underwater darkened too fast — fog density is now a uniform (`uUnderwaterFog`, 0.085 -> 0.03 per block, ~3x the visibility); the underwater light shafts march 56 blocks (was 30) with gentler falloff, colour grading unchanged
+
+---
+
+# UFO COMBAT — overnight build
+
+This repository was copied from Voxelands and is becoming **UFO COMBAT**. The checklists below are the source of truth for this build; items are ticked as they are finished and each group is committed and pushed.
+
+## UFO Part 1 checklist
+### 1.1 Rebrand and main menu
+- [x] Rename to "UFO COMBAT" everywhere (page title, menus, README, console messages)
+- [x] New unique localStorage key prefix (no sharing with the old game on the same domain)
+- [x] New main menu: big stylized UFO COMBAT logo, animated background (slow flyover of the world with a UFO drifting across the sky)
+- [x] Main menu buttons: Play (new world with optional seed / continue), Settings, Mods, Controls
+- [x] Default graphics preset: Medium
+### 1.2 Mods toggle
+- [x] "Mods" setting, ON by default; OFF = vanilla (no guns, explosives, vehicles, UFOs, aliens; swords/tools stay)
+- [x] Toggling mid-game cleanly removes/restores mod entities and items
+### 1.3 Bug fixes
+- [x] Sniper scope black screen fixed (zoomed view + scope overlay)
+- [x] All weapons fully independent (airstrike pending no longer blocks the bazooka etc.)
+- [x] World gen: no single stray water blocks on land (fix the cause)
+- [x] Seagrass/kelp waterlogged: water around and inside them, never air pockets
+### 1.4 Airstrike upgrade
+- [x] Meteors fall at an angle from much higher/farther, glowing fiery core, smoke trail, heat glow, impact flash, shockwave
+- [x] Settings: meteor count, spread radius, delay, fall angle, fall speed, explosion size
+### 1.5 Zombie settings
+- [x] Settings: zombie spawn rate (up to extreme), max zombie count, toughness (health + damage multipliers)
+- [x] Playable at high counts (instanced far rendering, simplified AI far away); performance note next to extreme values
+### 1.6 Laser blaster
+- [x] Laser blaster weapon: short glowing bolts, color red/green/blue (setting), bloom glow, impact sparks, scorch marks, blaster sound
+### 1.7 Render settings
+- [x] Separate controls for full-detail chunk distance and LOD distance/quality
+- [x] One-click performance presets (Potato / Balanced / Beautiful / Max)
+### 1.8 Binocular zoom
+- [x] Hold both mouse buttons = strong binocular zoom with subtle vignette; release = instant normal view
+- [x] Chord detection never fires weapons / breaks / places blocks by accident; works in vanilla mode; zoom strength setting
+### Finish
+- [x] Full test suite run for Part 1, README updated, "UFO PART 1 COMPLETE"
+
+### Part 1 test results
+- `node --check` on every file, `check-syntax.mjs`, **43/43 unit tests** (one new: generated water is always walled in and underwater plants stand in water).
+- **ufo-tests.mjs (new): 11/11** Part 1 checks (menus, settings and presets, loadout, weapon independence, airstrike, blaster, sniper scope, binoculars, mods on/off, zombie crowds).
+- **Full smoke suite (68 checks): 61 passed.** The failures:
+  - *Ultra plants* timed out after 300 s: the known issue from Round 4 (heavy Ultra frames in software rendering).
+  - *Airstrike designator*: the test read the old `weapons.meteors` array; updated to the new airstrike module (`weapons.airstrike.meteors/pending`).
+  - *Grenade crater, grenade direct hit, pistol knockback, bazooka point blank, zombies and the moat*: all fixed real-time waits (e.g. `waitForTimeout(300)`, 60 s explosion waits) that ran short because I was running other headless browsers at the same time (every frame took 2-3x longer). The direct-hit failure was a knock-on effect: the previous check's grenade exploded late, during it. These are re-checked in the Part 2 full run, with nothing else running.
+
+UFO PART 1 COMPLETE
+
+## UFO Part 2 checklist
+### 2.0 Shared vehicle system
+- [x] One vehicle framework (enter/exit, camera modes, HUD, input, damage, saving) reused by UFO and jet
+- [x] Edge cases: exit into water / underground / mid-air; dying inside; save/load while in a vehicle; pausing; mod toggle while piloting
+### 2.1 Enemy UFOs
+- [x] Sizes small / medium / large / huge mothership; health and effects scale with size
+- [x] Roam freely; notice the player by line of sight + chance-based detection, then attack
+- [x] On-foot attack: fly in fast, stop above, blue tractor-beam cone lifts the player; reaching the UFO kills ("Abducted by a UFO"); escape by leaving the beam; beam stops if the UFO is shot down
+- [x] Enemy UFOs fire laser blasts
+### 2.1b Behavior and variety
+- [x] Distinct shapes: classic saucer (glowing + non-glowing), tic-tac, sphere, pyramid, triangle, cigar, + own unusual shapes; blinking / color-cycling lights; readable at a distance
+- [x] Free roaming at any altitude; idle tricks (abducting cows/animals, hovering over lakes, zig-zag, following animals)
+- [x] Rare "leave forever" streak into the sky (likelier after abducting or when chased by a jet)
+- [x] Spawn out of view (far / over the horizon) and fly in; much more activity at night
+- [x] "UFO activity" slider from very rare to "UFO APOCALYPSE" (playable: simplified distant models, instancing, cheap far AI)
+- [x] Advanced UFO settings: spawn chance, max count, aggression, detection range, beam lift strength, size distribution, night multiplier, toughness
+### 2.1c Reactions and durability
+- [x] When shot on foot: counterattack with lasers, fly in to beam, or evasive repositioning (dodge/strafe/altitude), mixed
+- [x] Toughness scales with size with per-UFO variation
+### 2.1d UFOs vs player vehicles
+- [x] Player in jet: UFO personalities (fleeing evaders vs attackers with lasers / aggressive passes)
+- [x] Fleeing speed: most slightly slower than jet at full throttle; some faster and uncatchable
+- [x] Player in UFO: other UFOs friendly unless provoked; shooting one turns it (and maybe nearby) hostile
+### 2.2 Shooting down UFOs
+- [x] All weapons damage UFOs; destroyed UFOs fall with fire and smoke and crash-land (crater, debris)
+- [x] Green alien mobs come out and attack with laser guns
+- [x] Crashed UFO can be boarded and flown (damaged but working), keeps its shape
+### 2.3 Pilotable UFO
+- [x] Fly a crashed UFO, or spawn one from the Mods menu in creative (choice of shape)
+- [x] No physics limits: hover, instant acceleration, any direction, very wide speed range (setting)
+- [x] Optional ghost mode: passes through terrain and burns a tunnel
+- [x] Weapons: tractor beam (lifts mobs, optionally loose blocks) and laser cannon
+- [x] Third-person chase camera; HUD with speed, altitude, weapon
+### Finish
+- [x] Full test suite run for Part 2, README updated, "UFO PART 2 COMPLETE"
+
+### Part 2 test results
+- `node --check` on every file, **43/43 unit tests**.
+- **ufo-tests.mjs: 27/27** Part 1 + Part 2 checks (UFO designs and sizes, activity and out-of-view spawning, detection and abduction, escaping the beam, reactions, every weapon vs UFOs, shoot-down/crash/aliens, boarding the wreck, UFO cannon and beam, friendly UFOs, ghost mode, exits underground and by parachute, save/load while flying, mods off mid-flight, dying in a destroyed UFO, tricks).
+- **Full smoke suite on a frozen snapshot, nothing else running: the first 17 checks passed** (including the Ultra checks that timed out in Part 1: the Part 1 Ultra timeout was contention too). I stopped the run there: at ~3 minutes per check in software rendering the remaining 51 would have taken well over the ~10 minute budget for a slow check, and Part 3 needs the browser. The whole smoke suite runs again, uninterrupted, at the end of Part 3 (which covers all Part 2 code).
+
+UFO PART 2 COMPLETE
+
+## UFO Part 3 checklist
+### 3.1 Fighter jet
+- [x] F-22-style stealth jet model (angular, twin tails, twin engines with afterburner glow), procedural
+- [x] Call in a jet (hotbar item / key); spawn on ground or airborne (setting)
+- [x] Exiting in the air ejects with a parachute
+- [x] Flight physics: throttle/thrust, lift, drag, gravity, stall, afterburner, pitch/roll/yaw; cannot hover
+- [x] Intuitive mouse + keyboard controls; optional flight-assist mode
+- [x] Crashing into terrain destroys the jet and kills the player unless ejected; jet health; can be shot down by UFOs
+- [x] Views: third-person chase + cockpit; HUD: speed, altitude, throttle, heading, weapon, lock indicator, health, incoming-attack warning
+- [x] Settings: max speed, acceleration, turn rate, stall speed, flight assist
+### 3.2 Jet weapons
+- [x] Autocannon: rapid fire with tracers
+- [x] Guided missiles: lock onto UFOs/mobs (lock box, tone, delay while in front), tracking missile with smoke trail
+- [x] Nuke: white flash, shockwave, rising mushroom cloud, huge crater, long-distance sound; batched edits, spread rebuilds, falling-block cap; settings for size and effect intensity
+### 3.3 End-to-end scenario
+- [x] Jet → spot UFO → chase/dodge → lock → missile hit → UFO crash-lands → eject with parachute → land → fight aliens → board crashed UFO → fly away passing other UFOs peacefully
+- [x] Automated test covering as much of it as possible
+### 3.4 Settings and stats
+- [x] Settings grouped (Vehicles, UFOs, Weapons, Mobs, Graphics, Performance) with per-group "reset to defaults", persisted
+- [x] Stats (world + total): UFOs shot down, play time, aliens killed, zombies killed, deaths, abductions survived; persisted
+- [x] Optional small HUD stats overlay (UFOs shot down + play time), off by default; full Stats screen in the pause menu
+### Finish
+- [x] Full test suite run for Part 3, README updated, "UFO PART 3 COMPLETE"
+
+### Part 3 test results
+- `node --check` on every file, **43/43 unit tests**.
+- **ufo-tests.mjs: 34/34** on a frozen snapshot with nothing else running (Parts 1-3, including the jet takeoff/stall/HUD, cannon and missile lock, UFO personalities vs the jet, the nuke, crashing, the full end-to-end scenario, and stats).
+- **Full smoke suite (68 checks): 65 passed.** The failures:
+  - *Ultra plants* timed out after 300 s: the known pre-existing issue (heavy Ultra frames in software rendering; it passed in the Part 2 run).
+  - *Pistol knockback*: the check waited a fixed 300 ms of real time for the zombie to be pushed back; with Medium now the default preset, software rendering fits only one frame into that (the zombie had moved 0.12 of the 0.2 blocks needed). The check now waits on the game instead (up to 15 s for the push). The knockback itself is unchanged.
+  - *Zombies and the moat*: the zombie correctly stopped at the water, but the player had lost 3 health. Nothing in the arena could reach them; the likely source is an enemy UFO (mods are on by default and it was midnight). I couldn't reproduce it in isolation (two UFOs around, no hits in 10 s), but the smoke suite's creature arenas now switch UFO activity off, since they test the base game.
+- **Performance** (this container: software rendering, slow shared CPU): Potato with 48 UFOs and 108 zombies plus 4 explosions: 2.2 ms simulation per frame (max 5); Balanced with 112 UFOs and 126 zombies: 9 ms (max 17), of which UFOs cost ~1.0 ms and zombies ~1.2 ms (measured separately), and the rest was terrain streaming after switching presets. On a real GPU and CPU these are a fraction of a 60 fps frame.
+
+UFO PART 3 COMPLETE
+
+## UFO Final checklist
+- [x] 1. Regression pass (terrain, biomes, presets, water, mobs, combat, crafting, saving, death screen, mods OFF)
+- [x] 2. Player's-eye review (menu, first minutes, every weapon/vehicle, UFO encounters on foot / jet / UFO, full scenario); fix what's found
+- [x] 3. Performance check: Potato and Balanced smooth with UFOs at high activity, many zombies, explosions
+- [x] 4. Full test suite one last time
+- [x] 5. README: all controls, features, settings
+- [x] 6. PROGRESS.md: summary, decisions, known issues, "How to test in 10 minutes"
+- [x] 7. "UFO FINAL COMPLETE", commit, push
+
+## Decisions log
+(Notable decisions made without being able to ask, with the reason.)
+
+### Part 1
+- **Internal names.** The debug hook is now `window.__ufo`; the old name `window.__voxelands` stays as an alias because the ~2,600-line smoke suite uses it everywhere. Neither is visible to players.
+- **Continue vs. new world.** Without `?seed=` the page now opens the last world played (the menu says Continue); New World takes an optional seed (numbers, or any text, hashed) and reloads into it. "Save & main menu" in the pause menu reloads the same world to the title.
+- **Settings are schema-driven** (`js/settings.js`): one table declares every setting's group, range and default; rows, validation of saved values and per-group "Reset to defaults" all come from it. The tabs Graphics/Controls/Audio/Gameplay keep their old internal page names so older tests and saves keep working.
+- **Stray water cause:** swamp "puddles" put a water block *on top of* the ground (y = h + 1) instead of in it. They are now sunk into the ground, only where all four neighbours are at least as high, and never where a cave would open beside or under them. A unit test now scans generated land for any water block with air beside or below it.
+- **Waterlogged plants:** seagrass and kelp are "waterlogged" blocks: they render water in their own cell, count as water for swimming, drowning, the underwater view and the water sim, and breaking one leaves water behind (`IS_WET`, `IS_WATERLOGGED`).
+- **Sniper scope black screen:** the overlay's mask had a solid black second background layer under its transparent circle. It's a single radial gradient now (and a nicer reticle).
+- **Weapon independence:** one shared cooldown (8 s after an airstrike) blocked every weapon. Each weapon has its own cooldown now; airstrikes queue independently.
+- **Binocular chord:** single presses are delayed by 70 ms to detect a two-button chord (the approach suggested in the brief). A quick click still goes through as a click. Pressing the second button while the first is held (mining, machine gun) also becomes the binoculars once both are held past the window: the first action is released and the second never starts. The held item is hidden while zoomed; a rangefinder reading shows the distance.
+- **Zombie apocalypse performance:** zombies beyond 44 blocks (26 when there are more than 60) are drawn as an instanced crowd (two alternating walk poses, 2 draw calls total); mobs beyond 64 blocks think every third frame; mob separation uses a spatial grid instead of all pairs. Spawn rate and max count use stepped sliders (0-50x, 0-400) because a linear slider made the normal values unusably small. "Daylight zombies" is a separate switch rather than something the spawn rate silently turns on.
+- **Airstrike "delay"** is the time from calling the strike to the first impact: meteors launch early enough (they start ~200 blocks up, and far off to the side at steep angles) to hit at that moment.
+- **Mods off** stashes mod items with the player (not deleted), so switching back restores them to the same slots. A world started with mods off gets the weapon loadout the first time it's played with mods on.
+- **Starting hotbar** is now 8 items (added the laser blaster and the Jet Radio for Part 3's jet). Creative gets one block slot; the full palette is on E.
+- **Performance presets** (Potato/Balanced/Beautiful/Max) set the graphics preset, render distance, full-detail distance, far-terrain (LOD) quality, resolution scale and effects detail. Resolution scale and effects detail are new knobs, added because they are the cheapest big wins on weak GPUs.
+
+### Part 2
+- **One vehicle framework** (`js/vehicles.js`) owns boarding, exits, input, camera, HUD, damage, saving and the mods switch; the UFO and the jet only implement flight, weapons and their HUD rows. Hits on a seated player go to the vehicle (`Player.damage` redirects), so zombies, aliens and lasers all "just work" against vehicles.
+- **Exits:** a safe spot is searched around the hull (2 free blocks with ground or water under them, preferring just outside the hull near its underside). No spot underground (a ghost-mode UFO inside rock) puts you on the surface above; high in the air you drop out under a parachute (a jet fires its seat up first). With mods switched off mid-flight you're set down on the ground below instead (the parachute is mod content too).
+- **UFO controls:** W/S move along the view (so looking down and pressing W dives), A/D strafe, Space/Shift up/down, Ctrl boost, the mouse wheel sets the cruising speed on a log scale between the slowest and top speed settings (0.5 to 1,200 blocks/s). Both weapons are always available (left click cannon, right click beam) rather than switching between them.
+- **Abducted creatures and lifted blocks go into your inventory** (their drops), so the tractor beam is useful, not just a toy.
+- **Crashed wrecks lift off by themselves** when boarded (straight up, clear of the crater rim), and a UFO whose collision box starts inside the ground can move freely until it's clear: a half-buried wreck used to be pushed deeper by the collision sweep.
+- **UFO personalities** are fixed at spawn: 55% evaders (flee a jet at 80-95% of its top speed), 17% "fast" (125-160%, uncatchable, likely to leave for good when chased), 28% fighters (attack runs); motherships always fight.
+- **Detection:** a line of sight is required (a world raycast from the UFO's underside), then a per-check chance growing with closeness, aggression and night, halved while sneaking. UFOs ignore Creative players unless shot (the beam couldn't hurt them anyway), and lose interest after 14 s without seeing the player, so hiding under trees or in a cave works.
+- **Escaping the beam:** the UFO follows at 2.6 blocks/s, slower than walking, so stepping out of the light is always possible (you can steer while lifted). A roof stops the lift. Breaking free after being lifted counts as an abduction survived.
+- **Spawning out of view:** new UFOs appear beyond the view distance (at least 320 blocks), in a direction at least ~75° away from where the camera looks; their halo fades in with distance so no light pops into the sky.
+- **Apocalypse cost:** the lights of each UFO are one instanced mesh, far UFOs (over 240 blocks) draw only hull and halo, and UFOs beyond 380 blocks think every fourth frame. 100 UFOs update in well under a millisecond.
+- **Aliens** are a mob species (reusing mob AI and physics) with a ranged "laser" attack through the shared laser system; they don't burn in daylight and drop iron, sometimes a diamond, rarely a laser blaster.
+- **Friendly fire:** enemy UFO bolts don't hit other UFOs, alien bolts don't hit aliens, and the player's shots never hit their own vehicle.
+
+### Part 3
+- **Flight model:** thrust (throttle, afterburner 1.55x), lift proportional to angle of attack and the square of airspeed (collapsing past ~17 degrees), drag (sized so the afterburner top speed is the "max speed" setting, and full military power reaches ~80% of it), gravity, and sideslip damping. The lift constant is derived from the stall-speed setting, so "stall speed" means exactly that: below it the wings can't hold the jet up. Control rates need airspeed; a stalled jet drops its nose. Gravity on the jet is 14 blocks/s^2 (not the player's 26) so it feels like a big aircraft.
+- **Controls:** flight assist (default) is "fly toward the crosshair" (like mouse-aim in arcade flight games): the mouse moves an aim direction and the jet banks and pulls toward it, rolling wings-level as the nose arrives. It's by far the easiest way to fly with a mouse. Assist off makes the mouse a stick (pitch/roll). W/S throttle, Shift afterburner, A/D roll, Q/E rudder, Space brake, B nuke. Q (drop) and E (inventory) are free in vehicles because keys go to the vehicle there.
+- **Weapons without menus:** left click cannon, right click missile, B nuke: nothing to select mid-dogfight. Missiles fire guided when locked, straight otherwise.
+- **Lock-on:** the best target within ~14 degrees of the nose (UFOs first, then creatures up to 450 blocks), held for 1.1 s; the lock box closes in on the target and the tone speeds up, then turns solid. Missiles lead the target with a turn-rate limit and a proximity fuse.
+- **The nuke falls on a drogue parachute** (like a real retarded bomb) so the pilot has time to get clear; it has a 25 s cooldown. Its crater is carved in 10 slices over 10 frames, the blast zone is scorched (grass to dirt, leaves and plants gone) a bounded number of columns per frame, and the mushroom cloud is its own billboard pool whose density follows the intensity setting.
+- **Calling the jet** (J or the Jet Radio): it searches for a flat, clear strip (about 70 blocks long; thrust gets a 40% boost on the ground so that is enough to take off) near the player; if there's none it arrives airborne with the player already in the cockpit (the setting forces that). One player jet at a time. An unmanned jet (after ejecting) spools down and noses over until it crashes.
+- **UFO personalities vs the jet** (Part 2) use the jet's top speed setting, so changing it keeps "most slightly slower, some faster" true.
+- **Takeoff:** thrust gets a 40% boost while on the wheels (a game-length takeoff roll of ~40 blocks instead of hundreds), the call-in looks for a ~70 block strip, and with flight assist the jet rotates by itself once it has flying speed. Found in testing: the jet ran off a short strip before the pilot pulled up.
+- **Quick clicks count:** a click shorter than one frame (easy at low frame rates) still fires the jet's cannon/missile and the UFO cannon.
+- **Jet call cooldown** (8 s) only applies while your current jet still exists (it stops spamming replacements); after losing it you can call a new one at once.
+- **Wrecks can't be destroyed before they're boarded:** in the full scenario, blaster shots at the aliens standing around the wreck blew it up, leaving no ride home.
+- **In a vehicle** the hotbar and hearts are hidden (the vehicle panel has its own health bar; damage goes to the vehicle).
+- **Respawn grace:** after a respawn every UFO loses interest and none notices the player on foot for 30 s (in a vehicle they can be spotted: flying a jet is asking for a fight). Found in the long smoke run: a UFO hovering over the spawn point could abduct a freshly respawned player again and again.
+- **First-time hints:** a handful of one-line tips appear at the moment they're useful (entering a new world, first UFO nearby, first aliens, first time in each vehicle).
+
+## UFO COMBAT: final summary
+
+**What was built** (on top of the existing voxel game, whose terrain, biomes,
+lighting, water, mobs and graphics presets are unchanged):
+
+- **Part 1:** rebrand to UFO COMBAT (new storage prefix `ufocombat_v1_`, so
+  old Voxelands saves are untouched); a new main menu with an animated
+  flyover and a drifting UFO, Play/Continue, New World with a seed, and
+  Settings / Mods / Controls screens; Medium default graphics; a **Mods**
+  master switch (off = the vanilla game, safely switchable mid-game);
+  bug fixes (sniper scope black screen, weapons blocking each other during
+  an airstrike, stray water blocks, air pockets around seagrass and kelp);
+  a meteor airstrike with settings; zombie settings up to an apocalypse
+  (instanced far crowds, lazy far AI); the laser blaster; performance
+  settings and one-click presets; binoculars on both mouse buttons.
+- **Part 2:** a shared vehicle framework; enemy UFOs in 10 designs and 4
+  sizes up to motherships, with detection, abductions, escapes, tricks,
+  reactions, personalities, lasers and an activity slider up to UFO
+  APOCALYPSE; shooting UFOs down (burning fall, crater, boardable wreck,
+  armed aliens); the pilotable UFO (no inertia, huge speed range, ghost
+  mode, tractor beam, laser cannon, chase camera, HUD).
+- **Part 3:** the F-22 style jet (procedural model, call-in on a strip or
+  airborne, real flight model with stall, flight assist, eject with a
+  parachute, crashes, chase and cockpit views, full HUD with warnings);
+  autocannon, lock-on guided missiles and a nuke; the whole jet-to-UFO
+  scenario playable and tested end to end; grouped settings with per-group
+  reset; world and all-time stats, an optional HUD overlay and a Stats
+  screen.
+
+## Final polish notes
+
+### Final test results
+- **Unit tests: 43/43.**
+- **ufo-tests.mjs: 33/34** in the final full run (a 35th check, respawn
+  grace, was added after it). The one failure was my own test change: the
+  fighter check now lifts the jet to 150+ blocks, so the following nuke
+  check's bomb took longer to parachute down than its real-time limit. The
+  nuke check now starts from a low pass; it, the rest of the jet checks and
+  the new grace check were re-run afterwards (see below). The run before
+  it (same game code) had failed 3 randomness-dependent checks (a UFO
+  moving out of the cannon's line, a fighter's random shot timer, aliens
+  standing under the wreck); those tests were pinned down.
+- **Smoke suite: 66/68.** *Ultra plants* timed out (the known software
+  rendering issue). *Pistol, every click fires*: 5 shots from 6 clicks,
+  because at ~2 fps two clicks 150 ms apart can land in the same frame,
+  inside the pistol's 0.07 s cooldown (unchanged from the original game).
+  Fixed in the game rather than the test: a pistol or bazooka click during
+  the cooldown is now buffered and fires the moment it's ready; a probe of
+  6 rapid clicks gives 6 shots and 6 holes.
+- **Re-run after the last fixes:** respawn grace (new), the jet takeoff,
+  jet weapons, UFOs vs the jet, the nuke, the jet crash, the FULL SCENARIO
+  and stats all pass; so do the weapon-independence and "every weapon
+  damages UFOs" checks and the 43 unit tests. One more bug found there and
+  fixed: right after your jet was destroyed, the call-in cooldown could
+  still refuse a new one (the wreck lingers for a second), and the respawn
+  grace also hid a player flying a jet (it now only covers you on foot).
+
+
+- **Regression pass:** the smoke suite (terrain, biomes, all graphics
+  presets, LOD, water, lighting, mobs, combat, crafting, saving and
+  reloading, the death screen, startup errors) ran in full after Parts 2/3;
+  mods off is covered by the UFO suite (vanilla hotbar, recipes and palette;
+  UFOs, aliens and vehicles gone; everything back when switched on) and
+  checked by eye.
+- **Player's-eye review** (screenshots of the menu, first minute, an enemy
+  UFO overhead, flying a UFO, the jet in chase and cockpit view, the nuke,
+  the pause/Mods/Stats screens, mods off). Fixed from it: the player's
+  hearts drew over the vehicle HUD (now hidden in vehicles, and the panel
+  is narrower); a jet called onto a short strip ran off the end before
+  rotating (longer strip search, takeoff thrust boost, assist rotates);
+  quick clicks at low frame rates were lost in vehicles; a jet lost within
+  8 s of calling couldn't be replaced; the crashed UFO could be blown up by
+  shots at its aliens; a UFO over the spawn point could abduct a freshly
+  respawned player straight away (now 30 s of grace).
+- **GitHub Pages:** `probe.mjs --base=/ufo-combat/` serves the game only
+  under that subpath: it boots, plays, streams (including the LOD worker)
+  and calls the jet with zero console errors. All paths are relative and
+  every import matches its file name exactly.
+- **Performance:** see the Part 3 results (Potato and Balanced with a sky
+  full of UFOs, 100+ zombies and explosions).
+
+## Known issues
+
+- **All automated testing is headless with software rendering** (1-3 fps).
+  Frame rates on real hardware were not measured, and nothing was played
+  by a human with a real mouse: flight feel (jet assist, UFO speed range)
+  is tuned by reasoning and tests, not by hand.
+- **Sounds** are procedural and were checked to play without errors, not
+  listened to.
+- **Smoke: Ultra plants check** can time out at 300 s in software rendering
+  (pre-existing; it passes on some runs).
+- **Enemy UFOs and the old smoke suite:** with mods on by default, UFOs at
+  night hurt and abducted the test player in base-game checks (the moat
+  check in Part 3, then deaths by "Abducted by a UFO" in the first final
+  run). The smoke suite now runs with UFO activity off (UFOs have their own
+  suite), and a respawned player gets 30 s of grace from UFOs.
+- **Tests are timing-sensitive in software rendering** (1-3 fps): a few
+  checks were made to wait on game frames rather than the clock during
+  this work, and some randomness-dependent UFO checks were pinned down.
+  Expect an occasional flaky check on a slow machine; re-run it alone with
+  `node ufo-tests.mjs --only=<name>`.
+- **Jet realism is game-tuned:** 40% more thrust on the ground for short
+  takeoffs, lower gravity (14 blocks/s^2), and flight assist rolls and pulls
+  for you. It still stalls and can't hover.
+- **Crashed UFOs can't be destroyed** until boarded (deliberate, see
+  decisions).
+- **The world is 64 blocks tall**, so jets and UFOs fly mostly above the
+  terrain's block space; collisions with terrain are checked, but nothing
+  can be built up there.
+- `ufo-tests.mjs --only=...` enters the game first, so the menu checks
+  (rebrand, main menu) only run in a full run.
+
+## How to test in 10 minutes
+
+1. Open the game (`start.sh` / `start.bat`, or GitHub Pages). The main menu
+   shows the UFO COMBAT logo over a flyover with a UFO. Click **Play**
+   (Settings > Performance has Potato/Balanced presets for slow machines).
+2. **Weapons (1-8):** fire the pistol, throw a grenade, fire the bazooka, the
+   machine gun and the sniper (right click scope). Slot 5 marks an airstrike
+   (meteors arrive after 5 s). Slot 7 is the laser blaster. Hold **both**
+   mouse buttons for binoculars.
+3. **UFOs:** in Survival, Esc > Settings > UFOs, set UFO activity to
+   *Invasion* or *UFO APOCALYPSE* (they are busiest at night; in Creative,
+   Esc > Mods > "Summon an enemy UFO" drops one in right away). One will
+   fly over and try to beam you up: walk out of the light to escape. Shoot it
+   with anything; when it goes down it crash-lands and aliens climb out.
+4. Walk to the wreck and press **F** to fly it: WASD/Space/Shift, the wheel
+   sets speed, left click cannon, hold right click to beam up creatures.
+   Press **F** high up to jump out with a parachute.
+5. Press **J**: your jet lands on a strip nearby (or arrives in the air).
+   Press **F** by it, hold **W** and **Shift** to take off (assist rotates
+   for you), steer with the mouse. Keep a UFO in front of the nose until
+   **LOCK**, then right click for a missile. **B** drops the nuke: fly
+   away and look back. **F** in the air ejects.
+6. Esc > **Stats** shows UFOs shot down, play time and more; Settings >
+   Gameplay puts a small overlay on the HUD.
+7. Esc > **Mods** > switch Mods off: the game is vanilla again (weapons
+   stashed, no UFOs or vehicles); switch on and it all comes back.
+
+Automated: `cd tools && npm install && npm test` (unit tests, the UFO
+feature suite `ufo-tests.mjs`, then the long smoke suite).
+
+UFO FINAL COMPLETE

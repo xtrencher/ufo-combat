@@ -19,7 +19,7 @@
 //   info     Uint8   x4  [normal index (as in the chunk mesher), kind, water depth, 0]
 //   index    Uint16/Uint32
 import { TerrainGenerator } from "./terrain.js";
-import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET } from "./blocks.js";
 import { TREE } from "./trees.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
@@ -90,16 +90,16 @@ export class LodTerrain {
           const b = blocks[(y * S + lz) * S + lx];
           // Trees are drawn separately; plants and torches are too small.
           if (b === BLOCK.AIR || IS_LEAVES[b] || IS_LOG[b]) continue;
-          if (b !== BLOCK.WATER && !IS_SOLID[b]) continue;
-          if (b === BLOCK.WATER) {
+          if (!IS_WET[b] && !IS_SOLID[b]) continue;
+          if (IS_WET[b]) {
             let d = 0;
-            while (y - d >= 0 && blocks[((y - d) * S + lz) * S + lx] === BLOCK.WATER) d++;
+            while (y - d >= 0 && IS_WET[blocks[((y - d) * S + lz) * S + lx]]) d++;
             top[col] = y + (LOD_WATER_TOP - SEA_LEVEL);
             depth[col] = Math.min(255, d);
           } else {
             top[col] = y + 1;
           }
-          id[col] = b;
+          id[col] = IS_WET[b] ? BLOCK.WATER : b;
           break;
         }
       }

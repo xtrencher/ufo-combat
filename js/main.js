@@ -1,14 +1,15 @@
+import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
 import { UI, isMobileDevice } from "./ui.js";
-import { BLOCK, BLOCK_INFO, HOTBAR } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, HOTBAR, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, loadPlayer, savePlayer, loadBootRecord, saveBootRecord } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
-import { PRESETS, PRESET_ORDER, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
+import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
 import { normalizeSettings, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
@@ -23,22 +24,44 @@ import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
 import { MobManager } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
+import { rayAabb } from "./physics.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem } from "./weapons.js";
+import { LaserBolts } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
-import { GRENADE_RADIUS, explosionScale } from "./effects.js";
+import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
+import { MenuScreens, MenuFlyover, renderControls } from "./menu.js";
+import { MouseChord, Binoculars } from "./binoculars.js";
+import { Mods } from "./mods.js";
+import { VehicleManager } from "./vehicles.js";
+import "./vehicle-ufo.js";
+import "./vehicle-jet.js";
+import { NukeSystem } from "./nuke.js";
+import { UfoManager } from "./ufos.js";
+import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
+import { createJetModel } from "./jet-model.js";
+import { TractorBeam } from "./tractor-beam.js";
+import { Stats } from "./stats.js";
 
 // ---------- Seed ----------
+// ?seed=N opens that world. Without it, the last world played is loaded
+// (the main menu offers to continue it); on a first visit, a random one.
 function parseSeedFromURL() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("seed");
   if (raw !== null && raw !== "" && !Number.isNaN(Number(raw))) {
     return Math.abs(Math.floor(Number(raw))) >>> 0;
   }
+  const last = loadJSON("last");
+  if (last && Number.isInteger(last.seed) && last.seed >= 0) return last.seed >>> 0;
+  return randomSeed();
+}
+
+function randomSeed() {
   return Math.floor(Math.random() * 2147483647) >>> 0;
 }
 
@@ -46,19 +69,19 @@ const SEED = parseSeedFromURL();
 
 // ---------- Startup ----------
 // index.html shows a loading message until the game has started, and any
-// error before that (see __voxelandsBoot there).
+// error before that (see __ufoBoot there).
 function bootDone() {
-  window.__voxelandsBoot?.done();
+  window.__ufoBoot?.done();
 }
 function bootFail(title, help, detail) {
-  window.__voxelandsBoot?.fail(title, help, detail);
+  window.__ufoBoot?.fail(title, help, detail);
 }
 
 // ---------- Mobile guard ----------
 if (isMobileDevice()) {
   bootDone();
   document.getElementById("mobile-block").classList.remove("hidden");
-  throw new Error("Voxelands: mobile device detected, game not started.");
+  throw new Error("UFO COMBAT: mobile device detected, game not started.");
 }
 
 // ---------- Renderer / scene / camera ----------
@@ -77,7 +100,7 @@ try {
 if (!renderer.capabilities.isWebGL2) {
   bootDone();
   document.getElementById("webgl-block").classList.remove("hidden");
-  throw new Error("Voxelands: WebGL 2 is required.");
+  throw new Error("UFO COMBAT: WebGL 2 is required.");
 }
 // The graphics driver can drop the WebGL context (a frame that took far too
 // long, a driver crash); nothing can be drawn after that (see onGraphicsLost).
@@ -132,8 +155,6 @@ if (!urlPreset && lastBoot && lastBoot.ok === false && lastBoot.preset === graph
 // The preset with the user's individual graphics options applied.
 let activePreset = resolvePreset(graphicsPreset, settings.gfxOverrides);
 
-// Per-weapon explosion-size multipliers (settings sliders), persisted.
-Object.assign(explosionScale, settings.explosionScale);
 
 // Built-in three.js materials (debris, particles) use this fog; the world's
 // own shaders use the shared uniforms in shaders.js (same distances).
@@ -244,14 +265,12 @@ ui.renderDistanceInput.value = String(renderDistance);
 ui.renderDistanceValueEl.textContent = String(renderDistance);
 ui.graphicsSelect.value = graphicsPreset;
 
-for (const kind of ["grenade", "bazooka", "airstrike"]) {
-  SettingsPanel.range(`explosion-${kind}`, explosionScale[kind], (v) => `${v.toFixed(2)}x`, (value) => {
-    const v = Math.max(0.4, Math.min(2, Number(value) || 1));
-    explosionScale[kind] = v;
-    settings.explosionScale[kind] = v;
-    saveSettings(settings);
-  });
-}
+// Sub-screens of the main and pause menus (settings, mods, controls, stats).
+const screens = new MenuScreens();
+// The settings screen (tabs, rows built from the schema in settings.js).
+const settingsPanel = new SettingsPanel(settings, () => saveSettings(settings));
+// Per-weapon explosion-size multipliers.
+for (const kind of ["grenade", "bazooka", "airstrike"]) settingsPanel.on(`explosionScale.${kind}`, (v) => (explosionScale[kind] = v));
 
 const player = new Player(camera, world, canvas);
 const inventory = new Inventory();
@@ -271,7 +290,326 @@ const avatar = new PlayerAvatar(scene, world.atlas);
 const falling = new FallingBlocks(scene, world);
 const waterSim = new WaterSim(world);
 const decals = new BulletHoles(scene, world);
-const weapons = new WeaponSystem({ scene, world, player, effects, audio, mobs, held, decals, inventory });
+// Laser bolts (the blaster; later UFOs and aliens), with scorch marks.
+const scorches = new BulletHoles(scene, world, { kind: "scorch" });
+const lasers = new LaserBolts({ scene, world, effects, decals: scorches, audio });
+lasers.listener = () => effects.listener;
+const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
+lasers.addProvider({
+  raycast(origin, dir, maxDist, bolt) {
+    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && m.kind === "alien"));
+    if (!hit) return null;
+    return {
+      distance: hit.distance,
+      hit(b, point, d) {
+        if (mobs.shoot(hit.mob, b.damage, d, 2.5) && b.owner === "player") hud.hitMarker?.();
+        for (let i = 0; i < 6; i++) effects.debris.spawn(point.x, point.y, point.z, (Math.random() - 0.5) * 3, Math.random() * 3, (Math.random() - 0.5) * 3, 0.05, bloodColor, 0.5);
+      },
+    };
+  },
+});
+const weapons = new WeaponSystem({ scene, world, player, effects, audio, mobs, held, decals, inventory, lasers });
+settingsPanel.on("weapons.blasterColor", (v) => (weapons.blasterColor = v));
+for (const k of ["count", "spread", "delay", "angle", "speed"]) settingsPanel.on(`weapons.airstrike.${k}`, (v) => (weapons.airstrike.config[k] = v));
+// The Mods switch (see mods.js); applied once the saved inventory is loaded.
+const mods = new Mods({ inventory, weapons, lasers, entities });
+
+// ---------- Vehicles, UFOs, stats ----------
+const stats = new Stats();
+const vehicles = new VehicleManager({ scene, world, player, effects, audio, lasers, mobs, inventory, entities });
+vehicles.cameraRef = camera;
+const ufos = new UfoManager({ scene, world, player, effects, audio, lasers, mobs, vehicles, sky, camera });
+mobs.lasers = lasers;
+
+// UFOs: activity and the advanced options.
+for (const k of ["activity", "spawnChance", "maxCount", "aggression", "detection", "beamLift", "sizes", "nightMultiplier", "toughness"]) {
+  settingsPanel.on(`ufos.${k}`, (v) => (ufos.config[k] = v));
+}
+// Your UFO: speed range, ghost mode, beam lifting blocks.
+vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
+settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = v));
+settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
+settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
+settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
+// The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
+vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false };
+settingsPanel.on("vehicles.jetMaxSpeed", (v) => {
+  vehicles.config.jet.maxSpeed = v;
+  ufos.jetMaxSpeed = v;
+});
+settingsPanel.on("vehicles.jetAccel", (v) => (vehicles.config.jet.accel = v));
+settingsPanel.on("vehicles.jetTurn", (v) => (vehicles.config.jet.turnRate = v));
+settingsPanel.on("vehicles.jetStall", (v) => (vehicles.config.jet.stallSpeed = v));
+settingsPanel.on("vehicles.jetAssist", (v) => (vehicles.config.jet.assist = v));
+settingsPanel.on("vehicles.jetAirborne", (v) => (vehicles.config.jet.airborne = v));
+// The nuke dropped from the jet.
+const nuke = new NukeSystem({ scene, world, effects, audio });
+vehicles.nuke = nuke;
+vehicles.ufos = ufos;
+settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
+settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
+nuke.onDetonate = (center, R) => {
+  stats.add("nukes");
+  mobs.explosion(center, R * 1.4, true);
+  ufos.explosion(center, R * 2.2, true);
+  vehicles.explosion(center, R * 1.6);
+  // The player: deadly within about twice the crater radius, thrown far.
+  if (!player.dead && !player.vehicle) {
+    const off = player.position.clone().sub(center);
+    const d = off.length();
+    if (d < R * 2.6) {
+      const f = 1 - d / (R * 2.6);
+      if (player.damage(Math.ceil(70 * f * f + 2), "nuke", { pierce: true })) {
+        lastBlastHitTime = performance.now();
+        lastBlastSource = "nuke";
+      }
+      off.y = Math.max(off.y, 0) + d * 0.3;
+      player.applyImpulse(off.normalize().multiplyScalar(40 * f));
+    }
+  }
+};
+vehicles.onMissileHit = () => stats.add("missilesHit");
+vehicles.onNukeDropped = () => {};
+settingsPanel.on("sensitivity", (v) => (vehicles.mouseSensitivity = v));
+settingsPanel.on("invertY", (v) => (vehicles.invertY = v));
+
+// What bullets, rockets, grenades, lasers and meteors can hit besides
+// blocks and creatures: UFOs, and vehicles.
+const fromPlayer = (owner) => owner === "player" || owner === "playerufo" || owner === "jet";
+const hullSparkColor = new THREE.Color(2.2, 1.6, 0.8);
+function ufoHitFx(point) {
+  for (let i = 0; i < 6; i++) effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: (Math.random() - 0.5) * 8, vy: Math.random() * 5, vz: (Math.random() - 0.5) * 8, life: 0.3, size0: 0.14, size1: 0.03, color0: hullSparkColor, gravity: 0.5, drag: 2 });
+}
+const ufoTarget = {
+  raycast(origin, dir, maxDist) {
+    const h = ufos.raycast(origin, dir, maxDist);
+    if (!h) return null;
+    return {
+      distance: h.distance,
+      hit(damage, d, point) {
+        ufos.damage(h.ufo, damage, true, point);
+        audio.playUfoHit(point.distanceTo(effects.listener));
+        hud.hitMarker?.();
+      },
+    };
+  },
+  sphereHit: (p, r) => !!ufos.sphereHit(p, r),
+};
+const vehicleTarget = {
+  raycast(origin, dir, maxDist) {
+    const h = vehicles.raycast(origin, dir, maxDist, vehicles.active);
+    return h && { distance: h.distance, hit: (damage) => h.vehicle.damage(damage, "player") };
+  },
+  sphereHit: (p, r) => {
+    const v = vehicles.sphereHit(p, r);
+    return !!v && v !== vehicles.active;
+  },
+};
+weapons.targets.push(ufoTarget, vehicleTarget);
+weapons.airstrike.targets.push(ufoTarget);
+lasers.addProvider({
+  ignores: (b) => b.owner === "ufo" && !b.friendlyFire,
+  raycast(origin, dir, maxDist, bolt) {
+    const h = ufos.raycast(origin, dir, maxDist, (u) => u !== bolt.source);
+    if (!h) return null;
+    return {
+      distance: h.distance,
+      hit(b, point) {
+        ufos.damage(h.ufo, b.damage, fromPlayer(b.owner), point);
+        ufoHitFx(point);
+        audio.playUfoHit(point.distanceTo(effects.listener));
+        if (fromPlayer(b.owner)) hud.hitMarker?.();
+      },
+    };
+  },
+});
+lasers.addProvider({
+  raycast(origin, dir, maxDist, bolt) {
+    const h = vehicles.raycast(origin, dir, maxDist, bolt.source);
+    if (!h) return null;
+    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : "player") };
+  },
+});
+// Enemy bolts hit the player on foot.
+const playerBoxMin = new THREE.Vector3();
+const playerBoxMax = new THREE.Vector3();
+lasers.addProvider({
+  ignores: (b) => fromPlayer(b.owner),
+  raycast(origin, dir, maxDist) {
+    if (player.dead || player.vehicle) return null;
+    const p = player.position;
+    playerBoxMin.set(p.x - 0.35, p.y, p.z - 0.35);
+    playerBoxMax.set(p.x + 0.35, p.y + 1.85, p.z + 0.35);
+    const t = rayAabb(origin, dir, playerBoxMin, playerBoxMax, maxDist);
+    if (t === null) return null;
+    return {
+      distance: t,
+      hit(b, point, d) {
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : "ufo_laser")) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+      },
+    };
+  },
+});
+// The UFO cannon's bolts (and big enemy ones) blow small holes.
+lasers.onBlast = (point, bolt) => effects.explode(point, { radius: bolt.blast, source: bolt.owner === "playerufo" ? "ufocannon" : "ufo_laser" });
+
+// Messages across the middle of the screen.
+const toastEl = document.getElementById("hud-toast");
+let toastTimer = null;
+function toast(text, seconds = 3) {
+  toastEl.textContent = text;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), seconds * 1000);
+}
+vehicles.onMessage = (t) => toast(t);
+ufos.onMessage = (t) => toast(t, 2.5);
+vehicles.onAbduct = () => stats.add("animalsAbducted");
+ufos.onShotDown = (u, byPlayer) => {
+  if (byPlayer) {
+    stats.add("ufosDown");
+    audio.playNotice();
+  }
+};
+ufos.onAbductPlayer = () => {
+  stats.add("abducted");
+  player.damage(9999, "abducted", { pierce: true });
+};
+ufos.onEscape = () => {
+  stats.add("abductionsSurvived");
+  toast("You broke free of the beam!", 2.5);
+};
+mobs.onKill = (m, byPlayer) => {
+  if (!byPlayer) return;
+  if (m.kind === "alien") stats.add("aliensKilled");
+  else if (m.kind === "zombie") stats.add("zombiesKilled");
+  else stats.add("mobsKilled");
+};
+
+// ---------- Calling in the jet ----------
+// J or the Jet Radio: your F-22 lands on a flat strip nearby (or, with the
+// setting on, or with no flat ground around, arrives in the air with you in
+// the cockpit). One jet at a time: calling again replaces a parked one.
+let playerJet = null;
+let lastJetCall = -99;
+// Runway search for the jet call-in: a straight, flat, dry, tree-free strip.
+// Column tops are cached per search (scanning down from a little above the
+// terrain height instead of from the sky keeps it cheap).
+let runwayTops = null;
+function columnTop(x, z) {
+  const key = x * 65536 + z;
+  let h = runwayTops.get(key);
+  if (h !== undefined) return h;
+  h = -1;
+  for (let y = Math.min(WORLD_HEIGHT - 1, world.heightAt(x, z) + 24); y >= 0; y--) {
+    if (world.isSolidAt(x, y, z)) {
+      h = y;
+      break;
+    }
+  }
+  runwayTops.set(key, h);
+  return h;
+}
+function stripOk(x0, z0, dx, dz, len) {
+  const h0 = columnTop(Math.floor(x0), Math.floor(z0));
+  if (h0 < 0) return -1;
+  const sideX = -dz;
+  const sideZ = dx;
+  for (let t = -8; t <= len; t += 4) {
+    for (const s of [-6, 0, 6]) {
+      const x = Math.floor(x0 + dx * t + sideX * s);
+      const z = Math.floor(z0 + dz * t + sideZ * s);
+      if (!world.getChunk(x >> 4, z >> 4)) return -1;
+      const h = columnTop(x, z);
+      if (h < 0 || Math.abs(h - h0) > (s === 0 ? 1 : 2)) return -1;
+      const top = world.getBlock(x, h, z);
+      if (BLOCK_INFO[top]?.leaves || BLOCK_INFO[top]?.log || IS_WET[world.getBlock(x, h + 1, z)]) return -1;
+    }
+  }
+  return h0;
+}
+function findRunway() {
+  const p = player.position;
+  runwayTops = new Map();
+  try {
+    for (let r = 8; r <= 72; r += 4) {
+      const n = Math.max(12, Math.round(r * 0.8));
+      for (let a = 0; a < n; a++) {
+        const ang = (a / n) * Math.PI * 2 + r;
+        const sx = p.x + Math.cos(ang) * r;
+        const sz = p.z + Math.sin(ang) * r;
+        for (let h = 0; h < 8; h++) {
+          const yaw = (h / 8) * Math.PI * 2;
+          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 60);
+          if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
+        }
+      }
+    }
+    return null;
+  } finally {
+    runwayTops = null;
+  }
+}
+function callJet(force = false) {
+  if (!mods.enabled || player.dead || gameState !== "playing") return;
+  if (vehicles.active) {
+    toast("Get out of your vehicle first (F).", 2);
+    return;
+  }
+  // (The cooldown only stops spamming replacements; a lost jet can be
+  // replaced at once.)
+  if (!force && playerJet?.alive && vehicles.vehicles.includes(playerJet) && ufos.time - lastJetCall < 8) {
+    toast("Your jet is on its way...", 1.5);
+    return;
+  }
+  lastJetCall = ufos.time;
+  if (playerJet && vehicles.vehicles.includes(playerJet)) vehicles.remove(playerJet);
+  playerJet = null;
+  const cfg = vehicles.config.jet;
+  const strip = cfg.airborne ? null : findRunway();
+  if (strip) {
+    playerJet = vehicles.create("jet", { pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
+    const dir = Math.round(((Math.atan2(strip.x - player.position.x, -(strip.z - player.position.z)) * 180) / Math.PI + 360) % 360);
+    toast(`Your jet has landed ${Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z))} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
+  } else {
+    const p = player.position;
+    const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
+    playerJet = vehicles.create("jet", { pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
+    vehicles.enter(playerJet);
+    toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
+  }
+  stats.add("jetsCalled");
+  audio.playNotice();
+}
+weapons.onJetRadio = callJet;
+
+// Entering and leaving vehicles.
+vehicles.onEnter = (v) => {
+  chord.reset();
+  interaction.release();
+  weapons.cancel();
+  player.mouseCapture = (e) => vehicles.mouseMove(e.movementX, e.movementY);
+  document.body.classList.add("in-vehicle");
+  if (v.boardedWreck) {
+    stats.add("ufosBoarded");
+    v.boardedWreck = false;
+  }
+  playerDirty = true;
+};
+vehicles.onExit = () => {
+  player.mouseCapture = null;
+  document.body.classList.remove("in-vehicle");
+  vehicles.releaseAll();
+  player.syncCamera();
+  playerDirty = true;
+};
+vehicles.onPilotKilled = (cause, v) => {
+  player.damage(9999, v.type === "jet" ? (cause === "crash" ? "jet_crash" : "jet_down") : "ufo_down", { pierce: true });
+};
+vehicles.onPilotHurt = () => {
+  hud.hurt();
+  audio.playHurt();
+};
 interaction.weapons = weapons;
 interaction.combat = mobs;
 
@@ -282,12 +620,18 @@ function fillCreativeHotbar() {
   });
 }
 
-// A brand new game (either mode) starts with a full weapon loadout in slots
-// 1-6: pistol, grenade, bazooka, machine gun, airstrike designator, sniper
-// rifle. Always wins those slots (called once, right as a new game starts).
-function fillStartingWeapons() {
+// A brand new game (either mode, mods on) starts with a full weapon loadout
+// in slots 1-8: pistol, grenade, bazooka, machine gun, airstrike designator,
+// sniper rifle, laser blaster, jet radio. It always wins those slots in a
+// new world; a world that started with mods off gets it (in free slots) the
+// first time it's played with mods on.
+let loadoutGiven = false;
+function fillStartingWeapons(fresh) {
+  if (loadoutGiven || !mods.enabled) return;
+  loadoutGiven = true;
   STARTING_WEAPONS.forEach((id, i) => {
-    if (i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
+    if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
+    else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
   });
 }
 
@@ -309,12 +653,128 @@ if (savedPlayer) {
   inventory.load(savedPlayer.inv);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
+  // Worlds from before the loadout flag existed already had their weapons.
+  loadoutGiven = savedPlayer.loadout !== false;
 } else {
   player.spawnAt(spawnX, spawnZ);
 }
 let newWorld = !savedPlayer;
+mods.load(savedPlayer?.modStash);
+mods.onChange((on) => {
+  ufos.setEnabled(on);
+  vehicles.setEnabled(on);
+  if (!on) mobs.removeKind("alien");
+});
+mods.set(settings.mods, { initial: true });
+stats.loadWorld(savedPlayer?.stats);
+
+// ---------- Mods screen ----------
+const modsCheckbox = document.getElementById("mods-enabled");
+modsCheckbox.checked = settings.mods;
+function refreshModsPills() {
+  for (const id of ["menu-mods-state", "pause-mods-state"]) {
+    const el = document.getElementById(id);
+    el.textContent = mods.enabled ? "ON" : "OFF";
+    el.classList.toggle("on", mods.enabled);
+  }
+}
+refreshModsPills();
+function setModsEnabled(on) {
+  settings.mods = on;
+  saveSettings(settings);
+  modsCheckbox.checked = on;
+  mods.set(on);
+  if (on && gameState !== "start") fillStartingWeapons(false);
+  markInventoryChanged();
+  refreshModsPills();
+}
+modsCheckbox.addEventListener("change", () => setModsEnabled(modsCheckbox.checked));
+
+// Creative tools on the Mods screen: spawn your own UFO (any shape and
+// size) to fly, or summon an enemy UFO nearby.
+const modsTools = document.getElementById("mods-tools");
+modsTools.innerHTML = `
+  <div class="subhead">Spawn a UFO to fly (Creative, in game)</div>
+  <div class="row"><label for="spawn-ufo-size">Size</label><select id="spawn-ufo-size">
+    <option value="4">Small</option><option value="7" selected>Medium</option><option value="14">Large</option><option value="36">Mothership</option></select></div>
+  <div class="spawn-grid" id="spawn-ufo-grid"></div>
+  <div class="subhead">Your fighter jet</div>
+  <div class="spawn-grid"><button class="btn" id="mods-call-jet">Call the jet (J)</button></div>
+  <div class="subhead">Summon an enemy UFO (Creative, in game)</div>
+  <div class="spawn-grid"><button class="btn" id="summon-ufo">Random UFO</button><button class="btn" id="summon-ufo-attack">One that attacks</button><button class="btn" id="summon-ufo-crash">A crashed one</button></div>
+  <div id="mods-tools-note" class="hint"></div>`;
+const spawnGrid = document.getElementById("spawn-ufo-grid");
+for (const design of UFO_DESIGNS) {
+  const b = document.createElement("button");
+  b.className = "btn";
+  b.textContent = UFO_DESIGN_NAMES[design];
+  b.addEventListener("click", () => creativeSpawnUfo(design));
+  spawnGrid.appendChild(b);
+}
+function creativeToolCheck() {
+  const note = document.getElementById("mods-tools-note");
+  if (!mods.enabled) note.textContent = "Switch mods on first.";
+  else if (gameState === "start") note.textContent = "Start playing first: these place things in front of you.";
+  else if (!player.creative) note.textContent = "Only in Creative mode (switch it in the pause menu).";
+  else return true;
+  return false;
+}
+function inFront(dist, up) {
+  const f = player.getForwardVector();
+  f.y = 0;
+  f.normalize();
+  return player.position.clone().addScaledVector(f, dist).add(new THREE.Vector3(0, up, 0));
+}
+function creativeSpawnUfo(design) {
+  if (!creativeToolCheck()) return;
+  const radius = Number(document.getElementById("spawn-ufo-size").value) || 7;
+  const pos = inFront(radius + 5, radius * 0.5 + 2);
+  const v = vehicles.create("ufo", { design, radius, pos: [pos.x, pos.y, pos.z], yaw: player.yaw });
+  if (v) toast(`${UFO_DESIGN_NAMES[design]} ready: walk up to it and press F`, 3);
+  screens.closeAll();
+  requestLock();
+}
+let pendingJetCall = false;
+document.getElementById("mods-call-jet").addEventListener("click", () => {
+  const note = document.getElementById("mods-tools-note");
+  if (!mods.enabled) note.textContent = "Switch mods on first.";
+  else if (gameState === "start") note.textContent = "Start playing first, then press J (or use this button from the pause menu).";
+  else {
+    pendingJetCall = true;
+    screens.closeAll();
+    requestLock();
+  }
+});
+document.getElementById("summon-ufo").addEventListener("click", () => {
+  if (!creativeToolCheck()) return;
+  ufos.spawn({ pos: inFront(60, 30) });
+  screens.closeAll();
+  requestLock();
+});
+document.getElementById("summon-ufo-attack").addEventListener("click", () => {
+  if (!creativeToolCheck()) return;
+  const u = ufos.spawn({ pos: inFront(70, 30), size: "small" });
+  u.state = "react";
+  u.reaction = "counter";
+  u.timer = 6;
+  u.lastSeen = ufos.time;
+  screens.closeAll();
+  requestLock();
+});
+document.getElementById("summon-ufo-crash").addEventListener("click", () => {
+  if (!creativeToolCheck()) return;
+  const u = ufos.spawn({ pos: inFront(30, 25), size: "medium" });
+  ufos.damage(u, 99999, true);
+  screens.closeAll();
+  requestLock();
+});
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
+ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
+document.getElementById("world-state").textContent = savedPlayer ? `(saved ${savedPlayer.mode === "creative" ? "creative" : "survival"} world)` : "(new world)";
+// The main menu's background: a slow flyover with a UFO drifting by.
+const flyover = new MenuFlyover(scene, world);
+flyover.setCenter(player.position);
 held.setItem(inventory.selectedStack?.id ?? 0, true);
 
 function playerState() {
@@ -330,6 +790,10 @@ function playerState() {
     inv: inventory.serialize(),
     sel: inventory.selected,
     time: round3(sky.time),
+    modStash: mods.serialize(),
+    loadout: loadoutGiven,
+    vehicles: vehicles.serialize(),
+    stats: stats.world,
   };
 }
 
@@ -347,6 +811,7 @@ function flushSave() {
     pendingSave = false;
   }
   lastSaveTime = performance.now();
+  stats.save();
   if (!newWorld || playerDirty) {
     savePlayer(SEED, playerState());
     playerDirty = false;
@@ -359,7 +824,7 @@ function flushSave() {
 // for confirmation first; the world is saved either way.
 window.addEventListener("beforeunload", (e) => {
   flushSave();
-  if (gameState === "playing" || gameState === "inventory") {
+  if ((gameState === "playing" || gameState === "inventory") && !leavingToMenu) {
     e.preventDefault();
     e.returnValue = "";
   }
@@ -406,6 +871,21 @@ const DEATH_MESSAGES = {
   zombie: "Killed by a zombie",
   skeleton: "Shot by a skeleton",
   spider: "Killed by a spider",
+  abducted: "Abducted by a UFO",
+  ufo_laser: "Zapped by a UFO",
+  alien: "Shot by an alien",
+  ufo_crash: "Crushed by a crashing UFO",
+  ufo_crash_fall: "Thrown by a crashing UFO",
+  ufocannon: "Blasted by your own UFO cannon",
+  ufocannon_fall: "Blasted off a cliff by your own UFO cannon",
+  ufo_down: "Went down with your UFO",
+  ufo_boom: "Caught in an exploding UFO",
+  jet_crash: "Crashed your jet",
+  jet_down: "Shot down in your jet",
+  nuke: "Too close to your own nuke",
+  nuke_fall: "Blown away by your own nuke",
+  missile: "Hit by your own missile",
+  cannon: "Hit by your own jet's cannon",
 };
 let lastBlastHitTime = -Infinity;
 let lastBlastSource = "grenade";
@@ -418,11 +898,15 @@ player.onHurt = (amount, cause) => {
 };
 
 player.onDeath = (cause) => {
+  stats.add("deaths");
+  if (vehicles.active) vehicles.exit({ force: true });
+  vehicles.parachute.close(player);
   // A fall right after being launched by an explosion was the explosive's doing.
   if (cause === "fall" && performance.now() - lastBlastHitTime < 6000) cause = `${lastBlastSource}_fall`;
   deathCause = cause;
   audio.playDeath();
   if (invScreen.isOpen) invScreen.close();
+  chord.reset();
   interaction.release();
   dropEverything();
   gameState = "dead";
@@ -473,6 +957,7 @@ function respawn() {
   player.syncCamera();
   streamAround(player.position.x, player.position.z);
   deathCause = null;
+  ufos.playerRespawned();
   playerDirty = true;
   gameState = "paused";
   audio.ensureStarted();
@@ -484,7 +969,10 @@ hud.respawnBtn.addEventListener("click", respawn);
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
 effects.onExplosion = (center, radius, source) => {
-  mobs.explosion(center, radius);
+  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom";
+  mobs.explosion(center, radius, byPlayer);
+  ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
+  vehicles.explosion(center, radius);
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center
@@ -544,9 +1032,10 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true }
     materials: allWorldMaterials,
     chunkMaterials: world.materials,
     onResize,
+    resolutionScale: settings.perf.resolution,
   });
   activePreset = preset;
-  lod.configure({ detailDistance: preset.detailDistance });
+  lod.configure({ detailDistance: settings.perf.detailDistance > 0 ? settings.perf.detailDistance : preset.detailDistance });
   grass.configure({ level: preset.grass });
   world.setMeshOptions({ fancyLeaves: preset.fancyLeaves });
   if (adoptRenderDistance) setRenderDistance(preset.renderDistance);
@@ -582,6 +1071,17 @@ const shaderStandIns = new THREE.Group();
   for (const m of [world.materials.opaque, world.materials.cutout, world.materials.water, lod.material, grass.material]) {
     shaderStandIns.add(new THREE.Mesh(g, m));
   }
+}
+
+// Warm up the new materials' shaders with the others (see prepareGraphics),
+// so the first UFO, beam or jet doesn't stall a frame compiling them.
+{
+  const warm = new THREE.Group();
+  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root);
+  const beam = new TractorBeam(warm);
+  beam.mesh.visible = true;
+  beam.pool.visible = true;
+  shaderStandIns.add(warm);
 }
 
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -627,7 +1127,7 @@ async function prepareGraphics() {
   try {
     await Promise.race([compileShaders(), delay(PREPARE_TIMEOUT_MS)]);
   } catch (err) {
-    console.warn("Voxelands: shader warm-up failed, compiling on first use instead", err);
+    console.warn("UFO COMBAT: shader warm-up failed, compiling on first use instead", err);
   }
   clearTimeout(slow);
   if (token !== prepareToken || graphicsLost) return;
@@ -661,7 +1161,6 @@ function setRenderDistance(value) {
 }
 
 // ---------- Settings menu ----------
-const settingsPanel = new SettingsPanel();
 
 // Individual graphics options: one select per option. The value shown is
 // what's in effect (the preset's, unless overridden).
@@ -709,50 +1208,35 @@ for (const select of [ui.graphicsSelect, ui.startGraphicsSelect]) {
 }
 
 const fpsEl = document.getElementById("fps-counter");
-function applyShowFps() {
-  fpsEl.style.display = settings.showFps ? "" : "none";
-}
-applyShowFps();
-SettingsPanel.checkbox("show-fps", settings.showFps, (v) => {
-  settings.showFps = v;
-  applyShowFps();
-  saveSettings(settings);
-});
+settingsPanel.on("showFps", (v) => (fpsEl.style.display = v ? "" : "none"));
 
 // Controls.
-player.baseFov = settings.fov;
-player.mouseSensitivity = settings.sensitivity;
-player.invertY = settings.invertY;
-SettingsPanel.range("fov", settings.fov, (v) => String(Math.round(v)), (v) => {
-  settings.fov = v;
-  player.baseFov = v;
-  saveSettings(settings);
-});
-SettingsPanel.range("sensitivity", settings.sensitivity, (v) => `${v.toFixed(2)}x`, (v) => {
-  settings.sensitivity = v;
-  player.mouseSensitivity = v;
-  saveSettings(settings);
-});
-SettingsPanel.checkbox("invert-y", settings.invertY, (v) => {
-  settings.invertY = v;
-  player.invertY = v;
-  saveSettings(settings);
-});
+settingsPanel.on("fov", (v) => (player.baseFov = v));
+settingsPanel.on("sensitivity", (v) => (player.mouseSensitivity = v));
+settingsPanel.on("invertY", (v) => (player.invertY = v));
 
 // Audio: a volume slider per category.
 const audioOptionsEl = document.getElementById("audio-options");
+const volumeSliders = {};
 for (const [key, label] of AUDIO_CATEGORIES) {
   const row = document.createElement("div");
   row.className = "row";
   row.innerHTML = `<label>${label}</label><input type="range" id="vol-${key}" min="0" max="1" step="0.01" /><span id="vol-${key}-value" class="val"></span>`;
   audioOptionsEl.appendChild(row);
   audio.setVolume(key, settings.volume[key]);
-  SettingsPanel.range(`vol-${key}`, settings.volume[key], (v) => `${Math.round(v * 100)}%`, (v) => {
+  volumeSliders[key] = SettingsPanel.range(`vol-${key}`, settings.volume[key], (v) => `${Math.round(v * 100)}%`, (v) => {
     settings.volume[key] = v;
     audio.setVolume(key, v);
     saveSettings(settings);
   });
 }
+settingsPanel.onReset("audio", () => {
+  for (const [key] of AUDIO_CATEGORIES) {
+    settings.volume[key] = 1;
+    audio.setVolume(key, 1);
+    volumeSliders[key].set(1);
+  }
+});
 
 // Gameplay: difficulty, creature spawning, time of day.
 function applyDifficulty() {
@@ -761,27 +1245,79 @@ function applyDifficulty() {
   mobs.hostileSpawning = settings.difficulty !== "peaceful";
   if (settings.difficulty === "peaceful") mobs.removeHostiles();
 }
-applyDifficulty();
-SettingsPanel.select("difficulty", settings.difficulty, (v) => {
-  settings.difficulty = v;
-  applyDifficulty();
-  saveSettings(settings);
-});
-SettingsPanel.checkbox("mob-spawning", settings.mobSpawning, (v) => {
-  settings.mobSpawning = v;
-  applyDifficulty();
-  saveSettings(settings);
-});
-sky.locked = settings.timeLocked;
+settingsPanel.on("difficulty", applyDifficulty);
+settingsPanel.on("mobSpawning", applyDifficulty);
+settingsPanel.on("timeLocked", (v) => (sky.locked = v));
+// Zombies: spawn rate (up to an apocalypse), cap and toughness.
+for (const k of ["spawnRate", "max", "health", "damage", "daylight"]) {
+  settingsPanel.on(`zombies.${k}`, (v) => {
+    mobs.zombies[k] = v;
+    if (k === "max") mobs.trimZombies();
+  });
+}
 const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v) => {
   sky.setHours(v);
   playerDirty = true;
 });
-SettingsPanel.checkbox("time-lock", settings.timeLocked, (v) => {
-  settings.timeLocked = v;
-  sky.locked = v;
-  saveSettings(settings);
+
+// Graphics: "Reset to defaults" goes back to the default preset, its render
+// distance, and no individual overrides.
+settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: true, keepOverrides: false }));
+
+// Performance: full-detail distance, far-terrain quality, resolution scale
+// and effects detail, plus one-click presets for different computers.
+const LOD_QUALITY = { low: 0.55, medium: 1, high: 1.5, ultra: 2 };
+function applyDetailDistance() {
+  const d = settings.perf.detailDistance;
+  lod.configure({ detailDistance: d > 0 ? d : activePreset.detailDistance });
+}
+settingsPanel.on("perf.detailDistance", applyDetailDistance);
+settingsPanel.on("perf.lodQuality", (v) => lod.configure({ quality: LOD_QUALITY[v] ?? 1 }));
+settingsPanel.on("perf.resolution", () => setGraphics(graphicsPreset), { now: false });
+settingsPanel.on("perf.effects", (v) => (effectsQuality.scale = { low: 0.35, medium: 0.65, high: 1 }[v] ?? 1));
+
+const PERF_PRESETS = {
+  potato: { label: "Potato", hint: "Old laptops", graphics: "low", renderDistance: 7, detail: 3, lod: "low", resolution: 0.7, effects: "low" },
+  balanced: { label: "Balanced", hint: "Most PCs", graphics: "medium", renderDistance: 12, detail: 0, lod: "medium", resolution: 1, effects: "medium" },
+  beautiful: { label: "Beautiful", hint: "Gaming PCs", graphics: "high", renderDistance: 20, detail: 0, lod: "high", resolution: 1, effects: "high" },
+  max: { label: "Max", hint: "High-end GPUs", graphics: "ultra", renderDistance: 32, detail: 10, lod: "ultra", resolution: 1, effects: "high" },
+};
+const perfPresetsEl = document.getElementById("perf-presets");
+for (const [key, p] of Object.entries(PERF_PRESETS)) {
+  const btn = document.createElement("button");
+  btn.className = "btn";
+  btn.dataset.preset = key;
+  btn.innerHTML = `${p.label}<small>${p.hint}</small>`;
+  btn.addEventListener("click", () => applyPerfPreset(key));
+  perfPresetsEl.appendChild(btn);
+}
+function applyPerfPreset(key) {
+  const p = PERF_PRESETS[key];
+  if (!p) return;
+  settings.perf.resolution = p.resolution; // applied by setGraphics below
+  settingsPanel.set("perf.detailDistance", p.detail);
+  settingsPanel.set("perf.lodQuality", p.lod);
+  settingsPanel.set("perf.effects", p.effects);
+  settingsPanel.set("perf.resolution", p.resolution);
+  setGraphics(p.graphics, { keepOverrides: false });
+  setRenderDistance(p.renderDistance);
+  refreshPerfPresets();
+}
+function refreshPerfPresets() {
+  for (const btn of perfPresetsEl.children) {
+    const p = PERF_PRESETS[btn.dataset.preset];
+    const match = p.graphics === graphicsPreset && p.renderDistance === renderDistance && p.detail === settings.perf.detailDistance && p.lod === settings.perf.lodQuality && p.resolution === settings.perf.resolution && p.effects === settings.perf.effects && Object.keys(settings.gfxOverrides).length === 0;
+    btn.classList.toggle("active", match);
+  }
+}
+settingsPanel.onReset("performance", () => {
+  setGraphics(graphicsPreset);
+  refreshPerfPresets();
 });
+screens.onOpen["settings-screen"] = () => {
+  refreshPerfPresets();
+  timeSlider.set(Math.round(sky.hours * 20) / 20);
+};
 
 // ---------- Lost graphics device ----------
 // After the WebGL context is lost nothing can be drawn: save, step the
@@ -825,18 +1361,87 @@ function showPause() {
   if (document.pointerLockElement === canvas) return;
   gameState = "paused";
   player.enabled = false;
+  chord.reset();
+  audio.setJetEngine(0, false, 0, false);
   interaction.release();
   ui.showHud(false);
   ui.showPauseMenu(SEED, renderDistance);
-  timeSlider.set(Math.round(sky.hours * 20) / 20);
 }
 
 ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
   setMode(ui.modeSelect.value);
-  if (newWorld) fillStartingWeapons();
+  fillStartingWeapons(newWorld);
   markInventoryChanged();
+  saveJSON("last", { seed: SEED });
   requestLock();
+});
+
+// ---------- Menu buttons ----------
+const openScreen = (id) => screens.show(id, gameState === "start" ? "start-menu" : "pause-menu");
+for (const [btn, id] of [
+  ["menu-settings-btn", "settings-screen"],
+  ["pause-settings-btn", "settings-screen"],
+  ["menu-mods-btn", "mods-screen"],
+  ["pause-mods-btn", "mods-screen"],
+  ["menu-controls-btn", "controls-screen"],
+  ["pause-controls-btn", "controls-screen"],
+  ["pause-stats-btn", "stats-screen"],
+  ["new-world-btn", "new-world-screen"],
+]) {
+  document.getElementById(btn).addEventListener("click", () => {
+    audio.ensureStarted();
+    audio.playClick();
+    openScreen(id);
+  });
+}
+renderControls(document.getElementById("controls-list"));
+
+// New world: an optional seed, then reload into it (the page is built
+// around one world's seed).
+const newSeedInput = document.getElementById("new-seed");
+const newSeedNote = document.getElementById("new-seed-note");
+function parseSeedInput() {
+  const raw = newSeedInput.value.trim();
+  if (raw === "") return null;
+  if (/^-?\d+$/.test(raw)) return Math.abs(Number(raw)) % 2147483647;
+  // Any text works as a seed too (hashed to a number).
+  let h = 2166136261;
+  for (let i = 0; i < raw.length; i++) h = Math.imul(h ^ raw.charCodeAt(i), 16777619);
+  return (h >>> 0) % 2147483647;
+}
+newSeedInput.addEventListener("input", () => {
+  const seed = parseSeedInput();
+  newSeedNote.textContent = seed !== null && hasSavedWorld(seed) ? `You already have a world with seed ${seed}: it will be continued where you left it.` : "";
+});
+document.getElementById("new-world-create").addEventListener("click", () => {
+  const seed = parseSeedInput() ?? randomSeed();
+  flushSave();
+  saveJSON("last", { seed });
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("seed", String(seed));
+  window.location.href = url.toString();
+});
+
+// Back to the main menu: save and reload this world's page (the menu
+// then offers to continue it).
+document.getElementById("main-menu-btn").addEventListener("click", () => {
+  playerDirty = true;
+  flushSave();
+  leavingToMenu = true;
+  const url = new URL(window.location.href);
+  url.searchParams.set("seed", String(SEED));
+  window.location.href = url.toString();
+});
+let leavingToMenu = false;
+
+// Esc steps back out of a sub-screen.
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Escape" && screens.open) {
+    e.preventDefault();
+    screens.back();
+  }
 });
 
 ui.resumeBtn.addEventListener("click", () => {
@@ -852,7 +1457,13 @@ document.addEventListener("pointerlockchange", () => {
     player.enabled = true;
     ui.hideStartMenu();
     ui.hidePauseMenu();
+    screens.closeAll();
+    flyover.hide();
     ui.showHud(true);
+    if (pendingJetCall) {
+      pendingJetCall = false;
+      setTimeout(callJet, 50);
+    }
   } else if (gameState === "playing" || gameState === "paused") {
     showPause();
   }
@@ -861,6 +1472,7 @@ document.addEventListener("pointerlockerror", () => showPause());
 
 function openInventory(kind) {
   if (gameState !== "playing") return;
+  chord.reset();
   interaction.release();
   gameState = "inventory";
   invScreen.open(kind, player.creative);
@@ -912,15 +1524,25 @@ window.addEventListener("keydown", (e) => {
     if (gameState !== "playing" || e.repeat) return;
     if (e.code === "F1") toggleHud();
     else if (e.code === "F3") toggleDebug();
+    else if (vehicles.active) toast(`Camera: ${vehicles.active.cycleCamera()}`, 1.2);
     else player.cycleCamera();
     return;
   }
   if (gameState !== "playing") return;
+  // In a vehicle the keys fly it (it reads the held keys itself); only F
+  // (get out) and its own key presses are handled here.
+  if (vehicles.active) {
+    if (!e.repeat) vehicles.keyDown(e.code);
+    if (e.code === "KeyF" && !e.repeat) vehicles.toggle();
+    return;
+  }
   const idx = DIGIT_CODES.indexOf(e.code);
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
+  else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
+  else if (e.code === "KeyJ" && mods.enabled) callJet();
 });
 
 // F1: hide the whole HUD (and the item in hand) for clean screenshots.
@@ -958,7 +1580,7 @@ function updateDebug(dt, frameTime) {
   const info = renderer.info;
   const target = interaction.target;
   const lines = [
-    `Voxelands  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
+    `UFO COMBAT  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (sim ${perf.simMs.toFixed(1)} ms, draw ${perf.renderMs.toFixed(1)} ms)  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
     `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
@@ -966,7 +1588,8 @@ function updateDebug(dt, frameTime) {
     `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}`,
-    `Mobs: ${mobs.mobs.length}   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
+    `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
+    `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
     `Draw calls: ${info.render.calls}   Triangles: ${info.render.triangles}   Geometries: ${info.memory.geometries}   Textures: ${info.memory.textures}`,
   ];
   if (target && target.block) lines.push(`Looking at: ${target.block.join(" ")}  (${BLOCK_INFO[target.id]?.name ?? target.id})`);
@@ -975,20 +1598,42 @@ function updateDebug(dt, frameTime) {
 
 canvas.addEventListener("wheel", (e) => {
   if (gameState !== "playing") return;
+  if (vehicles.active) {
+    vehicles.wheel(e.deltaY);
+    return;
+  }
   selectSlot(inventory.selected + (e.deltaY > 0 ? 1 : -1));
 });
 
 // ---------- Mouse ----------
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+// Presses go through the chord detector: both buttons together are the
+// binoculars (see binoculars.js), and never mine, place or fire.
+const binoculars = new Binoculars(player, world);
+settingsPanel.on("binocularZoom", (v) => {
+  binoculars.strength = v;
+  if (binoculars.active) binoculars.set(true);
+});
+const chord = new MouseChord({
+  press: (button) => interaction.mouseDown(button),
+  release: (button) => interaction.mouseUp(button),
+  zoom: (on) => binoculars.set(on),
+});
+
 document.addEventListener("mousedown", (e) => {
   if (gameState !== "playing") return;
   if (e.button === 1) e.preventDefault();
-  interaction.mouseDown(e.button);
+  if (vehicles.active) {
+    vehicles.mouseDown(e.button);
+    return;
+  }
+  chord.down(e.button);
 });
 
 document.addEventListener("mouseup", (e) => {
-  interaction.mouseUp(e.button);
+  vehicles.mouseUp(e.button);
+  chord.up(e.button);
 });
 
 canvas.addEventListener("click", () => {
@@ -1011,7 +1656,7 @@ let heldLight = { sky: 15, block: 0 };
 
 function updateEnvironment(dt) {
   // The view's position: the eyes, or the third-person camera.
-  const eye = player.thirdPerson ? camera.position.clone() : player.getEyePosition();
+  const eye = player.thirdPerson || gameState === "start" || vehicles.active ? camera.position.clone() : player.getEyePosition();
   lookDir.copy(player.getForwardVector());
   sky.update(dt, eye, lookDir);
   worldUniforms.uTime.value += dt;
@@ -1028,7 +1673,7 @@ function updateEnvironment(dt) {
   if (underwater) {
     // The surface above (for the light shafts), and sunlight bent into the water.
     let y = Math.floor(eye.y);
-    while (y < 63 && world.getBlock(eye.x, y + 1, eye.z) === BLOCK.WATER) y++;
+    while (y < 63 && IS_WET[world.getBlock(eye.x, y + 1, eye.z)]) y++;
     waterSurfaceY = surfaceHeight(y, eye.x, eye.z, worldUniforms.uTime.value, worldUniforms.uWaveStrength.value);
     const L = worldUniforms.uLightDir.value;
     const h = Math.hypot(L.x, L.z);
@@ -1057,7 +1702,7 @@ function renderFrame() {
   const preset = activePreset;
   sky.material.uniforms.uWriteSkyMask.value = preset.post ? 1 : 0;
   // The item in hand is drawn on top of the world (fresh depth buffer).
-  const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden;
+  const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden && !binoculars.active && !vehicles.active;
   const overlay = showHeld ? { scene: held.scene, camera: held.camera } : null;
   if (preset.post) {
     sunWorldPos.copy(camera.position).addScaledVector(worldUniforms.uSunDir.value, 400);
@@ -1099,8 +1744,13 @@ function renderFrame() {
 // ---------- Debug / test hook ----------
 // Exposes live game objects so the headless smoke test (tools/smoke-test.mjs)
 // can verify behavior like movement direction, and for poking at the game
-// from the browser dev console. Not used by any game code.
-window.__voxelands = {
+// from the browser dev console. Not used by any game code. (Also available
+// under its old name, __voxelands, which the older tests use.)
+// Frame timing (F3 and the performance tests): exponential averages of the
+// main-thread simulation time and the time spent issuing draw calls.
+const perf = { simMs: 0, renderMs: 0, maxSimMs: 0 };
+
+window.__ufo = window.__voxelands = {
   THREE,
   world,
   player,
@@ -1118,7 +1768,21 @@ window.__voxelands = {
   falling,
   waterSim,
   weapons,
+  lasers,
+  nuke,
+  perf,
+  callJet,
+  findRunway,
+  vehicles,
+  ufos,
+  stats,
+  toast,
+  mods,
+  setModsEnabled,
+  chord,
+  binoculars,
   decals,
+  scorches,
   audio,
   lod,
   grass,
@@ -1129,6 +1793,9 @@ window.__voxelands = {
   held,
   avatar,
   settings,
+  settingsPanel,
+  screens,
+  flyover,
   toggleHud,
   toggleDebug,
   uniforms: worldUniforms,
@@ -1199,12 +1866,86 @@ window.__voxelands = {
   },
 };
 
+// ---------- Stats overlay, hit marker, stats screen ----------
+const statsOverlayEl = document.getElementById("stats-overlay");
+let statsOverlayT = 0;
+settingsPanel.on("statsOverlay", (v) => statsOverlayEl.classList.toggle("hidden", !v));
+const beamOverlayEl = document.getElementById("beam-overlay");
+let beamWarned = false;
+function updateBeamFeedback() {
+  const held = !!ufos.beamingPlayer && gameState === "playing";
+  beamOverlayEl.classList.toggle("show", held);
+  if (held && !beamWarned) toast("TRACTOR BEAM! Run out of the light, or shoot the UFO!", 3);
+  beamWarned = held;
+}
+// The jet's lock box (on the target) and nose marker (where it points).
+const lockBoxEl = document.getElementById("lock-box");
+const jetNoseEl = document.getElementById("jet-nose");
+function updateJetOverlay() {
+  const v = vehicles.active;
+  const o = v?.type === "jet" && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
+  const place = (el, p) => {
+    el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
+    el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
+  };
+  lockBoxEl.classList.toggle("hidden", !o?.lock);
+  if (o?.lock) {
+    place(lockBoxEl, o.lock);
+    lockBoxEl.classList.toggle("locked", o.lock.locked);
+    const size = o.lock.locked ? 40 : 80 - o.lock.progress * 40;
+    lockBoxEl.style.width = lockBoxEl.style.height = `${size}px`;
+    lockBoxEl.style.margin = `${-size / 2}px 0 0 ${-size / 2}px`;
+  }
+  jetNoseEl.classList.toggle("hidden", !o?.nose || v.cameraModes[v.cameraMode] === "cockpit");
+  if (o?.nose) place(jetNoseEl, o.nose);
+}
+// First-time hints: short tips at the moments they're useful (once per
+// session each).
+const hintsShown = new Set();
+let hintT = 0;
+function hint(key, text, seconds = 5) {
+  if (hintsShown.has(key)) return;
+  hintsShown.add(key);
+  toast(text, seconds);
+}
+function updateHints(dt) {
+  if (gameState !== "playing" || !mods.enabled) return;
+  hintT -= dt;
+  if (hintT > 0) return;
+  hintT = 0.5;
+  if (stats.world.playTime < 20) hint("welcome", "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars.", 6);
+  const v = vehicles.active;
+  if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
+  else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift to fly, wheel for speed. Left click laser, hold right click to beam things up.", 6);
+  if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
+  if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! They shoot back. Clear them out, then board their wrecked UFO (F).", 5);
+}
+function updateStatsOverlay(dt) {
+  statsOverlayT -= dt;
+  if (statsOverlayT > 0 || !settings.statsOverlay) return;
+  statsOverlayT = 0.5;
+  statsOverlayEl.textContent = `UFOs shot down: ${stats.world.ufosDown}  \u00b7  ${stats.format("playTime", stats.world.playTime)}`;
+}
+const hitMarkerEl = document.getElementById("hit-marker");
+let hitMarkerTimer = null;
+hud.hitMarker = () => {
+  hitMarkerEl.classList.remove("fade");
+  hitMarkerEl.classList.add("show");
+  clearTimeout(hitMarkerTimer);
+  hitMarkerTimer = setTimeout(() => {
+    hitMarkerEl.classList.remove("show");
+    hitMarkerEl.classList.add("fade");
+  }, 90);
+};
+screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById("stats-table"));
+
 // ---------- Main loop ----------
 const clock = new THREE.Clock();
 const MAX_DT = 0.05;
 
 function animate() {
   requestAnimationFrame(animate);
+  const frameStart = performance.now();
   const frameTime = clock.getDelta();
   const dt = Math.min(frameTime, MAX_DT); // simulation step (clamped after hitches)
 
@@ -1215,7 +1956,14 @@ function animate() {
     player.update(dt);
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
     if (player.splashEvent) audio.playSplash();
-    effects.listener.copy(player.getEyePosition());
+    // Vehicles (the seated player rides along) and UFOs.
+    vehicles.night = worldUniforms.uNight.value;
+    vehicles.update(dt);
+    if (vehicles.active) vehicles.updateCamera(camera, dt);
+    ufos.viewDistance = renderDistance * 16;
+    ufos.update(dt);
+    nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition());
+    effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());
     effects.update(dt);
     effects.shake.apply(camera);
     entities.update(dt, player);
@@ -1225,6 +1973,11 @@ function animate() {
     // A drawn throw is dropped if the grenade leaves the hand (thrown away, swapped).
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
+    lasers.update(dt);
+  } else if (gameState === "start") {
+    flyover.update(dt, camera, worldUniforms.uNight.value);
+  } else if (vehicles.active) {
+    vehicles.updateCamera(camera, 0); // keep the view behind the menus sensible
   } else {
     player.syncCamera(); // keep the view behind the menus sensible
   }
@@ -1233,7 +1986,15 @@ function animate() {
   lod.update();
   grass.update(player.position);
 
-  interaction.updateTarget(gameState === "playing");
+  chord.update();
+  binoculars.update(dt, gameState === "playing");
+  interaction.updateTarget(gameState === "playing" && !vehicles.active);
+  vehicles.updateHud(dt, gameState === "playing");
+  stats.tick(dt, gameState === "playing");
+  updateBeamFeedback();
+  updateJetOverlay();
+  updateHints(dt);
+  updateStatsOverlay(dt);
   if (gameState === "playing") interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();
 
@@ -1250,19 +2011,26 @@ function animate() {
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
   held.update(dt, player, heldLight, camera, interaction.eating);
-  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start", swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0 });
+  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0 });
   updateDebug(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
+  const simEnd = performance.now();
+  const simMs = simEnd - frameStart;
+  perf.simMs += (simMs - perf.simMs) * 0.1;
+  perf.maxSimMs = Math.max(perf.maxSimMs, simMs);
   if (graphicsReady) {
     renderer.info.reset(); // counted over all of a frame's passes (debug overlay)
     renderFrame();
+    perf.renderMs += (performance.now() - simEnd - perf.renderMs) * 0.1;
     // A few frames in, the GPU has finished drawing the first ones: this
     // preset works here (see the safe start above).
     if (++framesSinceReady === 3) saveBootRecord({ preset: graphicsPreset, ok: true });
   }
 }
 
+// Vehicles last: the player may have saved while seated in one.
+if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 animate();
 ui.setStartNotice(startNotice);
 bootDone();

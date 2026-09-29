@@ -40,6 +40,15 @@ const MATERIALS = {
 // Creature voices. Each call: f0 -> f1 pitch glide, formants [freq, q, gain]
 // (vowel shape), vib: vibrato depth (fraction), breath: noise mixed in.
 const VOICES = {
+  alien: {
+    // Warbling, high chatter.
+    idle: [
+      { f0: 620, f1: 900, d: 0.16, v: 0.16, formants: [[1400, 7, 1], [2600, 8, 0.5]], vib: 0.12, breath: 0.1 },
+      { f0: 880, f1: 540, d: 0.2, v: 0.14, formants: [[1500, 7, 1]], vib: 0.15, breath: 0.1, delay: 0.18 },
+    ],
+    hurt: [{ f0: 1200, f1: 700, d: 0.18, v: 0.2, formants: [[1700, 5, 1], [3000, 6, 0.4]], vib: 0.1, breath: 0.2 }],
+    death: [{ f0: 900, f1: 180, d: 0.7, v: 0.2, formants: [[1300, 5, 1], [2400, 6, 0.4]], vib: 0.18, breath: 0.2 }],
+  },
   fluffalo: {
     // A low, nasal grumble.
     idle: [{ f0: 92, f1: 78, d: 0.9, v: 0.32, formants: [[260, 5, 1.2], [620, 6, 0.5]], vib: 0.02, breath: 0.2 }],
@@ -178,6 +187,7 @@ export class Audio {
   _noise(when, duration) {
     const src = this.ctx.createBufferSource();
     src.buffer = this._noiseBuffer;
+    if (duration > NOISE_SECONDS - 0.1) src.loop = true; // long sounds (engines, meteors)
     const maxOffset = Math.max(0, NOISE_SECONDS - duration - 0.05);
     src.start(when, Math.random() * maxOffset, duration + 0.05);
     return src;
@@ -208,6 +218,7 @@ export class Audio {
   // A creature voice: a buzzy source through formant filters.
   _voice({ f0, f1, d, v, formants, vib = 0, breath = 0, delay = 0 }, gainScale = 1) {
     const ctx = this.ctx;
+    if (!ctx) return;
     const t = ctx.currentTime + delay;
     const bus = ctx.createGain();
     bus.gain.setValueAtTime(0.0001, t);
@@ -396,6 +407,346 @@ export class Audio {
     this._hit({ type: "lowpass", f: 160, q: 1, d: 0.25, v: 0.7, attack: 0.002 });
     this._hit({ type: "bandpass", f: 400, fEnd: 1500, q: 1.1, d: 0.5, v: 0.4, attack: 0.01 });
     this._hit({ type: "highpass", f: 3000, q: 0.7, d: 0.4, v: 0.14, attack: 0.02 });
+  }
+
+  // A sci-fi blaster "pew": a bright tone that dives in pitch, with a
+  // ringing overtone and a short electric crackle. Enemy lasers (UFOs,
+  // aliens) are lower and buzzier. Quieter and later with distance.
+  playBlaster(distance = 0, owner = "player") {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx || distance > 180) return;
+    const enemy = owner !== "player" && owner !== "playerufo";
+    const gain = 0.34 / (1 + distance / 14);
+    if (gain < 0.004) return;
+    const t = ctx.currentTime + Math.min(distance / 343, 0.4);
+    const f0 = (enemy ? 1300 : 2300) * (0.93 + Math.random() * 0.14);
+    const f1 = enemy ? 110 : 190;
+    const d = enemy ? 0.26 : 0.19;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = Math.max(700, 9000 / (1 + distance / 30));
+    out.connect(lp).connect(this._out || this.master);
+    for (const [type, mul, g] of [[enemy ? "sawtooth" : "square", 1, 0.55], ["sine", 1.51, 0.45]]) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0 * mul, t);
+      osc.frequency.exponentialRampToValueAtTime(f1 * mul, t + d);
+      const og = ctx.createGain();
+      og.gain.value = g;
+      osc.connect(og).connect(out);
+      osc.start(t);
+      osc.stop(t + d + 0.02);
+    }
+    this._hit({ type: "highpass", f: 4000, q: 0.7, d: 0.025, v: gain * 0.6, attack: 0.001 }, t - ctx.currentTime);
+  }
+
+  // A laser bolt hitting a block: a sizzling crackle.
+  playLaserHit(distance = 0) {
+    this._cat("weapons");
+    const v = 0.16 / (1 + distance / 10);
+    if (v < 0.004) return;
+    this._hit({ type: "bandpass", f: 3200, fEnd: 900, q: 1.4, d: 0.12, v, n: 2, spread: 0.03, jitter: 0.3 }, Math.min(distance / 343, 0.4));
+  }
+
+  // A meteor screaming in: a rising roar and a falling whistle over its
+  // whole flight (`duration` s), from `distance` blocks away at the start.
+  playMeteorIncoming(duration = 3, distance = 150) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const d = Math.max(0.5, Math.min(8, duration));
+    const peak = 0.16 / (1 + Math.max(0, distance - 150) / 120);
+    const roar = this._noise(t, d);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 2.2;
+    bp.frequency.setValueAtTime(2600, t);
+    bp.frequency.exponentialRampToValueAtTime(420, t + d);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak * 0.3, t + d * 0.4);
+    g.gain.exponentialRampToValueAtTime(peak, t + d * 0.95);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
+    roar.connect(bp).connect(g).connect(this._out || this.master);
+    const rumble = this._noise(t, d);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 180;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.exponentialRampToValueAtTime(peak * 2.2, t + d * 0.95);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.05);
+    rumble.connect(lp).connect(rg).connect(this._out || this.master);
+  }
+
+  // ---------- UFOs and vehicles ----------
+
+  // A continuous, wobbling UFO hum for the nearest UFO (volume 0-1), with a
+  // shimmering tone on top while a tractor beam holds the player (beam 0-1).
+  setUfoHum(volume, beam = 0) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._hum) {
+      if (volume <= 0.001 && beam <= 0) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 900;
+      out.connect(this.buses.creatures || this.master);
+      lp.connect(out);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 3.2;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 9;
+      lfo.connect(lfoGain);
+      for (const [f, type, g] of [[62, "sine", 0.6], [93.5, "triangle", 0.35], [187, "sine", 0.12]]) {
+        const o = ctx.createOscillator();
+        o.type = type;
+        o.frequency.value = f;
+        lfoGain.connect(o.frequency);
+        const og = ctx.createGain();
+        og.gain.value = g;
+        o.connect(og).connect(lp);
+        o.start();
+      }
+      lfo.start();
+      // The beam's shimmer.
+      const beamGain = ctx.createGain();
+      beamGain.gain.value = 0;
+      const shimmer = ctx.createOscillator();
+      shimmer.type = "sine";
+      shimmer.frequency.value = 740;
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 11;
+      const vibGain = ctx.createGain();
+      vibGain.gain.value = 60;
+      vib.connect(vibGain).connect(shimmer.frequency);
+      const sweep = ctx.createOscillator();
+      sweep.frequency.value = 0.5;
+      const sweepGain = ctx.createGain();
+      sweepGain.gain.value = 180;
+      sweep.connect(sweepGain).connect(shimmer.frequency);
+      shimmer.connect(beamGain).connect(this.buses.creatures || this.master);
+      shimmer.start();
+      vib.start();
+      sweep.start();
+      this._hum = { out, beamGain };
+    }
+    const t = ctx.currentTime;
+    this._hum.out.gain.setTargetAtTime(Math.max(0, Math.min(1, volume)) * 0.32, t, 0.15);
+    this._hum.beamGain.gain.setTargetAtTime(beam > 0 ? 0.05 : 0, t, 0.2);
+  }
+
+  // A UFO shooting off into the sky: a rising whoosh and zap.
+  playUfoLeave(distance = 0) {
+    this._cat("creatures");
+    if (!this.ctx) return;
+    const v = 0.35 / (1 + distance / 60);
+    if (v < 0.01) return;
+    this._hit({ type: "bandpass", f: 300, fEnd: 4000, q: 2, d: 0.9, v, attack: 0.05 });
+    this._voice({ f0: 200, f1: 2400, d: 0.8, v: v * 0.6, formants: [[1200, 3, 1]], vib: 0.05 });
+  }
+
+  // A hit on a UFO's hull (a metallic crunch; heavier when it goes down).
+  playUfoHit(distance = 0, big = false) {
+    this._cat("weapons");
+    const v = (big ? 0.5 : 0.22) / (1 + distance / 40);
+    if (v < 0.01) return;
+    this._hit({ type: "bandpass", f: big ? 700 : 1800, q: 5, d: big ? 0.5 : 0.12, v, n: big ? 3 : 1, spread: 0.08, jitter: 0.3 });
+    if (big) this._hit({ type: "lowpass", f: 200, q: 1, d: 0.8, v: v * 1.4, attack: 0.01 });
+  }
+
+  playVehicleEnter(type) {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: type === "ufo" ? 600 : 300, fEnd: type === "ufo" ? 1600 : 900, q: 3, d: 0.3, v: 0.2, attack: 0.02 });
+    this._hit({ type: "lowpass", f: 300, q: 1, d: 0.1, v: 0.25 });
+  }
+
+  playVehicleExit(type) {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: type === "ufo" ? 1600 : 900, fEnd: type === "ufo" ? 500 : 250, q: 3, d: 0.25, v: 0.16, attack: 0.02 });
+  }
+
+  // Ejection seat: a bang and a rocket hiss.
+  playEject() {
+    this._cat("player");
+    this._hit({ type: "lowpass", f: 400, q: 1, d: 0.2, v: 0.8, attack: 0.002 });
+    this._hit({ type: "highpass", f: 1500, q: 0.7, d: 0.9, v: 0.3, attack: 0.02 });
+  }
+
+  // A parachute snapping open.
+  playParachute() {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 500, q: 1.2, d: 0.35, v: 0.45, attack: 0.01, fEnd: 200 });
+    this._hit({ type: "highpass", f: 2500, q: 0.7, d: 0.15, v: 0.15 });
+  }
+
+  // ---------- Jet ----------
+
+  // The jet engine: a continuous turbine whine plus a roar that grows with
+  // the throttle; the afterburner adds a deep rumble. active = false fades
+  // it out (out of the jet).
+  setJetEngine(throttle, afterburner, speed, active) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._jet) {
+      if (!active) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.buses.weapons || this.master);
+      // Roar: filtered noise (looped for as long as the engine runs).
+      const loopNoise = () => {
+        const src = ctx.createBufferSource();
+        src.buffer = this._noiseBuffer;
+        src.loop = true;
+        src.start();
+        return src;
+      };
+      const roar = loopNoise();
+      const roarF = ctx.createBiquadFilter();
+      roarF.type = "lowpass";
+      roarF.frequency.value = 600;
+      const roarG = ctx.createGain();
+      roar.connect(roarF).connect(roarG).connect(out);
+      // Turbine whine.
+      const whine = ctx.createOscillator();
+      whine.type = "sawtooth";
+      whine.frequency.value = 800;
+      const whineF = ctx.createBiquadFilter();
+      whineF.type = "bandpass";
+      whineF.frequency.value = 2400;
+      whineF.Q.value = 6;
+      const whineG = ctx.createGain();
+      whineG.gain.value = 0.05;
+      whine.connect(whineF).connect(whineG).connect(out);
+      whine.start();
+      // Afterburner rumble.
+      const ab = loopNoise();
+      const abF = ctx.createBiquadFilter();
+      abF.type = "lowpass";
+      abF.frequency.value = 160;
+      const abG = ctx.createGain();
+      abG.gain.value = 0;
+      ab.connect(abF).connect(abG).connect(out);
+      this._jet = { out, roarF, roarG, whine, whineF, abG };
+    }
+    const j = this._jet;
+    const t = ctx.currentTime;
+    j.out.gain.setTargetAtTime(active ? 0.55 : 0, t, active ? 0.2 : 0.4);
+    j.roarF.frequency.setTargetAtTime(350 + throttle * 1400 + speed * 3, t, 0.2);
+    j.roarG.gain.setTargetAtTime(0.25 + throttle * 0.6, t, 0.2);
+    j.whine.frequency.setTargetAtTime(600 + throttle * 900, t, 0.3);
+    j.whineF.frequency.setTargetAtTime(1800 + throttle * 1800, t, 0.3);
+    j.abG.gain.setTargetAtTime(afterburner ? 1.4 : 0, t, 0.15);
+  }
+
+  // One autocannon round (a very short, low crack; they come 16 a second).
+  playCannon() {
+    this._cat("weapons");
+    this._hit({ type: "lowpass", f: 900, q: 0.8, d: 0.045, v: 0.22, attack: 0.001 });
+    this._hit({ type: "highpass", f: 2600, q: 0.7, d: 0.02, v: 0.08, attack: 0.001 });
+  }
+
+  // Missile lock: a short beep while locking, a high tone once locked.
+  playLockTone(locked) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "square";
+    o.frequency.value = locked ? 1750 : 1100;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.005);
+    g.gain.setValueAtTime(0.05, t + (locked ? 0.07 : 0.05));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (locked ? 0.085 : 0.07));
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + 0.1);
+  }
+
+  // A warning beep-beep (nuke away, incoming).
+  playWarning() {
+    this._cat("ui");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    for (let i = 0; i < 2; i++) {
+      const t = ctx.currentTime + i * 0.18;
+      const o = ctx.createOscillator();
+      o.type = "triangle";
+      o.frequency.value = 880;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      o.connect(g).connect(this._out || this.master);
+      o.start(t);
+      o.stop(t + 0.15);
+    }
+  }
+
+  // Wheels touching down.
+  playLanding() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 900, q: 1.5, d: 0.3, v: 0.25, n: 2, spread: 0.12 });
+    this._hit({ type: "lowpass", f: 200, q: 1, d: 0.2, v: 0.4 });
+  }
+
+  // The nuke: an enormous, long, low boom that arrives late from far away
+  // (and is still heard kilometres off).
+  playNuke(distance = 0, radius = 28) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const delay = Math.min(distance / 343, 6);
+    const gain = 1.6 / (1 + distance / 400);
+    const muffle = Math.max(140, 12000 * Math.exp(-distance / 500));
+    const t0 = ctx.currentTime + delay;
+    const out = ctx.createGain();
+    out.gain.value = gain;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = muffle;
+    lp.connect(out).connect(this._out || this.master);
+    const sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(55, t0);
+    sub.frequency.exponentialRampToValueAtTime(18, t0 + 5);
+    const subG = ctx.createGain();
+    subG.gain.setValueAtTime(0.0001, t0);
+    subG.gain.exponentialRampToValueAtTime(1.2, t0 + 0.05);
+    subG.gain.exponentialRampToValueAtTime(0.0001, t0 + 7);
+    sub.connect(subG).connect(lp);
+    sub.start(t0);
+    sub.stop(t0 + 7.2);
+    const body = this._noise(t0, 9);
+    const bodyF = ctx.createBiquadFilter();
+    bodyF.type = "lowpass";
+    bodyF.frequency.setValueAtTime(2500, t0);
+    bodyF.frequency.exponentialRampToValueAtTime(90, t0 + 8);
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = this._shaperCurve;
+    const bodyG = ctx.createGain();
+    bodyG.gain.setValueAtTime(0.0001, t0);
+    bodyG.gain.exponentialRampToValueAtTime(1.6, t0 + 0.02);
+    bodyG.gain.exponentialRampToValueAtTime(0.4, t0 + 2);
+    bodyG.gain.exponentialRampToValueAtTime(0.0001, t0 + 9);
+    body.connect(bodyF).connect(shaper).connect(bodyG).connect(lp);
+  }
+
+  // A pickup/notice chime (UFO down, abductions escaped).
+  playNotice() {
+    this._cat("ui");
+    if (!this.ctx) return;
+    this._voice({ f0: 880, f1: 1320, d: 0.25, v: 0.12, formants: [[1500, 2, 1]] });
   }
 
   // A grenade bouncing: a small metallic clink and a thud (strength 0-1).

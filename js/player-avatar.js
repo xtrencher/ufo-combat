@@ -88,7 +88,7 @@ export class PlayerAvatar {
     diff = Math.atan2(Math.sin(player.yaw - this._bodyYaw), Math.cos(player.yaw - this._bodyYaw));
     this.root.rotation.y = this._bodyYaw + Math.PI;
     const weapon = itemInfo(heldId)?.weapon?.kind;
-    const aim = weapon === "pistol" ? "one" : weapon && weapon !== "grenade" && weapon !== "airstrike" ? "two" : null;
+    const aim = weapon === "pistol" || weapon === "blaster" ? "one" : weapon && weapon !== "grenade" && weapon !== "airstrike" ? "two" : null;
     this.model.animate({
       walkPhase: player.walkPhase,
       walk: this._walk,

@@ -5,7 +5,7 @@
 // mirrored left-to-right. Shapeless recipes match a multiset of items.
 // There is no furnace: "smelting" is crafting with coal as the fuel.
 import { BLOCK } from "./blocks.js";
-import { ITEM } from "./items.js";
+import { ITEM, itemAllowed } from "./items.js";
 
 const shaped = (pattern, key, result, count = 1) => ({ type: "shaped", pattern, key, result, count });
 const shapeless = (ingredients, result, count = 1) => ({ type: "shapeless", ingredients, result, count });
@@ -41,6 +41,8 @@ export const RECIPES = [
   shaped(["III", "ISI", "I.I"], { I: ITEM.IRON_INGOT, S: ITEM.STICK }, ITEM.MACHINE_GUN),
   shaped(["..D", "III", "S.."], { D: ITEM.DIAMOND, I: ITEM.IRON_INGOT, S: ITEM.STICK }, ITEM.SNIPER_RIFLE),
   shaped(["IGI", "ICI", "III"], { I: ITEM.IRON_INGOT, G: ITEM.GOLD_INGOT, C: ITEM.COAL }, ITEM.AIRSTRIKE),
+  shaped(["LDI", ".II"], { L: BLOCK.LUMEN, D: ITEM.DIAMOND, I: ITEM.IRON_INGOT }, ITEM.LASER_BLASTER),
+  shaped(["G.G", "ILI", "III"], { G: ITEM.GOLD_INGOT, I: ITEM.IRON_INGOT, L: BLOCK.LUMEN }, ITEM.JET_RADIO),
 ];
 for (const [mat, m] of TOOL_MATERIALS) {
   RECIPES.push(shaped(["M", "M", "S"], { M: m, S: ITEM.STICK }, ITEM[`${mat}_SWORD`]));
@@ -98,6 +100,7 @@ export function findRecipe(grid, width) {
   if (rows.length === 0) return null;
   const items = grid.filter((id) => id);
   for (const recipe of RECIPES) {
+    if (!itemAllowed(recipe.result)) continue; // mod items with mods off
     if (recipe.type === "shaped") {
       if (matchShaped(recipe, rows, false) || matchShaped(recipe, rows, true)) return recipe;
     } else if (matchShapeless(recipe, items)) {

@@ -1,14 +1,20 @@
 // Weapons: grenades (charge-thrown, bouncing, 5 s fuse, instant on a direct
 // hit on a mob), the pistol (hitscan: sparks and bullet holes on blocks,
-// damage and knockback on mobs) and the bazooka (a fast rocket with a smoke
-// trail that explodes on terrain or mobs with a huge blast). No ammo and no
-// reloading: every click fires, with only a tiny minimum interval.
+// damage and knockback on mobs), the bazooka (a fast rocket with a smoke
+// trail that explodes on terrain or mobs with a huge blast), the machine
+// gun, the sniper rifle, the airstrike designator (see airstrike.js) and the
+// laser blaster (see lasers.js). No ammo and no reloading: every click
+// fires, with only a tiny minimum interval. Every weapon keeps its own
+// cooldown, so none of them ever blocks another (an airstrike on its way
+// doesn't stop the bazooka).
 import * as THREE from "three";
-import { BLOCK, IS_SOLID } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { itemInfo } from "./items.js";
 import { grenadeGeometry, rocketGeometry } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
-import { GRENADE_RADIUS, BAZOOKA_RADIUS, AIRSTRIKE_METEOR_RADIUS } from "./effects.js";
+import { GRENADE_RADIUS, BAZOOKA_RADIUS } from "./effects.js";
+import { Airstrikes } from "./airstrike.js";
+import { LASER_COLORS } from "./lasers.js";
 import { LAYER_FX } from "./layers.js";
 
 export const THROW_CHARGE_TIME = 1.5; // seconds to a full-strength throw
@@ -23,7 +29,7 @@ const PISTOL_RANGE = 160;
 export const ROCKET_SPEED = 75;
 const ROCKET_GRAVITY = -2.5;
 const ROCKET_LIFE = 12;
-const MIN_INTERVAL = { grenade: 0.12, pistol: 0.07, bazooka: 0.2 };
+const MIN_INTERVAL = { grenade: 0.12, pistol: 0.07, bazooka: 0.2, airstrike: 0.8, blaster: 0.2 };
 
 // Machine gun: automatic while held, tracers, spread and recoil that climb
 // the longer the trigger is held, and settle again once it's released.
@@ -39,12 +45,12 @@ const SNIPER_ZOOM_FOV = 15;
 
 // Airstrike designator: aim a laser at a spot and fire; after a delay a rain
 // of meteors falls on the target and on random spots around it.
-export const AIRSTRIKE_DELAY = 5;
-const AIRSTRIKE_COOLDOWN = 8;
-const AIRSTRIKE_METEOR_COUNT = 7;
-const AIRSTRIKE_SPREAD_MIN = 15;
-const AIRSTRIKE_SPREAD_MAX = 25;
 const AIRSTRIKE_AIM_RANGE = 500;
+
+// Laser blaster: short glowing bolts, one per click (held: 5 per second).
+export const BLASTER_DAMAGE = 7;
+const BLASTER_SPEED = 130;
+const BLASTER_RANGE = 240;
 
 function glowTexture() {
   const size = 64;
@@ -65,7 +71,7 @@ function glowTexture() {
 }
 
 export class WeaponSystem {
-  constructor({ scene, world, player, effects, audio, mobs, held, decals, inventory }) {
+  constructor({ scene, world, player, effects, audio, mobs, held, decals, inventory, lasers }) {
     this.scene = scene;
     this.world = world;
     this.player = player;
@@ -75,13 +81,21 @@ export class WeaponSystem {
     this.held = held;
     this.decals = decals;
     this.inventory = inventory;
+    this.lasers = lasers;
     this.grenades = [];
     this.rockets = [];
-    this.meteors = [];
-    this.airstrikes = []; // pending { pos, timer }
+    this.airstrike = new Airstrikes({ scene, world, effects, audio, mobs });
     this.charging = false;
     this.chargeTime = 0;
-    this._cooldown = 0;
+    // One cooldown per weapon: they never block each other.
+    this._cooldowns = { grenade: 0, pistol: 0, bazooka: 0, airstrike: 0, blaster: 0 };
+    this._queued = null; // a pistol/bazooka click that came in during the cooldown
+    this._blasterFiring = false;
+    this.blasterColor = "red";
+    this.enabled = true; // false with mods off: every weapon is inert
+    // Extra things bullets, rockets and grenades can hit (UFOs, vehicles):
+    // { raycast(origin, dir, maxDist) -> { distance, hit(damage, dir, point) }, sphereHit(p, r) }.
+    this.targets = [];
     this._mgFiring = false;
     this._mgTimer = 0;
     this._mgHeat = 0; // 0-1: climbs while firing, drives spread and recoil
@@ -90,7 +104,6 @@ export class WeaponSystem {
     this.material = createEntityMaterial("color");
     this._grenadeGeo = grenadeGeometry();
     this._rocketGeo = rocketGeometry();
-    this._meteorGeo = new THREE.SphereGeometry(0.35, 8, 6);
     this._exhaustMat = new THREE.SpriteMaterial({
       map: glowTexture(),
       blending: THREE.AdditiveBlending,
@@ -146,42 +159,59 @@ export class WeaponSystem {
 
   // Right button pressed with a weapon selected.
   press(kind) {
-    if (kind === "grenade") {
-      if (this._cooldown > 0) return;
-      this.charging = true;
-      this.chargeTime = 0;
-      return;
+    if (!this.enabled) return;
+    const cd = this._cooldowns;
+    switch (kind) {
+      case "grenade":
+        if (cd.grenade > 0) return;
+        this.charging = true;
+        this.chargeTime = 0;
+        return;
+      case "machinegun":
+        this._mgFiring = true;
+        return;
+      case "sniper":
+        this.scoped = !this.scoped;
+        this._applyScope();
+        return;
+      case "blaster":
+        this._blasterFiring = true;
+        if (cd.blaster <= 0) {
+          cd.blaster = MIN_INTERVAL.blaster;
+          this.fireBlaster();
+        }
+        return;
+      case "jetradio":
+        this.onJetRadio?.();
+        return;
+      case "airstrike":
+        if (cd.airstrike > 0) return;
+        cd.airstrike = MIN_INTERVAL.airstrike;
+        this.fireAirstrike();
+        return;
+      default:
+        if (!(kind in cd)) return;
+        if (cd[kind] > 0) {
+          // Clicked a moment too early: fires as soon as it's ready, so
+          // every click counts (even when frames are slow).
+          this._queued = kind;
+          return;
+        }
+        cd[kind] = MIN_INTERVAL[kind] || 0.1;
+        if (kind === "pistol") this.firePistol();
+        else if (kind === "bazooka") this.fireBazooka();
     }
-    if (kind === "machinegun") {
-      this._mgFiring = true;
-      return;
-    }
-    if (kind === "sniper") {
-      this.scoped = !this.scoped;
-      this._applyScope();
-      return;
-    }
-    if (kind === "airstrike") {
-      if (this._cooldown > 0) return;
-      this._cooldown = AIRSTRIKE_COOLDOWN;
-      this.fireAirstrike();
-      return;
-    }
-    if (this._cooldown > 0) return;
-    this._cooldown = MIN_INTERVAL[kind] || 0.1;
-    if (kind === "pistol") this.firePistol();
-    else if (kind === "bazooka") this.fireBazooka();
   }
 
-  // Right button released: a drawn grenade is thrown; the machine gun stops
-  // its automatic fire.
+  // Right button released: a drawn grenade is thrown; automatic fire stops.
   release() {
     this._mgFiring = false;
+    this._blasterFiring = false;
     if (!this.charging) return;
     const power = this.charge;
     this.charging = false;
     this.chargeTime = 0;
-    this._cooldown = MIN_INTERVAL.grenade;
+    this._cooldowns.grenade = MIN_INTERVAL.grenade;
     this.throwGrenade(power);
   }
 
@@ -195,9 +225,11 @@ export class WeaponSystem {
   // Switching items, opening a screen or dying drops a drawn throw, stops
   // the machine gun and un-scopes the sniper.
   cancel() {
+    this._queued = null;
     this.charging = false;
     this.chargeTime = 0;
     this._mgFiring = false;
+    this._blasterFiring = false;
     if (this.scoped) {
       this.scoped = false;
       this._applyScope();
@@ -217,6 +249,7 @@ export class WeaponSystem {
     this.held.fire(1.6);
     p.kick(0.07);
     this.audio.playSniperShot ? this.audio.playSniperShot() : this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : SNIPER_RANGE, SNIPER_DAMAGE, muzzle)) return { type: "target" };
     const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
     const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : SNIPER_RANGE;
     const endPoint = eye.clone().addScaledVector(dir, dist);
@@ -258,6 +291,7 @@ export class WeaponSystem {
     this.held.fire(0.55);
     p.kick(0.016 + this._mgHeat * 0.022);
     this.audio.playMachineGun ? this.audio.playMachineGun() : this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : MACHINEGUN_RANGE, MACHINEGUN_DAMAGE, muzzle)) return;
     const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
     const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : MACHINEGUN_RANGE;
     const endPoint = eye.clone().addScaledVector(dir, dist);
@@ -280,58 +314,69 @@ export class WeaponSystem {
   }
 
   // Locks the airstrike target where the laser currently points; the meteor
-  // rain lands there (and around it) after AIRSTRIKE_DELAY seconds.
+  // shower lands there (and around it) after the delay set in the settings.
   fireAirstrike() {
     const target = this._aimPoint(AIRSTRIKE_AIM_RANGE);
-    this.airstrikes.push({ pos: target.clone(), timer: AIRSTRIKE_DELAY });
+    this.airstrike.call(target);
+    this.held.fire(0.3);
     this.audio.playLockOn ? this.audio.playLockOn() : this.audio.playThrow();
+    // A red marker flash where the strike will land.
+    this.effects.glow.spawn({ x: target.x, y: target.y + 0.5, z: target.z, life: 0.5, size0: 2.5, size1: 0.6, color0: this._c.blink, alpha: 0.9 });
   }
 
-  _spawnMeteorRain(center) {
-    for (let i = 0; i < AIRSTRIKE_METEOR_COUNT; i++) {
-      const centered = i === 0;
-      const ang = Math.random() * Math.PI * 2;
-      const dist = centered ? 0 : AIRSTRIKE_SPREAD_MIN + Math.random() * (AIRSTRIKE_SPREAD_MAX - AIRSTRIKE_SPREAD_MIN);
-      const tx = center.x + Math.cos(ang) * dist;
-      const tz = center.z + Math.sin(ang) * dist;
-      const groundY = this.world.heightAt(Math.floor(tx), Math.floor(tz));
-      const startY = Math.max(center.y, groundY) + 34 + Math.random() * 14;
-      const start = new THREE.Vector3(tx, startY, tz);
-      const target = new THREE.Vector3(tx, groundY, tz);
-      const dir = target.clone().sub(start).normalize();
-      const speed = 42 + Math.random() * 12;
-      const mesh = new THREE.Mesh(this._meteorGeo, this.material);
-      mesh.castShadow = true;
-      const m = { pos: start.clone(), vel: dir.multiplyScalar(speed), mesh, age: 0, light: { sky: 15, block: 0 } };
-      bindEntityLight(mesh, () => m.light);
-      mesh.position.copy(start);
-      this.scene.add(mesh);
-      this.meteors.push(m);
-    }
-    this.effects.glow.spawn({ x: center.x, y: center.y + 1, z: center.z, life: 0.4, size0: 2, size1: 0.5, color0: this._c.blink, alpha: 0.8 });
+  // ---------- Laser blaster ----------
+
+  fireBlaster() {
+    if (!this.lasers) return null;
+    const p = this.player;
+    const muzzle = this._handPoint(0.75, 0.26, 0.15);
+    // Aim from the muzzle at whatever is under the crosshair.
+    const target = this._aimPoint(BLASTER_RANGE);
+    const dir = target.sub(muzzle);
+    if (dir.lengthSq() < 0.5) dir.copy(p.getForwardVector());
+    dir.normalize();
+    const eye = p.getEyePosition();
+    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
+    this.shots++;
+    this.held.fire(0.6);
+    p.kick(0.02);
+    this.effects.muzzleFlash(muzzle, 0.8);
+    return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED, damage: BLASTER_DAMAGE, owner: "player", source: p, range: BLASTER_RANGE });
   }
 
-  _updateMeteor(m, dt) {
-    m.age += dt;
-    m.vel.y -= 24 * dt;
-    const step = m.vel.clone().multiplyScalar(dt);
-    const len = step.length() || 0.0001;
-    const dir = step.clone().divideScalar(len);
-    const blockHit = this.world.raycast(m.pos, dir, len, { solidOnly: true });
-    if (blockHit) {
-      m.pos.addScaledVector(dir, Math.max(0, blockHit.distance - 0.05));
-      return true;
+  // The nearest extra target (UFO, vehicle) along a ray, or null.
+  _targetHit(origin, dir, maxDist) {
+    let best = null;
+    for (const t of this.targets) {
+      const h = t.raycast(origin, dir, maxDist);
+      if (h && (!best || h.distance < best.distance)) best = h;
     }
-    m.pos.add(step);
-    if (this.mobs.sphereHit(m.pos, 0.35)) return true;
-    m.mesh.position.copy(m.pos);
-    m.mesh.rotation.x += dt * 6;
-    m.mesh.rotation.z += dt * 4;
-    m.light = this.world.lightAt(m.pos.x, m.pos.y, m.pos.z);
-    this.effects.glow.spawn({ x: m.pos.x, y: m.pos.y, z: m.pos.z, vx: (Math.random() - 0.5) * 0.5, vy: 0.2, vz: (Math.random() - 0.5) * 0.5, life: 0.3 + Math.random() * 0.2, size0: 0.4, size1: 0.1, color0: this._c.exhaust, alpha: 0.85 });
-    this.effects.smoke.spawn({ x: m.pos.x, y: m.pos.y, z: m.pos.z, vx: 0, vy: 0.3, vz: 0, life: 1.2, size0: 0.3, size1: 1.2, color0: this._c.smoke, color1: this._c.smokeEnd, alpha: 0.3, drag: 1 });
-    if (m.pos.y < -20 || m.age > 8) return true;
+    return best;
+  }
+
+  _targetSphere(p, r) {
+    for (const t of this.targets) if (t.sphereHit(p, r)) return true;
     return false;
+  }
+
+  // Metal sparks off a UFO's hull.
+  _hullSparks(point, dir, n = 8) {
+    for (let i = 0; i < n; i++) {
+      const v = dir.clone().multiplyScalar(-3 - Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6));
+      this.effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.2 + Math.random() * 0.3, size0: 0.1, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
+    }
+  }
+
+  // A hitscan shot against the extra targets, if one is nearer than
+  // `nearest` (the block or mob hit). Returns true if it hit one.
+  _shootTargets(eye, dir, nearest, damage, muzzle) {
+    const t = this._targetHit(eye, dir, nearest);
+    if (!t) return false;
+    const point = eye.clone().addScaledVector(dir, t.distance);
+    t.hit(damage, dir, point);
+    this._hullSparks(point, dir);
+    if (muzzle) this._spawnTracer(muzzle, point);
+    return true;
   }
 
   // A block hit is "real" (a loaded chunk) vs. an approximate heightfield
@@ -421,7 +466,7 @@ export class WeaponSystem {
     const w = this.world;
     const pos = g.pos;
     const vel = g.vel;
-    const inWater = w.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z)) === BLOCK.WATER;
+    const inWater = IS_WET[w.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))] === 1;
     vel.y += GRENADE_GRAVITY * (inWater ? 0.3 : 1) * dt;
     if (inWater) vel.multiplyScalar(Math.exp(-2.5 * dt));
     // Sub-stepped, axis-separated movement with bounces.
@@ -470,7 +515,7 @@ export class WeaponSystem {
     }
 
     // A direct hit on a mob sets it off at once.
-    if (g.age > 0.05 && this.mobs.sphereHit(pos, GRENADE_R)) return true;
+    if (g.age > 0.05 && (this.mobs.sphereHit(pos, GRENADE_R) || this._targetSphere(pos, GRENADE_R))) return true;
     return g.age >= GRENADE_FUSE || pos.y < -20;
   }
 
@@ -493,6 +538,7 @@ export class WeaponSystem {
     this.held.fire(1);
     p.kick(0.035);
     this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : PISTOL_RANGE, PISTOL_DAMAGE, null)) return { type: "target" };
     if (mobHit) {
       const hitPoint = eye.clone().addScaledVector(dir, mobHit.distance);
       this.mobs.shoot(mobHit.mob, PISTOL_DAMAGE, dir, 3.5);
@@ -580,6 +626,8 @@ export class WeaponSystem {
     const dir = step.clone().divideScalar(len || 1);
     const blockHit = this.world.raycast(r.pos, dir, len, { solidOnly: true });
     const mobHit = this.mobs.raycast(r.pos, dir, blockHit ? blockHit.distance : len);
+    const tHit = this._targetHit(r.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
+    if (tHit) return r.pos.clone().addScaledVector(dir, tHit.distance);
     if (mobHit) return r.pos.clone().addScaledVector(dir, mobHit.distance);
     if (blockHit) return r.pos.clone().addScaledVector(dir, Math.max(0, blockHit.distance - 0.3));
     // Smoke trail and glowing exhaust along the path.
@@ -607,7 +655,12 @@ export class WeaponSystem {
   // ---------- Per frame ----------
 
   update(dt) {
-    this._cooldown = Math.max(0, this._cooldown - dt);
+    for (const k in this._cooldowns) this._cooldowns[k] = Math.max(0, this._cooldowns[k] - dt);
+    if (this._queued && this._cooldowns[this._queued] <= 0) {
+      const kind = this._queued;
+      this._queued = null;
+      this.press(kind);
+    }
     if (this.charging) this.chargeTime += dt;
     this.held.windUp = this.charge;
 
@@ -661,26 +714,18 @@ export class WeaponSystem {
       this._mgHeat = Math.max(0, this._mgHeat - dt * 2.5);
     }
 
-    // Pending airstrikes: after the delay, rain meteors on the target.
-    for (let i = this.airstrikes.length - 1; i >= 0; i--) {
-      const a = this.airstrikes[i];
-      a.timer -= dt;
-      if (a.timer <= 0) {
-        this._spawnMeteorRain(a.pos);
-        this.airstrikes.splice(i, 1);
-      }
-    }
-    for (let i = this.meteors.length - 1; i >= 0; i--) {
-      const m = this.meteors[i];
-      if (this._updateMeteor(m, dt)) {
-        this.scene.remove(m.mesh);
-        this.meteors.splice(i, 1);
-        this.effects.explode(m.pos.clone(), { radius: AIRSTRIKE_METEOR_RADIUS, source: "airstrike" });
-      }
+    // Laser blaster: held for repeat fire.
+    if (this._blasterFiring && activeKind !== "blaster") this._blasterFiring = false;
+    if (this._blasterFiring && this._cooldowns.blaster <= 0) {
+      this._cooldowns.blaster = MIN_INTERVAL.blaster;
+      this.fireBlaster();
     }
 
+    // Airstrikes on their way, and meteors in the air.
+    this.airstrike.update(dt, this.effects.listener);
+
     // The laser sight tracks the aim point while the designator is held.
-    this._updateLaser(activeKind === "airstrike");
+    this._updateLaser(activeKind === "airstrike" && this.enabled);
 
     // Tracer lines fade quickly.
     for (const t of this._tracers) {
@@ -689,6 +734,17 @@ export class WeaponSystem {
       t.line.material.opacity = Math.max(0, 0.9 * (1 - t.age / 0.12));
       if (t.age > 0.12) t.line.visible = false;
     }
+  }
+
+  // Removes every grenade, rocket and meteor in flight and every pending
+  // airstrike (mods switched off).
+  clearProjectiles() {
+    for (const g of this.grenades) this.scene.remove(g.mesh);
+    for (const r of this.rockets) this.scene.remove(r.mesh);
+    this.grenades.length = 0;
+    this.rockets.length = 0;
+    this.airstrike.clear();
+    this._updateLaser(false);
   }
 
   // Direction and speed of a throw of the given power (for tests).

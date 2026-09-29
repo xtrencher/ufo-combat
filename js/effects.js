@@ -6,7 +6,7 @@
 // Also owns the shared particle pools and the persistent dynamic lights.
 import * as THREE from "three";
 import { LAYER_FX } from "./layers.js";
-import { BLOCK } from "./blocks.js";
+import { BLOCK, IS_WET } from "./blocks.js";
 import { SEA_LEVEL, WORLD_HEIGHT } from "./constants.js";
 import { DebrisPool, BillboardPool } from "./particles.js";
 import { shakeFalloff } from "./falloff.js";
@@ -21,7 +21,9 @@ const MAX_FLOOD_CELLS = 12000; // bound on how much water one blast can let in
 // deep) rather than spheres, closer to how a real blast digs into the ground.
 const CRATER_VERTICAL_SCALE = 2;
 // Per-weapon explosion-size multipliers, changed live from the settings menu.
-export const explosionScale = { grenade: 1, bazooka: 1, airstrike: 1 };
+export const explosionScale = { grenade: 1, bazooka: 1, airstrike: 1, nuke: 1 };
+// Effects detail (Performance settings): scales particle counts everywhere.
+export const effectsQuality = { scale: 1 };
 
 // A lumpy crater shape: the blast radius varies smoothly with direction (a
 // few random low-frequency waves over the sphere of directions). Because the
@@ -77,6 +79,8 @@ export class CameraShake {
     camera.rotation.z += n1 * s * 0.06;
   }
 }
+
+export { makeCraterShape };
 
 export class EffectsSystem {
   constructor(scene, world, audio) {
@@ -149,11 +153,13 @@ export class EffectsSystem {
   // isn't loaded yet (a very long-range shot into distant/LOD terrain) are
   // carved approximately against the deterministic height map instead, and
   // queued as block edits that apply automatically once that chunk loads.
-  _carve(center, radius) {
+  // opts.shape: a crater shape to share between calls; opts.x0/x1: carve
+  // only that range of x (a nuke carves its crater in slices over frames).
+  _carve(center, radius, opts = {}) {
     const world = this.world;
     const lumpiness = Math.max(0.75, radius * 0.1);
     const r = Math.min(radius, MAX_BLAST_RADIUS) - lumpiness;
-    const shape = makeCraterShape(lumpiness);
+    const shape = opts.shape || makeCraterShape(lumpiness);
     const reach = Math.ceil(r + lumpiness);
     const vReach = Math.ceil(reach / CRATER_VERTICAL_SCALE);
     const bx = Math.floor(center.x);
@@ -164,7 +170,9 @@ export class EffectsSystem {
     const y0 = Math.max(0, by - vReach);
     const y1 = Math.min(WORLD_HEIGHT - 1, by + vReach);
     const maxR2 = (r + lumpiness) * (r + lumpiness);
-    for (let x = bx - reach; x <= bx + reach; x++) {
+    const xa = Math.max(bx - reach, opts.x0 ?? -Infinity);
+    const xb = Math.min(bx + reach, opts.x1 ?? Infinity);
+    for (let x = xa; x <= xb; x++) {
       for (let z = bz - reach; z <= bz + reach; z++) {
         const ox = x + 0.5 - center.x;
         const oz = z + 0.5 - center.z;
@@ -218,7 +226,7 @@ export class EffectsSystem {
       const y = removed[i + 1];
       const z = removed[i + 2];
       if (y > SEA_LEVEL) continue;
-      if (dirs.some(([dx, dy, dz]) => world.getBlock(x + dx, y + dy, z + dz) === BLOCK.WATER)) queue.push(x, y, z);
+      if (dirs.some(([dx, dy, dz]) => IS_WET[world.getBlock(x + dx, y + dy, z + dz)])) queue.push(x, y, z);
     }
     if (queue.length === 0) return;
     // Breadth-first, so the cells nearest the breach (the crater itself)
@@ -283,7 +291,7 @@ export class EffectsSystem {
     const big = Math.sqrt(size);
 
     // Debris: a sample of the destroyed blocks, tinted by block type.
-    const maxDebris = Math.round(170 * Math.min(big, 2.4));
+    const maxDebris = Math.round(170 * Math.min(big, 2.4) * effectsQuality.scale);
     const blockCount = removed.length / 4;
     const step = Math.max(1, Math.floor(blockCount / maxDebris));
     const color = this._tmpColor0;
@@ -306,7 +314,7 @@ export class EffectsSystem {
     }
 
     // Fireball core.
-    const fire = Math.round(40 * Math.min(size, 3));
+    const fire = Math.round(40 * Math.min(size, 3) * effectsQuality.scale);
     for (let i = 0; i < fire; i++) {
       const v = new THREE.Vector3(rnd(-1, 1), rnd(-0.4, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(2, 9) * big);
       this.glow.spawn({
@@ -319,7 +327,7 @@ export class EffectsSystem {
     }
 
     // Sparks flying far out of the blast.
-    const sparks = Math.round(70 * Math.min(big, 2));
+    const sparks = Math.round(70 * Math.min(big, 2) * effectsQuality.scale);
     for (let i = 0; i < sparks; i++) {
       const v = new THREE.Vector3(rnd(-1, 1), rnd(0, 1.2), rnd(-1, 1)).normalize().multiplyScalar(rnd(10, 26) * big);
       this.glow.spawn({
@@ -332,7 +340,7 @@ export class EffectsSystem {
     }
 
     // Billowing smoke column.
-    const smoke = Math.round(44 * Math.min(size, 3.5));
+    const smoke = Math.round(44 * Math.min(size, 3.5) * effectsQuality.scale);
     for (let i = 0; i < smoke; i++) {
       const v = new THREE.Vector3(rnd(-1, 1), rnd(0, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(1.5, 6) * big);
       this.smoke.spawn({
@@ -345,7 +353,7 @@ export class EffectsSystem {
     }
 
     // Dust ring racing outward along the ground.
-    const dust = Math.round(22 * Math.min(big, 2.2));
+    const dust = Math.max(8, Math.round(22 * Math.min(big, 2.2) * effectsQuality.scale));
     for (let i = 0; i < dust; i++) {
       const a = (i / dust) * Math.PI * 2 + rnd(-0.1, 0.1);
       const speed = rnd(9, 15) * big;
