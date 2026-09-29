@@ -659,6 +659,290 @@ await check("at most 4 UFOs attack the player at once; the rest circle and wait"
   });
 });
 
+// ================= Part 2: weapons and inventory =================
+
+// Gives the player the item and selects its hotbar slot (creative, sky arena).
+const equip = (name) =>
+  v(async (g, n) => {
+    const { ITEM } = await import("./js/items.js");
+    const { makeStack } = await import("./js/inventory.js");
+    g.weapons.cancel();
+    g.inventory.slots[0] = makeStack(ITEM[n], 1);
+    g.inventory.selected = 0;
+    g.held.setItem(ITEM[n]);
+  }, name);
+
+await check("no crafting: no recipe module or grid; E shows the inventory, Creative a tabbed palette with every weapon", async () => {
+  await play();
+  const r = await v(async (g) => {
+    const craftingModule = false; // (checked from the file system below)
+    const { ALL_WEAPONS, CREATIVE_LOADOUT, SURVIVAL_LOADOUT, ITEM } = await import("./js/items.js");
+    g.invScreen.open("inventory", true);
+    const el = document.getElementById("inventory-screen");
+    const out = {
+      craftingModule,
+      grid: !!el.querySelector(".craft-grid"),
+      book: !!el.querySelector(".recipe-book"),
+      tabs: [...el.querySelectorAll(".inv-tab")].map((b) => b.textContent),
+      loadouts: [ALL_WEAPONS.length, CREATIVE_LOADOUT.length, SURVIVAL_LOADOUT.length, SURVIVAL_LOADOUT[0] === ITEM.PISTOL],
+    };
+    // The weapons tab shows every weapon (11), the others hide them.
+    const shown = () => [...el.querySelectorAll(".inv-palette .slot")].filter((s) => !s.classList.contains("hidden")).length;
+    g.invScreen.setTab(0);
+    out.weaponsShown = shown();
+    g.invScreen.setTab(1);
+    out.blocksShown = shown();
+    g.invScreen.close();
+    // Every weapon is in the Creative inventory (hotbar and storage).
+    g.setMode("survival");
+    g.setMode("creative");
+    const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
+    out.missing = ALL_WEAPONS.filter((id) => !have.has(id)).length;
+    return out;
+  });
+  assert(!fs.existsSync(path.join(ROOT, "js", "crafting.js")), "crafting.js is deleted");
+  assert(!r.craftingModule && !r.grid && !r.book, `crafting is gone: ${JSON.stringify(r)}`);
+  assert(r.tabs.length >= 3, `palette tabs: ${r.tabs}`);
+  assert(r.loadouts[0] === 11 && r.loadouts[1] === 11 && r.loadouts[2] === 1 && r.loadouts[3], `loadouts ${r.loadouts}`);
+  assert(r.weaponsShown === 11 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
+  assert(r.missing === 0, `creative has every weapon (${r.missing} missing)`);
+});
+
+await check("railgun: charges about a second, then destroys blocks in a line, and hits every creature and UFO on it", async () => {
+  await play();
+  await skyArena();
+  await flatPad(20, 90);
+  await equip("RAILGUN");
+  const r = await v(async (g) => {
+    const p = g.player;
+    p.pitch = 0;
+    p.yaw = 0;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    g.world.prepareArea(eye.x, eye.z, 8);
+    const at = (d, off = 0) => [Math.round(eye.x + dir.x * d), Math.round(eye.y + dir.y * d + off), Math.round(eye.z + dir.z * d)];
+    const list = [];
+    for (const d of [8, 24, 60]) {
+      const [cx, cy, cz] = at(d);
+      for (let a = -4; a <= 4; a++) for (let b = -4; b <= 4; b++) for (let c = -4; c <= 4; c++) list.push(cx + a, cy + b, cz + c, 1);
+    }
+    g.world.setBlocks(list);
+    const cow = (d, side = 0) => g.mobs.spawn("cow", eye.x + dir.x * d - dir.z * side, eye.y - 0.9, eye.z + dir.z * d + dir.x * side);
+    const m1 = cow(16);
+    const m2 = cow(40);
+    const off = cow(30, 9);
+    const ufo = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: eye.x + dir.x * 90, y: eye.y + dir.y * 90, z: eye.z + dir.z * 90 } });
+    const hp0 = ufo.health;
+    const solid = () => [8, 24, 60].map((d) => g.world.getBlock(...at(d)));
+    const offBlock = () => g.world.getBlock(...at(8).map((x, i) => (i === 1 ? x + 3 : x)));
+    const before = { solid: solid(), off: offBlock() };
+    g.weapons.press("railgun");
+    let t = 0;
+    let firedAt = -1;
+    while (t < 2 && firedAt < 0) {
+      g.weapons.update(0.05);
+      t += 0.05;
+      if (g.weapons.rail.beams.some((b) => b.mesh.visible)) firedAt = t;
+    }
+    const midSolid = firedAt;
+    g.weapons.release();
+    return {
+      before,
+      firedAt: midSolid,
+      after: { solid: solid(), off: offBlock() },
+      dead: [m1.dead, m2.dead, off.dead],
+      ufoDamage: hp0 - ufo.health,
+      ufoDead: ufo.falling || ufo.state === "gone",
+      beams: g.weapons.rail.beams.length,
+    };
+  });
+  assert(r.firedAt > 0.9 && r.firedAt < 1.2, `about a second of charge: fired at ${r.firedAt}`);
+  assert(r.before.solid.every((b) => b === 1), `the walls were there: ${r.before.solid}`);
+  assert(r.after.solid.every((b) => b === 0), `the beam destroyed all three walls: ${r.after.solid}`);
+  assert(r.after.off === 1, `blocks off the line stay: ${r.after.off}`);
+  assert(r.dead[0] && r.dead[1] && !r.dead[2], `both creatures on the line die, the one beside it lives: ${r.dead}`);
+  assert(r.ufoDamage > 100 || r.ufoDead, `the UFO in the line was hit: ${r.ufoDamage}`);
+  assert(r.beams >= 1, "the beam is drawn");
+  await v((g) => {
+    g.ufos.clear();
+    g.mobs.clear();
+  });
+});
+
+await check("laser minigun: spins up first, then a stream of bolts", async () => {
+  await equip("MINIGUN");
+  const r = await v((g) => {
+    g.lasers.clear?.();
+    const start = g.lasers.bolts.length;
+    const shots0 = g.weapons.shots;
+    g.weapons.press("minigun");
+    let t = 0;
+    let firstBolt = -1;
+    while (t < 2.5) {
+      g.weapons.update(0.04);
+      g.lasers.update(0.04);
+      t += 0.04;
+      if (firstBolt < 0 && g.lasers.bolts.length > start) firstBolt = t;
+    }
+    const during = g.lasers.bolts.length;
+    const shots = g.weapons.shots - shots0;
+    const spin = g.weapons.minigun.spin;
+    g.weapons.release();
+    for (let i = 0; i < 60; i++) g.weapons.update(0.05);
+    return { firstBolt, during, shots, spin, spinAfter: g.weapons.minigun.spin, boltsAfterRelease: g.lasers.bolts.length };
+  });
+  assert(r.firstBolt > 0.8 && r.firstBolt < 1.3, `bolts start after the spin-up: ${r.firstBolt}`);
+  assert(r.shots >= 35 && r.during > 12, `a big stream: ${r.shots} shots, ${r.during} bolts in flight`);
+  assert(r.spin === 1 && r.spinAfter < 0.05, `spins up and down: ${r.spin} -> ${r.spinAfter}`);
+});
+
+await check("energy shield: soaks explosions and attacks, not falls; drains, breaks, recharges", async () => {
+  await equip("SHIELD");
+  await v((g) => {
+    g.setMode("survival");
+    g.player.health = 20;
+    g.player.absorption = 0;
+    g.player._invulnerable = 0;
+  });
+  const r = await v((g) => {
+    const p = g.player;
+    const hit = (amount, cause) => {
+      p.health = 20;
+      p._invulnerable = 0;
+      p._lastDamage = 0;
+      p.damage(amount, cause);
+      return 20 - p.health;
+    };
+    const out = {};
+    out.noShield = hit(10, "grenade");
+    g.weapons.press("shield");
+    g.weapons.update(0.05);
+    out.up = g.weapons.shield.up;
+    out.explosion = hit(10, "grenade");
+    out.attack = hit(10, "alien");
+    out.fall = hit(10, "fall");
+    const e0 = g.weapons.shield.energy;
+    for (let i = 0; i < 20; i++) g.weapons.update(0.1);
+    out.drained = e0 - g.weapons.shield.energy;
+    // Break it with a huge hit.
+    hit(40, "bazooka");
+    g.weapons.update(0.05);
+    out.broken = g.weapons.shield.broken > 0 && !g.weapons.shield.up;
+    out.afterBreak = hit(10, "grenade");
+    g.weapons.release();
+    for (let i = 0; i < 100; i++) g.weapons.update(0.1);
+    out.recharged = g.weapons.shield.energy;
+    p.health = 20;
+    return out;
+  });
+  assert(r.noShield === 10, `no shield: full damage ${r.noShield}`);
+  assert(r.up && r.explosion <= 3 && r.explosion >= 1, `explosion mostly soaked: ${r.explosion}`);
+  assert(r.attack <= 4 && r.attack >= 2, `attack reduced: ${r.attack}`);
+  assert(r.fall === 10, `falls pass through: ${r.fall}`);
+  assert(r.drained > 3, `energy drains while raised: ${r.drained}`);
+  assert(r.broken && r.afterBreak === 10, `a broken shield does nothing: ${r.afterBreak}`);
+  assert(r.recharged > 90, `it recharges: ${r.recharged}`);
+  await v((g) => g.setMode("creative"));
+});
+
+await check("golden apple: full health plus golden hearts that soak damage first", async () => {
+  const r = await v(async (g) => {
+    const { ITEM, itemInfo } = await import("./js/items.js");
+    if (g.player.dead) g.respawn();
+    g.setMode("survival");
+    const p = g.player;
+    p.health = 5;
+    p.absorption = 0;
+    p.heal(itemInfo(ITEM.GOLDEN_APPLE).food);
+    p.addAbsorption(itemInfo(ITEM.GOLDEN_APPLE).absorb);
+    const a = { health: p.health, gold: p.absorption };
+    p._invulnerable = 0;
+    p.damage(6, "zombie");
+    const b = { health: p.health, gold: p.absorption };
+    return { a, b, hudGold: document.querySelectorAll("#absorb canvas").length };
+  });
+  assert(r.a.health === 20 && r.a.gold === 8, `golden apple: ${JSON.stringify(r.a)}`);
+  assert(r.b.health === 20 && r.b.gold === 2, `golden hearts soaked the hit: ${JSON.stringify(r.b)}`);
+  assert(r.hudGold === 10, "the HUD has the golden heart row");
+  await v((g) => {
+    g.player.absorption = 0;
+    g.setMode("creative");
+  });
+});
+
+await check("bazooka lock-on: hold to lock a UFO near the crosshair, the rocket homes in; without a lock it flies straight", async () => {
+  await play();
+  await skyArena();
+  await flatPad(20, 90);
+  await equip("BAZOOKA");
+  const r = await v((g) => {
+    const p = g.player;
+    g.mobs.clear();
+    p.yaw = 0;
+    p.pitch = 0.25;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    // A UFO 120 blocks away, 3 degrees off the crosshair.
+    const side = { x: -dir.z, z: dir.x };
+    const off = Math.tan(0.05) * 120;
+    const pos = { x: eye.x + dir.x * 120 + side.x * off, y: eye.y + dir.y * 120, z: eye.z + dir.z * 120 + side.z * off };
+    const u = g.ufos.spawn({ design: "saucer", size: "large", pos });
+    u.vel?.set?.(0, 0, 0);
+    g.ufos.config.activity = 0;
+    const hp0 = u.health;
+    g.weapons.press("bazooka");
+    let t = 0;
+    let lockedAt = -1;
+    while (t < 3) {
+      g.ufos.update?.(0.02);
+      u.pos.set(pos.x, pos.y, pos.z);
+      g.weapons.update(0.05);
+      t += 0.05;
+      if (g.weapons.lock.locked && lockedAt < 0) lockedAt = t;
+    }
+    const target = g.weapons.lock.target?.ref === u;
+    g.weapons.release();
+    const rocket = g.weapons.rockets[g.weapons.rockets.length - 1];
+    const homing = !!rocket?.target;
+    for (let i = 0; i < 400 && g.weapons.rockets.length; i++) {
+      u.pos.set(pos.x, pos.y, pos.z);
+      g.weapons.update(0.03);
+    }
+    const dmg = hp0 - u.health;
+    // Unguided: no lock (target far off to the side).
+    g.weapons.press("bazooka");
+    g.weapons.update(0.05);
+    g.weapons.release();
+    const r2 = g.weapons.rockets[g.weapons.rockets.length - 1];
+    const tr = g.weapons.lock.target?.ref;
+    return { lockedAt, target, homing, dmg, unguided: r2 && !r2.target, dbg: { tk: tr && (tr.kind || tr.type || 'ufo'), state: u.state, falling: u.falling, r: u.radius, hp: u.health, n: g.ufos.ufos.length } };
+  });
+  assert(r.target && r.lockedAt > 0.9 && r.lockedAt < 1.8, `locked after about a second: ${JSON.stringify(r)}`);
+  assert(r.homing && r.dmg > 20, `the homing rocket hit the UFO: ${JSON.stringify(r)}`);
+  await v((g) => {
+    g.weapons.clearProjectiles();
+    g.ufos.clear();
+  });
+});
+
+await check("nuke: bigger default and size range up to 96, more slices for bigger craters, no long cooldown", async () => {
+  const r = await v(async (g) => {
+    const { NUKE_DEFAULTS, NUKE_MAX_SIZE } = await import("./js/nuke.js");
+    const s = g.settingsPanel.schema?.find?.((x) => x.key === "weapons.nukeSize");
+    g.settingsPanel.set("weapons.nukeSize", 96);
+    const rad = g.nuke.radius;
+    g.settingsPanel.set("weapons.nukeSize", 44);
+    return { def: NUKE_DEFAULTS.size, max: NUKE_MAX_SIZE, rad, schemaMax: s?.max };
+  });
+  assert(r.def === 44 && r.max === 96 && r.rad === 96, JSON.stringify(r));
+  // The jet's nuke may be dropped again straight away (no long cooldown).
+  const cd = await v(async () => {
+    const src = await (await fetch("./js/vehicle-jet.js")).text();
+    return Number(/const NUKE_COOLDOWN = ([0-9.]+)/.exec(src)[1]);
+  });
+  assert(cd <= 1, `nuke cooldown ${cd}`);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

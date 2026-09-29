@@ -92,7 +92,7 @@ export const SCHEMA = [
   { key: "weapons.airstrike.angle", group: "weapons", type: "range", label: "Fall angle (from vertical)", min: 0, max: 70, step: 1, def: 35, fmt: deg },
   { key: "weapons.airstrike.speed", group: "weapons", type: "range", label: "Fall speed (blocks/s)", min: 30, max: 250, step: 5, def: 95, fmt: int },
   { key: "explosionScale.airstrike", id: "explosion-airstrike", group: "weapons", type: "range", label: "Meteor explosion size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
-  { key: "weapons.nukeSize", group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 48, step: 1, def: 28, fmt: int, sub: "Jet nuke", note: (v) => (v > 36 ? "A crater this size takes a moment to carve and rebuild on slower PCs." : "") },
+  { key: "weapons.nukeSize", group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 96, step: 1, def: 44, fmt: int, sub: "Jet nuke", note: (v) => (v > 60 ? "A crater this size takes a moment to carve and rebuild on slower PCs." : "") },
   { key: "weapons.nukeIntensity", group: "weapons", type: "select", label: "Nuke effects intensity", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "How much smoke and fire the mushroom cloud uses." },
 
   // ----- Mobs -----

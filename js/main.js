@@ -15,7 +15,7 @@ import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
 import { Inventory, HOTBAR_SIZE, makeStack } from "./inventory.js";
-import { itemInfo, STARTING_WEAPONS } from "./items.js";
+import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT } from "./items.js";
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
 import { InventoryScreen } from "./inventory-ui.js";
@@ -27,7 +27,7 @@ import { isUnderwater, surfaceHeight } from "./water.js";
 import { rayAabb } from "./physics.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
-import { WeaponSystem } from "./weapons.js";
+import { WeaponSystem, RAIL_DAMAGE_UFO, SHIELD_MAX } from "./weapons.js";
 import { LaserBolts } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
@@ -412,6 +412,53 @@ const vehicleTarget = {
   },
 };
 weapons.targets.push(ufoTarget, vehicleTarget);
+// The railgun's beam goes through everything: every UFO and vehicle on the line.
+weapons.pierce.push({
+  all(origin, dir, range) {
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < 24; i++) {
+      const h = ufos.raycast(origin, dir, range, (u) => !seen.has(u));
+      if (!h) break;
+      seen.add(h.ufo);
+      out.push({
+        distance: h.distance,
+        hit(damage, d, point) {
+          ufos.damage(h.ufo, RAIL_DAMAGE_UFO, true, point);
+          audio.playUfoHit(point.distanceTo(effects.listener));
+          hud.hitMarker?.();
+        },
+      });
+    }
+    const vseen = new Set();
+    for (let i = 0; i < 8; i++) {
+      const h = vehicles.raycast(origin, dir, range, vehicles.active);
+      if (!h || vseen.has(h.vehicle)) break;
+      vseen.add(h.vehicle);
+      out.push({ distance: h.distance, hit: (damage) => h.vehicle.damage(damage, "player") });
+      break; // (one vehicle: the raycast has no exclusion list)
+    }
+    return out;
+  },
+});
+// What the bazooka can lock onto: UFOs, vehicles and creatures.
+weapons.getLockables = () => {
+  const list = [];
+  for (const u of ufos.ufos) {
+    if (u.state === "gone" || u.falling) continue;
+    list.push({ ref: u, radius: u.radius, center: (o) => o.copy(u.pos), alive: () => u.state !== "gone" && !u.falling });
+  }
+  for (const v of vehicles.vehicles) {
+    if (!v.alive || v === vehicles.active || !vehicles.enabled) continue;
+    list.push({ ref: v, radius: v.hitRadius ?? v.radius, center: (o) => o.copy(v.pos), alive: () => v.alive });
+  }
+  for (const m of mobs.mobs) {
+    if (m.dead) continue;
+    list.push({ ref: m, radius: Math.max(m.spec.r, m.spec.h * 0.4), center: (o) => o.set(m.pos.x, m.pos.y + m.spec.h * 0.5, m.pos.z), alive: () => !m.dead });
+  }
+  return list;
+};
+player.damageFilter = (amount, cause) => weapons.shieldFilter(amount, cause);
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
   ignores: (b) => b.owner === "ufo" && !b.friendlyFire,
@@ -655,16 +702,15 @@ function fillCreativeHotbar() {
   });
 }
 
-// A brand new game (either mode, mods on) starts with a full weapon loadout
-// in slots 1-8: pistol, grenade, bazooka, machine gun, airstrike designator,
-// sniper rifle, laser blaster, jet radio. It always wins those slots in a
-// new world; a world that started with mods off gets it (in free slots) the
-// first time it's played with mods on.
+// A brand new game (mods on) starts with its loadout: Survival only a
+// pistol (everything else is loot), Creative every weapon, filling the hotbar
+// first. It always wins those slots in a new world; a world that started with
+// mods off gets it (in free slots) the first time it's played with mods on.
 let loadoutGiven = false;
 function fillStartingWeapons(fresh) {
   if (loadoutGiven || !mods.enabled) return;
   loadoutGiven = true;
-  STARTING_WEAPONS.forEach((id, i) => {
+  (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((id, i) => {
     if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
     else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
   });
@@ -1035,6 +1081,7 @@ effects.onExplosion = (center, radius, source) => {
   offset.y = Math.max(offset.y, 0) + 0.45;
   offset.normalize().multiplyScalar(strength);
   offset.y = Math.min(offset.y, 13 * Math.min(size, 1.6));
+  offset.multiplyScalar(weapons.shieldPush());
   player.applyImpulse(offset);
   if (!player.creative) {
     lastBlastHitTime = performance.now();
@@ -1047,8 +1094,10 @@ function setMode(mode) {
   const before = player.mode;
   player.setMode(mode);
   ui.setModeShown(player.mode);
-  if (player.creative && before !== "creative" && inventory.isEmpty()) {
-    fillCreativeHotbar();
+  if (player.creative && before !== "creative") {
+    if (inventory.isEmpty()) fillCreativeHotbar();
+    // Creative has every weapon.
+    if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
     markInventoryChanged();
   }
   playerDirty = true;
@@ -1535,8 +1584,6 @@ function closeInventory() {
   requestLock();
 }
 
-interaction.onOpenTable = () => openInventory("table");
-
 ui.renderDistanceInput.addEventListener("input", () => {
   setRenderDistance(ui.renderDistanceInput.value);
 });
@@ -1931,6 +1978,7 @@ function updateBeamFeedback() {
 // The jet's lock box (on the target) and nose marker (where it points).
 const lockBoxEl = document.getElementById("lock-box");
 const jetNoseEl = document.getElementById("jet-nose");
+const _lockV = new THREE.Vector3();
 function updateJetOverlay() {
   const v = vehicles.active;
   const o = v?.type === "jet" && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
@@ -1938,11 +1986,18 @@ function updateJetOverlay() {
     el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
     el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
   };
-  lockBoxEl.classList.toggle("hidden", !o?.lock);
-  if (o?.lock) {
-    place(lockBoxEl, o.lock);
-    lockBoxEl.classList.toggle("locked", o.lock.locked);
-    const size = o.lock.locked ? 40 : 80 - o.lock.progress * 40;
+  let lock = o?.lock;
+  // The bazooka's lock-on box, on foot.
+  if (!lock && !v && gameState === "playing" && !hudHidden && weapons.lock.held && weapons.lock.target) {
+    const l = weapons.lock;
+    const p = l.target.center(_lockV).project(camera);
+    if (p.z < 1) lock = { x: p.x, y: p.y, locked: l.locked, progress: l.progress };
+  }
+  lockBoxEl.classList.toggle("hidden", !lock);
+  if (lock) {
+    place(lockBoxEl, lock);
+    lockBoxEl.classList.toggle("locked", lock.locked);
+    const size = lock.locked ? 40 : 80 - lock.progress * 40;
     lockBoxEl.style.width = lockBoxEl.style.height = `${size}px`;
     lockBoxEl.style.margin = `${-size / 2}px 0 0 ${-size / 2}px`;
   }
@@ -2086,6 +2141,7 @@ function animate() {
   }
   updateEnvironment(dt);
   hud.update(dt, player);
+  hud.setShield(weapons.shield.energy / SHIELD_MAX, itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "shield", weapons.shield.broken > 0);
   hud.setAttackCharge(gameState === "playing" ? mobs.charge(interaction.tool) : 1);
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);

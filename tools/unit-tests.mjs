@@ -681,48 +681,10 @@ await test("terrain generation is fast enough to stream (< 3 ms per chunk)", () 
 });
 
 // ---------------------------------------------------------------------------
-console.log("\nItems, crafting and inventory (items.js, crafting.js, inventory.js)");
+console.log("\nItems and inventory (items.js, inventory.js)");
 
 const { ITEM, itemInfo, breakTime, canHarvest, blockDrops, maxStack } = await import("../js/items.js");
-const { findRecipe, RECIPES } = await import("../js/crafting.js");
-const { Inventory, clickSlot, takeCraftResult, craftAllInto, quickMove, makeStack } = await import("../js/inventory.js");
-
-await test("every recipe's ingredients and results are real items", () => {
-  for (const r of RECIPES) {
-    assert.ok(itemInfo(r.result), `unknown result ${r.result}`);
-    const ids = r.type === "shaped" ? Object.values(r.key) : r.ingredients;
-    for (const id of ids) assert.ok(itemInfo(id), `unknown ingredient ${id}`);
-  }
-});
-
-await test("recipes match anywhere in the grid, mirrored, and not with extra items", () => {
-  const P = BLOCK.PLANKS;
-  const S = ITEM.STICK;
-  // Log -> 4 planks in any slot of the 2x2 grid.
-  for (let i = 0; i < 4; i++) {
-    const g = [0, 0, 0, 0];
-    g[i] = BLOCK.WOOD;
-    const r = findRecipe(g, 2);
-    assert.equal(r?.result, BLOCK.PLANKS);
-    assert.equal(r.count, 4);
-  }
-  // Sticks: two planks stacked vertically, in either column of a 3x3 grid.
-  assert.equal(findRecipe([0, 0, P, 0, 0, P, 0, 0, 0], 3)?.result, ITEM.STICK);
-  assert.equal(findRecipe([P, 0, 0, P, 0, 0, 0, 0, 0], 3)?.result, ITEM.STICK);
-  assert.equal(findRecipe([P, P, 0, 0], 2), null, "two planks side by side are not sticks");
-  // Pickaxe needs the exact T shape.
-  const C = BLOCK.COBBLESTONE;
-  assert.equal(findRecipe([C, C, C, 0, S, 0, 0, S, 0], 3)?.result, ITEM.STONE_PICKAXE);
-  assert.equal(findRecipe([C, C, C, 0, S, 0, S, 0, 0], 3), null);
-  // Axe matches mirrored.
-  assert.equal(findRecipe([C, C, 0, C, S, 0, 0, S, 0], 3)?.result, ITEM.STONE_AXE);
-  assert.equal(findRecipe([C, C, 0, S, C, 0, S, 0, 0], 3)?.result, ITEM.STONE_AXE);
-  // Shapeless smelting ignores order and position.
-  assert.equal(findRecipe([ITEM.COAL, 0, 0, BLOCK.IRON_ORE], 2)?.result, ITEM.IRON_INGOT);
-  assert.equal(findRecipe([ITEM.COAL, BLOCK.IRON_ORE, BLOCK.IRON_ORE, 0], 2), null, "extra ore should not match");
-  // The 5-ingredient glass recipe can't fit in the 2x2 grid but works in the table.
-  assert.equal(findRecipe([BLOCK.SAND, BLOCK.SAND, BLOCK.SAND, BLOCK.SAND, ITEM.COAL, 0, 0, 0, 0], 3)?.result, BLOCK.GLASS);
-});
+const { Inventory, clickSlot, quickMove, makeStack } = await import("../js/inventory.js");
 
 await test("mining: tool tiers gate drops and speed up breaking", () => {
   const woodPick = itemInfo(ITEM.WOOD_PICKAXE).tool;
@@ -789,22 +751,20 @@ await test("slot clicks: pick up, place, split, merge, swap", () => {
   assert.equal(cursor.count, 5);
 });
 
-await test("crafting output: take, shift-craft all, quick-move", () => {
+await test("quick-move: a stack moves between the hotbar and the main area", () => {
   const inv = new Inventory();
-  const grid = [makeStack(BLOCK.WOOD, 3), null, null, null];
-  let cursor = takeCraftResult(grid, 2, null);
-  assert.equal(cursor.id, BLOCK.PLANKS);
-  assert.equal(cursor.count, 4);
-  assert.equal(grid[0].count, 2);
-  cursor = takeCraftResult(grid, 2, cursor); // stacks onto the cursor
-  assert.equal(cursor.count, 8);
-  assert.equal(craftAllInto(grid, 2, inv), 1);
-  assert.equal(inv.countItem(BLOCK.PLANKS), 4);
-  assert.equal(grid[0], null);
   inv.add(BLOCK.SAND, 5);
   const sandSlot = inv.slots.findIndex((s) => s && s.id === BLOCK.SAND);
   assert.ok(quickMove(inv, sandSlot));
   assert.ok(inv.slots.findIndex((s) => s && s.id === BLOCK.SAND) >= 9, "hotbar -> main");
+});
+
+await test("no crafting: the module is gone, and the starting loadouts are pistol-only (Survival) and every weapon (Creative)", async () => {
+  await assert.rejects(() => import("../js/crafting.js"));
+  const { SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ALL_WEAPONS } = await import("../js/items.js");
+  assert.deepEqual(SURVIVAL_LOADOUT, [ITEM.PISTOL]);
+  assert.equal(CREATIVE_LOADOUT.length, ALL_WEAPONS.length);
+  for (const id of ALL_WEAPONS) assert.ok(itemInfo(id)?.weapon, `weapon ${id}`);
 });
 
 await test("inventory survives serialize/load and rejects garbage", () => {

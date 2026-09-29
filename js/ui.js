@@ -6,7 +6,7 @@ export function isMobileDevice() {
 }
 
 const MODE_HINTS = {
-  survival: "Health, fall damage and drowning. Mine with tools, collect drops, craft, eat to heal.",
+  survival: "Health, fall damage and drowning. Start with a pistol; shoot UFOs and aliens for better weapons, open supply crates, eat to heal.",
   creative: "Unlimited blocks from the E palette, instant mining, flight (double-tap Space), no damage.",
 };
 

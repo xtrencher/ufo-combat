@@ -29,7 +29,44 @@ const PISTOL_RANGE = 160;
 export const ROCKET_SPEED = 75;
 const ROCKET_GRAVITY = -2.5;
 const ROCKET_LIFE = 12;
-const MIN_INTERVAL = { grenade: 0.12, pistol: 0.07, bazooka: 0.2, airstrike: 0.8, blaster: 0.2 };
+const MIN_INTERVAL = { grenade: 0.12, pistol: 0.07, bazooka: 0.2, airstrike: 0.8, blaster: 0.2, railgun: 2.8 };
+
+// Railgun: about a second of charging (glowing coils, a rising whine), then
+// an extremely bright beam that cuts through everything in a straight line:
+// every block along it is destroyed, and every creature, UFO and vehicle in
+// the line is hit, very hard.
+export const RAIL_CHARGE = 1.0;
+export const RAIL_DAMAGE = 140;
+export const RAIL_DAMAGE_UFO = 420;
+const RAIL_RADIUS = 1.5; // blocks destroyed around the line
+const RAIL_RANGE = 900;
+
+// Laser minigun: the barrels spin up for a moment, then a huge stream of
+// laser bolts (a few dozen per second, with a little spread).
+export const MINIGUN_DAMAGE = 3;
+const MINIGUN_SPINUP = 1.0; // seconds to full spin
+const MINIGUN_RATE = 32; // bolts per second at full spin
+const MINIGUN_SPEED = 170;
+const MINIGUN_RANGE = 300;
+
+// Bazooka lock-on: hold the button with a target near the crosshair; the
+// lock builds up (an indicator closes in), and the rocket you release homes in.
+export const LOCK_TIME = 1.1;
+const LOCK_CONE = 0.11; // radians around the crosshair
+const ROCKET_TURN = 2.4; // homing turn rate (rad/s)
+
+// The energy shield: raised while the button is held; soaks explosions and
+// attacks at the cost of its energy, which recharges while it is down.
+export const SHIELD_MAX = 100;
+const SHIELD_DRAIN = 5; // energy per second while raised
+const SHIELD_RECHARGE = 14;
+const SHIELD_COST = 3.2; // energy per point of damage absorbed
+const SHIELD_BREAK_TIME = 4.5;
+// Explosions get through at a quarter, every other attack at about a third.
+const SHIELD_EXPLOSIVE = new Set(["grenade", "bazooka", "airstrike", "meteor", "nuke", "missile", "ufo_crash", "ufo_boom", "ufo_laser_blast", "jet_boom", "ufocannon", "ufo_beam", "railgun", "explosion"]);
+// Damage the shield can't stop: the environment and crashes.
+const SHIELD_PASS = new Set(["fall", "drown", "void", "starve", "cactus", "lava", "fire", "jet_crash", "jet_down", "ufo_down"]);
+
 
 // Machine gun: automatic while held, tracers, spread and recoil that climb
 // the longer the trigger is held, and settle again once it's released.
@@ -88,7 +125,7 @@ export class WeaponSystem {
     this.charging = false;
     this.chargeTime = 0;
     // One cooldown per weapon: they never block each other.
-    this._cooldowns = { grenade: 0, pistol: 0, bazooka: 0, airstrike: 0, blaster: 0 };
+    this._cooldowns = { grenade: 0, pistol: 0, bazooka: 0, airstrike: 0, blaster: 0, railgun: 0 };
     this._queued = null; // a pistol/bazooka click that came in during the cooldown
     this._blasterFiring = false;
     this.blasterColor = "red";
@@ -103,6 +140,18 @@ export class WeaponSystem {
     this._mgFiring = false;
     this._mgTimer = 0;
     this._mgHeat = 0; // 0-1: climbs while firing, drives spread and recoil
+    // Railgun.
+    this.rail = { charging: false, t: 0, beams: [] };
+    // Laser minigun.
+    this.minigun = { held: false, spin: 0, angle: 0, timer: 0, firing: false };
+    // Energy shield.
+    this.shield = { energy: SHIELD_MAX, held: false, up: false, broken: 0, hitFlash: 0, delay: 0 };
+    // Bazooka lock-on: { target, progress, locked }.
+    this.lock = { held: false, target: null, progress: 0, locked: false, scanT: 0, beepT: 0 };
+    this.getLockables = null; // () => [{ pos, vel, radius, ref, alive() }] (UFOs, creatures, vehicles)
+    // Things a piercing shot (railgun) hits along its whole length:
+    // { all(origin, dir, range) -> [{ distance, hit(damage, dir, point) }] }.
+    this.pierce = [];
     this.scoped = false;
     this.shots = 0; // pistol/machine-gun/sniper shots fired (stats / tests)
     this.material = createEntityMaterial("color");
@@ -123,6 +172,7 @@ export class WeaponSystem {
       smokeEnd: new THREE.Color(0.7, 0.68, 0.66),
       exhaust: new THREE.Color(2.2, 1.2, 0.4),
       blood: new THREE.Color(0.45, 0.04, 0.04),
+      rail: new THREE.Color(1, 2.6, 7),
       tmp: new THREE.Color(),
     };
     this._v = new THREE.Vector3();
@@ -193,6 +243,26 @@ export class WeaponSystem {
       case "jetradio":
         this.onJetRadio?.();
         return;
+      case "railgun":
+        if (cd.railgun > 0 || this.rail.charging) return;
+        this.rail.charging = true;
+        this.rail.t = 0;
+        this.audio.playRailCharge?.(RAIL_CHARGE);
+        return;
+      case "minigun":
+        this.minigun.held = true;
+        return;
+      case "shield":
+        this.shield.held = true;
+        return;
+      case "bazooka":
+        // Hold to lock on; the rocket flies when the button is released
+        // (a quick tap fires an unguided one at once).
+        this.lock.held = true;
+        this.lock.progress = 0;
+        this.lock.locked = false;
+        this.lock.target = null;
+        return;
       case "airstrike":
         if (cd.airstrike > 0) return;
         cd.airstrike = MIN_INTERVAL.airstrike;
@@ -216,6 +286,22 @@ export class WeaponSystem {
   release() {
     this._mgFiring = false;
     this._blasterFiring = false;
+    this.minigun.held = false;
+    this.shield.held = false;
+    if (this.lock.held) {
+      this.lock.held = false;
+      const cd = this._cooldowns;
+      if (cd.bazooka <= 0) {
+        cd.bazooka = MIN_INTERVAL.bazooka;
+        this.fireBazooka(this.lock.locked ? this.lock.target : null);
+      } else {
+        this._queued = "bazooka";
+      }
+      this.lock.target = null;
+      this.lock.progress = 0;
+      this.lock.locked = false;
+      return;
+    }
     if (!this.charging) return;
     const power = this.charge;
     this.charging = false;
@@ -239,6 +325,13 @@ export class WeaponSystem {
     this.chargeTime = 0;
     this._mgFiring = false;
     this._blasterFiring = false;
+    this.rail.charging = false;
+    this.minigun.held = false;
+    this.shield.held = false;
+    this.lock.held = false;
+    this.lock.target = null;
+    this.lock.progress = 0;
+    this.lock.locked = false;
     if (this.scoped) {
       this.scoped = false;
       this._applyScope();
@@ -587,7 +680,7 @@ export class WeaponSystem {
 
   // ---------- Bazooka ----------
 
-  fireBazooka() {
+  fireBazooka(lockTarget = null) {
     const p = this.player;
     const start = this._handPoint(0.9, 0.3, 0.19);
     // Fly toward whatever is under the crosshair.
@@ -605,7 +698,7 @@ export class WeaponSystem {
     exhaust.position.set(0, 0, 0.36);
     exhaust.scale.setScalar(0.7);
     mesh.add(exhaust);
-    const r = { pos: start.clone(), vel: dir.clone().multiplyScalar(ROCKET_SPEED), age: 0, mesh, exhaust, light: { sky: 15, block: 0 } };
+    const r = { pos: start.clone(), vel: dir.clone().multiplyScalar(ROCKET_SPEED * (lockTarget ? 1.25 : 1)), age: 0, mesh, exhaust, light: { sky: 15, block: 0 }, target: lockTarget };
     bindEntityLight(mesh, () => r.light);
     mesh.position.copy(start);
     mesh.lookAt(start.clone().add(dir));
@@ -632,7 +725,25 @@ export class WeaponSystem {
   // Returns the explosion point, or null (keep flying), or false (gone).
   _updateRocket(r, dt) {
     r.age += dt;
-    r.vel.y += ROCKET_GRAVITY * dt;
+    if (r.target) {
+      const t = r.target;
+      if (t.alive && !t.alive()) r.target = null;
+      else {
+        const c = t.center(this._v);
+        const to = c.sub(r.pos);
+        const dist = to.length();
+        // Proximity fuse: a homing rocket that gets close enough goes off.
+        if (dist < (t.radius || 1) * 0.6 + 1.4 && r.age > 0.25) return r.pos.clone();
+        const speed = r.vel.length();
+        const want = to.divideScalar(dist || 1);
+        const cur = r.vel.clone().divideScalar(speed || 1);
+        const ang = Math.acos(Math.max(-1, Math.min(1, cur.dot(want))));
+        const k = ang > 1e-4 ? Math.min(1, (ROCKET_TURN * dt) / ang) : 1;
+        cur.lerp(want, k).normalize();
+        r.vel.copy(cur).multiplyScalar(speed);
+      }
+    }
+    if (!r.target) r.vel.y += ROCKET_GRAVITY * dt;
     const step = r.vel.clone().multiplyScalar(dt);
     const len = step.length();
     const dir = step.clone().divideScalar(len || 1);
@@ -664,14 +775,362 @@ export class WeaponSystem {
     return null;
   }
 
+  // ---------- Railgun ----------
+
+  _updateRail(dt, activeKind) {
+    const rail = this.rail;
+    if (rail.charging && activeKind !== "railgun") rail.charging = false;
+    if (rail.charging) {
+      rail.t += dt;
+      if (rail.t >= RAIL_CHARGE) {
+        rail.charging = false;
+        rail.t = 0;
+        this._cooldowns.railgun = MIN_INTERVAL.railgun;
+        this.fireRailgun();
+      }
+    }
+    this.held.charge = rail.charging ? Math.min(1, rail.t / RAIL_CHARGE) : 0;
+    for (const b of rail.beams) {
+      if (!b.mesh.visible) continue;
+      b.age += dt;
+      const k = b.age / b.life;
+      if (k >= 1) {
+        b.mesh.visible = false;
+        continue;
+      }
+      const fade = (1 - k) * (1 - k);
+      b.core.material.opacity = fade;
+      b.halo.material.opacity = 0.7 * fade;
+      const w = 1 + k * 1.8;
+      b.core.scale.x = b.core.scale.y = b.w0 * (1 - k * 0.7);
+      b.halo.scale.x = b.halo.scale.y = b.w0 * 3.2 * w;
+    }
+  }
+
+  _beam(from, to, w0 = 0.22, life = 0.75) {
+    let b = this.rail.beams.find((x) => !x.mesh.visible);
+    if (!b) {
+      const geo = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).rotateX(Math.PI / 2);
+      const mk = (color, opacity) => {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide }));
+        m.frustumCulled = false;
+        m.layers.set(LAYER_FX);
+        return m;
+      };
+      const mesh = new THREE.Group();
+      const core = mk(new THREE.Color(9, 11, 14), 1);
+      const halo = mk(new THREE.Color(0.8, 2.2, 6), 0.7);
+      mesh.add(halo, core);
+      mesh.visible = false;
+      mesh.layers.set(LAYER_FX);
+      this.scene.add(mesh);
+      b = { mesh, core, halo, age: 0, life, w0 };
+      this.rail.beams.push(b);
+    }
+    const len = from.distanceTo(to);
+    b.mesh.position.copy(from).add(to).multiplyScalar(0.5);
+    b.mesh.lookAt(to);
+    b.mesh.scale.set(1, 1, len);
+    b.core.scale.set(w0, w0, 1);
+    b.halo.scale.set(w0 * 3.2, w0 * 3.2, 1);
+    b.w0 = w0;
+    b.age = 0;
+    b.life = life;
+    b.mesh.visible = true;
+    return b;
+  }
+
+  // The shot: destroys every block within RAIL_RADIUS of the line, hits every
+  // creature, UFO and vehicle on it.
+  fireRailgun() {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    const muzzle = this._handPoint(0.9, 0.24, 0.16);
+    const range = Math.min(RAIL_RANGE, Math.max(400, this.viewRange * 2));
+    const end = eye.clone().addScaledVector(dir, range);
+
+    // Blocks: a tube of air along the ray (loaded chunks only).
+    const world = this.world;
+    const removedSet = new Set();
+    const removed = [];
+    const edits = [];
+    const R = RAIL_RADIUS;
+    const R2 = R * R;
+    const ri = Math.ceil(R);
+    const step = 0.9;
+    for (let d = 0; d < range; d += step) {
+      const cx = eye.x + dir.x * d;
+      const cy = eye.y + dir.y * d;
+      const cz = eye.z + dir.z * d;
+      if (cy < -4 || cy > 200) break;
+      const bx = Math.floor(cx);
+      const by = Math.floor(cy);
+      const bz = Math.floor(cz);
+      if (!world.getChunk(bx >> 4, bz >> 4)) continue;
+      for (let x = bx - ri; x <= bx + ri; x++) {
+        for (let y = by - ri; y <= by + ri; y++) {
+          for (let z = bz - ri; z <= bz + ri; z++) {
+            const dx = x + 0.5 - cx;
+            const dy = y + 0.5 - cy;
+            const dz = z + 0.5 - cz;
+            if (dx * dx + dy * dy + dz * dz > R2) continue;
+            if (y < 1 || y >= 64) continue;
+            const key = (x + 1048576) * 4294967296 + (y * 2097152 + (z + 1048576));
+            if (removedSet.has(key)) continue;
+            removedSet.add(key);
+            const id = world.getBlock(x, y, z);
+            if (id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.BEDROCK) continue;
+            removed.push(x, y, z, id);
+            edits.push(x, y, z, BLOCK.AIR);
+          }
+        }
+      }
+    }
+    if (edits.length) {
+      world.setBlocks(edits);
+      this.effects.floodInto(removed);
+      // Glowing debris flung along the tube.
+      const n = removed.length / 4;
+      const every = Math.max(1, Math.floor(n / 220));
+      for (let i = 0; i < n; i += every) {
+        const rgb = this.world.blockColors[removed[i * 4 + 3]] || [0.6, 0.6, 0.6];
+        this._c.tmp.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+        const sp = 4 + Math.random() * 8;
+        this.effects.debris.spawn(removed[i * 4] + 0.5, removed[i * 4 + 1] + 0.5, removed[i * 4 + 2] + 0.5, dir.x * sp + (Math.random() - 0.5) * 6, dir.y * sp + Math.random() * 4, dir.z * sp + (Math.random() - 0.5) * 6, 0.08 + Math.random() * 0.1, this._c.tmp, 0.8 + Math.random() * 0.8);
+        if (i % (every * 4) === 0) this.effects.glow.spawn({ x: removed[i * 4] + 0.5, y: removed[i * 4 + 1] + 0.5, z: removed[i * 4 + 2] + 0.5, life: 0.5, size0: 1.2, size1: 0.2, color0: this._c.spark, alpha: 0.9 });
+      }
+    }
+
+    // Creatures on the line.
+    const seen = new Set();
+    for (let i = 0; i < 60; i++) {
+      const h = this.mobs.raycast(eye, dir, range, (m) => !seen.has(m));
+      if (!h) break;
+      seen.add(h.mob);
+      const at = eye.clone().addScaledVector(dir, h.distance);
+      this.mobs.shoot(h.mob, RAIL_DAMAGE, dir, 14);
+      this._burst(at, dir.clone().negate(), this._c.blood, 10, 4);
+    }
+    // UFOs, vehicles and other piercable things.
+    let hits = 0;
+    for (const prov of this.pierce) {
+      for (const h of prov.all(eye, dir, range)) {
+        const at = eye.clone().addScaledVector(dir, h.distance);
+        h.hit(RAIL_DAMAGE, dir, at);
+        this._hullSparks(at, dir, 16);
+        hits++;
+      }
+    }
+
+    this._beam(muzzle, end, 0.22, 0.85);
+    // A hot flash at the muzzle and along the near end of the beam.
+    this.effects.muzzleFlash(muzzle, 3.5);
+    for (let i = 0; i < 6; i++) {
+      const at = muzzle.clone().addScaledVector(dir, 2 + i * 6);
+      this.effects.glow.spawn({ x: at.x, y: at.y, z: at.z, life: 0.35, size0: 3, size1: 0.5, color0: this._c.rail, alpha: 0.8 });
+    }
+    this.held.fire(3);
+    p.kick(0.16);
+    p.applyImpulse(dir.clone().multiplyScalar(-6).setY(0));
+    this.effects.shake.add(0.45);
+    this.onRailFire?.(hits);
+    this.audio.playRailFire(0);
+    this.railShots = (this.railShots || 0) + 1;
+    return { removed: removed.length / 4, mobs: seen.size, hits };
+  }
+
+  // ---------- Laser minigun ----------
+
+  _updateMinigun(dt, activeKind) {
+    const m = this.minigun;
+    if (m.held && activeKind !== "minigun") m.held = false;
+    if (m.held) m.spin = Math.min(1, m.spin + dt / MINIGUN_SPINUP);
+    else m.spin = Math.max(0, m.spin - dt / 1.6);
+    m.angle += m.spin * dt * 34;
+    this.held.spin = m.angle;
+    m.firing = m.held && m.spin >= 0.92;
+    this.audio.setMinigun?.(m.spin, m.firing);
+    if (!m.firing) {
+      m.timer = 0;
+      return;
+    }
+    m.timer -= dt;
+    let guard = 0;
+    while (m.timer <= 0 && guard++ < 6) {
+      m.timer += 1 / MINIGUN_RATE;
+      this.fireMinigunBolt();
+    }
+  }
+
+  fireMinigunBolt() {
+    if (!this.lasers) return;
+    const p = this.player;
+    const range = this._range(MINIGUN_RANGE, 0.9);
+    const muzzle = this._handPoint(0.95, 0.26, 0.17);
+    const eye = p.getEyePosition();
+    const fwd = p.getForwardVector();
+    const aim = eye.clone().addScaledVector(fwd, 60);
+    const dir = aim.sub(muzzle).normalize();
+    const spread = 0.022;
+    dir.x += (Math.random() - 0.5) * spread;
+    dir.y += (Math.random() - 0.5) * spread;
+    dir.z += (Math.random() - 0.5) * spread;
+    dir.normalize();
+    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
+    this.shots++;
+    this.held.fire(0.45);
+    p.kick(0.012);
+    if (this.shots % 3 === 0) this.effects.muzzleFlash(muzzle, 0.9);
+    this.audio.playMinigunShot?.();
+    this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: MINIGUN_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: MINIGUN_DAMAGE, owner: "player", source: p, range, radius: 0.09, length: 3.2, sound: false });
+  }
+
+  // ---------- Energy shield ----------
+
+  get shieldUp() {
+    return this.shield.up;
+  }
+
+  _updateShield(dt, activeKind) {
+    const s = this.shield;
+    if (s.held && activeKind !== "shield") s.held = false;
+    s.hitFlash = Math.max(0, s.hitFlash - dt * 3);
+    s.broken = Math.max(0, s.broken - dt);
+    const wasUp = s.up;
+    s.up = s.held && s.broken <= 0 && s.energy > 0 && this.enabled;
+    if (s.up) {
+      s.energy = Math.max(0, s.energy - SHIELD_DRAIN * dt);
+      s.delay = 1.2;
+      if (s.energy <= 0) this._breakShield();
+    } else {
+      s.delay = Math.max(0, s.delay - dt);
+      if (s.delay <= 0 && s.broken <= 0) s.energy = Math.min(SHIELD_MAX, s.energy + SHIELD_RECHARGE * dt);
+      else if (s.broken > 0) s.energy = Math.min(SHIELD_MAX, s.energy + SHIELD_RECHARGE * 0.5 * dt);
+    }
+    if (s.up && !wasUp) this.audio.playShieldUp?.();
+    if (!s.up && wasUp && s.broken <= 0) this.audio.playShieldDown?.();
+    this.held.shieldUp = s.up;
+    this.held.shieldEnergy = s.energy / SHIELD_MAX;
+    this.held.shieldFlash = Math.max(this.held.shieldFlash || 0, s.hitFlash);
+    this.player.shielded = s.up;
+  }
+
+  _breakShield() {
+    const s = this.shield;
+    s.up = false;
+    s.energy = 0;
+    s.broken = SHIELD_BREAK_TIME;
+    this.audio.playShieldBreak?.();
+    this.held.shieldFlash = 1;
+  }
+
+  // Player damage filter: with the shield raised most of an explosion or an
+  // attack is soaked up (at the cost of energy); falls, drowning and the void
+  // pass straight through. Returns the damage that gets through.
+  shieldFilter(amount, cause) {
+    const s = this.shield;
+    if (!s.up) return amount;
+    if (SHIELD_PASS.has(cause)) return amount;
+    const through = SHIELD_EXPLOSIVE.has(cause) ? 0.25 : 0.35;
+    const absorbed = amount * (1 - through);
+    s.energy -= absorbed * SHIELD_COST;
+    s.hitFlash = 1;
+    s.delay = 2;
+    this.held.shieldFlash = 1;
+    this.audio.playShieldHit?.(Math.min(1.5, 0.4 + amount / 12));
+    if (s.energy <= 0) this._breakShield();
+    return Math.max(0, Math.round(amount * through));
+  }
+
+  // How much an explosion's shove on the player is reduced (1 = full).
+  shieldPush() {
+    return this.shield.up ? 0.3 : 1;
+  }
+
+  // ---------- Bazooka lock-on ----------
+
+  _updateLock(dt, activeKind) {
+    const l = this.lock;
+    if (l.held && activeKind !== "bazooka") {
+      l.held = false;
+      l.target = null;
+      l.progress = 0;
+      l.locked = false;
+    }
+    if (!l.held || !this.getLockables) return;
+    l.scanT -= dt;
+    if (l.scanT <= 0) {
+      l.scanT = 0.06;
+      const eye = this.player.getEyePosition();
+      const fwd = this.player.getForwardVector();
+      const range = Math.min(1600, Math.max(250, this.viewRange * 1.3));
+      const c = this._v;
+      let best = null;
+      let bestScore = Infinity;
+      for (const t of this.getLockables()) {
+        const pt = t.center(c);
+        const dx = pt.x - eye.x;
+        const dy = pt.y - eye.y;
+        const dz = pt.z - eye.z;
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist < 6 || dist > range) continue;
+        const dot = (dx * fwd.x + dy * fwd.y + dz * fwd.z) / dist;
+        if (dot < 0.9) continue;
+        const ang = Math.acos(Math.min(1, dot)) - Math.atan((t.radius || 1) / dist);
+        const score = Math.max(0, ang) + (t === l.target ? -0.02 : 0);
+        if (ang > LOCK_CONE) continue;
+        if (score < bestScore) {
+          // The target must be in the open, not behind a hill.
+          const d = c.clone().sub(eye).normalize();
+          const wall = this.world.raycast(eye, d, dist - (t.radius || 1), { solidOnly: true });
+          if (wall) continue;
+          best = t;
+          bestScore = score;
+        }
+      }
+      // Keep the same target object if it is the same referent.
+      if (best && l.target && best.ref === l.target.ref) best = l.target;
+      if (best !== l.target) {
+        l.target = best;
+        l.progress = best ? l.progress * 0.15 : 0;
+        l.locked = false;
+      }
+    }
+    if (l.target) {
+      if (l.target.alive && !l.target.alive()) {
+        l.target = null;
+        l.progress = 0;
+        l.locked = false;
+      } else {
+        l.progress = Math.min(1, l.progress + dt / LOCK_TIME);
+        l.beepT -= dt;
+        if (!l.locked && l.progress >= 1) {
+          l.locked = true;
+          this.audio.playLockOn?.();
+        } else if (!l.locked && l.beepT <= 0) {
+          l.beepT = 0.28 - l.progress * 0.16;
+          this.audio.playLockTick?.();
+        }
+      }
+    } else {
+      l.progress = Math.max(0, l.progress - dt * 2);
+      l.locked = false;
+    }
+  }
+
   // ---------- Per frame ----------
 
   update(dt) {
     for (const k in this._cooldowns) this._cooldowns[k] = Math.max(0, this._cooldowns[k] - dt);
+    this._cooldowns.railgun ??= 0;
     if (this._queued && this._cooldowns[this._queued] <= 0) {
       const kind = this._queued;
       this._queued = null;
-      this.press(kind);
+      if (kind === "bazooka") {
+        this._cooldowns.bazooka = MIN_INTERVAL.bazooka;
+        this.fireBazooka(null);
+      } else this.press(kind);
     }
     if (this.charging) this.chargeTime += dt;
     this.held.windUp = this.charge;
@@ -733,6 +1192,11 @@ export class WeaponSystem {
       this.fireBlaster();
     }
 
+    this._updateRail(dt, activeKind);
+    this._updateMinigun(dt, activeKind);
+    this._updateShield(dt, activeKind);
+    this._updateLock(dt, activeKind);
+
     // Airstrikes on their way, and meteors in the air.
     this.airstrike.update(dt, this.effects.listener);
 
@@ -757,6 +1221,8 @@ export class WeaponSystem {
     this.rockets.length = 0;
     this.airstrike.clear();
     this._updateLaser(false);
+    for (const b of this.rail.beams) b.mesh.visible = false;
+    this.rail.charging = false;
   }
 
   // Direction and speed of a throw of the given power (for tests).

@@ -1137,24 +1137,24 @@ UFO FINAL COMPLETE
 Source of truth for this round. Tick items as they are finished; decisions go in the "Round 2 decisions" list at the end.
 
 ## Part 1: Critical bug fixes
-- [ ] 1.1 Settings persistence (root cause + fix for every setting + reload test)
-- [ ] 1.2 Jet respawn bug (new jet after exiting)
-- [ ] 1.3 LOD matches full-detail terrain (same terrain function), altitude-aware view distance in jet/UFO
-- [ ] 1.4 UFO spawn distance scales with view distance, never visible pop-in
-- [ ] 1.5 Projectile ranges consistent with visible distances (player -> UFO, UFO -> player)
-- [ ] 1.6 Crashed UFOs in water sink below the surface
-- [ ] 1.7 Aliens face the player when shooting; chase immediately after leaving UFO
-- [ ] 1.8 Skeletons face the player when shooting; better look, no glow
-- [ ] 1.9 Chicken neck; butterfly model fixed
-- [ ] 1.10 At most 4 UFOs attack the player at once
+- [x] 1.1 Settings persistence (root cause + fix for every setting + reload test)
+- [x] 1.2 Jet respawn bug (new jet after exiting)
+- [x] 1.3 LOD matches full-detail terrain (same terrain function), altitude-aware view distance in jet/UFO
+- [x] 1.4 UFO spawn distance scales with view distance, never visible pop-in
+- [x] 1.5 Projectile ranges consistent with visible distances (player -> UFO, UFO -> player)
+- [x] 1.6 Crashed UFOs in water sink below the surface
+- [x] 1.7 Aliens face the player when shooting; chase immediately after leaving UFO
+- [x] 1.8 Skeletons face the player when shooting; better look, no glow
+- [x] 1.9 Chicken neck; butterfly model fixed
+- [x] 1.10 At most 4 UFOs attack the player at once
 
 ## Part 2: Weapons and inventory
-- [ ] 2.1 Remove crafting; E opens inventory with all weapons/items; Creative has all weapons
-- [ ] 2.2 Railgun (1 s charge, beam cuts through blocks, mobs, UFOs)
-- [ ] 2.3 Laser minigun (spin-up, huge stream of bolts)
-- [ ] 2.4 Bazooka lock-on (hold to lock, homing rocket)
-- [ ] 2.5 Nuke bigger, wider size range, no cooldown
-- [ ] 2.6 Shield item (reduces explosion/attack damage, visual)
+- [x] 2.1 Remove crafting; E opens inventory with all weapons/items; Creative has all weapons
+- [x] 2.2 Railgun (1 s charge, beam cuts through blocks, mobs, UFOs)
+- [x] 2.3 Laser minigun (spin-up, huge stream of bolts)
+- [x] 2.4 Bazooka lock-on (hold to lock, homing rocket)
+- [x] 2.5 Nuke bigger, wider size range, no cooldown
+- [x] 2.6 Shield item (reduces explosion/attack damage, visual)
 
 ## Part 3: Vehicles
 - [ ] 3.1a Jet max speed higher in settings
@@ -1204,3 +1204,6 @@ Source of truth for this round. Tick items as they are finished; decisions go in
 
 ## Round 2 decisions and notes
 (appended as work proceeds)
+- Part 1: settings root causes were (a) a session-only graphics step-down being written back to the saved settings on pagehide/GPU loss, (b) settings applied only when a panel was opened; fixed and covered by a reload test. Terrain: one shared `surfaceBlocks`/soft-cap function feeds chunks and LOD, so mountains match; view distance grows with altitude (session only, never saved).
+- Part 2: Survival is combat-focused now that crafting is gone; every block can still be dug (tools only speed it up) and ores give ingots directly. Tools/blocks come from loot (Part 6). The shield lets 25% of an explosion and 35% of other attacks through; falls, drowning and the void are not stopped. The bazooka fires on release (a quick tap = an unguided rocket at once). Nuke: default 44, range 12-96, no cooldown beyond a half-second debounce; big craters are carved in more slices per frame.
+

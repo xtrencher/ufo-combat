@@ -59,6 +59,8 @@ export class Player {
     this.mode = "survival"; // "survival" | "creative"
 
     this.health = MAX_HEALTH;
+    this.absorption = 0; // golden half-hearts (golden apples): soaked up before health
+    this.damageFilter = null; // (amount, cause) -> amount: the energy shield
     this.air = MAX_AIR;
     this.dead = false;
     this.hurtTime = 99; // seconds since the last damage (drives hurt effects)
@@ -191,6 +193,7 @@ export class Player {
   // Full health and breath, alive again (used on respawn).
   revive() {
     this.health = MAX_HEALTH;
+    this.absorption = 0;
     this.air = MAX_AIR;
     this.dead = false;
     this.hurtTime = 99;
@@ -230,6 +233,10 @@ export class Player {
       amount = Math.max(1, Math.round(amount * this.mobDamageScale));
     }
     if (this.dead || this.creative || amount <= 0) return false;
+    if (this.damageFilter && !pierce) {
+      amount = this.damageFilter(amount, cause);
+      if (amount <= 0) return false;
+    }
     // Right after a hit only a stronger hit counts (and only its excess).
     let applied = amount;
     if (this._invulnerable > 0) {
@@ -239,6 +246,11 @@ export class Player {
       this._invulnerable = INVULNERABLE_TIME;
     }
     this._lastDamage = amount;
+    if (this.absorption > 0) {
+      const soak = Math.min(this.absorption, applied);
+      this.absorption -= soak;
+      applied -= soak;
+    }
     this.health = Math.max(0, this.health - applied);
     this._sinceDamage = 0;
     this.hurtTime = 0;
@@ -251,6 +263,13 @@ export class Player {
       if (this.onDeath) this.onDeath(cause);
     }
     return true;
+  }
+
+  // Golden hearts on top of the health bar (capped).
+  addAbsorption(amount, max = 20) {
+    const before = this.absorption;
+    this.absorption = Math.min(max, this.absorption + amount);
+    return this.absorption - before;
   }
 
   heal(amount) {

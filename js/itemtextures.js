@@ -25,6 +25,8 @@ const RAMPS = {
   olive: [0x2a3316, 0x3d4a20, 0x55662e, 0x71843f, 0x93a65a].map(hex),
   gunmetal: [0x1b1d21, 0x2b2e34, 0x40444c, 0x5b6069, 0x7d838c].map(hex),
   grip: [0x24160e, 0x3a2416, 0x543420, 0x6f4730, 0x8a5c3f].map(hex),
+  plasma: [0x0b2a5e, 0x1858b8, 0x2f8cf0, 0x7cc4ff, 0xe6f6ff].map(hex),
+  amber: [0x5a2a05, 0xa04a0a, 0xe07a14, 0xffb04a, 0xfff0c0].map(hex),
 };
 
 class Canvas {
@@ -281,7 +283,58 @@ function paintJetRadio() {
   return c.render([RAMPS.olive, RAMPS.leaf, RAMPS.iron]);
 }
 
+function paintRailgun() {
+  const c = new Canvas();
+  const BODY = 0;
+  const RAIL = 1;
+  const COIL = 2;
+  const GRIP = 3;
+  c.poly(BODY, [[4, 12], [16, 11], [17, 17], [4, 18]], (x, y) => (y < 14 ? 0.5 : -0.05)); // receiver
+  c.poly(RAIL, [[16, 11.5], [30, 12], [30, 13.2], [16, 13]], () => 0.55); // upper rail
+  c.poly(RAIL, [[17, 15.2], [30, 15], [30, 16.3], [17, 17]], () => 0.1); // lower rail
+  for (const x of [19, 22, 25, 28]) c.line(COIL, x, 10.5, x, 18, 1.1, () => 0.9); // glowing coil rings
+  c.poly(GRIP, [[7, 18], [12, 17.5], [11, 27], [6.5, 27.5]], (x) => (x < 9 ? 0.3 : -0.1)); // grip
+  c.poly(BODY, [[1, 13], [5, 12.5], [5, 18], [1, 19]], () => -0.1); // stock
+  c.disc(COIL, 30.5, 14, 1.2, 1.4, () => 1.2); // muzzle glow
+  return c.render([RAMPS.gunmetal, RAMPS.iron, RAMPS.plasma, RAMPS.grip]);
+}
+
+function paintMinigun() {
+  const c = new Canvas();
+  const BODY = 0;
+  const BARREL = 1;
+  const GLOW = 2;
+  const GRIP = 3;
+  for (const y of [8.5, 11.2, 13.9, 16.6]) c.line(BARREL, 15, y, 30, y, 1.9, () => (y < 12 ? 0.4 : -0.05)); // the barrel cluster
+  c.disc(BODY, 13, 12.8, 5.2, 6.2, (x, y) => (y < 11 ? 0.55 : 0.0)); // drum housing
+  c.line(BARREL, 22, 7, 22, 19, 1.1, () => 0.3); // a clamp ring
+  c.line(BARREL, 27, 7, 27, 19, 1.1, () => 0.3);
+  c.poly(BODY, [[3, 17], [10, 18], [10, 25], [3, 25]], () => -0.1); // ammo box
+  c.poly(GRIP, [[10, 19], [15, 19.5], [14, 28], [9.5, 27.5]], (x) => (x < 12 ? 0.3 : -0.1)); // grip
+  c.line(BARREL, 8, 8, 16, 8, 1.4, () => 0.5); // carry handle
+  c.disc(GLOW, 30.4, 12.6, 1.2, 4.6, () => 1.0); // muzzle glow
+  c.disc(GLOW, 13, 12.8, 1.8, 1.8, () => 1.0); // the motor light
+  return c.render([RAMPS.gunmetal, RAMPS.iron, RAMPS.plasma, RAMPS.grip]);
+}
+
+function paintShield() {
+  const c = new Canvas();
+  const RIM = 0;
+  const FACE = 1;
+  const HEX = 2;
+  c.disc(RIM, 16, 16, 12.5, 13.5, (x, y) => (x + y < 30 ? 0.5 : -0.1)); // outer rim
+  c.disc(FACE, 16, 16, 10, 11, (x, y) => (x + y < 31 ? 0.45 : -0.05)); // the energy face
+  const hexPts = [];
+  for (let i = 0; i < 6; i++) hexPts.push([16 + Math.cos((i / 6) * Math.PI * 2) * 5.6, 16 + Math.sin((i / 6) * Math.PI * 2) * 5.6]);
+  c.poly(HEX, hexPts, () => 0.9); // a glowing hexagon
+  c.disc(FACE, 16, 16, 3, 3, () => 0.2);
+  return c.render([RAMPS.iron, RAMPS.plasma, RAMPS.diamond]);
+}
+
 const PAINTERS = {
+  railgun: paintRailgun,
+  minigun: paintMinigun,
+  shield: paintShield,
   blaster: paintBlaster,
   jet_radio: paintJetRadio,
   grenade: paintGrenade,

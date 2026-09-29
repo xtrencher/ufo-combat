@@ -39,6 +39,9 @@ export const ITEM = Object.freeze({
   AIRSTRIKE: 291,
   LASER_BLASTER: 292,
   JET_RADIO: 293,
+  RAILGUN: 294,
+  MINIGUN: 295,
+  SHIELD: 296,
 });
 
 // Tool materials: tier (what they can harvest), mining speed multiplier,
@@ -59,7 +62,8 @@ const ITEM_DEFS = {
   [ITEM.GOLD_INGOT]: { name: "Gold Ingot", icon: "gold_ingot" },
   [ITEM.DIAMOND]: { name: "Diamond", icon: "diamond" },
   [ITEM.APPLE]: { name: "Apple", icon: "apple", food: 4 },
-  [ITEM.GOLDEN_APPLE]: { name: "Golden Apple", icon: "golden_apple", food: 20 },
+  // Heals fully and adds four golden (absorption) hearts on top.
+  [ITEM.GOLDEN_APPLE]: { name: "Golden Apple", icon: "golden_apple", food: 20, absorb: 8 },
   [ITEM.RAW_MEAT]: { name: "Raw Meat", icon: "raw_meat", food: 2 },
   [ITEM.COOKED_MEAT]: { name: "Cooked Meat", icon: "cooked_meat", food: 8 },
   [ITEM.FLUFF]: { name: "Fluff", icon: "fluff" },
@@ -72,6 +76,9 @@ const ITEM_DEFS = {
   [ITEM.AIRSTRIKE]: { name: "Airstrike Designator", icon: "airstrike", stack: 1, weapon: { kind: "airstrike" } },
   [ITEM.LASER_BLASTER]: { name: "Laser Blaster", icon: "blaster", stack: 1, weapon: { kind: "blaster" } },
   [ITEM.JET_RADIO]: { name: "Jet Radio", icon: "jet_radio", stack: 1, weapon: { kind: "jetradio" } },
+  [ITEM.RAILGUN]: { name: "Railgun", icon: "railgun", stack: 1, weapon: { kind: "railgun" } },
+  [ITEM.MINIGUN]: { name: "Laser Minigun", icon: "minigun", stack: 1, weapon: { kind: "minigun" } },
+  [ITEM.SHIELD]: { name: "Energy Shield", icon: "shield", stack: 1, weapon: { kind: "shield" } },
 };
 
 const TOOL_KINDS = [
@@ -155,6 +162,11 @@ export function blockDrops(blockId, tool, rand = Math.random) {
       return [[ITEM.COAL, 1]];
     case BLOCK.DIAMOND_ORE:
       return [[ITEM.DIAMOND, 1]];
+    // There is no smelting any more: ores give their ingots directly.
+    case BLOCK.IRON_ORE:
+      return [[ITEM.IRON_INGOT, 1]];
+    case BLOCK.GOLD_ORE:
+      return [[ITEM.GOLD_INGOT, 1]];
     case BLOCK.GLASS:
     case BLOCK.TALL_GRASS:
       return [];
@@ -179,7 +191,7 @@ export function meleeDamage(tool) {
 // Everything offered in the creative inventory, in display order.
 export const CREATIVE_ITEMS = [
   BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.COBBLESTONE, BLOCK.SAND, BLOCK.GRAVEL, BLOCK.WOOD, BLOCK.PLANKS,
-  BLOCK.LEAVES, BLOCK.OAK_BARK, BLOCK.BIRCH_LOG, BLOCK.BIRCH_LEAVES, BLOCK.PINE_LOG, BLOCK.PINE_LEAVES, BLOCK.GLASS, BLOCK.BRICKS, BLOCK.WOOL, BLOCK.CRAFTING_TABLE, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.BEDROCK,
+  BLOCK.LEAVES, BLOCK.OAK_BARK, BLOCK.BIRCH_LOG, BLOCK.BIRCH_LEAVES, BLOCK.PINE_LOG, BLOCK.PINE_LEAVES, BLOCK.GLASS, BLOCK.BRICKS, BLOCK.WOOL, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.BEDROCK,
   BLOCK.COAL_ORE, BLOCK.IRON_ORE, BLOCK.GOLD_ORE, BLOCK.DIAMOND_ORE, BLOCK.TALL_GRASS, BLOCK.FLOWER_RED, BLOCK.FLOWER_YELLOW,
   BLOCK.SNOW, BLOCK.TERRACOTTA, BLOCK.CACTUS, BLOCK.DEAD_BUSH, BLOCK.CORAL, BLOCK.SEAGRASS, BLOCK.KELP,
   ITEM.STICK, ITEM.COAL, ITEM.IRON_INGOT, ITEM.GOLD_INGOT, ITEM.DIAMOND, ITEM.FLUFF,
@@ -188,16 +200,23 @@ export const CREATIVE_ITEMS = [
   ITEM.WOOD_PICKAXE, ITEM.STONE_PICKAXE, ITEM.IRON_PICKAXE, ITEM.DIAMOND_PICKAXE,
   ITEM.WOOD_AXE, ITEM.STONE_AXE, ITEM.IRON_AXE, ITEM.DIAMOND_AXE,
   ITEM.WOOD_SHOVEL, ITEM.STONE_SHOVEL, ITEM.IRON_SHOVEL, ITEM.DIAMOND_SHOVEL,
-  ITEM.GRENADE, ITEM.PISTOL, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.AIRSTRIKE, ITEM.LASER_BLASTER, ITEM.JET_RADIO,
+  ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.SHIELD, ITEM.AIRSTRIKE, ITEM.JET_RADIO,
 ];
 
-// Slots 0-7 of a brand new game's hotbar (both modes): a full loadout so a
-// new player has every weapon to try immediately (with mods on).
-export const STARTING_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.AIRSTRIKE, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.JET_RADIO];
+// Every weapon and gadget, weakest first (the order of the creative palette
+// and of the Creative loadout).
+export const ALL_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.SHIELD, ITEM.AIRSTRIKE, ITEM.JET_RADIO];
+
+// A brand new Survival game starts with only a pistol; better weapons are
+// loot (see progression.js). A new Creative game has every weapon: they fill
+// the hotbar first, the rest waits in the inventory.
+export const SURVIVAL_LOADOUT = [ITEM.PISTOL];
+export const CREATIVE_LOADOUT = ALL_WEAPONS;
+export const STARTING_WEAPONS = SURVIVAL_LOADOUT; // (older name)
 
 // Items that exist only with mods on (guns, explosives, vehicles): put away
 // while mods are off. Swords and tools are vanilla.
-export const MOD_ITEMS = new Set([ITEM.GRENADE, ITEM.PISTOL, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.AIRSTRIKE, ITEM.LASER_BLASTER, ITEM.JET_RADIO]);
+export const MOD_ITEMS = new Set(ALL_WEAPONS);
 
 // Whether mods are on (set by mods.js): gates mod items in crafting and the
 // creative palette.

@@ -80,7 +80,6 @@ export class Interaction {
     this._color = new THREE.Color();
 
     // Hooks set by the game.
-    this.onOpenTable = null; // () => void
     this.onChange = null; // () => void: inventory contents changed
     // The mob system (raycast, attack, charge, swing, overlapsBlock), if any.
     this.combat = null;
@@ -353,14 +352,8 @@ export class Interaction {
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
     const t = this.target;
-    // Crafting tables open (sneak to place against them instead).
-    if (t && t.id === BLOCK.CRAFTING_TABLE && !this.player.sneaking) {
-      this.release();
-      if (this.onOpenTable) this.onOpenTable();
-      return;
-    }
     if (info?.food) {
-      if (!this.player.creative && this.player.health < MAX_HEALTH) this.eating = 0.0001;
+      if (!this.player.creative && (this.player.health < MAX_HEALTH || (info.absorb && this.player.absorption < 20))) this.eating = 0.0001;
       return;
     }
     if (info?.block) this._place(stack.id);
@@ -408,6 +401,7 @@ export class Interaction {
       }
       if (this.eating >= EAT_TIME) {
         this.player.heal(info.food);
+        if (info.absorb) this.player.addAbsorption(info.absorb);
         this.inventory.consumeSelected(1);
         this.eating = 0;
         this._changed();

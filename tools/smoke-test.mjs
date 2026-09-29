@@ -236,9 +236,9 @@ try {
         spawnGround: v.world.heightAt(v.spawn.x, v.spawn.z),
       };
     });
-    // 1 pistol, 2 grenade, 3 bazooka, 4 machine gun, 5 airstrike designator, 6 sniper rifle, 7 laser blaster, 8 jet radio.
-    assert(JSON.stringify(s.hotbar.slice(0, 8)) === JSON.stringify([287, 286, 288, 289, 291, 290, 292, 293]), `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
-    assert(s.rest && s.hotbar.slice(8).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
+    // A new Survival game starts with only a pistol (everything else is loot).
+    assert(s.hotbar[0] === 287, `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
+    assert(s.rest && s.hotbar.slice(1).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
     assert(s.mode === "survival" && s.health === 20, `unexpected start state ${JSON.stringify(s)}`);
     assert(s.hearts === 10 && s.heartsVisible, `expected 10 visible hearts: ${JSON.stringify(s)}`);
     assert(s.spawnTop === s.spawnGround, `the player should start on the ground, not on a tree: ${JSON.stringify(s)}`);
@@ -1798,7 +1798,7 @@ try {
     assert(pick.id === 274 && pick.dur === 59, `pickaxe should lose 1 durability: ${JSON.stringify(pick)}`);
   });
 
-  await check("inventory screen: E opens it, a log crafts into planks by hand, E closes it", async () => {
+  await check("inventory screen: E opens it (no crafting), items move with the mouse, E closes it", async () => {
     await page.evaluate(() => {
       const v = window.__voxelands;
       v.inventory.clear();
@@ -1809,50 +1809,16 @@ try {
     await page.waitForFunction(() => window.__voxelands.gameState === "inventory", null, { timeout: 10000 });
     const visible = await page.$eval("#inventory-screen", (el) => !el.classList.contains("hidden"));
     assert(visible, "inventory screen should be visible");
-    // Pick up the logs, put one into the 2x2 grid, the rest back.
+    assert((await page.$$(".craft-grid, .recipe-book, .result-slot")).length === 0, "there is no crafting UI");
+    // Pick up the logs, put one into another slot, the rest back.
     await page.click(".inv-hotbar .slot:nth-child(1)", { timeout: 20000 });
-    await page.click(".craft-grid .slot:nth-child(1)", { button: "right", timeout: 20000 });
+    await page.click(".inv-hotbar .slot:nth-child(2)", { button: "right", timeout: 20000 });
     await page.click(".inv-hotbar .slot:nth-child(1)", { timeout: 20000 });
-    const result = await page.evaluate(() => window.__voxelands.invScreen.resultView.stack);
-    assert(result && result.id === 8 && result.count === 4, `a log should craft into 4 planks: ${JSON.stringify(result)}`);
-    await page.click(".result-slot", { timeout: 20000 });
-    await page.click(".inv-hotbar .slot:nth-child(2)", { timeout: 20000 });
     await page.screenshot({ path: path.join(__dirname, "screenshot-inventory.png") }).catch(() => {});
     await page.keyboard.press("KeyE");
     await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 10000 });
     const inv = await invState();
-    console.log(`        after crafting: ${JSON.stringify(inv.slots.filter(Boolean))}`);
-    assert(JSON.stringify(inv.slots[0]) === "[6,1]" && JSON.stringify(inv.slots[1]) === "[8,4]", `expected 1 log + 4 planks, got ${JSON.stringify(inv.slots.slice(0, 3))}`);
-  });
-
-  await check("crafting table: the recipe book fills the 3x3 grid and crafts a pickaxe", async () => {
-    const site = await setupArena(page);
-    const table = [site.x, site.y + 1, site.z - 2];
-    await page.evaluate(([x, y, z]) => {
-      const v = window.__voxelands;
-      v.inventory.clear();
-      v.inventory.slots[0] = { id: 8, count: 3 }; // planks
-      v.inventory.slots[1] = { id: 256, count: 2 }; // sticks
-      v.world.setBlock(x, y, z, 19);
-    }, table);
-    await aimAt(page, table);
-    await page.mouse.down({ button: "right" });
-    await page.waitForTimeout(50);
-    await page.mouse.up({ button: "right" });
-    await page.waitForFunction(() => window.__voxelands.gameState === "inventory", null, { timeout: 10000 });
-    const kind = await page.evaluate(() => ({ kind: window.__voxelands.invScreen.kind, cells: window.__voxelands.invScreen.grid.length }));
-    assert(kind.kind === "table" && kind.cells === 9, `right-clicking a crafting table should open a 3x3 grid: ${JSON.stringify(kind)}`);
-    const craftable = await page.$$eval(".recipe.craftable", (els) => els.map((e) => e.title.split(":")[0]));
-    console.log(`        craftable with 3 planks + 2 sticks: ${craftable.join(", ")}`);
-    assert(craftable.includes("Wooden Pickaxe") && !craftable.includes("Crafting Table"), "the recipe book should mark what can be crafted");
-    await page.click('.recipe.craftable[title^="Wooden Pickaxe"]', { timeout: 20000 });
-    const result = await page.evaluate(() => window.__voxelands.invScreen.resultView.stack);
-    assert(result && result.id === 274, `recipe book should set up a wooden pickaxe: ${JSON.stringify(result)}`);
-    await page.click(".result-slot", { modifiers: ["Shift"], timeout: 20000 });
-    await page.keyboard.press("KeyE");
-    await page.waitForFunction(() => window.__voxelands.gameState === "playing", null, { timeout: 10000 });
-    const count = await page.evaluate(() => ({ pick: window.__voxelands.inventory.countItem(274), planks: window.__voxelands.inventory.countItem(8), sticks: window.__voxelands.inventory.countItem(256) }));
-    assert(count.pick === 1 && count.planks === 0 && count.sticks === 0, `expected a pickaxe and no leftovers: ${JSON.stringify(count)}`);
+    assert(JSON.stringify(inv.slots[0]) === "[6,1]" && JSON.stringify(inv.slots[1]) === "[6,1]", `expected a log in each of two slots, got ${JSON.stringify(inv.slots.slice(0, 3))}`);
   });
 
   await check("survival: eating an apple heals", async () => {

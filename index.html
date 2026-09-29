@@ -256,7 +256,12 @@
     pointer-events: none;
     z-index: 10;
   }
-  #hearts, #bubbles { display: flex; gap: 1px; }
+  #hearts, #bubbles, #absorb { display: flex; gap: 1px; }
+  #absorb { position: absolute; left: 0; bottom: 21px; }
+  #absorb canvas { image-rendering: pixelated; filter: drop-shadow(0 0 3px rgba(255,200,50,0.7)); }
+  #shield-bar { position: absolute; right: 0; bottom: 22px; width: 140px; height: 6px; background: rgba(0,0,0,0.5); border: 1px solid rgba(120,200,255,0.5); border-radius: 2px; overflow: hidden; }
+  #shield-bar > div { height: 100%; width: 100%; background: linear-gradient(90deg, #35a7ff, #a5e9ff); transition: background 0.2s; }
+  #shield-bar.broken > div { background: #ff5a4a; }
   #bubbles { flex-direction: row-reverse; }
   #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
   #item-name {
@@ -348,7 +353,7 @@
   }
   .slot-dur div { height: 100%; }
 
-  /* --- Inventory / crafting screen --- */
+  /* --- Inventory screen --- */
   #inventory-screen {
     position: fixed;
     inset: 0;
@@ -380,9 +385,9 @@
     margin-bottom: 10px;
     padding-right: 2px;
   }
-  .inv-craft { display: flex; align-items: center; gap: 14px; margin: 4px 0 12px 64px; }
-  .craft-grid { display: grid; gap: 2px; }
-  .craft-arrow { font-size: 26px; color: #6d6d6d; }
+  .inv-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+  .inv-tab { font: inherit; font-size: 13px; padding: 3px 12px; background: #9a9a9a; color: #2b2b2b; border: 2px solid; border-color: #fdfdfd #555 #555 #fdfdfd; cursor: pointer; }
+  .inv-tab.active { background: #e2e2e2; font-weight: 700; }
   .slot {
     width: 38px;
     height: 38px;
@@ -398,8 +403,6 @@
   }
   .slot:hover { background: #a9a9a9; }
   .slot canvas { width: 32px; height: 32px; image-rendering: pixelated; pointer-events: none; }
-  .slot.result-slot { width: 50px; height: 50px; }
-  .slot.result-slot.ready { background: #9bb48e; }
   .slot.cursor-slot {
     position: fixed;
     left: 0;
@@ -409,17 +412,6 @@
     pointer-events: none;
     z-index: 95;
   }
-  .recipe-book { width: 162px; }
-  .recipe-list {
-    display: grid;
-    grid-template-columns: repeat(4, 38px);
-    gap: 2px;
-    max-height: 292px;
-    overflow-y: auto;
-    padding-right: 2px;
-  }
-  .slot.recipe { opacity: 0.4; }
-  .slot.recipe.craftable { opacity: 1; background: #86a877; }
   .inv-tooltip {
     position: fixed;
     left: 0;
@@ -797,7 +789,7 @@
     <div id="fps-counter">FPS: --</div>
     <div id="mode-badge" class="hidden"></div>
     <div id="item-name"></div>
-    <div id="status-bars"><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="status-bars"><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div><div id="shield-bar" class="hidden"><div></div></div></div>
     <div id="hotbar"></div>
     <div id="vehicle-hud" class="hidden"></div>
     <div id="vehicle-prompt" class="hidden"></div>

@@ -33,7 +33,7 @@ const CANNON_DAMAGE = 5;
 const MISSILE_COOLDOWN = 0.9;
 const LOCK_TIME = 1.1; // seconds on target to lock
 const LOCK_CONE = 0.24; // radians off the nose
-const NUKE_COOLDOWN = 25;
+const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
 
 const X = new THREE.Vector3(1, 0, 0);
 const Y = new THREE.Vector3(0, 1, 0);
