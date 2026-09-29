@@ -111,6 +111,7 @@ await page.evaluate(() => window.__ufo.setGraphics("low"));
 await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
 
 async function play() {
+  if ((await v((g) => g.gameState)) === "dead") await v((g) => g.respawn());
   if ((await v((g) => g.gameState)) === "playing") return;
   const btn = (await v((g) => g.gameState)) === "start" ? "#play-btn" : "#resume-btn";
   await page.click(btn, { timeout: 60000 });
@@ -122,11 +123,18 @@ async function play() {
 async function skyArena() {
   await v((g) => {
     g.setMode("creative");
+    // Back on the land at the start (an earlier check may have left the player at sea).
+    g.player.spawnAt(g.spawn.x, g.spawn.z);
+    g.player.recoil = 0;
+    g.player.velocity.set(0, 0, 0);
     g.ufos.config.activity = 0;
     g.mobs.spawning = false;
     g.mobs.hostileSpawning = false;
     g.ufos.clear();
     g.mobs.clear();
+    // The land around (far things only move where the ground is loaded).
+    const p = g.player.position;
+    g.world.prepareArea(p.x, p.z, 8);
   });
 }
 
@@ -261,9 +269,22 @@ await check("settings survive a reload during shader preparation, a lost graphic
   await v((g) => g.settingsPanel.set("fov", 80));
   const s4 = await v(() => JSON.parse(localStorage.getItem("ufocombat_v1_settings")).graphics);
   assert(s4 === "high", `saving other settings keeps the saved preset: ${s4}`);
-  // 3. Back to a fast preset for the rest.
-  await v((g) => g.setGraphics("low", { userPick: true }));
+  // 3. Back to a fast preset and otherwise default settings for the rest (the settings above were saved on purpose).
+  await page.evaluate(() => {
+    localStorage.removeItem("ufocombat_v1_boot");
+    localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ graphics: "low" }));
+  });
+  await page.addInitScript(() => {
+    // (The page saves its settings as it unloads: put the clean ones back first thing in the new page.)
+    if (!sessionStorage.getItem("__clean")) {
+      localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ graphics: "low" }));
+      sessionStorage.setItem("__clean", "1");
+    }
+  });
+  await boot();
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
+  const clean = await v((g) => ({ diff: g.settings.difficulty, spawn: g.settings.mobSpawning, gfx: g.graphics, lock: g.settings.timeLocked }));
+  assert(clean.diff === "normal" && clean.spawn === true && !clean.lock, `clean settings again: ${JSON.stringify(clean)}`);
   await page.evaluate(() => localStorage.removeItem("ufocombat_v1_boot"));
 });
 
@@ -537,11 +558,12 @@ await check("aliens face the player when they shoot, and chase at once after lea
     }
     const farD1 = Math.hypot(far[0].pos.x - p.position.x, far[0].pos.z - p.position.z);
     g.mobs._shootLaser = orig;
-    return { angles, farD0, farD1 };
+    const f = far[0];
+    return { angles, farD0, farD1, farInfo: { dead: f.dead, inList: g.mobs.mobs.includes(f), chunk: !!g.world.getChunk(Math.floor(f.pos.x) >> 4, Math.floor(f.pos.z) >> 4), aggro: f.aggro, state: f.ai?.state, yMob: f.pos.y, mode: g.player.mode, health: g.player.health, dead: g.player.dead } };
   });
   assert(r.angles.length >= 3, `they shoot: ${r.angles.length} shots`);
   assert(r.angles.every((a) => a < 0.45), `every shot was fired facing the player: max ${Math.max(...r.angles).toFixed(2)} rad`);
-  assert(r.farD1 < r.farD0 - 25, `an alien far away came for the player at once: ${Math.round(r.farD0)} -> ${Math.round(r.farD1)}`);
+  assert(r.farD1 < r.farD0 - 25, `an alien far away came for the player at once: ${Math.round(r.farD0)} -> ${Math.round(r.farD1)} ${JSON.stringify(r.farInfo)}`);
   await v((g) => {
     g.mobs.clear();
     g.setMode("creative");
@@ -1232,7 +1254,7 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
       shots = g.lasers.fired - fired1;
       if (missiles > 0 || shots > 3) attacked = true;
     }
-    const out = { quiet, attacked, missiles, shots, hostile: e.hostile };
+    const out = { quiet, attacked, missiles, shots, hostile: e.hostile, alive: e.alive, cause: e.lastHitBy, dist: Math.round(e.pos.distanceTo(p)), agl: Math.round(e.pos.y - g.world.heightAt(Math.floor(e.pos.x), Math.floor(e.pos.z))), state: `${e.provoked > 0} ${e.ai.burstLeft} ${e.ai.missileT.toFixed(1)}` };
     g.vehicles.remove(e);
     g.setMode("creative");
     g.enemyJets.config.count = 0;
@@ -1254,7 +1276,9 @@ await check("UFO piloting: teleport dash with a streak, big ships aim all barrel
     const p = g.player.position;
     const base = Math.floor(p.y);
     const V = p.constructor;
-    const ufo = g.vehicles.create("ufo", { design: "saucer", radius: 30, pos: [p.x, base + 50, p.z] });
+    const px = p.x;
+    const pz = p.z;
+    const ufo = g.vehicles.create("ufo", { design: "saucer", radius: 30, pos: [px, base + 50, pz] });
     g.vehicles.enter(ufo);
     ufo.speedLevel = 0.6;
     g.player.keys.clear();
@@ -1271,7 +1295,7 @@ await check("UFO piloting: teleport dash with a streak, big ships aim all barrel
     for (let i = 0; i < 20; i++) g.vehicles.update(0.05);
     out.streakGone = !ufo.dashFx.group.visible;
     // 2. Aim: a target UFO straight ahead of the camera.
-    ufo.pos.set(p.x, base + 50, p.z);
+    ufo.pos.set(px, base + 50, pz);
     g.vehicles.update(0.05);
     const cam = g.vehicles.cameraRef;
     g.vehicles.updateCamera(cam, 0.05);
@@ -1297,9 +1321,9 @@ await check("UFO piloting: teleport dash with a streak, big ships aim all barrel
     out.targetR = target.radius;
     g.ufos.clear();
     // 3. The superweapon: a shaft below the ship.
-    ufo.pos.set(p.x, base + 40, p.z);
+    ufo.pos.set(px, base + 40, pz);
     g.vehicles.update(0.05);
-    const probe = (dy) => g.world.getBlock(Math.floor(p.x), base + dy, Math.floor(p.z));
+    const probe = (dy) => g.world.getBlock(Math.floor(px), base + dy, Math.floor(pz));
     out.solidBefore = probe(-1) !== 0 && probe(-6) !== 0;
     g.vehicles.keyDown("KeyB");
     let t = 0;
@@ -1308,10 +1332,12 @@ await check("UFO piloting: teleport dash with a streak, big ships aim all barrel
       g.vehicles.update(0.05);
       t += 0.05;
       if (ufo.sw.state === "fire") firing = true;
-      ufo.pos.set(p.x, base + 40, p.z);
+      ufo.pos.set(px, base + 40, pz);
     }
     out.firing = firing;
-    out.shaft = probe(-1) === 0 && probe(-6) === 0 && probe(-14) === 0;
+    // (Cleared of solid ground: below sea level next to water the shaft may fill with water, which is right.)
+    const solid = (dy) => g.world.isSolidAt(Math.floor(px), base + dy, Math.floor(pz));
+    out.shaft = !solid(-1) && !solid(-6) && !solid(-14);
     out.cooldown = ufo.sw.cool > 5;
     out.infoBefore = ufo.infoPanel().controls.length;
     g.vehicles.toggleInfo(true);
@@ -1413,11 +1439,21 @@ await check("shot-down UFOs: lights off, then they crash (burnt-out wreck or int
     const base = Math.floor(p.y) - 2; // the pad's top block y
     g.mobs.clear();
     g.ufos.clear();
-    g.setMode("survival");
-    g.player.health = 20;
+    g.setMode("creative");
     const out = { exploded: 0, intact: 0, crew: [], kinds: new Set(), lightsOff: false, embedded: 0, embeddedChecked: 0, boardable: 0, unusable: 0 };
     const crashes = [];
-    g.ufos.onCrash = (c) => crashes.push(c);
+    g.ufos.onCrash = (c) => {
+      crashes.push(c);
+      // Measured at once: the hull sits in the ground (later blasts nearby dig the ground away).
+      const w = c.wreck;
+      if (w) {
+        const ground = g.world.surfaceY(Math.floor(w.pos.x), Math.floor(w.pos.z)) + 1;
+        out.embeddedChecked++;
+        if (w.pos.y - w.bottom < ground + 1.5) out.embedded++;
+        if (w.unusable) out.unusable++;
+        else out.boardable++;
+      }
+    };
     for (let n = 0; n < 24 && (out.exploded < 2 || out.intact < 2); n++) {
       const u = g.ufos.spawn({ design: "saucer", size: n % 3 === 0 ? "large" : "medium", pos: { x: p.x + (n % 5) * 6 - 12, y: base + 22, z: p.z + Math.floor(n / 5) * 6 - 10 } });
       u.state = "roam";
@@ -1440,18 +1476,8 @@ await check("shot-down UFOs: lights off, then they crash (burnt-out wreck or int
     out.crashes = crashes.length;
     out.crewMax = Math.max(0, ...crashes.map((c) => c.crew));
     out.crewMin = Math.min(99, ...crashes.map((c) => c.crew));
-    // The wrecks as vehicles: burnt-out ones can't be boarded, intact ones can, all sunk into the ground.
-    for (const veh of g.vehicles.vehicles) {
-      if (veh.type !== "ufo") continue;
-      const ground = g.world.surfaceY(Math.floor(veh.pos.x), Math.floor(veh.pos.z)) + 1;
-      out.embeddedChecked++;
-      if (veh.pos.y - veh.bottom < ground + 1.5) out.embedded++;
-      if (veh.unusable) out.unusable++;
-      else out.boardable++;
-    }
     g.ufos.onCrash = null;
     out.kinds = [...out.kinds];
-    g.setMode("creative");
     g.mobs.clear();
     return out;
   });
@@ -1505,6 +1531,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
 });
 
 await check("called-in jet uses the airport runway and takes off from it (a real roll, then climbs away)", async () => {
+  await play();
   const site = await gotoSite("airport", 0, 20, 2, 10);
   await frames(2);
   const r = await v((g, site) => {
@@ -1539,6 +1566,7 @@ await check("called-in jet uses the airport runway and takes off from it (a real
 });
 
 await check("cities: streets and towers, and a crowd of villagers walking around", async () => {
+  await play();
   const site = await gotoSite("city", 0, 70, 2, 11);
   await frames(2);
   const r = await v((g, site) => {
@@ -1763,6 +1791,40 @@ await check("a new Survival world starts with a pistol only and the first missio
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
   const after = await v((g) => ({ step: g.progress.step, mission: g.progress.mission.id, has: g.inventory.slots.filter(Boolean).length }));
   assert(after.step === 1 && after.mission === "salvage" && after.has >= 2, `the mission and the reward were saved: ${JSON.stringify(after)}`);
+});
+
+// ================= Performance =================
+
+await check("performance (Low preset): the simulation stays cheap in a city with UFOs, an enemy jet, a crate and parked jets", async () => {
+  await play();
+  await skyArena();
+  const site = await gotoSite("city", 0, 100, 3, 9);
+  await v((g) => {
+    g.setMode("survival");
+    g.ufos.config.activity = 4;
+    g.enemyJets.config.count = 2;
+    g.enemyJets.spawn({ dist: 320 });
+    g.enemyJets.spawn({ dist: 380 });
+    g.airports.timer = 0;
+    g.airports.update(0.1);
+    g.crates.drop({ dist: 40 });
+    const p = g.player.position;
+    for (let i = 0; i < 6; i++) g.ufos.spawn({ design: i % 2 ? "saucer" : "sphere", size: i < 4 ? "medium" : "large", pos: { x: p.x + 60 + i * 20, y: p.y + 45, z: p.z + (i - 3) * 30 } });
+    g.perf.maxSimMs = 0;
+    g.perf.simMs = 0;
+  });
+  await frames(90);
+  const r = await v((g) => ({ sim: g.perf.simMs, max: g.perf.maxSimMs, ufos: g.ufos.count, jets: g.vehicles.vehicles.filter((x) => x.type === "jet" || x.type === "enemyjet").length, chunks: g.world.chunks.size }));
+  console.log(`        sim ${r.sim.toFixed(1)} ms/frame (worst ${r.max.toFixed(0)} ms), ${r.ufos} UFOs, ${r.jets} jets, ${r.chunks} chunks`);
+  assert(r.sim < 45, `the simulation is cheap: ${r.sim.toFixed(1)} ms per frame`);
+  await v((g) => {
+    g.enemyJets.clear();
+    g.enemyJets.config.count = 0;
+    g.crates.clear();
+    g.ufos.clear();
+    g.ufos.config.activity = 0;
+    g.setMode("creative");
+  });
 });
 
 // ---------- Summary ----------

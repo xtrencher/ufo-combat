@@ -135,7 +135,7 @@ await check("rebrand: title, storage prefix, logo, default preset Medium", async
   assert(s.title === "UFO COMBAT", `title ${s.title}`);
   assert(/UFO\s*COMBAT/.test(s.logo), `logo ${s.logo}`);
   assert(s.keys.length > 0 && s.keys.every((k) => k.startsWith("ufocombat_v1_")), `storage keys ${s.keys}`);
-  assert(s.preset === "medium" || s.preset === "low", `preset ${s.preset}`);
+  assert(["ultra", "medium", "low"].includes(s.preset), `preset ${s.preset}`);
   const fresh = await v(() => {
     // A brand new settings object defaults to Medium.
     return null;
@@ -192,12 +192,19 @@ await check("settings: every group has a reset button, stepped sliders, perf pre
   await page.keyboard.press("Escape");
 });
 
-await check("new game: 8-slot loadout with the laser blaster and jet radio", async () => {
+await check("new game: Survival starts with the pistol only; Creative has every weapon (the suite then uses the classic 8-slot layout)", async () => {
   await play();
   const hotbar = await v((g) => g.inventory.slots.slice(0, 9).map((s) => s?.id ?? 0));
-  assert(JSON.stringify(hotbar.slice(0, 8)) === JSON.stringify([287, 286, 288, 289, 291, 290, 292, 293]), `hotbar ${hotbar}`);
+  assert(hotbar[0] === 287 && hotbar.slice(1).every((id) => id === 0), `hotbar ${hotbar}`);
   await v((g) => {
     g.setMode("creative");
+    const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
+    // Every weapon is there (11 of them)...
+    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296].every((id) => have.has(id))) throw new Error("creative is missing weapons");
+    // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster, radio.
+    g.inventory.clear();
+    [287, 286, 288, 289, 291, 290, 292, 293].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
+    g.inventory.selected = 0;
     g.player.flying = true;
     g.player.position.y += 12;
     g.player.pitch = -0.2;
@@ -418,7 +425,10 @@ await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fi
   const r = await v((g) => {
     g.settingsPanel.set("ufos.activity", 16);
     const spots = [];
-    for (let i = 0; i < 20; i++) spots.push(g.ufos._spawnFar().distanceTo(g.player.position));
+    for (let i = 0; i < 20; i++) {
+      const u = g.ufos.spawn({});
+      spots.push(u.pos.distanceTo(g.player.position));
+    }
     for (let i = 0; i < 40; i++) g.ufos._updateSpawning(1);
     const n = g.ufos.count;
     const minDist = Math.min(...g.ufos.ufos.map((u) => u.pos.distanceTo(g.player.position)));
@@ -436,7 +446,10 @@ await check("on foot: a UFO that spots you flies over, beams you up, and reachin
   await arena();
   await v((g) => {
     const u = g.ufos.spawn({ design: "saucer", size: "small", pos: g.player.position.clone().add(new g.THREE.Vector3(40, 22, 0)) });
-    u.state = "attack";
+    u.state = "beam";
+    u.hostile = true;
+    u.hostileT = 60;
+    u.timer = 40;
     u.lastSeen = g.ufos.time;
     window.__u = u;
   });
@@ -483,7 +496,7 @@ await check("shot on foot, a UFO reacts (counter-fire, beam run or evasive moves
     }
     return [...states];
   });
-  assert(r.length >= 2 && r.every((x) => ["counter", "evade", "attack"].includes(x)), `reactions: ${r}`);
+  assert(r.length >= 2 && r.every((x) => ["counter", "evade", "attack", "circle", "beam", "blink", "react"].includes(x)), `reactions: ${r}`);
   const fired0 = await v((g) => g.lasers.fired);
   const fired = await until((g, f0) => g.lasers.fired > f0 + 2, 60000, fired0);
   assert(fired, "UFOs fire laser blasts");

@@ -17,6 +17,7 @@ const MAX_JETS = 3;
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _q2 = new THREE.Vector3();
 
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v;
@@ -82,6 +83,10 @@ export class EnemyJet extends Jet {
     let wantPitch = this.aimPitch;
     let throttle = 0.7;
     let ab = false;
+    // How far above the ground it is, now and a moment ahead along its path.
+    const lookT = 2.4 + this.speed * 0.012;
+    const ahead = _q2.copy(this.pos).addScaledVector(this.vel, lookT);
+    const groundClear = this.pos.y - Math.max(mgr.groundBelow(ahead.x, WORLD_HEIGHT, ahead.z), mgr.groundBelow(this.pos.x, WORLD_HEIGHT, this.pos.z));
 
     // Incoming missiles (the player's): break and drop flares.
     let threat = null;
@@ -108,28 +113,31 @@ export class EnemyJet extends Jet {
         ai.flareLeft--;
       }
     } else if (hostile) {
-      // Pursuit with lead.
+      // Pursuit with lead. It comes in high and drops toward the target as it
+      // closes (so it never dives into the ground on the way).
       const speed = Math.max(60, this.speed);
       const lead = dist / (speed + 100);
-      const aim = _w.copy(P.pos).addScaledVector(P.vel, lead * 0.6).sub(this.pos);
+      const lowTarget = P.pos.y < this.pos.y + 80;
+      const lift = lowTarget ? clamp((dist - 140) * 0.3, 0, 180) : 0;
+      const aim = _w.copy(P.pos).addScaledVector(P.vel, lead * 0.6);
+      aim.y += lift;
+      aim.sub(this.pos);
       const aimDist = aim.length();
       aim.divideScalar(aimDist || 1);
-      const angle = aim.angleTo(fwd);
+      const angle = _q2.copy(P.pos).sub(this.pos).normalize().angleTo(fwd); // to the target itself
       wantYaw = Math.atan2(-aim.x, -aim.z);
       wantPitch = Math.asin(clamp(aim.y, -1, 1));
       throttle = 1;
       ab = dist > 350;
-      // Strafing runs: fire from a distance, then pull up and turn away before
-      // the ground (or the target) gets too close.
-      const lowTarget = P.pos.y < this.pos.y + 80;
-      if (dist < 190 && lowTarget) {
+      // Strafing runs: fire on the way in, then pull up and turn away before the target (or the ground) is too close.
+      if (dist < 110 && lowTarget) {
         wantYaw += 1.1;
-        wantPitch = 0.7;
-      } else if (dist < 110 && angle > 0.5) {
+        wantPitch = 0.6;
+      } else if (dist < 90 && angle > 0.5) {
         wantYaw += 1.2;
         wantPitch = 0.4;
       }
-      if (lowTarget) wantPitch = Math.max(wantPitch, -0.3);
+      if (lowTarget) wantPitch = Math.max(wantPitch, -clamp(0.3 + groundClear / 500, 0.3, 0.8));
       // Guns: bursts when the nose is on the target.
       ai.burstT -= dt;
       if (dist < 600 && angle < 0.07 && ai.burstT <= 0 && !this.jammed) {
@@ -141,7 +149,7 @@ export class EnemyJet extends Jet {
         this._fireCannon(fwd);
       }
       // Missiles: from a distance, with the nose roughly on the target.
-      if (ai.missileT <= 0 && dist > 260 && dist < 1500 && angle < 0.55 && this.missileT <= 0) {
+      if (ai.missileT <= 0 && dist > 200 && dist < 1500 && angle < 0.55 && this.missileT <= 0) {
         ai.missileT = MISSILE_INTERVAL + Math.random() * 5;
         this.missileT = 1;
         this._launchMissile({ kind: "player", ref: mgr.player }, { hostile: true });
@@ -151,7 +159,7 @@ export class EnemyJet extends Jet {
       // Patrol: waypoints on a wide ring around the player, at altitude.
       ai.wpT -= dt;
       if (!ai.wp || ai.wpT <= 0 || this.pos.distanceTo(ai.wp) < 180) {
-        const R = clamp(mgr.viewRange ? mgr.viewRange * 1.8 : 500, 500, 1800);
+        const R = clamp(mgr.viewRange ? mgr.viewRange * 0.85 : 300, 220, 800);
         const a = Math.random() * Math.PI * 2;
         const around = mgr.player.position;
         const gx = around.x + Math.cos(a) * R * (0.6 + Math.random() * 0.8);
@@ -166,14 +174,9 @@ export class EnemyJet extends Jet {
       throttle = 0.65;
     }
 
-    // Terrain: look ahead along the flight path and pull up before it.
-    const look = 2.4 + this.speed * 0.012;
-    const ahead = _v.copy(this.pos).addScaledVector(this.vel, look);
-    const groundAhead = mgr.groundBelow(ahead.x, WORLD_HEIGHT, ahead.z);
-    const groundHere = mgr.groundBelow(this.pos.x, WORLD_HEIGHT, this.pos.z);
-    const clearance = this.pos.y - Math.max(groundAhead, groundHere);
-    if (clearance < 90 + this.speed * 0.5 && this.vel.y < 30) {
-      wantPitch = Math.max(wantPitch, clamp((150 - clearance) / 90, 0.2, 1));
+    // Terrain: pull up before the ground (looking ahead along the flight path).
+    if (groundClear < 45 + this.speed * 0.3 && this.vel.y < 30) {
+      wantPitch = Math.max(wantPitch, clamp((110 - groundClear) / 70, 0.2, 1));
       throttle = 1;
     }
     if (this.pos.y > 360) wantPitch = Math.min(wantPitch, -0.1);
@@ -241,7 +244,7 @@ export class EnemyJetManager {
 
   spawn(opts = {}) {
     const p = this.player.position;
-    const R = opts.dist ?? Math.max(700, (this.vehicles.viewRange || 400) * 1.5);
+    const R = opts.dist ?? clamp((this.vehicles.viewRange || 300) * 1.2, 320, 900);
     const a = opts.angle ?? Math.random() * Math.PI * 2;
     const x = p.x + Math.cos(a) * R;
     const z = p.z + Math.sin(a) * R;

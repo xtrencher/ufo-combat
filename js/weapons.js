@@ -832,7 +832,10 @@ export class WeaponSystem {
     b.mesh.lookAt(to);
     b.mesh.scale.set(1, 1, len);
     b.core.scale.set(w0, w0, 1);
-    b.halo.scale.set(w0 * 3.2, w0 * 3.2, 1);
+    // The wide glow starts a few blocks ahead of the muzzle: the camera must not sit inside it.
+    const skip = Math.min(len * 0.5, 3.6);
+    b.halo.scale.set(w0 * 3.2, w0 * 3.2, (len - skip) / len);
+    b.halo.position.set(0, 0, skip / (2 * len));
     b.w0 = w0;
     b.age = 0;
     b.life = life;

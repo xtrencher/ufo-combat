@@ -178,9 +178,9 @@ try {
     await page.waitForTimeout(1500);
   });
 
-  await check("default graphics preset is Medium and renders a real image", async () => {
+  await check("default graphics preset is Ultra and renders a real image", async () => {
     const preset = await page.evaluate(() => window.__voxelands.graphics);
-    assert(preset === "medium", `default preset is ${preset}`);
+    assert(preset === "ultra", `default preset is ${preset}`);
     const stats = await page.evaluate(() => window.__voxelands.captureStats());
     console.log(`        ultra: mean luminance ${stats.mean.toFixed(3)}, std ${stats.std.toFixed(3)}, black ${(stats.blackFraction * 100).toFixed(1)}%`);
     assert(stats.mean > 0.08 && stats.std > 0.03 && stats.blackFraction < 0.5, `ultra frame looks blank: ${JSON.stringify(stats)}`);
@@ -2446,7 +2446,7 @@ try {
     assert(s.fcp > 0, "the page should paint (the loading panel) right away");
     assert(s.readyAtMenu === false && s.playAtMenu.disabled && /Preparing/.test(s.playAtMenu.text), `the start menu should come up before the world is drawn, with Play waiting: ${JSON.stringify(s)}`);
     assert(!s.play.disabled && /^(Play|Continue)$/.test(s.play.text), `Play should be ready once the shaders are: ${JSON.stringify(s.play)}`);
-    assert(s.preset === "medium" && s.startSelect === "medium" && s.boot.preset === "medium", `default start: ${JSON.stringify(s)}`);
+    assert(s.preset === "ultra" && s.startSelect === "ultra" && s.boot.preset === "ultra", `default start: ${JSON.stringify(s)}`);
     // Like picking a preset in the menu, ?graphics= also clears individual options.
     await p.evaluate(() => {
       const saved = JSON.parse(localStorage.getItem("ufocombat_v1_settings"));

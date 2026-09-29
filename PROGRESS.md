@@ -1157,41 +1157,41 @@ Source of truth for this round. Tick items as they are finished; decisions go in
 - [x] 2.6 Shield item (reduces explosion/attack damage, visual)
 
 ## Part 3: Vehicles
-- [ ] 3.1a Jet max speed higher in settings
-- [ ] 3.1b Realistic ground takeoff from airports/flat areas (runway roll, rotation, liftoff)
-- [ ] 3.1c Better F-22 style model, exhaust and afterburner visuals
-- [ ] 3.1d Autocannon aim assist + overheating with HUD heat bar
-- [ ] 3.1e Missile lock: hold RMB, lock nearest-to-center target (incl. behind), camera turns, 1 s lock -> 1 missile, 3 s -> salvo of 4, rear shots turn around
-- [ ] 3.1f Flares (decoy missiles and UFO shots)
-- [ ] 3.1g Missile warning HUD (direction + sound), sharp turns make missiles miss
-- [ ] 3.2 Enemy jets (neutral unless provoked; missiles + guns)
-- [ ] 3.3a UFO teleport dash (visible streak)
-- [ ] 3.3b UFO aiming fix for big ships
-- [ ] 3.3c UFO superweapon on B (vertical laser)
-- [ ] 3.4 Vehicle info panel on I (stats + controls)
+- [x] 3.1a Jet max speed higher in settings
+- [x] 3.1b Realistic ground takeoff from airports/flat areas (runway roll, rotation, liftoff)
+- [x] 3.1c Better F-22 style model, exhaust and afterburner visuals
+- [x] 3.1d Autocannon aim assist + overheating with HUD heat bar
+- [x] 3.1e Missile lock: hold RMB, lock nearest-to-center target (incl. behind), camera turns, 1 s lock -> 1 missile, 3 s -> salvo of 4, rear shots turn around
+- [x] 3.1f Flares (decoy missiles and UFO shots)
+- [x] 3.1g Missile warning HUD (direction + sound), sharp turns make missiles miss
+- [x] 3.2 Enemy jets (neutral unless provoked; missiles + guns)
+- [x] 3.3a UFO teleport dash (visible streak)
+- [x] 3.3b UFO aiming fix for big ships
+- [x] 3.3c UFO superweapon on B (vertical laser)
+- [x] 3.4 Vehicle info panel on I (stats + controls)
 
 ## Part 4: UFOs and aliens
-- [ ] 4.1 New/improved designs: classic saucers most common with variety; detailed vs smooth minimal (pure sphere); tall-dome saucer; glowing vs dark; size range up to football-field giants
-- [ ] 4.2 Behavior: blink moves, mountains/underwater, aggression rules (shot / stared at / occasional), varied attacks + laser colors
-- [ ] 4.3 Shot down: lights off, random crash outcome (explosion+wreck / intact boardable), wrecks embedded in terrain
-- [ ] 4.4 Aliens: random 1-10 per crash, green/gray/red types with different weapons and stats
+- [x] 4.1 New/improved designs: classic saucers most common with variety; detailed vs smooth minimal (pure sphere); tall-dome saucer; glowing vs dark; size range up to football-field giants
+- [x] 4.2 Behavior: blink moves, mountains/underwater, aggression rules (shot / stared at / occasional), varied attacks + laser colors
+- [x] 4.3 Shot down: lights off, random crash outcome (explosion+wreck / intact boardable), wrecks embedded in terrain
+- [x] 4.4 Aliens: random 1-10 per crash, green/gray/red types with different weapons and stats
 
 ## Part 5: World
-- [ ] 5.1 Villages and cities with airports (runways, hangars, parked aircraft), villagers
-- [ ] 5.2 Airports flat and long enough for takeoff
+- [x] 5.1 Villages and cities with airports (runways, hangars, parked aircraft), villagers
+- [x] 5.2 Airports flat and long enough for takeoff
 
 ## Part 6: Survival and progression
-- [ ] 6.1 Creative unchanged; Survival starts with pistol only
-- [ ] 6.2 Loot drops from UFOs/aliens, improving with progress
-- [ ] 6.3 Supply crates (parachute, smoke)
-- [ ] 6.4 Mission chain
-- [ ] 6.5 Difficulty curve and tuned defaults
+- [x] 6.1 Creative unchanged; Survival starts with pistol only
+- [x] 6.2 Loot drops from UFOs/aliens, improving with progress
+- [x] 6.3 Supply crates (parachute, smoke)
+- [x] 6.4 Mission chain
+- [x] 6.5 Difficulty curve and tuned defaults
 
 ## Part 7: Menu and defaults
-- [ ] 7.1 Polished main menu
-- [ ] 7.2 Shootable menu UFO
-- [ ] 7.3 Default preset Ultra, live FPS on menu + low-FPS recommendation
-- [ ] 7.4 Default time 17:50, saved settings take priority
+- [x] 7.1 Polished main menu
+- [x] 7.2 Shootable menu UFO
+- [x] 7.3 Default preset Ultra, live FPS on menu + low-FPS recommendation
+- [x] 7.4 Default time 17:50, saved settings take priority
 
 ## Final polish
 - [ ] F1 Regression pass
@@ -1206,4 +1206,8 @@ Source of truth for this round. Tick items as they are finished; decisions go in
 (appended as work proceeds)
 - Part 1: settings root causes were (a) a session-only graphics step-down being written back to the saved settings on pagehide/GPU loss, (b) settings applied only when a panel was opened; fixed and covered by a reload test. Terrain: one shared `surfaceBlocks`/soft-cap function feeds chunks and LOD, so mountains match; view distance grows with altitude (session only, never saved).
 - Part 2: Survival is combat-focused now that crafting is gone; every block can still be dug (tools only speed it up) and ores give ingots directly. Tools/blocks come from loot (Part 6). The shield lets 25% of an explosion and 35% of other attacks through; falls, drowning and the void are not stopped. The bazooka fires on release (a quick tap = an unguided rocket at once). Nuke: default 44, range 12-96, no cooldown beyond a half-second debounce; big craters are carved in more slices per frame.
+- Part 3: the jet's ground roll uses 70% of the thrust on the wheels (about 100 blocks, 60 with the afterburner); flight assist holds a gentle climb-out just after liftoff so the jet doesn't settle back. The missile lock holds the jet on a straight course while the camera looks at the target, so a rear target never flips the jet round. The lock is proximity-fused, missiles turn with a real rotation (not a vector blend), lose the target when the line of sight swings too fast (sharp turns) and can be decoyed by flares (85%); a decoyed missile may return to its shooter. Enemy jets are `EnemyJet` vehicles (same flight model, an autopilot instead of input) and are never saved. Keys: `C` flares, `I` vehicle panel, `R` UFO dash, `B` UFO superweapon (B is also the jet's nuke): none clash with existing bindings in their vehicle.
+- Part 5: sites (airports and cities) are decided by hashes on a 700-block grid and bend the terrain function itself, so chunks, distant terrain (LOD), mob spawning and every height query agree on the level pad; structures are placed per chunk from analytic column functions (nothing big is stored). The runway is bedrock (indestructible, dark): a deliberate choice for a takeoff strip that explosions can't wreck. Parked jets come from an `AirportManager` (never saved), villagers use the same spawner as villages.
+- Part 6: crates and loot are Survival only; missions count from the moment they start using the world's stat counters, and are saved with the player. Difficulty (0-1) comes from missions done plus UFOs shot down; it scales UFO size odds and aggression.
+- Part 7: default preset Ultra (the safe-start step-down still protects weak machines, and the menu suggests a lower preset from the live FPS); a new world starts at 17:50. The menu UFO is a random design each pass, can be shot with a click, and its explosion uses particles only (no crater).
 

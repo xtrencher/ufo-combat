@@ -61,7 +61,7 @@ export const MISSIONS = [
   {
     id: "wings",
     title: "Take to the air",
-    text: "Call in your fighter jet (J or the Jet Radio) and take off, ideally from an airport.",
+    text: "Call in your fighter jet (J or the Jet Radio), ideally near an airport (F3 shows the nearest one).",
     objectives: [{ stat: "jetsCalled", goal: 1, label: "Jets called in" }],
     reward: [[ITEM.SNIPER_RIFLE, 1], [ITEM.JET_RADIO, 1], [ITEM.GOLDEN_APPLE, 2]],
   },
