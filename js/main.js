@@ -558,7 +558,7 @@ function callJet(force = false) {
   }
   // (The cooldown only stops spamming replacements; a lost jet can be
   // replaced at once.)
-  if (!force && playerJet && vehicles.vehicles.includes(playerJet) && ufos.time - lastJetCall < 8) {
+  if (!force && playerJet?.alive && vehicles.vehicles.includes(playerJet) && ufos.time - lastJetCall < 8) {
     toast("Your jet is on its way...", 1.5);
     return;
   }
@@ -957,6 +957,7 @@ function respawn() {
   player.syncCamera();
   streamAround(player.position.x, player.position.z);
   deathCause = null;
+  ufos.playerRespawned();
   playerDirty = true;
   gameState = "paused";
   audio.ensureStarted();

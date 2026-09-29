@@ -118,6 +118,7 @@ export class UfoManager {
     this.onMessage = null;
     // Player abduction state.
     this.beamingPlayer = null; // the UFO whose beam holds the player
+    this.graceT = 0; // seconds after a respawn during which UFOs ignore the player
     this._beamTime = 0;
     this._beamPeak = 0;
     this.lastHum = 0;
@@ -364,6 +365,7 @@ export class UfoManager {
 
   update(dt) {
     this.time += dt;
+    this.graceT = Math.max(0, this.graceT - dt);
     if (!this.enabled) return;
     this._updateSpawning(dt);
     this._updateCrews(dt);
@@ -535,7 +537,7 @@ export class UfoManager {
     if (u.checkT <= 0 && u.state !== "leave") {
       u.checkT = 0.5;
       const range = cfg.detection * (pv?.type === "jet" ? 2.2 : 1);
-      const eligible = !this.player.dead && !disguised && (pv || !this.player.creative);
+      const eligible = !this.player.dead && !disguised && (pv || (this.graceT <= 0 && !this.player.creative));
       if (eligible && dist < range && this._canSee(u, tgt.pos)) {
         u.lastSeen = this.time;
         if (u.state === "roam" || u.state === "trick") {
@@ -1034,5 +1036,19 @@ export class UfoManager {
 
   clear() {
     while (this.ufos.length) this._remove(this.ufos.length - 1);
+  }
+
+  // After a respawn: every UFO loses interest, and none notices the player
+  // for a while (no abduction straight after an abduction).
+  playerRespawned(seconds = 30) {
+    this.graceT = seconds;
+    this.beamingPlayer = null;
+    for (const u of this.ufos) {
+      if (u.state === "attack" || u.state === "react" || u.state === "beam") {
+        u.state = "roam";
+        u.waypoint = null;
+        if (u.beam) u.beam.set(false);
+      }
+    }
   }
 }

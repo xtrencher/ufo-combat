@@ -933,10 +933,10 @@ UFO PART 3 COMPLETE
 - [x] 1. Regression pass (terrain, biomes, presets, water, mobs, combat, crafting, saving, death screen, mods OFF)
 - [x] 2. Player's-eye review (menu, first minutes, every weapon/vehicle, UFO encounters on foot / jet / UFO, full scenario); fix what's found
 - [x] 3. Performance check: Potato and Balanced smooth with UFOs at high activity, many zombies, explosions
-- [ ] 4. Full test suite one last time
+- [x] 4. Full test suite one last time
 - [x] 5. README: all controls, features, settings
 - [x] 6. PROGRESS.md: summary, decisions, known issues, "How to test in 10 minutes"
-- [ ] 7. "UFO FINAL COMPLETE", commit, push
+- [x] 7. "UFO FINAL COMPLETE", commit, push
 
 ## Decisions log
 (Notable decisions made without being able to ask, with the reason.)
@@ -983,6 +983,7 @@ UFO PART 3 COMPLETE
 - **Jet call cooldown** (8 s) only applies while your current jet still exists (it stops spamming replacements); after losing it you can call a new one at once.
 - **Wrecks can't be destroyed before they're boarded:** in the full scenario, blaster shots at the aliens standing around the wreck blew it up, leaving no ride home.
 - **In a vehicle** the hotbar and hearts are hidden (the vehicle panel has its own health bar; damage goes to the vehicle).
+- **Respawn grace:** after a respawn every UFO loses interest and none notices the player on foot for 30 s (in a vehicle they can be spotted: flying a jet is asking for a fight). Found in the long smoke run: a UFO hovering over the spawn point could abduct a freshly respawned player again and again.
 - **First-time hints:** a handful of one-line tips appear at the moment they're useful (entering a new world, first UFO nearby, first aliens, first time in each vehicle).
 
 ## UFO COMBAT: final summary
@@ -1016,6 +1017,33 @@ lighting, water, mobs and graphics presets are unchanged):
 
 ## Final polish notes
 
+### Final test results
+- **Unit tests: 43/43.**
+- **ufo-tests.mjs: 33/34** in the final full run (a 35th check, respawn
+  grace, was added after it). The one failure was my own test change: the
+  fighter check now lifts the jet to 150+ blocks, so the following nuke
+  check's bomb took longer to parachute down than its real-time limit. The
+  nuke check now starts from a low pass; it, the rest of the jet checks and
+  the new grace check were re-run afterwards (see below). The run before
+  it (same game code) had failed 3 randomness-dependent checks (a UFO
+  moving out of the cannon's line, a fighter's random shot timer, aliens
+  standing under the wreck); those tests were pinned down.
+- **Smoke suite: 66/68.** *Ultra plants* timed out (the known software
+  rendering issue). *Pistol, every click fires*: 5 shots from 6 clicks,
+  because at ~2 fps two clicks 150 ms apart can land in the same frame,
+  inside the pistol's 0.07 s cooldown (unchanged from the original game).
+  Fixed in the game rather than the test: a pistol or bazooka click during
+  the cooldown is now buffered and fires the moment it's ready; a probe of
+  6 rapid clicks gives 6 shots and 6 holes.
+- **Re-run after the last fixes:** respawn grace (new), the jet takeoff,
+  jet weapons, UFOs vs the jet, the nuke, the jet crash, the FULL SCENARIO
+  and stats all pass; so do the weapon-independence and "every weapon
+  damages UFOs" checks and the 43 unit tests. One more bug found there and
+  fixed: right after your jet was destroyed, the call-in cooldown could
+  still refuse a new one (the wreck lingers for a second), and the respawn
+  grace also hid a player flying a jet (it now only covers you on foot).
+
+
 - **Regression pass:** the smoke suite (terrain, biomes, all graphics
   presets, LOD, water, lighting, mobs, combat, crafting, saving and
   reloading, the death screen, startup errors) ran in full after Parts 2/3;
@@ -1030,7 +1058,8 @@ lighting, water, mobs and graphics presets are unchanged):
   rotating (longer strip search, takeoff thrust boost, assist rotates);
   quick clicks at low frame rates were lost in vehicles; a jet lost within
   8 s of calling couldn't be replaced; the crashed UFO could be blown up by
-  shots at its aliens.
+  shots at its aliens; a UFO over the spawn point could abduct a freshly
+  respawned player straight away (now 30 s of grace).
 - **GitHub Pages:** `probe.mjs --base=/ufo-combat/` serves the game only
   under that subpath: it boots, plays, streams (including the LOD worker)
   and calls the jet with zero console errors. All paths are relative and
@@ -1048,9 +1077,16 @@ lighting, water, mobs and graphics presets are unchanged):
   listened to.
 - **Smoke: Ultra plants check** can time out at 300 s in software rendering
   (pre-existing; it passes on some runs).
-- **Smoke: zombies and the moat** once saw the player lose 3 health from an
-  unknown source (probably a night-time enemy UFO); not reproduced in
-  isolation. Creature arenas now switch UFOs off.
+- **Enemy UFOs and the old smoke suite:** with mods on by default, UFOs at
+  night hurt and abducted the test player in base-game checks (the moat
+  check in Part 3, then deaths by "Abducted by a UFO" in the first final
+  run). The smoke suite now runs with UFO activity off (UFOs have their own
+  suite), and a respawned player gets 30 s of grace from UFOs.
+- **Tests are timing-sensitive in software rendering** (1-3 fps): a few
+  checks were made to wait on game frames rather than the clock during
+  this work, and some randomness-dependent UFO checks were pinned down.
+  Expect an occasional flaky check on a slow machine; re-run it alone with
+  `node ufo-tests.mjs --only=<name>`.
 - **Jet realism is game-tuned:** 40% more thrust on the ground for short
   takeoffs, lower gravity (14 blocks/s^2), and flight assist rolls and pulls
   for you. It still stalls and can't hover.
@@ -1091,3 +1127,5 @@ lighting, water, mobs and graphics presets are unchanged):
 
 Automated: `cd tools && npm install && npm test` (unit tests, the UFO
 feature suite `ufo-tests.mjs`, then the long smoke suite).
+
+UFO FINAL COMPLETE

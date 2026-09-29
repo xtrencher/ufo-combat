@@ -751,6 +751,27 @@ await check("dying in a destroyed vehicle: 'Went down with your UFO'", async () 
   await respawnIfDead();
 });
 
+await check("after a respawn, UFOs lose interest and ignore you for a while", async () => {
+  await arena();
+  const r = await v((g) => {
+    const u = g.ufos.spawn({ size: "medium", pos: g.player.position.clone().add(new g.THREE.Vector3(10, 20, 0)) });
+    u.state = "attack";
+    u.lastSeen = g.ufos.time;
+    g.ufos.playerRespawned();
+    const calm = u.state === "roam";
+    // Plenty of chances to notice the player during the grace period.
+    for (let i = 0; i < 100; i++) {
+      u.checkT = 0;
+      g.ufos.update(0.05);
+    }
+    const out = { calm, ignored: u.state !== "attack" && u.state !== "beam", grace: g.ufos.graceT };
+    g.ufos.graceT = 0;
+    g.ufos.clear();
+    return out;
+  });
+  assert(r.calm && r.ignored && r.grace > 20, `grace ${JSON.stringify(r)}`);
+});
+
 await check("UFO tricks and leaving forever run cleanly", async () => {
   await arena();
   const r = await v((g) => {
@@ -965,6 +986,8 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
     window.__nukes = g.stats.world.nukes;
     window.__cloud = 0;
     j.nukeT = 0;
+    // A low pass, so the drop doesn't take ages of software-rendered frames.
+    j.pos.y = Math.max(g.world.heightAt(Math.floor(j.pos.x), Math.floor(j.pos.z)), 40) + 45;
     return true;
   });
   await page.keyboard.press("KeyB");

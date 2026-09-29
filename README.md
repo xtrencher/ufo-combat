@@ -166,7 +166,8 @@ rarely one shoots off into the sky at enormous speed and is gone for good.
 - **On foot:** a UFO that spots you (it needs a line of sight; the closer
   you are the likelier) races over, stops above you and lifts you in a cone
   of blue light. Reach the ship and you're **abducted**. Get out of the
-  light (you can still move), hide under a roof, or shoot it down.
+  light (you can still move), hide under a roof, or shoot it down. After
+  you respawn, UFOs leave you alone for half a minute.
 - **Shooting at one** makes it react: laser volleys, a dive to beam you up,
   or evasive jinks and altitude changes. Every weapon hurts UFOs; big ones
   are very tough.
@@ -424,8 +425,10 @@ environment variable):
 - `ufo-tests.mjs`: the UFO COMBAT features in the real game in headless
   Chromium (menus, settings and presets, weapons, the airstrike, the laser
   blaster, the sniper scope, binoculars, mods on/off, zombie crowds, and the
-  UFO, alien and vehicle features). A few minutes; `--only=word` runs a
-  subset.
+  UFO, alien and vehicle features, the fighter jet and its weapons, the
+  nuke, the full jet-to-UFO scenario, and stats). About 40 minutes with
+  software rendering; `--only=word` runs matching checks, `--from=word`
+  starts at the first match.
 - `smoke-test.mjs`: loads the real game in headless Chromium and plays it
   with real keyboard and mouse input: movement, every graphics preset,
   lighting, the level-of-detail terrain, every weapon, falling sand, mining
@@ -435,7 +438,8 @@ environment variable):
   console error. (It takes over an hour with software rendering.)
 
 `tools/probe.mjs` boots the game and runs a small scenario file, for quick
-experiments and screenshots.
+experiments and screenshots; `--base=/ufo-combat/` serves the game under a
+subpath only, like GitHub Pages.
 
 ## Tech notes
 

@@ -89,6 +89,7 @@ export class WeaponSystem {
     this.chargeTime = 0;
     // One cooldown per weapon: they never block each other.
     this._cooldowns = { grenade: 0, pistol: 0, bazooka: 0, airstrike: 0, blaster: 0 };
+    this._queued = null; // a pistol/bazooka click that came in during the cooldown
     this._blasterFiring = false;
     this.blasterColor = "red";
     this.enabled = true; // false with mods off: every weapon is inert
@@ -189,7 +190,13 @@ export class WeaponSystem {
         this.fireAirstrike();
         return;
       default:
-        if (!(kind in cd) || cd[kind] > 0) return;
+        if (!(kind in cd)) return;
+        if (cd[kind] > 0) {
+          // Clicked a moment too early: fires as soon as it's ready, so
+          // every click counts (even when frames are slow).
+          this._queued = kind;
+          return;
+        }
         cd[kind] = MIN_INTERVAL[kind] || 0.1;
         if (kind === "pistol") this.firePistol();
         else if (kind === "bazooka") this.fireBazooka();
@@ -218,6 +225,7 @@ export class WeaponSystem {
   // Switching items, opening a screen or dying drops a drawn throw, stops
   // the machine gun and un-scopes the sniper.
   cancel() {
+    this._queued = null;
     this.charging = false;
     this.chargeTime = 0;
     this._mgFiring = false;
@@ -648,6 +656,11 @@ export class WeaponSystem {
 
   update(dt) {
     for (const k in this._cooldowns) this._cooldowns[k] = Math.max(0, this._cooldowns[k] - dt);
+    if (this._queued && this._cooldowns[this._queued] <= 0) {
+      const kind = this._queued;
+      this._queued = null;
+      this.press(kind);
+    }
     if (this.charging) this.chargeTime += dt;
     this.held.windUp = this.charge;
 
