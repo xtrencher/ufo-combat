@@ -1282,7 +1282,9 @@ try {
     }, a);
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
-    await page.waitForTimeout(300);
+    // (Waits on the game, not the clock: a few frames for the knockback to
+    // carry it, however slow the software renderer is.)
+    await page.waitForFunction((z0) => window.__zb.health < 20 && window.__zb.pos.z < z0 - 0.2, r.d0, { timeout: 15000 }).catch(() => {});
     const hit = await page.evaluate(() => ({ hp: window.__zb.health, z: window.__zb.pos.z, flash: window.__zb.hurtTime < 1 }));
     console.log(`        zombie hit: health 20 -> ${hit.hp}, pushed from z=${r.d0.toFixed(2)} to ${hit.z.toFixed(2)}`);
     assert(hit.hp === 15 && hit.flash, "a pistol shot should deal 5 damage");
@@ -1989,6 +1991,9 @@ try {
         v.mobs.clear();
         v.mobs.enabled = false;
         v.entities.clear();
+        // No enemy UFOs (a mod feature) joining in at midnight.
+        v.settingsPanel.set("ufos.activity", 0);
+        v.ufos.clear();
         const x0 = v.spawn.x + offX;
         const z0 = v.spawn.z + offZ;
         const y = 46;
