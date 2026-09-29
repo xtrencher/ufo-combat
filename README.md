@@ -59,6 +59,8 @@ mode, your position, inventory and health.
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
 | Pick the targeted block (Creative) | Middle click |
 | Pause menu | `Esc` (also steps back out of any menu screen) |
+| Board / leave a vehicle (Mods on) | `F` |
+| Call your fighter jet (Mods on) | `J` |
 | Hide the HUD / debug info / camera view | `F1` / `F3` / `F5` |
 
 Pressing both mouse buttons together never mines, places or fires: a single
@@ -313,6 +315,27 @@ full detail; Auto uses the preset's), **far terrain (LOD) quality**,
 10). The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
+
+## Settings reference
+
+Settings (main menu or pause menu) are grouped in tabs; each tab has a
+**Reset to defaults** button for just that group, and everything is saved
+in the browser.
+
+| Tab | Settings (default) |
+| --- | --- |
+| Graphics | Render distance 2-100 chunks (10), graphics preset Low / **Medium** / High / Ultra with individual options, show FPS (on) |
+| Performance | One-click presets Potato / Balanced / Beautiful / Max; full-detail distance (Auto), far terrain quality (Medium), resolution scale 50-100% (100%), effects detail (High) |
+| Controls | Field of view 50-110 (75), mouse sensitivity (1x), invert Y (off), binocular zoom 2-12x (6x) |
+| Audio | Master, blocks and footsteps, weapons and explosions, creatures, player, menus |
+| Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, creatures spawn (on), time of day and lock, stats on the HUD (off) |
+| Weapons | Grenade and bazooka blast size (1x), laser blaster color Red / Green / Blue (Red); airstrike: meteors per strike 1-40 (7), spread 0-80 (22), delay 1-20 s (5 s), fall angle 0-70 degrees (35), fall speed 30-250 (95), meteor blast size (1x); nuke size 12-48 (28), nuke effects intensity Low / Medium / **High** |
+| Mobs | Zombie spawn rate Off to APOCALYPSE (1x), max zombies 0-400 (8), zombie health and damage 0.25-5x (1x), daylight zombies (off) |
+| UFOs | UFO activity Off to UFO APOCALYPSE (Normal); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
+| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), jet flight assist (on), jet arrives airborne (off), jet top speed 288-1152 km/h (576), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
+
+Heavy values show a short performance note next to the slider (for example
+hundreds of zombies, or a long full-detail distance).
 
 ## The world
 

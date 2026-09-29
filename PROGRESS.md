@@ -896,25 +896,25 @@ UFO PART 2 COMPLETE
 
 ## UFO Part 3 checklist
 ### 3.1 Fighter jet
-- [ ] F-22-style stealth jet model (angular, twin tails, twin engines with afterburner glow), procedural
-- [ ] Call in a jet (hotbar item / key); spawn on ground or airborne (setting)
-- [ ] Exiting in the air ejects with a parachute
-- [ ] Flight physics: throttle/thrust, lift, drag, gravity, stall, afterburner, pitch/roll/yaw; cannot hover
-- [ ] Intuitive mouse + keyboard controls; optional flight-assist mode
-- [ ] Crashing into terrain destroys the jet and kills the player unless ejected; jet health; can be shot down by UFOs
-- [ ] Views: third-person chase + cockpit; HUD: speed, altitude, throttle, heading, weapon, lock indicator, health, incoming-attack warning
-- [ ] Settings: max speed, acceleration, turn rate, stall speed, flight assist
+- [x] F-22-style stealth jet model (angular, twin tails, twin engines with afterburner glow), procedural
+- [x] Call in a jet (hotbar item / key); spawn on ground or airborne (setting)
+- [x] Exiting in the air ejects with a parachute
+- [x] Flight physics: throttle/thrust, lift, drag, gravity, stall, afterburner, pitch/roll/yaw; cannot hover
+- [x] Intuitive mouse + keyboard controls; optional flight-assist mode
+- [x] Crashing into terrain destroys the jet and kills the player unless ejected; jet health; can be shot down by UFOs
+- [x] Views: third-person chase + cockpit; HUD: speed, altitude, throttle, heading, weapon, lock indicator, health, incoming-attack warning
+- [x] Settings: max speed, acceleration, turn rate, stall speed, flight assist
 ### 3.2 Jet weapons
-- [ ] Autocannon: rapid fire with tracers
-- [ ] Guided missiles: lock onto UFOs/mobs (lock box, tone, delay while in front), tracking missile with smoke trail
-- [ ] Nuke: white flash, shockwave, rising mushroom cloud, huge crater, long-distance sound; batched edits, spread rebuilds, falling-block cap; settings for size and effect intensity
+- [x] Autocannon: rapid fire with tracers
+- [x] Guided missiles: lock onto UFOs/mobs (lock box, tone, delay while in front), tracking missile with smoke trail
+- [x] Nuke: white flash, shockwave, rising mushroom cloud, huge crater, long-distance sound; batched edits, spread rebuilds, falling-block cap; settings for size and effect intensity
 ### 3.3 End-to-end scenario
-- [ ] Jet → spot UFO → chase/dodge → lock → missile hit → UFO crash-lands → eject with parachute → land → fight aliens → board crashed UFO → fly away passing other UFOs peacefully
-- [ ] Automated test covering as much of it as possible
+- [x] Jet → spot UFO → chase/dodge → lock → missile hit → UFO crash-lands → eject with parachute → land → fight aliens → board crashed UFO → fly away passing other UFOs peacefully
+- [x] Automated test covering as much of it as possible
 ### 3.4 Settings and stats
-- [ ] Settings grouped (Vehicles, UFOs, Weapons, Mobs, Graphics, Performance) with per-group "reset to defaults", persisted
-- [ ] Stats (world + total): UFOs shot down, play time, aliens killed, zombies killed, deaths, abductions survived; persisted
-- [ ] Optional small HUD stats overlay (UFOs shot down + play time), off by default; full Stats screen in the pause menu
+- [x] Settings grouped (Vehicles, UFOs, Weapons, Mobs, Graphics, Performance) with per-group "reset to defaults", persisted
+- [x] Stats (world + total): UFOs shot down, play time, aliens killed, zombies killed, deaths, abductions survived; persisted
+- [x] Optional small HUD stats overlay (UFOs shot down + play time), off by default; full Stats screen in the pause menu
 ### Finish
 - [ ] Full test suite run for Part 3, README updated, "UFO PART 3 COMPLETE"
 
@@ -967,4 +967,68 @@ UFO PART 2 COMPLETE
 - **The nuke falls on a drogue parachute** (like a real retarded bomb) so the pilot has time to get clear; it has a 25 s cooldown. Its crater is carved in 10 slices over 10 frames, the blast zone is scorched (grass to dirt, leaves and plants gone) a bounded number of columns per frame, and the mushroom cloud is its own billboard pool whose density follows the intensity setting.
 - **Calling the jet** (J or the Jet Radio): it searches for a flat, clear strip (about 70 blocks long; thrust gets a 40% boost on the ground so that is enough to take off) near the player; if there's none it arrives airborne with the player already in the cockpit (the setting forces that). One player jet at a time. An unmanned jet (after ejecting) spools down and noses over until it crashes.
 - **UFO personalities vs the jet** (Part 2) use the jet's top speed setting, so changing it keeps "most slightly slower, some faster" true.
+- **Takeoff:** thrust gets a 40% boost while on the wheels (a game-length takeoff roll of ~40 blocks instead of hundreds), the call-in looks for a ~70 block strip, and with flight assist the jet rotates by itself once it has flying speed. Found in testing: the jet ran off a short strip before the pilot pulled up.
+- **Quick clicks count:** a click shorter than one frame (easy at low frame rates) still fires the jet's cannon/missile and the UFO cannon.
+- **Jet call cooldown** (8 s) only applies while your current jet still exists (it stops spamming replacements); after losing it you can call a new one at once.
+- **Wrecks can't be destroyed before they're boarded:** in the full scenario, blaster shots at the aliens standing around the wreck blew it up, leaving no ride home.
+- **In a vehicle** the hotbar and hearts are hidden (the vehicle panel has its own health bar; damage goes to the vehicle).
 - **First-time hints:** a handful of one-line tips appear at the moment they're useful (entering a new world, first UFO nearby, first aliens, first time in each vehicle).
+
+## UFO COMBAT: final summary
+
+**What was built** (on top of the existing voxel game, whose terrain, biomes,
+lighting, water, mobs and graphics presets are unchanged):
+
+- **Part 1:** rebrand to UFO COMBAT (new storage prefix `ufocombat_v1_`, so
+  old Voxelands saves are untouched); a new main menu with an animated
+  flyover and a drifting UFO, Play/Continue, New World with a seed, and
+  Settings / Mods / Controls screens; Medium default graphics; a **Mods**
+  master switch (off = the vanilla game, safely switchable mid-game);
+  bug fixes (sniper scope black screen, weapons blocking each other during
+  an airstrike, stray water blocks, air pockets around seagrass and kelp);
+  a meteor airstrike with settings; zombie settings up to an apocalypse
+  (instanced far crowds, lazy far AI); the laser blaster; performance
+  settings and one-click presets; binoculars on both mouse buttons.
+- **Part 2:** a shared vehicle framework; enemy UFOs in 10 designs and 4
+  sizes up to motherships, with detection, abductions, escapes, tricks,
+  reactions, personalities, lasers and an activity slider up to UFO
+  APOCALYPSE; shooting UFOs down (burning fall, crater, boardable wreck,
+  armed aliens); the pilotable UFO (no inertia, huge speed range, ghost
+  mode, tractor beam, laser cannon, chase camera, HUD).
+- **Part 3:** the F-22 style jet (procedural model, call-in on a strip or
+  airborne, real flight model with stall, flight assist, eject with a
+  parachute, crashes, chase and cockpit views, full HUD with warnings);
+  autocannon, lock-on guided missiles and a nuke; the whole jet-to-UFO
+  scenario playable and tested end to end; grouped settings with per-group
+  reset; world and all-time stats, an optional HUD overlay and a Stats
+  screen.
+
+## How to test in 10 minutes
+
+1. Open the game (`start.sh` / `start.bat`, or GitHub Pages). The main menu
+   shows the UFO COMBAT logo over a flyover with a UFO. Click **Play**
+   (Settings > Performance has Potato/Balanced presets for slow machines).
+2. **Weapons (1-8):** fire the pistol, throw a grenade, fire the bazooka, the
+   machine gun and the sniper (right click scope). Slot 5 marks an airstrike
+   (meteors arrive after 5 s). Slot 7 is the laser blaster. Hold **both**
+   mouse buttons for binoculars.
+3. **UFOs:** in Survival, Esc > Settings > UFOs, set UFO activity to
+   *Invasion* or *UFO APOCALYPSE* (they are busiest at night; in Creative,
+   Esc > Mods > "Summon an enemy UFO" drops one in right away). One will
+   fly over and try to beam you up: walk out of the light to escape. Shoot it
+   with anything; when it goes down it crash-lands and aliens climb out.
+4. Walk to the wreck and press **F** to fly it: WASD/Space/Shift, the wheel
+   sets speed, left click cannon, hold right click to beam up creatures.
+   Press **F** high up to jump out with a parachute.
+5. Press **J**: your jet lands on a strip nearby (or arrives in the air).
+   Press **F** by it, hold **W** and **Shift** to take off (assist rotates
+   for you), steer with the mouse. Keep a UFO in front of the nose until
+   **LOCK**, then right click for a missile. **B** drops the nuke: fly
+   away and look back. **F** in the air ejects.
+6. Esc > **Stats** shows UFOs shot down, play time and more; Settings >
+   Gameplay puts a small overlay on the HUD.
+7. Esc > **Mods** > switch Mods off: the game is vanilla again (weapons
+   stashed, no UFOs or vehicles); switch on and it all comes back.
+
+Automated: `cd tools && npm install && npm test` (unit tests, the UFO
+feature suite `ufo-tests.mjs`, then the long smoke suite).
