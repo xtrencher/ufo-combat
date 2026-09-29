@@ -93,6 +93,10 @@ export class WeaponSystem {
     this._blasterFiring = false;
     this.blasterColor = "red";
     this.enabled = true; // false with mods off: every weapon is inert
+    // How far you can see (blocks; set by the game). Every long-range weapon
+    // reaches at least as far as what is visible, so a UFO you can see is one
+    // you can hit.
+    this.viewRange = 160;
     // Extra things bullets, rockets and grenades can hit (UFOs, vehicles):
     // { raycast(origin, dir, maxDist) -> { distance, hit(damage, dir, point) }, sphereHit(p, r) }.
     this.targets = [];
@@ -148,6 +152,11 @@ export class WeaponSystem {
     this._laserDot.visible = false;
     this._laserDot.layers.set(LAYER_FX);
     scene.add(this._laserDot);
+  }
+
+  // A weapon's range: at least `base`, and a share of the visible distance.
+  _range(base, share) {
+    return Math.min(2400, Math.max(base, this.viewRange * share));
   }
 
   // 0-1 while a throw is being drawn back.
@@ -242,16 +251,17 @@ export class WeaponSystem {
     const eye = p.getEyePosition();
     const dir = p.getForwardVector();
     this.shots++;
-    const blockHit = this.world.raycast(eye, dir, SNIPER_RANGE, { solidOnly: true });
-    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : SNIPER_RANGE);
+    const range = this._range(SNIPER_RANGE, 1.2);
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
     const muzzle = this._handPoint(0.9, 0.26, 0.14);
     this.effects.muzzleFlash(muzzle, 1.8);
     this.held.fire(1.6);
     p.kick(0.07);
     this.audio.playSniperShot ? this.audio.playSniperShot() : this.audio.playGunshot();
-    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : SNIPER_RANGE, SNIPER_DAMAGE, muzzle)) return { type: "target" };
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, SNIPER_DAMAGE, muzzle)) return { type: "target" };
     const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
-    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : SNIPER_RANGE;
+    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : range;
     const endPoint = eye.clone().addScaledVector(dir, dist);
     this._spawnTracer(muzzle, endPoint);
     if (isMob) {
@@ -284,16 +294,17 @@ export class WeaponSystem {
     dir.z += (Math.random() - 0.5) * spread;
     dir.normalize();
     this.shots++;
-    const blockHit = this.world.raycast(eye, dir, MACHINEGUN_RANGE, { solidOnly: true });
-    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : MACHINEGUN_RANGE);
+    const range = this._range(MACHINEGUN_RANGE, 0.55);
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
     const muzzle = this._handPoint(0.7, 0.3, 0.16);
     this.effects.muzzleFlash(muzzle, 0.85);
     this.held.fire(0.55);
     p.kick(0.016 + this._mgHeat * 0.022);
     this.audio.playMachineGun ? this.audio.playMachineGun() : this.audio.playGunshot();
-    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : MACHINEGUN_RANGE, MACHINEGUN_DAMAGE, muzzle)) return;
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, MACHINEGUN_DAMAGE, muzzle)) return;
     const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
-    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : MACHINEGUN_RANGE;
+    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : range;
     const endPoint = eye.clone().addScaledVector(dir, dist);
     this._spawnTracer(muzzle, endPoint);
     if (isMob) {
@@ -316,7 +327,7 @@ export class WeaponSystem {
   // Locks the airstrike target where the laser currently points; the meteor
   // shower lands there (and around it) after the delay set in the settings.
   fireAirstrike() {
-    const target = this._aimPoint(AIRSTRIKE_AIM_RANGE);
+    const target = this._aimPoint(this._range(AIRSTRIKE_AIM_RANGE, 1.1));
     this.airstrike.call(target);
     this.held.fire(0.3);
     this.audio.playLockOn ? this.audio.playLockOn() : this.audio.playThrow();
@@ -331,7 +342,7 @@ export class WeaponSystem {
     const p = this.player;
     const muzzle = this._handPoint(0.75, 0.26, 0.15);
     // Aim from the muzzle at whatever is under the crosshair.
-    const target = this._aimPoint(BLASTER_RANGE);
+    const target = this._aimPoint(this._range(BLASTER_RANGE, 0.9));
     const dir = target.sub(muzzle);
     if (dir.lengthSq() < 0.5) dir.copy(p.getForwardVector());
     dir.normalize();
@@ -341,7 +352,7 @@ export class WeaponSystem {
     this.held.fire(0.6);
     p.kick(0.02);
     this.effects.muzzleFlash(muzzle, 0.8);
-    return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED, damage: BLASTER_DAMAGE, owner: "player", source: p, range: BLASTER_RANGE });
+    return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED * (this.viewRange > 300 ? 1.6 : 1), damage: BLASTER_DAMAGE, owner: "player", source: p, range: this._range(BLASTER_RANGE, 0.9) });
   }
 
   // The nearest extra target (UFO, vehicle) along a ray, or null.
@@ -403,7 +414,7 @@ export class WeaponSystem {
     this._laserDot.visible = active;
     if (!active) return;
     const origin = this._handPoint(0.5, 0.24, 0.15);
-    const target = this._aimPoint(AIRSTRIKE_AIM_RANGE);
+    const target = this._aimPoint(this._range(AIRSTRIKE_AIM_RANGE, 1.1));
     const pos = this._laser.geometry.attributes.position;
     pos.setXYZ(0, origin.x, origin.y, origin.z);
     pos.setXYZ(1, target.x, target.y, target.z);
@@ -531,14 +542,15 @@ export class WeaponSystem {
     dir.z += (Math.random() - 0.5) * 0.004;
     dir.normalize();
     this.shots++;
-    const blockHit = this.world.raycast(eye, dir, PISTOL_RANGE, { solidOnly: true });
-    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : PISTOL_RANGE);
+    const range = this._range(PISTOL_RANGE, 0.6);
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
     const muzzle = this._handPoint(0.7, 0.26, 0.17);
     this.effects.muzzleFlash(muzzle, 1);
     this.held.fire(1);
     p.kick(0.035);
     this.audio.playGunshot();
-    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : PISTOL_RANGE, PISTOL_DAMAGE, null)) return { type: "target" };
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, PISTOL_DAMAGE, null)) return { type: "target" };
     if (mobHit) {
       const hitPoint = eye.clone().addScaledVector(dir, mobHit.distance);
       this.mobs.shoot(mobHit.mob, PISTOL_DAMAGE, dir, 3.5);

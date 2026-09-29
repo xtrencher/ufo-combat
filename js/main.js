@@ -131,6 +131,9 @@ function clampRenderDistance(value) {
 }
 
 let renderDistance = clampRenderDistance(settings.renderDistance ?? DEFAULT_RENDER_DISTANCE);
+// The distance actually drawn (chunks): the setting, boosted while flying a
+// jet or UFO high above the ground (see updateAltitudeView).
+let viewRD = renderDistance;
 // ?graphics=low|medium|high|ultra picks the graphics preset (and keeps it),
 // e.g. to get going again on a computer that struggles with the default.
 // Like picking a preset in the menu, it clears individual graphics options.
@@ -169,12 +172,12 @@ camera.layers.enableAll(); // world, water and effects (postfx.js splits them in
 // Fog ends at the render distance; the far plane reaches past it (and past
 // the sky dome) so distant terrain isn't clipped before it has faded out.
 function updateViewDistance() {
-  const end = (renderDistance - 0.3) * 16;
+  const end = (viewRD - 0.3) * 16;
   const start = end * 0.72;
   worldUniforms.uFog.value.set(start, end, 0.0024, 0.0);
   scene.fog.near = start;
   scene.fog.far = end;
-  camera.far = Math.max(1000, renderDistance * 16 * 1.3 + 100);
+  camera.far = Math.max(1000, viewRD * 16 * 1.3 + 100);
   camera.updateProjectionMatrix();
 }
 updateViewDistance();
@@ -761,7 +764,7 @@ function creativeSpawnUfo(design) {
   if (!creativeToolCheck()) return;
   const radius = Number(document.getElementById("spawn-ufo-size").value) || 7;
   const pos = inFront(radius + 5, radius * 0.5 + 2);
-  const v = vehicles.create("ufo", { design, radius, pos: [pos.x, pos.y, pos.z], yaw: player.yaw });
+  const v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [pos.x, pos.y, pos.z], yaw: player.yaw });
   if (v) toast(`${UFO_DESIGN_NAMES[design]} ready: walk up to it and press F`, 3);
   screens.closeAll();
   requestLock();
@@ -1196,10 +1199,11 @@ function describePreset(p) {
 
 function setRenderDistance(value) {
   renderDistance = clampRenderDistance(value);
+  viewRD = renderDistance;
   ui.renderDistanceInput.value = String(renderDistance);
   ui.renderDistanceValueEl.textContent = String(renderDistance);
   updateViewDistance();
-  lod.configure({ renderDistance });
+  lod.configure({ renderDistance: viewRD });
   settings.renderDistance = renderDistance;
   saveSettings(settings);
 }
@@ -1632,7 +1636,7 @@ function updateDebug(dt, frameTime) {
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
     `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
-    `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}`,
+    `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
     `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
     `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
     `Draw calls: ${info.render.calls}   Triangles: ${info.render.triangles}   Geometries: ${info.memory.geometries}   Textures: ${info.memory.textures}`,
@@ -1903,6 +1907,7 @@ window.__ufo = window.__voxelands = {
   get renderDistance() {
     return renderDistance;
   },
+  debugViewRD: () => viewRD,
   get deathCause() {
     return deathCause;
   },
@@ -1984,6 +1989,33 @@ hud.hitMarker = () => {
 };
 screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById("stats-table"));
 
+// Altitude-aware view distance: flying a jet or UFO high above the ground you
+// can (and want to) see much farther, so the far terrain (cheap, simplified
+// tiles beyond the detail area) reaches out to 2-3x the setting, growing with
+// height above the ground and capped per graphics preset. It changes in steps
+// of two chunks, at most twice a second, so it never re-plans every frame.
+const ALT_VIEW_MAX = { low: 1.6, medium: 2.2, high: 2.9, ultra: 3.4 };
+let altViewT = 0;
+function updateAltitudeView(dt) {
+  altViewT -= dt;
+  if (altViewT > 0) return;
+  altViewT = 0.5;
+  let target = renderDistance;
+  const v = vehicles.active;
+  if (v && (v.type === "jet" || v.type === "ufo")) {
+    const ground = Math.max(world.heightAt(Math.floor(v.pos.x), Math.floor(v.pos.z)), SEA_LEVEL);
+    const t = THREE.MathUtils.clamp((v.pos.y - ground - 20) / 140, 0, 1);
+    const boost = 1 + ((ALT_VIEW_MAX[graphicsPreset] ?? 2.2) - 1) * t;
+    target = Math.min(MAX_RENDER_DISTANCE, Math.round(renderDistance * boost));
+  }
+  if (target === viewRD) return;
+  const next = viewRD + THREE.MathUtils.clamp(target - viewRD, -2, 2);
+  if (Math.abs(next - viewRD) < 1) return;
+  viewRD = next;
+  updateViewDistance();
+  lod.configure({ renderDistance: viewRD });
+}
+
 // ---------- Main loop ----------
 const clock = new THREE.Clock();
 const MAX_DT = 0.05;
@@ -2006,7 +2038,9 @@ function animate() {
     vehicles.update(dt);
     updateJetWatch(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
-    ufos.viewDistance = renderDistance * 16;
+    updateAltitudeView(dt);
+    ufos.viewDistance = viewRD * 16;
+    weapons.viewRange = viewRD * 16;
     ufos.update(dt);
     nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition());
     effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());

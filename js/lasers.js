@@ -44,6 +44,9 @@ export class LaserBolts {
     this.providers = [];
     this.listener = null; // () => Vector3: where the player's ears are (sound)
     this.fired = 0; // stats / tests
+    // Flares: hot decoys that pull homing bolts (a UFO's seeking plasma) away
+    // from a vehicle. { pos, vel, life } (moved and aged here, drawn by the owner).
+    this.decoys = [];
 
     // A capsule-ish bolt along +Z, unit length and radius.
     const coreGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1).rotateX(Math.PI / 2);
@@ -68,6 +71,59 @@ export class LaserBolts {
 
   addProvider(provider) {
     this.providers.push(provider);
+  }
+
+  // A flare (or anything hot enough to fool a seeker) that lasts `life` seconds.
+  addDecoy(pos, vel, life = 6) {
+    const d = { pos: pos.clone(), vel: vel.clone(), life, maxLife: life };
+    this.decoys.push(d);
+    if (this.decoys.length > 40) this.decoys.shift();
+    return d;
+  }
+
+  // Steers a homing bolt toward its target, or toward a flare that is closer
+  // to it than the target's own heat; a bolt that reaches a flare is spent,
+  // sometimes turning back on whatever fired it.
+  _home(b, dt) {
+    const h = b.homing;
+    h.life -= dt;
+    if (h.life <= 0) {
+      b.homing = null;
+      return;
+    }
+    if (!h.returned) {
+      for (const d of this.decoys) {
+        if (d.life <= 0) continue;
+        const dd = d.pos.distanceTo(b.pos);
+        if (dd < 3.5 + b.radius * 3) {
+          // Decoyed.
+          this.effects.glow.spawn({ x: b.pos.x, y: b.pos.y, z: b.pos.z, life: 0.3, size0: 2.5, size1: 0.6, color0: b.color, alpha: 0.9 });
+          if (b.source && b.source.pos && Math.random() < 0.4) {
+            // Back at the shooter.
+            b.homing = { target: b.source, turn: 3.5, life: 5, returned: true };
+            b.friendlyFire = true;
+            b.owner = "decoyed";
+            b.source = null;
+            b.speed = Math.max(b.speed, 90);
+          } else {
+            b.dead = true;
+          }
+          return;
+        }
+        // Flares out-shine the target when they're near the bolt.
+        if (dd < 140 && (!h.decoy || dd < h.decoy.pos.distanceTo(b.pos))) h.decoy = d;
+      }
+    }
+    const t = h.decoy && h.decoy.life > 0 ? h.decoy : h.target;
+    const tp = t?.pos;
+    if (!tp) return;
+    _p.copy(tp);
+    const tv = t.vel;
+    const dist = b.pos.distanceTo(tp);
+    if (tv) _p.addScaledVector(tv, Math.min(1.5, dist / Math.max(20, b.speed)) * 0.8);
+    _s.copy(_p).sub(b.pos).normalize();
+    const ang = b.dir.angleTo(_s);
+    if (ang > 1e-4) b.dir.lerp(_s, Math.min(1, (h.turn * dt) / ang)).normalize();
   }
 
   // Fires a bolt. opts: from (Vector3), dir (unit Vector3), color (Color,
@@ -139,10 +195,20 @@ export class LaserBolts {
   }
 
   update(dt) {
+    for (let i = this.decoys.length - 1; i >= 0; i--) {
+      const d = this.decoys[i];
+      d.life -= dt;
+      d.vel.y -= 6 * dt;
+      d.vel.multiplyScalar(Math.exp(-0.4 * dt));
+      d.pos.addScaledVector(d.vel, dt);
+      if (d.life <= 0) this.decoys.splice(i, 1);
+    }
     const list = this.bolts;
     let n = 0;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
+      if (b.homing) this._home(b, dt);
+      if (b.dead) continue;
       const step = b.speed * dt;
       const hit = this._cast(b, step);
       if (hit) {
@@ -151,7 +217,7 @@ export class LaserBolts {
       }
       b.pos.addScaledVector(b.dir, step);
       b.traveled += step;
-      if (b.traveled > b.range || b.pos.y < -20 || b.pos.y > 400) continue;
+      if (b.traveled > b.range || b.pos.y < -20 || b.pos.y > 900) continue;
       list[n++] = b;
     }
     list.length = n;
@@ -181,6 +247,7 @@ export class LaserBolts {
   // Removes every bolt (e.g. mods switched off).
   clear() {
     this.bolts.length = 0;
+    this.decoys.length = 0;
     this.core.count = 0;
     this.halo.count = 0;
   }

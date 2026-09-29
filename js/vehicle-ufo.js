@@ -33,19 +33,24 @@ const _w = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 function sizeName(radius) {
-  return radius < 5 ? "small" : radius < 9 ? "medium" : radius < 20 ? "large" : "mothership";
+  return radius < 5 ? "small" : radius < 9 ? "medium" : radius < 20 ? "large" : radius < 50 ? "mothership" : "giant";
 }
 
 export class PilotUfo extends Vehicle {
-  // data: { design, radius, pos, yaw, health, crashed }
+  // data: { spec | design, radius, pos, yaw, health, crashed, wreck, tilt }
   constructor(manager, data = {}) {
-    const radius = Math.max(2.5, Math.min(45, Number(data.radius) || 5));
+    const radius = Math.max(2.5, Math.min(80, Number(data.radius) || 5));
     super(manager, { type: "ufo", name: "UFO", radius, maxHealth: Math.round(120 + radius * 40) });
-    this.design = data.design || "saucer";
+    this.spec = data.spec && data.spec.design ? { design: data.spec.design, seed: data.spec.seed | 0, glow: !!data.spec.glow } : { design: data.design || "saucer", seed: Number.isFinite(data.seed) ? data.seed : 0, glow: data.glow ?? !String(data.design || "").includes("dark") };
+    this.design = this.spec.design;
     this.name = `${UFO_DESIGN_NAMES[this.design] || "UFO"} (${sizeName(radius)})`;
-    this.model = createUfoModel(this.design, radius);
+    this.model = createUfoModel(this.spec, radius);
     this.root.add(this.model.root);
-    this.info = designInfo(this.design);
+    this.info = designInfo(this.spec);
+    // A wreck that blew up is burnt out for good: it can't be boarded.
+    this.wreck = !!data.wreck;
+    this.unusable = this.wreck;
+    if (this.wreck) this.model.setCharred(true);
     this.cameraModes = ["chase", "far", "belly"];
     if (Array.isArray(data.pos)) this.pos.fromArray(data.pos);
     else if (data.pos) this.pos.copy(data.pos);
@@ -66,7 +71,7 @@ export class PilotUfo extends Vehicle {
     this.lifted = []; // blocks rising in the beam: { mesh, pos, id }
     this.abducted = 0;
     this._aim = new THREE.Vector3();
-    this.keep = true; // the player's ship is never cleaned up as clutter
+    this.keep = !this.wreck; // the player's ship is never cleaned up as clutter (a burnt-out wreck is)
     this._place();
   }
 
@@ -99,8 +104,9 @@ export class PilotUfo extends Vehicle {
 
   onEnter() {
     if (this.crashed) {
-      // Lifting out of the crater.
+      // Lifting out of the crater; the lights come back on.
       this.crashed = false;
+      this.model.setDead(false);
       this.boardedWreck = true;
       // Rise straight out of the crater first (clear of its rim).
       this.liftOff = this.radius * 0.5 + 5;
@@ -263,7 +269,8 @@ export class PilotUfo extends Vehicle {
     }
     this._place();
     const night = this.manager.night ?? 0;
-    m.lightsOn = this.crashed ? (Math.sin(this.time * 9) > 0.6 ? 0.4 : 0.05) : 1;
+    m.lightsOn = this.crashed ? 0 : 1; // a wreck never glows: every light is off
+    if (this.crashed) m.setDead(true);
     m.animate(this.time, { night, damage: 1 - this.health / this.maxHealth, beam: this.beam.strength, speed: this.vel.length() });
   }
 
@@ -424,7 +431,7 @@ export class PilotUfo extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), design: this.design, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
+    return { ...super.serialize(), design: this.design, spec: this.spec, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
   }
 
   dispose() {

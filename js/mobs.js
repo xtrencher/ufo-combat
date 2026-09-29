@@ -691,7 +691,7 @@ export class MobManager {
 
     let jump = false;
     if (speed > 0) {
-      if (dist > FAR_AI_DISTANCE) {
+      if (dist > FAR_AI_DISTANCE && !m.aggro) {
         // Simplified AI far from the player: skip the per-step obstacle
         // probing (cheap straight-line movement; physics still stops it at
         // walls, it just won't detour or step up on its own out there).

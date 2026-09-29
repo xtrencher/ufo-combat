@@ -883,7 +883,7 @@ console.log("\nExplosion falloff (falloff.js)");
 console.log("\nDistant terrain (lod-mesher.js)");
 {
   const { LodTerrain, buildLodTile, makeLodPalette, tileSpan, LOD_CELLS, LOD_WATER_TOP, LOD_KIND } = await import("../js/lod-mesher.js");
-  const { BLOCK } = await import("../js/blocks.js");
+  const { BLOCK, IS_LOG, IS_LEAVES } = await import("../js/blocks.js");
   const { SEA_LEVEL } = await import("../js/constants.js");
   const flat = new Float32Array(256 * 3).fill(0.4);
   const pal = makeLodPalette({ top: flat, side: flat });
@@ -923,8 +923,12 @@ console.log("\nDistant terrain (lod-mesher.js)");
           const cz = j * step + step / 2;
           const hits = tops.filter((f) => f.x0 < cx && f.x1 > cx && f.z0 < cz && f.z1 > cz);
           assert.equal(hits.length, 1, `cell ${i},${j} at level ${level}: ${hits.length} tops`);
+          const s = {};
+          lt.sample(m.x0 + cx, m.z0 + cz, s, level >= 2 ? (step >> 1) * 0.7 : 0);
+          assert.ok(Math.abs(hits[0].y0 - s.top) < 1e-4, `cell ${i},${j}: top ${hits[0].y0}, ground ${s.top}`);
+          // Never below the height at the cell's centre (peaks are kept), and never far above it.
           const h = lt.terrain.heightAt(m.x0 + cx, m.z0 + cz);
-          assert.ok(Math.abs(hits[0].y0 - (h < SEA_LEVEL ? LOD_WATER_TOP : h + 1)) < 1e-4, `cell ${i},${j}: top ${hits[0].y0}, ground ${h}`);
+          assert.ok(s.top >= (h < SEA_LEVEL ? LOD_WATER_TOP : h + 1) - 1e-4 && s.top <= Math.max(LOD_WATER_TOP, h + 1 + step * 3) + 1e-4, `cell ${i},${j}: top ${s.top} vs centre ${h}`);
         }
       }
       assert.equal(m.span, tileSpan(level));
@@ -942,7 +946,7 @@ console.log("\nDistant terrain (lod-mesher.js)");
         const row = [];
         for (let i = 0; i < N; i++) {
           const out = {};
-          lt.sample(m.x0 + i * step + step / 2, m.z0 + j * step + step / 2, out);
+          lt.sample(m.x0 + i * step + step / 2, m.z0 + j * step + step / 2, out, level >= 2 ? (step >> 1) * 0.7 : 0);
           row.push(out.top);
         }
         heights.push(row);
@@ -974,6 +978,46 @@ console.log("\nDistant terrain (lod-mesher.js)");
         for (const f of side) assert.ok(f.y0 <= lowest - step, "skirts reach below the tile's lowest surface");
       }
     }
+  });
+
+  await test("distant terrain and full-detail chunks agree: heights inside the world, same top blocks", () => {
+    const lt = new LodTerrain(seed);
+    const gen = lt.terrain;
+    let max = 0;
+    let mountains = 0;
+    for (let z = -3000; z < 3000; z += 47) for (let x = -3000; x < 3000; x += 53) {
+      const h = gen.heightAt(x, z);
+      max = Math.max(max, h);
+      if (h >= 50) mountains++;
+    }
+    assert.ok(max <= WORLD_HEIGHT - 2, `heights stay inside the world (max ${max})`);
+    assert.ok(mountains > 20, `there are mountains to compare (${mountains})`);
+    // Full chunks in mountain and lowland areas: the top natural block of every column is the
+    // one the distant terrain colours by (the same surface function), at the same height.
+    let checked = 0;
+    let bad = 0;
+    for (const [cx, cz] of [[-40, 30], [12, -55], [80, 80], [-100, -20], [3, 3], [60, -90], [-30, 110], [140, 20]]) {
+      const chunk = { cx, cz, blocks: new Uint8Array(16 * 16 * WORLD_HEIGHT) };
+      gen.generate(chunk);
+      for (let lz = 0; lz < 16; lz++) for (let lx = 0; lx < 16; lx++) {
+        const wx = cx * 16 + lx;
+        const wz = cz * 16 + lz;
+        const h = gen.heightAt(wx, wz);
+        if (h < SEA_LEVEL || gen.villages && gen.villages._villagesNear(wx, wz, wx, wz).length) continue;
+        const id = chunk.blocks[(h * 16 + lz) * 16 + lx];
+        const above = chunk.blocks[((h + 1) * 16 + lz) * 16 + lx];
+        if (id === 0 || above !== 0 && !(above >= 1 && false)) {
+          // A cave opened the surface, or a tree/plant stands here: skip.
+          if (id === 0 || IS_LOG[above] || IS_LEAVES[above]) continue;
+        }
+        const s = {};
+        lt.sample(wx, wz, s, 0);
+        checked++;
+        if (s.top !== h + 1 || s.id !== id) bad++;
+      }
+    }
+    assert.ok(checked > 800, `columns compared: ${checked}`);
+    assert.equal(bad, 0, `${bad} of ${checked} columns differ between the chunk and the distant terrain`);
   });
 
   await test("trees become canopy boxes on near levels and a grass tint far away", () => {
