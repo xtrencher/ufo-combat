@@ -322,6 +322,9 @@ export class EnemyJet extends Jet {
   }
 
   onDestroyed(cause) {
+    // A crash counts for the player only while it was hunting them (they
+    // outflew it); anything else not done by the player isn't theirs.
+    if (NOT_PLAYER.has(cause) && !(cause === "crash" && (this.hostile || this.provoked > 0))) this.downedByOther = true;
     super.onDestroyed(cause);
     this.manager.enemyJets?.onDown(this, cause);
   }

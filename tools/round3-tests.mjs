@@ -116,11 +116,12 @@ async function play() {
   if ((await v((g) => g.gameState)) === "playing") return;
   if ((await v((g) => g.gameState)) === "playing") return;
   // (After a respawn the game waits for the mouse, with no menu showing.)
-  if (!(await page.isVisible("#resume-btn")) && (await v((g) => g.gameState)) === "paused") {
+  for (let k = 0; k < 3 && !(await page.isVisible("#resume-btn")) && (await v((g) => g.gameState)) === "paused"; k++) {
     await page.mouse.click(480, 270);
-    await frames(3);
+    await frames(5);
     if ((await v((g) => g.gameState)) === "playing") return;
   }
+  if ((await v((g) => g.gameState)) === "paused" && !(await page.isVisible("#resume-btn"))) await page.evaluate(() => document.getElementById("pause-menu").classList.remove("hidden"));
   const btn = (await v((g) => g.gameState)) === "start" ? "#play-btn" : "#resume-btn";
   await page.click(btn, { timeout: 60000 });
   await page.waitForFunction(() => window.__ufo.gameState === "playing", null, { timeout: 30000 });
