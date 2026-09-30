@@ -392,7 +392,7 @@ async function respawnIfDead() {
   }
 }
 
-await check("UFOs: ten distinct designs in four sizes; durability scales with size; far ones drawn cheaply", async () => {
+await check("UFOs: eight distinct minimal designs in four sizes; durability scales with size; far ones drawn cheaply", async () => {
   await arena();
   const r = await v((g) => {
     const out = {};
@@ -401,7 +401,7 @@ await check("UFOs: ten distinct designs in four sizes; durability scales with si
       out[size] = { hp: u.maxHealth, r: u.radius };
     }
     const designs = new Set();
-    for (const d of ["saucer", "saucer_dark", "tictac", "sphere", "pyramid", "triangle", "cigar", "ring", "diamond", "cubesphere"]) {
+    for (const d of ["saucer", "saucer_disc", "saucer_domed", "tictac", "sphere", "torus", "cube", "cubering"]) {
       const u = g.ufos.spawn({ design: d, size: "small", pos: g.player.position.clone().add(new g.THREE.Vector3(0, 60, -400)) });
       designs.add(u.model.hull.geometry.uuid);
     }
@@ -410,10 +410,10 @@ await check("UFOs: ten distinct designs in four sizes; durability scales with si
     g.ufos.clear();
     return { out, designs: designs.size, far };
   });
-  assert(r.designs === 10, `distinct hulls: ${r.designs}`);
+  assert(r.designs === 8, `distinct hulls: ${r.designs}`);
   assert(r.out.small.hp < r.out.medium.hp && r.out.medium.hp < r.out.large.hp && r.out.large.hp < r.out.mothership.hp, `health by size ${JSON.stringify(r.out)}`);
   assert(r.out.mothership.r > 30, "motherships are huge");
-  assert(r.far >= 10, `far UFOs use the cheap model: ${r.far}`);
+  assert(r.far >= 8, `far UFOs use the cheap model: ${r.far}`);
 });
 
 await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fills the sky; more at night", async () => {
@@ -551,7 +551,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
   assert(r.sphere, "grenades and meteors hit UFOs (sphere test)");
   // A blaster bolt hits a UFO.
   const hit = await v((g) => {
-    const u = g.ufos.spawn({ size: "large", design: "cigar", pos: g.player.getEyePosition().add(new g.THREE.Vector3(0, 0, -25)) });
+    const u = g.ufos.spawn({ size: "large", design: "tictac", pos: g.player.getEyePosition().add(new g.THREE.Vector3(0, 0, -25)) });
     u.state = "trick";
     u.trick = "hover";
     u.timer = 999;
@@ -573,7 +573,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
 await check("shot down: the UFO falls burning, crash-lands (crater), leaves a boardable wreck, and armed aliens climb out", async () => {
   await arena();
   const r0 = await v((g) => {
-    const u = g.ufos.spawn({ size: "medium", design: "pyramid", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
+    const u = g.ufos.spawn({ size: "medium", design: "cube", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
     u.crashPlan = { exploded: false, crew: 4 }; // (the outcome is random in the game)
     window.__downs = g.stats.world.ufosDown;
     window.__boom = g.effects.explosionCount;

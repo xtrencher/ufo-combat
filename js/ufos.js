@@ -248,7 +248,7 @@ export class UfoManager {
   spawn(opts = {}) {
     const size = opts.size || pickWeighted(this._sizeWeights());
     const S = SIZES[size] || SIZES.small;
-    const spec = opts.spec || (opts.design ? { design: opts.design, seed: (Math.random() * 1e6) | 0, glow: opts.glow ?? !opts.design.includes("dark") } : randomUfoSpec(Math.random, { glow: opts.glow }));
+    const spec = opts.spec || randomUfoSpec(Math.random, { glow: opts.glow, design: opts.design });
     const design = spec.design;
     const radius = opts.radius || rand(S.r[0], S.r[1]);
     const model = createUfoModel(spec, radius, { castShadow: size !== "mothership" && size !== "giant" });
@@ -1786,13 +1786,13 @@ export class UfoManager {
       u.tilt.x += (THREE.MathUtils.clamp(localV.z / sp, -1, 1) * 0.35 - u.tilt.x) * Math.min(1, dt * 3);
       u.tilt.y += (THREE.MathUtils.clamp(-localV.x / sp, -1, 1) * 0.35 - u.tilt.y) * Math.min(1, dt * 3);
     }
-    const spinning = u.design === "tictac" || u.design === "cigar" || u.design === "triangle";
+    const spinning = u.design === "tictac";
     // Elongated designs point where they go instead of spinning.
     if (spinning && !u.falling && u.vel.lengthSq() > 1) {
       const heading = Math.atan2(-u.vel.x, -u.vel.z) + Math.PI / 2;
       u.yaw += Math.atan2(Math.sin(heading - u.yaw), Math.cos(heading - u.yaw)) * Math.min(1, dt * 3);
     }
-    m.body.rotation.set(u.tilt.x, u.design === "diamond" ? m.body.rotation.y : u.yaw, u.tilt.y, "YXZ");
+    m.body.rotation.set(u.tilt.x, u.yaw, u.tilt.y, "YXZ");
     // Growing in from a dot after appearing far away.
     const grow = u.age >= u.spawnFade ? 1 : 0.12 + 0.88 * (u.age / u.spawnFade) ** 1.5;
     m.body.scale.setScalar(u.radius * grow);

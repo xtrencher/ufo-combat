@@ -1382,7 +1382,7 @@ await check("the I key shows the vehicle info panel with stats and controls (jet
 
 // ================= Part 4: UFOs and aliens =================
 
-await check("UFO designs: classic saucers are the most common, with smooth, tall-dome, dark and glowing variants, spheres, and sizes up to football-field giants", async () => {
+await check("UFO designs: smooth saucers are the most common (lens, disc, domed), then spheres, tic-tacs, tori, cubes and cube-rings, sizes up to football-field giants", async () => {
   const r = await v(async () => {
     const { randomUfoSpec, UFO_DESIGN_NAMES, designInfo } = await import("./js/ufo-models.js");
     const { SIZES } = await import("./js/ufos.js");
@@ -1399,8 +1399,8 @@ await check("UFO designs: classic saucers are the most common, with smooth, tall
     return { counts, saucers, glow, dark, names: Object.keys(UFO_DESIGN_NAMES).length, giantR: SIZES.giant.r, sizes: Object.keys(SIZES) };
   });
   assert(r.saucers / 3000 > 0.5, `saucers are the most common: ${r.saucers / 3000}`);
-  for (const d of ["saucer", "saucer_tall", "saucer_smooth", "saucer_dark", "sphere", "orb", "tictac", "triangle"]) assert(r.counts[d] > 0, `design ${d} appears`);
-  assert(r.glow > 300 && r.dark > 300, `glowing and dark ones: ${r.glow}/${r.dark}`);
+  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"]) assert(r.counts[d] > 0, `design ${d} appears`);
+  assert(r.glow > 200 && r.dark > r.glow * 2, `a few glow faintly, most don't: ${r.glow}/${r.dark}`);
   assert(r.giantR[1] >= 60 && r.sizes.length >= 5, `up to football-field giants: radius ${r.giantR}`);
 });
 

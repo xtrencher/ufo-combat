@@ -14,7 +14,7 @@
 // camera (F5: chase / far / belly view).
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
-import { createUfoModel, designInfo, UFO_DESIGN_NAMES } from "./ufo-models.js";
+import { createUfoModel, designInfo, UFO_DESIGN_NAMES, normalizeUfoSpec } from "./ufo-models.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { LASER_COLORS } from "./lasers.js";
 import { BLOCK, BLOCK_INFO, IS_SOLID } from "./blocks.js";
@@ -50,7 +50,7 @@ export class PilotUfo extends Vehicle {
   constructor(manager, data = {}) {
     const radius = Math.max(2.5, Math.min(80, Number(data.radius) || 5));
     super(manager, { type: "ufo", name: "UFO", radius, maxHealth: Math.round(120 + radius * 40) });
-    this.spec = data.spec && data.spec.design ? { design: data.spec.design, seed: data.spec.seed | 0, glow: !!data.spec.glow } : { design: data.design || "saucer", seed: Number.isFinite(data.seed) ? data.seed : 0, glow: data.glow ?? !String(data.design || "").includes("dark") };
+    this.spec = normalizeUfoSpec(data.spec && data.spec.design ? { design: data.spec.design, seed: data.spec.seed | 0, glow: !!data.spec.glow } : { design: data.design || "saucer", seed: Number.isFinite(data.seed) ? data.seed : 0, glow: !!data.glow });
     this.design = this.spec.design;
     this.name = `${UFO_DESIGN_NAMES[this.design] || "UFO"} (${sizeName(radius)})`;
     this.model = createUfoModel(this.spec, radius);
@@ -67,6 +67,8 @@ export class PilotUfo extends Vehicle {
     this.camYaw = this.yaw;
     if (Number.isFinite(data.health)) this.health = Math.max(1, Math.min(this.maxHealth, data.health));
     this.crashed = !!data.crashed; // a wreck in its crater until boarded
+    // Shot down once: it never glows again, even when boarded and flown.
+    this.downed = !!data.downed || this.crashed || this.wreck;
     this.tilt = new THREE.Euler(data.tilt?.[0] ?? 0, 0, data.tilt?.[1] ?? 0);
     if (this.crashed && !data.tilt) this.tilt.set((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
     this.hitRadius = radius * 0.9;
@@ -291,14 +293,14 @@ export class PilotUfo extends Vehicle {
     }
     this._place();
     const night = this.manager.night ?? 0;
-    m.lightsOn = this.crashed ? 0 : 1; // a wreck never glows: every light is off
-    if (this.crashed) m.setDead(true);
+    m.lightsOn = this.downed ? 0 : 1; // a shot-down UFO never glows again
+    if (this.downed && !m.dead) m.setDead(true);
     m.animate(this.time, { night, damage: 1 - this.health / this.maxHealth, beam: this.beam.strength, speed: this.vel.length() });
   }
 
   _place() {
     this.root.position.copy(this.pos);
-    this.model.body.rotation.set(this.tilt.x, this.design === "diamond" ? this.model.body.rotation.y : this.yaw, this.tilt.z, "YXZ");
+    this.model.body.rotation.set(this.tilt.x, this.yaw, this.tilt.z, "YXZ");
     const l = this.manager.world.lightAt(this.pos.x, this.pos.y + 1, this.pos.z);
     this.model.light.sky = Math.max(l.sky, this.crashed ? 0 : 10);
     this.model.light.block = l.block;
@@ -773,7 +775,7 @@ export class PilotUfo extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), design: this.design, spec: this.spec, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
+    return { ...super.serialize(), design: this.design, spec: this.spec, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, downed: this.downed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
   }
 
   dispose() {

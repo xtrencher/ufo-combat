@@ -395,6 +395,69 @@ await check("UFO attack styles: rapid bursts, heavy bolts, spread fans, charged 
   for (const k of ["rapid", "heavy", "charged"]) assert(r[k].hurtAt > 0, `${k}: a standing player gets hit: ${j}`);
 });
 
+// ================= Part 2: UFO redesign =================
+
+await check("UFO redesign: minimal designs (saucers most common, spheres, tic-tacs, tori, cubes, cube-rings), no lights, varied finishes; shot down they never glow", async () => {
+  await play();
+  await skyArena();
+  const r = await v(async (g) => {
+    const { randomUfoSpec, UFO_DESIGNS, createUfoModel } = await import("./js/ufo-models.js");
+    const counts = {};
+    let glow = 0;
+    for (let i = 0; i < 4000; i++) {
+      const s = randomUfoSpec(Math.random);
+      counts[s.design] = (counts[s.design] || 0) + 1;
+      if (s.glow) glow++;
+    }
+    const finishes = new Set();
+    const noLights = [];
+    for (const d of UFO_DESIGNS) {
+      for (let seed = 0; seed < 12; seed++) {
+        const m = createUfoModel({ design: d, seed, glow: seed % 2 === 0 }, 5);
+        finishes.add(m.finish);
+        if (m.lights) noLights.push(d);
+        m.dispose();
+      }
+    }
+    // Spheres: gray-black and usually not glowing; tic-tacs: pale.
+    const sphereCol = [];
+    const tictacCol = [];
+    for (let seed = 0; seed < 12; seed++) {
+      const sm = createUfoModel({ design: "sphere", seed, glow: false }, 5);
+      const c = sm.hull.geometry.getAttribute("color");
+      sphereCol.push(Math.max(c.getX(0), c.getY(0), c.getZ(0)));
+      const tm = createUfoModel({ design: "tictac", seed, glow: false }, 5);
+      const c2 = tm.hull.geometry.getAttribute("color");
+      tictacCol.push(Math.min(c2.getX(0), c2.getY(0), c2.getZ(0)));
+    }
+    // Old saved designs still load (mapped onto the new ones).
+    const legacy = ["saucer_tall", "orb", "pyramid", "cigar", "ring", "cubesphere"].map((d) => createUfoModel({ design: d, seed: 3, glow: true }, 5).design);
+    // A glowing UFO shot down: its glow and halo are gone and stay gone.
+    const p = g.player.position;
+    const u = g.ufos.spawn({ design: "saucer", size: "small", glow: true, pos: { x: p.x, y: p.y + 30, z: p.z - 40 } });
+    u.state = "hover_test";
+    g.ufos.update(0.05);
+    const glowBefore = u.model.glows.some((x) => x.mesh.visible) && u.model.halo.visible;
+    g.ufos.damage(u, 1e6, true);
+    for (let i = 0; i < 20; i++) g.ufos.update(0.05);
+    const glowAfter = u.model.glows.some((x) => x.mesh.visible) || (u.model.halo.visible && u.model.halo.material.opacity > 0);
+    g.ufos.clear();
+    const total = 4000;
+    const saucers = Object.entries(counts).filter(([k]) => k.startsWith("saucer")).reduce((a, [, n]) => a + n, 0);
+    return { counts, saucers: saucers / total, glow: glow / total, finishes: [...finishes], noLights, sphereMax: Math.max(...sphereCol), tictacMin: Math.min(...tictacCol), legacy, glowBefore, glowAfter };
+  });
+  const j = JSON.stringify(r);
+  assert(r.saucers > 0.5, `smooth saucers are the most common: ${j}`);
+  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"]) assert(r.counts[d] > 0, `${d} appears: ${j}`);
+  assert(r.glow < 0.35, `most UFOs don't glow: ${j}`);
+  assert(r.noLights.length === 0, `no blinking lights on any design: ${j}`);
+  assert(["brushed", "glossy", "satin", "matte", "grain"].every((f) => r.finishes.includes(f)), `varied finishes: ${j}`);
+  assert(r.sphereMax < 0.06, `spheres are gray-black: ${j}`);
+  assert(r.tictacMin > 0.25, `tic-tacs are white or pale gray: ${j}`);
+  assert(r.legacy.every((d) => ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"].includes(d)), `old designs map onto new ones: ${j}`);
+  assert(r.glowBefore && !r.glowAfter, `a shot-down UFO never glows: ${j}`);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

@@ -1277,13 +1277,13 @@ Source of truth for this round. Items are ticked as they are finished; decisions
 - [x] 1.3 UFO attack variety by type (rapid bursts, slow heavy bolts, sweeping beams, spread shots, charged shots), own colors and sounds
 
 ## Part 2: UFO redesign
-- [ ] 2.1 Remove detailed many-light UFOs and the tall-cockpit saucer
-- [ ] 2.2 Smooth saucers: several clean variants (proportions, sizes, brushed / matte / glossy), most common
-- [ ] 2.3 Spheres: gray-black, non-glowing, subtle surface material
-- [ ] 2.4 Tic-tacs: white / pale gray capsules
-- [ ] 2.5 Torus: pure minimal ring
-- [ ] 2.6 Extra minimal shapes (smooth cube, cube-ring)
-- [ ] 2.7 Size/material variety; shot-down UFOs never glow
+- [x] 2.1 Remove detailed many-light UFOs and the tall-cockpit saucer
+- [x] 2.2 Smooth saucers: several clean variants (proportions, sizes, brushed / matte / glossy), most common
+- [x] 2.3 Spheres: gray-black, non-glowing, subtle surface material
+- [x] 2.4 Tic-tacs: white / pale gray capsules
+- [x] 2.5 Torus: pure minimal ring
+- [x] 2.6 Extra minimal shapes (smooth cube, cube-ring)
+- [x] 2.7 Size/material variety; shot-down UFOs never glow
 
 ## Part 3: UFO behavior
 - [ ] 3.1 Enemy UFO teleport dashes (random, often when shot at), streak along the path, no light effects
@@ -1319,4 +1319,5 @@ Source of truth for this round. Items are ticked as they are finished; decisions
 - Part 1.2 (done with Part 0, same code): releasing the missile lock before it is complete fires nothing ("Lock cancelled"), and the camera eases back. A quick tap no longer fires an unguided missile (the player asked for exactly this; the cannon covers unguided fire).
 - Part 1.1, why UFO shots "passed through": three causes. (a) The player's hitbox was a 0.7-wide box while the bolts are drawn with a halo up to ~1.4 blocks wide, so a bolt that visibly hit could pass beside the body; the box now grows by the bolt's glow. (b) Every hit gave the player half a second of grace ("only a stronger hit counts"), so the 2nd and 3rd shot of a burst did nothing; projectiles (UFO and alien shots) now always count in full (melee keeps its grace time). (c) Bolts were tested against where a moving target was at the end of the frame only: a jet moves several blocks a frame and slipped between steps; bolts are now tested in the target's frame of motion (swept sphere/box, `sweptSphere`/`sweptBox` in lasers.js). UFO aim now solves the real intercept (it used to under-lead a fast jet by tens of blocks) and scatters well under a block at the target: standing still gets you hit, moving out of the way (changing direction) is what avoids damage.
 - Part 1.3, attack styles by type: rapid (5-bolt bursts, cyan, chirps; tic-tacs, saucers), heavy (slow big orange ball that explodes, deep whump; spheres, cubes), spread (a 5-bolt fan, magenta, buzzing chord; saucers, rings), charged (a visible 1.3 s glow-up with a rising whine, then a very fast white-blue bolt with an electric crack; spheres, tic-tacs), sweep (a continuous red beam whose end runs along the ground through you in 1.5 s, scorching it, with a searing hum; rings, saucers), seeker (homing lime plasma vs vehicles). Small scouts never get heavy or seeker attacks. The colour now comes from the style (it used to come from the hull's look).
+- Part 2, UFO redesign: `ufo-models.js` rebuilt around eight clean designs: three smooth saucer families (lens, flat disc, domed: each seed gets its own proportions: thickness, curvature, rim, centre bulge) that together are ~55% of all UFOs, then spheres (14%), tic-tacs (14%), tori (8%), rounded cubes (5%) and square cube-rings (4%, my extra shape). No instanced lights, panels, portholes, antennas or cockpits anywhere. Realism comes from a new optional surface finish in the shared entity shader (`USE_SPEC`: sun/moon specular, a sky/ground reflection with Fresnel, lathe-turned brushed streaks, fine grain) with five finishes: brushed, glossy, satin, matte, grain (spheres). About a quarter glow faintly (a soft underside/sheen that is barely visible by day, a halo at night); a UFO that was shot down never glows again, also after it is boarded and flown (`downed` flag, saved). Old saved designs (tall-dome, orb, pyramid, cigar, ring, cube-in-sphere...) are mapped onto the new ones, so saved wrecks and UFOs still load.
 

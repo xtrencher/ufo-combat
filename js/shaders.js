@@ -1254,10 +1254,16 @@ varying vec2 vUv;
 #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
   varying vec3 vColor;
 #endif
+#ifdef USE_SPEC
+  varying vec3 vLocal;
+#endif
 #include <common>
 #include <shadowmap_pars_vertex>
 void main() {
   vec4 localPos = vec4(position, 1.0);
+  #ifdef USE_SPEC
+    vLocal = position;
+  #endif
   vec3 objectNormal = normal;
   #ifdef USE_INSTANCING
     localPos = instanceMatrix * localPos;
@@ -1306,6 +1312,26 @@ varying vec2 vUv;
 ${FRAGMENT_LIGHT_INCLUDES}
 ${WORLD_COMMON}
 ${POINT_LIGHTS}
+#ifdef USE_SPEC
+  // A surface finish (UFO hulls, the jet): specular light from the sun or
+  // moon, a sky/ground reflection that grows at grazing angles, a fine
+  // grain or lathe-turned "brushed" marks in object space.
+  uniform vec4 uSurf;   // specular strength, gloss exponent, reflection, grain
+  uniform float uBrush; // brushed-metal streaks (0-1)
+  varying vec3 vLocal;
+  float srfHash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  float srfNoise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(srfHash(i), srfHash(i + vec3(1, 0, 0)), f.x), mix(srfHash(i + vec3(0, 1, 0)), srfHash(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(srfHash(i + vec3(0, 0, 1)), srfHash(i + vec3(1, 0, 1)), f.x), mix(srfHash(i + vec3(0, 1, 1)), srfHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+  }
+#endif
 void main() {
   vec4 albedo = vec4(1.0);
   #ifdef USE_ARRAY_TEX
@@ -1326,7 +1352,32 @@ void main() {
   #if NUM_POINT_LIGHTS > 0
     light += pointLighting(N, -vViewPosition);
   #endif
+  #ifdef USE_SPEC
+    float grain = 0.0;
+    if (uSurf.w > 0.0) {
+      grain = (srfNoise(vLocal * 34.0) - 0.5) * 0.65 + (srfNoise(vLocal * 150.0) - 0.5) * 0.35;
+      albedo.rgb *= 1.0 + grain * uSurf.w;
+    }
+    float brush = 0.0;
+    if (uBrush > 0.0) brush = (srfNoise(vec3(length(vLocal.xz) * 520.0, vLocal.y * 3.0, 0.5)) - 0.5) * uBrush;
+  #endif
   vec3 color = albedo.rgb * light + uFlash;
+  #ifdef USE_SPEC
+  {
+    vec3 V = normalize(cameraPosition - vWorldPos);
+    vec3 H = normalize(uLightDir + V);
+    float nl = max(dot(N, uLightDir), 0.0);
+    float gloss = max(2.0, uSurf.y * (1.0 + brush * 1.2 + grain * uSurf.w * 0.6));
+    float spec = pow(max(dot(N, H), 0.0), gloss) * (gloss + 8.0) / 25.13 * nl;
+    float vis = sunVisibility(uLight.x, shadow);
+    vec3 tint = mix(vec3(1.0), albedo.rgb / max(0.05, max(albedo.r, max(albedo.g, albedo.b))), 0.3);
+    color += uLightColor * spec * uSurf.x * vis * (1.0 + brush * 2.0) * tint;
+    vec3 R = reflect(-V, N);
+    float fres = pow(1.0 - max(dot(N, V), 0.0), 5.0);
+    vec3 env = mix(uAmbientGround, uAmbientSky * 1.3, smoothstep(-0.25, 0.35, R.y)) * skyCurve(clamp(uLight.x, 0.0, 1.0));
+    color += env * uSurf.z * (0.06 + 0.94 * fres) * tint;
+  }
+  #endif
   if (uGlow > 0.0) {
     float lum = max(albedo.r, max(albedo.g, albedo.b));
     color = mix(color, albedo.rgb * 5.0, uGlow * smoothstep(0.55, 0.9, lum));
@@ -1340,7 +1391,9 @@ void main() {
 
 // kind: "array" (block faces from the texture array; needs an aLayer attribute),
 // "color" (vertex colors), or "map" (a regular 2D texture).
-export function createEntityMaterial(kind, texture = null, { transparent = false, side = THREE.FrontSide } = {}) {
+// finish: { spec, gloss, env, grain, brush } for a surface finish (see
+// USE_SPEC in the shader), or null.
+export function createEntityMaterial(kind, texture = null, { transparent = false, side = THREE.FrontSide, finish = null } = {}) {
   const defines = {};
   const uniforms = litUniforms({
     uLight: { value: new THREE.Vector2(1, 0) },
@@ -1355,6 +1408,11 @@ export function createEntityMaterial(kind, texture = null, { transparent = false
   } else if (kind === "map") {
     defines.USE_MAP = "";
     uniforms.uMap = { value: texture };
+  }
+  if (finish) {
+    defines.USE_SPEC = "";
+    uniforms.uSurf = { value: new THREE.Vector4(finish.spec ?? 0.5, finish.gloss ?? 40, finish.env ?? 0.3, finish.grain ?? 0) };
+    uniforms.uBrush = { value: finish.brush ?? 0 };
   }
   return new THREE.ShaderMaterial({
     uniforms,
