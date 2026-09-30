@@ -27,7 +27,7 @@ import { MobManager } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
-import { WeaponSystem, RAIL_DAMAGE_UFO, SHIELD_MAX } from "./weapons.js";
+import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
 import { LaserBolts, sweptSphere, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
@@ -563,7 +563,7 @@ lasers.addProvider({
       distance: t,
       hit(b, point, d) {
         // Every shot that reaches you hurts (no grace time between shots).
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true, from: point.clone().addScaledVector(d, -4) })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
@@ -605,12 +605,22 @@ ufos.onEscape = () => {
 };
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
+  const at = new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z);
   if (m.spec.alien) {
     stats.add("aliensKilled");
-    if (!player.creative && mods.enabled) dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), ownedItems()), new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z));
-  }
-  else if (m.kind === "zombie") stats.add("zombiesKilled");
-  else stats.add("mobsKilled");
+    if (!player.creative && mods.enabled) {
+      // A mission patrol's leader always carries its new alien weapon.
+      const owned = ownedItems();
+      if (m.leaderDrop && !owned.has(m.leaderDrop)) dropLoot([[m.leaderDrop, 1]], at);
+      else dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), owned), at);
+    }
+  } else if (m.kind === "zombie") stats.add("zombiesKilled");
+  else if (m.kind === "skeleton") {
+    stats.add("skeletonsKilled");
+    // Skeletons drop their bow (if you don't have one yet): a plain
+    // block-game item, so with mods off too.
+    if (!player.creative) dropLoot(rollLoot("skeleton", null, progressTier(), ownedItems()), at);
+  } else stats.add("mobsKilled");
 };
 
 // ---------- Calling in the jet ----------
@@ -855,10 +865,13 @@ let loadoutGiven = false;
 function fillStartingWeapons(fresh) {
   if (loadoutGiven || !mods.enabled) return;
   loadoutGiven = true;
-  (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((id, i) => {
-    if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
-    else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
+  (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((entry, i) => {
+    const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
+    if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, n);
+    else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, n);
   });
+  // Creative: a shield in the off hand too.
+  if (player.creative && !inventory.offhand) inventory.offhand = makeStack(ITEM.SHIELD, 1);
 }
 
 if (savedPlayer) {
@@ -877,6 +890,7 @@ if (savedPlayer) {
   if (Number.isFinite(savedPlayer.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, savedPlayer.health));
   if (Number.isFinite(savedPlayer.air)) player.air = Math.max(0, Math.min(MAX_AIR, savedPlayer.air));
   inventory.load(savedPlayer.inv);
+  inventory.loadOffhand(savedPlayer.off);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
   // Worlds from before the loadout flag existed already had their weapons.
@@ -901,6 +915,7 @@ const progressTier = () => progress.tier(stats.world);
 const ownedItems = () => {
   const set = new Set();
   for (const s of inventory.slots) if (s) set.add(s.id);
+  if (inventory.offhand) set.add(inventory.offhand.id);
   return set;
 };
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
@@ -915,10 +930,14 @@ hooks.onEnemyJetDown = (jet) => {
 };
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
+// (The first crate is the "Supply drop" mission's; after that they come by themselves.)
+const SUPPLY_MISSION = MISSIONS.findIndex((m) => m.id === "supply");
+crates.randomAllowed = () => !progress.enabled || progress.step > SUPPLY_MISSION;
 crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast });
 hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
+mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center) => missionDirector.nukeDetonated(center);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
@@ -928,6 +947,7 @@ progress.onStart = (m) => {
 const testFlags = { noMissions: false };
 function refreshSurvivalSystems() {
   const on = mods.enabled && !player.creative;
+  settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   progress.enabled = on && !testFlags.noMissions;
   missionDirector.enabled = on && !testFlags.noMissions;
@@ -1113,6 +1133,7 @@ function playerState() {
     health: player.dead ? MAX_HEALTH : player.health,
     air: player.dead ? MAX_AIR : round3(player.air),
     inv: inventory.serialize(),
+    off: inventory.serializeOffhand(),
     sel: inventory.selected,
     time: round3(sky.time),
     modStash: mods.serialize(),
@@ -1172,6 +1193,9 @@ function markInventoryChanged() {
 }
 
 interaction.onChange = markInventoryChanged;
+interaction.onMessage = (t) => toast(t, 2.5);
+weapons.onChange = markInventoryChanged;
+weapons.onMessage = (t) => toast(t, 1.6);
 invScreen.onChange = markInventoryChanged;
 invScreen.onDrop = (stack) => interaction.throwStack(stack);
 world.onBlockPopped = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
@@ -1255,8 +1279,7 @@ player.onDeath = (cause) => {
 function dropEverything() {
   const at = player.position.clone();
   at.y += 0.8;
-  for (let i = 0; i < inventory.slots.length; i++) {
-    const s = inventory.slots[i];
+  for (const s of [...inventory.slots, inventory.offhand]) {
     if (!s) continue;
     const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
     entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
@@ -1317,7 +1340,7 @@ effects.onExplosion = (center, radius, source) => {
   const hurtReach = radius * 1.8;
   if (dist < hurtReach && !player.dead) {
     const dmg = Math.floor(30 * size * Math.pow(1 - dist / hurtReach, 1.3));
-    if (dmg > 0 && player.damage(dmg, source)) {
+    if (dmg > 0 && player.damage(dmg, source, { from: center })) {
       lastBlastHitTime = performance.now();
       lastBlastSource = source;
     }
@@ -1353,6 +1376,7 @@ function setMode(mode) {
 function giveCreativeItems() {
   if (inventory.isEmpty()) fillCreativeHotbar();
   if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
+  if (!inventory.offhand) inventory.offhand = makeStack(ITEM.SHIELD, 1);
   markInventoryChanged();
 }
 
@@ -1954,6 +1978,11 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
+  else if (e.code === "KeyR") {
+    // Reload the weapon in hand early.
+    const kind = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
+    if (kind) weapons.startReload(kind);
+  }
   else if (e.code === "KeyJ" && mods.enabled) {
     if (jetPickerOpen()) pickJet(lastJetType);
     else openJetPicker();
@@ -2616,7 +2645,7 @@ function animate() {
   }
   updateEnvironment(dt);
   hud.update(dt, player);
-  hud.setShield(weapons.shield.energy / SHIELD_MAX, itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "shield", weapons.shield.broken > 0);
+  hud.setWeaponStatus(gameState === "playing" && !vehicles.active ? weapons.status(itemInfo(inventory.selectedStack?.id)?.weapon?.kind) : null);
   hud.setAttackCharge(gameState === "playing" ? mobs.charge(interaction.tool) : 1);
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);

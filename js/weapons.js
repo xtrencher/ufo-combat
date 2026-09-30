@@ -2,11 +2,15 @@
 // hit on a mob), the pistol (hitscan: sparks and bullet holes on blocks,
 // damage and knockback on mobs), the bazooka (a fast rocket with a smoke
 // trail that explodes on terrain or mobs with a huge blast), the machine
-// gun, the sniper rifle, the airstrike designator (see airstrike.js) and the
-// laser blaster (see lasers.js). No ammo and no reloading: every click
-// fires, with only a tiny minimum interval. Every weapon keeps its own
-// cooldown, so none of them ever blocks another (an airstrike on its way
-// doesn't stop the bazooka).
+// gun, the sniper rifle, the airstrike designator (see airstrike.js), the
+// laser blaster (see lasers.js), the bow (skeletons drop it) and the shield
+// (held in the off hand, raised with right click, like in classic block
+// games). Ammo never runs out, but every weapon reloads, recharges or cools
+// down (WEAPON_STATS), balanced by its damage: the sniper has one round and
+// then a long bolt-and-reload, the pistol a 12-round magazine, the minigun
+// overheats... Each weapon keeps its own magazine and timer, and reloads go
+// on while you hold something else (R reloads the one in hand early), so
+// none of them ever blocks another.
 import * as THREE from "three";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { itemInfo } from "./items.js";
@@ -16,6 +20,8 @@ import { GRENADE_RADIUS, BAZOOKA_RADIUS } from "./effects.js";
 import { Airstrikes } from "./airstrike.js";
 import { LASER_COLORS } from "./lasers.js";
 import { LAYER_FX } from "./layers.js";
+import { WEAPON_STATS } from "./weapon-stats.js";
+export { WEAPON_STATS };
 
 export const THROW_CHARGE_TIME = 1.5; // seconds to a full-strength throw
 const THROW_SPEED_MIN = 6;
@@ -29,7 +35,15 @@ const PISTOL_RANGE = 160;
 export const ROCKET_SPEED = 75;
 const ROCKET_GRAVITY = -2.5;
 const ROCKET_LIFE = 12;
-const MIN_INTERVAL = { grenade: 0.12, pistol: 0.07, bazooka: 0.2, airstrike: 0.8, blaster: 0.2, railgun: 2.8 };
+const MIN_INTERVAL = { grenade: 0.12, pistol: 0.2, bazooka: 0.2, airstrike: 0.8, blaster: 0.2, railgun: 0.5 };
+
+// The bow: hold right click to draw (a full draw in a second), let go to shoot.
+export const BOW_DRAW = 1.0;
+const ARROW_SPEED_MIN = 16;
+const ARROW_SPEED_MAX = 58;
+const ARROW_GRAVITY = -20;
+const ARROW_DAMAGE = [2, 9]; // a quick flick ... a full draw
+const ARROW_LIFE = 8;
 
 // Railgun: about a second of charging (glowing coils, a rising whine), then
 // an extremely bright beam that cuts through everything in a straight line:
@@ -55,17 +69,15 @@ export const LOCK_TIME = 1.1;
 const LOCK_CONE = 0.11; // radians around the crosshair
 const ROCKET_TURN = 2.4; // homing turn rate (rad/s)
 
-// The energy shield: raised while the button is held; soaks explosions and
-// attacks at the cost of its energy, which recharges while it is down.
-export const SHIELD_MAX = 100;
-const SHIELD_DRAIN = 5; // energy per second while raised
-const SHIELD_RECHARGE = 14;
-const SHIELD_COST = 3.2; // energy per point of damage absorbed
-const SHIELD_BREAK_TIME = 4.5;
-// Explosions get through at a quarter, every other attack at about a third.
-const SHIELD_EXPLOSIVE = new Set(["grenade", "bazooka", "airstrike", "meteor", "nuke", "missile", "ufo_crash", "ufo_boom", "ufo_laser_blast", "jet_boom", "enemymissile", "ufocannon", "ufo_beam", "railgun", "explosion"]);
+// The shield (off hand): raised a moment after right click is held (when
+// the main-hand item has no right-click use of its own), it stops every hit
+// that comes from in front (the front half), explosions included, and wears
+// by 1 + the damage it stopped; hits from behind get through. You walk
+// slowly behind it.
+export const SHIELD_MAX = 100; // (kept for older callers)
+const SHIELD_RAISE = 0.15; // seconds to bring it up
 // Damage the shield can't stop: the environment and crashes.
-const SHIELD_PASS = new Set(["fall", "drown", "void", "starve", "cactus", "lava", "fire", "jet_crash", "jet_down", "ufo_down"]);
+const SHIELD_PASS = new Set(["fall", "drown", "void", "starve", "cactus", "lava", "fire", "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
 
 
 // Machine gun: automatic while held, tracers, spread and recoil that climb
@@ -76,7 +88,7 @@ const MACHINEGUN_RATE = 12; // shots per second
 
 // Sniper rifle: a toggled scope (zoomed FOV + overlay), a single very
 // long-range, high-damage hitscan shot per left click.
-export const SNIPER_DAMAGE = 22;
+export const SNIPER_DAMAGE = 34;
 const SNIPER_RANGE = 400;
 const SNIPER_ZOOM_FOV = 15;
 
@@ -144,8 +156,21 @@ export class WeaponSystem {
     this.rail = { charging: false, t: 0, beams: [] };
     // Laser minigun.
     this.minigun = { held: false, spin: 0, angle: 0, timer: 0, firing: false };
-    // Energy shield.
-    this.shield = { energy: SHIELD_MAX, held: false, up: false, broken: 0, hitFlash: 0, delay: 0 };
+    // The shield in the off hand.
+    this.shield = { energy: SHIELD_MAX, held: false, up: false, raiseT: 0, broken: 0, hitFlash: 0, delay: 0 };
+    // Magazines and reloads per weapon kind (see WEAPON_STATS).
+    this.ammo = {};
+    this.reloadT = {};
+    for (const [k, st] of Object.entries(WEAPON_STATS)) {
+      if (st.mag) this.ammo[k] = st.mag;
+      this.reloadT[k] = 0;
+    }
+    this.minigun.heat = 0;
+    this.minigun.overheated = false;
+    // The bow: drawing (seconds held), and arrows in flight.
+    this.bow = { drawing: false, t: 0 };
+    this.arrows = [];
+    this.onMessage = null; // (text) => void: a short HUD notice
     // Bazooka lock-on: { target, progress, locked }.
     this.lock = { held: false, target: null, progress: 0, locked: false, scanT: 0, beepT: 0 };
     this.getLockables = null; // () => [{ pos, vel, radius, ref, alive() }] (UFOs, creatures, vehicles)
@@ -214,19 +239,86 @@ export class WeaponSystem {
     return this.charging ? Math.min(1, this.chargeTime / THROW_CHARGE_TIME) : 0;
   }
 
+  // ---------- Magazines and reloads ----------
+
+  // Can `kind` fire now? (Not while reloading; an empty magazine starts a
+  // reload.) Shows a short notice when it can't (`quiet`: no notice).
+  _ready(kind, quiet = false) {
+    const st = WEAPON_STATS[kind];
+    if (!st) return true;
+    if (st.heat) {
+      if (this.minigun.overheated) {
+        if (!quiet) this._notice(`${st.label}: let it cool`);
+        return false;
+      }
+      return true;
+    }
+    if (this.reloadT[kind] > 0) {
+      if (!quiet) this._notice(`${st.label}...`);
+      return false;
+    }
+    if ((this.ammo[kind] ?? st.mag) <= 0) {
+      this.startReload(kind);
+      return false;
+    }
+    return true;
+  }
+
+  // One shot of `kind` spent; an empty magazine reloads by itself.
+  _spend(kind) {
+    const st = WEAPON_STATS[kind];
+    if (!st?.mag) return;
+    this.ammo[kind] = Math.max(0, (this.ammo[kind] ?? st.mag) - 1);
+    if (this.ammo[kind] <= 0) this.startReload(kind);
+  }
+
+  // Starts reloading `kind` (R, or an empty magazine). Returns true if it did.
+  startReload(kind) {
+    const st = WEAPON_STATS[kind];
+    if (!st?.mag || this.reloadT[kind] > 0 || (this.ammo[kind] ?? st.mag) >= st.mag) return false;
+    this.reloadT[kind] = st.reload;
+    if (kind !== "bow" && kind !== "grenade") this.audio.playReload?.(kind);
+    return true;
+  }
+
+  // The weapon in hand's state for the HUD: { kind, ammo, mag, reload (0-1
+  // progress, 1 = ready), heat (0-1), label } or null for no weapon.
+  status(kind) {
+    const st = WEAPON_STATS[kind];
+    if (!st) return null;
+    if (st.heat) return { kind, heat: this.minigun.heat, overheated: this.minigun.overheated, label: st.label, reload: this.minigun.overheated ? 1 - this.minigun.heat : 1 };
+    const t = this.reloadT[kind] || 0;
+    return { kind, ammo: this.ammo[kind] ?? st.mag, mag: st.mag, reload: t > 0 ? 1 - t / st.reload : 1, reloading: t > 0, label: st.label };
+  }
+
+  _notice(text) {
+    this._noticeT = this._noticeT ?? 0;
+    if (this._noticeT > 0) return;
+    this._noticeT = 0.6;
+    this.onMessage?.(text);
+  }
+
   // ---------- Input ----------
 
   // Right button pressed with a weapon selected.
   press(kind) {
-    if (!this.enabled) return;
+    // (The bow is a plain block-game weapon: it works with mods off too.)
+    if (!this.enabled && kind !== "bow") return;
     const cd = this._cooldowns;
     switch (kind) {
+      case "bow":
+        if (!this._ready("bow")) return;
+        this.bow.drawing = true;
+        this.bow.t = 0;
+        this.audio.playBowDraw?.();
+        return;
       case "grenade":
-        if (cd.grenade > 0) return;
+        if (cd.grenade > 0 || !this._ready("grenade")) return;
         this.charging = true;
         this.chargeTime = 0;
         return;
       case "machinegun":
+        if (!this._ready("machinegun")) return;
         this._mgFiring = true;
         return;
       case "sniper":
@@ -234,9 +326,11 @@ export class WeaponSystem {
         this._applyScope();
         return;
       case "blaster":
+        if (!this._ready("blaster")) return;
         this._blasterFiring = true;
         if (cd.blaster <= 0) {
           cd.blaster = MIN_INTERVAL.blaster;
+          this._spend("blaster");
           this.fireBlaster();
         }
         return;
@@ -244,12 +338,13 @@ export class WeaponSystem {
         this.onJetRadio?.();
         return;
       case "railgun":
-        if (cd.railgun > 0 || this.rail.charging) return;
+        if (cd.railgun > 0 || this.rail.charging || !this._ready("railgun")) return;
         this.rail.charging = true;
         this.rail.t = 0;
         this.audio.playRailCharge?.(RAIL_CHARGE);
         return;
       case "minigun":
+        if (!this._ready("minigun")) return;
         this.minigun.held = true;
         return;
       case "shield":
@@ -258,18 +353,21 @@ export class WeaponSystem {
       case "bazooka":
         // Hold to lock on; the rocket flies when the button is released
         // (a quick tap fires an unguided one at once).
+        if (!this._ready("bazooka")) return;
         this.lock.held = true;
         this.lock.progress = 0;
         this.lock.locked = false;
         this.lock.target = null;
         return;
       case "airstrike":
-        if (cd.airstrike > 0) return;
+        if (cd.airstrike > 0 || !this._ready("airstrike")) return;
         cd.airstrike = MIN_INTERVAL.airstrike;
+        this._spend("airstrike");
         this.fireAirstrike();
         return;
       default:
         if (!(kind in cd)) return;
+        if (!this._ready(kind)) return;
         if (cd[kind] > 0) {
           // Clicked a moment too early: fires as soon as it's ready, so
           // every click counts (even when frames are slow).
@@ -277,25 +375,45 @@ export class WeaponSystem {
           return;
         }
         cd[kind] = MIN_INTERVAL[kind] || 0.1;
+        this._spend(kind);
         if (kind === "pistol") this.firePistol();
         else if (kind === "bazooka") this.fireBazooka();
     }
   }
 
-  // Right button released: a drawn grenade is thrown; automatic fire stops.
+  // Raises the shield in the off hand (right click held with nothing in the
+  // main hand that uses right click). Lowered by release().
+  raiseShield() {
+    if (!this.inventory?.offhand || itemInfo(this.inventory.offhand.id)?.weapon?.kind !== "shield") return false;
+    this.shield.held = true;
+    return true;
+  }
+
+  // Right button released: a drawn grenade is thrown, a drawn bow shoots;
+  // automatic fire stops.
   release() {
     this._mgFiring = false;
     this._blasterFiring = false;
     this.minigun.held = false;
     this.shield.held = false;
+    if (this.bow.drawing) {
+      this.bow.drawing = false;
+      const power = Math.min(1, this.bow.t / BOW_DRAW);
+      this.bow.t = 0;
+      // (A click too short to even nock the arrow shoots nothing.)
+      if (power >= 0.1) {
+        this._spend("bow");
+        this.shootArrow(power);
+      }
+      return;
+    }
     if (this.lock.held) {
       this.lock.held = false;
       const cd = this._cooldowns;
-      if (cd.bazooka <= 0) {
+      if (cd.bazooka <= 0 && this._ready("bazooka", true)) {
         cd.bazooka = MIN_INTERVAL.bazooka;
+        this._spend("bazooka");
         this.fireBazooka(this.lock.locked ? this.lock.target : null);
-      } else {
-        this._queued = "bazooka";
       }
       this.lock.target = null;
       this.lock.progress = 0;
@@ -307,7 +425,16 @@ export class WeaponSystem {
     this.charging = false;
     this.chargeTime = 0;
     this._cooldowns.grenade = MIN_INTERVAL.grenade;
+    this._spend("grenade");
     this.throwGrenade(power);
+  }
+
+  // The sniper fires on left click (right click is its scope): one round,
+  // then a reload.
+  sniperShot() {
+    if (!this.enabled || !this._ready("sniper")) return null;
+    this._spend("sniper");
+    return this.fireSniper();
   }
 
   // Un-scopes the sniper (or clears its FOV/sensitivity override, if it was
@@ -321,6 +448,8 @@ export class WeaponSystem {
   // the machine gun and un-scopes the sniper.
   cancel() {
     this._queued = null;
+    this.bow.drawing = false;
+    this.bow.t = 0;
     this.charging = false;
     this.chargeTime = 0;
     this._mgFiring = false;
@@ -786,6 +915,7 @@ export class WeaponSystem {
         rail.charging = false;
         rail.t = 0;
         this._cooldowns.railgun = MIN_INTERVAL.railgun;
+        this._spend("railgun");
         this.fireRailgun();
       }
     }
@@ -947,12 +1077,28 @@ export class WeaponSystem {
 
   _updateMinigun(dt, activeKind) {
     const m = this.minigun;
+    const st = WEAPON_STATS.minigun;
     if (m.held && activeKind !== "minigun") m.held = false;
+    if (m.held && m.overheated) m.held = false;
     if (m.held) m.spin = Math.min(1, m.spin + dt / MINIGUN_SPINUP);
     else m.spin = Math.max(0, m.spin - dt / 1.6);
     m.angle += m.spin * dt * 34;
     this.held.spin = m.angle;
     m.firing = m.held && m.spin >= 0.92;
+    // Heat: it overheats after a few seconds of fire and must cool down.
+    if (m.firing) {
+      m.heat = Math.min(1, m.heat + dt / st.heat);
+      if (m.heat >= 1) {
+        m.overheated = true;
+        m.held = false;
+        m.firing = false;
+        this.audio.playOverheat?.();
+        this._notice("Minigun overheated: let it cool");
+      }
+    } else {
+      m.heat = Math.max(0, m.heat - dt / st.cool);
+      if (m.overheated && m.heat <= 0) m.overheated = false;
+    }
     this.audio.setMinigun?.(m.spin, m.firing);
     if (!m.firing) {
       m.timer = 0;
@@ -989,66 +1135,148 @@ export class WeaponSystem {
     this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: MINIGUN_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: MINIGUN_DAMAGE, owner: "player", source: p, range, radius: 0.09, length: 3.2, sound: false });
   }
 
-  // ---------- Energy shield ----------
+  // ---------- The shield (off hand) ----------
 
   get shieldUp() {
     return this.shield.up;
   }
 
-  _updateShield(dt, activeKind) {
+  _hasShield() {
+    const o = this.inventory?.offhand;
+    return !!o && itemInfo(o.id)?.weapon?.kind === "shield";
+  }
+
+  _updateShield(dt) {
     const s = this.shield;
-    if (s.held && activeKind !== "shield") s.held = false;
     s.hitFlash = Math.max(0, s.hitFlash - dt * 3);
-    s.broken = Math.max(0, s.broken - dt);
+    if (s.held && !this._hasShield()) s.held = false;
+    s.raiseT = s.held ? s.raiseT + dt : 0;
     const wasUp = s.up;
-    s.up = s.held && s.broken <= 0 && s.energy > 0 && this.enabled;
-    if (s.up) {
-      s.energy = Math.max(0, s.energy - SHIELD_DRAIN * dt);
-      s.delay = 1.2;
-      if (s.energy <= 0) this._breakShield();
-    } else {
-      s.delay = Math.max(0, s.delay - dt);
-      if (s.delay <= 0 && s.broken <= 0) s.energy = Math.min(SHIELD_MAX, s.energy + SHIELD_RECHARGE * dt);
-      else if (s.broken > 0) s.energy = Math.min(SHIELD_MAX, s.energy + SHIELD_RECHARGE * 0.5 * dt);
-    }
+    s.up = s.held && s.raiseT >= SHIELD_RAISE && !this.player.dead && !this.player.vehicle;
     if (s.up && !wasUp) this.audio.playShieldUp?.();
-    if (!s.up && wasUp && s.broken <= 0) this.audio.playShieldDown?.();
-    this.held.shieldUp = s.up;
-    this.held.shieldEnergy = s.energy / SHIELD_MAX;
-    this.held.shieldFlash = Math.max(this.held.shieldFlash || 0, s.hitFlash);
+    this.held.offhandId = this.inventory?.offhand?.id ?? 0;
+    this.held.shieldUp = s.held && this._hasShield();
     this.player.shielded = s.up;
   }
 
-  _breakShield() {
+  // Player damage filter: a raised shield stops every hit that comes from in
+  // front of the player (`from`: where it came from; unknown counts as in
+  // front), explosions included; the environment (falls, drowning...) and
+  // hits from behind get through. The shield wears by 1 + the damage it
+  // stopped, and breaks when it runs out. Returns the damage that gets through.
+  shieldFilter(amount, cause, from = null) {
     const s = this.shield;
-    s.up = false;
-    s.energy = 0;
-    s.broken = SHIELD_BREAK_TIME;
-    this.audio.playShieldBreak?.();
-    this.held.shieldFlash = 1;
-  }
-
-  // Player damage filter: with the shield raised most of an explosion or an
-  // attack is soaked up (at the cost of energy); falls, drowning and the void
-  // pass straight through. Returns the damage that gets through.
-  shieldFilter(amount, cause) {
-    const s = this.shield;
-    if (!s.up) return amount;
-    if (SHIELD_PASS.has(cause)) return amount;
-    const through = SHIELD_EXPLOSIVE.has(cause) ? 0.25 : 0.35;
-    const absorbed = amount * (1 - through);
-    s.energy -= absorbed * SHIELD_COST;
+    if (!s.up || SHIELD_PASS.has(cause)) return amount;
+    if (from) {
+      const p = this.player;
+      const dx = from.x - p.position.x;
+      const dz = from.z - p.position.z;
+      const len = Math.hypot(dx, dz);
+      // (Facing: -Z rotated by the yaw.)
+      if (len > 0.3 && (-Math.sin(p.yaw) * dx - Math.cos(p.yaw) * dz) / len < 0) return amount; // from behind
+    }
     s.hitFlash = 1;
-    s.delay = 2;
-    this.held.shieldFlash = 1;
+    this.held.shieldHit?.();
     this.audio.playShieldHit?.(Math.min(1.5, 0.4 + amount / 12));
-    if (s.energy <= 0) this._breakShield();
-    return Math.max(0, Math.round(amount * through));
+    if (!this.player.creative && this.inventory.damageOffhand(1 + Math.floor(amount))) {
+      s.up = false;
+      s.held = false;
+      this.player.shielded = false;
+      this.audio.playShieldBreak?.();
+      this.onMessage?.("Your shield broke!");
+      this.onChange?.();
+    } else this.onChange?.();
+    return 0;
   }
 
   // How much an explosion's shove on the player is reduced (1 = full).
   shieldPush() {
     return this.shield.up ? 0.3 : 1;
+  }
+
+  // ---------- Bow ----------
+
+  // Shoots an arrow drawn to `power` (0-1): faster, flatter and harder the
+  // further it was drawn. It flies with gravity and hurts whatever it hits:
+  // creatures, UFOs, vehicles.
+  shootArrow(power) {
+    const p = this.player;
+    const dir = p.getForwardVector();
+    const speed = ARROW_SPEED_MIN + (ARROW_SPEED_MAX - ARROW_SPEED_MIN) * power;
+    const pos = this._handPoint(0.5, 0.12, 0.08);
+    if (IS_SOLID[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]) pos.copy(p.getEyePosition());
+    if (!this._arrowGeo) {
+      const shaft = new THREE.CylinderGeometry(0.022, 0.022, 0.72, 5).rotateX(Math.PI / 2);
+      const tip = new THREE.ConeGeometry(0.045, 0.14, 5).rotateX(-Math.PI / 2).translate(0, 0, -0.42);
+      const fl = new THREE.BoxGeometry(0.12, 0.012, 0.16).translate(0, 0, 0.3);
+      const fl2 = new THREE.BoxGeometry(0.012, 0.12, 0.16).translate(0, 0, 0.3);
+      this._arrowGeo = mergeColored([[shaft, 0x8a6a3c], [tip, 0x5a5a5e], [fl, 0xe8e2d4], [fl2, 0xe8e2d4]]);
+    }
+    const mesh = new THREE.Mesh(this._arrowGeo, this.material);
+    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, stuck: false, light: { sky: 15, block: 0 } };
+    bindEntityLight(mesh, () => a.light);
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this.arrows.push(a);
+    this.held.fire(0.4);
+    this.audio.playBowShot?.(power);
+    return a;
+  }
+
+  _updateArrows(dt) {
+    for (let i = this.arrows.length - 1; i >= 0; i--) {
+      const a = this.arrows[i];
+      a.age += dt;
+      if (a.stuck) {
+        if (a.age > ARROW_LIFE) {
+          this.scene.remove(a.mesh);
+          this.arrows.splice(i, 1);
+        }
+        continue;
+      }
+      a.vel.y += ARROW_GRAVITY * dt;
+      const step = a.vel.clone().multiplyScalar(dt);
+      const len = step.length();
+      const dir = step.clone().divideScalar(len || 1);
+      const blockHit = this.world.raycast(a.pos, dir, len, { solidOnly: true });
+      const mobHit = this.mobs.raycast(a.pos, dir, blockHit ? blockHit.distance : len);
+      const tHit = this._targetHit(a.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
+      const dmg = Math.round(ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * a.power * a.power);
+      if (tHit) {
+        const point = a.pos.clone().addScaledVector(dir, tHit.distance);
+        tHit.hit(dmg, dir, point);
+        this._hullSparks(point, dir, 4);
+        this.scene.remove(a.mesh);
+        this.arrows.splice(i, 1);
+        continue;
+      }
+      if (mobHit) {
+        this.mobs.shoot(mobHit.mob, dmg, dir, 2 + a.power * 2);
+        this._burst(a.pos.clone().addScaledVector(dir, mobHit.distance), dir.clone().negate(), this._c.blood, 5, 2.5);
+        this.audio.playArrowHit?.(0);
+        this.scene.remove(a.mesh);
+        this.arrows.splice(i, 1);
+        continue;
+      }
+      if (blockHit) {
+        // It sticks in the block for a while.
+        a.pos.addScaledVector(dir, Math.max(0, blockHit.distance - 0.05));
+        a.stuck = true;
+        a.age = 0;
+        a.mesh.position.copy(a.pos);
+        this.audio.playArrowHit?.(a.pos.distanceTo(this.player.getEyePosition()));
+        continue;
+      }
+      a.pos.add(step);
+      a.mesh.position.copy(a.pos);
+      a.mesh.lookAt(a.pos.clone().add(dir));
+      a.mesh.rotateY(Math.PI);
+      a.light = this.world.lightAt(a.pos.x, a.pos.y, a.pos.z);
+      if (a.age > ARROW_LIFE || a.pos.y < -20) {
+        this.scene.remove(a.mesh);
+        this.arrows.splice(i, 1);
+      }
+    }
   }
 
   // ---------- Bazooka lock-on ----------
@@ -1127,16 +1355,33 @@ export class WeaponSystem {
   update(dt) {
     for (const k in this._cooldowns) this._cooldowns[k] = Math.max(0, this._cooldowns[k] - dt);
     this._cooldowns.railgun ??= 0;
+    this._noticeT = Math.max(0, (this._noticeT ?? 0) - dt);
+    // Reloads (they carry on while another item is in hand).
+    for (const k in this.reloadT) {
+      if (this.reloadT[k] <= 0) continue;
+      this.reloadT[k] -= dt;
+      if (this.reloadT[k] <= 0) {
+        this.reloadT[k] = 0;
+        this.ammo[k] = WEAPON_STATS[k].mag;
+      }
+    }
     if (this._queued && this._cooldowns[this._queued] <= 0) {
       const kind = this._queued;
       this._queued = null;
       if (kind === "bazooka") {
-        this._cooldowns.bazooka = MIN_INTERVAL.bazooka;
-        this.fireBazooka(null);
+        if (this._ready("bazooka", true)) {
+          this._cooldowns.bazooka = MIN_INTERVAL.bazooka;
+          this._spend("bazooka");
+          this.fireBazooka(null);
+        }
       } else this.press(kind);
     }
     if (this.charging) this.chargeTime += dt;
+    // The bow being drawn.
+    if (this.bow.drawing) this.bow.t += dt;
+    this.held.bowDraw = this.bow.drawing ? Math.min(1, this.bow.t / BOW_DRAW) : 0;
     this.held.windUp = this.charge;
+    this._updateArrows(dt);
 
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i];
@@ -1167,6 +1412,10 @@ export class WeaponSystem {
     // Stop mid-effect automatically if the active item changed under us
     // (e.g. picked in the inventory screen rather than the hotbar keys).
     const activeKind = itemInfo(this.inventory?.selectedStack?.id)?.weapon?.kind;
+    if (this.bow.drawing && activeKind !== "bow") {
+      this.bow.drawing = false;
+      this.bow.t = 0;
+    }
     if (this._mgFiring && activeKind !== "machinegun") this._mgFiring = false;
     if (this.scoped && activeKind !== "sniper") {
       this.scoped = false;
@@ -1181,6 +1430,11 @@ export class WeaponSystem {
       let guard = 0;
       while (this._mgTimer <= 0 && guard++ < 4) {
         this._mgTimer += 1 / MACHINEGUN_RATE;
+        if (!this._ready("machinegun", true)) {
+          this._mgFiring = false; // the magazine is empty: it reloads
+          break;
+        }
+        this._spend("machinegun");
         this.fireMachineGun();
       }
     } else {
@@ -1191,13 +1445,17 @@ export class WeaponSystem {
     // Laser blaster: held for repeat fire.
     if (this._blasterFiring && activeKind !== "blaster") this._blasterFiring = false;
     if (this._blasterFiring && this._cooldowns.blaster <= 0) {
-      this._cooldowns.blaster = MIN_INTERVAL.blaster;
-      this.fireBlaster();
+      if (!this._ready("blaster", true)) this._blasterFiring = false;
+      else {
+        this._cooldowns.blaster = MIN_INTERVAL.blaster;
+        this._spend("blaster");
+        this.fireBlaster();
+      }
     }
 
     this._updateRail(dt, activeKind);
     this._updateMinigun(dt, activeKind);
-    this._updateShield(dt, activeKind);
+    this._updateShield(dt);
     this._updateLock(dt, activeKind);
 
     // Airstrikes on their way, and meteors in the air.
@@ -1220,8 +1478,10 @@ export class WeaponSystem {
   clearProjectiles() {
     for (const g of this.grenades) this.scene.remove(g.mesh);
     for (const r of this.rockets) this.scene.remove(r.mesh);
+    for (const a of this.arrows) this.scene.remove(a.mesh);
     this.grenades.length = 0;
     this.rockets.length = 0;
+    this.arrows.length = 0;
     this.airstrike.clear();
     this._updateLaser(false);
     for (const b of this.rail.beams) b.mesh.visible = false;
@@ -1232,4 +1492,34 @@ export class WeaponSystem {
   static throwSpeed(power) {
     return THROW_SPEED_MIN + (THROW_SPEED_MAX - THROW_SPEED_MIN) * power;
   }
+}
+
+// A small model from colored parts: [[geometry, hex color], ...].
+function mergeColored(parts) {
+  const geos = parts.map(([g, hex]) => {
+    const n = g.index ? g.toNonIndexed() : g;
+    const c = new THREE.Color(hex);
+    const col = new Float32Array(n.getAttribute("position").count * 3);
+    for (let i = 0; i < col.length; i += 3) col.set([c.r, c.g, c.b], i);
+    n.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    return n;
+  });
+  let count = 0;
+  for (const g of geos) count += g.getAttribute("position").count;
+  const pos = new Float32Array(count * 3);
+  const nor = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  let o = 0;
+  for (const g of geos) {
+    const k = g.getAttribute("position").count;
+    pos.set(g.getAttribute("position").array, o * 3);
+    nor.set(g.getAttribute("normal").array, o * 3);
+    col.set(g.getAttribute("color").array, o * 3);
+    o += k;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  out.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+  out.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return out;
 }

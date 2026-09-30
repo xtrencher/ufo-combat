@@ -232,9 +232,18 @@ export class UfoManager {
     return Math.max(0, Math.min(1, 1 - this.sky.daylight));
   }
 
+  // In Survival the mission chain sets how many UFOs there are (`rules.max`
+  // at most in the sky by day, more at night, and `rules.rate` new ones per
+  // second): the UFO activity, spawn chance, max count and size settings are
+  // Creative's. (Round 3 rules had a `count` multiplier instead: still read.)
+  get missionDriven() {
+    return !!this.rules && this.rules.max !== undefined;
+  }
+
   get maxCount() {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
+    if (this.missionDriven) return Math.min(MAX_UFOS, Math.round(this.rules.max * nightBoost));
     const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost * (this.rules?.count ?? 1));
     return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
@@ -242,6 +251,7 @@ export class UfoManager {
   // Expected new UFOs per second.
   get spawnRate() {
     const c = this.config;
+    if (this.missionDriven) return this.rules.rate * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
     return (c.activity / 50) * c.spawnChance * (1 + (c.nightMultiplier - 1) * this.night);
   }
 
@@ -267,7 +277,7 @@ export class UfoManager {
   // medium saucers at first, motherships and giants only much later.
   _sizeWeights() {
     // Survival: the current mission decides (see progression.js).
-    if (this.rules && this.config.sizes === "balanced") return this.rules.sizes;
+    if (this.missionDriven || (this.rules && this.config.sizes === "balanced")) return this.rules.sizes;
     const base = SIZE_WEIGHTS[this.config.sizes] || SIZE_WEIGHTS.balanced;
     if (this.config.sizes !== "balanced") return base;
     const easy = { small: 6, medium: 3, large: 0.5, mothership: 0.03, giant: 0 };
@@ -431,7 +441,7 @@ export class UfoManager {
   }
 
   _updateSpawning(dt) {
-    if (this.config.activity <= 0) return;
+    if (this.missionDriven ? this.rules.max <= 0 : this.config.activity <= 0) return;
     this._spawnT -= dt;
     if (this._spawnT > 0) return;
     this._spawnT = 1;
@@ -498,6 +508,14 @@ export class UfoManager {
   // player flying a UFO, maybe its neighbours).
   damage(u, amount, byPlayer = true, from = null, attacker = null) {
     if (u.state === "gone" || u.falling || amount <= 0) return false;
+    // A mission's landing ship: its hull shrugs off hand weapons.
+    if (u.immune || (u.immuneUntil && this.time < u.immuneUntil)) {
+      if (byPlayer && this.time - (u.immuneMsgT ?? -99) > 6) {
+        u.immuneMsgT = this.time;
+        this.onMessage?.("It doesn't even scratch the hull. Deal with the crew.");
+      }
+      return false;
+    }
     u.health -= amount;
     u.hurtTime = 0;
     // Attacked by an enemy fighter: it fights back (and dodges).
@@ -1073,7 +1091,7 @@ export class UfoManager {
     // Stay above the ground and below the ceiling (not while leaving, or
     // while it is allowed to pass through terrain: diving, burrowing).
     if (u.state !== "leave" && u.state !== "emerge" && u.ghostT <= 0) {
-      const minY = this._minAltitude(u, u.state === "beam" || u.trick === "hover_lake" || u.trick === "abduct" ? 2 : 4);
+      const minY = this._minAltitude(u, u.trick === "land" ? 0.3 : u.state === "beam" || u.trick === "hover_lake" || u.trick === "abduct" ? 2 : 4);
       if (u.pos.y < minY) {
         u.pos.y += (minY - u.pos.y) * Math.min(1, dt * 4);
         if (u.vel.y < 0) u.vel.y = 0;
@@ -1157,6 +1175,17 @@ export class UfoManager {
           const a = Math.random() * Math.PI * 2;
           u.vel.set(Math.cos(a) * cruise * 2.4, rand(-0.6, 0.6) * cruise, Math.sin(a) * cruise * 2.4);
         }
+        break;
+      }
+      case "land": {
+        // A mission's landing: down to just above the ground, slowly, and
+        // sits there (the director sends it off again).
+        const d = this._steer(u, u.waypoint, Math.max(4, cruise * 0.9), dt, 1.6);
+        if (d < 0.8) {
+          u.vel.multiplyScalar(Math.exp(-5 * dt));
+          u.landed = true;
+        }
+        u.spinBoost = 0.4;
         break;
       }
       case "follow": {
@@ -1491,7 +1520,7 @@ export class UfoManager {
       let d = Infinity;
       for (let y = 0.1; y < 1.9; y += 0.3) d = Math.min(d, segPointDist(from, sw.end, _x.set(p.x, p.y + y, p.z)));
       if (d < 0.35 + width * 2) {
-        this.player.damage(dmg, "ufo_laser", { projectile: true });
+        this.player.damage(dmg, "ufo_laser", { projectile: true, from });
         touched = true;
       }
     }

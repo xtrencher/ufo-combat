@@ -105,13 +105,13 @@ export const SCHEMA = [
   { key: "zombies.daylight", group: "mobs", type: "checkbox", label: "Daylight zombies (spawn by day, don't burn)", def: false },
 
   // ----- UFOs -----
-  { key: "ufos.activity", group: "ufos", type: "range", label: "UFO activity", values: [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16], min: 0, max: 16, def: 1, fmt: (v) => ACTIVITY_NAMES[[0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16].indexOf(v)] ?? times(v), hint: "From rare sightings to a sky full of them. Far more activity at night.", note: (v) => (v >= 8 ? "The sky will be full of UFOs: far ones are drawn simply and think less, but expect a heavier load." : "") },
-  { key: "ufos.spawnChance", group: "ufos", advanced: true, type: "range", label: "Spawn chance", min: 0.25, max: 4, step: 0.25, def: 1, fmt: times },
-  { key: "ufos.maxCount", group: "ufos", advanced: true, type: "range", label: "Max UFOs at once", values: [0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 150], min: 0, max: 150, def: 0, fmt: (v) => (v === 0 ? "Auto" : int(v)) },
+  { key: "ufos.activity", group: "ufos", creativeOnly: true, type: "range", label: "UFO activity", values: [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16], min: 0, max: 16, def: 1, fmt: (v) => ACTIVITY_NAMES[[0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16].indexOf(v)] ?? times(v), hint: "From rare sightings to a sky full of them. Far more activity at night.", note: (v) => (v >= 8 ? "The sky will be full of UFOs: far ones are drawn simply and think less, but expect a heavier load." : "") },
+  { key: "ufos.spawnChance", group: "ufos", creativeOnly: true, advanced: true, type: "range", label: "Spawn chance", min: 0.25, max: 4, step: 0.25, def: 1, fmt: times },
+  { key: "ufos.maxCount", group: "ufos", creativeOnly: true, advanced: true, type: "range", label: "Max UFOs at once", values: [0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 150], min: 0, max: 150, def: 0, fmt: (v) => (v === 0 ? "Auto" : int(v)) },
   { key: "ufos.aggression", group: "ufos", advanced: true, type: "range", label: "Aggression", min: 0, max: 2, step: 0.1, def: 1, fmt: (v) => (v === 0 ? "Never attack" : times(v)) },
   { key: "ufos.detection", group: "ufos", advanced: true, type: "range", label: "Detection range (blocks)", min: 40, max: 300, step: 10, def: 130, fmt: int },
   { key: "ufos.beamLift", group: "ufos", advanced: true, type: "range", label: "Tractor beam lift (blocks/s)", min: 1, max: 12, step: 0.5, def: 4, fmt: (v) => v.toFixed(1) },
-  { key: "ufos.sizes", group: "ufos", advanced: true, type: "select", label: "Sizes", choices: [["small", "Mostly small"], ["balanced", "Balanced"], ["big", "More big ones and motherships"]], def: "balanced" },
+  { key: "ufos.sizes", group: "ufos", creativeOnly: true, advanced: true, type: "select", label: "Sizes", choices: [["small", "Mostly small"], ["balanced", "Balanced"], ["big", "More big ones and motherships"]], def: "balanced" },
   { key: "ufos.nightMultiplier", group: "ufos", advanced: true, type: "range", label: "Night activity multiplier", min: 1, max: 6, step: 0.5, def: 3, fmt: times },
   { key: "ufos.toughness", group: "ufos", advanced: true, type: "range", label: "Toughness", min: 0.25, max: 4, step: 0.25, def: 1, fmt: times },
 
@@ -294,6 +294,15 @@ export class SettingsPanel {
     return true;
   }
 
+  // Survival: the settings the mission chain decides (UFO numbers and
+  // sizes) are hidden, with a note saying why. (Their values are kept for
+  // Creative.)
+  setSurvival(on) {
+    this.survival = !!on;
+    for (const el of this._creativeOnly) el.classList.toggle("survival-hidden", this.survival);
+    document.getElementById("ufo-survival-note")?.classList.toggle("hidden", !this.survival);
+  }
+
   // Extra work for a group's "Reset to defaults" (hand-written settings).
   onReset(page, fn) {
     if (!this._resetHooks.has(page)) this._resetHooks.set(page, []);
@@ -319,6 +328,7 @@ export class SettingsPanel {
 
   _build() {
     this._notes = new Map();
+    this._creativeOnly = []; // rows (and their hints) hidden in Survival
     const pageEl = (page) => document.querySelector(`.settings-page[data-page="${page}"]`);
     const lastSub = new Map();
     for (const e of SCHEMA) {
@@ -370,11 +380,13 @@ export class SettingsPanel {
         }
         input.id = id;
         container.appendChild(row);
+        if (e.creativeOnly) this._creativeOnly.push(row);
         if (e.hint) {
           const hint = document.createElement("div");
           hint.className = "hint";
           hint.textContent = e.hint;
           container.appendChild(hint);
+          if (e.creativeOnly) this._creativeOnly.push(hint);
         }
         if (e.note) {
           const note = document.createElement("div");

@@ -1003,6 +1003,36 @@ export class Audio {
     this._hit({ type: "lowpass", f: 300, q: 1, d: 0.1, v: 0.3 * Math.min(1.4, strength), attack: 0.002 });
   }
 
+  // The bow: a creaking draw, a twang with a whoosh, a thunk on impact.
+  playBowDraw() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 420, fEnd: 700, q: 6, d: 0.45, v: 0.07, attack: 0.15 });
+  }
+
+  playBowShot(power = 1) {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 160 + power * 60, q: 14, d: 0.22, v: 0.3, attack: 0.002 });
+    this._hit({ type: "bandpass", f: 1800, fEnd: 700, q: 1.2, d: 0.18, v: 0.1 * (0.4 + power), attack: 0.01 });
+  }
+
+  playArrowHit(dist = 0) {
+    this._cat("weapons");
+    const v = 0.22 / (1 + dist / 20);
+    if (v < 0.01) return;
+    this._hit({ type: "bandpass", f: 520, q: 3, d: 0.06, v, attack: 0.001 });
+  }
+
+  // Reloading: a magazine out and a magazine in (a hum for energy weapons).
+  playReload(kind) {
+    this._cat("weapons");
+    if (kind === "blaster" || kind === "railgun") {
+      this._hit({ type: "bandpass", f: 500, fEnd: 1400, q: 5, d: 0.5, v: 0.08, attack: 0.1 });
+      return;
+    }
+    this._hit({ type: "bandpass", f: 1900, q: 4, d: 0.04, v: 0.16, attack: 0.001 });
+    this._hit({ type: "bandpass", f: 1300, q: 4, d: 0.05, v: 0.2, attack: 0.001 }, 0.35);
+  }
+
   playShieldBreak() {
     this._cat("player");
     this._hit({ type: "bandpass", f: 4200, q: 10, d: 0.35, v: 0.5, n: 6, spread: 0.03, jitter: 0.5 });

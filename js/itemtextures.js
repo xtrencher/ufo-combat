@@ -317,21 +317,46 @@ function paintMinigun() {
   return c.render([RAMPS.gunmetal, RAMPS.iron, RAMPS.plasma, RAMPS.grip]);
 }
 
+// The shield: a board of vertical oak planks in an iron frame, with an
+// iron boss in the middle (the classic block-game shield).
 function paintShield() {
   const c = new Canvas();
   const RIM = 0;
-  const FACE = 1;
-  const HEX = 2;
-  c.disc(RIM, 16, 16, 12.5, 13.5, (x, y) => (x + y < 30 ? 0.5 : -0.1)); // outer rim
-  c.disc(FACE, 16, 16, 10, 11, (x, y) => (x + y < 31 ? 0.45 : -0.05)); // the energy face
-  const hexPts = [];
-  for (let i = 0; i < 6; i++) hexPts.push([16 + Math.cos((i / 6) * Math.PI * 2) * 5.6, 16 + Math.sin((i / 6) * Math.PI * 2) * 5.6]);
-  c.poly(HEX, hexPts, () => 0.9); // a glowing hexagon
-  c.disc(FACE, 16, 16, 3, 3, () => 0.2);
-  return c.render([RAMPS.iron, RAMPS.plasma, RAMPS.diamond]);
+  const WOOD = 1;
+  const BOSS = 2;
+  const outline = (x, y) => x >= 7 && x <= 25 && y >= 4 && y <= 28 && !(y > 22 && Math.abs(x - 16) > 9 - (28 - y) * 0.9);
+  c.fill(RIM, outline, (x, y) => (x + y < 30 ? 0.35 : -0.15));
+  c.fill(WOOD, (x, y) => x >= 9 && x <= 23 && y >= 6 && y <= 26 && !(y > 21 && Math.abs(x - 16) > 7 - (26 - y) * 0.9), (x, y) => ((Math.floor((x - 9) / 3.75) % 2 === 0 ? 0.25 : -0.1) + (y < 10 ? 0.2 : 0)));
+  c.fill(RIM, (x, y) => Math.abs(y - 16) < 1 && x >= 9 && x <= 23, () => 0.1); // the cross band
+  c.disc(BOSS, 16, 16, 3.2, 3.2, (x, y) => (x + y < 31 ? 0.7 : -0.2));
+  return c.render([RAMPS.iron, RAMPS.wood, RAMPS.iron]);
+}
+
+// The bow: a curved wooden limb from top right to bottom left, with a
+// taut string.
+function paintBow() {
+  const c = new Canvas();
+  const WOOD = 0;
+  const STRING = 1;
+  // The limb: points along an arc.
+  const pts = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16;
+    const a = -Math.PI * 0.25 + t * Math.PI * 1.0 - Math.PI * 0.5;
+    pts.push([13 + Math.cos(a) * 15, 17 + Math.sin(a) * 15]);
+  }
+  for (let i = 0; i < pts.length - 1; i++) {
+    const w = 2.6 - Math.abs(i - 8) * 0.12;
+    c.line(WOOD, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w, () => (i < 8 ? 0.3 : -0.1));
+  }
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  c.line(STRING, a[0], a[1], b[0], b[1], 0.9, () => 0.6);
+  c.line(WOOD, pts[7][0], pts[7][1], pts[9][0], pts[9][1], 3.4, () => -0.45); // the grip wrap, mid-limb
+  return c.render([RAMPS.wood, RAMPS.cloth]);
 }
 
 const PAINTERS = {
+  bow: paintBow,
   railgun: paintRailgun,
   minigun: paintMinigun,
   shield: paintShield,

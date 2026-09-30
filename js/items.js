@@ -42,6 +42,7 @@ export const ITEM = Object.freeze({
   RAILGUN: 294,
   MINIGUN: 295,
   SHIELD: 296,
+  BOW: 297,
 });
 
 // Tool materials: tier (what they can harvest), mining speed multiplier,
@@ -67,7 +68,8 @@ const ITEM_DEFS = {
   [ITEM.RAW_MEAT]: { name: "Raw Meat", icon: "raw_meat", food: 2 },
   [ITEM.COOKED_MEAT]: { name: "Cooked Meat", icon: "cooked_meat", food: 8 },
   [ITEM.FLUFF]: { name: "Fluff", icon: "fluff" },
-  // Weapons never run out: unlimited ammo, no reloading.
+  // Weapons never run out of ammo, but each one reloads, recharges or cools
+  // down (weapons.js WEAPON_STATS).
   [ITEM.GRENADE]: { name: "Grenade", icon: "grenade", stack: 1, weapon: { kind: "grenade" } },
   [ITEM.PISTOL]: { name: "Pistol", icon: "pistol", stack: 1, weapon: { kind: "pistol" } },
   [ITEM.BAZOOKA]: { name: "Bazooka", icon: "bazooka", stack: 1, weapon: { kind: "bazooka" } },
@@ -78,7 +80,12 @@ const ITEM_DEFS = {
   [ITEM.JET_RADIO]: { name: "Jet Radio", icon: "jet_radio", stack: 1, weapon: { kind: "jetradio" } },
   [ITEM.RAILGUN]: { name: "Railgun", icon: "railgun", stack: 1, weapon: { kind: "railgun" } },
   [ITEM.MINIGUN]: { name: "Laser Minigun", icon: "minigun", stack: 1, weapon: { kind: "minigun" } },
-  [ITEM.SHIELD]: { name: "Energy Shield", icon: "shield", stack: 1, weapon: { kind: "shield" } },
+  // A shield like in classic block games: it goes in the off hand, and holding
+  // right click raises it (when the item in the main hand has no right-click
+  // use of its own); it wears out as it blocks.
+  [ITEM.SHIELD]: { name: "Shield", icon: "shield", stack: 1, offhand: true, weapon: { kind: "shield" }, tool: { type: "shield", tier: 0, speed: 1, durability: 336, damage: 1 } },
+  // The skeletons' bow: hold right click to draw, let go to shoot.
+  [ITEM.BOW]: { name: "Bow", icon: "bow", stack: 1, weapon: { kind: "bow" } },
 };
 
 const TOOL_KINDS = [
@@ -200,22 +207,25 @@ export const CREATIVE_ITEMS = [
   ITEM.WOOD_PICKAXE, ITEM.STONE_PICKAXE, ITEM.IRON_PICKAXE, ITEM.DIAMOND_PICKAXE,
   ITEM.WOOD_AXE, ITEM.STONE_AXE, ITEM.IRON_AXE, ITEM.DIAMOND_AXE,
   ITEM.WOOD_SHOVEL, ITEM.STONE_SHOVEL, ITEM.IRON_SHOVEL, ITEM.DIAMOND_SHOVEL,
-  ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.SHIELD, ITEM.AIRSTRIKE, ITEM.JET_RADIO,
+  ITEM.BOW, ITEM.SHIELD,
+  ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE, ITEM.JET_RADIO,
 ];
 
-// Every weapon and gadget, weakest first (the order of the creative palette
-// and of the Creative loadout).
-export const ALL_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.SHIELD, ITEM.AIRSTRIKE, ITEM.JET_RADIO];
+// Every mod weapon and gadget, weakest first (the order of the creative
+// palette and of the Creative loadout).
+export const ALL_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE, ITEM.JET_RADIO];
 
-// A brand new Survival game starts with only a pistol; better weapons are
-// loot (see progression.js). A new Creative game has every weapon: they fill
-// the hotbar first, the rest waits in the inventory.
-export const SURVIVAL_LOADOUT = [ITEM.PISTOL];
-export const CREATIVE_LOADOUT = ALL_WEAPONS;
+// A brand new Survival game starts with basic gear: a stone sword, a stone
+// pickaxe and some apples. Everything else is found: the bow on the
+// skeletons, guns in supply crates, alien weapons on the aliens (see
+// progression.js). A new Creative game has every weapon (the hotbar first,
+// the rest in the inventory) and a shield in the off hand.
+export const SURVIVAL_LOADOUT = [ITEM.STONE_SWORD, ITEM.STONE_PICKAXE, [ITEM.APPLE, 5]];
+export const CREATIVE_LOADOUT = [...ALL_WEAPONS, ITEM.BOW];
 export const STARTING_WEAPONS = SURVIVAL_LOADOUT; // (older name)
 
 // Items that exist only with mods on (guns, explosives, vehicles): put away
-// while mods are off. Swords and tools are vanilla.
+// while mods are off. Swords, tools, the bow and the shield are vanilla.
 export const MOD_ITEMS = new Set(ALL_WEAPONS);
 
 // Whether mods are on (set by mods.js): gates mod items in crafting and the

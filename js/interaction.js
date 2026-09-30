@@ -116,9 +116,13 @@ export class Interaction {
       this.rightDown = true;
       this._placeTimer = 0;
       // A weapon or grenade in hand is used instead of placing or opening.
+      // A shield in the main hand goes to the off hand; with nothing in the
+      // main hand that uses right click (a sword, a tool, an empty hand, a
+      // block with nowhere to go), the off-hand shield is raised instead.
       const weapon = this._weapon();
-      if (weapon && this.weapons) this.weapons.press(weapon.kind);
-      else this._use();
+      if (weapon?.kind === "shield") this._equipOffhand();
+      else if (weapon && this.weapons) this.weapons.press(weapon.kind);
+      else if (!this._use() && this.weapons) this.shielding = this.weapons.raiseShield();
     } else if (button === 1) {
       this._pickBlock();
     }
@@ -131,13 +135,24 @@ export class Interaction {
     } else if (button === 2) {
       this.rightDown = false;
       this.eating = 0;
+      this.shielding = false;
       if (this.weapons) this.weapons.release();
     }
+  }
+
+  // A shield in the main hand goes into the off hand (swapping places with
+  // whatever was there).
+  _equipOffhand() {
+    if (!this.inventory.equipSelectedOffhand()) return;
+    this.audio.playClick?.();
+    this.onMessage?.("Shield in your off hand: hold right click to raise it");
+    this._changed();
   }
 
   release() {
     this.leftDown = false;
     this.rightDown = false;
+    this.shielding = false;
     this.eating = 0;
     this._stopMining();
     if (this.weapons) this.weapons.cancel();
@@ -206,7 +221,7 @@ export class Interaction {
     // toggles its scope, like the other weapons' right-click use).
     const weapon = this._weapon();
     if (weapon && weapon.kind === "sniper" && this.weapons) {
-      this.weapons.fireSniper();
+      this.weapons.sniperShot();
       return;
     }
     this.held.swing();
@@ -348,32 +363,37 @@ export class Interaction {
 
   // ---------- Right button: use / place / eat ----------
 
+  // Returns true if the item in hand did something (eat, place).
   _use() {
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
-    const t = this.target;
     if (info?.food) {
-      if (!this.player.creative && (this.player.health < MAX_HEALTH || (info.absorb && this.player.absorption < 20))) this.eating = 0.0001;
-      return;
+      if (!this.player.creative && (this.player.health < MAX_HEALTH || (info.absorb && this.player.absorption < 20))) {
+        this.eating = 0.0001;
+        return true;
+      }
+      return false;
     }
-    if (info?.block) this._place(stack.id);
+    if (info?.block) return this._place(stack.id);
+    return false;
   }
 
   _place(blockId) {
     const t = this.target;
-    if (!t) return;
+    if (!t) return false;
     // Placing onto something replaceable (tall grass) replaces it in place.
     const [px, py, pz] = IS_REPLACEABLE[t.id] ? t.block : t.place;
     const world = this.world;
-    if (!IS_REPLACEABLE[world.getBlock(px, py, pz)]) return;
-    if (BLOCK_INFO[blockId].solid && this._overlapsPlayer(px, py, pz)) return;
-    if (BLOCK_INFO[blockId].solid && this.combat && this.combat.overlapsBlock(px, py, pz)) return;
-    if (!isSupportedBy(blockId, world.getBlock(px, py - 1, pz))) return;
-    if (!world.setBlock(px, py, pz, blockId)) return;
+    if (!IS_REPLACEABLE[world.getBlock(px, py, pz)]) return false;
+    if (BLOCK_INFO[blockId].solid && this._overlapsPlayer(px, py, pz)) return false;
+    if (BLOCK_INFO[blockId].solid && this.combat && this.combat.overlapsBlock(px, py, pz)) return false;
+    if (!isSupportedBy(blockId, world.getBlock(px, py - 1, pz))) return false;
+    if (!world.setBlock(px, py, pz, blockId)) return false;
     this.audio.playPlace(BLOCK_INFO[blockId].sound);
     this.held.swing();
     if (!this.player.creative) this.inventory.consumeSelected(1);
     this._changed();
+    return true;
   }
 
   _overlapsPlayer(bx, by, bz) {
@@ -385,7 +405,7 @@ export class Interaction {
   }
 
   _updateUse(dt) {
-    if (!this.rightDown || this._weapon()) return; // weapons fire once per click
+    if (!this.rightDown || this._weapon() || this.shielding) return; // weapons fire once per click; behind a raised shield nothing else happens
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
     if (this.eating > 0) {

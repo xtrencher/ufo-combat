@@ -1,7 +1,8 @@
 // Supply crates: now and then, in Survival, a crate drifts down on a parachute
 // a little way from the player, trailing bright orange smoke that can be seen
-// from far away. Walk up to it to open it: a weapon you don't have yet,
-// golden apples (extra hearts), sometimes a shield or a tool, some food.
+// from far away. Walk up to it to open it: a standard weapon you don't have
+// yet (pistol, grenades, machine gun, shield, sniper rifle, bazooka,
+// airstrike: by tier), golden apples (extra hearts), sometimes a tool, food.
 // Crates are not saved (a reload just starts the wait for the next one).
 import * as THREE from "three";
 import { rollLoot } from "./progression.js";
@@ -33,6 +34,7 @@ export class SupplyCrates {
     this.inventory = inventory;
     this.entities = entities;
     this.getTier = () => 0;
+    this.randomAllowed = () => true; // Survival: crates drop by themselves once the chain has had its first one
     this.progress = progress;
     this.stats = stats;
     this.crates = [];
@@ -101,7 +103,7 @@ export class SupplyCrates {
   update(dt) {
     const pl = this.player;
     const fx = this.effects;
-    if (this.enabled && !pl.dead && !pl.creative) {
+    if (this.enabled && !pl.dead && !pl.creative && this.randomAllowed()) {
       this.timer -= dt;
       if (this.timer <= 0 && this.active.length === 0) {
         this.timer = INTERVAL[0] + Math.random() * (INTERVAL[1] - INTERVAL[0]);
@@ -156,6 +158,7 @@ export class SupplyCrates {
     c.state = "gone";
     const owned = new Set();
     for (const s of this.inventory.slots) if (s) owned.add(s.id);
+    if (this.inventory.offhand) owned.add(this.inventory.offhand.id);
     const loot = rollLoot("crate", null, this.getTier(), owned);
     // A burst of light and sparks; the items go straight into the inventory
     // (or fall at your feet if it is full).

@@ -221,7 +221,9 @@ export class Player {
 
   // Deals damage in half-hearts. Returns true if it was applied (creative
   // players, the dead and the briefly invulnerable take none).
-  damage(amount, cause, { pierce = false, projectile = false } = {}) {
+  // from: where the hit comes from (a point), if known: a raised shield
+  // only blocks what comes from in front.
+  damage(amount, cause, { pierce = false, projectile = false, from = null } = {}) {
     // In a vehicle, hits land on the vehicle instead (unless `pierce`: the
     // vehicle itself was destroyed with the pilot inside).
     if (this.vehicle && !pierce) {
@@ -234,7 +236,7 @@ export class Player {
     }
     if (this.dead || this.creative || amount <= 0) return false;
     if (this.damageFilter && !pierce) {
-      amount = this.damageFilter(amount, cause);
+      amount = this.damageFilter(amount, cause, from);
       if (amount <= 0) return false;
     }
     // Right after a hit only a stronger hit counts (and only its excess).
@@ -445,6 +447,11 @@ export class Player {
     else if (this.inWater) speed = this.sprinting ? SWIM_SPEED * 1.4 : SWIM_SPEED;
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
+    // Behind a raised shield you walk slowly (and can't sprint).
+    if (this.shielded && !this.flying) {
+      speed = Math.min(speed, SNEAK_SPEED * 1.2);
+      this.sprinting = false;
+    }
     this.velocity.x = worldX * speed + this.knockback.x;
     this.velocity.z = worldZ * speed + this.knockback.z;
     const knockbackDecay = Math.exp(-(this.onGround ? 7 : 1.2) * dt);

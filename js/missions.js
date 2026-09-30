@@ -10,6 +10,7 @@ import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
 
 const _v = new THREE.Vector3();
+const CALM_TIME = 35; // seconds a landed crew looks around before it attacks
 
 function rand(a, b) {
   return a + Math.random() * (b - a);
@@ -55,15 +56,15 @@ export class MissionDirector {
     }
     this.checkT = 0.5;
     if (this.player.dead) return;
-    // UFOs switched off in the settings: no mission UFOs either (say why).
-    const needsUfos = ["scout", "intact", "hunt", "dogfight", "village", "large", "mothership", "airport"].includes(m.event);
-    if (needsUfos && this.ufos.config.activity <= 0) {
-      st.note = "UFO activity is Off (Settings > UFOs): this mission needs UFOs.";
-      this.target = null;
-      return;
-    }
-    if (st.note && st.note.startsWith("UFO activity")) st.note = "";
+    // (In Survival the mission chain decides how many UFOs there are: the UFO
+    // activity setting is Creative's, so there is no "Off" to check here.)
     switch (m.event) {
+      case "skeleton":
+        this._skeleton();
+        break;
+      case "landing":
+        this._landing();
+        break;
       case "scout":
         this._scout();
         break;
@@ -126,7 +127,10 @@ export class MissionDirector {
         u.noLeave = false;
       }
     }
-    for (const m of this.mobs.mobs) m.missionTarget = false;
+    for (const m of this.mobs.mobs) {
+      m.missionTarget = false;
+      m.fireproof = false;
+    }
     this.target = null;
   }
 
@@ -182,7 +186,7 @@ export class MissionDirector {
     if (st.spawnT > 0) return;
     const p = this.player.position;
     const near = this.ufos.ufos.filter((u) => !u.falling && u.state !== "gone" && u.state !== "leave" && u.pos.distanceTo(p) < range).length;
-    if (near < n && this.ufos.config.activity > 0) {
+    if (near < n) {
       this.ufos.spawn({});
       st.spawnT = 12;
     } else st.spawnT = 4;
@@ -211,13 +215,148 @@ export class MissionDirector {
       u.tether = 110;
       u.home = this.player.position.clone();
       u.dodgeMul = 0.35; // it rarely dashes away from pistol fire
-      u.maxHealth = u.health = 24; // about five pistol hits
+      u.maxHealth = u.health = 40; // eight pistol hits (under a magazine), or five full bow draws
       u.crashPlan = { exploded: false, crew: 2, crewKind: "alien" };
       st.scout = u;
       this.toast?.("A scout UFO is snooping around nearby: follow the marker.", 4);
     }
     if (st.scout.home && st.scout.home.distanceTo(this.player.position) > 160) st.scout.home.copy(this.player.position);
     this._setTarget(st.scout, "Scout UFO");
+  }
+
+  // A spot on dry, open ground about `dist` blocks from the player (loaded
+  // chunks only), or null.
+  _groundSpot(dist, spread = 0.3) {
+    const p = this.player.position;
+    const world = this.mobs.world;
+    for (let k = 0; k < 24; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = dist * rand(1 - spread, 1 + spread);
+      const x = Math.floor(p.x + Math.cos(a) * d);
+      const z = Math.floor(p.z + Math.sin(a) * d);
+      if (!world.getChunk(x >> 4, z >> 4)) continue;
+      const top = world.surfaceY(x, z);
+      if (top < SEA_LEVEL || top > this.terrain.heightAt(x, z) + 1) continue; // water, or on a tree
+      return new THREE.Vector3(x + 0.5, top + 1, z + 0.5);
+    }
+    return null;
+  }
+
+  // 1. The archer: a skeleton close by (it doesn't burn in the daylight and
+  // doesn't wander off); it drops its bow. Another comes if it is lost.
+  _skeleton() {
+    const st = this.state;
+    const alive = st.sk && !st.sk.dead && this.mobs.mobs.includes(st.sk);
+    if (!alive) {
+      st.waitT = (st.waitT ?? 1) - 0.5;
+      this.target = null;
+      if (st.waitT > 0) return;
+      st.waitT = 8;
+      const at = this._groundSpot(32, 0.25);
+      if (!at) return;
+      const m = this.mobs.spawn("skeleton", at.x, at.y, at.z);
+      if (!m) return;
+      m.fireproof = true;
+      m.missionTarget = true;
+      st.sk = m;
+      if (!st.told) {
+        st.told = true;
+        this.toast?.("A skeleton is prowling nearby: follow the marker.", 4);
+      }
+    }
+    this._setTarget(st.sk, "Skeleton (it has a bow)");
+  }
+
+  // 2. Visitors: a small UFO lands nearby and lets its crew out. They look
+  // around for a while (time to get ready), then come for the player (at
+  // once if attacked). The ship doesn't fight: it takes off and leaves once
+  // its crew is out, and its hull shrugs off hand weapons.
+  _landing() {
+    const st = this.state;
+    const p = this.player.position;
+    const crew = (st.crew || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    const shipOk = st.ship && this._alive(st.ship);
+    if (!st.phase || (st.phase !== "incoming" && st.phase !== "landed" && crew.length === 0)) {
+      // (Re)start: a ship on its way to a landing spot.
+      st.waitT = (st.waitT ?? 1) - 0.5;
+      this.target = null;
+      if (st.waitT > 0) return;
+      st.waitT = 20;
+      const spot = this._groundSpot(75, 0.2);
+      if (!spot) return;
+      const a = Math.random() * Math.PI * 2;
+      const u = this.ufos.spawn({ size: "small", design: ["saucer", "saucer_disc", "saucer_domed"][Math.floor(Math.random() * 3)], style: "volley", crewKind: "alien", pos: { x: spot.x + Math.cos(a) * 140, y: spot.y + 70, z: spot.z + Math.sin(a) * 140 }, hidden: true });
+      u.immune = true;
+      u.noLeave = true;
+      u.missionTarget = true;
+      u.dodgeMul = 0;
+      u.blinkT = 1e9;
+      u.state = "trick";
+      u.trick = "land";
+      u.timer = 1e9;
+      u.waypoint = new THREE.Vector3(spot.x, spot.y + u.info.bottom * u.radius + 0.3, spot.z);
+      st.ship = u;
+      st.spot = spot;
+      st.phase = "incoming";
+      st.crew = [];
+      st.t = 0;
+      this.toast?.("A UFO is coming down nearby! Get ready.", 4);
+      return;
+    }
+    if (st.phase === "incoming") {
+      if (!shipOk) {
+        st.phase = null;
+        return;
+      }
+      this._setTarget(st.ship, "Landing UFO");
+      if (st.ship.landed) {
+        st.phase = "landed";
+        st.landedT = 0;
+      }
+      return;
+    }
+    if (st.phase === "landed") {
+      st.landedT += 0.5;
+      if (shipOk) this._setTarget(st.ship, "Landed UFO");
+      if (st.landedT >= 3) {
+        // The crew climbs out: calm for a while.
+        const group = `visit${Math.floor(Math.random() * 1e9)}`;
+        for (let i = 0; i < 2; i++) {
+          const m = this._spawnAlien("alien", 4, st.spot);
+          if (!m) continue;
+          m.aggro = false;
+          m.ai.target = false;
+          m.calmT = CALM_TIME;
+          m.group = group;
+          st.crew.push(m);
+        }
+        st.phase = "crew";
+        st.leaveT = 8;
+        if (st.crew.length) this.toast?.(`The aliens are out, looking around. You have about ${CALM_TIME} seconds: get your bow ready!`, 5);
+        else st.phase = null;
+      }
+      return;
+    }
+    // The crew is out: the ship leaves after a moment.
+    st.leaveT -= 0.5;
+    if (st.leaveT <= 0 && shipOk && st.ship.state !== "leave") {
+      st.ship.immune = false;
+      st.ship.noLeave = false;
+      st.ship.missionTarget = false;
+      this.ufos._leave(st.ship);
+    }
+    crew.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
+    const calm = crew[0]?.calmT > 0;
+    this._setTarget(crew[0], calm ? `Alien (attacks in ${Math.ceil(crew[0].calmT)} s)` : "Alien");
+  }
+
+  // Called by the game when a calm crew member wakes up.
+  crewAwake() {
+    if (this.mission?.event !== "landing") return;
+    const st = this.state;
+    if (st.awakeTold) return;
+    st.awakeTold = true;
+    this.toast?.("The aliens are coming for you!", 3);
   }
 
   // 2. The crew: the aliens from the wreck; if they are gone (or never came
@@ -329,10 +468,13 @@ export class MissionDirector {
     }
   }
 
-  // 7. A squad dropped by a UFO about 90 blocks away.
+  // Alien patrols (the "squad" missions): a dropship lands a group of one
+  // kind of alien about 90 blocks away; the first one out is the leader
+  // (tougher, marked), carrying the new alien weapon (mission.squad).
   _squad() {
     const st = this.state;
     const p = this.player.position;
+    const spec = this.mission?.squad || { kind: "alien_gray", n: 6, leaderDrop: null };
     const squad = (st.squad || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
     if (squad.length === 0) {
       st.waitT = (st.waitT ?? 1) - 0.5;
@@ -341,21 +483,35 @@ export class MissionDirector {
         return;
       }
       st.waitT = 25;
-      // Where they land: open ground ahead of the player.
-      const a = Math.random() * Math.PI * 2;
-      const at = new THREE.Vector3(p.x + Math.cos(a) * 90, 0, p.z + Math.sin(a) * 90);
+      // Where they land: open ground about 90 blocks away.
+      const at = this._groundSpot(90, 0.15) || new THREE.Vector3(p.x + 90, 0, p.z);
       st.squad = [];
-      for (const kind of ["alien", "alien", "alien", "alien_gray", "alien_gray", "alien_red"]) {
-        const m = this._spawnAlien(kind, 6, at);
-        if (m) st.squad.push(m);
+      const left = Math.max(1, (this.progress.objectives(this.stats.world)[0]?.goal ?? spec.n) - (this.progress.objectives(this.stats.world)[0]?.value ?? 0));
+      const n = Math.max(Math.min(spec.n, left + 1), Math.min(2, spec.n));
+      for (let i = 0; i < n; i++) {
+        const m = this._spawnAlien(spec.kind, 6, at);
+        if (!m) continue;
+        if (i === 0 && spec.leaderDrop) {
+          // The leader: a little tougher, and it carries the new weapon.
+          m.leader = true;
+          m.leaderDrop = spec.leaderDrop;
+          m.maxHealth = m.health = Math.round(m.health * 1.5);
+        }
+        st.squad.push(m);
       }
       // The dropship: hovers over them a moment, then leaves.
       const ground = Math.max(this.terrain.heightAt(Math.floor(at.x), Math.floor(at.z)), SEA_LEVEL);
-      const ship = this.ufos.spawn({ size: "medium", design: "saucer_disc", pos: { x: at.x, y: ground + 30, z: at.z }, hidden: true });
+      const ship = this.ufos.spawn({ size: "medium", design: "saucer_disc", crewKind: spec.kind, pos: { x: at.x, y: ground + 30, z: at.z }, hidden: true });
       ship.state = "trick";
       ship.trick = "hover";
       ship.timer = 8;
-      if (st.squad.length) this.toast?.("An alien squad has landed: follow the marker!", 4);
+      ship.immuneUntil = this.ufos.time + 9; // (a dropship: it isn't the fight)
+      if (st.squad.length) this.toast?.(`An alien squad has landed: follow the marker!${spec.leaderDrop ? " Its leader is marked." : ""}`, 4);
+      return;
+    }
+    const leader = squad.find((m) => m.leader);
+    if (leader) {
+      this._setTarget(leader, `Squad leader (${squad.length} left)`);
       return;
     }
     // The marker: the middle of what is left of the squad.

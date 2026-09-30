@@ -613,6 +613,20 @@ export class MobManager {
 
   // ---------- AI ----------
 
+  // Ends the calm of a landed crew member (the timer ran out, or it was
+  // attacked): it and the rest of its group turn on the player.
+  wake(m) {
+    for (const o of this.mobs) {
+      if (o.dead || !(o.calmT > 0)) continue;
+      if (o !== m && (!m.group || o.group !== m.group)) continue;
+      o.calmT = 0;
+      o.aggro = true;
+    }
+    m.calmT = 0;
+    m.aggro = true;
+    this.onWake?.(m);
+  }
+
   // Aliens fight anyone (a Creative player too, who just can't be hurt);
   // everything else leaves Creative players alone.
   _canTarget(m) {
@@ -642,7 +656,8 @@ export class MobManager {
       // player from wherever they are, at any height.
       const sight = m.aggro ? Math.max(m.spec.sight, 160) : m.spec.sight;
       const vertical = m.aggro ? 60 : 10;
-      if (this._canTarget(m) && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
+      // (A calm crew member looks around and leaves the player be for now.)
+      if (this._canTarget(m) && !(m.calmT > 0) && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
       else ai.target = false;
       if (ai.target) {
         lookAtPlayer = true;
@@ -760,7 +775,13 @@ export class MobManager {
     m.attackCooldown = 1.0;
     m.attack = 0;
     const dmg = m.kind === "zombie" ? Math.max(1, Math.round(m.spec.damage * this.zombies.damage)) : m.spec.damage;
-    const applied = this.player.damage(dmg, m.kind);
+    const applied = this.player.damage(dmg, m.kind, { from: m.pos });
+    // (Blocked by a raised shield: the attacker is pushed back a little.)
+    if (!applied && this.player.shielded) {
+      m.knock.x -= nx * 5;
+      m.knock.z -= nz * 5;
+      m.stagger = Math.max(m.stagger, 0.3);
+    }
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
@@ -883,8 +904,7 @@ export class MobManager {
       const blockHit = w.raycast(a.pos, dir, len, { solidOnly: true });
       const playerT = this._arrowHitsPlayer(a.pos, dir, blockHit ? blockHit.distance : len);
       if (playerT !== null) {
-        this.player.damage(ARROW_DAMAGE, "skeleton");
-        this.player.applyImpulse(this._tmp.set(dir.x * 4, 2, dir.z * 4));
+        if (this.player.damage(ARROW_DAMAGE, "skeleton", { from: a.pos.clone().addScaledVector(dir, -3) })) this.player.applyImpulse(this._tmp.set(dir.x * 4, 2, dir.z * 4));
         this.group.remove(a.mesh);
         this.arrows.splice(i, 1);
         continue;
@@ -1102,6 +1122,9 @@ export class MobManager {
   _hurt(m, amount, dir, kb, byPlayer = false) {
     if (m.dead || m.invulnerable > 0 || amount <= 0) return false;
     if (byPlayer) m.lastPlayerHit = this.time;
+    // A calm crew member (just landed, looking around) that gets hit
+    // stops looking around: it (and its mates) fight back at once.
+    if (byPlayer && m.calmT > 0) this.wake(m);
     if (m.spec.hides && m.hide > 0.5) amount *= 0.5; // the shell takes most of it
     m.health -= amount;
     m.hurtTime = 0;
@@ -1296,6 +1319,10 @@ export class MobManager {
       m.attackCooldown -= dt;
       m.attack = Math.min(1, m.attack + dt / 0.35);
       m.stagger = Math.max(0, m.stagger - dt);
+      if (m.calmT > 0 && !m.dead) {
+        m.calmT -= dt;
+        if (m.calmT <= 0) this.wake(m);
+      }
       if (m.burst > 0) {
         m.burstT -= dt;
         if (m.burstT <= 0 && !m.dead) {
@@ -1318,7 +1345,7 @@ export class MobManager {
           this._remove(i);
           continue;
         }
-        if (m.spec.hostile && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
+        if (m.spec.hostile && !m.missionTarget && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
           this._remove(i);
           continue;
         }
@@ -1384,7 +1411,7 @@ export class MobManager {
 
   // Zombies burn in direct daylight.
   _daylight(m, dt, daylight) {
-    m.burning = m.spec.hostile && !m.spec.noBurn && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
+    m.burning = m.spec.hostile && !m.spec.noBurn && !m.fireproof && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
     if (!m.burning) return;
     m.burnTimer += dt;
     if (m.burnTimer >= 1) {

@@ -801,12 +801,66 @@ await test("quick-move: a stack moves between the hotbar and the main area", () 
   assert.ok(inv.slots.findIndex((s) => s && s.id === BLOCK.SAND) >= 9, "hotbar -> main");
 });
 
-await test("no crafting: the module is gone, and the starting loadouts are pistol-only (Survival) and every weapon (Creative)", async () => {
+await test("no crafting: the module is gone; Survival starts with basic gear (sword, pickaxe, apples), Creative with every weapon and the bow", async () => {
   await assert.rejects(() => import("../js/crafting.js"));
   const { SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ALL_WEAPONS } = await import("../js/items.js");
-  assert.deepEqual(SURVIVAL_LOADOUT, [ITEM.PISTOL]);
-  assert.equal(CREATIVE_LOADOUT.length, ALL_WEAPONS.length);
-  for (const id of ALL_WEAPONS) assert.ok(itemInfo(id)?.weapon, `weapon ${id}`);
+  assert.deepEqual(SURVIVAL_LOADOUT, [ITEM.STONE_SWORD, ITEM.STONE_PICKAXE, [ITEM.APPLE, 5]]);
+  for (const e of SURVIVAL_LOADOUT) assert.ok(!itemInfo(Array.isArray(e) ? e[0] : e)?.weapon, "no weapon in the Survival start");
+  for (const id of ALL_WEAPONS) assert.ok(CREATIVE_LOADOUT.includes(id), `Creative has ${id}`);
+  assert.ok(CREATIVE_LOADOUT.includes(ITEM.BOW));
+  for (const id of [...ALL_WEAPONS, ITEM.BOW, ITEM.SHIELD]) assert.ok(itemInfo(id)?.weapon, `weapon ${id}`);
+});
+
+await test("the shield goes in the off hand (picked up, equipped, saved, an old save's shield moves there) and wears out", () => {
+  const inv = new Inventory();
+  assert.equal(inv.add(ITEM.SHIELD, 1), 0);
+  assert.equal(inv.offhand?.id, ITEM.SHIELD, "picked up into the free off hand");
+  assert.ok(inv.slots.every((s) => !s), "not in the hotbar");
+  inv.add(ITEM.SHIELD, 1);
+  assert.ok(inv.slots.some((s) => s?.id === ITEM.SHIELD), "a second one goes to the inventory");
+  const full = inv.offhand.dur;
+  assert.equal(inv.damageOffhand(10), false);
+  assert.equal(inv.offhand.dur, full - 10);
+  const data = JSON.parse(JSON.stringify({ inv: inv.serialize(), off: inv.serializeOffhand() }));
+  const b = new Inventory();
+  b.load(data.inv);
+  b.loadOffhand(data.off);
+  assert.equal(b.offhand?.dur, full - 10, "saved with its wear");
+  // An older save: the shield in slot 3, no off hand.
+  const c = new Inventory();
+  c.load([0, 0, 0, [ITEM.SHIELD, 1]]);
+  c.loadOffhand(undefined);
+  assert.equal(c.offhand?.id, ITEM.SHIELD);
+  assert.equal(c.slots[3], null);
+  // Equip from the hotbar swaps places.
+  const d = new Inventory();
+  d.slots[0] = { id: ITEM.SHIELD, count: 1, dur: 5 };
+  d.selected = 0;
+  assert.ok(d.equipSelectedOffhand());
+  assert.equal(d.offhand.dur, 5);
+  assert.equal(d.slots[0], null);
+  assert.equal(d.damageOffhand(9), true, "it breaks");
+  assert.equal(d.offhand, null);
+});
+
+await test("every hand weapon reloads or cools down, balanced by damage (the sniper has one round)", async () => {
+  const { WEAPON_STATS } = await import("../js/weapon-stats.js");
+  for (const k of ["bow", "pistol", "machinegun", "sniper", "grenade", "bazooka", "blaster", "railgun", "airstrike", "minigun"]) {
+    const st = WEAPON_STATS[k];
+    assert.ok(st && ((st.mag >= 1 && st.reload > 0) || (st.heat > 0 && st.cool > 0)), `${k} has a reload or a cooldown`);
+  }
+  assert.equal(WEAPON_STATS.sniper.mag, 1);
+  assert.ok(WEAPON_STATS.sniper.reload >= 1.5, "the sniper reloads after every shot");
+  // Sustained damage per second: the hardest single hits wait the longest.
+  const dps = (dmg, mag, interval, reload) => (dmg * mag) / (mag * interval + reload);
+  const pistol = dps(5, WEAPON_STATS.pistol.mag, 0.2, WEAPON_STATS.pistol.reload);
+  const mg = dps(3, WEAPON_STATS.machinegun.mag, 1 / 12, WEAPON_STATS.machinegun.reload);
+  const sniper = dps(34, 1, 0, WEAPON_STATS.sniper.reload);
+  const blaster = dps(7, WEAPON_STATS.blaster.mag, 0.2, WEAPON_STATS.blaster.reload);
+  const minigun = (3 * 32 * WEAPON_STATS.minigun.heat) / (WEAPON_STATS.minigun.heat + WEAPON_STATS.minigun.cool + 1);
+  assert.ok(pistol < mg && mg < blaster + 1 && blaster < minigun, `crate guns < alien guns: ${[pistol, mg, sniper, blaster, minigun].map((x) => x.toFixed(1))}`);
+  assert.ok(sniper < 25 && sniper > 12, `the sniper: big hits, modest sustained damage (${sniper.toFixed(1)})`);
+  assert.ok(WEAPON_STATS.railgun.reload > WEAPON_STATS.sniper.reload && WEAPON_STATS.airstrike.reload >= 20);
 });
 
 await test("inventory survives serialize/load and rejects garbage", () => {
@@ -1324,24 +1378,24 @@ console.log("\nAirports and cities (sites.js)");
 // ---------------------------------------------------------------------------
 console.log("\nProgression (progression.js)");
 {
-  const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS } = await import("../js/progression.js");
+  const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (15 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0 };
+  await test("the mission chain (19 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 15);
-    assert.equal(p.mission.id, "first_contact");
+    assert.equal(MISSIONS.length, 19);
+    assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
-    assert.equal(done.length, 0, "the scout first");
-    stats.ufosDown = 1;
+    assert.equal(done.length, 0, "the skeleton first");
+    stats.skeletonsKilled = 1;
     p.update(stats);
-    assert.deepEqual(done, ["first_contact"]);
-    assert.equal(p.mission.id, "crew");
+    assert.deepEqual(done, ["skeleton"]);
+    assert.equal(p.mission.id, "landing");
     assert.equal(p.objectives(stats)[0].value, 0, "the next mission counts from now (the earlier kills don't count)");
     stats.aliensKilled = 4;
     p.update(stats);
@@ -1352,45 +1406,86 @@ console.log("\nProgression (progression.js)");
     assert.equal(q.mission.id, "supply");
     stats.cratesOpened = 1;
     q.update(stats);
-    assert.equal(q.mission.id, "long_night");
-    // Rules grow harder along the chain; early UFOs are small and weak.
-    assert.deepEqual(Object.keys(MISSIONS[0].rules.sizes), ["small"]);
-    assert.ok(MISSIONS[0].rules.health < 0.7 && MISSIONS[0].rules.damage < 0.7);
-    for (let i = 1; i < MISSIONS.length; i++) assert.ok(MISSIONS[i].rules.health >= MISSIONS[i - 1].rules.health && MISSIONS[i].tier >= MISSIONS[i - 1].tier, `mission ${i + 1} is no easier than ${i}`);
+    assert.equal(q.mission.id, "first_contact");
+    // The sky: no UFOs for the first two missions, then one, then more; and
+    // it grows harder along the chain.
+    assert.equal(MISSIONS[0].rules.max, 0);
+    assert.equal(MISSIONS[1].rules.max, 0);
+    assert.equal(MISSIONS[2].rules.max, 1);
+    assert.deepEqual(Object.keys(MISSIONS[3].rules.sizes), ["small"]);
+    assert.ok(MISSIONS[3].rules.health < 0.7 && MISSIONS[3].rules.damage < 0.7);
+    for (let i = 1; i < MISSIONS.length; i++) {
+      const a = MISSIONS[i - 1].rules;
+      const b = MISSIONS[i].rules;
+      assert.ok(b.health >= a.health && b.damage >= a.damage && b.max >= a.max && MISSIONS[i].tier >= MISSIONS[i - 1].tier, `mission ${i + 1} is no easier than ${i}`);
+    }
+    // Rewards: apples and golden apples only.
+    for (const m of MISSIONS) for (const [id] of m.reward) assert.ok(id === ITEM.APPLE || id === ITEM.GOLDEN_APPLE, `${m.id} rewards only apples`);
+    // Alien ships are boarded late; the jets come before; the alien weapons come weakest first.
+    const idx = (id) => MISSIONS.findIndex((m) => m.id === id);
+    assert.ok(idx("salvage") >= 12 && idx("wings") < idx("salvage"));
+    assert.ok(idx("patrol") < idx("grays") && idx("grays") < idx("reds"));
+    assert.deepEqual([idx("patrol"), idx("grays"), idx("reds")].map((i) => MISSIONS[i].squad.leaderDrop), [ITEM.LASER_BLASTER, ITEM.MINIGUN, ITEM.RAILGUN]);
+    // The patrol leaders' weapons are within reach of their mission's tier.
+    for (const i of [idx("patrol"), idx("grays"), idx("reds")]) {
+      const w = MISSIONS[i].squad.leaderDrop;
+      assert.ok(ALIEN_WEAPONS.find(([id]) => id === w)[1] <= MISSIONS[i].tier, `${MISSIONS[i].id} tier`);
+    }
     // Everything through to the end.
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 25; i++) {
       for (const k of Object.keys(stats)) stats[k] += 50; // (each mission counts from when it starts)
       q.update(stats);
     }
     assert.equal(q.mission, null);
     assert.equal(q.completed, MISSIONS.length);
     assert.equal(q.list(stats).filter((m) => m.state === "done").length, MISSIONS.length);
+    // A Round 3 save (15 missions; its current one was "salvage") carries over, past the new opening.
+    const v3 = new Progress();
+    v3.load({ v: 3, step: 4, base: {}, done: [] }, stats);
+    assert.ok(v3.step >= 5 && v3.mission && v3.mission.id !== "salvage", `v3 progress kept: ${v3.step} ${v3.mission?.id}`);
     // A Round 2 save (7 old missions, 3 done) carries over.
     const old = new Progress();
     old.load({ step: 3, base: {}, done: ["first_contact", "salvage", "wings"] }, stats);
     assert.ok(old.step >= 5 && old.mission, `old progress kept: ${old.step}`);
   });
 
-  await test("loot gets better with the tier: no heavy weapons early, and never a weapon you already own", () => {
+  await test("weapons come from their own sources: bows from skeletons, standard guns from crates, alien weapons from aliens (weakest first), none from wrecks, fighters or missions", () => {
     let rng = 1;
     const rand = () => ((rng = (rng * 16807) % 2147483647) / 2147483647);
-    const heavy = new Set([ITEM.RAILGUN, ITEM.MINIGUN, ITEM.BAZOOKA, ITEM.AIRSTRIKE]);
-    for (let i = 0; i < 400; i++) {
-      for (const [id] of rollLoot("ufo", "large", 0, new Set([ITEM.PISTOL]), rand)) assert.ok(!heavy.has(id) || false, `tier 0 dropped ${id}`);
+    const crateSet = new Set(CRATE_WEAPONS.map(([id]) => id));
+    const alienSet = new Set(ALIEN_WEAPONS.map(([id]) => id));
+    const isWeapon = (id) => crateSet.has(id) || alienSet.has(id) || id === ITEM.BOW;
+    // Skeletons: the bow (once).
+    assert.deepEqual(rollLoot("skeleton", null, 0, new Set(), rand), [[ITEM.BOW, 1]]);
+    assert.deepEqual(rollLoot("skeleton", null, 0, new Set([ITEM.BOW]), rand), []);
+    // Wrecks and fighters: never a weapon.
+    for (let i = 0; i < 300; i++) {
+      for (const size of ["small", "large", "giant"]) for (const [id] of rollLoot("ufo", size, 5, new Set(), rand)) assert.ok(!isWeapon(id), `a ${size} wreck dropped ${id}`);
+      for (const [id] of rollLoot("enemyjet", null, 5, new Set(), rand)) assert.ok(!isWeapon(id), "a fighter dropped a weapon");
     }
-    let sawHeavy = false;
-    for (let i = 0; i < 400; i++) for (const [id] of rollLoot("ufo", "giant", 5, new Set([ITEM.PISTOL]), rand)) if (heavy.has(id)) sawHeavy = true;
-    assert.ok(sawHeavy, "a top-tier giant drops heavy weapons");
+    // Crates: only standard weapons, the first one a pistol, never a repeat.
+    const first = rollLoot("crate", null, 0, new Set(), rand);
+    assert.ok(first.some(([id]) => id === ITEM.PISTOL), "the first crate has the pistol");
+    for (let i = 0; i < 300; i++) {
+      const owned = new Set([ITEM.PISTOL, ITEM.MACHINE_GUN]);
+      for (const [id] of rollLoot("crate", null, 5, owned, rand)) {
+        assert.ok(!alienSet.has(id), "no alien weapon in a crate");
+        assert.ok(!owned.has(id), "crates never repeat a weapon");
+      }
+    }
+    for (let i = 0; i < 100; i++) for (const [id] of rollLoot("crate", null, 1, new Set([ITEM.PISTOL]), rand)) assert.ok(![ITEM.BAZOOKA, ITEM.AIRSTRIKE, ITEM.SNIPER_RIFLE].includes(id), "no heavy crate weapons early");
+    // Aliens: nothing before the chain gets there, then weakest first, and a green never carries a railgun.
+    for (let i = 0; i < 300; i++) for (const [id] of rollLoot("alien", "red", 1, new Set(), rand)) assert.ok(!isWeapon(id), "no alien weapon at tier 1");
+    assert.equal(pickAlienWeapon("green", 5, new Set()), ITEM.LASER_BLASTER);
+    assert.equal(pickAlienWeapon("green", 5, new Set([ITEM.LASER_BLASTER])), null, "greens stop at the blaster");
+    assert.equal(pickAlienWeapon("red", 5, new Set([ITEM.LASER_BLASTER])), ITEM.MINIGUN, "the weakest missing one first");
+    assert.equal(pickAlienWeapon("red", 3, new Set([ITEM.LASER_BLASTER, ITEM.MINIGUN])), null, "the railgun waits for tier 4");
+    assert.equal(pickAlienWeapon("red", 4, new Set([ITEM.LASER_BLASTER, ITEM.MINIGUN])), ITEM.RAILGUN);
+    let got = 0;
+    for (let i = 0; i < 400; i++) if (rollLoot("alien", "green", 2, new Set(), rand).some(([id]) => id === ITEM.LASER_BLASTER)) got++;
+    assert.ok(got > 40 && got < 140, `greens sometimes drop the blaster at tier 2: ${got}/400`);
     const all = new Set(WEAPON_TIERS.map(([id]) => id));
     assert.equal(pickWeapon(5, all), null, "everything owned: nothing to pick");
-    for (let i = 0; i < 200; i++) {
-      const owned = new Set([ITEM.PISTOL, ITEM.MACHINE_GUN, ITEM.LASER_BLASTER]);
-      for (const [id] of rollLoot("crate", null, 3, owned, rand)) assert.ok(!owned.has(id), "crates never repeat a weapon");
-    }
-    // A crate always brings a weapon while there is one to find, and golden apples.
-    const crate = rollLoot("crate", null, 2, new Set([ITEM.PISTOL]), rand);
-    assert.ok(crate.some(([id]) => WEAPON_TIERS.some(([w]) => w === id)), "a weapon");
-    assert.ok(crate.some(([id]) => id === ITEM.GOLDEN_APPLE), "golden apples");
   });
 }
 

@@ -137,8 +137,16 @@ export class Hud {
       this.gold.push({ el: c, ctx: c.getContext("2d"), shown: -1 });
     }
     this._shownGold = -1;
-    this.shieldEl = document.getElementById("shield-bar");
-    this.shieldFill = this.shieldEl.firstElementChild;
+    // The off-hand slot (the shield) and the weapon status (rounds, reload).
+    this.offhandEl = document.getElementById("offhand-slot");
+    this.offSlot = new SlotView(icons, "hotbar-slot");
+    this.offhandEl.appendChild(this.offSlot.el);
+    this.weaponEl = document.getElementById("weapon-status");
+    this.weaponLabel = this.weaponEl.querySelector(".ws-label");
+    this.weaponAmmo = this.weaponEl.querySelector(".ws-ammo");
+    this.weaponFill = this.weaponEl.querySelector(".ws-bar > div");
+    this.reloadEl = document.getElementById("reload-bar");
+    this.reloadFill = this.reloadEl.firstElementChild;
     this.bubbles = [];
     for (let i = 0; i < MAX_AIR; i++) {
       const c = document.createElement("canvas");
@@ -179,6 +187,12 @@ export class Hud {
   refreshHotbar() {
     const inv = this.inventory;
     for (let i = 0; i < HOTBAR_SIZE; i++) this.slots[i].set(inv.slots[i]);
+    this.offSlot.set(inv.offhand);
+    const hasOff = !!inv.offhand;
+    if (hasOff !== this._hasOff) {
+      this._hasOff = hasOff;
+      this.offhandEl.classList.toggle("hidden", !hasOff);
+    }
     if (inv.selected !== this._selected) {
       if (this._selected >= 0) this.slots[this._selected].el.classList.remove("selected");
       this._selected = inv.selected;
@@ -297,22 +311,28 @@ export class Hud {
     }
   }
 
-  // The energy shield's bar: shown while the shield item is selected.
-  setShield(frac, visible, broken) {
-    if (visible !== this._shieldVis) {
-      this._shieldVis = visible;
-      this.shieldEl.classList.toggle("hidden", !visible);
+  // The weapon in hand: rounds left and the reload / cooldown (st from
+  // weapons.status(), or null for no weapon).
+  setWeaponStatus(st) {
+    const sig = st ? `${st.kind}:${st.ammo ?? ""}:${Math.round((st.reload ?? 1) * 40)}:${Math.round((st.heat ?? 0) * 40)}:${st.overheated ? 1 : 0}` : "";
+    if (sig === this._weaponSig) return;
+    this._weaponSig = sig;
+    this.weaponEl.classList.toggle("hidden", !st);
+    const busy = !!st && (st.reloading || st.overheated);
+    this.reloadEl.classList.toggle("hidden", !busy);
+    if (!st) return;
+    this.reloadFill.style.width = `${Math.round((st.reload ?? 1) * 100)}%`;
+    if (st.heat !== undefined) {
+      this.weaponLabel.textContent = st.overheated ? st.label : "Heat";
+      this.weaponAmmo.textContent = "";
+      this.weaponFill.style.width = `${Math.round(st.heat * 100)}%`;
+      this.weaponEl.classList.toggle("hot", st.overheated || st.heat > 0.75);
+      return;
     }
-    if (!visible) return;
-    const w = `${Math.round(frac * 100)}%`;
-    if (w !== this._shieldW) {
-      this._shieldW = w;
-      this.shieldFill.style.width = w;
-    }
-    if (broken !== this._shieldBroken) {
-      this._shieldBroken = broken;
-      this.shieldEl.classList.toggle("broken", broken);
-    }
+    this.weaponEl.classList.remove("hot");
+    this.weaponLabel.textContent = st.reloading ? st.label : "";
+    this.weaponAmmo.innerHTML = st.mag > 1 ? `${st.ammo}<small> / ${st.mag}</small>` : st.reloading ? "" : "READY";
+    this.weaponFill.style.width = `${Math.round((st.reloading ? st.reload : st.ammo / st.mag) * 100)}%`;
   }
 
   showDeath(message) {
