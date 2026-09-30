@@ -1262,3 +1262,59 @@ Run in `tools/` (`npm install` once for three.js and Playwright; everything runs
 6. Board a crashed intact UFO (F) and press **R** (teleport dash) and **B** (vertical superweapon).
 
 ROUND 2 COMPLETE
+
+# Round 3 (UFO COMBAT) checklist
+
+Source of truth for this round. Items are ticked as they are finished; decisions go in "Round 3 decisions" at the end.
+
+## Part 0: Restore jet flight
+- [x] 0.1 Jet flight physics and flight controls restored to the "UFO FINAL COMPLETE" build (commit 4081499), Round 2 jet features kept (weapons, aim assist, heat, missile lock, flares, warnings, runway takeoff)
+- [x] 0.2 Round 2 checklist: nothing left unchecked (verified: all ticked)
+
+## Part 1: Combat fixes
+- [ ] 1.1 UFO shots that reach the player always hit and hurt (on foot and in vehicles); only dodging avoids damage
+- [x] 1.2 Jet missile lock released early: no missile, camera returns
+- [ ] 1.3 UFO attack variety by type (rapid bursts, slow heavy bolts, sweeping beams, spread shots, charged shots), own colors and sounds
+
+## Part 2: UFO redesign
+- [ ] 2.1 Remove detailed many-light UFOs and the tall-cockpit saucer
+- [ ] 2.2 Smooth saucers: several clean variants (proportions, sizes, brushed / matte / glossy), most common
+- [ ] 2.3 Spheres: gray-black, non-glowing, subtle surface material
+- [ ] 2.4 Tic-tacs: white / pale gray capsules
+- [ ] 2.5 Torus: pure minimal ring
+- [ ] 2.6 Extra minimal shapes (smooth cube, cube-ring)
+- [ ] 2.7 Size/material variety; shot-down UFOs never glow
+
+## Part 3: UFO behavior
+- [ ] 3.1 Enemy UFO teleport dashes (random, often when shot at), streak along the path, no light effects
+- [ ] 3.2 Player UFO dash: visible ultra-fast travel, setting to adjust/disable, shown in the I panel
+- [ ] 3.3 Enemy jets sometimes attack UFOs on their own, balanced
+
+## Part 4: Jet visuals
+- [ ] 4.1 Jet material/texture (panel lines, livery, moonlight/ambient/specular response), more model detail, visible at night
+- [ ] 4.2 Navigation lights only at night
+
+## Part 5: World and graphics
+- [ ] 5.1 Bigger mountains and ranges, large seas/oceans, big biomes
+- [ ] 5.2 Farther, better LOD; higher max settings; LOD consistent with full detail
+- [ ] 5.3 Ultra grass shorter
+
+## Part 6: Survival missions and balance
+- [ ] 6.1 Mission chain design (simple -> epic), rewards tied to weapon progression
+- [ ] 6.2 UFO count/size/health/damage balanced per mission; early UFOs killable with the pistol
+- [ ] 6.3 Mission HUD with progress; mission list in the pause menu
+
+## Final polish
+- [ ] F1 Regression pass
+- [ ] F2 Player's-eye review (Survival start, Creative jet/UFOs/dashes/night/lock release)
+- [ ] F3 Full test suite
+- [ ] F4 README updated
+- [ ] F5 PROGRESS summary, decisions, known issues, how to test in 10 minutes
+- [ ] F6 "ROUND 3 COMPLETE", commit, push
+
+## Round 3 decisions and notes
+(appended as work proceeds)
+- Part 0: compared `js/vehicle-jet.js` at 4081499 ("UFO FINAL COMPLETE") with Round 2. The in-air flight model (`_aero` lift/drag/thrust/control rates, `_assistStick`, mouse steering, keys) is byte-for-byte the Round 1 one again. What Round 2 had changed and is now undone: the default top speed (220 back to 160 blocks/s, ~580 km/h; drag is derived from it, so this is what made it feel different) and a "hold a climb" assist that also acted on landing approaches. Saved settings still carrying the Round 2 default (220) are moved back to 160 once (`settings.rev = 3`); any other value the player picked is kept. The slider still goes to 700.
+- Part 0, takeoff kept working: the Round 2 runway roll stays (70% of the thrust on the wheels), but with the original drag the raised nose bled off too much speed on the wheels, so induced drag now applies only once airborne, the assist rotates at 1.2x the stall speed (was 1.05x) so the jet leaves the runway with margin to climb, and the "keep climbing" aid acts only in the first 3 s after the wheels leave the ground. All of this is ground/takeoff only; nothing in flight changed.
+- Part 1.2 (done with Part 0, same code): releasing the missile lock before it is complete fires nothing ("Lock cancelled"), and the camera eases back. A quick tap no longer fires an unguided missile (the player asked for exactly this; the cannon covers unguided fire).
+

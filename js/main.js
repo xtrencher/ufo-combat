@@ -128,6 +128,13 @@ const DEFAULT_RENDER_DISTANCE = 10;
 const MIN_RENDER_DISTANCE = 2;
 const MAX_RENDER_DISTANCE = 100;
 const settings = normalizeSettings(loadSettings());
+// Round 3: the jet flies as it did in the first build again. Round 2 raised
+// the default top speed to 220 (saved with every setting); a value still at
+// that old default goes back to the original 160 once.
+if ((settings.rev ?? 0) < 3) {
+  if (settings.vehicles?.jetMaxSpeed === 220) settings.vehicles.jetMaxSpeed = 160;
+  settings.rev = 3;
+}
 
 function clampRenderDistance(value) {
   const n = Math.round(Number(value));
@@ -343,7 +350,7 @@ settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = 
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
 // The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
-vehicles.config.jet = { maxSpeed: 220, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
+vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 settingsPanel.on("vehicles.jetMaxSpeed", (v) => {
   vehicles.config.jet.maxSpeed = v;
   ufos.jetMaxSpeed = v;

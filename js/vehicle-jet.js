@@ -32,7 +32,7 @@ import { IS_SOLID, IS_WET } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
-export const JET_DEFAULTS = { maxSpeed: 220, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
+export const JET_DEFAULTS = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 const G = 14; // gravity on the jet (blocks/s^2)
 const CL_SLOPE = 5; // lift coefficient per radian of angle of attack
 const STALL_AOA = 0.3; // radians (~17 degrees)
@@ -51,6 +51,7 @@ const MISSILE_TURN = 3.2; // rad/s
 const FLARE_COOLDOWN = 5;
 const FLARE_BURST = 4;
 const RUNWAY_THRUST = 0.7; // share of the thrust that pushes on the wheels (a roll of ~100 blocks to lift off, ~60 with the afterburner)
+const ROTATE_SPEED = 1.2; // x the stall speed: the assist rotates for takeoff (lift-off with margin to climb away)
 const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
 export const MISSILE_DAMAGE = 190;
 
@@ -128,6 +129,7 @@ export class Jet extends Vehicle {
     this.warnT = 0;
     this.gearT = data.airborne ? 0 : 1;
     this.rolled = 0; // distance rolled on the runway (HUD)
+    this.sinceLiftoff = 99; // seconds since the wheels left the ground (takeoff aid)
     this.hostileTo = null;
     this.stalled = false;
     this.missiles = [];
@@ -225,7 +227,10 @@ export class Jet extends Vehicle {
     acc.addScaledVector(fwd, thrust);
     // Drag: top speed with the afterburner lit is the max speed setting.
     const kD = (accel * 1.55) / (maxSpeed * maxSpeed);
-    const drag = kD * speed * speed * (1 + 1.5 * cl * cl) * (this.brake ? 3.5 : 1);
+    // (Induced drag from the wings' lift only once airborne: on the takeoff
+    // roll a raised nose would otherwise eat the speed it needs to lift off.)
+    const induced = this.onGround ? 0 : 1.5 * cl * cl;
+    const drag = kD * speed * speed * (1 + induced) * (this.brake ? 3.5 : 1);
     if (speed > 0.01) acc.addScaledVector(this.vel, -drag / speed);
     acc.y -= G;
     this.vel.addScaledVector(acc, dt);
@@ -309,12 +314,13 @@ export class Jet extends Vehicle {
           this.aimYaw -= input.dx * sens;
           this.aimPitch = clamp(this.aimPitch - input.dy * sens * inv, -1.45, 1.45);
         }
-        // Just after liftoff, slow and low: the assist holds a gentle climb so
-        // the jet doesn't settle back onto the runway.
-        if (!this.onGround && this.gearT > 0.3 && this.vel.y > -2 && this.speed < cfg.stallSpeed * 1.7 && this.pos.y - GEAR - this.manager.groundBelow(this.pos.x, this.pos.y - GEAR, this.pos.z) < 35) this.aimPitch = Math.max(this.aimPitch, 0.26);
+        // For the first few seconds after the wheels leave a runway the
+        // assist holds a gentle climb so the jet doesn't settle back. It is a
+        // takeoff aid only: it never acts in normal flight or on landing.
+        if (!this.onGround && this.sinceLiftoff < 3 && this.vel.y > -2 && this.speed < cfg.stallSpeed * 1.7) this.aimPitch = Math.max(this.aimPitch, 0.26);
         this._assistStick(stick);
         // Assist also rotates for takeoff once there's flying speed.
-        if (this.onGround && this.throttle > 0.5 && this.vel.length() > cfg.stallSpeed * 1.05) stick.x = Math.max(stick.x, 0.6);
+        if (this.onGround && this.throttle > 0.5 && this.vel.length() > cfg.stallSpeed * ROTATE_SPEED) stick.x = Math.max(stick.x, 0.6);
       } else {
         // Direct stick: mouse up/down pitches, left/right rolls.
         this._manualIn.x += (clamp(-input.dy * sens * inv * 12, -1, 1) - this._manualIn.x) * Math.min(1, dt * 12);
@@ -351,6 +357,7 @@ export class Jet extends Vehicle {
     this._groundAndCrash(dt, aero);
     if (!this.alive) return;
     if (this.onGround && !wasGround) this._touchdown();
+    this.sinceLiftoff = this.onGround ? 0 : wasGround ? 0.0001 : this.sinceLiftoff > 0 ? this.sinceLiftoff + dt : 99;
     if (this.onGround) this.rolled += Math.hypot(this.vel.x, this.vel.z) * dt;
     else this.rolled = 0;
     this.pos.addScaledVector(this.vel, dt);
@@ -607,7 +614,8 @@ export class Jet extends Vehicle {
   // Hold the right button: the target nearest the centre of the view (in any
   // direction, behind you too) is picked and tracked; the camera turns to
   // look at it. Let go after about a second for one guided missile, after
-  // three seconds for a salvo of four. A quick tap fires an unguided one.
+  // three seconds for a salvo of four. Let go before the lock is complete
+  // and nothing is fired: the camera just returns to normal.
   _updateLock(dt, input) {
     const mgr = this.manager;
     const lock = this.lock;
@@ -721,10 +729,9 @@ export class Jet extends Vehicle {
         this._launchMissile(target);
         this.missileT = MISSILE_COOLDOWN;
       }
-    } else {
-      // Not locked: an unguided missile straight ahead.
-      this._launchMissile(null);
-      this.missileT = MISSILE_COOLDOWN;
+    } else if (lock.target || lock.progress > 0) {
+      // Released before the lock completed: no missile.
+      this.manager.onMessage?.("Lock cancelled");
     }
   }
 
@@ -1141,7 +1148,7 @@ export class Jet extends Vehicle {
     if (this.jammed) warnings.push("CANNON OVERHEATED");
     if (this.health < this.maxHealth * 0.3) warnings.push("DAMAGE CRITICAL");
     const cfg = this.cfg;
-    const vr = cfg.stallSpeed * 1.05;
+    const vr = cfg.stallSpeed * ROTATE_SPEED;
     const onRunway = this.onGround
       ? this.throttle < 0.2 && speed < 2
         ? "parked: W for throttle, Shift for afterburner"

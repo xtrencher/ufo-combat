@@ -1155,16 +1155,17 @@ await check("missile lock: hold RMB locks the target nearest the view centre (ev
     g.vehicles.input.buttons[2] = false;
     for (let i = 0; i < 12; i++) g.vehicles.update(0.05);
     const four = jet.missiles.length;
-    // Tap: an unguided missile.
+    // Released before the lock completes: no missile, the camera turns back.
     jet.missiles.length = 0;
     jet.queued.length = 0;
     jet.missileT = 0;
     g.vehicles.input.buttons[2] = true;
     g.vehicles.update(0.05);
     g.vehicles.input.buttons[2] = false;
-    g.vehicles.update(0.05);
-    const tap = jet.missiles[0];
-    const out = { minDist, lastState, lockedAt, targetOk, lookAt, one, behind, hit, salvoAt, four, tapUnguided: !!tap && !tap.target, hp: ufo.health / hp0 };
+    for (let i = 0; i < 40; i++) g.vehicles.update(0.05);
+    const tap = jet.missiles[0] || jet.queued[0];
+    const lookBack = jet.lock.look;
+    const out = { minDist, lastState, lockedAt, targetOk, lookAt, one, behind, hit, salvoAt, four, tapNone: !tap, lookBack, hp: ufo.health / hp0 };
     g.ufos.clear();
     for (const m of jet.missiles) m.mesh.parent?.remove(m.mesh);
     jet.missiles.length = 0;
@@ -1177,7 +1178,8 @@ await check("missile lock: hold RMB locks the target nearest the view centre (ev
   assert(r.behind && r.hit, `the rear shot turned around and hit: ${JSON.stringify({ behind: r.behind, hit: r.hit, min: r.minDist, st: r.lastState })}`);
   assert(r.salvoAt > 2.8 && r.salvoAt < 3.3, `salvo ready after about 3 s: ${r.salvoAt}`);
   assert(r.four === 4, `a salvo is four missiles: ${r.four}`);
-  assert(r.tapUnguided, "a tap fires an unguided missile");
+  assert(r.tapNone, "releasing before the lock completes fires nothing");
+  assert(r.lookBack < 0.05, `the camera returned to normal: ${r.lookBack}`);
 });
 
 await check("flares fool an enemy missile; sharp turns and flares mean it misses; a warning shows where it comes from", async () => {

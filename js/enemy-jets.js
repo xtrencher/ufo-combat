@@ -52,7 +52,7 @@ export class EnemyJet extends Jet {
 
   get cfg() {
     // Slightly slower than the player's jet at the same settings.
-    const base = this.manager.config.jet || { maxSpeed: 220, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
+    const base = this.manager.config.jet || { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
     return { ...base, maxSpeed: Math.min(base.maxSpeed, 260) * 0.9, turnRate: 0.85, accel: base.accel, assist: true, aimAssist: true };
   }
 
