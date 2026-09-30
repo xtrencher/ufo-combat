@@ -314,7 +314,7 @@ export class UfoManager {
       light: model.light,
       lazy: 0,
     };
-    u.hitHalfHeight = Math.max(u.info.h * radius * 0.55, radius * 0.22);
+    u.hitHalfHeight = Math.max(u.info.h * radius * 0.55, radius * 0.3); // (thin discs: a little generous, so a shot that looks like a hit is one)
     u.pos.copy(opts.pos ? opts.pos : this._spawnPoint(u));
     u.spawnFade = opts.pos && !opts.hidden ? 0 : 3.2; // grows in from a dot when it appears far away
     if (u.spawnFade === 0) u.age = 9;

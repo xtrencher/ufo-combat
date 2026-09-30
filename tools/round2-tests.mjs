@@ -113,6 +113,13 @@ await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 12
 async function play() {
   if ((await v((g) => g.gameState)) === "dead") await v((g) => g.respawn());
   if ((await v((g) => g.gameState)) === "playing") return;
+  // (After a respawn the game waits for the mouse, with no menu showing.)
+  for (let k = 0; k < 3 && !(await page.isVisible("#resume-btn")) && (await v((g) => g.gameState)) === "paused"; k++) {
+    await page.mouse.click(480, 270);
+    await frames(5);
+    if ((await v((g) => g.gameState)) === "playing") return;
+  }
+  if ((await v((g) => g.gameState)) === "paused" && !(await page.isVisible("#resume-btn"))) await page.evaluate(() => document.getElementById("pause-menu").classList.remove("hidden"));
   const btn = (await v((g) => g.gameState)) === "start" ? "#play-btn" : "#resume-btn";
   await page.click(btn, { timeout: 60000 });
   await page.waitForFunction(() => window.__ufo.gameState === "playing", null, { timeout: 30000 });
@@ -580,6 +587,7 @@ await check("aliens face the player when they shoot, and chase at once after lea
 await check("skeletons face the player when they shoot", async () => {
   await play();
   await skyArena();
+  await flatPad(24, 24); // (a clear line of sight whatever the terrain)
   await v((g) => {
     g.setMode("survival");
     g.mobs.hostileSpawning = false;
@@ -1233,7 +1241,7 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
     g.enemyJets.config.count = 1;
     g.ufos.lastPlayerAttack = undefined; // (earlier tests shot UFOs)
     const p = g.player.position;
-    const e = g.enemyJets.spawn({ dist: 500, angle: 0.3 });
+    const e = g.enemyJets.spawn({ dist: 500, angle: 0.3, rogue: false }); // (Round 3: a rogue pilot doesn't take the UFOs' side)
     g.setMode("survival");
     g.player.health = 20;
     const fired0 = g.lasers.fired;
@@ -1653,11 +1661,11 @@ await check("missions: the first one is 'shoot down a scout UFO', then its crew;
   await v((g) => {
     g.setMode("survival");
     g.inventory.clear();
-    g.progress.load(null, g.stats.world);
   });
   await play();
   const r = await v(async (g) => {
     const { ITEM } = await import("./js/items.js");
+    g.progress.load(null, g.stats.world); // (here: nothing can count between the reset and the checks)
     const first = g.progress.mission.id;
     g.stats.add("aliensKilled", 2);
     g.progress.update(g.stats.world);
