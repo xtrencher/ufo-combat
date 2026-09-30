@@ -8,8 +8,8 @@
 //
 // Temper: UFOs are mostly peaceful. They roam, play tricks (hovering over
 // lakes, zig-zagging, following animals, beaming one up, diving into the sea
-// or burrowing into a mountain, and blinking to a spot nearby at extreme
-// speed) and ignore the player. They turn hostile when shot, when the player
+// or burrowing into a mountain, and dashing to a spot nearby at extreme
+// speed: a streak, no light) and ignore the player. They turn hostile when shot, when the player
 // keeps the camera on them for a while, when a jet locks a missile on them,
 // and now and then on their own (some are hotter-tempered than others). At
 // most MAX_ATTACKERS of them attack the player at the same time; the others

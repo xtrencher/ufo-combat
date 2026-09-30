@@ -284,7 +284,7 @@ export class EnemyJet extends Jet {
     let bestD = 1300;
     const p = mgr.player.position;
     for (const u of ufos.ufos) {
-      if (u.falling || u.state === "gone" || u.state === "leave" || u.state === "emerge" || u.S.idx > 2) continue;
+      if (u.falling || u.state === "gone" || u.state === "leave" || u.state === "emerge" || u.S.idx > 2 || u.missionTarget || u.raider) continue;
       if (u.pos.distanceTo(p) > Math.max(400, (mgr.viewRange || 400) * 0.9)) continue;
       const d = u.pos.distanceTo(this.pos);
       if (d < bestD) {

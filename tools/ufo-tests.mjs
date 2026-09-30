@@ -358,6 +358,11 @@ async function arena(y = 60) {
     if (g.vehicles.active) g.vehicles.exit();
     g.vehicles.parachute.close(g.player);
     g.setMode("survival");
+    // (Round 3: these checks test the UFO features on their own, without the
+    // mission chain: no mission set-ups, rules or locked jets.)
+    g.missions.enabled = false;
+    g.progress.enabled = false;
+    g.ufos.rules = null;
     g.ufos.graceT = 0; // (Round 2: UFOs ignore a player who has just respawned)
     g.mobs.spawning = false; // (night in the arena: no zombies wandering in)
     g.settingsPanel.set("ufos.activity", 0);

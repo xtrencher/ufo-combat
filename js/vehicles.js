@@ -344,8 +344,14 @@ export class VehicleManager {
     if (!this.enabled) return false;
     if (this.active) return this.exit();
     const v = this.nearestEnterable();
-    if (v) return this.enter(v);
-    return false;
+    if (!v) return false;
+    // (Survival: the game can hold a vehicle back, e.g. jets before their mission.)
+    const why = this.canBoard ? this.canBoard(v) : null;
+    if (why) {
+      this.onMessage?.(why);
+      return false;
+    }
+    return this.enter(v);
   }
 
   enter(v) {

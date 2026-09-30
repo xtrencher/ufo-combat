@@ -660,8 +660,21 @@ function findRunway() {
     runwayTops = null;
   }
 }
+// Survival: fighter jets (calling one, and the ones parked at airports) are
+// part of the mission chain: they become available with mission 8, "Take to
+// the air" (a jet on day one would skip the whole curve). Creative: always.
+const JET_MISSION = MISSIONS.findIndex((m) => m.id === "wings");
+function jetLocked() {
+  return !player.creative && progress.enabled && progress.step < JET_MISSION;
+}
+const JET_LOCKED_TEXT = `Fighter jets join the fight with mission ${JET_MISSION + 1} ("${MISSIONS[JET_MISSION].title}"). Esc > Missions shows the way there.`;
+vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : null);
 function callJet(force = false) {
   if (!mods.enabled || player.dead || gameState !== "playing") return;
+  if (!force && jetLocked()) {
+    toast(JET_LOCKED_TEXT, 4);
+    return;
+  }
   if (vehicles.active) {
     toast("Get out of your vehicle first (F).", 2);
     return;
@@ -2317,7 +2330,7 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a pistol. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift to fly, wheel for speed. Left click laser, hold right click to beam things up.", 6);

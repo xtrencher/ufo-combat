@@ -1194,7 +1194,7 @@ export class Jet extends Vehicle {
         ["Takeoff run", "about 100 blocks (60 with the afterburner); rotate at the stall speed"],
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
         ["Autocannon", `${CANNON_RATE} rounds/s, ${CANNON_DAMAGE} damage each; aims a little for you; overheats after ~${Math.round(1 / (HEAT_PER_SHOT * CANNON_RATE - HEAT_COOL))} s of fire`],
-        ["Missiles", `${MISSILE_DAMAGE} damage; lock 1 s: one, 3 s: a salvo of ${SALVO_SIZE}; can turn around to hit targets behind you`],
+        ["Missiles", `${MISSILE_DAMAGE} damage; lock 1 s: one, 3 s: a salvo of ${SALVO_SIZE}; let go before the lock and nothing fires; can turn around to hit targets behind you`],
         ["Flares", `${FLARE_BURST} decoys per burst, ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", "one big bomb on a parachute; no cooldown"],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],

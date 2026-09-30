@@ -55,6 +55,14 @@ export class MissionDirector {
     }
     this.checkT = 0.5;
     if (this.player.dead) return;
+    // UFOs switched off in the settings: no mission UFOs either (say why).
+    const needsUfos = ["scout", "intact", "hunt", "dogfight", "village", "large", "mothership", "airport"].includes(m.event);
+    if (needsUfos && this.ufos.config.activity <= 0) {
+      st.note = "UFO activity is Off (Settings > UFOs): this mission needs UFOs.";
+      this.target = null;
+      return;
+    }
+    if (st.note && st.note.startsWith("UFO activity")) st.note = "";
     switch (m.event) {
       case "scout":
         this._scout();
