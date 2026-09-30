@@ -54,7 +54,7 @@ export const CONTROLS = [
   ]],
   ["Fighter jet", [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
-    ["W / S", "Throttle up / down (a takeoff roll takes about 100 blocks: use a runway)"],
+    ["W / S", "Throttle up / down (a takeoff roll takes about 120 blocks: use a runway)"],
     ["Shift", "Afterburner"],
     ["A / D", "Roll"],
     ["Q / E", "Rudder (yaw)"],

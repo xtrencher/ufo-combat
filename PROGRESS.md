@@ -1441,12 +1441,12 @@ It passed 7/7 in three consecutive full runs with no console errors. In the very
 Source of truth for this round (jet fixes, survival progression, weapons balance, UFO piloting). Items are ticked as they are finished; decisions go in "Round 4 decisions" at the end.
 
 ## Part 1: Jet fixes (critical)
-- [ ] 1.1 Takeoff works reliably from runways and long flat areas (jet no longer stuck to the ground)
-- [ ] 1.2 Roll limited and smoothly damped, returns to level without overshoot (flight feel otherwise kept)
-- [ ] 1.3a Missiles can always be fired without a lock (unguided, straight ahead)
-- [ ] 1.3b Lock-on targets only UFOs and aircraft, never ground mobs
-- [ ] 1.3c Lock prioritizes targets attacking the player
-- [ ] 1.3d After a locked launch the camera follows the target until the hit, then returns; right mouse returns it at once
+- [x] 1.1 Takeoff works reliably from runways and long flat areas (jet no longer stuck to the ground)
+- [x] 1.2 Roll limited and smoothly damped, returns to level without overshoot (flight feel otherwise kept)
+- [x] 1.3a Missiles can always be fired without a lock (unguided, straight ahead)
+- [x] 1.3b Lock-on targets only UFOs and aircraft, never ground mobs
+- [x] 1.3c Lock prioritizes targets attacking the player
+- [x] 1.3d After a locked launch the camera follows the target until the hit, then returns; right mouse returns it at once
 - [ ] 1.4 Jet visuals: smaller lights, better texture/material
 - [ ] 1.5 Second jet: F-16-style fighter, own model, slightly different handling and weapons; player chooses which jet to call
 
@@ -1485,3 +1485,6 @@ Source of truth for this round (jet fixes, survival progression, weapons balance
 
 ## Round 4 decisions and notes
 (appended as work proceeds)
+- Part 1.1, takeoff: the root cause was frame-rate dependent. On the wheels the speed was measured along the raised nose (`vel . fwd`) and the velocity re-set to that each frame, so while the nose was up the jet lost cos(pitch) of its speed every frame: at 20 FPS (the old test's step) it still got airborne, at a real 60 FPS it bled ~3% a frame and never reached flying speed (it rolled for kilometres, even down hillsides, "stuck to the ground"). Now the speed is measured along the level heading. Two more ground bugs found on the way: right after the wheels left the runway the next frame counted as a touchdown (vertical speed reset to 0, a bounce loop), and the nose could rotate past the stall angle so the jet left the runway stalled. Fixed: no touchdown while climbing away, rotation stops at 0.24 rad (below the 0.3 stall angle). Rolling off the end of a strip over a drop now leaves the ground instead of snapping down the slope. Measured at 1/144, 1/30 and 1/20 s steps: lift-off after ~122 blocks at full throttle (~98 with the afterburner), then a clean climb. The called-in jet's flat-strip search now wants 140 blocks, level to 1 block under the wheels and under the wingtips (7 blocks out; a 2-block rise at 6 blocks used to clip a wing).
+- Part 1.2, roll: flight assist used to command a roll *rate* toward the aim point until the aim was above the canopy (90 degrees and more for a turn to the side) and levelled with a lagged proportional term (overshoot). Now it computes a target bank from the heading error (at most 65 degrees; A/D ask for up to 80 degrees while held, still limited) and flies it with a damped controller (rate = 3 x bank error - 0.4 x roll rate; checked for no overshoot at 144, 60 and 20 FPS). Measured: a 90-degree turn peaks at 68 degrees of bank, levelling off from 66 degrees takes ~1.5 s with 0.0 degrees of overshoot. Pitch/yaw control, speeds and all other flight numbers are unchanged. Without flight assist the mouse and A/D are still the direct roll stick (full aerobatics), by design. Enemy fighters use the same assist, so they no longer roll over either.
+- Part 1.3, missiles: a right click shorter than 0.25 s (or letting go when nothing could be locked) fires an unguided missile straight ahead; holding locks as before, and letting go while the lock is still building still fires nothing (Round 3's request; a straight-ahead missile then would go where the player isn't looking, since the view has turned to the target). Lock candidates are UFOs and enemy aircraft only (creatures were removed from the list, which also affected the salvo spread). Targets attacking the player (a UFO in its attack state, a hostile or provoked enemy fighter) are preferred: a non-attacker gets a 0.6 rad (~35 degrees) penalty in the "nearest the view centre" score, so an attacker off to the side wins over a peaceful UFO dead ahead. After a guided launch (single or salvo) the camera stays on the target until the last missile of that launch is gone, holds 0.8 s on the hit, then eases back; a right click during that returns it at once (that click doesn't start a new lock). While the camera follows, the jet flies straight (as during a lock).

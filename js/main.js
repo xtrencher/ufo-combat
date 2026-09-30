@@ -642,13 +642,15 @@ function stripOk(x0, z0, dx, dz, len) {
   if (h0 < 0) return -1;
   const sideX = -dz;
   const sideZ = dx;
+  // (Level to within a block under the wheels and under the wingtips, which
+  // reach 6.4 blocks out: a two-block rise there would clip a wing.)
   for (let t = -8; t <= len; t += 4) {
-    for (const s of [-6, 0, 6]) {
+    for (const s of [-7, 0, 7]) {
       const x = Math.floor(x0 + dx * t + sideX * s);
       const z = Math.floor(z0 + dz * t + sideZ * s);
       if (!world.getChunk(x >> 4, z >> 4)) return -1;
       const h = columnTop(x, z);
-      if (h < 0 || Math.abs(h - h0) > (s === 0 ? 1 : 2)) return -1;
+      if (h < 0 || h - h0 > 1 || h0 - h > (s === 0 ? 1 : 3)) return -1;
       const top = world.getBlock(x, h, z);
       if (BLOCK_INFO[top]?.leaves || BLOCK_INFO[top]?.log || IS_WET[world.getBlock(x, h + 1, z)]) return -1;
     }
@@ -667,7 +669,7 @@ function findRunway() {
         const sz = p.z + Math.sin(ang) * r;
         for (let h = 0; h < 8; h++) {
           const yaw = (h / 8) * Math.PI * 2;
-          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 110);
+          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 140); // the ground roll is ~120 blocks
           if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
         }
       }
