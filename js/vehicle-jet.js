@@ -54,6 +54,7 @@ const RUNWAY_THRUST = 0.7; // share of the thrust that pushes on the wheels (a r
 const ROTATE_SPEED = 1.2; // x the stall speed: the assist rotates for takeoff (lift-off with margin to climb away)
 const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
 export const MISSILE_DAMAGE = 190;
+const ROGUE_MISSILE_DAMAGE = 70; // an enemy fighter's missile at a UFO (they help, but never clear the sky for you)
 
 const X = new THREE.Vector3(1, 0, 0);
 const Y = new THREE.Vector3(0, 1, 0);
@@ -578,7 +579,7 @@ export class Jet extends Vehicle {
     dir.y += (Math.random() - 0.5) * 0.008;
     dir.z += (Math.random() - 0.5) * 0.008;
     dir.normalize();
-    mgr.lasers.fire({ from, dir, color: this._tracer || (this._tracer = new THREE.Color(5, 3.4, 1.1)), speed, damage: CANNON_DAMAGE, owner: this.cannonOwner || "jet", source: this, range: 1100, radius: 0.07, length: 9, scorch: true, sound: false });
+    mgr.lasers.fire({ from, dir, color: this._tracer || (this._tracer = new THREE.Color(5, 3.4, 1.1)), speed, damage: CANNON_DAMAGE * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: 1100, radius: 0.07, length: 9, scorch: true, sound: false });
     mgr.audio?.playCannon?.();
     mgr.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.05, size0: 1.4, size1: 0.3, color0: this._tracer, alpha: 0.9 });
   }
@@ -784,7 +785,7 @@ export class Jet extends Vehicle {
 
   // target: { kind, ref } or null (unguided). `hostile` missiles (an enemy
   // jet's) hunt the player, can be fooled by flares, and don't harm UFOs.
-  _launchMissile(target, { hostile = false } = {}) {
+  _launchMissile(target, { hostile = false, rogue = false } = {}) {
     const mgr = this.manager;
     const fwd = this.forward(new THREE.Vector3());
     const right = this.right(new THREE.Vector3());
@@ -799,7 +800,7 @@ export class Jet extends Vehicle {
       const d = this._targetPos(target, _w).sub(this.pos).normalize();
       behind = d.dot(fwd) < 0.25;
     }
-    const m = { pos, vel: this.vel.clone().addScaledVector(fwd, 12), dir: fwd.clone(), target, age: 0, mesh, trail: 0, hostile, behind, lostT: 0, launcher: this, decoyed: false };
+    const m = { pos, vel: this.vel.clone().addScaledVector(fwd, 12), dir: fwd.clone(), target, age: 0, mesh, trail: 0, hostile, rogue, behind, lostT: 0, launcher: this, decoyed: false };
     this.missiles.push(m);
     mgr.audio?.playRocketLaunch?.();
     if (target?.kind === "player" || target?.kind === "vehicle") this.manager.onMissileLaunched?.(m, this);
@@ -881,7 +882,7 @@ export class Jet extends Vehicle {
           boom = m.pos.clone().addScaledVector(m.dir, uh.distance);
           direct = { kind: "ufo", ref: uh.ufo };
         }
-        const vh = mgr.raycast(m.pos, m.dir, step, this);
+        const vh = m.rogue ? null : mgr.raycast(m.pos, m.dir, step, this);
         if (!boom && vh && vh.vehicle.isEnemyJet) {
           boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
           direct = { kind: "jet", ref: vh.vehicle };
@@ -913,10 +914,15 @@ export class Jet extends Vehicle {
         mgr.scene.remove(m.mesh);
         this.missiles.splice(i, 1);
         if (boom) {
-          const src = m.hostile ? "enemymissile" : "missile";
-          if (direct?.kind === "ufo") {
+          const src = m.rogue ? "roguemissile" : m.hostile ? "enemymissile" : "missile";
+          if (direct?.kind === "ufo" && m.rogue) {
+            // An enemy fighter's missile at a UFO (not the player's kill).
+            mgr.ufos.damage(direct.ref, ROGUE_MISSILE_DAMAGE, false, boom, m.launcher);
+          } else if (direct?.kind === "ufo") {
             mgr.ufos.damage(direct.ref, MISSILE_DAMAGE, true, boom);
             mgr.onMissileHit?.(direct.ref);
+          } else if (direct?.kind === "jet" && m.rogue) {
+            // (A fighter's missile never provokes the other fighters.)
           } else if (direct?.kind === "jet") {
             direct.ref.damage(MISSILE_DAMAGE, "missile", true);
             mgr.onMissileHit?.(direct.ref);
@@ -924,7 +930,7 @@ export class Jet extends Vehicle {
             const v = direct.kind === "vehicle" ? direct.ref : direct.ref.vehicle;
             v?.damage?.(MISSILE_DAMAGE * 0.55, "enemymissile");
           }
-          fx.explode(boom, { radius: src === "enemymissile" ? 4.5 : 5, source: src });
+          fx.explode(boom, { radius: src === "missile" ? 5 : 4.5, source: src });
         }
         continue;
       }

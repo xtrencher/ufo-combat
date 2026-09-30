@@ -458,6 +458,149 @@ await check("UFO redesign: minimal designs (saucers most common, spheres, tic-ta
   assert(r.glowBefore && !r.glowAfter, `a shot-down UFO never glows: ${j}`);
 });
 
+// ================= Part 3: UFO behaviour =================
+
+await check("enemy UFO dashes: often when shot at (and now and then on their own) a UFO streaks to a spot nearby in a split second, with no light effects", async () => {
+  await play();
+  await skyArena();
+  const r = await v((g) => {
+    const p = g.player.position;
+    g.ufos.clear();
+    const u = g.ufos.spawn({ design: "saucer", size: "small", pos: { x: p.x, y: p.y + 40, z: p.z - 80 } });
+    u.state = "roam";
+    u.noLeave = true;
+    const p0 = u.pos.clone();
+    // Shot at (a few hits): it dashes.
+    let dashed = false;
+    for (let k = 0; k < 12 && !dashed; k++) {
+      u.dashCool = 0;
+      u.health = u.maxHealth;
+      g.ufos.damage(u, 1, true);
+      dashed = !!u.dash;
+    }
+    const glowBefore = g.effects.glow.count ?? g.effects.glow.alive ?? 0;
+    const frames = [];
+    let t = 0;
+    let ghosts = 0;
+    while (u.dash && t < 1) {
+      g.ufos.update(0.016);
+      frames.push(+u.pos.distanceTo(p0).toFixed(1));
+      ghosts = Math.max(ghosts, g.ufos.trail.ghosts.length);
+      t += 0.016;
+    }
+    const dist = u.pos.distanceTo(p0);
+    for (let i = 0; i < 30; i++) g.ufos.update(0.016);
+    const ghostsAfter = g.ufos.trail.ghosts.length;
+    // On its own: the random dash timer.
+    const u2 = g.ufos.spawn({ design: "tictac", size: "small", pos: { x: p.x + 60, y: p.y + 40, z: p.z - 60 } });
+    u2.state = "roam";
+    u2.noLeave = true;
+    u2.blinkT = 0;
+    g.ufos.update(0.016);
+    const own = !!u2.dash;
+    g.ufos.clear();
+    return { dashed, t, frames: frames.length, dist, ghosts, ghostsAfter, own, glowBefore };
+  });
+  assert(r.dashed, `shot at, it dashed: ${JSON.stringify(r)}`);
+  assert(r.frames >= 3 && r.t < 0.3, `the dash takes a split second but is travelled over several frames: ${JSON.stringify(r)}`);
+  assert(r.dist > 25 && r.dist < 140, `to a spot nearby: ${JSON.stringify(r)}`);
+  assert(r.ghosts > 0 && r.ghostsAfter === 0, `a smear along its path that fades: ${JSON.stringify(r)}`);
+  assert(r.own, "now and then it dashes on its own");
+  // No light effects: the dash code spawns no glow particles.
+  const src = await v(async () => (await (await fetch("./js/ufos.js")).text()).match(/_updateDash\(u, dt\) \{[\s\S]*?\n  \}/)[0]);
+  assert(!/glow\.spawn|halo/.test(src), "the dash has no light effects");
+});
+
+await check("player UFO dash: travelled at extreme speed (not a cut), adjustable and switchable off in the settings, shown in the I panel", async () => {
+  await play();
+  await skyArena();
+  const r = await v((g) => {
+    if (g.vehicles.active) g.vehicles.exit({ force: true });
+    const p = g.player.position;
+    const ufo = g.vehicles.create("ufo", { design: "saucer", radius: 6, pos: [p.x, p.y + 60, p.z] });
+    g.vehicles.enter(ufo);
+    g.player.keys.clear();
+    const dashOnce = () => {
+      ufo.pos.set(p.x, p.y + 60, p.z);
+      ufo.dashT = 0;
+      const p0 = ufo.pos.clone();
+      g.vehicles.keyDown("KeyR");
+      const steps = [];
+      for (let i = 0; i < 20; i++) {
+        g.vehicles.update(0.02);
+        steps.push(ufo.pos.distanceTo(p0));
+      }
+      return { dist: ufo.pos.distanceTo(p0), moving: steps.filter((d, i) => i > 0 && d > steps[i - 1] + 0.01).length };
+    };
+    g.settingsPanel.set("vehicles.ufoDash", 1);
+    g.settingsPanel.set("vehicles.ufoDashTime", 0.25);
+    const normal = dashOnce();
+    g.settingsPanel.set("vehicles.ufoDash", 2);
+    const far = dashOnce();
+    const info = JSON.stringify(ufo.infoPanel());
+    g.settingsPanel.set("vehicles.ufoDash", 0);
+    const off = dashOnce();
+    const infoOff = JSON.stringify(ufo.infoPanel());
+    g.settingsPanel.set("vehicles.ufoDash", 1);
+    g.vehicles.exit({ force: true });
+    g.vehicles.remove(ufo);
+    return { normal, far, off, info: /Teleport dash/.test(info) && /blocks/.test(info), infoOff: /off/.test(infoOff) };
+  });
+  const j = JSON.stringify(r);
+  assert(r.normal.dist > 40 && r.normal.moving >= 3, `a dash travelled over several frames: ${j}`);
+  assert(r.far.dist > r.normal.dist * 1.5, `the distance setting makes it longer: ${j}`);
+  assert(r.off.dist < 1, `switched off, R does nothing: ${j}`);
+  assert(r.info && r.infoOff, `the I panel shows the dash: ${j}`);
+});
+
+await check("enemy jets: rogue pilots sometimes attack UFOs on their own (the UFO fights back), others ignore them; kills aren't the player's and they stay neutral", async () => {
+  await play();
+  await skyArena();
+  const r = await v((g) => {
+    const p = g.player.position;
+    g.ufos.clear();
+    g.enemyJets.clear();
+    g.enemyJets.config.count = 3;
+    g.ufos.lastPlayerAttack = -1e9;
+    const downs0 = g.stats.world.enemyJetsDown || 0;
+    const u = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: p.x + 200, y: p.y + 120, z: p.z }, style: "rapid" });
+    u.noLeave = true;
+    u.blinkT = 1e9;
+    const hp0 = u.health;
+    const rogue = g.enemyJets.spawn({ dist: 700, angle: 0, rogue: true });
+    const calm = g.enemyJets.spawn({ dist: 700, angle: Math.PI, rogue: false });
+    rogue.hunt.pause = 0;
+    rogue.hunt.checkT = 0;
+    const rnd = Math.random;
+    Math.random = () => 0.7; // (it doesn't skip this check)
+    g.vehicles.update(0.05);
+    Math.random = rnd;
+    const picked = rogue.hunt.ufo === u;
+    let t = 0;
+    let firedBack = false;
+    while (t < 40 && !u.falling) {
+      g.vehicles.update(0.05);
+      g.enemyJets.update(0.05);
+      g.ufos.update(0.05);
+      g.lasers.update(0.05);
+      if (g.lasers.bolts.some((b) => b.owner === "ufo" && b.source === u)) firedBack = true;
+      t += 0.05;
+    }
+    const out = { picked, hurt: u.health < hp0, hp: u.health, hp0, firedBack, calmHunts: !!calm.hunt.ufo || !!calm.rogue, rogueProvoked: rogue.provoked, rogueHostile: rogue.hostile, playerDowns: (g.stats.world.enemyJetsDown || 0) - downs0, ufoByPlayer: u.byPlayer };
+    g.ufos.clear();
+    g.enemyJets.clear();
+    g.enemyJets.config.count = 1;
+    return out;
+  });
+  const j = JSON.stringify(r);
+  assert(r.picked, `the rogue picked the UFO: ${j}`);
+  assert(r.hurt, `it hurt the UFO: ${j}`);
+  assert(r.firedBack, `the UFO fought back: ${j}`);
+  assert(!r.calmHunts, `a normal fighter ignores UFOs: ${j}`);
+  assert(r.rogueProvoked === 0 && !r.rogueHostile, `hits from the UFO don't turn it on the player: ${j}`);
+  assert(r.playerDowns === 0 && !r.ufoByPlayer, `nothing is credited to the player: ${j}`);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

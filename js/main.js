@@ -343,10 +343,12 @@ for (const k of ["activity", "spawnChance", "maxCount", "aggression", "detection
   settingsPanel.on(`ufos.${k}`, (v) => (ufos.config[k] = v));
 }
 // Your UFO: speed range, ghost mode, beam lifting blocks.
-vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
+vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true, dash: 1, dashTime: 0.25 };
 settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = v));
 settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
+settingsPanel.on("vehicles.ufoDash", (v) => (vehicles.config.ufo.dash = v));
+settingsPanel.on("vehicles.ufoDashTime", (v) => (vehicles.config.ufo.dashTime = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
 // The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
 vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
@@ -365,8 +367,11 @@ const airports = new AirportManager({ sites: world.terrain.sites, vehicles, worl
 // Enemy jets (patrolling neutral, hostile once provoked).
 const enemyJets = new EnemyJetManager({ vehicles, ufos, player, world });
 enemyJets.onDown = (jet, cause) => {
-  stats.add("enemyJetsDown");
-  if (hooks.onEnemyJetDown) hooks.onEnemyJetDown(jet, cause);
+  // (Only the player's kills count: a jet shot down by a UFO it attacked isn't.)
+  if (!jet.downedByOther) {
+    stats.add("enemyJetsDown");
+    if (hooks.onEnemyJetDown) hooks.onEnemyJetDown(jet, cause);
+  }
 };
 const hooks = {}; // late-bound game hooks (progression), see below
 settingsPanel.on("vehicles.enemyJets", (v) => (enemyJets.config.count = v));
@@ -490,7 +495,7 @@ lasers.addProvider({
     return {
       distance: h.distance,
       hit(b, point) {
-        ufos.damage(h.ufo, b.damage, fromPlayer(b.owner), point);
+        ufos.damage(h.ufo, b.damage, fromPlayer(b.owner), point, b.owner === "rogue" ? b.source : null);
         ufoHitFx(point);
         audio.playUfoHit(point.distanceTo(effects.listener));
         if (fromPlayer(b.owner)) hud.hitMarker?.();
@@ -514,7 +519,7 @@ lasers.addProvider({
     }
     if (!best) return null;
     const h = best;
-    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" ? "enemyjet" : "player") };
+    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "player") };
   },
 });
 // Enemy bolts hit the player on foot.
@@ -539,7 +544,7 @@ lasers.addProvider({
       distance: t,
       hit(b, point, d) {
         // Every shot that reaches you hurts (no grace time between shots).
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" ? "enemyjet" : "ufo_laser", { projectile: true })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
@@ -1114,6 +1119,7 @@ const DEATH_MESSAGES = {
   cannon: "Hit by your own jet's cannon",
   enemyjet: "Shot down by an enemy fighter",
   enemymissile: "Hit by an enemy missile",
+  roguemissile: "Caught in a dogfight between a fighter and a UFO",
   enemymissile_fall: "Blown out of the sky by an enemy missile",
 };
 let lastBlastHitTime = -Infinity;
@@ -1198,10 +1204,10 @@ hud.respawnBtn.addEventListener("click", respawn);
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
 effects.onExplosion = (center, radius, source) => {
-  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile";
+  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile" && source !== "roguemissile";
   mobs.explosion(center, radius, byPlayer);
   ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
-  vehicles.explosion(center, radius);
+  vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center

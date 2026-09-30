@@ -1274,7 +1274,7 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
   assert(r.hostile && r.attacked, `hostile after the player attacked UFOs: ${JSON.stringify(r)}`);
 });
 
-await check("UFO piloting: teleport dash with a streak, big ships aim all barrels at the crosshair, the vertical superweapon digs a shaft", async () => {
+await check("UFO piloting: teleport dash (travelled, with a streak), big ships aim all barrels at the crosshair, the vertical superweapon digs a shaft", async () => {
   await play();
   await skyArena();
   await flatPad(40, 40);
@@ -1299,10 +1299,16 @@ await check("UFO piloting: teleport dash with a streak, big ships aim all barrel
     const p0 = ufo.pos.clone();
     g.vehicles.keyDown("KeyR");
     g.vehicles.update(0.05);
+    g.vehicles.update(0.05);
+    out.first = ufo.pos.distanceTo(p0);
+    for (let i = 0; i < 2; i++) g.vehicles.update(0.05);
+    out.streak = g.ufos.trail.ghosts.length > 0;
+    for (let i = 0; i < 20; i++) {
+      g.vehicles.update(0.05);
+      g.ufos.update(0.05);
+    }
     out.dash = ufo.pos.distanceTo(p0);
-    out.streak = !!ufo.dashFx && ufo.dashFx.group.visible;
-    for (let i = 0; i < 20; i++) g.vehicles.update(0.05);
-    out.streakGone = !ufo.dashFx.group.visible;
+    out.streakGone = g.ufos.trail.ghosts.length === 0;
     // 2. Aim: a target UFO straight ahead of the camera.
     ufo.pos.set(px, base + 50, pz);
     g.vehicles.update(0.05);
@@ -1356,7 +1362,8 @@ await check("UFO piloting: teleport dash with a streak, big ships aim all barrel
     for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
     return out;
   });
-  assert(r.dash > 40, `the dash jumps far: ${Math.round(r.dash)} blocks`);
+  assert(r.dash > 40, `the dash goes far: ${Math.round(r.dash)} blocks`);
+  assert(r.first > 0 && r.first < r.dash * 0.9, `the dash is travelled (not an instant cut): ${JSON.stringify(r)}`);
   assert(r.streak && r.streakGone, "a streak shows and fades");
   assert(r.bolts >= 2, `a big ship fires several barrels: ${r.bolts}`);
   assert(r.worstMiss < r.targetR * 1.1, `every barrel's shot passes through the target under the crosshair: worst miss ${r.worstMiss.toFixed(1)} (target radius ${r.targetR.toFixed(1)})`);

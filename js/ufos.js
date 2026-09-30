@@ -34,6 +34,7 @@ import { IS_SOLID, IS_WET, BLOCK } from "./blocks.js";
 import { SEA_LEVEL } from "./constants.js";
 import { effectsQuality } from "./effects.js";
 import { LAYER_FX } from "./layers.js";
+import { DashTrail } from "./dash-trail.js";
 
 export const UFO_ACTIVITY_LEVELS = [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 export const UFO_ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];
@@ -188,6 +189,7 @@ export class UfoManager {
     this._beamPeak = 0;
     this.lastHum = 0;
     this._camDir = new THREE.Vector3(0, 0, -1);
+    this.trail = new DashTrail(scene); // the smear a dashing UFO leaves
   }
 
   get count() {
@@ -294,7 +296,9 @@ export class UfoManager {
       reaction: null,
       shotT: rand(1, 3),
       checkT: rand(0, 0.5),
-      blinkT: S.idx >= 3 ? 1e9 : rand(12, 45), // sudden hops to a spot nearby
+      blinkT: S.idx >= 3 ? 1e9 : rand(12, 45), // sudden dashes to a spot nearby
+      dash: null, // a dash under way: { from, to, t, dur }
+      dashCool: 0,
       ghostT: 0, // seconds it may pass through terrain (burrowing, diving)
       lastSeen: -99,
       hurtTime: 99,
@@ -470,16 +474,23 @@ export class UfoManager {
 
   // Damages a UFO; the player's shots make it turn hostile (and, with the
   // player flying a UFO, maybe its neighbours).
-  damage(u, amount, byPlayer = true, from = null) {
+  damage(u, amount, byPlayer = true, from = null, attacker = null) {
     if (u.state === "gone" || u.falling || amount <= 0) return false;
     u.health -= amount;
     u.hurtTime = 0;
+    // Attacked by an enemy fighter: it fights back (and dodges).
+    if (attacker && !byPlayer) {
+      u.foe = attacker;
+      u.foeT = 25;
+      if (u.health > 0) this._dodge(u, 0.7);
+    }
     if (byPlayer) {
       u.byPlayer = true;
       this.lastPlayerAttack = this.time; // the alien air force takes notice
       this._provoked(u);
     }
     if (u.health <= 0) this._shotDown(u);
+    else if (byPlayer) this._dodge(u, 1);
     return true;
   }
 
@@ -608,7 +619,7 @@ export class UfoManager {
       u.age += dt;
       // Far away: think every few frames (with the time saved up).
       let step = dt;
-      if (dist > 380 && !u.falling && u.state !== "leave" && !u.sweep && !u.charge && !(u.queue && u.queue.length)) {
+      if (dist > 380 && !u.falling && u.state !== "leave" && !u.sweep && !u.charge && !u.dash && !(u.queue && u.queue.length)) {
         u.lazy += dt;
         if ((Math.floor(this.time * 60) + u.id) % 4 !== 0) {
           this._place(u, 0, dist, night);
@@ -628,6 +639,7 @@ export class UfoManager {
       if (dist < humD) humD = dist;
     }
     this._updatePlayerBeam(dt, beamOnPlayer);
+    this.trail.update(dt);
     // One engine hum for the nearest UFO.
     this.lastHum = humD;
     if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
@@ -683,32 +695,61 @@ export class UfoManager {
     u.timer = rand(12, 30);
   }
 
-  // Effects for a sudden move: a streak of light between the two spots and a
-  // flash at each end.
-  _blinkFx(a, b, u) {
-    const fx = this.effects;
-    const c = u.model.halo.material.color;
-    const n = Math.round(24 * Math.max(0.5, effectsQuality.scale));
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      fx.glow.spawn({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t, vx: 0, vy: 0, vz: 0, life: 0.25 + t * 0.45, size0: u.radius * 0.5, size1: u.radius * 0.05, color0: c, alpha: 0.8, drag: 0 });
-    }
-    for (const p of [a, b]) fx.glow.spawn({ x: p.x, y: p.y, z: p.z, life: 0.35, size0: u.radius * 2.6, size1: u.radius * 0.4, color0: c, alpha: 0.9 });
-    if (this.audio?.playUfoLeave) this.audio.playUfoLeave(b.distanceTo(this.player.position));
+  // ---------- Teleport dashes ----------
+  // Now and then (and often when it is shot at, or a missile closes in) a
+  // UFO dashes to a spot nearby at extreme speed: it covers the distance in
+  // a tenth of a second or two, leaving nothing but a smear of fading copies
+  // of itself along the path (no light, no flash). The biggest ships don't.
+
+  // Starts a dash to a random spot nearby (maxDist blocks at most).
+  _blink(u, maxDist = 200, minDist = 40) {
+    if (u.dash || u.falling || u.S.idx >= 4) return false;
+    const a = Math.random() * Math.PI * 2;
+    const d = rand(minDist, Math.max(minDist + 1, maxDist));
+    const to = new THREE.Vector3(u.pos.x + Math.cos(a) * d, 0, u.pos.z + Math.sin(a) * d);
+    const ground = this._groundAt(to.x, to.z) + u.info.bottom * u.radius + 6;
+    to.y = Math.min(320, Math.max(ground, u.pos.y + rand(-30, 40)));
+    const len = to.distanceTo(u.pos);
+    u.dash = { from: u.pos.clone(), to, t: 0, dur: THREE.MathUtils.clamp(len / 1100, 0.06, 0.2), last: u.pos.clone() };
+    u.blinkT = rand(15, 60);
+    u.dashCool = rand(2.5, 5);
+    if (this.audio?.playUfoDash) this.audio.playUfoDash(u.pos.distanceTo(this._ears()));
+    return true;
   }
 
-  // Zips to a random spot nearby at extreme speed.
-  _blink(u, maxDist = 200) {
-    const from = u.pos.clone();
-    const a = Math.random() * Math.PI * 2;
-    const d = rand(40, maxDist);
-    const x = u.pos.x + Math.cos(a) * d;
-    const z = u.pos.z + Math.sin(a) * d;
-    const y = Math.max(this._minAltitude(u, 6), u.pos.y + rand(-30, 40));
-    u.pos.set(x, Math.min(y, 320), z);
-    u.vel.multiplyScalar(0.1);
-    this._blinkFx(from, u.pos, u);
-    u.blinkT = rand(15, 60);
+  // Moves a dashing UFO along its path (eased), leaving the smear.
+  _updateDash(u, dt) {
+    const d = u.dash;
+    d.t += dt;
+    const k = Math.min(1, d.t / d.dur);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    u.pos.lerpVectors(d.from, d.to, e);
+    u.vel.copy(d.to).sub(d.from).divideScalar(d.dur);
+    // The smear: copies of the hull between where it was last frame and now.
+    const step = d.last.distanceTo(u.pos);
+    if (this.trail && step > 0.5 && u.pos.distanceTo(this.player.position) < 1500) {
+      this._place(u, 0);
+      const n = Math.min(10, Math.max(2, Math.round(step / Math.max(1.5, u.radius * 0.6))));
+      const shade = this._ghostShade || (this._ghostShade = new THREE.Color());
+      const day = 1 - this.night * 0.8;
+      shade.setRGB(2.2 * day, 2.2 * day, 2.3 * day);
+      this.trail.spawnPath(u.model.hull, d.last, u.pos, n, shade, 0.4);
+    }
+    d.last.copy(u.pos);
+    if (k >= 1) {
+      u.dash = null;
+      u.vel.multiplyScalar(0.05);
+      u.waypoint = null;
+    }
+  }
+
+  // Shot at: often it dashes out of the line of fire (smaller ships more
+  // often; the giants never).
+  _dodge(u, chance) {
+    if (u.dash || u.falling || (u.dashCool ?? 0) > 0) return false;
+    const k = [0.45, 0.35, 0.22, 0.1, 0][u.S.idx] * chance;
+    if (Math.random() >= k) return false;
+    return this._blink(u, u.S.idx >= 2 ? 120 : 90, 30);
   }
 
   _startTrick(u) {
@@ -853,6 +894,25 @@ export class UfoManager {
   }
 
   _think(u, dt, tgt, dist) {
+    u.dashCool = Math.max(0, (u.dashCool ?? 0) - dt);
+    if (u.dash) {
+      this._updateDash(u, dt);
+      return;
+    }
+    // A missile closing in: it often dashes away at the last moment.
+    u.missileT = (u.missileT ?? 0) - dt;
+    if (u.missileT <= 0) {
+      u.missileT = 0.25;
+      for (const v of this.vehicles?.vehicles ?? []) {
+        if (!v.missiles) continue;
+        for (const m of v.missiles) {
+          if (m.target?.ref === u && !m.dodged && m.pos.distanceTo(u.pos) < 90 + u.radius) {
+            m.dodged = true;
+            this._dodge(u, 1.4);
+          }
+        }
+      }
+    }
     u.timer -= dt;
     u.alert = Math.max(0, u.alert - dt);
     u.shotT -= dt;
@@ -872,8 +932,9 @@ export class UfoManager {
 
     // A sudden blink to a spot nearby, when it's calm, or to dodge when angry.
     if (u.blinkT <= 0 && u.state !== "leave" && u.state !== "beam" && u.state !== "emerge" && u.trick !== "abduct" && u.trick !== "dive" && u.trick !== "burrow") {
-      if (u.state === "roam" || u.state === "trick" || u.state === "circle" || (u.state === "attack" && Math.random() < 0.5)) this._blink(u, u.state === "attack" ? 90 : 220);
-      else u.blinkT = rand(5, 12);
+      if (u.state === "roam" || u.state === "trick" || u.state === "circle" || (u.state === "attack" && Math.random() < 0.5)) {
+        if (!this._blink(u, u.state === "attack" ? 90 : 220)) u.blinkT = rand(15, 60);
+      } else u.blinkT = rand(5, 12);
     }
 
     // Turning on the player: an angry UFO with a line of sight to a player it
@@ -959,6 +1020,23 @@ export class UfoManager {
       }
       default:
         break;
+    }
+
+    // Fighting back against an enemy fighter that attacked it (unless it
+    // is busy with the player).
+    if (u.foe) {
+      u.foeT -= dt;
+      const f = u.foe;
+      if (!f.alive || u.foeT <= 0) u.foe = null;
+      else if (u.state !== "attack" && u.state !== "beam" && u.state !== "react") {
+        u.foeShotT = (u.foeShotT ?? 1) - dt;
+        const fd = f.pos.distanceTo(u.pos);
+        if (u.foeShotT <= 0 && fd < 700 && this._canSee(u, f.pos)) {
+          const st = STYLES[u.style] || STYLES.volley;
+          u.foeShotT = st.beam ? 2.5 : rand(st.rate?.[0] ?? 1, st.rate?.[1] ?? 2) * 1.2;
+          this._fireAt(u, f.pos, f.vel, 1, f);
+        }
+      }
     }
 
     this._updateWeapons(u, dt);
@@ -1264,12 +1342,9 @@ export class UfoManager {
         blast: st.blast ? st.blast + (u.S.idx >= 2 ? 0.8 : 0) : u.S.idx >= 2 ? 1.2 : 0,
         sound: false,
       });
-      if (st.homing && vehicle) {
-        bolt.homing = { target: vehicle, turn: 1.5, life: 6 };
-        vehicle.warn?.({ kind: "missile", from: u.pos, bolt });
-      } else if (vehicle && (st.blast > 1 || u.S.idx >= 2)) {
-        vehicle.warn?.({ kind: "heavy", from: u.pos, bolt });
-      }
+      // (A jet's warning display finds homing bolts by itself: see
+      // Jet._updateWarning. `vehicle.warn` is its state, not a function.)
+      if (st.homing && vehicle) bolt.homing = { target: vehicle, turn: 1.5, life: 6 };
       if (k < n - 1 && n > 1 && !fan) from.y += 0.4; // a burst leaves in a line
     }
     if (this.audio?.playUfoShot) this.audio.playUfoShot(st.sound || "volley", from.distanceTo(this._ears()));
@@ -1821,6 +1896,7 @@ export class UfoManager {
     this.enabled = on;
     if (!on) {
       while (this.ufos.length) this._remove(this.ufos.length - 1);
+      this.trail.clear();
       this.pendingCrews.length = 0;
       this.beamingPlayer = null;
       if (this.audio?.setUfoHum) this.audio.setUfoHum(0, 0);
@@ -1829,6 +1905,7 @@ export class UfoManager {
 
   clear() {
     while (this.ufos.length) this._remove(this.ufos.length - 1);
+    this.trail.clear();
   }
 
   // After a respawn: every UFO loses interest, and none notices the player

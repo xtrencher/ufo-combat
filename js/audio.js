@@ -526,6 +526,16 @@ export class Audio {
     }
   }
 
+  // A UFO dashing past: a short, airy whoosh (a band of noise sweeping down).
+  playUfoDash(distance = 0) {
+    this._cat("creatures");
+    const ctx = this.ctx;
+    if (!ctx || distance > 400) return;
+    const v = 0.28 / (1 + distance / 25);
+    if (v < 0.004) return;
+    this._hit({ type: "bandpass", f: 2400, fEnd: 300, q: 1.2, d: 0.35, v, attack: 0.02 }, Math.min(distance / 343, 0.6));
+  }
+
   // A UFO charging a shot: a rising whine for `dur` seconds.
   playUfoCharge(dur = 1.3, distance = 0) {
     this._cat("weapons");

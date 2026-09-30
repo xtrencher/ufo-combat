@@ -458,14 +458,15 @@ export class VehicleManager {
   }
 
   // Explosions hurt vehicles too.
-  explosion(center, radius) {
+  // cause: "explosion" (the player's) or "explosion_other" (anything else).
+  explosion(center, radius, cause = "explosion") {
     for (const v of this.vehicles) {
       if (!v.alive) continue;
       const d = Math.max(0, v.pos.distanceTo(center) - v.radius * 0.6);
       const reach = radius * 1.8;
       if (d >= reach) continue;
       const f = 1 - d / reach;
-      v.damage(Math.floor(45 * Math.sqrt(radius / 7) * f), "explosion");
+      v.damage(Math.floor(45 * Math.sqrt(radius / 7) * f), cause);
     }
   }
 
