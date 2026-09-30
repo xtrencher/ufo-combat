@@ -178,6 +178,8 @@ export class UfoManager {
     // Hooks.
     this.onShotDown = null; // (ufo, byPlayer) => void
     this.difficulty = 0.35; // 0-1, from the player's progress (progression.js): a gentle sky first, bigger and angrier UFOs later
+    this.rules = null; // Survival: the current mission's rules (sizes, health, damage, aggression, count multipliers)
+    this.forceIntact = false; // the next UFO the player shoots down crashes in one piece (a mission)
     this.onCrash = null; // ({ ufo, pos, exploded, wreck, byPlayer }) => void
     this.onAbductPlayer = null; // (ufo) => void
     this.onEscape = null; // (ufo) => void: the player escaped a beam
@@ -205,8 +207,8 @@ export class UfoManager {
   get maxCount() {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
-    const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost);
-    return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : auto);
+    const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost * (this.rules?.count ?? 1));
+    return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
 
   // Expected new UFOs per second.
@@ -229,12 +231,15 @@ export class UfoManager {
 
   // The aggression setting, scaled by the difficulty curve (0.6x at the start, 1.4x at the end).
   _agg() {
+    if (this.rules) return this.config.aggression * this.rules.aggression;
     return this.config.aggression * (0.6 + 0.8 * this.difficulty);
   }
 
   // Size odds: with "balanced" they follow the difficulty curve: small and
   // medium saucers at first, motherships and giants only much later.
   _sizeWeights() {
+    // Survival: the current mission decides (see progression.js).
+    if (this.rules && this.config.sizes === "balanced") return this.rules.sizes;
     const base = SIZE_WEIGHTS[this.config.sizes] || SIZE_WEIGHTS.balanced;
     if (this.config.sizes !== "balanced") return base;
     const easy = { small: 6, medium: 3, large: 0.5, mothership: 0.03, giant: 0 };
@@ -256,7 +261,7 @@ export class UfoManager {
     const model = createUfoModel(spec, radius, { castShadow: size !== "mothership" && size !== "giant" });
     this.scene.add(model.root);
     const variation = rand(0.75, 1.3);
-    const maxHealth = Math.round(S.health * variation * this.config.toughness);
+    const maxHealth = Math.max(8, Math.round(S.health * variation * this.config.toughness * (this.rules?.health ?? 1)));
     // Personality against a jet: most flee a little slower than the jet,
     // some are faster (they can't be caught), fighters attack.
     const pr = Math.random();
@@ -683,15 +688,16 @@ export class UfoManager {
   }
 
   _newWaypoint(u) {
-    const p = this.player.position;
-    // Wander around the player's part of the world, any altitude.
+    // Wander around the player's part of the world, any altitude (a UFO
+    // with a home, a mission's scout or raider, stays near it, and low).
+    const p = u.home || this.player.position;
     const a = Math.random() * Math.PI * 2;
-    const d = rand(20, Math.max(420, this.range * 0.75));
+    const d = u.tether ? rand(u.tether * 0.3, u.tether) : rand(20, Math.max(420, this.range * 0.75));
     const x = p.x + Math.cos(a) * d;
     const z = p.z + Math.sin(a) * d;
     const ground = this._groundAt(x, z);
-    const low = Math.random() < 0.3;
-    u.waypoint = new THREE.Vector3(x, ground + u.info.bottom * u.radius + (low ? rand(5, 18) : rand(18, 160)) + (u.S.idx >= 3 ? u.radius : 0), z);
+    const low = u.tether ? true : Math.random() < 0.3;
+    u.waypoint = new THREE.Vector3(x, ground + u.info.bottom * u.radius + (u.tether ? rand(18, 34) : low ? rand(5, 18) : rand(18, 160)) + (u.S.idx >= 3 ? u.radius : 0), z);
     u.timer = rand(12, 30);
   }
 
@@ -747,7 +753,7 @@ export class UfoManager {
   // often; the giants never).
   _dodge(u, chance) {
     if (u.dash || u.falling || (u.dashCool ?? 0) > 0) return false;
-    const k = [0.45, 0.35, 0.22, 0.1, 0][u.S.idx] * chance;
+    const k = [0.45, 0.35, 0.22, 0.1, 0][u.S.idx] * chance * (u.dodgeMul ?? 1);
     if (Math.random() >= k) return false;
     return this._blink(u, u.S.idx >= 2 ? 120 : 90, 30);
   }
@@ -1333,7 +1339,7 @@ export class UfoManager {
         dir,
         color,
         speed,
-        damage: Math.max(1, Math.round(u.S.laser * st.damage)),
+        damage: Math.max(1, Math.round(u.S.laser * st.damage * (this.rules?.damage ?? 1))),
         owner: "ufo",
         source: u,
         range: dist * 1.5 + 90,
@@ -1448,7 +1454,7 @@ export class UfoManager {
     // Damage: whoever the beam touches, a few times a second.
     sw.tickT -= dt;
     if (sw.tickT > 0) return;
-    const dmg = Math.max(1, Math.round(u.S.laser * (STYLES[u.style]?.damage ?? 0.5)));
+    const dmg = Math.max(1, Math.round(u.S.laser * (STYLES[u.style]?.damage ?? 0.5) * (this.rules?.damage ?? 1)));
     const v = this._playerVehicle();
     let touched = false;
     if (v && v.alive) {
@@ -1750,7 +1756,11 @@ export class UfoManager {
     // Random outcome: a huge explosion that leaves a burnt-out, unusable
     // wreck (likelier for big ships), or an intact ship that can be flown.
     // (u.crashPlan = { exploded, crew } fixes the outcome: for tests.)
-    const exploded = u.crashPlan?.exploded ?? Math.random() < 0.38 + 0.06 * u.S.idx;
+    let exploded = u.crashPlan?.exploded ?? Math.random() < 0.38 + 0.06 * u.S.idx;
+    if (this.forceIntact && u.byPlayer && u.crashPlan?.exploded === undefined) {
+      exploded = false;
+      this.forceIntact = false;
+    }
     const radius = exploded ? Math.min(34, 7 + u.radius * 1.0) : Math.min(15, 3.5 + u.radius * 0.6);
     const at = new THREE.Vector3(u.pos.x, Math.max(floor + 0.5, u.pos.y - bottom * 0.5), u.pos.z);
     fx.explode(at, { radius: water ? Math.min(radius, 12) : radius, source: "ufo_crash" });
@@ -1781,7 +1791,7 @@ export class UfoManager {
     // come out of an exploded wreck too: the survivors.)
     const [lo, hi] = u.S.crew;
     const crew = u.crashPlan?.crew ?? Math.max(1, Math.round(lo + Math.pow(Math.random(), 1.5) * (hi - lo) + (Math.random() < 0.15 ? hi - lo : 0)));
-    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx });
+    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx, kind: u.crashPlan?.crewKind ?? null });
     if (this.onShotDown) this.onShotDown(u, u.byPlayer);
     if (this.onCrash) this.onCrash({ ufo: u, pos: at, exploded, wreck, byPlayer: u.byPlayer, crew: Math.min(10, crew) });
     u.state = "gone";
@@ -1821,7 +1831,7 @@ export class UfoManager {
         if (c.water && top < SEA_LEVEL + 1) continue; // dry land only
         const id = this.world.getBlock(x, top + 1, z);
         if (IS_SOLID[id] || IS_WET[id] || this.world.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
-        const kind = this._crewKind(c.sizeIdx);
+        const kind = c.kind || this._crewKind(c.sizeIdx);
         const m = this.mobs.spawn(kind, x + 0.5, top + 1, z + 0.5);
         if (m) {
           m.ai.target = true;

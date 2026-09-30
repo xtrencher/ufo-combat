@@ -66,8 +66,10 @@ export class BiomeSource {
 
   // Smooth climate fields, roughly in [-0.7, 0.7]: t = cold..hot, m = dry..wet.
   climate(wx, wz) {
-    const t = this.tempNoise.fbm2(wx, wz, 2, 0.5, 2, 1 / 480);
-    const m = this.moistNoise.fbm2(wx + 4000, wz - 4000, 2, 0.5, 2, 1 / 420);
+    // Big biomes (Round 3: several hundred to a couple of thousand blocks
+    // across, like classic block games), with a little wobble at the edges.
+    const t = this.tempNoise.fbm2(wx, wz, 3, 0.45, 2, 1 / 1500) * 1.15;
+    const m = this.moistNoise.fbm2(wx + 4000, wz - 4000, 3, 0.45, 2, 1 / 1300) * 1.15;
     return { t, m };
   }
 
@@ -77,20 +79,20 @@ export class BiomeSource {
   biomeAt(wx, wz, h, mountainT, river) {
     if (h < SEA_LEVEL - 1) {
       const { t } = this.climate(wx, wz);
-      if (h < SEA_LEVEL - 10) return BIOME.DEEP_OCEAN;
-      return t > 0.3 ? BIOME.WARM_OCEAN : BIOME.OCEAN;
+      if (h < SEA_LEVEL - 12) return BIOME.DEEP_OCEAN;
+      return t > 0.25 ? BIOME.WARM_OCEAN : BIOME.OCEAN;
     }
     if (river && h <= SEA_LEVEL + 3) return BIOME.RIVER;
     if (h <= SEA_LEVEL + 1) return BIOME.BEACH;
-    if (mountainT > 0.5) return BIOME.MOUNTAINS;
+    if (mountainT > 0.45 && h > SEA_LEVEL + 14) return BIOME.MOUNTAINS;
     const { t, m } = this.climate(wx, wz);
-    if (t < -0.28) return m > -0.05 ? BIOME.SNOWY_TAIGA : BIOME.SNOWY_PLAINS;
-    if (t > 0.4) {
+    if (t < -0.3) return m > -0.05 ? BIOME.SNOWY_TAIGA : BIOME.SNOWY_PLAINS;
+    if (t > 0.3) {
       if (m > 0.25) return BIOME.JUNGLE;
       if (m > -0.15) return BIOME.SAVANNA;
       return BIOME.DESERT;
     }
-    if (t > 0.12 && m < -0.35) return BIOME.BADLANDS;
+    if (t > 0.1 && m < -0.3) return BIOME.BADLANDS;
     if (m > 0.4) return BIOME.SWAMP;
     if (m > 0.12) {
       if (t < 0.02) return BIOME.TAIGA;

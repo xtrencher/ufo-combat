@@ -1083,7 +1083,7 @@ export class Jet extends Vehicle {
     this.root.position.copy(this.pos);
     this.root.quaternion.copy(this.q);
     const l = this.manager.world.lightAt(this.pos.x, this.pos.y + 1, this.pos.z);
-    this.model.light.sky = Math.max(l.sky, this.pos.y > 64 ? 15 : 0);
+    this.model.light.sky = Math.max(l.sky, this.pos.y > WORLD_HEIGHT ? 15 : 0);
     this.model.light.block = l.block;
     if (this.hurtTime < 0.2) this.model.light.flash.setRGB(0.5 * (1 - this.hurtTime / 0.2), 0.05, 0);
     else this.model.light.flash.setRGB(0, 0, 0);

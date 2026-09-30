@@ -138,7 +138,7 @@ export class SiteGrower {
         const cv = v0 + d / 2;
         const dist = Math.hypot(cu - centerU, (cv - centerV) * 1.3);
         const downtown = Math.max(0, 1 - dist / 190);
-        let h = Math.round(6 + downtown * (10 + rand() * 12) + rand() * 5);
+        let h = Math.round(6 + downtown * (12 + rand() * 26) + rand() * 5); // (the world is 128 tall: taller towers downtown)
         h = Math.min(h, maxH);
         let kind = "skyscraper";
         if (kindRoll < 0.1) kind = "plaza";

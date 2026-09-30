@@ -636,6 +636,33 @@ await check("jet visuals: a lit paint finish (specular, panel lines, livery) bri
   assert(r.verts > 3000, `a detailed model: ${j}`);
 });
 
+// ================= Part 5: world and graphics =================
+
+await check("world and graphics: 128-tall world, render distance up to 256 chunks, higher detail/LOD/resolution maximums, an Extreme preset, LOD worker pool, shorter Ultra grass", async () => {
+  await play();
+  const r = await v(async (g) => {
+    const { WORLD_HEIGHT } = await import("./js/constants.js");
+    const { SCHEMA } = await import("./js/settings.js");
+    const byKey = (k) => SCHEMA.find((e) => e.key === k);
+    const rdMax = Number(document.getElementById("render-distance").max);
+    const extremeBtn = [...document.querySelectorAll("#perf-presets button")].some((b) => b.dataset.preset === "extreme");
+    const src = await (await fetch("./js/grass.js")).text();
+    const grow = Number(/2: \{[^}]*grow: ([0-9.]+)/.exec(src)?.[1]);
+    return { WORLD_HEIGHT, rdMax, detailMax: byKey("perf.detailDistance").max, lodChoices: byKey("perf.lodQuality").choices.map((c) => c[0]), resMax: byKey("perf.resolution").max, extremeBtn, workers: g.lod.workers.length, fallback: g.lod.fallbackReason, grow };
+  });
+  const j = JSON.stringify(r);
+  assert(r.WORLD_HEIGHT === 128, j);
+  assert(r.rdMax >= 256 && r.detailMax >= 24 && r.lodChoices.includes("extreme") && r.resMax >= 2 && r.extremeBtn, `higher maximum settings: ${j}`);
+  assert(r.workers >= 1 && !r.fallback, `LOD tiles build in a worker pool: ${j}`);
+  assert(r.grow > 0 && r.grow < 0.8, `Ultra grass is shorter: ${j}`);
+  // A long render distance plans and streams without errors.
+  await v((g) => g.setRenderDistance(96));
+  await frames(20);
+  const s = await v((g) => ({ tiles: g.lod.stats.tiles, rd: g.renderDistance }));
+  assert(s.rd === 96 && s.tiles > 10, `render distance 96 plans far tiles: ${JSON.stringify(s)}`);
+  await v((g) => g.setRenderDistance(10));
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

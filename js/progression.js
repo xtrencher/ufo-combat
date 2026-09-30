@@ -37,63 +37,182 @@ export const TOOL_TIERS = [
 export const MAX_TIER = 5;
 
 // ---------- Missions ----------
-
+//
+// A chain of fifteen missions with a steady difficulty curve: it starts with
+// one small, weak scout that a pistol can bring down, and builds up through
+// alien crews, a supply drop, a first night, salvage, squads and the first
+// flight, to dogfights, a village raid, big ships, a mothership and, at the
+// end, nuking an airport the aliens have taken over. Each mission unlocks
+// better gear (its reward), and sets the rules for the sky while it is the
+// current one (`rules`: which UFO sizes appear and how often, and
+// multipliers for their health, damage, aggression and numbers), so early
+// UFOs are few, small and weak, and late ones many, big and dangerous.
+//
 // objectives: [{ stat, goal, label }] measured from the moment the mission
 // starts (stat counters are the world's; see stats.js). reward: items.
+// event: what the mission director (missions.js) sets up for it.
+// tier: the loot tier while it is the current mission (0-5).
+
+const R = (sizes, health, damage, aggression, count) => ({ sizes, health, damage, aggression, count });
+const EARLY = { small: 1 };
+const LATE = { small: 2.5, medium: 4, large: 3, mothership: 0.7, giant: 0.18 };
+
 export const MISSIONS = [
   {
     id: "first_contact",
     title: "First contact",
-    text: "Shoot down a UFO, then deal with the aliens that climb out of the wreck.",
-    objectives: [
-      { stat: "ufosDown", goal: 1, label: "UFOs shot down" },
-      { stat: "aliensKilled", goal: 2, label: "Aliens killed" },
-    ],
+    text: "A small scout UFO is snooping around nearby. Find it (follow the marker) and shoot it down with your pistol: aim, right click, keep firing.",
+    objectives: [{ stat: "ufosDown", goal: 1, label: "Scout shot down" }],
+    reward: [[ITEM.GRENADE, 1], [ITEM.STONE_SWORD, 1], [ITEM.COOKED_MEAT, 4]],
+    event: "scout",
+    tier: 0,
+    rules: R(EARLY, 0.6, 0.5, 0.45, 0.5),
+  },
+  {
+    id: "crew",
+    title: "The crew",
+    text: "Aliens climbed out of the wreck, and they are armed. Kill them before they get you.",
+    objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed" }],
     reward: [[ITEM.MACHINE_GUN, 1], [ITEM.GOLDEN_APPLE, 1]],
+    event: "crew",
+    tier: 0,
+    rules: R(EARLY, 0.6, 0.5, 0.45, 0.5),
+  },
+  {
+    id: "supply",
+    title: "Supply drop",
+    text: "Friends on the ground have dropped supplies for you. Follow the orange smoke and open the crate.",
+    objectives: [{ stat: "cratesOpened", goal: 1, label: "Supply crates opened" }],
+    reward: [[ITEM.IRON_SWORD, 1], [ITEM.GOLDEN_APPLE, 1]],
+    event: "crate",
+    tier: 0,
+    rules: R(EARLY, 0.65, 0.55, 0.5, 0.6),
+  },
+  {
+    id: "long_night",
+    title: "The long night",
+    text: "UFOs (and zombies) come out in the dark. Survive one night, from dusk to dawn, without dying. Hide under a roof if they try to beam you up.",
+    objectives: [{ stat: "nightsSurvived", goal: 1, label: "Nights survived" }],
+    reward: [[ITEM.LASER_BLASTER, 1], [ITEM.GOLDEN_APPLE, 1]],
+    event: "night",
+    tier: 1,
+    rules: R({ small: 5, medium: 1 }, 0.7, 0.65, 0.7, 0.9),
   },
   {
     id: "salvage",
     title: "Salvage",
-    text: "A UFO that comes down in one piece still flies. Board a crashed one (F).",
+    text: "The next UFO you shoot down will come down in one piece. Board the wreck (walk up, press F): it still flies.",
     objectives: [{ stat: "ufosBoarded", goal: 1, label: "UFOs boarded" }],
-    reward: [[ITEM.LASER_BLASTER, 1], [ITEM.SHIELD, 1], [ITEM.GOLDEN_APPLE, 1]],
+    reward: [[ITEM.SHIELD, 1], [ITEM.GOLDEN_APPLE, 1]],
+    event: "intact",
+    tier: 1,
+    rules: R({ small: 4, medium: 2 }, 0.75, 0.7, 0.75, 0.9),
+  },
+  {
+    id: "scout_hunter",
+    title: "Scout hunter",
+    text: "Take the fight to them: shoot down three UFOs. Bigger ones are about now.",
+    objectives: [{ stat: "ufosDown", goal: 3, label: "UFOs shot down" }],
+    reward: [[ITEM.SNIPER_RIFLE, 1], [ITEM.GOLDEN_APPLE, 1]],
+    event: "hunt",
+    tier: 1,
+    rules: R({ small: 4, medium: 3 }, 0.8, 0.75, 0.8, 1),
+  },
+  {
+    id: "squad",
+    title: "Alien squad",
+    text: "A UFO has dropped an alien squad nearby: greens, grays and a tough red. Wipe it out. Keep your distance from the red one's plasma.",
+    objectives: [{ stat: "aliensKilled", goal: 6, label: "Aliens killed" }],
+    reward: [[ITEM.BAZOOKA, 1], [ITEM.GOLDEN_APPLE, 2]],
+    event: "squad",
+    tier: 2,
+    rules: R({ small: 3, medium: 3, large: 0.3 }, 0.85, 0.8, 0.85, 1),
   },
   {
     id: "wings",
     title: "Take to the air",
-    text: "Call in your fighter jet (J or the Jet Radio), ideally near an airport (F3 shows the nearest one).",
-    objectives: [{ stat: "jetsCalled", goal: 1, label: "Jets called in" }],
-    reward: [[ITEM.SNIPER_RIFLE, 1], [ITEM.JET_RADIO, 1], [ITEM.GOLDEN_APPLE, 2]],
+    text: "Call in your fighter jet (J) near an airport (F3 shows the nearest), get in (F) and take off: full throttle (W), Shift for the afterburner.",
+    objectives: [{ stat: "takeoffs", goal: 1, label: "Takeoffs" }],
+    reward: [[ITEM.JET_RADIO, 1], [ITEM.GOLDEN_APPLE, 1]],
+    event: "takeoff",
+    tier: 2,
+    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.9, 0.85, 0.85, 1),
   },
   {
-    id: "clean_skies",
-    title: "Clean the skies",
-    text: "Shoot down five UFOs.",
-    objectives: [{ stat: "ufosDown", goal: 5, label: "UFOs shot down" }],
-    reward: [[ITEM.BAZOOKA, 1], [ITEM.GOLDEN_APPLE, 2]],
+    id: "dogfight",
+    title: "Dogfight",
+    text: "Shoot down two UFOs from your jet: the cannon (left click) or a missile lock (hold right click, release when LOCKED).",
+    objectives: [{ stat: "ufosDownByJet", goal: 2, label: "UFOs shot down from the jet" }],
+    reward: [[ITEM.AIRSTRIKE, 1], [ITEM.GOLDEN_APPLE, 2]],
+    event: "dogfight",
+    tier: 3,
+    rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.9, 0.9, 1.1),
   },
   {
     id: "air_superiority",
     title: "Air superiority",
-    text: "The aliens have fighters. Shoot one down (they hunt you once you attack their UFOs).",
-    objectives: [{ stat: "enemyJetsDown", goal: 1, label: "Enemy jets shot down" }],
-    reward: [[ITEM.MINIGUN, 1], [ITEM.AIRSTRIKE, 1], [ITEM.GOLDEN_APPLE, 3]],
+    text: "An enemy fighter is hunting you. Shoot it down: flares (C) fool its missiles, hard turns make them miss.",
+    objectives: [{ stat: "enemyJetsDown", goal: 1, label: "Enemy fighters shot down" }],
+    reward: [[ITEM.MINIGUN, 1], [ITEM.GOLDEN_APPLE, 2]],
+    event: "fighter",
+    tier: 3,
+    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.95, 0.95, 1, 1.1),
   },
   {
-    id: "giant_killer",
-    title: "Giant killer",
-    text: "Bring down a mothership or a giant (a railgun beam or a salvo of missiles will do).",
-    objectives: [{ stat: "ufosDownBig", goal: 1, label: "Motherships and giants shot down" }],
-    reward: [[ITEM.RAILGUN, 1], [ITEM.GOLDEN_APPLE, 5]],
+    id: "village",
+    title: "Village under attack",
+    text: "Raiders are burning a village. Get there (follow the marker) and shoot down the three raiders before they finish the job.",
+    objectives: [{ stat: "raidersDown", goal: 3, label: "Raiders shot down" }],
+    reward: [[ITEM.DIAMOND_SWORD, 1], [ITEM.DIAMOND_PICKAXE, 1], [ITEM.GOLDEN_APPLE, 3]],
+    event: "village",
+    tier: 3,
+    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 1, 1, 1, 1.1),
+  },
+  {
+    id: "big_game",
+    title: "Big game",
+    text: "The big ships are coming. Bring down a large UFO (the bazooka's lock-on, missiles or an airstrike help).",
+    objectives: [{ stat: "ufosDownLarge", goal: 1, label: "Large UFOs shot down" }],
+    reward: [[ITEM.RAILGUN, 1], [ITEM.GOLDEN_APPLE, 3]],
+    event: "large",
+    tier: 4,
+    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 1.2),
+  },
+  {
+    id: "mothership",
+    title: "Mothership",
+    text: "A mothership has arrived, with an escort. Destroy it: railgun beams, missile salvos (hold the lock 3 s) and the nuke hit hardest.",
+    objectives: [{ stat: "ufosDownBig", goal: 1, label: "Mothership destroyed" }],
+    reward: [[ITEM.GOLDEN_APPLE, 6]],
+    event: "mothership",
+    tier: 4,
+    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.5, giant: 0.08 }, 1.05, 1.05, 1.1, 1.2),
+  },
+  {
+    id: "sunburn",
+    title: "Operation Sunburn",
+    text: "The aliens have taken an airport and turned it into a base (marked). Fly there and drop your nuke on it (B in the jet). Fighters and UFOs guard it.",
+    objectives: [{ stat: "airportsNuked", goal: 1, label: "Enemy base nuked" }],
+    reward: [[ITEM.GOLDEN_APPLE, 8]],
+    event: "airport",
+    tier: 5,
+    rules: R(LATE, 1.1, 1.1, 1.2, 1.3),
   },
   {
     id: "slayer",
     title: "UFO slayer",
-    text: "The invasion is broken. Keep going: shoot down twenty more.",
-    objectives: [{ stat: "ufosDown", goal: 20, label: "UFOs shot down" }],
-    reward: [[ITEM.GOLDEN_APPLE, 8]],
+    text: "The invasion is broken, but they keep coming. Shoot down twenty-five more.",
+    objectives: [{ stat: "ufosDown", goal: 25, label: "UFOs shot down" }],
+    reward: [[ITEM.GOLDEN_APPLE, 10]],
+    event: "hunt",
+    tier: 5,
+    rules: R(LATE, 1.15, 1.15, 1.3, 1.4),
   },
 ];
+
+// The old seven-mission chain (Round 2 saves): how many new missions a save
+// that had finished N old ones counts as finished.
+const OLD_STEP_TO_NEW = [0, 2, 5, 8, 9, 10, 12, 13];
 
 export class Progress {
   constructor() {
@@ -102,6 +221,7 @@ export class Progress {
     this.done = []; // ids of finished missions
     this.onComplete = null; // (mission) => void
     this.onChange = null; // () => void
+    this.onStart = null; // (mission) => void: a mission became the current one
     this.enabled = true;
   }
 
@@ -114,16 +234,23 @@ export class Progress {
     return Math.min(this.step, MISSIONS.length);
   }
 
-  // How far along the player is (weapon and loot quality, tougher UFOs): the
-  // missions done plus one for every eight UFOs shot down beyond that.
+  // The rules for the sky right now (see MISSIONS), the last mission's once
+  // the chain is done.
+  get rules() {
+    return (this.mission || MISSIONS[MISSIONS.length - 1]).rules;
+  }
+
+  // How far along the player is (weapon and loot quality): the current
+  // mission's tier, plus one for a player who shoots down lots of UFOs.
   tier(stats) {
-    const extra = Math.floor((stats?.ufosDown ?? 0) / 8);
-    return Math.min(MAX_TIER, this.completed + Math.min(2, extra));
+    const m = this.mission || MISSIONS[MISSIONS.length - 1];
+    const extra = Math.floor((stats?.ufosDown ?? 0) / 12) > 0 ? 1 : 0;
+    return Math.min(MAX_TIER, m.tier + (this.mission ? extra : 1));
   }
 
   // 0-1: the difficulty curve (a gentle sky at the start).
   difficulty(stats) {
-    return Math.min(1, this.tier(stats) / MAX_TIER);
+    return Math.min(1, this.completed / (MISSIONS.length - 1));
   }
 
   start(stats) {
@@ -143,6 +270,12 @@ export class Progress {
     return m.objectives.map((o) => ({ label: o.label, goal: o.goal, value: Math.max(0, Math.min(o.goal, Math.floor((stats[o.stat] ?? 0) - (this.base[o.stat] ?? 0)))) }));
   }
 
+  // Every mission with its state, for the list in the pause menu:
+  // [{ n, id, title, text, reward, state: "done" | "current" | "locked", objectives }].
+  list(stats) {
+    return MISSIONS.map((m, i) => ({ n: i + 1, id: m.id, title: m.title, text: m.text, reward: m.reward, state: i < this.step ? "done" : i === this.step ? "current" : "locked", objectives: i === this.step ? this.objectives(stats) : null }));
+  }
+
   // Checks the current mission; completes it (and moves on) when every
   // objective is met. Returns the finished mission or null.
   update(stats) {
@@ -156,16 +289,24 @@ export class Progress {
     this.base = { ...this._pick(stats) };
     if (this.onComplete) this.onComplete(m);
     if (this.onChange) this.onChange();
+    if (this.mission && this.onStart) this.onStart(this.mission);
     return m;
   }
 
   serialize() {
-    return { step: this.step, base: this.base, done: this.done };
+    return { v: 3, step: this.step, base: this.base, done: this.done };
   }
 
   load(data, stats) {
-    if (data && Number.isInteger(data.step) && data.step >= 0 && data.step <= MISSIONS.length) {
-      this.step = data.step;
+    if (data && Number.isInteger(data.step) && data.step >= 0) {
+      if (data.v !== 3) {
+        // A Round 2 save: carry its progress over to the new chain.
+        this.step = OLD_STEP_TO_NEW[Math.min(data.step, OLD_STEP_TO_NEW.length - 1)];
+        this.done = MISSIONS.slice(0, this.step).map((m) => m.id);
+        this.base = { ...this._pick(stats) };
+        return;
+      }
+      this.step = Math.min(data.step, MISSIONS.length);
       this.base = data.base && typeof data.base === "object" ? { ...data.base } : {};
       this.done = Array.isArray(data.done) ? data.done.filter((x) => typeof x === "string") : [];
       // Stat counters this save didn't have yet start from where they are.

@@ -125,7 +125,7 @@ const scene = new THREE.Scene();
 // simplified level-of-detail tiles (see lod.js).
 const DEFAULT_RENDER_DISTANCE = 10;
 const MIN_RENDER_DISTANCE = 2;
-const MAX_RENDER_DISTANCE = 100;
+const MAX_RENDER_DISTANCE = 256; // (Round 3: was 100) beyond the detail area it is all cheap LOD tiles
 const settings = normalizeSettings(loadSettings());
 // Round 3: the jet flies as it did in the first build again. Round 2 raised
 // the default top speed to 220 (saved with every setting); a value still at
@@ -1515,7 +1515,7 @@ settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDi
 
 // Performance: full-detail distance, far-terrain quality, resolution scale
 // and effects detail, plus one-click presets for different computers.
-const LOD_QUALITY = { low: 0.55, medium: 1, high: 1.5, ultra: 2 };
+const LOD_QUALITY = { low: 0.55, medium: 1, high: 1.5, ultra: 2, extreme: 3 };
 function applyDetailDistance() {
   const d = settings.perf.detailDistance;
   lod.configure({ detailDistance: d > 0 ? d : activePreset.detailDistance });
@@ -1530,6 +1530,7 @@ const PERF_PRESETS = {
   balanced: { label: "Balanced", hint: "Most PCs", graphics: "medium", renderDistance: 12, detail: 0, lod: "medium", resolution: 1, effects: "medium" },
   beautiful: { label: "Beautiful", hint: "Gaming PCs", graphics: "high", renderDistance: 20, detail: 0, lod: "high", resolution: 1, effects: "high" },
   max: { label: "Max", hint: "High-end GPUs", graphics: "ultra", renderDistance: 32, detail: 10, lod: "ultra", resolution: 1, effects: "high" },
+  extreme: { label: "Extreme", hint: "Powerful PCs", graphics: "ultra", renderDistance: 72, detail: 14, lod: "extreme", resolution: 1, effects: "high" },
 };
 const perfPresetsEl = document.getElementById("perf-presets");
 for (const [key, p] of Object.entries(PERF_PRESETS)) {
@@ -1935,7 +1936,7 @@ function updateEnvironment(dt) {
   if (underwater) {
     // The surface above (for the light shafts), and sunlight bent into the water.
     let y = Math.floor(eye.y);
-    while (y < 63 && IS_WET[world.getBlock(eye.x, y + 1, eye.z)]) y++;
+    while (y < WORLD_HEIGHT - 1 && IS_WET[world.getBlock(eye.x, y + 1, eye.z)]) y++;
     waterSurfaceY = surfaceHeight(y, eye.x, eye.z, worldUniforms.uTime.value, worldUniforms.uWaveStrength.value);
     const L = worldUniforms.uLightDir.value;
     const h = Math.hypot(L.x, L.z);
