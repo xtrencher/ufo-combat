@@ -144,6 +144,32 @@ function pickWeighted(weights) {
   return Object.keys(weights)[0];
 }
 
+// A UFO's attack style from its design family and size (rand: a random
+// number source; the player's ships use a seeded one, so a ship keeps it).
+export function pickUfoStyle(design, sizeIdx, rand = Math.random) {
+  const w = { ...(STYLE_WEIGHTS[familyOf(design)] || STYLE_WEIGHTS.saucer) };
+  if (sizeIdx === 0) {
+    // Small scouts: nothing that blows holes or homes in.
+    delete w.heavy;
+    delete w.seeker;
+    if (!Object.keys(w).length) w.rapid = 1;
+  }
+  if (sizeIdx >= 2) {
+    if (w.heavy) w.heavy *= 2;
+    if (w.seeker) w.seeker *= 2;
+    if (w.sweep) w.sweep *= 1.5;
+  }
+  if (sizeIdx >= 3) delete w.abductor;
+  let total = 0;
+  for (const k in w) total += w[k];
+  let r = rand() * total;
+  for (const k in w) {
+    r -= w[k];
+    if (r <= 0) return k;
+  }
+  return Object.keys(w)[0];
+}
+
 function familyOf(design) {
   if (design.startsWith("saucer")) return "saucer";
   if (design.startsWith("sphere")) return "sphere";
@@ -333,20 +359,7 @@ export class UfoManager {
   }
 
   _pickStyle(design, S) {
-    const w = { ...(STYLE_WEIGHTS[familyOf(design)] || STYLE_WEIGHTS.saucer) };
-    if (S.idx === 0) {
-      // Small scouts: nothing that blows holes or homes in.
-      delete w.heavy;
-      delete w.seeker;
-      if (!Object.keys(w).length) w.rapid = 1;
-    }
-    if (S.idx >= 2) {
-      if (w.heavy) w.heavy *= 2;
-      if (w.seeker) w.seeker *= 2;
-      if (w.sweep) w.sweep *= 1.5;
-    }
-    if (S.idx >= 3) delete w.abductor;
-    return pickWeighted(w);
+    return pickUfoStyle(design, S.idx);
   }
 
   _waterAt(x, z) {
@@ -1793,6 +1806,7 @@ export class UfoManager {
       wreck: exploded,
       tilt,
       health: Math.round((120 + u.radius * 40) * 0.4),
+      style: u.style, // flown by the player, it fights the way it did
     });
     if (wreck) {
       wreck.byPlayer = u.byPlayer;

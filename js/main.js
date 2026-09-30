@@ -2467,7 +2467,7 @@ function updateHints(dt) {
   if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a pistol. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
-  else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift to fly, wheel for speed. Left click laser, hold right click to beam things up.", 6);
+  else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
   if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! They shoot back. Clear them out, then board their wrecked UFO (F).", 5);
 }

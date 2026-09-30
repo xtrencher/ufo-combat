@@ -744,7 +744,11 @@
     z-index: 10;
     opacity: 0;
     transition: opacity 0.3s;
-    white-space: nowrap;
+    /* Long messages wrap (centred) instead of running off the screen. */
+    width: max-content;
+    max-width: min(90vw, 980px);
+    text-align: center;
+    line-height: 1.3;
   }
   #hud-toast.show { opacity: 1; }
   #jet-picker {
