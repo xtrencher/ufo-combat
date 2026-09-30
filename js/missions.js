@@ -8,8 +8,10 @@
 // progression.js; this module is the game side of it.
 import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
+import { BLOCK, IS_LEAVES, IS_LOG } from "./blocks.js";
 
 const _v = new THREE.Vector3();
+const NEAR = [[2, 0], [-2, 0], [0, 2], [0, -2]];
 const CALM_TIME = 35; // seconds a landed crew looks around before it attacks
 
 function rand(a, b) {
@@ -226,18 +228,29 @@ export class MissionDirector {
   }
 
   // A spot on dry, open ground about `dist` blocks from the player (loaded
-  // chunks only), or null.
+  // chunks only), or null. With a short render distance (nothing loaded that
+  // far out) it comes closer rather than never: a mission must always start.
   _groundSpot(dist, spread = 0.3) {
     const p = this.player.position;
     const world = this.mobs.world;
-    for (let k = 0; k < 24; k++) {
+    for (let k = 0; k < 48; k++) {
       const a = Math.random() * Math.PI * 2;
-      const d = dist * rand(1 - spread, 1 + spread);
+      const d = Math.max(10, dist * (k < 16 ? 1 : k < 32 ? 0.55 : 0.3)) * rand(1 - spread, 1 + spread);
       const x = Math.floor(p.x + Math.cos(a) * d);
       const z = Math.floor(p.z + Math.sin(a) * d);
       if (!world.getChunk(x >> 4, z >> 4)) continue;
       const top = world.surfaceY(x, z);
-      if (top < SEA_LEVEL || top > this.terrain.heightAt(x, z) + 1) continue; // water, or on a tree
+      if (top < SEA_LEVEL) continue;
+      const b = world.getBlock(x, top, z);
+      if (b === BLOCK.WATER || IS_LEAVES[b] || IS_LOG[b]) continue; // water, or a tree
+      // (Airports and cities are paved above the natural ground: fine; a roof
+      // or a steep spot only when there is nothing else.)
+      if (k < 40) {
+        if (top > this.terrain.heightAt(x, z) + 6) continue;
+        let steep = false;
+        for (const [dx, dz] of NEAR) if (Math.abs(world.surfaceY(x + dx, z + dz) - top) > 2) steep = true;
+        if (steep) continue;
+      }
       return new THREE.Vector3(x + 0.5, top + 1, z + 0.5);
     }
     return null;

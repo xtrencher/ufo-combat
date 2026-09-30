@@ -197,6 +197,13 @@ async function helpers() {
         g.progress.update(g.stats.world);
       }
     };
+    // A teleport that lands on the ground there (no fall from a height).
+    window.__place = (x, z) => {
+      const top = g.world.surfaceY(Math.floor(x), Math.floor(z));
+      g.player.position.set(x, top + 1, z);
+      g.player.velocity.set(0, 0, 0);
+      g.player.resetFall();
+    };
     window.__face = (pos, yOff = 1) => {
       const p = g.player.getEyePosition();
       const dx = pos.x - p.x;
@@ -713,6 +720,22 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     g.player.health = 20;
     g.mobs.hostileSpawning = false;
     g.ufos.clear();
+    // (The game loads the land around the player as it plays; the hand-stepped
+    // time here doesn't, and earlier checks moved the player far away.)
+    g.world.prepareArea(g.player.position.x, g.player.position.z, 8);
+    // (Earlier checks leave aliens, skeletons and fighters around: a clean start.)
+    g.mobs.clear();
+    g.enemyJets.clear();
+    for (const x of [...g.vehicles.vehicles]) if (x !== g.vehicles.active) g.vehicles.remove(x);
+    window.__hurt = [];
+    if (!g.player.__logged) {
+      g.player.__logged = true;
+      const orig = g.player.damage.bind(g.player);
+      g.player.damage = (amount, cause, opts) => {
+        window.__hurt.push(`${cause}:${amount}`);
+        return orig(amount, cause, opts);
+      };
+    }
   });
   await play();
   await helpers();
@@ -727,6 +750,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     }
     if (!sk) return { ...out, fail: "no skeleton" };
     g.player.position.set(sk.pos.x + 1.5, sk.pos.y, sk.pos.z);
+    g.player.resetFall();
     g.inventory.selected = g.inventory.slots.findIndex((s) => s && s.id === 271);
     let hits = 0;
     while (!sk.dead && hits < 20) {
@@ -764,9 +788,20 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
       }
       crew = g.missions.state.crew || [];
     }
-    if (!crew.length) return { ...out, fail: "no crew", st: g.missions.state.phase };
+    if (!crew.length) {
+      const p = g.player.position;
+      const probe = [];
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const x = Math.floor(p.x + Math.cos(a) * 75);
+        const z = Math.floor(p.z + Math.sin(a) * 75);
+        const top = g.world.surfaceY(x, z);
+        probe.push(`${top}/${g.missions.terrain.heightAt(x, z)}/${g.world.getBlock(x, top, z)}/${!!g.world.getChunk(x >> 4, z >> 4)}`);
+      }
+      return { ...out, fail: "no crew", st: g.missions.state.phase, mid: g.missions.missionId, en: g.missions.enabled, spot: !!g.missions._groundSpot(75, 0.2), probe: probe.join(" "), p: [p.x, p.y, p.z].map(Math.round), wait: g.missions.state.waitT };
+    }
     out.calm = crew.every((m) => m.calmT > 20);
-    g.player.position.set(crew[0].pos.x + 12, crew[0].pos.y, crew[0].pos.z);
+    window.__place(crew[0].pos.x + 12, crew[0].pos.z);
     const hp = g.player.health;
     window.__step(8);
     out.calmHp = g.player.health === hp && crew.every((m) => !m.ai.target);
@@ -774,8 +809,21 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     let arrows = 0;
     for (let k = 0; k < 14 && crew.some((m) => !m.dead); k++) {
       const m = crew.find((x) => !x.dead);
-      g.player.position.set(m.pos.x + 8, m.pos.y, m.pos.z);
-      g.player.velocity.set(0, 0, 0);
+      // Stand 8 blocks off on a side with a clear line of sight (hills and trees block arrows).
+      let spot = 0;
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        window.__place(m.pos.x + Math.cos(a) * 8, m.pos.z + Math.sin(a) * 8);
+        const eye = g.player.getEyePosition();
+        const to = new g.THREE.Vector3(m.pos.x, m.pos.y + 1, m.pos.z).sub(eye);
+        const dist = to.length();
+        const hit = g.world.raycast(eye, to.normalize(), dist, { solidOnly: true });
+        if (!hit && Math.abs(g.player.position.y - m.pos.y) < 4) {
+          spot = 1;
+          break;
+        }
+      }
+      out.clear = (out.clear ?? 0) + spot;
       window.__face(m.pos, 1.0);
       g.weapons.press("bow");
       window.__step(1.05);
@@ -797,6 +845,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     out.diedBefore = g.player.dead;
     if (!c) return { ...out, fail: "no crate" };
     g.player.position.set(c.pos.x + 1, c.pos.y, c.pos.z);
+    g.player.resetFall();
     window.__step(0.5);
     out.pistol = g.inventory.slots.some((s) => s && s.id === 287);
     out.m4 = g.progress.mission?.id;
@@ -817,7 +866,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
         const nx = g.player.position.x + (u.pos.x - g.player.position.x) * q;
         const nz = g.player.position.z + (u.pos.z - g.player.position.z) * q;
         const top = g.world.surfaceY(Math.floor(nx), Math.floor(nz));
-        if (top > 0) g.player.position.set(nx, top + 1, nz);
+        if (top > 0) window.__place(nx, nz);
       }
       window.__face(u.pos, 0);
       g.weapons.press("pistol");
@@ -831,7 +880,8 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     out.m5 = g.progress.mission?.id;
     return out;
   });
-  const j = JSON.stringify(r);
+  const hurt = await v(() => window.__hurt.slice(0, 12).join(" "));
+  const j = JSON.stringify({ ...r, hurt });
   assert(!r.fail, `the opening ran through: ${j}`);
   assert(r.gear === "261,271,275", `basic gear: ${j}`);
   assert(r.bow && r.m2 === "landing", `the skeleton's bow: ${j}`);
@@ -843,6 +893,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
 
 await check("reloads: the pistol's 12-round magazine reloads by itself (R early), the sniper has one round, the minigun overheats; the HUD shows it", async () => {
   const r = await v((g) => {
+    if (g.player.dead) g.respawn(); // (a check that failed before must not fail this one too)
     g.setMode("creative");
     g.testFlags.noMissions = true;
     for (const id of [287, 295]) if (!g.inventory.slots.some((s) => s && s.id === id)) g.inventory.add(id, 1);
@@ -901,6 +952,7 @@ await check("reloads: the pistol's 12-round magazine reloads by itself (R early)
 
 await check("the shield: in the off hand (its own slot), raised with right click behind a sword, blocks hits from the front but not from behind, wears out; no overlay", async () => {
   const r = await v((g) => {
+    if (g.player.dead) g.respawn();
     g.setMode("survival");
     g.missions.enabled = false;
     g.progress.enabled = false;
@@ -962,8 +1014,10 @@ await check("parrots: a macaw rig (hooked beak, wings, long tail) that perches o
   const r = await v((g) => {
     const p = g.player.position;
     const x = Math.floor(p.x);
-    const y = Math.floor(p.y) + 8;
     const z = Math.floor(p.z) - 4;
+    // A branch in the open (above whatever is there: a roof would hide it).
+    let y = Math.floor(p.y) + 8;
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) y = Math.max(y, g.world.surfaceY(x + dx, z + dz) + 4);
     g.world.setBlocks([x, y, z, 7, x + 1, y, z, 7, x - 1, y, z, 7, x, y, z + 1, 7, x, y, z - 1, 7]);
     const m = g.mobs.spawn("parrot", x + 0.5, y + 3, z + 0.5);
     m.home = { x: x + 0.5, y: y + 2, z: z + 0.5 };

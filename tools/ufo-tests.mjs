@@ -194,15 +194,15 @@ await check("settings: every group has a reset button, stepped sliders, perf pre
   await page.keyboard.press("Escape");
 });
 
-await check("new game: Survival starts with the pistol only; Creative has every weapon (the suite then uses the classic 8-slot layout)", async () => {
+await check("new game: Survival starts with basic gear (Round 4); Creative has every weapon (the suite then uses the classic 8-slot layout)", async () => {
   await play();
   const hotbar = await v((g) => g.inventory.slots.slice(0, 9).map((s) => s?.id ?? 0));
-  assert(hotbar[0] === 287 && hotbar.slice(1).every((id) => id === 0), `hotbar ${hotbar}`);
+  assert(hotbar[0] === 271 && hotbar[1] === 275 && hotbar[2] === 261 && hotbar.slice(3).every((id) => id === 0), `hotbar ${hotbar}`);
   await v((g) => {
     g.setMode("creative");
     const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
-    // Every weapon is there (11 of them)...
-    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296].every((id) => have.has(id))) throw new Error("creative is missing weapons");
+    // Every weapon is there (10 of them and the bow; the shield in the off hand)...
+    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id)) || g.inventory.offhand?.id !== 296) throw new Error("creative is missing weapons");
     // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster, radio.
     g.inventory.clear();
     [287, 286, 288, 289, 291, 290, 292, 293].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
@@ -216,6 +216,7 @@ await check("new game: Survival starts with the pistol only; Creative has every 
 await check("weapons are independent: a pending airstrike doesn't block the bazooka, pistol or blaster", async () => {
   const r = await v((g) => {
     const { weapons, inventory } = g;
+    weapons.refill();
     weapons.airstrike.config.delay = 2;
     weapons.airstrike.config.speed = 220;
     inventory.selected = 4;
@@ -674,7 +675,7 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
   assert(c1 > c0, `wheel speeds up ${c0} -> ${c1}`);
 });
 
-await check("UFO weapons: the laser cannon blasts holes; the tractor beam lifts creatures (and loose blocks) aboard", async () => {
+await check("UFO weapons: heavy plasma blasts holes; the tractor beam lifts creatures (and loose blocks) aboard", async () => {
   const r = await v((g) => {
     const v = g.vehicles.active;
     const w = g.world;
@@ -692,11 +693,15 @@ await check("UFO weapons: the laser cannon blasts holes; the tractor beam lifts 
   await page.mouse.up({ button: "right" });
   assert(taken, "the beam took the cow aboard");
   assert((await v((g) => g.stats.world.animalsAbducted - window.__abd)) === 1, "counted");
-  const b0 = await v((g) => g.effects.explosionCount);
+  // (Round 4: a ship fires its own kind's weapon; heavy plasma is one that explodes.)
+  const b0 = await v((g) => {
+    g.vehicles.active.style = "heavy";
+    return g.effects.explosionCount;
+  });
   await page.mouse.down({ button: "left" });
   const blast = await until((g, n) => g.effects.explosionCount > n, 30000, b0);
   await page.mouse.up({ button: "left" });
-  assert(blast, "the laser cannon's bolts blow small holes");
+  assert(blast, "heavy plasma blows small holes");
 });
 
 await check("other UFOs take you for one of their own until you shoot one (then it turns hostile)", async () => {

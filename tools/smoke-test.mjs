@@ -239,9 +239,9 @@ try {
         spawnGround: v.world.heightAt(v.spawn.x, v.spawn.z),
       };
     });
-    // A new Survival game starts with only a pistol (everything else is loot).
-    assert(s.hotbar[0] === 287, `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
-    assert(s.rest && s.hotbar.slice(1).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
+    // A new Survival game starts with basic gear (Round 4: stone sword, stone pickaxe, apples; everything else is found).
+    assert(s.hotbar[0] === 271 && s.hotbar[1] === 275 && s.hotbar[2] === 261, `unexpected starting hotbar ${JSON.stringify(s.hotbar)}`);
+    assert(s.rest && s.hotbar.slice(3).every((id) => id === 0), `no other starting items expected: ${JSON.stringify(s.hotbar)}`);
     assert(s.mode === "survival" && s.health === 20, `unexpected start state ${JSON.stringify(s)}`);
     assert(s.hearts === 10 && s.heartsVisible, `expected 10 visible hearts: ${JSON.stringify(s)}`);
     assert(s.spawnTop === s.spawnGround, `the player should start on the ground, not on a tree: ${JSON.stringify(s)}`);
@@ -1148,13 +1148,17 @@ try {
       inv.slots[3] = { id: 289, count: 1 }; // machine gun
       inv.slots[4] = { id: 290, count: 1 }; // sniper rifle
       inv.slots[5] = { id: 291, count: 1 }; // airstrike designator
+      window.__voxelands.weapons.refill(); // (Round 4: magazines and reloads)
     });
 
   await check("grenades: hold to charge (bar shown), quick click lobs short, full charge throws far; they bounce, 5 s fuse", async () => {
     await giveWeapons();
     await page.keyboard.press("Digit1");
     const throwOnce = async (full) => {
-      await page.evaluate(() => (window.__vys = []));
+      await page.evaluate(() => {
+        window.__vys = [];
+        window.__voxelands.weapons.refill(); // (a grenade takes 1.4 s to ready)
+      });
       const prev = await page.evaluate(() => window.__voxelands.effects.explosionCount);
       await page.mouse.down({ button: "right" });
       let barShown = false;
@@ -1258,7 +1262,7 @@ try {
     });
   });
 
-  await check("pistol: every click fires (no reload), bullets leave holes and hurt mobs with knockback", async () => {
+  await check("pistol: every click fires (within its 12-round magazine), bullets leave holes and hurt mobs with knockback", async () => {
     const a = await runway(-40, -60);
     await giveWeapons();
     await page.keyboard.press("Digit2");

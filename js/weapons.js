@@ -274,6 +274,17 @@ export class WeaponSystem {
   }
 
   // Starts reloading `kind` (R, or an empty magazine). Returns true if it did.
+  // Every magazine full, no reload or cooldown running (used by the tests).
+  refill() {
+    for (const [k, st] of Object.entries(WEAPON_STATS)) {
+      if (st.mag) this.ammo[k] = st.mag;
+      this.reloadT[k] = 0;
+    }
+    for (const k in this._cooldowns) this._cooldowns[k] = 0;
+    this.minigun.heat = 0;
+    this.minigun.overheated = false;
+  }
+
   startReload(kind) {
     const st = WEAPON_STATS[kind];
     if (!st?.mag || this.reloadT[kind] > 0 || (this.ammo[kind] ?? st.mag) >= st.mag) return false;
