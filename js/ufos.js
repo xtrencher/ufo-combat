@@ -57,11 +57,13 @@ export const MAX_ATTACKERS = 4; // UFOs attacking the player at the same time
 // laser damage, hover height over a beamed player, alien crew size range.
 // A giant is about the size of a football field.
 export const SIZES = {
-  small: { r: [3, 4.5], health: 40, cruise: 16, top: 55, laser: 2, hover: 11, crew: [1, 3], idx: 0 },
-  medium: { r: [6, 8.5], health: 130, cruise: 12, top: 45, laser: 3, hover: 14, crew: [1, 5], idx: 1 },
-  large: { r: [12, 17], health: 480, cruise: 8, top: 34, laser: 5, hover: 20, crew: [2, 8], idx: 2 },
-  mothership: { r: [32, 42], health: 2200, cruise: 5, top: 22, laser: 8, hover: 36, crew: [4, 10], idx: 3 },
-  giant: { r: [58, 74], health: 6500, cruise: 3.5, top: 16, laser: 12, hover: 60, crew: [6, 10], idx: 4 },
+// (Round 4: about 1.6x the old health; they went down too easily. Survival
+// scales it further per mission, see progression.js.)
+  small: { r: [3, 4.5], health: 65, cruise: 16, top: 55, laser: 2, hover: 11, crew: [1, 3], idx: 0 },
+  medium: { r: [6, 8.5], health: 210, cruise: 12, top: 45, laser: 3, hover: 14, crew: [1, 5], idx: 1 },
+  large: { r: [12, 17], health: 760, cruise: 8, top: 34, laser: 5, hover: 20, crew: [2, 8], idx: 2 },
+  mothership: { r: [32, 42], health: 3400, cruise: 5, top: 22, laser: 8, hover: 36, crew: [4, 10], idx: 3 },
+  giant: { r: [58, 74], health: 9500, cruise: 3.5, top: 16, laser: 12, hover: 60, crew: [6, 10], idx: 4 },
 };
 const SIZE_WEIGHTS = {
   small: { small: 6, medium: 3, large: 0.8, mothership: 0.1, giant: 0.02 },
@@ -286,6 +288,8 @@ export class UfoManager {
       personality,
       style,
       laserKey: STYLES[style]?.color || ufoLaserKey(spec),
+      // Its crew: one kind of alien per ship (they come from the same world).
+      crewKind: opts.crewKind || this._crewKind(S.idx),
       temper: Math.random() < 0.25 ? rand(0.6, 1) : rand(0, 0.5), // how easily it turns hostile
       fleeFactor: personality === "fast" ? rand(1.25, 1.6) : rand(0.8, 0.95),
       state: opts.state || "roam",
@@ -636,6 +640,12 @@ export class UfoManager {
       if (u.falling) this._fall(u, step);
       else this._think(u, step, tgt, dist);
       if (u.beam) {
+        // The beam always hangs from the ship: it follows it, and goes out
+        // the moment the ship stops beaming (shot and dodging, dashing,
+        // falling, or off to attack), instead of staying behind in the air.
+        const beaming = !u.falling && !u.dash && (u.state === "beam" || (u.state === "trick" && u.trick === "abduct"));
+        if (!beaming && u.beam.on) u.beam.set(false);
+        u.beam.top.set(u.pos.x, u.pos.y - u.info.bottom * u.radius, u.pos.z);
         u.beam.update(step, this.effects);
         if (u.beam.on && u === this.beamingPlayer) beamOnPlayer = u;
         if (!u.beam.on && u.beam.strength < 0.02 && u.state !== "beam" && u.state !== "trick") this._freeBeam(u);
@@ -1793,7 +1803,7 @@ export class UfoManager {
     // come out of an exploded wreck too: the survivors.)
     const [lo, hi] = u.S.crew;
     const crew = u.crashPlan?.crew ?? Math.max(1, Math.round(lo + Math.pow(Math.random(), 1.5) * (hi - lo) + (Math.random() < 0.15 ? hi - lo : 0)));
-    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx, kind: u.crashPlan?.crewKind ?? null });
+    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx, kind: u.crashPlan?.crewKind ?? u.crewKind ?? this._crewKind(u.S.idx) });
     if (this.onShotDown) this.onShotDown(u, u.byPlayer);
     if (this.onCrash) this.onCrash({ ufo: u, pos: at, exploded, wreck, byPlayer: u.byPlayer, crew: Math.min(10, crew) });
     u.state = "gone";
@@ -1808,9 +1818,9 @@ export class UfoManager {
     while (list.length + 1 > MAX_KEPT_WRECKS) this.vehicles.remove(list.shift());
   }
 
-  // Aliens climb out of a wreck once its ground is loaded: green, gray and
-  // red, in a random mix. Beside a wreck in the sea they wade out onto the
-  // nearest shore.
+  // Aliens climb out of a wreck once its ground is loaded: the ship's crew,
+  // all of one kind (green, gray or red). Beside a wreck in the sea they
+  // wade out onto the nearest shore.
   _updateCrews(dt) {
     for (let i = this.pendingCrews.length - 1; i >= 0; i--) {
       const c = this.pendingCrews[i];
@@ -1833,7 +1843,7 @@ export class UfoManager {
         if (c.water && top < SEA_LEVEL + 1) continue; // dry land only
         const id = this.world.getBlock(x, top + 1, z);
         if (IS_SOLID[id] || IS_WET[id] || this.world.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
-        const kind = c.kind || this._crewKind(c.sizeIdx);
+        const kind = c.kind || (c.kind = this._crewKind(c.sizeIdx));
         const m = this.mobs.spawn(kind, x + 0.5, top + 1, z + 0.5);
         if (m) {
           m.ai.target = true;
@@ -1850,9 +1860,21 @@ export class UfoManager {
     }
   }
 
-  // Green foot soldiers, gray sharpshooters and red brutes (more of them from
-  // bigger ships).
+  // A ship's crew: green foot soldiers, gray sharpshooters or red brutes
+  // (the tougher kinds more often on bigger ships; in Survival the current
+  // mission decides which kinds are about: `rules.crew`).
   _crewKind(sizeIdx) {
+    const w = this.rules?.crew;
+    if (w) {
+      const total = (w.alien ?? 0) + (w.alien_gray ?? 0) + (w.alien_red ?? 0);
+      if (total > 0) {
+        let r = Math.random() * total;
+        for (const k of ["alien", "alien_gray", "alien_red"]) {
+          r -= w[k] ?? 0;
+          if (r <= 0) return k;
+        }
+      }
+    }
     const r = Math.random();
     const red = 0.05 + sizeIdx * 0.06;
     const gray = 0.22 + sizeIdx * 0.03;

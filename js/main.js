@@ -687,7 +687,16 @@ function jetLocked() {
   return !player.creative && progress.enabled && progress.step < JET_MISSION;
 }
 const JET_LOCKED_TEXT = `Fighter jets join the fight with mission ${JET_MISSION + 1} ("${MISSIONS[JET_MISSION].title}"). Esc > Missions shows the way there.`;
-vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : null);
+// UFOs (wrecks and the ones in airport hangars) can be boarded from the
+// "Salvage" mission on; before that the player fights on foot.
+const UFO_MISSION = MISSIONS.findIndex((m) => m.id === "salvage");
+function ufoLocked() {
+  return !player.creative && progress.enabled && progress.step < UFO_MISSION;
+}
+const UFO_LOCKED_TEXT = `You can't fly alien ships yet: that comes with mission ${UFO_MISSION + 1} ("${MISSIONS[UFO_MISSION].title}").`;
+vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : v.type === "ufo" && ufoLocked() ? UFO_LOCKED_TEXT : null);
+// Patrol fighters (they hunt UFOs) join the sky with the player's own jets.
+enemyJets.allowed = () => !jetLocked();
 // J (or the Jet Radio) opens a small picker: 1 the F-22 Raptor, 2 the F-16
 // Fighting Falcon; J again calls the one you took last time.
 const jetPickerEl = document.getElementById("jet-picker");
@@ -801,6 +810,7 @@ weapons.onJetRadio = openJetPicker;
 
 // Entering and leaving vehicles.
 vehicles.onEnter = (v) => {
+  airports.boarded(v);
   chord.reset();
   interaction.release();
   weapons.cancel();

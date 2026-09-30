@@ -268,6 +268,16 @@ export class SiteGrower {
     });
   }
 
+  // The middle of each hangar's floor: [{ x, y, z, yaw, id }] (yaw: facing
+  // out through the big doorway, toward the runway).
+  hangarSpots(site) {
+    const [vx, vz] = this.dirV(site);
+    return (site.hangars || []).map((h) => {
+      const [x, z] = this.toWorld(site, h.uc, Math.floor((h.v0 + h.v1) / 2));
+      return { x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw: Math.atan2(vx, vz), id: h.id, doorHeight: 9, height: h.h - 1 };
+    });
+  }
+
   // A villager-style "settlement" description: { x, z, radius } near the
   // people (the apron of an airport, the middle of a city).
   settlement(site) {

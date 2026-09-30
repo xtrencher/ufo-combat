@@ -22,6 +22,8 @@ import { LAYER_FX } from "./layers.js";
 const PAINTS = {
   raptor: { grey: 0x6f777f, dark: 0x535a62, light: 0x8d959c, accent: 0x3a3e44, canopy: 0xb89a3c },
   enemy: { grey: 0x4a4e56, dark: 0x2c2f35, light: 0x60646e, accent: 0x8a1c1c, canopy: 0x8a3030 },
+  // The patrol fighters: slate blue-grey with a sand accent.
+  patrol: { grey: 0x56606c, dark: 0x3d4550, light: 0x6c7784, accent: 0xa8842a, canopy: 0x6f7c88 },
   // The Falcon's two-tone air-superiority grey, a darker radome and a smoky gold canopy.
   falcon: { grey: 0x87909a, dark: 0x656d76, light: 0xa3abb3, accent: 0x4a5058, canopy: 0x9c8a4c },
 };
@@ -32,6 +34,7 @@ const PAINTS = {
 const FINISH = {
   raptor: { spec: 0.75, gloss: 42, env: 0.3, grain: 0.025, panel: 0.3, panelScale: 0.9, livery: 0.16, liveryScale: 0.26, skin: { tone: 0.09, soot: 0.45, sootZ: 5.2, streaks: 0.06 } },
   enemy: { spec: 0.8, gloss: 50, env: 0.35, grain: 0.025, panel: 0.32, panelScale: 0.9, livery: 0.22, liveryScale: 0.3, skin: { tone: 0.08, soot: 0.4, sootZ: 5.2, streaks: 0.07 } },
+  patrol: { spec: 0.8, gloss: 48, env: 0.33, grain: 0.025, panel: 0.3, panelScale: 0.9, livery: 0.2, liveryScale: 0.28, skin: { tone: 0.08, soot: 0.4, sootZ: 5.2, streaks: 0.07 } },
   falcon: { spec: 0.85, gloss: 55, env: 0.32, grain: 0.02, panel: 0.28, panelScale: 1.1, livery: 0.14, liveryScale: 0.3, skin: { tone: 0.07, soot: 0.5, sootZ: 4.6, streaks: 0.05 } },
 };
 let GREY = PAINTS.raptor.grey;

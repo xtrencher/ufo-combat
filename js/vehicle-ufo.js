@@ -303,6 +303,8 @@ export class PilotUfo extends Vehicle {
 
   _place() {
     this.root.position.copy(this.pos);
+    // Parked in a hangar: a slow, gentle bob just above the floor.
+    if (this.hangar && !this.occupied) this.root.position.y += Math.sin(this.time * 1.1) * 0.12;
     this.model.body.rotation.set(this.tilt.x, this.yaw, this.tilt.z, "YXZ");
     const l = this.manager.world.lightAt(this.pos.x, this.pos.y + 1, this.pos.z);
     this.model.light.sky = Math.max(l.sky, this.crashed ? 0 : 10);

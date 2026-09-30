@@ -156,6 +156,16 @@ export const SPECIES = {
   },
 };
 
+// Ranged weapons: the shoulder pivot of the arm holding it and the reach
+// from there to the muzzle (the bow's grip), in model pixels (mob-models.js).
+const MUZZLES = {
+  skeleton: { pivot: [-4.5, 21.5, 0], reach: 12 },
+  alien: { pivot: [4, 16, 0], reach: 14.5 },
+  alien_gray: { pivot: [3.5, 19, 0], reach: 22.5 },
+  alien_red: { pivot: [6.5, 19, 0], reach: 17.5 },
+};
+const _mz = new THREE.Vector3();
+
 const PASSIVE_KINDS = Object.keys(SPECIES).filter((k) => !SPECIES[k].hostile && !SPECIES[k].flies && k !== "villager");
 const HOSTILE_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].hostile);
 const OTHER_HOSTILE_KINDS = HOSTILE_KINDS.filter((k) => k !== "zombie" && !SPECIES[k].special);
@@ -764,21 +774,39 @@ export class MobManager {
 
   // ---------- Ranged combat (skeleton arrows) ----------
 
+  // Where a ranged mob's shot leaves its weapon: the shoulder of the arm
+  // holding it (model pivot, turned with the mob) plus the arm-and-weapon
+  // length along the aim (the arm is raised along the aim while it targets
+  // the player, see mob-models.js). Falls back to the eyes for other kinds.
+  _muzzle(m, aim, out = new THREE.Vector3()) {
+    const w = MUZZLES[m.kind];
+    if (!w) return out.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(aim, m.spec.r + 0.3);
+    const [px, py, pz] = w.pivot;
+    const c = Math.cos(m.yaw);
+    const sn = Math.sin(m.yaw);
+    out.set(m.pos.x + (px * c + pz * sn) / 16, m.pos.y + py / 16, m.pos.z + (-px * sn + pz * c) / 16);
+    return out.addScaledVector(aim, w.reach / 16);
+  }
+
   _shootArrow(m, dx, dy, dz) {
     // dx/dy/dz are feet-to-feet; aim from the archer's actual eye height at
     // the player's torso center (matches the hitbox center in
     // _arrowHitsPlayer), not at the player's feet, or a level shot from an
     // elevated eye already clears a same-height target's hitbox before any
     // gravity compensation is even added.
-    const vdy = dy + 0.9 - m.spec.eye;
-    const dist = Math.hypot(dx, vdy, dz) || 1;
+    // The arrow leaves the bow (held out in the left hand), aimed from there.
+    const guess = new THREE.Vector3(dx, dy + 0.9 - m.spec.eye, dz).normalize();
+    const start = this._muzzle(m, guess);
+    const vdx = m.pos.x + dx - start.x;
+    const vdz = m.pos.z + dz - start.z;
+    const vdy = m.pos.y + dy + 0.9 - start.y;
+    const dist = Math.hypot(vdx, vdy, vdz) || 1;
     const t = Math.max(0.35, dist / ARROW_SPEED);
     // Aims a little high to help compensate for the drop over the flight.
     const riseComp = -0.5 * ARROW_GRAVITY * t * 0.55;
-    const dir = new THREE.Vector3(dx, vdy + riseComp, dz).normalize();
-    const start = m.pos.clone();
-    start.y += m.spec.eye;
-    start.addScaledVector(dir, m.spec.r + 0.3);
+    const dir = new THREE.Vector3(vdx, vdy + riseComp, vdz).normalize();
+    // (Inside a wall at point blank: from the archer's eyes instead.)
+    if (IS_SOLID[this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))]) start.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(dir, m.spec.r + 0.3);
     const mesh = new THREE.Group();
     mesh.add(new THREE.Mesh(this._arrowGeo, this._arrowMat), new THREE.Mesh(this._arrowTipGeo, this._arrowMat));
     this.group.add(mesh);
@@ -800,10 +828,11 @@ export class MobManager {
       m.burst = 2; // two more follow the first
       m.burstT = 0.12;
     }
-    const from = m.pos.clone();
-    from.y += m.spec.eye - 0.4;
     const target = this.player.getEyePosition();
     target.y -= 0.6;
+    // The bolt leaves the gun's muzzle (the gun arm is raised along the aim).
+    const from = this._muzzle(m, _mz.copy(target).sub(m.pos).setY(target.y - m.pos.y - m.spec.eye + 0.4).normalize());
+    if (IS_SOLID[this.world.getBlock(Math.floor(from.x), Math.floor(from.y), Math.floor(from.z))]) from.set(m.pos.x, m.pos.y + m.spec.eye - 0.4, m.pos.z);
     const aimVel = this.player.vehicle ? this.player.vehicle.vel : this.player.velocity;
     const speed = weapon === "plasma" ? 38 : weapon === "burst" ? 110 : 62;
     const dist0 = target.distanceTo(from);
@@ -817,7 +846,6 @@ export class MobManager {
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;
     dir.normalize();
-    from.addScaledVector(dir, m.spec.r + 0.4);
     m.aimTime = this.time;
     const range = dist * 1.4 + 40;
     if (weapon === "plasma") {
