@@ -1435,3 +1435,53 @@ The saved settings cover every setting in the game: graphics (preset and individ
 - a lost graphics context, including "Reload with lower graphics once".
 
 It passed 7/7 in three consecutive full runs with no console errors. In the very first run, before the diff output was added, the "second reload keeps everything" assertion failed once; it didn't come back in four later runs, and the cause wasn't identified. The Round 2 settings checks and the smoke startup/lost-graphics checks (updated for the new dialog) pass.
+
+# Round 4 (UFO COMBAT) checklist
+
+Source of truth for this round (jet fixes, survival progression, weapons balance, UFO piloting). Items are ticked as they are finished; decisions go in "Round 4 decisions" at the end.
+
+## Part 1: Jet fixes (critical)
+- [ ] 1.1 Takeoff works reliably from runways and long flat areas (jet no longer stuck to the ground)
+- [ ] 1.2 Roll limited and smoothly damped, returns to level without overshoot (flight feel otherwise kept)
+- [ ] 1.3a Missiles can always be fired without a lock (unguided, straight ahead)
+- [ ] 1.3b Lock-on targets only UFOs and aircraft, never ground mobs
+- [ ] 1.3c Lock prioritizes targets attacking the player
+- [ ] 1.3d After a locked launch the camera follows the target until the hit, then returns; right mouse returns it at once
+- [ ] 1.4 Jet visuals: smaller lights, better texture/material
+- [ ] 1.5 Second jet: F-16-style fighter, own model, slightly different handling and weapons; player chooses which jet to call
+
+## Part 2: Enemy jets and UFOs
+- [ ] 2.1 Enemy patrol jets attack only UFOs; the player only if the player attacks them directly; somewhat faster
+- [ ] 2.2 UFOs have more health, rebalanced along the mission curve
+- [ ] 2.3 Tractor beam follows the UFO (or stops) when a beaming UFO is shot and moves
+- [ ] 2.4 One alien type per UFO
+- [ ] 2.5 Aliens and skeletons fire from the muzzle of their weapon
+- [ ] 2.6 Airport hangars sometimes hold UFOs hovering above the floor; boardable only in late missions
+
+## Part 3: UFO piloting
+- [ ] 3.1 Camera: UFO lower on screen, crosshair target always visible, reliable aim for every UFO size
+- [ ] 3.2 Dash (R): hold for continuous ultra-fast dash, no distance limit
+- [ ] 3.3 Boarded UFO uses its own type's weapon (the enemy attack style)
+
+## Part 4: Survival progression and balance
+- [ ] 4.1 No UFO activity setting in Survival; UFO numbers follow the mission chain (Creative keeps the setting)
+- [ ] 4.2 Opening: basic gear, a skeleton drops a bow; the first UFO lands nearby, aliens attack after a delay; aliens killable in melee
+- [ ] 4.3 Weapon sources: skeletons bow, crates standard weapons, aliens better weapons later (weakest to strongest), missions only apples/golden apples
+- [ ] 4.4 UFO boarding locked until a late mission
+- [ ] 4.5 Reload/cooldown for every weapon balanced by damage, reload progress on the HUD
+- [ ] 4.6 Shield like classic block games: off hand, visible, blocks when raised (hold right mouse), no full-screen overlay
+- [ ] 4.7 Mission chain and difficulty curve re-checked: every mission achievable with the gear at that point, none trivial
+
+## Part 5: Visual fixes
+- [ ] 5.1 Parrot redesigned (model and texture)
+
+## Final polish
+- [ ] F1 Regression pass
+- [ ] F2 Player's-eye review (Survival opening and first missions; Creative jets, roll, missiles, enemy jets, UFO piloting)
+- [ ] F3 Full test suite
+- [ ] F4 README updated
+- [ ] F5 PROGRESS summary, decisions, known issues, how to test
+- [ ] F6 "ROUND 4 COMPLETE", commit, push
+
+## Round 4 decisions and notes
+(appended as work proceeds)
