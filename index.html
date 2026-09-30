@@ -870,6 +870,31 @@
   #mission-tracker .mt-obj.done { color: #7fe39a; }
   #mission-tracker .mt-crate { margin-top: 5px; color: #ff9a4a; font-weight: 700; }
   body.in-vehicle #mission-tracker { top: auto; bottom: 14px; right: 14px; }
+  #mission-tracker .mt-head { display: flex; justify-content: space-between; gap: 8px; }
+  #mission-tracker .mt-step { color: #ffd45a; opacity: 0.8; white-space: nowrap; }
+  #mission-tracker .mt-bar { height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; margin: 1px 0 3px; overflow: hidden; }
+  #mission-tracker .mt-bar > div { height: 100%; background: #ffd45a; }
+  #mission-tracker .mt-obj.done + .mt-bar > div { background: #7fe39a; }
+  #mission-tracker .mt-target { margin-top: 4px; color: #6fd8ff; font-weight: 700; }
+  #mission-tracker .mt-note { margin-top: 2px; color: #cfe3ef; opacity: 0.8; font-size: 11px; }
+  #mission-tracker .mt-next { margin-top: 4px; opacity: 0.6; font-size: 10.5px; }
+  /* The mission target marker: a diamond over the target, or an arrow at the screen's edge. */
+  #mission-marker { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 8; transform: translate(-50%, -50%); text-align: center; }
+  #mission-marker .mm-mark { width: 14px; height: 14px; margin: 0 auto; border: 2px solid #ffd45a; transform: rotate(45deg); box-shadow: 0 0 6px rgba(0,0,0,0.7); }
+  #mission-marker.edge .mm-mark { border: none; width: 0; height: 0; transform: rotate(var(--a, 0rad)); border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 16px solid #ffd45a; }
+  #mission-marker .mm-label { margin-top: 5px; font: 700 11px ui-monospace, Consolas, monospace; color: #ffd45a; text-shadow: 0 0 3px #000, 0 0 2px #000; white-space: nowrap; }
+  #missions-list { max-height: 62vh; overflow-y: auto; text-align: left; }
+  #missions-list .ml-item { display: grid; grid-template-columns: 34px 1fr; gap: 2px 10px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; background: rgba(255,255,255,0.04); }
+  #missions-list .ml-item.current { background: rgba(255,212,90,0.12); border-left: 3px solid #ffd45a; }
+  #missions-list .ml-item.done { opacity: 0.7; }
+  #missions-list .ml-item.locked { opacity: 0.45; }
+  #missions-list .ml-n { font: 700 18px ui-monospace, Consolas, monospace; color: #ffd45a; grid-column: 1; grid-row: 1 / span 8; align-self: center; text-align: center; }
+  #missions-list .ml-item > :not(.ml-n) { grid-column: 2; }
+  #missions-list .ml-item.done .ml-n { color: #7fe39a; }
+  #missions-list .ml-title { font-weight: 700; }
+  #missions-list .ml-text { font-size: 12px; opacity: 0.85; }
+  #missions-list .ml-reward { font-size: 11.5px; color: #9fe0ff; }
+  #missions-list .ml-obj { font-size: 11.5px; color: #ffd45a; }
   /* Incoming missile warning: a red arrow on a ring around the crosshair. */
   #missile-warn {
     position: fixed;
@@ -925,6 +950,7 @@
     <div id="vehicle-hud" class="hidden"></div>
     <div id="vehicle-info" class="hidden"></div>
     <div id="mission-tracker" class="hidden"></div>
+    <div id="mission-marker" class="hidden"><div class="mm-mark"></div><div class="mm-label"></div></div>
     <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>
     <div id="vehicle-prompt" class="hidden"></div>
     <div id="hud-toast"></div>
@@ -1058,7 +1084,10 @@
           <button class="btn big" id="pause-mods-btn">Mods <span id="pause-mods-state" class="pill on">ON</span></button>
           <button class="btn big" id="pause-stats-btn">Stats</button>
         </div>
-        <button class="btn big" id="pause-controls-btn">Controls</button>
+        <div class="button-pair">
+          <button class="btn big" id="pause-missions-btn">Missions</button>
+          <button class="btn big" id="pause-controls-btn">Controls</button>
+        </div>
         <div class="button-pair">
           <button class="btn secondary" id="copy-link-btn">Copy world link</button>
           <button class="btn secondary" id="main-menu-btn">Save &amp; main menu</button>
@@ -1232,6 +1261,16 @@
     <div class="panel wide">
       <h2>Controls</h2>
       <div class="controls-list" id="controls-list"></div>
+      <div class="menu-buttons">
+        <button class="btn back-btn">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="missions-screen" class="overlay hidden">
+    <div class="panel wide">
+      <h2>Missions</h2>
+      <div id="missions-list"></div>
       <div class="menu-buttons">
         <button class="btn back-btn">Back</button>
       </div>

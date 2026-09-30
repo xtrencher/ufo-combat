@@ -358,6 +358,7 @@ export class Jet extends Vehicle {
     this._groundAndCrash(dt, aero);
     if (!this.alive) return;
     if (this.onGround && !wasGround) this._touchdown();
+    if (!this.onGround && wasGround && this.occupied && !this.isEnemyJet) this.manager.onTakeoff?.(this);
     this.sinceLiftoff = this.onGround ? 0 : wasGround ? 0.0001 : this.sinceLiftoff > 0 ? this.sinceLiftoff + dt : 99;
     if (this.onGround) this.rolled += Math.hypot(this.vel.x, this.vel.z) * dt;
     else this.rolled = 0;

@@ -43,6 +43,7 @@ import "./vehicle-jet.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, rollLoot, alienColour } from "./progression.js";
+import { MissionDirector } from "./missions.js";
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
@@ -382,6 +383,7 @@ vehicles.ufos = ufos;
 settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
 settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
 nuke.onDetonate = (center, R) => {
+  hooks.onNuke?.(center, R);
   stats.add("nukes");
   mobs.explosion(center, R * 1.4, true);
   ufos.explosion(center, R * 2.2, true);
@@ -568,6 +570,9 @@ ufos.onShotDown = (u, byPlayer) => {
   if (byPlayer) {
     stats.add("ufosDown");
     if (u.size === "mothership" || u.size === "giant") stats.add("ufosDownBig");
+    if (u.S.idx >= 2) stats.add("ufosDownLarge");
+    if (vehicles.active?.type === "jet") stats.add("ufosDownByJet");
+    hooks.onUfoDown?.(u);
     audio.playNotice();
     // The wreck and its crew are loot (Survival): what falls out gets better as you go.
     if (!player.creative && mods.enabled) dropLoot(rollLoot("ufo", u.size, progressTier(), ownedItems()), u.pos);
@@ -692,6 +697,7 @@ function callJet(force = false) {
     toast(strip.airport ? `Your jet is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your jet has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
   } else {
     playerJet = spawnAirborne();
+    stats.add("takeoffs"); // (already in the air: that counts as a takeoff)
     toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
   }
   jetSpawnAirborne = spawnAirborne;
@@ -827,15 +833,25 @@ hooks.onEnemyJetDown = (jet) => {
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
 crates.onMessage = (t) => toast(t, 5);
+// The mission director: sets up each mission in the world and points the marker at its target.
+const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast });
+hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
+hooks.onNuke = (center) => missionDirector.nukeDetonated(center);
+vehicles.onTakeoff = () => stats.add("takeoffs");
+progress.onStart = (m) => {
+  setTimeout(() => toast(`NEW MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}. ${m.text}`, 7), 6500);
+};
 function refreshSurvivalSystems() {
   const on = mods.enabled && !player.creative;
   crates.enabled = on;
   progress.enabled = on;
+  missionDirector.enabled = on;
   if (!on) crates.clear();
 }
 mods.onChange(refreshSurvivalSystems);
 refreshSurvivalSystems();
 progress.onComplete = (m) => {
+  stats.add("missionsDone");
   const owned = ownedItems();
   const names = [];
   for (const [id, n] of m.reward) {
@@ -1640,6 +1656,7 @@ for (const [btn, id] of [
   ["menu-controls-btn", "controls-screen"],
   ["pause-controls-btn", "controls-screen"],
   ["pause-stats-btn", "stats-screen"],
+  ["pause-missions-btn", "missions-screen"],
   ["new-world-btn", "new-world-screen"],
 ]) {
   document.getElementById(btn).addEventListener("click", () => {
@@ -2038,6 +2055,7 @@ window.__ufo = window.__voxelands = {
   sites: world.terrain.sites,
   progress,
   crates,
+  missions: missionDirector,
   dropLoot,
   rollLoot,
   perf,
@@ -2190,6 +2208,45 @@ function updateJetOverlay() {
     missileWarnTextEl.textContent = w.kind === "missile" ? `MISSILE ${Math.round(w.dist)}` : "INCOMING";
   }
 }
+// The mission marker: a diamond over the current mission's target (with its
+// name and distance), or an arrow at the edge of the screen pointing to it.
+const missionMarkerEl = document.getElementById("mission-marker");
+const missionMarkerLabel = missionMarkerEl.querySelector(".mm-label");
+const _mm = new THREE.Vector3();
+function updateMissionMarker(show) {
+  const t = show ? missionDirector.target : null;
+  missionMarkerEl.classList.toggle("hidden", !t);
+  if (!t) return;
+  _mm.copy(t.pos);
+  _mm.y += 2;
+  const d = Math.round(_mm.distanceTo(camera.position));
+  _mm.project(camera);
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  let x = ((_mm.x + 1) / 2) * W;
+  let y = ((1 - _mm.y) / 2) * H;
+  const behind = _mm.z > 1;
+  const off = behind || x < 30 || x > W - 30 || y < 30 || y > H - 30;
+  if (off) {
+    // Clamp to the screen edge, pointing the way to turn.
+    let ax = x - W / 2;
+    let ay = y - H / 2;
+    if (behind) {
+      ax = -ax;
+      ay = -ay;
+      if (Math.abs(ay) < 1 && Math.abs(ax) < 1) ay = H;
+    }
+    const k = Math.min((W / 2 - 40) / Math.max(1e-3, Math.abs(ax)), (H / 2 - 50) / Math.max(1e-3, Math.abs(ay)));
+    x = W / 2 + ax * k;
+    y = H / 2 + ay * k;
+    missionMarkerEl.style.setProperty("--a", `${Math.atan2(ay, ax) + Math.PI / 2}rad`);
+  }
+  missionMarkerEl.classList.toggle("edge", off);
+  missionMarkerEl.style.left = `${x}px`;
+  missionMarkerEl.style.top = `${y}px`;
+  const text = `${t.label} ${d}m`;
+  if (missionMarkerLabel.textContent !== text) missionMarkerLabel.textContent = text;
+}
 // The mission tracker (Survival): the current mission, its objectives, and
 // the way to a supply crate that is on the ground.
 const missionEl = document.getElementById("mission-tracker");
@@ -2198,21 +2255,41 @@ let missionSig = "";
 function updateMissions(dt) {
   const show = gameState === "playing" && crates.enabled && !hudHidden;
   ufos.difficulty = player.creative ? 0.5 : progress.difficulty(stats.world);
+  if (gameState === "playing") missionDirector.update(dt);
+  updateMissionMarker(show);
+  // (Missions complete even with the HUD hidden.)
+  missionT -= dt;
+  const tick = missionT <= 0;
+  if (tick) {
+    missionT = 0.4;
+    progress.update(stats.world);
+  }
   if (!show) {
     if (!missionEl.classList.contains("hidden")) missionEl.classList.add("hidden");
     return;
   }
-  missionT -= dt;
-  if (missionT > 0) return;
-  missionT = 0.4;
-  progress.update(stats.world);
+  if (!tick && !missionEl.classList.contains("hidden")) return;
   const m = progress.mission;
   const parts = [];
   if (m) {
-    parts.push(`<div class="mt-title">MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}</div><div class="mt-text">${m.text}</div>`);
-    for (const o of progress.objectives(stats.world)) parts.push(`<div class="mt-obj${o.value >= o.goal ? " done" : ""}">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${o.label}: ${o.value}/${o.goal}</div>`);
+    parts.push(`<div class="mt-head"><span class="mt-title">${m.title}</span><span class="mt-step">MISSION ${progress.completed + 1}/${MISSIONS.length}</span></div><div class="mt-text">${m.text}</div>`);
+    for (const o of progress.objectives(stats.world)) {
+      parts.push(`<div class="mt-obj${o.value >= o.goal ? " done" : ""}">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${o.label}: ${o.value}/${o.goal}</div>`);
+      parts.push(`<div class="mt-bar"><div style="width:${Math.round((o.value / o.goal) * 100)}%"></div></div>`);
+    }
+    const t = missionDirector.target;
+    if (t) {
+      const dx = t.pos.x - player.position.x;
+      const dz = t.pos.z - player.position.z;
+      const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) / 45) % 8];
+      parts.push(`<div class="mt-target">\u25C6 ${t.label}: ${Math.round(Math.hypot(dx, dz))} blocks ${dir}</div>`);
+    }
+    const note = missionDirector.note();
+    if (note) parts.push(`<div class="mt-note">${note}</div>`);
+    const next = MISSIONS[progress.completed + 1];
+    if (next) parts.push(`<div class="mt-next">Next: ${next.title} (Esc > Missions for the list)</div>`);
   } else {
-    parts.push(`<div class="mt-title">ALL MISSIONS COMPLETE</div>`);
+    parts.push(`<div class="mt-title">ALL MISSIONS COMPLETE</div><div class="mt-text">The invasion is over: the sky stays as tough as it gets. Esc > Missions shows what you did.</div>`);
   }
   const c = crates.nearest(player.position.x, player.position.z);
   if (c) {
@@ -2265,6 +2342,25 @@ hud.hitMarker = () => {
   }, 90);
 };
 screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById("stats-table"));
+// The mission list (pause menu): every mission, done, current (with its
+// progress) or still to come, and what each one gives.
+screens.onOpen["missions-screen"] = () => {
+  const el = document.getElementById("missions-list");
+  const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const reward = (r) => r.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ");
+  const intro = player.creative ? `<p class="hint">Missions run in Survival (switch the game mode in the pause menu). Creative is free play.</p>` : "";
+  el.innerHTML =
+    intro +
+    progress
+      .list(stats.world)
+      .map((m) => {
+        const mark = m.state === "done" ? "\u2714" : m.n;
+        const obj = m.objectives ? m.objectives.map((o) => `<div class="ml-obj">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${esc(o.label)}: ${o.value}/${o.goal}</div>`).join("") : "";
+        const state = m.state === "current" ? " (current)" : m.state === "done" ? " (done)" : "";
+        return `<div class="ml-item ${m.state}"><div class="ml-n">${mark}</div><div class="ml-title">${esc(m.title)}${state}</div><div class="ml-text">${esc(m.text)}</div><div class="ml-reward">Reward: ${esc(reward(m.reward))}</div>${obj}</div>`;
+      })
+      .join("");
+};
 
 // Altitude-aware view distance: flying a jet or UFO high above the ground you
 // can (and want to) see much farther, so the far terrain (cheap, simplified

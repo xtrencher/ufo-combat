@@ -393,7 +393,11 @@ export class EnemyJetManager {
       if (j.pos.distanceTo(this.player.position) > 4200) veh.remove(j);
     }
     const max = Math.min(MAX_JETS, Math.round(this.config.count));
-    if (jets.length > max) veh.remove(jets[0]);
+    // (A mission's fighter stays whatever the setting says.)
+    if (jets.length > max) {
+      const extra = jets.find((j) => !j.mission);
+      if (extra) veh.remove(extra);
+    }
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 45 + Math.random() * 60;

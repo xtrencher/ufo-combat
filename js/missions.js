@@ -197,7 +197,7 @@ export class MissionDirector {
       if (st.waitT > 0) return;
       st.waitT = 6;
       const design = ["saucer", "saucer_disc", "tictac", "saucer_domed"][Math.floor(Math.random() * 4)];
-      const u = this._spawnUfo({ design, size: "small", style: "rapid" }, rand(90, 130));
+      const u = this._spawnUfo({ design, size: "small", style: "volley" }, rand(90, 130));
       u.missionTarget = true;
       u.noLeave = true;
       u.tether = 110;

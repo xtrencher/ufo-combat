@@ -663,6 +663,106 @@ await check("world and graphics: 128-tall world, render distance up to 256 chunk
   await v((g) => g.setRenderDistance(10));
 });
 
+// ================= Part 6: missions and balance =================
+
+await check("missions: 15 missions from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
+  await v((g) => {
+    g.setMode("survival");
+    g.ufos.config.activity = 1;
+    g.inventory.clear();
+    g.progress.load(null, g.stats.world);
+    g.player.health = 20;
+  });
+  await play();
+  await frames(30);
+  // Mission 1: a small, weak scout nearby, low, that the pistol can kill.
+  const m1 = await until((g) => {
+    const u = g.ufos.ufos.find((x) => x.missionTarget);
+    return u && { size: u.size, hp: u.maxHealth, dist: Math.round(u.pos.distanceTo(g.player.position)), agl: Math.round(u.pos.y - g.world.heightAt(Math.floor(u.pos.x), Math.floor(u.pos.z))), marker: !document.getElementById("mission-marker").classList.contains("hidden"), tracker: document.getElementById("mission-tracker").textContent, rulesSmall: Object.keys(g.ufos.rules?.sizes || {}).join(), crew: u.crashPlan };
+  }, 60000);
+  assert(m1, "a scout was spawned for mission 1");
+  assert(m1.size === "small" && m1.hp <= 30 && m1.dist < 200 && m1.agl < 60, `a small, weak, close, low scout: ${JSON.stringify(m1)}`);
+  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 1\/15/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
+  assert(m1.rulesSmall === "small", `early skies only have small UFOs: ${JSON.stringify(m1)}`);
+  // The pistol kills it: 5 damage a shot.
+  const kill = await v((g) => {
+    const u = g.ufos.ufos.find((x) => x.missionTarget);
+    let shots = 0;
+    while (!u.falling && shots < 20) {
+      u.dashCool = 1; // (no dodging in this check)
+      g.ufos.damage(u, 5, true);
+      shots++;
+    }
+    return shots;
+  });
+  assert(kill <= 6, `about five pistol shots bring it down: ${kill}`);
+  await play();
+  const m2 = await until((g) => g.progress.mission?.id === "crew" && g.progress.mission.id, 30000);
+  assert(m2 === "crew", "the crew mission follows");
+  // Mission 3: a supply crate drops for you.
+  await v((g) => {
+    g.stats.add("aliensKilled", 2);
+    g.progress.update(g.stats.world);
+  });
+  await play();
+  const crate = await until((g) => g.progress.mission?.id === "supply" && g.crates.crates.length > 0 && g.crates.crates.length, 30000);
+  assert(crate, "a crate was dropped for the supply mission");
+  // Jump ahead: the rules get harder along the chain.
+  const rules = await v((g) => {
+    const out = [];
+    for (const step of [0, 5, 9, 12, 14]) {
+      g.progress.step = step;
+      g.progress.base = { ...g.progress._pick(g.stats.world) };
+      g.ufos.rules = g.progress.rules;
+      const w = g.ufos._sizeWeights();
+      const u = g.ufos.spawn({ size: "small", pos: { x: g.player.position.x, y: 200, z: g.player.position.z + 400 } });
+      out.push({ step, sizes: Object.keys(w).length, big: (w.mothership || 0) + (w.giant || 0), hp: u.maxHealth, agg: +g.ufos._agg().toFixed(2), max: g.ufos.maxCount });
+    }
+    g.ufos.clear();
+    return out;
+  });
+  for (let i = 1; i < rules.length; i++) assert(rules[i].sizes >= rules[i - 1].sizes && rules[i].agg >= rules[i - 1].agg && rules[i].big >= rules[i - 1].big, `the sky gets tougher along the chain: ${JSON.stringify(rules)}`);
+  // Late missions: a village raid, a mothership, the enemy base (set up by the director).
+  const late = await v(async (g) => {
+    const out = {};
+    for (const [step, key] of [[10, "village"], [12, "mothership"], [13, "airport"]]) {
+      g.progress.step = step;
+      g.progress.base = { ...g.progress._pick(g.stats.world) };
+      g.missions.state = { t: 0 };
+      g.missions.missionId = g.progress.mission.id;
+      for (let i = 0; i < 6; i++) {
+        g.missions.checkT = 0;
+        g.missions.update(0.5);
+      }
+      out[key] = { target: !!g.missions.target, label: g.missions.target?.label, raiders: g.ufos.ufos.filter((u) => u.raider).length, ship: g.ufos.ufos.some((u) => u.size === "mothership" && u.missionTarget) };
+    }
+    // Nuking the base completes Operation Sunburn.
+    const b = g.missions.base;
+    const before = g.stats.world.airportsNuked || 0;
+    g.missions.nukeDetonated(new g.THREE.Vector3(b.x + 20, b.y, b.z));
+    out.nuked = (g.stats.world.airportsNuked || 0) - before;
+    g.ufos.clear();
+    g.enemyJets.clear();
+    return out;
+  });
+  const j = JSON.stringify(late);
+  assert(late.village.target && late.village.raiders === 3, `the village raid: ${j}`);
+  assert(late.mothership.ship, `the mothership: ${j}`);
+  assert(late.airport.target && /base/i.test(late.airport.label) && late.nuked === 1, `the enemy base: ${j}`);
+  // The mission list in the pause menu.
+  const list = await v((g) => {
+    g.progress.step = 3;
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
+    const l = g.progress.list(g.stats.world);
+    return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
+  });
+  assert(list.n === 15 && list.done === 3 && list.current === "The long night" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  await v((g) => {
+    g.progress.load(null, g.stats.world);
+    g.setMode("creative");
+  });
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

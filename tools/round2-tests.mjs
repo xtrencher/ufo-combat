@@ -1649,7 +1649,7 @@ await check("supply crate: falls on a parachute with smoke, then opens when you 
   assert(weapons.weapons >= 1 && weapons.apples >= 1, `a weapon and golden apples: ${JSON.stringify(weapons)}`);
 });
 
-await check("missions: the first one is 'shoot down a UFO, then kill its aliens'; finishing one gives a reward and starts the next; the tracker shows it", async () => {
+await check("missions: the first one is 'shoot down a scout UFO', then its crew; finishing one gives a reward and starts the next; the tracker shows it", async () => {
   await v((g) => {
     g.setMode("survival");
     g.inventory.clear();
@@ -1659,17 +1659,18 @@ await check("missions: the first one is 'shoot down a UFO, then kill its aliens'
   const r = await v(async (g) => {
     const { ITEM } = await import("./js/items.js");
     const first = g.progress.mission.id;
-    g.stats.add("ufosDown");
-    g.progress.update(g.stats.world);
-    const stillFirst = g.progress.mission.id === "first_contact";
     g.stats.add("aliensKilled", 2);
     g.progress.update(g.stats.world);
+    const stillFirst = g.progress.mission.id === "first_contact";
+    g.stats.add("ufosDown");
+    g.progress.update(g.stats.world);
     const second = g.progress.mission.id;
-    const gun = g.inventory.countItem(ITEM.MACHINE_GUN);
+    const gun = g.inventory.countItem(ITEM.GRENADE);
     return { first, stillFirst, second, gun, step: g.progress.step };
   });
-  assert(r.first === "first_contact" && r.stillFirst, `needs both: ${JSON.stringify(r)}`);
-  assert(r.second === "salvage" && r.gun === 1, `next mission and a reward: ${JSON.stringify(r)}`);
+  // (Round 3: the chain starts with a scout to shoot down, then its crew.)
+  assert(r.first === "first_contact" && r.stillFirst, `the scout first: ${JSON.stringify(r)}`);
+  assert(r.second === "crew" && r.gun === 1, `next mission and a reward: ${JSON.stringify(r)}`);
   await frames(6);
   const tracker = await v(() => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent }));
   assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${tracker.text}`);
@@ -1713,6 +1714,7 @@ await check("loot: a shot-down UFO and killed aliens drop items in Survival (non
 
 await check("difficulty curve: a gentle sky at first (small saucers), bigger UFOs and more aggression as you progress", async () => {
   const r = await v((g) => {
+    g.ufos.rules = null; // (the Creative/no-mission curve; Survival uses the mission rules, see round3-tests)
     const w = (d) => {
       g.ufos.difficulty = d;
       return g.ufos._sizeWeights();
@@ -1806,7 +1808,7 @@ await check("a new Survival world starts with a pistol only and the first missio
   await boot();
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
   const after = await v((g) => ({ step: g.progress.step, mission: g.progress.mission.id, has: g.inventory.slots.filter(Boolean).length }));
-  assert(after.step === 1 && after.mission === "salvage" && after.has >= 2, `the mission and the reward were saved: ${JSON.stringify(after)}`);
+  assert(after.step === 1 && after.mission === "crew" && after.has >= 2, `the mission and the reward were saved: ${JSON.stringify(after)}`);
 });
 
 // ================= Performance =================
