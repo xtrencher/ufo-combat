@@ -1262,3 +1262,176 @@ Run in `tools/` (`npm install` once for three.js and Playwright; everything runs
 6. Board a crashed intact UFO (F) and press **R** (teleport dash) and **B** (vertical superweapon).
 
 ROUND 2 COMPLETE
+
+# Round 3 (UFO COMBAT) checklist
+
+Source of truth for this round. Items are ticked as they are finished; decisions go in "Round 3 decisions" at the end.
+
+## Part 0: Restore jet flight
+- [x] 0.1 Jet flight physics and flight controls restored to the "UFO FINAL COMPLETE" build (commit 4081499), Round 2 jet features kept (weapons, aim assist, heat, missile lock, flares, warnings, runway takeoff)
+- [x] 0.2 Round 2 checklist: nothing left unchecked (verified: all ticked)
+
+## Part 1: Combat fixes
+- [x] 1.1 UFO shots that reach the player always hit and hurt (on foot and in vehicles); only dodging avoids damage
+- [x] 1.2 Jet missile lock released early: no missile, camera returns
+- [x] 1.3 UFO attack variety by type (rapid bursts, slow heavy bolts, sweeping beams, spread shots, charged shots), own colors and sounds
+
+## Part 2: UFO redesign
+- [x] 2.1 Remove detailed many-light UFOs and the tall-cockpit saucer
+- [x] 2.2 Smooth saucers: several clean variants (proportions, sizes, brushed / matte / glossy), most common
+- [x] 2.3 Spheres: gray-black, non-glowing, subtle surface material
+- [x] 2.4 Tic-tacs: white / pale gray capsules
+- [x] 2.5 Torus: pure minimal ring
+- [x] 2.6 Extra minimal shapes (smooth cube, cube-ring)
+- [x] 2.7 Size/material variety; shot-down UFOs never glow
+
+## Part 3: UFO behavior
+- [x] 3.1 Enemy UFO teleport dashes (random, often when shot at), streak along the path, no light effects
+- [x] 3.2 Player UFO dash: visible ultra-fast travel, setting to adjust/disable, shown in the I panel
+- [x] 3.3 Enemy jets sometimes attack UFOs on their own, balanced
+
+## Part 4: Jet visuals
+- [x] 4.1 Jet material/texture (panel lines, livery, moonlight/ambient/specular response), more model detail, visible at night
+- [x] 4.2 Navigation lights only at night
+
+## Part 5: World and graphics
+- [x] 5.1 Bigger mountains and ranges, large seas/oceans, big biomes
+- [x] 5.2 Farther, better LOD; higher max settings; LOD consistent with full detail
+- [x] 5.3 Ultra grass shorter
+
+## Part 6: Survival missions and balance
+- [x] 6.1 Mission chain design (simple -> epic), rewards tied to weapon progression
+- [x] 6.2 UFO count/size/health/damage balanced per mission; early UFOs killable with the pistol
+- [x] 6.3 Mission HUD with progress; mission list in the pause menu
+
+## Final polish
+- [x] F1 Regression pass
+- [x] F2 Player's-eye review (Survival start, Creative jet/UFOs/dashes/night/lock release)
+- [x] F3 Full test suite
+- [x] F4 README updated
+- [x] F5 PROGRESS summary, decisions, known issues, how to test in 10 minutes
+- [x] F6 "ROUND 3 COMPLETE", commit, push
+
+## Round 3 decisions and notes
+(appended as work proceeds)
+- Part 0: compared `js/vehicle-jet.js` at 4081499 ("UFO FINAL COMPLETE") with Round 2. The in-air flight model (`_aero` lift/drag/thrust/control rates, `_assistStick`, mouse steering, keys) is byte-for-byte the Round 1 one again. What Round 2 had changed and is now undone: the default top speed (220 back to 160 blocks/s, ~580 km/h; drag is derived from it, so this is what made it feel different) and a "hold a climb" assist that also acted on landing approaches. Saved settings still carrying the Round 2 default (220) are moved back to 160 once (`settings.rev = 3`); any other value the player picked is kept. The slider still goes to 700.
+- Part 0, takeoff kept working: the Round 2 runway roll stays (70% of the thrust on the wheels), but with the original drag the raised nose bled off too much speed on the wheels, so induced drag now applies only once airborne, the assist rotates at 1.2x the stall speed (was 1.05x) so the jet leaves the runway with margin to climb, and the "keep climbing" aid acts only in the first 3 s after the wheels leave the ground. All of this is ground/takeoff only; nothing in flight changed.
+- Part 1.2 (done with Part 0, same code): releasing the missile lock before it is complete fires nothing ("Lock cancelled"), and the camera eases back. A quick tap no longer fires an unguided missile (the player asked for exactly this; the cannon covers unguided fire).
+- Part 1.1, why UFO shots "passed through": three causes. (a) The player's hitbox was a 0.7-wide box while the bolts are drawn with a halo up to ~1.4 blocks wide, so a bolt that visibly hit could pass beside the body; the box now grows by the bolt's glow. (b) Every hit gave the player half a second of grace ("only a stronger hit counts"), so the 2nd and 3rd shot of a burst did nothing; projectiles (UFO and alien shots) now always count in full (melee keeps its grace time). (c) Bolts were tested against where a moving target was at the end of the frame only: a jet moves several blocks a frame and slipped between steps; bolts are now tested in the target's frame of motion (swept sphere/box, `sweptSphere`/`sweptBox` in lasers.js). UFO aim now solves the real intercept (it used to under-lead a fast jet by tens of blocks) and scatters well under a block at the target: standing still gets you hit, moving out of the way (changing direction) is what avoids damage.
+- Part 1.3, attack styles by type: rapid (5-bolt bursts, cyan, chirps; tic-tacs, saucers), heavy (slow big orange ball that explodes, deep whump; spheres, cubes), spread (a 5-bolt fan, magenta, buzzing chord; saucers, rings), charged (a visible 1.3 s glow-up with a rising whine, then a very fast white-blue bolt with an electric crack; spheres, tic-tacs), sweep (a continuous red beam whose end runs along the ground through you in 1.5 s, scorching it, with a searing hum; rings, saucers), seeker (homing lime plasma vs vehicles). Small scouts never get heavy or seeker attacks. The colour now comes from the style (it used to come from the hull's look).
+- Part 2, UFO redesign: `ufo-models.js` rebuilt around eight clean designs: three smooth saucer families (lens, flat disc, domed: each seed gets its own proportions: thickness, curvature, rim, centre bulge) that together are ~55% of all UFOs, then spheres (14%), tic-tacs (14%), tori (8%), rounded cubes (5%) and square cube-rings (4%, my extra shape). No instanced lights, panels, portholes, antennas or cockpits anywhere. Realism comes from a new optional surface finish in the shared entity shader (`USE_SPEC`: sun/moon specular, a sky/ground reflection with Fresnel, lathe-turned brushed streaks, fine grain) with five finishes: brushed, glossy, satin, matte, grain (spheres). About a quarter glow faintly (a soft underside/sheen that is barely visible by day, a halo at night); a UFO that was shot down never glows again, also after it is boarded and flown (`downed` flag, saved). Old saved designs (tall-dome, orb, pyramid, cigar, ring, cube-in-sphere...) are mapped onto the new ones, so saved wrecks and UFOs still load.
+- Part 3.1, enemy UFO dashes: a dash is real travel, not a teleport cut: ~1100 blocks/s, 0.06-0.2 s, eased, so it is seen streaking along its path for a few frames, and it leaves a smear of fading translucent copies of its own hull (`js/dash-trail.js`: pooled, not additive, no glow, no flash; the old light streak and end flashes are gone). Triggers: the random timer (15-60 s), being hit by the player (45% small, 35% medium, 22% large, 10% mothership, never giants; 2.5-5 s cooldown), a missile closing within ~90 blocks (once per missile), and being hit by a rogue fighter. A short airy whoosh is its only other cue.
+- Part 3.2, player UFO dash (R): now travelled the same way (the camera rides along, the same smear), stops short of terrain as before. Settings > Vehicles: "Teleport dash distance" (Off, 0.5x-3x; default 1x = 1.6x the cruise speed, 60-700 blocks) and "Teleport dash travel time" (0.08-0.6 s, default 0.25 s). The I panel shows the current distance, travel time and cooldown, or "off"; the HUD bar says "Dash (off)" when disabled.
+- Part 3.3, enemy jets vs UFOs: 40% of fighters are rogue pilots. When not hostile to the player, a rogue checks every few seconds and half the time picks a small/medium/large UFO the player can see, attacks it for 35-55 s (cannon at 45% damage vs UFOs, one 70-damage missile per engagement), then pauses 60-120 s; at most two kills per fighter. The UFO fights back with its own attack style, and dodges. Balance: kills by fighters are never the player's (no stats, mission credit or loot), a fighter hit by a UFO or a stray blast doesn't turn on the player, rogue fighters only turn on the player when attacked themselves, and non-rogue fighters (60%) still take the UFOs' side as before. Fixed on the way: a seeking UFO shot at a jet that already showed a missile warning called `vehicle.warn(...)` on the warning state object (a TypeError that stopped the UFO update).
+- Part 4, jet visuals: the root cause of the black jet was colour management: `colorize` converted the (already linear) paint colours from sRGB to linear a second time, so the grey paint had an albedo of ~0.03. Fixed, and the jet now uses the new surface finish: satin paint with sun/moon specular glints, a sky reflection at grazing angles, a staggered grid of anti-aliased panel lines that fade out with distance, and a subtle two-tone livery (all procedural in the shader, in object space, so it costs no textures). A night-only ambient fill keeps it a readable shape in the dark. New detail: canopy frame and bow, a pilot (seat, helmet, visor), gun port, AoA probes, antenna blades, static wicks, light intake lips. Navigation lights, tail strobes, green formation strips and a dim cockpit glow switch on only at night (uNight > 0.3). Enemy fighters got a slightly lighter charcoal so they are visible at night too.
+- Part 5.1, world: the world is now 128 blocks tall (was 64). The chunk block index is y-major and the saved-edit format stores a 16-bit index, so 128 is the largest height that keeps every existing save valid (edits saved at y < 64 mean exactly the same blocks). Sea level stays 24 (caves, ores and the underground are unchanged). The height field was rescaled: continents/oceans at 1/2600 (about half the world is sea, deep oceans far out, a tanh step at the coastline so shores are beaches rather than wide marshes), masked mountain ranges (ridged noise with peaks and gullies, only on land) rising to ~120 with a soft cap under the ceiling, snow above 92 and bare rock above 68, rivers at a larger scale, and biomes about three times bigger (climate noise at 1/1500 and 1/1300, thresholds re-centred so deserts, jungles and savannas still appear). A seed's landscape differs from Round 2 (noted in Known issues). Spawn search spirals out further (oceans can be large). City towers can be taller.
+- Part 5.2, level of detail: render distance up to 256 chunks (4 km; was 100), full-detail distance up to 24 chunks, a new "Extreme" far-terrain quality (split distances 3x), resolution scale up to 200% (supersampling), and an "Extreme" performance preset (Ultra, 72 chunks, 14 in full detail, Extreme LOD). The far terrain is built by a pool of up to four workers (cores - 2) instead of one, so long distances fill in faster. LOD tiles sample the very same height/biome/surface functions as the chunks (checked by the unit test "distant terrain and full-detail chunks agree"), so higher settings stay consistent.
+- Part 5.3, Ultra grass: blade heights scaled to 68% on Ultra (ferns a little less), about knee-high at most; High is unchanged.
+- Part 6, missions: a 15-mission chain (progression.js) with a mission director (new js/missions.js) that sets each one up in the world: 1 First contact (a small, weak scout, 24 hp = about five pistol shots, spawned 90-130 blocks away, low, tethered near the player, rarely dodging, single weak shots; it comes down intact with two green aliens), 2 The crew (kill them; if they are lost, two are beamed down), 3 Supply drop (a crate is dropped), 4 The long night (survive dusk to dawn without dying; the tracker says when night falls or dawn comes), 5 Salvage (the next UFO you down lands intact; board it), 6 Scout hunter (3 UFOs), 7 Alien squad (a dropship lands 6 aliens: greens, grays, a red), 8 Take to the air (a takeoff in your jet), 9 Dogfight (2 UFOs from the jet; UFOs are kept around while you fly), 10 Air superiority (a hostile fighter is sent after you), 11 Village under attack (three raiders burn the nearest village with heavy shots; 5 minutes, or they leave and come back), 12 Big game (a large UFO), 13 Mothership (with an escort), 14 Operation Sunburn (the nearest airport becomes an enemy base with guards and a scrambling fighter; a nuke within 170 blocks completes it), 15 UFO slayer (25 more). Rewards follow the weapon progression: grenade and sword, machine gun, iron sword, laser blaster, shield, sniper, bazooka, jet radio, airstrike, minigun, diamond gear, railgun, then golden apples.
+- Part 6, balance: each mission carries rules for the sky (UFO sizes and their odds, and multipliers for health, damage, aggression and numbers), applied by UfoManager while it is current. Missions 1-3: small UFOs only, 60-65% health, 50-55% damage, half the aggression and numbers; then medium ships from mission 4, large from 7, a rare mothership from 10, giants only from 12, and the full late-game sky (110-115% health and damage, 1.2-1.3x aggression) for the last two. Loot tiers follow the missions (tier 0 for 1-3 ... 5 for 14-15). The user's UFO settings still apply on top (activity, toughness, aggression; a non-"balanced" size setting overrides the mission's sizes). Creative has no missions and keeps the old free-play curve.
+- Part 6, HUD: the tracker shows "MISSION n/15", the title, the text, each objective with a progress bar, the target's name, distance and direction, a note (e.g. "Night falls in about 3 min") and the next mission; a yellow diamond marker floats over the target (or an arrow at the screen edge when it is off-screen or behind). The pause menu has a Missions screen listing all 15 with their state, progress and rewards. Missions now also complete while the HUD is hidden (F1), which they didn't before. New stats: missions completed, nights survived, takeoffs, UFOs downed from the jet, large UFOs, raiders, enemy bases nuked. Old Round 2 mission progress carries over (mapped onto the new chain).
+- Final polish, player's-eye review: in Survival the J key (and the Jet Radio, and the fighters parked at airports) called a jet from minute one, which skipped the whole mission curve: jets now unlock with mission 8 "Take to the air" (a toast says so; Creative is unchanged). With UFO activity Off the director spawns no mission UFOs and the tracker says why. The first-time welcome hint in Survival points at the mission tracker instead of the jet. Rogue fighters never pick a mission's own target (the scout, raiders).
+
+## Round 3 (UFO COMBAT): final summary
+
+Everything in the brief is in, part by part, each committed and pushed when finished.
+
+**Part 0, jet flight restored.** The in-air flight model and controls are the Round 1 ("UFO FINAL COMPLETE") ones again: Round 2 had raised the default top speed from 160 to 220 blocks/s (drag is derived from it, which is what changed the feel) and added a climb-hold that also acted on landing approaches. Saved settings still at the Round 2 default are moved back once. Every Round 2 jet feature still works (weapons, aim assist, heat, missile lock and salvos, flares, warnings, runway takeoff); only the ground roll got small, ground-only adjustments so the restored drag doesn't stop the takeoff.
+
+**Part 1, combat.** UFO shots that reach you always hurt: hit tests now use the bolt's visible size, test in the target's frame of motion (fast jets can't slip between frames), and projectiles no longer get swallowed by the half-second grace time; UFO aim uses a real intercept, so standing still gets you hit and moving out of the way doesn't. Releasing the jet's missile lock early fires nothing. Each UFO type fights in its own way: rapid bursts, slow heavy bolts, spread fans, charged shots with a visible glow-up, sweeping ground beams and seekers, each with its own colour and sound.
+
+**Part 2, UFO redesign.** Eight clean, minimal designs (lens / disc / domed smooth saucers as the majority, gray-black grainy spheres, pale tic-tacs, tori, rounded cubes, cube-rings), no lights at all, varied sizes and finishes (brushed, glossy, satin, matte, grain) from a new specular surface option in the entity shader. Shot-down UFOs never glow again, boarded or not.
+
+**Part 3, behaviour.** Enemy UFOs dash (random, often when hit or when a missile closes in) at extreme speed, travelled over a few frames with a smear of fading hull copies and no light. The player's UFO dash is travelled too, with distance (or Off) and travel-time settings, shown in the I panel. 40% of enemy fighters are rogue pilots that sometimes attack UFOs on their own, capped so they never clear the sky, and never credited to the player.
+
+**Part 4, jet visuals.** The jet was black at night because its paint colours were converted to linear twice (albedo ~0.03). Fixed, plus a satin paint finish with sun/moon specular, sky reflection, procedural panel lines and a two-tone livery, more model detail (canopy frame, pilot, probes, antennas, wicks, gun port), and navigation, strobe and formation lights only at night.
+
+**Part 5, world and graphics.** A 128-tall world (still save-compatible) with half of it sea, mountain ranges up to ~120 with snow and bare rock, and biomes about three times bigger. Render distance up to 256 chunks, full detail up to 24, an Extreme far-terrain quality and performance preset, resolution up to 200%, and a pool of LOD workers; LOD samples the same terrain functions as the chunks. Ultra grass is about two thirds as tall.
+
+**Part 6, missions.** Fifteen missions, from a pistol-killable scout to nuking an enemy-held airport, each set up in the world by a mission director, each with rewards along the weapon progression and its own rules for the sky (sizes, health, damage, aggression, numbers) for a steady difficulty curve. The HUD shows the mission, progress bars, the target's distance and direction and a marker over it; the pause menu lists all missions. Jets join with mission 8 in Survival.
+
+### Round 3 decisions (summary; details above)
+
+- Jet: restored the Round 1 flight model exactly in the air; kept Round 2's ground roll and made the takeoff work with the restored drag through ground-only changes (no induced drag on the wheels, rotate at 1.2x stall, a 3-second climb aid after liftoff).
+- A quick tap of the jet's lock button no longer fires an unguided missile (asked for); the cannon is the unguided weapon.
+- Projectile hits always count (no grace time), balanced by tighter but fair aim and the per-mission damage multipliers.
+- World height 128 rather than 256: the largest that keeps the saved-edit format (16-bit index) and every existing save valid.
+- Jets locked in Survival until mission 8, since a jet on day one skips the whole difficulty curve; Creative unchanged.
+- Rogue fighters: 40%, weaker vs UFOs, two kills at most, no credit to the player.
+- Mission UFOs respect "UFO activity: Off" (the tracker explains why a mission can't progress).
+- The older test suites run without the mission chain (a `testFlags.noMissions` hook, never set by the game), since the director would spawn scouts and change the sky under them.
+
+### Known issues and honest limits
+
+- Existing worlds: the Round 3 terrain is different for the same seed (taller, bigger features). Saved block edits keep their positions, so builds from an older version can end up buried or floating in a changed landscape.
+- Mission set-ups (scouts, squads, raids, the mothership, the enemy base) are not saved; after a reload the director sets the current mission up again.
+- The village raid picks the nearest village within 2500 blocks, else the nearest airport, else a spot 400 blocks away; the "burning" is heavy UFO shots that do blast craters in it.
+- Long render distances (150-256 chunks) are meant for strong PCs: the far terrain is cheap, but it is still a lot of tiles, and when flying high the view grows further.
+- `smoke-test.mjs` "underwater blasts flood the crater" can fail in a full run when earlier checks' craters leave air next to the sea near the chosen spot; it passes on a fresh page and chunk generation itself leaves no air under water (checked). `smoke-test.mjs` Ultra grass check can hit its 5-minute limit with software rendering on a busy machine (as in Round 2).
+- Hooks for tests only: `testFlags.noMissions`, `ufo.crashPlan`, `ufo.noLeave`, `SMOKE_GREP`.
+- All screenshots for the visual review came from software rendering (1-2 FPS); real-GPU frame times were not measured.
+
+### How to test in 10 minutes
+
+1. **New World, Survival:** a scout UFO appears (yellow marker, tracker top right). Shoot it with the pistol (about five hits); two aliens climb out of the wreck (mission 2), then a supply crate drops (mission 3). Esc > **Missions** lists all 15.
+2. Watch a UFO while you shoot at it: it often **dashes** away (a smear, no light). Stand still under fire and you get hit; strafe and the shots miss.
+3. **Creative:** Settings > UFOs, activity "Busy skies": watch the new clean designs; notice different attacks (cyan bursts, orange balls, magenta fans, charged white shots with a glow-up, red sweeping beams).
+4. Press **J**: fly the jet (it flies like the first build again). Hold right click on a UFO and let go before LOCKED: nothing fires and the view turns back; hold 1 s: one missile.
+5. Settings > Gameplay, time 23:00: the jet is clearly visible in the moonlight, with its navigation lights on (off by day).
+6. Get out, board a UFO from the Mods screen, press **R** (a streaked dash; Settings > Vehicles to change or switch it off; **I** shows it).
+7. Settings > Performance > **Extreme**, then fly high over a mountain range: big ranges, snowy peaks, seas to the horizon.
+
+### Tests (Round 3)
+
+Run in `tools/` (`npm install` once; headless Chromium with software rendering, so the browser suites are slow). Each suite ran in full once, then the failing checks were fixed and re-run on their own:
+
+- `node unit-tests.mjs`: **50 passed, 0 failed** (new: world scale, the 15-mission chain and old-save migration).
+- `node round3-tests.mjs` (new, ~5 min): **10 checks**; full run 9/10, the failure (a fighter crashing into a hill counted as the player's kill) was a real bug, fixed, and the check passes (twice in a row).
+- `node round2-tests.mjs`: full run **34 passed, 5 failed**; all five fixed and passing on re-run (a thin new UFO hitbox, test set-ups that depended on the old terrain or on the old mission chain, a rogue fighter in a "take the UFOs' side" check, the respawn/resume helper).
+- `node ufo-tests.mjs`: full run **30 passed, 5 failed**; re-run from the failing section after fixes: 16 of 18, and the jet takeoff check alone passes. Still failing: "FULL SCENARIO" (known timing/chance-sensitive in Round 2 as well; this time the crew didn't show up in time) and "stats", which counts what that scenario does.
+- `node smoke-test.mjs` (~70 min): **62 passed, 5 failed**; render distance, F5 camera and LOD hand-over fixed and passing on re-run; still listed: "Ultra: tall grass..." (hit its 5-minute limit under CPU load, as in Round 2) and "underwater blasts" (order-dependent, see Known issues; passes on a fresh page).
+
+ROUND 3 COMPLETE
+
+# Settings persistence fix
+
+Report: some or all settings went back to their defaults after a reload.
+
+## Root causes
+
+A headless test that changes every setting through the menus and reloads (tools/settings-tests.mjs) found that a plain reload already kept everything. The resets came from the paths a real browser takes and that test didn't:
+
+1. **Full browser storage.** The block edits of every world played are saved in the same localStorage as the settings (one max-size nuke adds ~150 KB; the origin's quota is ~5 MB). Once it was full, every settings write failed with only a console warning, and on the next start the settings silently went back to their last successful save (for a newer player, the defaults).
+2. **The safe start after a lost graphics context.** A lost WebGL context (a laptop going to sleep, a GPU switch or driver reset, a frame that took too long) wrote a "failed start" record, and the next start came up one graphics preset lower with the player's individual graphics options ignored for that session. The saved settings were intact, but the menus showed the lowered preset, which looks exactly like the graphics settings having been reset.
+3. **A second open tab** kept its own in-memory copy of the settings and wrote the whole object back whenever it saved anything, undoing changes made in the other tab.
+4. **Render distance vs. presets.** Picking a graphics preset always replaced the render distance with the preset's suggestion, even one the player had set themselves.
+5. Smaller: the settings had no format version, unknown or junk fields were carried along, and individual graphics options weren't validated.
+
+## Fix
+
+- **One versioned object** (`v: 4`, `SETTINGS_VERSION` in settings.js) under `ufocombat_v1_settings`, built from scratch by `normalizeSettings` on load. Only known settings are kept, and every value is validated: missing or broken values (including corrupted JSON and wrong types) fall back to the default without errors. Older, unversioned saves are read and upgraded (including the Round 3 jet top speed migration, which moved here from main.js).
+- **Load first.** The settings are read and normalized before anything applies a default, a graphics preset or a menu value, and written straight back in the current format. Every control saves immediately on change (no Save button).
+- **A reserved slot** (storage.js): the settings JSON is padded to a fixed 16 KB size, so rewriting it never needs more room, however full the storage gets. As a last resort, if a storage that was already full before this change can't take even that, the saved block edits of other worlds (never the current one, largest first) are removed and the player is told in a toast. If nothing works, a toast says the storage is full instead of failing silently.
+- **Lost graphics context:** the next start is no longer lowered by itself. The dialog offers "Reload" (same settings) or "Reload with lower graphics once" (the old safe-start behaviour, only when chosen, for that session, saved settings untouched). A start that really hangs while compiling shaders is still caught by the safe start.
+- **Two tabs:** each tab listens for the other's saves (the `storage` event) and takes the new values over without writing them back, so neither overwrites the other with an older copy.
+
+## Graphics presets vs. individual settings (decision)
+
+- Picking a **graphics preset** sets the individual graphics options (shadows, anti-aliasing, bloom, ...). That is what a preset is, so it clears earlier per-option overrides. Options changed *after* picking it are kept as the player's overrides, marked "Custom", and survive reloads. Nothing re-applies a preset on its own at startup.
+- It **no longer touches a render distance the player set**. It adopts its suggested distance only while the player hasn't moved the slider (`renderDistanceCustom`). A **performance preset** (Potato ... Extreme) is an explicit full set, so it still sets the render distance (and full-detail distance, far-terrain quality, resolution and effects), and "Reset to defaults" on the Graphics tab resets it too.
+- Presets never change audio, controls, gameplay, weapon, mob, UFO, vehicle or HUD settings.
+
+## Coverage and tests
+
+The saved settings cover every setting in the game: graphics (preset and individual options), render distance, full-detail distance, far-terrain quality, resolution, effects, audio (six volumes), controls (FOV, sensitivity, invert Y, binocular zoom), gameplay (difficulty, creature spawning, time lock), HUD (FPS counter, stats overlay), weapons, zombies, UFOs, vehicles, and Mods on/off. The time of day stays per world (saved with the world, as before).
+
+`tools/settings-tests.mjs` (new, `npm run test:settings`), 7 checks:
+- every setting (all schema settings in all tabs, six volumes, preset, a graphics option, render distance, Mods) is changed through the real controls, is in storage at once, and after a reload is restored, applied, and left unchanged by a second reload;
+- a preset plus later changes;
+- missing, corrupted and garbage data, and an unversioned older save;
+- a completely full storage;
+- two open tabs;
+- the render distance vs. presets;
+- a lost graphics context, including "Reload with lower graphics once".
+
+It passed 7/7 in three consecutive full runs with no console errors. In the very first run, before the diff output was added, the "second reload keeps everything" assertion failed once; it didn't come back in four later runs, and the cause wasn't identified. The Round 2 settings checks and the smoke startup/lost-graphics checks (updated for the new dialog) pass.

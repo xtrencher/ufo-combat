@@ -34,9 +34,11 @@ const SHALLOW = 8; // one block of water over soil, open air above
 const WATER_TOP = 16; // an open water surface 1-3 blocks deep
 
 // Settings per level (1 = High, 2 = Ultra): radius in blocks, tufts per block.
+// grow: blade height scale (Round 3: Ultra's dense grass is shorter, about
+// knee-high at most, so it no longer hides the ground ahead).
 const LEVELS = {
-  1: { radius: 20, short: 1.2, tall: 0.7 },
-  2: { radius: 32, short: 2.2, tall: 1.4 },
+  1: { radius: 20, short: 1.2, tall: 0.7, grow: 1 },
+  2: { radius: 32, short: 2.2, tall: 1.4, grow: 0.68 },
 };
 
 function hash(x, z, k) {
@@ -375,7 +377,7 @@ export class GrassField {
         }
         // Ferns in the shade.
         if (kind & SHADE && hash(x, z, 95) < 0.4 * keep) {
-          cross.add(px(3), y, pz(3), angle(3), 1.1, 0.8 + hash(x, z, 8) * 0.5, tint(3), sky, blk, TILE.fern);
+          cross.add(px(3), y, pz(3), angle(3), 1.1, (0.8 + hash(x, z, 8) * 0.5) * (0.5 + cfg.grow * 0.5), tint(3), sky, blk, TILE.fern);
           counts.fern++;
           continue;
         }
@@ -384,13 +386,13 @@ export class GrassField {
         const tallDrift = smooth(x, z, 6, 23);
         const nTall = cfg.tall * keep * (0.4 + tallDrift * 1.2) + hash(x, z, 97);
         for (let k = 0; k + 1 <= nTall; k++) {
-          tuft.add(px(10 + k), y, pz(10 + k), angle(10 + k), 0.85 + hash(x, z, 30 + k) * 0.3, 0.65 + hash(z, x, k) * 0.45, tint(10 + k), sky, blk, TILE.tall_grass);
+          tuft.add(px(10 + k), y, pz(10 + k), angle(10 + k), 0.85 + hash(x, z, 30 + k) * 0.3, (0.65 + hash(z, x, k) * 0.45) * cfg.grow, tint(10 + k), sky, blk, TILE.tall_grass);
           counts.tall++;
         }
         const nShort = cfg.short * keep + hash(x, z, 99);
         for (let k = 0; k + 1 <= nShort; k++) {
           const b = hash(x, z, 40 + k) < 0.5;
-          tuft.add(px(20 + k), y, pz(20 + k), angle(20 + k), 0.8 + hash(x, z, 50 + k) * 0.35, 0.55 + hash(z, x, 20 + k) * 0.5, tint(20 + k), sky, blk, b ? TILE.grass_tuft : TILE.grass_tuft_b);
+          tuft.add(px(20 + k), y, pz(20 + k), angle(20 + k), 0.8 + hash(x, z, 50 + k) * 0.35, (0.55 + hash(z, x, 20 + k) * 0.5) * cfg.grow, tint(20 + k), sky, blk, b ? TILE.grass_tuft : TILE.grass_tuft_b);
           counts.tuft++;
         }
       }

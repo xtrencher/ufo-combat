@@ -8,13 +8,13 @@
 // tunnel. Weapons: a laser cannon (left click; big ships fire from several
 // barrels, all aimed at what is under the crosshair), a tractor beam (hold
 // right click) that lifts creatures, and optionally loose blocks, up into
-// the ship, a teleport dash (R: a bright streak, then you are there) and a
+// the ship, a teleport dash (R: the ship streaks along the view in a split second) and a
 // superweapon (B): after a short charge a huge laser straight down that
 // burns a shaft through the ground and everything in it. Third-person chase
 // camera (F5: chase / far / belly view).
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
-import { createUfoModel, designInfo, UFO_DESIGN_NAMES } from "./ufo-models.js";
+import { createUfoModel, designInfo, UFO_DESIGN_NAMES, normalizeUfoSpec } from "./ufo-models.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { LASER_COLORS } from "./lasers.js";
 import { BLOCK, BLOCK_INFO, IS_SOLID } from "./blocks.js";
@@ -50,7 +50,7 @@ export class PilotUfo extends Vehicle {
   constructor(manager, data = {}) {
     const radius = Math.max(2.5, Math.min(80, Number(data.radius) || 5));
     super(manager, { type: "ufo", name: "UFO", radius, maxHealth: Math.round(120 + radius * 40) });
-    this.spec = data.spec && data.spec.design ? { design: data.spec.design, seed: data.spec.seed | 0, glow: !!data.spec.glow } : { design: data.design || "saucer", seed: Number.isFinite(data.seed) ? data.seed : 0, glow: data.glow ?? !String(data.design || "").includes("dark") };
+    this.spec = normalizeUfoSpec(data.spec && data.spec.design ? { design: data.spec.design, seed: data.spec.seed | 0, glow: !!data.spec.glow } : { design: data.design || "saucer", seed: Number.isFinite(data.seed) ? data.seed : 0, glow: !!data.glow });
     this.design = this.spec.design;
     this.name = `${UFO_DESIGN_NAMES[this.design] || "UFO"} (${sizeName(radius)})`;
     this.model = createUfoModel(this.spec, radius);
@@ -67,6 +67,8 @@ export class PilotUfo extends Vehicle {
     this.camYaw = this.yaw;
     if (Number.isFinite(data.health)) this.health = Math.max(1, Math.min(this.maxHealth, data.health));
     this.crashed = !!data.crashed; // a wreck in its crater until boarded
+    // Shot down once: it never glows again, even when boarded and flown.
+    this.downed = !!data.downed || this.crashed || this.wreck;
     this.tilt = new THREE.Euler(data.tilt?.[0] ?? 0, 0, data.tilt?.[1] ?? 0);
     if (this.crashed && !data.tilt) this.tilt.set((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
     this.hitRadius = radius * 0.9;
@@ -81,7 +83,7 @@ export class PilotUfo extends Vehicle {
     this.abducted = 0;
     this._aim = new THREE.Vector3();
     this.dashT = 0;
-    this.dashFx = null; // the streak left by a dash
+    this.dashing = null; // a dash under way: { from, to, t, dur }
     this.sw = { state: "idle", t: 0, cool: 0, depth: 0, hitT: 0, mesh: null, glow: null };
     this.keep = !this.wreck; // the player's ship is never cleaned up as clutter (a burnt-out wreck is)
     this._place();
@@ -132,7 +134,6 @@ export class PilotUfo extends Vehicle {
 
   onDestroyedCleanup() {
     if (this.sw.mesh) this.manager.scene.remove(this.sw.mesh, this.sw.orb);
-    if (this.dashFx) this.manager.scene.remove(this.dashFx.group);
   }
 
   // ---------- Flight ----------
@@ -243,7 +244,10 @@ export class PilotUfo extends Vehicle {
       else this.vel.set(0, 0, 0);
       const before = this.pos.clone();
       const step = this.vel.clone().multiplyScalar(dt);
-      if (this.liftOff > 0) {
+      if (this.dashing) {
+        // A dash under way: the ship streaks along its path.
+        this._updateDash(dt);
+      } else if (this.liftOff > 0) {
         // Leaving the crater: straight up, through anything in the way.
         const up = Math.min(this.liftOff, 7 * dt);
         this.liftOff -= up;
@@ -273,6 +277,7 @@ export class PilotUfo extends Vehicle {
         this.manager.effects.smoke.spawn({ x: this.pos.x + (Math.random() - 0.5) * this.radius, y: this.pos.y + 0.5, z: this.pos.z + (Math.random() - 0.5) * this.radius, vx: 0, vy: 1.5 + Math.random(), vz: 0, life: 3 + Math.random() * 2, size0: 1, size1: 3 + this.radius * 0.3, color0: c[0], color1: c[1], alpha: 0.45, drag: 0.8 });
       }
     }
+    if (!input && this.dashing) this._updateDash(dt);
     if (!input) this.beam.set(false);
     this.beam.update(dt, this.manager.effects);
     this._updateLifted(dt);
@@ -291,14 +296,14 @@ export class PilotUfo extends Vehicle {
     }
     this._place();
     const night = this.manager.night ?? 0;
-    m.lightsOn = this.crashed ? 0 : 1; // a wreck never glows: every light is off
-    if (this.crashed) m.setDead(true);
+    m.lightsOn = this.downed ? 0 : 1; // a shot-down UFO never glows again
+    if (this.downed && !m.dead) m.setDead(true);
     m.animate(this.time, { night, damage: 1 - this.health / this.maxHealth, beam: this.beam.strength, speed: this.vel.length() });
   }
 
   _place() {
     this.root.position.copy(this.pos);
-    this.model.body.rotation.set(this.tilt.x, this.design === "diamond" ? this.model.body.rotation.y : this.yaw, this.tilt.z, "YXZ");
+    this.model.body.rotation.set(this.tilt.x, this.yaw, this.tilt.z, "YXZ");
     const l = this.manager.world.lightAt(this.pos.x, this.pos.y + 1, this.pos.z);
     this.model.light.sky = Math.max(l.sky, this.crashed ? 0 : 10);
     this.model.light.block = l.block;
@@ -369,14 +374,25 @@ export class PilotUfo extends Vehicle {
 
   // ---------- Teleport dash (R) ----------
 
-  // Jump a long way along the view in an instant: a bright streak marks the
-  // path, and you arrive at its end (short of any terrain in the way, unless
-  // in ghost mode).
+  // Dash a long way along the view at extreme speed: the ship really
+  // travels there (in a fraction of a second, the camera riding along),
+  // leaving a smear of fading copies of itself; it stops short of terrain in
+  // the way (unless in ghost mode). Settings > Vehicles: how far (or off)
+  // and how long the trip takes.
+  get dashDistance() {
+    const mult = this.cfg.dash ?? 1;
+    return THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700) * mult;
+  }
+
   _dash(view) {
     const mgr = this.manager;
-    if (this.dashT > 0 || this.liftOff > 0) return;
+    if (this.dashT > 0 || this.liftOff > 0 || this.dashing) return;
+    if ((this.cfg.dash ?? 1) <= 0) {
+      mgr.onMessage?.("Teleport dash is off (Settings > Vehicles)");
+      return;
+    }
     this.dashT = DASH_COOLDOWN;
-    const dist = THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700);
+    const dist = this.dashDistance;
     const from = this.pos.clone();
     let d = dist;
     if (!this.cfg.ghost) {
@@ -390,57 +406,39 @@ export class PilotUfo extends Vehicle {
     }
     const to = from.clone().addScaledVector(view, d);
     to.y = Math.max(1 + this.bottom, Math.min(250, to.y));
-    this.pos.copy(to);
+    const time = this.cfg.dashTime ?? 0.25;
+    this.dashing = { from, to, t: 0, dur: THREE.MathUtils.clamp(time * Math.sqrt(d / 300), 0.06, time * 1.5), last: from.clone() };
     this._carved = null;
-    this._streak(from, to);
     mgr.audio?.playTeleport?.();
-    mgr.effects.shake.add(0.25);
-    // A flash of light at both ends.
-    const c = this._dashC || (this._dashC = new THREE.Color(1.6, 4.2, 6));
-    for (const p of [from, to]) mgr.effects.glow.spawn({ x: p.x, y: p.y, z: p.z, life: 0.5, size0: this.radius * 2.6, size1: this.radius * 0.5, color0: c, alpha: 0.9 });
+    mgr.effects.shake.add(0.2);
   }
 
-  _streak(from, to) {
-    const mgr = this.manager;
-    if (!this.dashFx) {
-      const geo = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true).rotateX(Math.PI / 2);
-      const mk = (color, op) => {
-        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
-        m.frustumCulled = false;
-        return m;
-      };
-      const group = new THREE.Group();
-      const core = mk(new THREE.Color(5, 8, 10), 1);
-      const halo = mk(new THREE.Color(0.5, 2.2, 5), 0.6);
-      group.add(halo, core);
-      mgr.scene.add(group);
-      this.dashFx = { group, core, halo, age: 99, w: 1 };
+  _updateDash(dt) {
+    const d = this.dashing;
+    d.t += dt;
+    const k = Math.min(1, d.t / d.dur);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    this.pos.lerpVectors(d.from, d.to, e);
+    this.vel.copy(d.to).sub(d.from).divideScalar(d.dur);
+    const trail = this.manager.ufos?.trail;
+    const step = d.last.distanceTo(this.pos);
+    if (trail && step > 0.5) {
+      this._place();
+      const n = Math.min(10, Math.max(2, Math.round(step / Math.max(1.5, this.radius * 0.6))));
+      const shade = this._ghostShade || (this._ghostShade = new THREE.Color());
+      const day = 1 - (this.manager.night ?? 0) * 0.8;
+      shade.setRGB(2.2 * day, 2.2 * day, 2.3 * day);
+      trail.spawnPath(this.model.hull, d.last, this.pos, n, shade, 0.35);
     }
-    const fx = this.dashFx;
-    const len = from.distanceTo(to);
-    fx.group.position.copy(from).add(to).multiplyScalar(0.5);
-    fx.group.lookAt(to);
-    fx.group.scale.set(1, 1, len);
-    fx.w = Math.max(0.5, this.radius * 0.45);
-    fx.age = 0;
-    fx.group.visible = true;
-  }
-
-  _updateDashFx(dt) {
-    const fx = this.dashFx;
-    if (!fx || !fx.group.visible) return;
-    fx.age += dt;
-    const k = fx.age / 0.7;
+    d.last.copy(this.pos);
     if (k >= 1) {
-      fx.group.visible = false;
-      return;
+      this.dashing = null;
+      this.vel.set(0, 0, 0);
     }
-    const fade = (1 - k) * (1 - k);
-    fx.core.material.opacity = fade;
-    fx.halo.material.opacity = 0.6 * fade;
-    fx.core.scale.x = fx.core.scale.y = fx.w * 0.35 * (1 - k * 0.8);
-    fx.halo.scale.x = fx.halo.scale.y = fx.w * (1 + k * 1.2);
   }
+
+  // (Kept for old callers: the dash no longer draws a light streak.)
+  _updateDashFx() {}
 
   // ---------- Superweapon (B) ----------
 
@@ -634,7 +632,7 @@ export class PilotUfo extends Vehicle {
         ["Hull", `${Math.round(this.health)} / ${this.maxHealth}`],
         ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl boosts 3x`],
         ["Laser cannon", `${CANNON_RATE} shots/s, ${CANNON_DAMAGE} damage + blast; ${r < 5 ? 1 : r < 9 ? 2 : r < 20 ? 3 : r < 50 ? 4 : 6} barrels, all aimed at the crosshair`],
-        ["Teleport dash", `R: jump ~${Math.round(THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700))} blocks along the view; ${DASH_COOLDOWN} s cooldown`],
+        ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashDistance)} blocks along the view in ${(cfg.dashTime ?? 0.25).toFixed(2)} s (grows with the cruise speed); ${DASH_COOLDOWN} s cooldown; distance and travel time in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
         ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
         ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship"],
         ["Ghost mode", cfg.ghost ? "on: burns through terrain" : "off (Mods menu)"],
@@ -648,7 +646,7 @@ export class PilotUfo extends Vehicle {
         ["Ctrl", "Boost"],
         ["Left click", "Laser cannon"],
         ["Right click (hold)", "Tractor beam"],
-        ["R", "Teleport dash"],
+        ["R", (cfg.dash ?? 1) > 0 ? "Teleport dash along the view" : "Teleport dash (off in Settings)"],
         ["B", "Superweapon: vertical laser"],
         ["F", "Get out"],
         ["F5", "Camera: chase / far / belly"],
@@ -754,7 +752,7 @@ export class PilotUfo extends Vehicle {
         ...(this.abducted ? [["Abducted", String(this.abducted)]] : []),
       ],
       bars: [
-        { label: "Dash (R)", value: this.dashT > 0 ? 1 - this.dashT / DASH_COOLDOWN : 1 },
+        { label: (this.cfg.dash ?? 1) > 0 ? "Dash (R)" : "Dash (off)", value: (this.cfg.dash ?? 1) <= 0 ? 0 : this.dashT > 0 ? 1 - this.dashT / DASH_COOLDOWN : 1 },
         { label: "Superweapon (B)", value: this.sw.state === "charge" ? this.sw.t / SUPER_CHARGE : this.sw.state === "fire" ? 1 : this.sw.cool > 0 ? 1 - this.sw.cool / SUPER_COOLDOWN : 1, hot: this.sw.state !== "idle" },
       ],
       weapon: `LMB laser cannon · RMB tractor beam${beam ? ` · <span class="vh-on">${beam}</span>` : ""}`,
@@ -773,7 +771,7 @@ export class PilotUfo extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), design: this.design, spec: this.spec, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
+    return { ...super.serialize(), design: this.design, spec: this.spec, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, downed: this.downed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
   }
 
   dispose() {

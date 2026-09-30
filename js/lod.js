@@ -23,7 +23,10 @@ import { createLodMaterial } from "./shaders.js";
 import { CHUNK_SIZE } from "./constants.js";
 
 const MAX_LEVEL = 6; // root tiles: 128 x 128 chunks
-const MAX_IN_FLIGHT = 4; // worker requests at once (few, so re-planning can re-prioritize)
+const MAX_IN_FLIGHT = 3; // requests at once per worker (few, so re-planning can re-prioritize)
+// Tiles are built by a small pool of workers (more cores: the far land
+// fills in faster, which matters with long render distances).
+const POOL_SIZE = Math.max(1, Math.min(4, ((typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4) - 2));
 const UPLOAD_BUDGET_MS = 3; // main-thread time per frame for turning results into meshes
 const LOCAL_BUILD_BUDGET_MS = 5; // per frame, when tiles are built on the main thread
 
@@ -87,6 +90,7 @@ export class LodSystem {
     });
 
     this.worker = null;
+    this.workers = [];
     this.local = null;
     this.fallbackReason = null;
     if (worker) this._startWorker();
@@ -103,14 +107,20 @@ export class LodSystem {
 
   _startWorker() {
     try {
-      const w = new Worker(new URL("./lod-worker.js", import.meta.url), { type: "module" });
-      w.onmessage = (e) => this._onWorkerMessage(e.data);
-      w.onerror = (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        this._useLocalBuilder(`worker error: ${e && e.message}`);
-      };
-      w.postMessage({ type: "init", seed: this.seed, palette: this.world.facePalette, edits: this._allEdits() });
-      this.worker = w;
+      const edits = this._allEdits();
+      this.workers = [];
+      for (let i = 0; i < POOL_SIZE; i++) {
+        const w = new Worker(new URL("./lod-worker.js", import.meta.url), { type: "module" });
+        w.onmessage = (e) => this._onWorkerMessage(e.data, w);
+        w.onerror = (e) => {
+          if (e && e.preventDefault) e.preventDefault();
+          this._useLocalBuilder(`worker error: ${e && e.message}`);
+        };
+        w.postMessage({ type: "init", seed: this.seed, palette: this.world.facePalette, edits });
+        w.busy = 0;
+        this.workers.push(w);
+      }
+      this.worker = this.workers[0];
     } catch (err) {
       this._useLocalBuilder(String(err));
     }
@@ -119,10 +129,10 @@ export class LodSystem {
   // Builds tiles on the main thread instead (time-budgeted per frame).
   _useLocalBuilder(reason) {
     this.fallbackReason = reason;
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
-    }
+    for (const w of this.workers || []) w.terminate();
+    this.workers = [];
+    this.worker = null;
+    this.workers = [];
     for (const tile of this._inFlight.values()) tile.building = false;
     this._inFlight.clear();
     const terrain = new LodTerrain(this.seed);
@@ -131,8 +141,9 @@ export class LodSystem {
     this._queueDirty = true;
   }
 
-  _onWorkerMessage(m) {
+  _onWorkerMessage(m, w) {
     if (m.type !== "tile") return;
+    if (w) w.busy = Math.max(0, w.busy - 1);
     const tile = this._inFlight.get(m.id);
     this._inFlight.delete(m.id);
     if (!tile) return;
@@ -149,7 +160,7 @@ export class LodSystem {
     for (const key of this._editedChunks) {
       const map = this.world.edits.get(key);
       const list = map ? flattenEdits(map) : [];
-      if (this.worker) this.worker.postMessage({ type: "edits", key, list });
+      for (const w of this.workers || []) w.postMessage({ type: "edits", key, list });
       if (this.local) this.local.terrain.setChunkEdits(key, list);
       const [cx, cz] = key.split(",").map(Number);
       for (let level = 1; level <= MAX_LEVEL; level++) {
@@ -177,14 +188,20 @@ export class LodSystem {
 
   _dispatch() {
     if (this.worker) {
-      while (this._inFlight.size < MAX_IN_FLIGHT && this._queue.length > 0) {
+      const pool = this.workers;
+      while (this._inFlight.size < MAX_IN_FLIGHT * pool.length && this._queue.length > 0) {
+        // The least busy worker.
+        let w = pool[0];
+        for (const o of pool) if (o.busy < w.busy) w = o;
+        if (w.busy >= MAX_IN_FLIGHT) break;
         const tile = this._queue.shift();
         if (!this._wantsBuild(tile)) continue;
         tile.building = true;
         tile.stale = false;
         const id = ++this._requestId;
         this._inFlight.set(id, tile);
-        this.worker.postMessage({ type: "build", id, level: tile.level, tx: tile.tx, tz: tile.tz });
+        w.busy++;
+        w.postMessage({ type: "build", id, level: tile.level, tx: tile.tx, tz: tile.tz });
       }
     } else if (this.local) {
       const start = performance.now();
@@ -256,7 +273,7 @@ export class LodSystem {
   // 0.5 or more a tile still always splits when its detail chunks do).
   configure({ renderDistance, detailDistance, quality }) {
     if (quality !== undefined && quality !== this.quality) {
-      this.quality = Math.max(0.5, Math.min(2, quality));
+      this.quality = Math.max(0.5, Math.min(3, quality));
       this._replan = true;
     }
     if (renderDistance !== undefined && renderDistance !== this.renderDistance) {
@@ -439,8 +456,9 @@ export class LodSystem {
     const own = this._mesh(node.key);
     if (node.detail) {
       // Keep showing the old LOD tile until all its chunks are meshed (but
-      // never around the player: rather a gap than coarse ground underfoot).
-      if (!node.ready && own && node.d >= 2) out.tiles.add(own);
+      // never the tile the player is in: rather a gap than coarse ground underfoot;
+      // with 128-tall chunks, meshing a ring takes longer, so the ring around it is kept).
+      if (!node.ready && own && node.d >= 1) out.tiles.add(own);
       else this._showChunks(node.tx, node.tz, out);
       return;
     }

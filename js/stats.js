@@ -21,6 +21,13 @@ export const STAT_LABELS = [
   ["enemyJetsDown", "Enemy jets shot down"],
   ["ufosDownBig", "Motherships and giants shot down"],
   ["cratesOpened", "Supply crates opened"],
+  ["missionsDone", "Missions completed"],
+  ["nightsSurvived", "Nights survived"],
+  ["takeoffs", "Jet takeoffs"],
+  ["ufosDownByJet", "UFOs shot down from the jet"],
+  ["ufosDownLarge", "Large UFOs (or bigger) shot down"],
+  ["raidersDown", "Village raiders shot down"],
+  ["airportsNuked", "Enemy bases nuked"],
 ];
 
 function blank() {

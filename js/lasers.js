@@ -22,9 +22,65 @@ export const LASER_COLORS = {
   cyan: new THREE.Color(0.6, 4, 5),
   magenta: new THREE.Color(4.5, 0.5, 4.5),
   orange: new THREE.Color(5, 2, 0.3),
+  white: new THREE.Color(3.2, 3.8, 6),
+  lime: new THREE.Color(2.6, 5, 0.3),
 };
 
 const MAX_BOLTS = 320;
+
+// Where (distance along the bolt's step) a bolt moving from `origin` along
+// `dir` for `maxDist` meets a sphere that moved with `vel` during the same
+// `dt` (it is already at `center`, the end of its move). Solved in the
+// target's frame, so a fast jet can't slip between two steps of a bolt.
+// Returns the distance, or null.
+const _ro = new THREE.Vector3();
+const _rd = new THREE.Vector3();
+export function sweptSphere(origin, dir, maxDist, center, radius, vel = null, dt = 0) {
+  _ro.copy(origin).sub(center);
+  _rd.copy(dir).multiplyScalar(maxDist);
+  if (vel && dt > 0) {
+    _ro.addScaledVector(vel, dt); // the target at the start of the step
+    _rd.addScaledVector(vel, -dt);
+  }
+  const a = _rd.lengthSq();
+  const c = _ro.lengthSq() - radius * radius;
+  if (c <= 0) return 0;
+  if (a < 1e-9) return null;
+  const b = _ro.dot(_rd);
+  const disc = b * b - a * c;
+  if (disc < 0) return null;
+  const s = (-b - Math.sqrt(disc)) / a;
+  if (s < 0 || s > 1) return null;
+  return s * maxDist;
+}
+
+// The same for an axis-aligned box (min, max at the end of the move).
+export function sweptBox(origin, dir, maxDist, min, max, vel = null, dt = 0) {
+  _ro.copy(origin);
+  _rd.copy(dir).multiplyScalar(maxDist);
+  if (vel && dt > 0) {
+    _ro.addScaledVector(vel, dt);
+    _rd.addScaledVector(vel, -dt);
+  }
+  const len = _rd.length();
+  if (len < 1e-9) return null;
+  let t0 = 0;
+  let t1 = len;
+  for (const ax of ["x", "y", "z"]) {
+    const d = _rd[ax] / len;
+    if (Math.abs(d) < 1e-9) {
+      if (_ro[ax] < min[ax] || _ro[ax] > max[ax]) return null;
+      continue;
+    }
+    let ta = (min[ax] - _ro[ax]) / d;
+    let tb = (max[ax] - _ro[ax]) / d;
+    if (ta > tb) [ta, tb] = [tb, ta];
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return null;
+  }
+  return (t0 / len) * maxDist;
+}
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
@@ -160,13 +216,14 @@ export class LaserBolts {
   }
 
   // The nearest thing (block or target) along a bolt's step, or null.
-  _cast(b, step) {
+  _cast(b, step, dt = 0) {
+    b.step = step; // the whole step (a provider may be asked about less of it)
     let best = null;
     const blockHit = this.world.raycast(b.pos, b.dir, step, { solidOnly: true });
     if (blockHit) best = { distance: blockHit.distance, block: blockHit };
     for (const p of this.providers) {
       if (p.ignores && p.ignores(b)) continue;
-      const hit = p.raycast(b.pos, b.dir, best ? best.distance : step, b);
+      const hit = p.raycast(b.pos, b.dir, best ? best.distance : step, b, dt);
       if (hit && (!best || hit.distance < best.distance)) best = { distance: hit.distance, target: hit };
     }
     return best;
@@ -210,7 +267,7 @@ export class LaserBolts {
       if (b.homing) this._home(b, dt);
       if (b.dead) continue;
       const step = b.speed * dt;
-      const hit = this._cast(b, step);
+      const hit = this._cast(b, step, dt);
       if (hit) {
         this._impact(b, hit);
         continue;

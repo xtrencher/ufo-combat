@@ -8,8 +8,8 @@
 //
 // Temper: UFOs are mostly peaceful. They roam, play tricks (hovering over
 // lakes, zig-zagging, following animals, beaming one up, diving into the sea
-// or burrowing into a mountain, and blinking to a spot nearby at extreme
-// speed) and ignore the player. They turn hostile when shot, when the player
+// or burrowing into a mountain, and dashing to a spot nearby at extreme
+// speed: a streak, no light) and ignore the player. They turn hostile when shot, when the player
 // keeps the camera on them for a while, when a jet locks a missile on them,
 // and now and then on their own (some are hotter-tempered than others). At
 // most MAX_ATTACKERS of them attack the player at the same time; the others
@@ -33,6 +33,8 @@ import { LASER_COLORS } from "./lasers.js";
 import { IS_SOLID, IS_WET, BLOCK } from "./blocks.js";
 import { SEA_LEVEL } from "./constants.js";
 import { effectsQuality } from "./effects.js";
+import { LAYER_FX } from "./layers.js";
+import { DashTrail } from "./dash-trail.js";
 
 export const UFO_ACTIVITY_LEVELS = [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 export const UFO_ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];
@@ -67,25 +69,38 @@ const SIZE_WEIGHTS = {
   big: { small: 2, medium: 4, large: 3, mothership: 0.8, giant: 0.2 },
 };
 
-// Attack styles (see the file comment). rate: seconds between attacks;
-// damage multiplies the size's laser damage.
-const STYLES = {
-  volley: { rate: [0.6, 1.4], speed: 95, damage: 1, radius: 0.1, length: 2.4, blast: 0, count: 1 },
-  burst: { rate: [1.8, 3], speed: 130, damage: 0.7, radius: 0.08, length: 3, blast: 0, count: 3 },
-  heavy: { rate: [2.6, 4.6], speed: 62, damage: 2.4, radius: 0.36, length: 3.2, blast: 2.4, count: 1 },
-  seeker: { rate: [4, 6.5], speed: 72, damage: 3, radius: 0.24, length: 2.6, blast: 1.8, count: 1, homing: true },
-  abductor: { rate: [2.5, 4], speed: 95, damage: 1, radius: 0.1, length: 2.4, blast: 0, count: 1 },
+// Attack styles. Each UFO has one, picked from its family's list, and its
+// own bolt color and sound, so different ships clearly fight differently:
+//   rapid    quick bursts of five thin, fast bolts (tic-tacs, saucers)
+//   heavy    one slow, big glowing ball that explodes (spheres, cubes)
+//   spread   a fan of five bolts across the target (saucers, rings)
+//   charged  the ship glows up for over a second, then one very fast,
+//            very hard bolt (spheres, tic-tacs): watch for the glow and move
+//   sweep    a continuous beam that sweeps across the ground through the
+//            target (rings, saucers): step out of its line
+//   seeker   slow plasma that homes in on a vehicle (a flare decoys it)
+//   abductor single shots and the tractor beam on a player on foot
+//   volley / burst: plain single shots and three-shot bursts (tests, old saves)
+// rate: seconds between attacks; damage multiplies the size's laser damage
+// (per bolt, or per tick for the beam).
+export const STYLES = {
+  volley: { rate: [0.8, 1.6], speed: 110, damage: 1, radius: 0.1, length: 2.4, blast: 0, count: 1, color: "green", sound: "volley" },
+  burst: { rate: [1.8, 3], speed: 130, damage: 0.7, radius: 0.08, length: 3, blast: 0, count: 3, color: "green", sound: "rapid" },
+  rapid: { rate: [1.8, 2.8], speed: 160, damage: 0.35, radius: 0.07, length: 2.8, blast: 0, count: 1, shots: 5, gap: 0.085, color: "cyan", sound: "rapid" },
+  heavy: { rate: [3, 4.8], speed: 58, damage: 2, radius: 0.42, length: 1.3, blast: 2.6, count: 1, color: "orange", sound: "heavy" },
+  spread: { rate: [2.4, 3.8], speed: 115, damage: 0.7, radius: 0.11, length: 2.2, blast: 0, count: 5, fan: 0.2, color: "magenta", sound: "spread" },
+  charged: { rate: [4.2, 6.2], speed: 270, damage: 2.6, radius: 0.2, length: 10, blast: 1.2, count: 1, charge: 1.3, color: "white", sound: "charged" },
+  sweep: { rate: [4.5, 7], damage: 0.5, beam: 1.5, color: "red", sound: "sweep" },
+  seeker: { rate: [4, 6.5], speed: 72, damage: 3, radius: 0.24, length: 2.6, blast: 1.8, count: 1, homing: true, color: "lime", sound: "seeker" },
+  abductor: { rate: [2.5, 4], speed: 110, damage: 1, radius: 0.1, length: 2.4, blast: 0, count: 1, color: "green", sound: "volley" },
 };
 const STYLE_WEIGHTS = {
-  saucer: { volley: 45, burst: 25, heavy: 12, abductor: 18 },
-  sphere: { burst: 40, seeker: 35, volley: 25 },
-  tictac: { burst: 55, volley: 45 },
-  triangle: { volley: 30, heavy: 40, seeker: 30 },
-  cigar: { heavy: 50, volley: 50 },
-  pyramid: { heavy: 40, volley: 40, seeker: 20 },
-  ring: { burst: 40, seeker: 35, heavy: 25 },
-  diamond: { burst: 40, seeker: 40, volley: 20 },
-  cubesphere: { seeker: 45, heavy: 30, burst: 25 },
+  saucer: { rapid: 30, spread: 22, sweep: 18, abductor: 22, charged: 8 },
+  sphere: { charged: 45, heavy: 35, seeker: 20 },
+  tictac: { rapid: 60, charged: 40 },
+  torus: { sweep: 60, spread: 40 },
+  cube: { heavy: 40, spread: 30, seeker: 30 },
+  cubering: { sweep: 40, charged: 30, heavy: 30 },
 };
 
 const TRICKS = ["hover_lake", "zigzag", "follow", "abduct", "hover", "abduct", "dive", "burrow", "blink_hop"];
@@ -104,6 +119,18 @@ function rand(a, b) {
   return a + Math.random() * (b - a);
 }
 
+// Distance from point p to the segment a-b.
+const _sp = new THREE.Vector3();
+function segPointDist(a, b, p) {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const l2 = abx * abx + aby * aby + abz * abz || 1e-9;
+  let t = ((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return _sp.set(a.x + abx * t - p.x, a.y + aby * t - p.y, a.z + abz * t - p.z).length();
+}
+
 function pickWeighted(weights) {
   let total = 0;
   for (const k in weights) total += weights[k];
@@ -118,6 +145,10 @@ function pickWeighted(weights) {
 function familyOf(design) {
   if (design.startsWith("saucer")) return "saucer";
   if (design.startsWith("sphere")) return "sphere";
+  if (design.startsWith("tictac")) return "tictac";
+  if (design.startsWith("torus")) return "torus";
+  if (design.startsWith("cubering")) return "cubering";
+  if (design.startsWith("cube")) return "cube";
   return design;
 }
 
@@ -147,6 +178,8 @@ export class UfoManager {
     // Hooks.
     this.onShotDown = null; // (ufo, byPlayer) => void
     this.difficulty = 0.35; // 0-1, from the player's progress (progression.js): a gentle sky first, bigger and angrier UFOs later
+    this.rules = null; // Survival: the current mission's rules (sizes, health, damage, aggression, count multipliers)
+    this.forceIntact = false; // the next UFO the player shoots down crashes in one piece (a mission)
     this.onCrash = null; // ({ ufo, pos, exploded, wreck, byPlayer }) => void
     this.onAbductPlayer = null; // (ufo) => void
     this.onEscape = null; // (ufo) => void: the player escaped a beam
@@ -158,6 +191,7 @@ export class UfoManager {
     this._beamPeak = 0;
     this.lastHum = 0;
     this._camDir = new THREE.Vector3(0, 0, -1);
+    this.trail = new DashTrail(scene); // the smear a dashing UFO leaves
   }
 
   get count() {
@@ -173,8 +207,8 @@ export class UfoManager {
   get maxCount() {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
-    const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost);
-    return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : auto);
+    const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost * (this.rules?.count ?? 1));
+    return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
 
   // Expected new UFOs per second.
@@ -197,12 +231,15 @@ export class UfoManager {
 
   // The aggression setting, scaled by the difficulty curve (0.6x at the start, 1.4x at the end).
   _agg() {
+    if (this.rules) return this.config.aggression * this.rules.aggression;
     return this.config.aggression * (0.6 + 0.8 * this.difficulty);
   }
 
   // Size odds: with "balanced" they follow the difficulty curve: small and
   // medium saucers at first, motherships and giants only much later.
   _sizeWeights() {
+    // Survival: the current mission decides (see progression.js).
+    if (this.rules && this.config.sizes === "balanced") return this.rules.sizes;
     const base = SIZE_WEIGHTS[this.config.sizes] || SIZE_WEIGHTS.balanced;
     if (this.config.sizes !== "balanced") return base;
     const easy = { small: 6, medium: 3, large: 0.5, mothership: 0.03, giant: 0 };
@@ -218,13 +255,13 @@ export class UfoManager {
   spawn(opts = {}) {
     const size = opts.size || pickWeighted(this._sizeWeights());
     const S = SIZES[size] || SIZES.small;
-    const spec = opts.spec || (opts.design ? { design: opts.design, seed: (Math.random() * 1e6) | 0, glow: opts.glow ?? !opts.design.includes("dark") } : randomUfoSpec(Math.random, { glow: opts.glow }));
+    const spec = opts.spec || randomUfoSpec(Math.random, { glow: opts.glow, design: opts.design });
     const design = spec.design;
     const radius = opts.radius || rand(S.r[0], S.r[1]);
     const model = createUfoModel(spec, radius, { castShadow: size !== "mothership" && size !== "giant" });
     this.scene.add(model.root);
     const variation = rand(0.75, 1.3);
-    const maxHealth = Math.round(S.health * variation * this.config.toughness);
+    const maxHealth = Math.max(8, Math.round(S.health * variation * this.config.toughness * (this.rules?.health ?? 1)));
     // Personality against a jet: most flee a little slower than the jet,
     // some are faster (they can't be caught), fighters attack.
     const pr = Math.random();
@@ -248,7 +285,7 @@ export class UfoManager {
       maxHealth,
       personality,
       style,
-      laserKey: ufoLaserKey(spec),
+      laserKey: STYLES[style]?.color || ufoLaserKey(spec),
       temper: Math.random() < 0.25 ? rand(0.6, 1) : rand(0, 0.5), // how easily it turns hostile
       fleeFactor: personality === "fast" ? rand(1.25, 1.6) : rand(0.8, 0.95),
       state: opts.state || "roam",
@@ -264,7 +301,9 @@ export class UfoManager {
       reaction: null,
       shotT: rand(1, 3),
       checkT: rand(0, 0.5),
-      blinkT: S.idx >= 3 ? 1e9 : rand(12, 45), // sudden hops to a spot nearby
+      blinkT: S.idx >= 3 ? 1e9 : rand(12, 45), // sudden dashes to a spot nearby
+      dash: null, // a dash under way: { from, to, t, dur }
+      dashCool: 0,
       ghostT: 0, // seconds it may pass through terrain (burrowing, diving)
       lastSeen: -99,
       hurtTime: 99,
@@ -275,7 +314,7 @@ export class UfoManager {
       light: model.light,
       lazy: 0,
     };
-    u.hitHalfHeight = Math.max(u.info.h * radius * 0.55, radius * 0.22);
+    u.hitHalfHeight = Math.max(u.info.h * radius * 0.55, radius * 0.3); // (thin discs: a little generous, so a shot that looks like a hit is one)
     u.pos.copy(opts.pos ? opts.pos : this._spawnPoint(u));
     u.spawnFade = opts.pos && !opts.hidden ? 0 : 3.2; // grows in from a dot when it appears far away
     if (u.spawnFade === 0) u.age = 9;
@@ -292,12 +331,15 @@ export class UfoManager {
   _pickStyle(design, S) {
     const w = { ...(STYLE_WEIGHTS[familyOf(design)] || STYLE_WEIGHTS.saucer) };
     if (S.idx === 0) {
+      // Small scouts: nothing that blows holes or homes in.
       delete w.heavy;
       delete w.seeker;
+      if (!Object.keys(w).length) w.rapid = 1;
     }
     if (S.idx >= 2) {
       if (w.heavy) w.heavy *= 2;
       if (w.seeker) w.seeker *= 2;
+      if (w.sweep) w.sweep *= 1.5;
     }
     if (S.idx >= 3) delete w.abductor;
     return pickWeighted(w);
@@ -437,16 +479,23 @@ export class UfoManager {
 
   // Damages a UFO; the player's shots make it turn hostile (and, with the
   // player flying a UFO, maybe its neighbours).
-  damage(u, amount, byPlayer = true, from = null) {
+  damage(u, amount, byPlayer = true, from = null, attacker = null) {
     if (u.state === "gone" || u.falling || amount <= 0) return false;
     u.health -= amount;
     u.hurtTime = 0;
+    // Attacked by an enemy fighter: it fights back (and dodges).
+    if (attacker && !byPlayer) {
+      u.foe = attacker;
+      u.foeT = 25;
+      if (u.health > 0) this._dodge(u, 0.7);
+    }
     if (byPlayer) {
       u.byPlayer = true;
       this.lastPlayerAttack = this.time; // the alien air force takes notice
       this._provoked(u);
     }
     if (u.health <= 0) this._shotDown(u);
+    else if (byPlayer) this._dodge(u, 1);
     return true;
   }
 
@@ -575,7 +624,7 @@ export class UfoManager {
       u.age += dt;
       // Far away: think every few frames (with the time saved up).
       let step = dt;
-      if (dist > 380 && !u.falling && u.state !== "leave") {
+      if (dist > 380 && !u.falling && u.state !== "leave" && !u.sweep && !u.charge && !u.dash && !(u.queue && u.queue.length)) {
         u.lazy += dt;
         if ((Math.floor(this.time * 60) + u.id) % 4 !== 0) {
           this._place(u, 0, dist, night);
@@ -595,6 +644,7 @@ export class UfoManager {
       if (dist < humD) humD = dist;
     }
     this._updatePlayerBeam(dt, beamOnPlayer);
+    this.trail.update(dt);
     // One engine hum for the nearest UFO.
     this.lastHum = humD;
     if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
@@ -602,6 +652,7 @@ export class UfoManager {
 
   _remove(i) {
     const u = this.ufos[i];
+    this._stopWeapons(u);
     if (this.beamingPlayer === u) this.beamingPlayer = null;
     this._freeBeam(u, true);
     this.scene.remove(u.model.root);
@@ -637,44 +688,74 @@ export class UfoManager {
   }
 
   _newWaypoint(u) {
-    const p = this.player.position;
-    // Wander around the player's part of the world, any altitude.
+    // Wander around the player's part of the world, any altitude (a UFO
+    // with a home, a mission's scout or raider, stays near it, and low).
+    const p = u.home || this.player.position;
     const a = Math.random() * Math.PI * 2;
-    const d = rand(20, Math.max(420, this.range * 0.75));
+    const d = u.tether ? rand(u.tether * 0.3, u.tether) : rand(20, Math.max(420, this.range * 0.75));
     const x = p.x + Math.cos(a) * d;
     const z = p.z + Math.sin(a) * d;
     const ground = this._groundAt(x, z);
-    const low = Math.random() < 0.3;
-    u.waypoint = new THREE.Vector3(x, ground + u.info.bottom * u.radius + (low ? rand(5, 18) : rand(18, 160)) + (u.S.idx >= 3 ? u.radius : 0), z);
+    const low = u.tether ? true : Math.random() < 0.3;
+    u.waypoint = new THREE.Vector3(x, ground + u.info.bottom * u.radius + (u.tether ? rand(18, 34) : low ? rand(5, 18) : rand(18, 160)) + (u.S.idx >= 3 ? u.radius : 0), z);
     u.timer = rand(12, 30);
   }
 
-  // Effects for a sudden move: a streak of light between the two spots and a
-  // flash at each end.
-  _blinkFx(a, b, u) {
-    const fx = this.effects;
-    const c = u.model.halo.material.color;
-    const n = Math.round(24 * Math.max(0.5, effectsQuality.scale));
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      fx.glow.spawn({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t, vx: 0, vy: 0, vz: 0, life: 0.25 + t * 0.45, size0: u.radius * 0.5, size1: u.radius * 0.05, color0: c, alpha: 0.8, drag: 0 });
-    }
-    for (const p of [a, b]) fx.glow.spawn({ x: p.x, y: p.y, z: p.z, life: 0.35, size0: u.radius * 2.6, size1: u.radius * 0.4, color0: c, alpha: 0.9 });
-    if (this.audio?.playUfoLeave) this.audio.playUfoLeave(b.distanceTo(this.player.position));
+  // ---------- Teleport dashes ----------
+  // Now and then (and often when it is shot at, or a missile closes in) a
+  // UFO dashes to a spot nearby at extreme speed: it covers the distance in
+  // a tenth of a second or two, leaving nothing but a smear of fading copies
+  // of itself along the path (no light, no flash). The biggest ships don't.
+
+  // Starts a dash to a random spot nearby (maxDist blocks at most).
+  _blink(u, maxDist = 200, minDist = 40) {
+    if (u.dash || u.falling || u.S.idx >= 4) return false;
+    const a = Math.random() * Math.PI * 2;
+    const d = rand(minDist, Math.max(minDist + 1, maxDist));
+    const to = new THREE.Vector3(u.pos.x + Math.cos(a) * d, 0, u.pos.z + Math.sin(a) * d);
+    const ground = this._groundAt(to.x, to.z) + u.info.bottom * u.radius + 6;
+    to.y = Math.min(320, Math.max(ground, u.pos.y + rand(-30, 40)));
+    const len = to.distanceTo(u.pos);
+    u.dash = { from: u.pos.clone(), to, t: 0, dur: THREE.MathUtils.clamp(len / 1100, 0.06, 0.2), last: u.pos.clone() };
+    u.blinkT = rand(15, 60);
+    u.dashCool = rand(2.5, 5);
+    if (this.audio?.playUfoDash) this.audio.playUfoDash(u.pos.distanceTo(this._ears()));
+    return true;
   }
 
-  // Zips to a random spot nearby at extreme speed.
-  _blink(u, maxDist = 200) {
-    const from = u.pos.clone();
-    const a = Math.random() * Math.PI * 2;
-    const d = rand(40, maxDist);
-    const x = u.pos.x + Math.cos(a) * d;
-    const z = u.pos.z + Math.sin(a) * d;
-    const y = Math.max(this._minAltitude(u, 6), u.pos.y + rand(-30, 40));
-    u.pos.set(x, Math.min(y, 320), z);
-    u.vel.multiplyScalar(0.1);
-    this._blinkFx(from, u.pos, u);
-    u.blinkT = rand(15, 60);
+  // Moves a dashing UFO along its path (eased), leaving the smear.
+  _updateDash(u, dt) {
+    const d = u.dash;
+    d.t += dt;
+    const k = Math.min(1, d.t / d.dur);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    u.pos.lerpVectors(d.from, d.to, e);
+    u.vel.copy(d.to).sub(d.from).divideScalar(d.dur);
+    // The smear: copies of the hull between where it was last frame and now.
+    const step = d.last.distanceTo(u.pos);
+    if (this.trail && step > 0.5 && u.pos.distanceTo(this.player.position) < 1500) {
+      this._place(u, 0);
+      const n = Math.min(10, Math.max(2, Math.round(step / Math.max(1.5, u.radius * 0.6))));
+      const shade = this._ghostShade || (this._ghostShade = new THREE.Color());
+      const day = 1 - this.night * 0.8;
+      shade.setRGB(2.2 * day, 2.2 * day, 2.3 * day);
+      this.trail.spawnPath(u.model.hull, d.last, u.pos, n, shade, 0.4);
+    }
+    d.last.copy(u.pos);
+    if (k >= 1) {
+      u.dash = null;
+      u.vel.multiplyScalar(0.05);
+      u.waypoint = null;
+    }
+  }
+
+  // Shot at: often it dashes out of the line of fire (smaller ships more
+  // often; the giants never).
+  _dodge(u, chance) {
+    if (u.dash || u.falling || (u.dashCool ?? 0) > 0) return false;
+    const k = [0.45, 0.35, 0.22, 0.1, 0][u.S.idx] * chance * (u.dodgeMul ?? 1);
+    if (Math.random() >= k) return false;
+    return this._blink(u, u.S.idx >= 2 ? 120 : 90, 30);
   }
 
   _startTrick(u) {
@@ -819,6 +900,25 @@ export class UfoManager {
   }
 
   _think(u, dt, tgt, dist) {
+    u.dashCool = Math.max(0, (u.dashCool ?? 0) - dt);
+    if (u.dash) {
+      this._updateDash(u, dt);
+      return;
+    }
+    // A missile closing in: it often dashes away at the last moment.
+    u.missileT = (u.missileT ?? 0) - dt;
+    if (u.missileT <= 0) {
+      u.missileT = 0.25;
+      for (const v of this.vehicles?.vehicles ?? []) {
+        if (!v.missiles) continue;
+        for (const m of v.missiles) {
+          if (m.target?.ref === u && !m.dodged && m.pos.distanceTo(u.pos) < 90 + u.radius) {
+            m.dodged = true;
+            this._dodge(u, 1.4);
+          }
+        }
+      }
+    }
     u.timer -= dt;
     u.alert = Math.max(0, u.alert - dt);
     u.shotT -= dt;
@@ -838,8 +938,9 @@ export class UfoManager {
 
     // A sudden blink to a spot nearby, when it's calm, or to dodge when angry.
     if (u.blinkT <= 0 && u.state !== "leave" && u.state !== "beam" && u.state !== "emerge" && u.trick !== "abduct" && u.trick !== "dive" && u.trick !== "burrow") {
-      if (u.state === "roam" || u.state === "trick" || u.state === "circle" || (u.state === "attack" && Math.random() < 0.5)) this._blink(u, u.state === "attack" ? 90 : 220);
-      else u.blinkT = rand(5, 12);
+      if (u.state === "roam" || u.state === "trick" || u.state === "circle" || (u.state === "attack" && Math.random() < 0.5)) {
+        if (!this._blink(u, u.state === "attack" ? 90 : 220)) u.blinkT = rand(15, 60);
+      } else u.blinkT = rand(5, 12);
     }
 
     // Turning on the player: an angry UFO with a line of sight to a player it
@@ -926,6 +1027,25 @@ export class UfoManager {
       default:
         break;
     }
+
+    // Fighting back against an enemy fighter that attacked it (unless it
+    // is busy with the player).
+    if (u.foe) {
+      u.foeT -= dt;
+      const f = u.foe;
+      if (!f.alive || u.foeT <= 0) u.foe = null;
+      else if (u.state !== "attack" && u.state !== "beam" && u.state !== "react") {
+        u.foeShotT = (u.foeShotT ?? 1) - dt;
+        const fd = f.pos.distanceTo(u.pos);
+        if (u.foeShotT <= 0 && fd < 700 && this._canSee(u, f.pos)) {
+          const st = STYLES[u.style] || STYLES.volley;
+          u.foeShotT = st.beam ? 2.5 : rand(st.rate?.[0] ?? 1, st.rate?.[1] ?? 2) * 1.2;
+          this._fireAt(u, f.pos, f.vel, 1, f);
+        }
+      }
+    }
+
+    this._updateWeapons(u, dt);
 
     // Stay above the ground and below the ceiling (not while leaving, or
     // while it is allowed to pass through terrain: diving, burrowing).
@@ -1075,61 +1195,294 @@ export class UfoManager {
     this._steer(u, goal, u.S.cruise * 2, dt, 1.4);
   }
 
-  // Leading a moving target: where to aim a bolt of `speed` from `from`.
-  _lead(from, pos, vel, speed, out) {
-    const d = out.copy(pos).sub(from);
-    const t = d.length() / speed;
-    return out.copy(pos).addScaledVector(vel, t * 0.85).sub(from).normalize();
+  // Leading a moving target: the direction to fire a bolt of `speed` from
+  // `from` so it meets a target at `pos` moving with `vel` (the intercept
+  // point; `lead` < 1 aims a little behind, so a target that keeps running
+  // across can get away).
+  _lead(from, pos, vel, speed, out, lead = 1) {
+    const dx = pos.x - from.x;
+    const dy = pos.y - from.y;
+    const dz = pos.z - from.z;
+    const vx = vel?.x ?? 0;
+    const vy = vel?.y ?? 0;
+    const vz = vel?.z ?? 0;
+    const a = vx * vx + vy * vy + vz * vz - speed * speed;
+    const b = 2 * (dx * vx + dy * vy + dz * vz);
+    const c = dx * dx + dy * dy + dz * dz;
+    let t = Math.sqrt(c) / speed;
+    if (Math.abs(a) > 1e-6) {
+      const disc = b * b - 4 * a * c;
+      if (disc >= 0) {
+        const r1 = (-b - Math.sqrt(disc)) / (2 * a);
+        const r2 = (-b + Math.sqrt(disc)) / (2 * a);
+        const best = Math.min(r1 > 0 ? r1 : Infinity, r2 > 0 ? r2 : Infinity);
+        if (best < Infinity) t = best;
+      }
+    }
+    t = Math.min(t, 6);
+    return out.set(dx + vx * t * lead, dy + vy * t * lead, dz + vz * t * lead).normalize();
   }
 
-  // Fires at a target (its position, velocity) with the UFO's attack style.
-  // Shots are fast enough and live long enough to reach a target anywhere in
-  // the engagement range (they used to vanish before arriving).
-  _fireAt(u, target, vel, count = 1, vehicle = null) {
+  // Where the UFO's shots leave from (its underside).
+  _muzzle(u, out) {
+    out.copy(u.pos);
+    out.y -= u.info.bottom * u.radius * 0.8;
+    return out;
+  }
+
+  // Starts an attack in the UFO's style at the player (or their vehicle):
+  // single shots fly at once, bursts are fired one after another (re-aimed
+  // each time), a charged shot glows up first, a beam sweeps. `big`: the
+  // big ships fire from several points around the hull.
+  _attack(u, vehicle = null, big = false) {
     const st = STYLES[u.style] || STYLES.volley;
-    const from = u.pos.clone();
-    from.y -= u.info.bottom * u.radius * 0.8;
+    if (u.charge || u.sweep || (u.queue && u.queue.length)) return;
+    const tgt = this._targetInfo();
+    const dist = u.pos.distanceTo(tgt.pos);
+    if (st.beam) {
+      this._startSweep(u, tgt, vehicle);
+      return;
+    }
+    if (st.charge) {
+      u.charge = { t: st.charge, total: st.charge, vehicle, big };
+      if (this.audio?.playUfoCharge) this.audio.playUfoCharge(st.charge, dist);
+      return;
+    }
+    if (st.shots) {
+      u.queue = [];
+      const rounds = big ? 2 : 1;
+      for (let r = 0; r < rounds; r++) for (let k = 0; k < st.shots; k++) u.queue.push({ t: (r * st.shots + k) * st.gap, vehicle });
+      return;
+    }
+    this._fireAt(u, tgt.pos, tgt.vel, big ? 3 : 1, vehicle);
+  }
+
+  // Queued shots, the charge and the sweeping beam, every frame.
+  _updateWeapons(u, dt) {
+    if (u.queue && u.queue.length) {
+      const tgt = this._targetInfo();
+      for (let i = 0; i < u.queue.length; i++) {
+        const q = u.queue[i];
+        q.t -= dt;
+        if (q.t > 0) continue;
+        u.queue.splice(i--, 1);
+        if (!this.player.dead) this._fireAt(u, tgt.pos, tgt.vel, 1, q.vehicle);
+      }
+    }
+    if (u.charge) {
+      const c = u.charge;
+      c.t -= dt;
+      // The glow gathering under the ship (a clear warning).
+      const k = 1 - Math.max(0, c.t) / c.total;
+      const m = this._muzzle(u, _x);
+      const col = LASER_COLORS[u.laserKey] || LASER_COLORS.white;
+      if (u.pos.distanceTo(this.player.position) < 700) this.effects.glow.spawn({ x: m.x, y: m.y, z: m.z, life: 0.06, size0: (0.4 + u.radius * 0.12) * (0.3 + k * 1.4), size1: 0.2, color0: col, alpha: 0.35 + k * 0.6 });
+      if (c.t <= 0) {
+        u.charge = null;
+        const tgt = this._targetInfo();
+        if (!this.player.dead) this._fireAt(u, tgt.pos, tgt.vel, c.big ? 3 : 1, c.vehicle);
+      }
+    }
+    if (u.sweep) this._updateSweep(u, dt);
+  }
+
+  // Stops whatever attack is under way (shot down, gone).
+  _stopWeapons(u) {
+    if (u.queue) u.queue.length = 0;
+    u.charge = null;
+    if (u.sweep) this._endSweep(u);
+  }
+
+  // Fires `count` bolts at a target (its position, velocity) in the UFO's
+  // style. Shots are fast enough and live long enough to reach a target
+  // anywhere in the engagement range. The aim is good: a player who stands
+  // still gets hit, one who moves out of the way (or keeps changing
+  // direction) is missed.
+  _fireAt(u, target, vel, count = 1, vehicle = null) {
+    const st = STYLES[u.style] && !STYLES[u.style].beam ? STYLES[u.style] : STYLES.volley;
+    const from = this._muzzle(u, new THREE.Vector3());
     const color = LASER_COLORS[u.laserKey] || LASER_COLORS.green;
     const dist = from.distanceTo(target);
-    const speed = st.speed + Math.min(140, dist * 0.3);
+    const tv = vel ? Math.hypot(vel.x, vel.y, vel.z) : 0;
+    // Against a fast vehicle the bolts are quicker (they have to catch it).
+    const speed = st.speed + Math.min(140, dist * 0.3) + (vehicle ? tv * 0.5 : 0);
     const n = Math.max(count, st.count);
+    const fan = st.fan || 0;
+    const lead = vehicle ? 1 : 0.92;
     for (let k = 0; k < n; k++) {
       // Big ships fire from around the hull: the muzzle is chosen first and
       // the shot aimed from it (aiming from the middle of the ship and then
       // moving the muzzle made every shot from a big UFO miss).
       const muzzle = from.clone();
-      if (u.radius > 8) muzzle.add(new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)).multiplyScalar(u.radius * 0.5));
-      const dir = this._lead(muzzle, target, vel, speed, new THREE.Vector3());
-      // The aim error is a few blocks at the target, growing slowly with
-      // distance (a fixed angle made shots from far away miss every time).
-      const err = 0.6 + dist * 0.004 + (u.S.idx >= 3 ? 0.5 : 0) + (st.count > 1 ? 0.4 : 0);
-      const spread = (err * 2) / Math.max(20, dist);
-      dir.x += (Math.random() - 0.5) * spread;
-      dir.y += (Math.random() - 0.5) * spread;
-      dir.z += (Math.random() - 0.5) * spread;
-      dir.normalize();
+      if (u.radius > 8 && !fan) muzzle.add(new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)).multiplyScalar(u.radius * 0.5));
+      const dir = this._lead(muzzle, target, vel, speed, new THREE.Vector3(), lead);
+      if (fan && n > 1) {
+        // A fan across the line of fire, level with the ground.
+        const side = _w.set(-dir.z, 0, dir.x);
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+        side.normalize();
+        const off = (k / (n - 1) - 0.5) * 2 * fan;
+        dir.addScaledVector(side, Math.tan(off)).normalize();
+      } else {
+        // The aim error: well under a block at the target, growing slowly
+        // with distance.
+        const err = 0.25 + dist * 0.0015 + (u.S.idx >= 3 ? 0.3 : 0) + (n > 1 ? 0.25 : 0);
+        const spread = (err * 2) / Math.max(20, dist);
+        dir.x += (Math.random() - 0.5) * spread;
+        dir.y += (Math.random() - 0.5) * spread;
+        dir.z += (Math.random() - 0.5) * spread;
+        dir.normalize();
+      }
       const start = muzzle.addScaledVector(dir, Math.min(u.radius * 0.8, 6) + 1);
       const bolt = this.lasers.fire({
         from: start,
         dir,
         color,
         speed,
-        damage: Math.max(1, Math.round(u.S.laser * st.damage)),
+        damage: Math.max(1, Math.round(u.S.laser * st.damage * (this.rules?.damage ?? 1))),
         owner: "ufo",
         source: u,
         range: dist * 1.5 + 90,
         radius: st.radius + u.radius * 0.006,
         length: st.length,
         blast: st.blast ? st.blast + (u.S.idx >= 2 ? 0.8 : 0) : u.S.idx >= 2 ? 1.2 : 0,
+        sound: false,
       });
-      if (st.homing && vehicle) {
-        bolt.homing = { target: vehicle, turn: 1.5, life: 6 };
-        vehicle.warn?.({ kind: "missile", from: u.pos, bolt });
-      } else if (vehicle && (st.blast > 1 || u.S.idx >= 2)) {
-        vehicle.warn?.({ kind: "heavy", from: u.pos, bolt });
-      }
-      if (k < n - 1 && n > 1) from.y += 0.4; // a burst leaves in a line
+      // (A jet's warning display finds homing bolts by itself: see
+      // Jet._updateWarning. `vehicle.warn` is its state, not a function.)
+      if (st.homing && vehicle) bolt.homing = { target: vehicle, turn: 1.5, life: 6 };
+      if (k < n - 1 && n > 1 && !fan) from.y += 0.4; // a burst leaves in a line
     }
+    if (this.audio?.playUfoShot) this.audio.playUfoShot(st.sound || "volley", from.distanceTo(this._ears()));
+  }
+
+  _ears() {
+    return this.camera ? this.camera.position : this.player.position;
+  }
+
+  // ---------- The sweeping beam ----------
+  // A continuous laser from the ship's underside whose end runs along a line
+  // on the ground through the target in about a second and a half. Whatever
+  // the line crosses gets burnt: step off the line (sideways) to avoid it.
+  _startSweep(u, tgt, vehicle) {
+    const st = STYLES[u.style];
+    const from = this._muzzle(u, new THREE.Vector3());
+    // Aim through where the target will be halfway through the sweep.
+    // (On foot: the ground point under the player, so the beam's line crosses their legs.)
+    const mid = tgt.pos.clone();
+    if (tgt.vel) mid.add(_v.set(tgt.vel.x, vehicle ? tgt.vel.y : 0, tgt.vel.z).multiplyScalar(st.beam * 0.5 * (vehicle ? 1 : 0.6)));
+    if (!vehicle) mid.y = this.player.position.y + 0.2;
+    const to = mid.clone().sub(from);
+    const flat = new THREE.Vector3(to.x, 0, to.z);
+    if (flat.lengthSq() < 1e-4) flat.set(1, 0, 0);
+    flat.normalize();
+    // Sweep across the line of fire (sideways) or along it (toward the ship), at random.
+    const across = Math.random() < 0.65;
+    const axis = across ? new THREE.Vector3(-flat.z, 0, flat.x) : flat.clone();
+    if (Math.random() < 0.5) axis.negate();
+    const half = vehicle ? 60 : THREE.MathUtils.clamp(to.length() * 0.18, 12, 30);
+    u.sweep = {
+      t: 0,
+      dur: st.beam,
+      a: mid.clone().addScaledVector(axis, -half),
+      b: mid.clone().addScaledVector(axis, half),
+      vehicle,
+      tickT: 0,
+      end: new THREE.Vector3(),
+      mesh: null,
+    };
+    if (this.audio?.playUfoShot) this.audio.playUfoShot("sweep", from.distanceTo(this._ears()));
+  }
+
+  _sweepMesh() {
+    if (!this._sweepGeo) {
+      this._sweepGeo = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).translate(0, 0.5, 0).rotateX(Math.PI / 2);
+    }
+    const core = new THREE.Mesh(this._sweepGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, fog: true }));
+    const halo = new THREE.Mesh(this._sweepGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }));
+    core.add(halo);
+    halo.scale.set(3.4, 3.4, 1);
+    core.frustumCulled = false;
+    halo.frustumCulled = false;
+    core.layers.set(LAYER_FX);
+    halo.layers.set(LAYER_FX);
+    halo.renderOrder = 13;
+    return core;
+  }
+
+  _updateSweep(u, dt) {
+    const sw = u.sweep;
+    sw.t += dt;
+    const k = Math.min(1, sw.t / sw.dur);
+    const from = this._muzzle(u, _v);
+    const aim = _w.copy(sw.a).lerp(sw.b, k);
+    const dir = aim.sub(from);
+    let len = dir.length();
+    if (len < 1e-3 || sw.t > sw.dur) {
+      this._endSweep(u);
+      return;
+    }
+    dir.divideScalar(len);
+    // Past the aim point to the ground (or whatever is in the way).
+    const reach = Math.min(900, len * 1.6 + 40);
+    const hit = this.world.raycast(from, dir, reach, { solidOnly: true });
+    len = hit ? hit.distance : reach;
+    sw.end.copy(from).addScaledVector(dir, len);
+    const col = LASER_COLORS[u.laserKey] || LASER_COLORS.red;
+    const width = 0.16 + u.radius * 0.01;
+    if (!sw.mesh) {
+      sw.mesh = this._sweepMesh();
+      this.scene.add(sw.mesh);
+    }
+    const fade = Math.min(1, sw.t / 0.12, (sw.dur - sw.t) / 0.15 + 0.2);
+    sw.mesh.position.copy(from);
+    sw.mesh.lookAt(sw.end);
+    sw.mesh.scale.set(width * fade, width * fade, len);
+    sw.mesh.material.color.copy(col).multiplyScalar(0.3).addScalar(1.2);
+    sw.mesh.children[0].material.color.copy(col);
+    // Where it burns: sparks, smoke and scorch marks on blocks.
+    if (hit && u.pos.distanceTo(this.player.position) < 600) {
+      const fx = this.effects;
+      fx.glow.spawn({ x: sw.end.x, y: sw.end.y, z: sw.end.z, vx: rand(-3, 3), vy: rand(1, 5), vz: rand(-3, 3), life: 0.3, size0: 0.25, size1: 0.05, color0: col, gravity: 0.5, drag: 2 });
+      fx.glow.spawn({ x: sw.end.x, y: sw.end.y, z: sw.end.z, life: 0.08, size0: 1.2, size1: 0.3, color0: col, alpha: 0.8 });
+      sw.scorchT = (sw.scorchT || 0) - dt;
+      if (sw.scorchT <= 0 && this.lasers?.decals && this.world.getChunk(hit.block[0] >> 4, hit.block[2] >> 4)) {
+        sw.scorchT = 0.08;
+        this.lasers.decals.add(sw.end, hit.block, hit.normal);
+      }
+    }
+    // Damage: whoever the beam touches, a few times a second.
+    sw.tickT -= dt;
+    if (sw.tickT > 0) return;
+    const dmg = Math.max(1, Math.round(u.S.laser * (STYLES[u.style]?.damage ?? 0.5) * (this.rules?.damage ?? 1)));
+    const v = this._playerVehicle();
+    let touched = false;
+    if (v && v.alive) {
+      if (segPointDist(from, sw.end, v.pos) < (v.hitRadius ?? v.radius) + width) {
+        v.damage(dmg * 2, "ufo_laser");
+        v.incoming = 2;
+        touched = true;
+      }
+    } else if (!this.player.dead && !this.player.vehicle) {
+      const p = this.player.position;
+      let d = Infinity;
+      for (let y = 0.1; y < 1.9; y += 0.3) d = Math.min(d, segPointDist(from, sw.end, _x.set(p.x, p.y + y, p.z)));
+      if (d < 0.35 + width * 2) {
+        this.player.damage(dmg, "ufo_laser", { projectile: true });
+        touched = true;
+      }
+    }
+    if (touched) sw.tickT = 0.22;
+  }
+
+  _endSweep(u) {
+    const sw = u.sweep;
+    if (sw?.mesh) {
+      this.scene.remove(sw.mesh);
+      sw.mesh.material.dispose();
+      sw.mesh.children[0].material.dispose();
+    }
+    u.sweep = null;
   }
 
   _attackOnFoot(u, dt, tgt, dist) {
@@ -1164,7 +1517,7 @@ export class UfoManager {
       const st = STYLES[u.style] || STYLES.volley;
       u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this._agg() * 0.5);
       if (u.style === "abductor") u.shotT *= 1.6;
-      this._fireAt(u, tgt.pos, tgt.vel, u.S.idx >= 3 ? 3 : 1);
+      this._attack(u, null, u.S.idx >= 3);
     }
   }
 
@@ -1190,7 +1543,7 @@ export class UfoManager {
     }
     if (u.shotT <= 0 && this.beamingPlayer !== u && u.timer < 8) {
       u.shotT = rand(2, 3.5);
-      this._fireAt(u, tgt.pos, tgt.vel);
+      this._attack(u);
     }
     if (u.timer <= 0 || this.player.dead || tgt.vehicle) {
       beam.set(false);
@@ -1242,7 +1595,7 @@ export class UfoManager {
       if (u.shotT <= 0) {
         const st = STYLES[u.style] || STYLES.volley;
         u.shotT = rand(st.rate[0] * 0.5, st.rate[1] * 0.6);
-        this._fireAt(u, tgt.pos, tgt.vel);
+        this._attack(u);
       }
     } else {
       // Evasive: short sideways dashes, altitude changes, strafing circles.
@@ -1259,7 +1612,7 @@ export class UfoManager {
       u.vel.lerp(u.jink, Math.min(1, dt * 5));
       if (u.shotT <= 0 && Math.random() < 0.5) {
         u.shotT = rand(1, 2);
-        this._fireAt(u, tgt.pos, tgt.vel);
+        this._attack(u);
       }
     }
     if (u.timer <= 0) {
@@ -1291,7 +1644,7 @@ export class UfoManager {
       // Parting shots now and then.
       if (u.shotT <= 0 && dist < this.engageRange && Math.random() < 0.3) {
         u.shotT = rand(2, 4);
-        this._fireAt(u, v.pos, v.vel, 1, v);
+        this._attack(u, v);
         v.incoming = 2;
       }
       if (dist > this.range * 1.2) {
@@ -1312,7 +1665,7 @@ export class UfoManager {
     if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, v.pos)) {
       const st = STYLES[u.style] || STYLES.volley;
       u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this._agg() * 0.5);
-      this._fireAt(u, v.pos, v.vel, u.S.idx >= 3 ? 3 : 1, v);
+      this._attack(u, v, u.S.idx >= 3);
       v.incoming = 2;
     }
     // A fighter lining up a head-on pass sets off the warning too.
@@ -1322,6 +1675,7 @@ export class UfoManager {
   // ---------- Shot down ----------
 
   _shotDown(u) {
+    this._stopWeapons(u);
     u.falling = true;
     u.state = "falling";
     u.health = 0;
@@ -1402,7 +1756,11 @@ export class UfoManager {
     // Random outcome: a huge explosion that leaves a burnt-out, unusable
     // wreck (likelier for big ships), or an intact ship that can be flown.
     // (u.crashPlan = { exploded, crew } fixes the outcome: for tests.)
-    const exploded = u.crashPlan?.exploded ?? Math.random() < 0.38 + 0.06 * u.S.idx;
+    let exploded = u.crashPlan?.exploded ?? Math.random() < 0.38 + 0.06 * u.S.idx;
+    if (this.forceIntact && u.byPlayer && u.crashPlan?.exploded === undefined) {
+      exploded = false;
+      this.forceIntact = false;
+    }
     const radius = exploded ? Math.min(34, 7 + u.radius * 1.0) : Math.min(15, 3.5 + u.radius * 0.6);
     const at = new THREE.Vector3(u.pos.x, Math.max(floor + 0.5, u.pos.y - bottom * 0.5), u.pos.z);
     fx.explode(at, { radius: water ? Math.min(radius, 12) : radius, source: "ufo_crash" });
@@ -1433,7 +1791,7 @@ export class UfoManager {
     // come out of an exploded wreck too: the survivors.)
     const [lo, hi] = u.S.crew;
     const crew = u.crashPlan?.crew ?? Math.max(1, Math.round(lo + Math.pow(Math.random(), 1.5) * (hi - lo) + (Math.random() < 0.15 ? hi - lo : 0)));
-    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx });
+    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx, kind: u.crashPlan?.crewKind ?? null });
     if (this.onShotDown) this.onShotDown(u, u.byPlayer);
     if (this.onCrash) this.onCrash({ ufo: u, pos: at, exploded, wreck, byPlayer: u.byPlayer, crew: Math.min(10, crew) });
     u.state = "gone";
@@ -1473,7 +1831,7 @@ export class UfoManager {
         if (c.water && top < SEA_LEVEL + 1) continue; // dry land only
         const id = this.world.getBlock(x, top + 1, z);
         if (IS_SOLID[id] || IS_WET[id] || this.world.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
-        const kind = this._crewKind(c.sizeIdx);
+        const kind = c.kind || this._crewKind(c.sizeIdx);
         const m = this.mobs.spawn(kind, x + 0.5, top + 1, z + 0.5);
         if (m) {
           m.ai.target = true;
@@ -1513,13 +1871,13 @@ export class UfoManager {
       u.tilt.x += (THREE.MathUtils.clamp(localV.z / sp, -1, 1) * 0.35 - u.tilt.x) * Math.min(1, dt * 3);
       u.tilt.y += (THREE.MathUtils.clamp(-localV.x / sp, -1, 1) * 0.35 - u.tilt.y) * Math.min(1, dt * 3);
     }
-    const spinning = u.design === "tictac" || u.design === "cigar" || u.design === "triangle";
+    const spinning = u.design === "tictac";
     // Elongated designs point where they go instead of spinning.
     if (spinning && !u.falling && u.vel.lengthSq() > 1) {
       const heading = Math.atan2(-u.vel.x, -u.vel.z) + Math.PI / 2;
       u.yaw += Math.atan2(Math.sin(heading - u.yaw), Math.cos(heading - u.yaw)) * Math.min(1, dt * 3);
     }
-    m.body.rotation.set(u.tilt.x, u.design === "diamond" ? m.body.rotation.y : u.yaw, u.tilt.y, "YXZ");
+    m.body.rotation.set(u.tilt.x, u.yaw, u.tilt.y, "YXZ");
     // Growing in from a dot after appearing far away.
     const grow = u.age >= u.spawnFade ? 1 : 0.12 + 0.88 * (u.age / u.spawnFade) ** 1.5;
     m.body.scale.setScalar(u.radius * grow);
@@ -1548,6 +1906,7 @@ export class UfoManager {
     this.enabled = on;
     if (!on) {
       while (this.ufos.length) this._remove(this.ufos.length - 1);
+      this.trail.clear();
       this.pendingCrews.length = 0;
       this.beamingPlayer = null;
       if (this.audio?.setUfoHum) this.audio.setUfoHum(0, 0);
@@ -1556,6 +1915,7 @@ export class UfoManager {
 
   clear() {
     while (this.ufos.length) this._remove(this.ufos.length - 1);
+    this.trail.clear();
   }
 
   // After a respawn: every UFO loses interest, and none notices the player
@@ -1567,6 +1927,7 @@ export class UfoManager {
       u.hostile = false;
       u.hostileT = 0;
       u.stare = 0;
+      this._stopWeapons(u);
       if (u.state === "attack" || u.state === "react" || u.state === "beam" || u.state === "circle") {
         u.state = "roam";
         u.waypoint = null;

@@ -1,7 +1,9 @@
-// Enemy fighter jets: the aliens' air force. They patrol the sky in a
-// darker paint and leave the player alone (neutral) until the player attacks
-// them, or attacks the UFOs they guard; then they hunt the player, first with
-// missiles from a distance and then with their cannon. They use the same
+// Enemy fighter jets: a hostile air force in a darker paint. They patrol
+// the sky and leave the player alone (neutral) until the player attacks
+// them, or (most of them) attacks the UFOs they guard; then they hunt the
+// player, first with missiles from a distance and then with their cannon.
+// Some pilots are rogues: now and then they go after a UFO on their own,
+// which can help the player (see ROGUE_* below for the limits). They use the same
 // flight model as the player's jet (vehicle-jet.js), flown by a simple
 // autopilot: patrol between waypoints, pursue with lead, evade incoming
 // missiles with flares and a hard break, and pull up before the ground.
@@ -14,6 +16,17 @@ export const ENEMY_JET_DEFAULTS = { count: 1 }; // how many patrol at once (0 = 
 const HOSTILE_TIME = 60; // seconds of anger after the player last attacked a UFO or a jet
 const MISSILE_INTERVAL = 9;
 const MAX_JETS = 3;
+// Damage causes that don't come from the player.
+const NOT_PLAYER = new Set(["ufo_laser", "enemyjet", "enemymissile", "explosion_other", "roguemissile", "crash"]);
+// Rogue pilots: some fighters go after UFOs on their own now and then
+// (they can help the player, but never clear the sky: weaker guns and
+// missiles against UFOs, at most two kills, long pauses, only small to
+// large ships, and the UFOs fight back and dodge).
+const ROGUE_CHANCE = 0.4; // share of fighters that do it at all
+const ROGUE_CANNON = 0.45; // their cannon's damage against UFOs
+const ROGUE_ENGAGE = [35, 55]; // seconds per engagement
+const ROGUE_PAUSE = [60, 120]; // seconds between engagements
+const ROGUE_MAX_KILLS = 2;
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -34,16 +47,22 @@ export class EnemyJet extends Jet {
     this.provoked = 0; // seconds left of anger from being attacked
     this.aiState = "patrol";
     this.ai = { wp: null, wpT: 0, burstT: 0, burstLeft: 0, breakT: 0, breakDir: 1, missileT: 4 + Math.random() * 6, flareLeft: 0, lostT: 0 };
+    // A rogue pilot hunts UFOs on its own now and then.
+    this.rogue = data.rogue ?? Math.random() < ROGUE_CHANCE;
+    this.hunt = { ufo: null, t: 0, pause: 15 + Math.random() * 40, kills: 0, missile: false, checkT: 0 };
     this.throttle = 0.7;
     this.age = 0;
     this.keepWreck = false;
     this.cameraModes = ["chase"];
   }
 
-  // Attacks by the player make it (and its wingmen) hostile.
+  // Attacks by the player make it (and its wingmen) hostile; hits from a
+  // UFO it is fighting (or a stray blast) don't.
   damage(amount, cause = "vehicle", byPlayer = false) {
+    const other = NOT_PLAYER.has(cause);
     const ok = super.damage(amount, cause, byPlayer);
-    if (ok && this.alive) {
+    if (ok && !this.alive && other) this.downedByOther = true;
+    if (ok && this.alive && !other) {
       this.provoked = HOSTILE_TIME;
       this.manager.enemyJets?.provoke(this);
     }
@@ -52,7 +71,7 @@ export class EnemyJet extends Jet {
 
   get cfg() {
     // Slightly slower than the player's jet at the same settings.
-    const base = this.manager.config.jet || { maxSpeed: 220, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
+    const base = this.manager.config.jet || { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
     return { ...base, maxSpeed: Math.min(base.maxSpeed, 260) * 0.9, turnRate: 0.85, accel: base.accel, assist: true, aimAssist: true };
   }
 
@@ -160,6 +179,42 @@ export class EnemyJet extends Jet {
         this._launchMissile({ kind: "player", ref: mgr.player }, { hostile: true });
         mgr.onMessage?.("ENEMY MISSILE LAUNCH!");
       }
+    } else if (this._hunting(dt)) {
+      // Hunting a UFO on its own (a rogue pilot).
+      const u = this.hunt.ufo;
+      const toU = _w.copy(u.pos).sub(this.pos);
+      const ud = toU.length();
+      const speed = Math.max(60, this.speed);
+      const aim = _q2.copy(u.pos).addScaledVector(u.vel, (ud / (speed + 700)) * 0.9).sub(this.pos).normalize();
+      const angle = toU.normalize().angleTo(fwd);
+      wantYaw = Math.atan2(-aim.x, -aim.z);
+      wantPitch = Math.asin(clamp(aim.y, -1, 1));
+      throttle = 1;
+      ab = ud > 450;
+      // Break off before ramming it, come round again.
+      if (ud < 70 + u.radius * 1.5) {
+        wantYaw += 1.2;
+        wantPitch = 0.45;
+      }
+      ai.burstT -= dt;
+      if (ud < 650 && angle < 0.08 && ai.burstT <= 0 && !this.jammed) {
+        ai.burstLeft = 10 + Math.floor(Math.random() * 8);
+        ai.burstT = 2.5 + Math.random() * 2;
+      }
+      if (ai.burstLeft > 0 && this.cannonT <= 0 && !this.jammed) {
+        ai.burstLeft--;
+        this.cannonOwner = "rogue";
+        this.cannonScale = ROGUE_CANNON;
+        this._fireCannon(fwd);
+        this.cannonOwner = "enemyjet";
+        this.cannonScale = 1;
+      }
+      // One missile per engagement, from a distance.
+      if (!this.hunt.missile && ud > 250 && ud < 1200 && angle < 0.4 && this.missileT <= 0) {
+        this.hunt.missile = true;
+        this.missileT = 1;
+        this._launchMissile({ kind: "ufo", ref: u }, { rogue: true });
+      }
     } else {
       // Patrol: waypoints on a wide ring around the player, at altitude.
       ai.wpT -= dt;
@@ -196,8 +251,65 @@ export class EnemyJet extends Jet {
     this._assistStick(stick);
   }
 
-  // The enemy aims at the player, not at UFOs.
+  // Is it hunting a UFO right now? Picks one now and then (rogue pilots
+  // only, never while angry at the player), gives up after a while.
+  _hunting(dt) {
+    const h = this.hunt;
+    const mgr = this.manager;
+    const ufos = mgr.ufos;
+    if (!this.rogue || !ufos || h.kills >= ROGUE_MAX_KILLS) return false;
+    if (h.ufo) {
+      const u = h.ufo;
+      h.t -= dt;
+      const gone = u.falling || u.state === "gone" || u.state === "leave" || !ufos.ufos.includes(u);
+      if (gone || h.t <= 0) {
+        if (u.falling && !u.byPlayer) h.kills++;
+        h.ufo = null;
+        h.pause = ROGUE_PAUSE[0] + Math.random() * (ROGUE_PAUSE[1] - ROGUE_PAUSE[0]);
+        return false;
+      }
+      return true;
+    }
+    h.pause -= dt;
+    h.checkT -= dt;
+    if (h.pause > 0 || h.checkT > 0) return false;
+    h.checkT = 4;
+    // Half the time it just carries on with its patrol.
+    if (Math.random() < 0.5) {
+      h.pause = 20 + Math.random() * 30;
+      return false;
+    }
+    // A UFO it can see, not too big, somewhere the player can see it too.
+    let best = null;
+    let bestD = 1300;
+    const p = mgr.player.position;
+    for (const u of ufos.ufos) {
+      if (u.falling || u.state === "gone" || u.state === "leave" || u.state === "emerge" || u.S.idx > 2 || u.missionTarget || u.raider) continue;
+      if (u.pos.distanceTo(p) > Math.max(400, (mgr.viewRange || 400) * 0.9)) continue;
+      const d = u.pos.distanceTo(this.pos);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    if (!best) return false;
+    h.ufo = best;
+    h.t = ROGUE_ENGAGE[0] + Math.random() * (ROGUE_ENGAGE[1] - ROGUE_ENGAGE[0]);
+    h.missile = false;
+    return true;
+  }
+
+  // The enemy aims at the player, not at UFOs (unless it is hunting one).
   _assistDir(from, fwd, speed) {
+    if (this.hunt?.ufo && this.cannonOwner === "rogue") {
+      const u = this.hunt.ufo;
+      const d = _w.copy(u.pos).sub(from);
+      const dist = d.length();
+      if (dist < 20 || dist > 1100) return fwd.clone();
+      if (d.clone().normalize().angleTo(fwd) > 0.1) return fwd.clone();
+      const aim = u.pos.clone().addScaledVector(u.vel, dist / speed).sub(from).normalize();
+      return fwd.clone().lerp(aim, 0.6).normalize();
+    }
     const P = this._player();
     const d = _w.copy(P.pos).sub(from);
     const dist = d.length();
@@ -210,6 +322,9 @@ export class EnemyJet extends Jet {
   }
 
   onDestroyed(cause) {
+    // A crash counts for the player only while it was hunting them (they
+    // outflew it); anything else not done by the player isn't theirs.
+    if (NOT_PLAYER.has(cause) && !(cause === "crash" && (this.hostile || this.provoked > 0))) this.downedByOther = true;
     super.onDestroyed(cause);
     this.manager.enemyJets?.onDown(this, cause);
   }
@@ -257,7 +372,7 @@ export class EnemyJetManager {
     const y = Math.max(g + 110, 130) + Math.random() * 40;
     // Flying across (tangent), or straight at the player when hostile.
     const yaw = opts.toward ? Math.atan2(-(p.x - x), -(p.z - z)) : Math.atan2(Math.sin(a), -Math.cos(a)) + (Math.random() - 0.5);
-    const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7 });
+    const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7, rogue: opts.hostile ? false : opts.rogue });
     if (jet && opts.hostile) {
       jet.provoked = HOSTILE_TIME;
       this.vehicles.onMessage?.("ENEMY FIGHTER SCRAMBLED! The aliens have an air force.");
@@ -274,12 +389,18 @@ export class EnemyJetManager {
     const jets = this.jets;
     const hostile = this._hostileNow();
     for (const j of jets) {
-      j.hostile = hostile;
+      // Most fighters take the UFOs' side when the player attacks them; a
+      // rogue one only turns on the player when it is attacked itself.
+      j.hostile = hostile && !j.rogue;
       // Far away for good: gone.
       if (j.pos.distanceTo(this.player.position) > 4200) veh.remove(j);
     }
     const max = Math.min(MAX_JETS, Math.round(this.config.count));
-    if (jets.length > max) veh.remove(jets[0]);
+    // (A mission's fighter stays whatever the setting says.)
+    if (jets.length > max) {
+      const extra = jets.find((j) => !j.mission);
+      if (extra) veh.remove(extra);
+    }
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 45 + Math.random() * 60;

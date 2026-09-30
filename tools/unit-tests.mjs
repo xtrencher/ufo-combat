@@ -540,8 +540,9 @@ await test("biome surface materials: snow on cold ground, sand in deserts, terra
   // generate its chunk and check the actual placed surface block.
   const want = [BIOME.SNOWY_PLAINS, BIOME.DESERT, BIOME.BADLANDS, BIOME.WARM_OCEAN];
   const found = {};
-  for (let x = -1400; x <= 1400 && Object.keys(found).length < want.length; x += 8) {
-    for (let z = -1400; z <= 1400 && Object.keys(found).length < want.length; z += 8) {
+  // (Biomes are big since Round 3: search a wide area.)
+  for (let x = -5000; x <= 5000 && Object.keys(found).length < want.length; x += 24) {
+    for (let z = -5000; z <= 5000 && Object.keys(found).length < want.length; z += 24) {
       const biome = gen.biomeAt(x, z);
       if (want.includes(biome) && !found[biome]) found[biome] = [x, z];
     }
@@ -669,6 +670,47 @@ await test("new players start on the ground, never on top of a tree", async () =
   }
   console.log(`        120 worlds, ${moved} spawns moved to the side of a tree`);
   assert.ok(moved > 0, "some spawns should have needed moving off a tree");
+});
+
+await test("world scale (Round 3): a 128-tall world, big oceans, mountain ranges far above the sea, big biomes", async () => {
+  const { BIOME } = await import("../js/biomes.js");
+  assert.equal(WORLD_HEIGHT, 128);
+  for (const seed of [42, 2024]) {
+    const gen = new TerrainGenerator(seed);
+    let n = 0;
+    let ocean = 0;
+    let high = 0;
+    let max = 0;
+    for (let x = -3000; x <= 3000; x += 50) for (let z = -3000; z <= 3000; z += 50) {
+      const h = gen.heightAt(x, z);
+      n++;
+      if (h < SEA_LEVEL) ocean++;
+      if (h > SEA_LEVEL + 60) high++;
+      max = Math.max(max, h);
+    }
+    // Biome size: average run of the same biome along lines, in blocks.
+    // (Beaches and rivers are thin bands, not regions: skipped; the oceans count as one.)
+    let runs = 0;
+    let changes = 0;
+    const cls = (b) => (b === BIOME.OCEAN || b === BIOME.DEEP_OCEAN || b === BIOME.WARM_OCEAN ? -1 : b);
+    for (let z = -3000; z <= 3000; z += 600) {
+      let last = null;
+      for (let x = -3000; x <= 3000; x += 8) {
+        const b = gen.biomeAt(x, z);
+        if (b === BIOME.BEACH || b === BIOME.RIVER) continue;
+        if (cls(b) !== last) changes++;
+        last = cls(b);
+        runs++;
+      }
+    }
+    const avgRun = (runs / changes) * 8;
+    console.log(`        seed ${seed}: ocean ${((ocean / n) * 100).toFixed(0)}%, peaks up to ${max}, ${((high / n) * 100).toFixed(1)}% over ${SEA_LEVEL + 60}, biome runs ~${Math.round(avgRun)} blocks`);
+    assert.ok(ocean / n > 0.3 && ocean / n < 0.7, `big seas: ${ocean / n}`);
+    assert.ok(max > 105 && max <= WORLD_HEIGHT - 2, `mountains far above the sea, inside the world: ${max}`);
+    assert.ok(high / n > 0.01, `mountain ranges, not single peaks: ${high / n}`);
+    assert.ok(avgRun > 120, `big biomes: ${avgRun}`);
+    assert.ok(BIOME.MOUNTAINS !== undefined);
+  }
 });
 
 await test("terrain generation is fast enough to stream (< 3 ms per chunk)", () => {
@@ -970,10 +1012,14 @@ console.log("\nDistant terrain (lod-mesher.js)");
           // A cave opened the surface, or a tree/plant stands here: skip.
           if (id === 0 || IS_LOG[above] || IS_LEAVES[above]) continue;
         }
+        // A swamp puddle (one water block sunk into the ground) is too small for distant terrain.
+        if (id === BLOCK.WATER) continue;
         const s = {};
         lt.sample(wx, wz, s, 0);
         checked++;
-        if (s.top !== h + 1 || s.id !== id) bad++;
+        if (s.top !== h + 1 || s.id !== id) {
+          bad++;
+        }
       }
     }
     assert.ok(checked > 800, `columns compared: ${checked}`);
@@ -1281,35 +1327,48 @@ console.log("\nProgression (progression.js)");
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain advances as the stats do, rewards fire, and it survives save/load", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, ufosBoarded: 0, jetsCalled: 0, enemyJetsDown: 0, ufosDownBig: 0 };
+  await test("the mission chain (15 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
+    assert.equal(MISSIONS.length, 15);
     assert.equal(p.mission.id, "first_contact");
-    stats.ufosDown = 1;
-    p.update(stats);
-    assert.equal(done.length, 0, "needs the aliens too");
     stats.aliensKilled = 2;
     p.update(stats);
+    assert.equal(done.length, 0, "the scout first");
+    stats.ufosDown = 1;
+    p.update(stats);
     assert.deepEqual(done, ["first_contact"]);
-    assert.equal(p.mission.id, "salvage");
-    assert.equal(p.objectives(stats)[0].value, 0, "the next mission counts from now");
+    assert.equal(p.mission.id, "crew");
+    assert.equal(p.objectives(stats)[0].value, 0, "the next mission counts from now (the earlier kills don't count)");
+    stats.aliensKilled = 4;
+    p.update(stats);
+    assert.equal(p.mission.id, "supply");
     const saved = JSON.parse(JSON.stringify(p.serialize()));
     const q = new Progress();
     q.load(saved, stats);
-    assert.equal(q.mission.id, "salvage");
-    stats.ufosBoarded = 1;
+    assert.equal(q.mission.id, "supply");
+    stats.cratesOpened = 1;
     q.update(stats);
-    assert.equal(q.mission.id, "wings");
+    assert.equal(q.mission.id, "long_night");
+    // Rules grow harder along the chain; early UFOs are small and weak.
+    assert.deepEqual(Object.keys(MISSIONS[0].rules.sizes), ["small"]);
+    assert.ok(MISSIONS[0].rules.health < 0.7 && MISSIONS[0].rules.damage < 0.7);
+    for (let i = 1; i < MISSIONS.length; i++) assert.ok(MISSIONS[i].rules.health >= MISSIONS[i - 1].rules.health && MISSIONS[i].tier >= MISSIONS[i - 1].tier, `mission ${i + 1} is no easier than ${i}`);
     // Everything through to the end.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       for (const k of Object.keys(stats)) stats[k] += 50; // (each mission counts from when it starts)
       q.update(stats);
     }
     assert.equal(q.mission, null);
     assert.equal(q.completed, MISSIONS.length);
+    assert.equal(q.list(stats).filter((m) => m.state === "done").length, MISSIONS.length);
+    // A Round 2 save (7 old missions, 3 done) carries over.
+    const old = new Progress();
+    old.load({ step: 3, base: {}, done: ["first_contact", "salvage", "wings"] }, stats);
+    assert.ok(old.step >= 5 && old.mission, `old progress kept: ${old.step}`);
   });
 
   await test("loot gets better with the tier: no heavy weapons early, and never a weapon you already own", () => {

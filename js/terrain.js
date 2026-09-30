@@ -1,7 +1,7 @@
-// Procedural terrain generation (pure JS, no three.js). The height map and
-// tree placement are unchanged from the first version of the game, so a
-// given seed still produces the same landscape (and shared seed links keep
-// working); newer features (caves, ores, plants) only add to it.
+// Procedural terrain generation (pure JS, no three.js). A seed always
+// produces the same landscape, so shared seed links work. (Round 3 rescaled
+// the world: taller, bigger continents, oceans, mountain ranges and biomes,
+// so a seed's landscape differs from earlier versions.)
 import { Noise, hash2, mulberry32 } from "./noise.js";
 import { TreeGrower } from "./trees.js";
 import { BLOCK } from "./blocks.js";
@@ -17,31 +17,32 @@ const SWAMP_SALT = 0x7a2f19c3;
 const DESERT_SALT = 0x1e5f9b4a;
 const REEF_SALT = 0x3c8de061;
 
-// Large-scale shape of the world: big continents (vs. big oceans), broad
-// mountain ranges (a masked, ridged field so ranges are localized rather
-// than everywhere), and winding rivers (a thin band where a low-frequency
-// noise field crosses near zero).
-const CONTINENT_FREQ = 1 / 1100;
-const CONTINENT_AMP = 30;
-const MOUNTAIN_MASK_FREQ = 1 / 450;
-const MOUNTAIN_MASK_LO = 0.12;
-const MOUNTAIN_MASK_HI = 0.47;
-const MOUNTAIN_RIDGE_FREQ = 1 / 130;
-const MOUNTAIN_AMP = 50;
-const RIVER_FREQ = 1 / 240;
-const RIVER_WIDTH = 0.05;
-export const SNOW_LINE = 58; // mountain peaks above this height are snow-capped
-export const BARE_ROCK_LINE = 44; // mountain slopes above this are exposed stone
-// The world is WORLD_HEIGHT blocks tall, but the raw height field reaches ~100
-// in big mountain ranges. Cutting that off at the top of the world made flat
-// stone plateaus in the full-detail chunks while the distant (LOD) terrain,
-// sampled from the same field, still drew the full peaks, so a mountain seen
-// from far away changed shape (or lost its top) when you flew closer. Heights
-// above SOFT_CAP_START are now smoothly compressed toward the world's ceiling
-// instead (slope 1 at the start, flattening gently), so peaks keep their
-// shape, and the height every system samples is already inside the world.
-const SOFT_CAP_START = 40;
-const SOFT_CAP_RANGE = 22; // asymptote: SOFT_CAP_START + SOFT_CAP_RANGE (62)
+// Large-scale shape of the world (Round 3: at the scale of classic block
+// games): continents and oceans thousands of blocks across, long mountain
+// ranges rising up to ~100 blocks above the sea (a masked, ridged field, so
+// ranges are localized: wide lowlands between them), and winding rivers (a
+// thin band where a low-frequency noise field crosses near zero).
+const CONTINENT_FREQ = 1 / 2600;
+const CONTINENT_AMP = 36;
+const MOUNTAIN_MASK_FREQ = 1 / 1000;
+const MOUNTAIN_MASK_LO = 0.06;
+const MOUNTAIN_MASK_HI = 0.36;
+const MOUNTAIN_RIDGE_FREQ = 1 / 260;
+const MOUNTAIN_PEAK_FREQ = 1 / 75;
+const MOUNTAIN_AMP = 78;
+const RIVER_FREQ = 1 / 420;
+const RIVER_WIDTH = 0.045;
+export const SNOW_LINE = 92; // mountain peaks above this height are snow-capped
+export const BARE_ROCK_LINE = 68; // mountain slopes above this are exposed stone
+// The raw height field can overshoot the top of the world in the biggest
+// ranges. Cutting it off there made flat stone plateaus in the full-detail
+// chunks while the distant (LOD) terrain, sampled from the same field, still
+// drew the full peaks, so a mountain changed shape when you flew closer.
+// Heights above SOFT_CAP_START are smoothly compressed toward the world's
+// ceiling instead (slope 1 at the start, flattening gently), so peaks keep
+// their shape, and the height every system samples is inside the world.
+const SOFT_CAP_START = 96;
+const SOFT_CAP_RANGE = 26; // asymptote: SOFT_CAP_START + SOFT_CAP_RANGE (122)
 
 // The block that tops a land column of biome `biome` at height `h`, and the
 // block just below it. One function for chunk generation and for the distant
@@ -107,26 +108,36 @@ export class TerrainGenerator {
   // The natural terrain, before airports and cities flatten their pads.
   _baseInfo(wx, wz) {
     const n = this.noise;
-    const continent = n.fbm2(wx, wz, 3, 0.5, 2, CONTINENT_FREQ);
+    const continent = n.fbm2(wx, wz, 4, 0.5, 2, CONTINENT_FREQ);
     const detail = n.fbm2(wx, wz, 4, 0.5, 2, 1 / 80);
-    const mask = n.fbm2(wx + 500, wz - 500, 2, 0.5, 2, MOUNTAIN_MASK_FREQ);
-    const mountainT = Math.max(0, Math.min(1, (mask - MOUNTAIN_MASK_LO) / (MOUNTAIN_MASK_HI - MOUNTAIN_MASK_LO)));
-    let ridged = 0;
+    // Mountain ranges only on land, fading out toward the coast.
+    const mask = n.fbm2(wx + 500, wz - 500, 3, 0.5, 2, MOUNTAIN_MASK_FREQ);
+    const land = Math.max(0, Math.min(1, (continent + 0.02) / 0.14));
+    const mountainT = Math.max(0, Math.min(1, (mask - MOUNTAIN_MASK_LO) / (MOUNTAIN_MASK_HI - MOUNTAIN_MASK_LO))) * land;
+    let mountains = 0;
     if (mountainT > 0) {
-      const r = n.fbm2(wx + 1000, wz + 1000, 3, 0.5, 2, MOUNTAIN_RIDGE_FREQ);
-      ridged = Math.pow(1 - Math.abs(r), 1.6);
+      // Long ridges (ridged noise: sharp crests, broad valleys), with
+      // smaller peaks and gullies along them.
+      const r = n.fbm2(wx + 1000, wz + 1000, 4, 0.5, 2, MOUNTAIN_RIDGE_FREQ);
+      const ridged = Math.pow(1 - Math.abs(r), 1.8);
+      const peaks = n.fbm2(wx - 3000, wz + 700, 3, 0.5, 2, MOUNTAIN_PEAK_FREQ);
+      mountains = mountainT * (ridged * MOUNTAIN_AMP * (0.55 + 0.45 * mountainT) + ridged * peaks * 16 + mountainT * 8);
     }
-    let height = BASE_HEIGHT + continent * CONTINENT_AMP + detail * AMPLITUDE + ridged * mountainT * MOUNTAIN_AMP;
+    // The coast: a quick step from the sea floor up to the land (a tanh
+    // across the coastline), so shores are beaches, not wide marshy flats.
+    // Detail hills are gentler out at sea, fuller on land.
+    const coast = 6 * Math.tanh(continent * 22);
+    let height = BASE_HEIGHT + continent * CONTINENT_AMP + coast + detail * AMPLITUDE * (0.55 + 0.45 * land) + mountains;
     if (height > SOFT_CAP_START) height = SOFT_CAP_START + SOFT_CAP_RANGE * Math.tanh((height - SOFT_CAP_START) / (SOFT_CAP_RANGE + 2));
     const riverN = n.fbm2(wx - 2000, wz + 2000, 2, 0.5, 2, RIVER_FREQ);
     const riverBand = 1 - Math.abs(riverN);
     let river = false;
-    if (riverBand > 1 - RIVER_WIDTH && continent > -0.1 && mountainT < 0.35) {
+    if (riverBand > 1 - RIVER_WIDTH && continent > -0.02 && mountainT < 0.3) {
       river = true;
       const k = Math.min(1, (riverBand - (1 - RIVER_WIDTH)) / RIVER_WIDTH);
       height = height * (1 - k) + (SEA_LEVEL - 3) * k;
     }
-    return { height: Math.floor(height), mountainT, river };
+    return { height: Math.floor(Math.max(3, height)), mountainT, river };
   }
 
   heightAt(wx, wz) {
@@ -148,9 +159,12 @@ export class TerrainGenerator {
     let bz = 0;
     // Continents are now large (see CONTINENT_FREQ), so a coarse search needs
     // real range to escape starting inside a big ocean.
-    for (let i = 0; i < 80 && this.heightAt(bx, bz) <= SEA_LEVEL + 1; i++) {
-      bx += 24;
-      bz += 16;
+    // (Oceans can be thousands of blocks across: spiral out until land.)
+    for (let i = 0; i < 400 && this.heightAt(bx, bz) <= SEA_LEVEL + 1; i++) {
+      const a = i * 0.5;
+      const r = 40 + i * 18;
+      bx = Math.round(Math.cos(a) * r);
+      bz = Math.round(Math.sin(a) * r);
     }
     for (let r = 0; r <= 16; r++) {
       for (let dz = -r; dz <= r; dz++) {

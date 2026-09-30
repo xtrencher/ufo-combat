@@ -35,11 +35,13 @@ Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
 Settings, Mods, Stats, Controls, Copy world link, Save & main menu).
 
 - **Survival:** you start with a **pistol** only, at 17:50 (the golden hour
-  before sunset). There is no crafting: better weapons and tools come from
-  shooting UFOs and their alien crews, **supply crates** that drop by
-  parachute with orange smoke, and a chain of **missions** (see below). Watch
-  your hearts: falls, drowning, zombies, aliens and your own grenades and
-  rockets can all kill you.
+  before sunset), and a chain of fifteen **missions** (see below) that starts
+  with one small scout UFO and ends with nuking an alien base. There is no
+  crafting: better weapons and tools come from mission rewards, shooting UFOs
+  and their alien crews, and **supply crates** that drop by parachute with
+  orange smoke. Your fighter jet joins with mission 8. Watch your hearts:
+  falls, drowning, zombies, aliens and your own grenades and rockets can all
+  kill you.
 - **Creative:** every weapon in your hotbar and inventory, every block and
   item in the tabbed **E** palette, instant mining, flight, and no damage.
 
@@ -66,7 +68,7 @@ mode, your position, inventory and health.
 | Pause menu | `Esc` (also steps back out of any menu screen) |
 | Board / leave a vehicle (Mods on) | `F` |
 | Stats and controls of the vehicle you are in | `I` |
-| Call your fighter jet (Mods on) | `J` |
+| Call your fighter jet (Mods on; in Survival from mission 8) | `J` |
 | Hide the HUD / debug info / camera view | `F1` / `F3` / `F5` |
 
 Pressing both mouse buttons together never mines, places or fires: a single
@@ -97,11 +99,33 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 
 ### Missions, loot and supply crates (Survival)
 
-- **Missions:** a short chain, shown top right: *First contact* (shoot down a
-  UFO, then kill the aliens that climb out), *Salvage* (board a crashed UFO),
-  *Take to the air* (call your jet), *Clean the skies* (five UFOs), *Air
-  superiority* (shoot down an enemy jet), *Giant killer* (a mothership or a
-  giant) and *UFO slayer*. Each gives a reward (weapons, golden apples).
+- **Missions:** fifteen of them, one after another, shown top right with a
+  progress bar per objective, the target's distance and direction, and a
+  yellow **marker** over the target (an arrow at the screen's edge when it is
+  behind you). **Esc > Missions** lists them all with their rewards.
+
+  | # | Mission | What to do | Reward |
+  | --- | --- | --- | --- |
+  | 1 | First contact | Shoot down a small scout UFO with your pistol | Grenade, stone sword, food |
+  | 2 | The crew | Kill the two aliens that climb out of the wreck | Machine gun |
+  | 3 | Supply drop | Open the supply crate dropped for you | Iron sword |
+  | 4 | The long night | Survive a night, dusk to dawn, without dying | Laser blaster |
+  | 5 | Salvage | The next UFO you down lands intact: board it | Energy shield |
+  | 6 | Scout hunter | Shoot down three UFOs | Sniper rifle |
+  | 7 | Alien squad | Wipe out a landed squad of six aliens | Bazooka |
+  | 8 | Take to the air | Call your jet and take off | Jet Radio |
+  | 9 | Dogfight | Shoot down two UFOs from the jet | Airstrike designator |
+  | 10 | Air superiority | Shoot down the enemy fighter hunting you | Laser minigun |
+  | 11 | Village under attack | Shoot down three raiders burning a village (5 minutes) | Diamond sword and pickaxe |
+  | 12 | Big game | Bring down a large UFO | Railgun |
+  | 13 | Mothership | Destroy a mothership and its escort | Golden apples |
+  | 14 | Operation Sunburn | Nuke the airport the aliens turned into a base | Golden apples |
+  | 15 | UFO slayer | Shoot down twenty-five more | Golden apples |
+
+  Each mission also sets the sky: at first only a few small, weak UFOs
+  (early ones go down to a pistol), then medium, large, motherships and, at
+  the very end, giants, with health, damage, aggression and numbers growing
+  along the chain. Your UFO settings still apply on top.
 - **Loot:** downed UFOs and fallen aliens drop items, and the better the
   more you have done: green aliens drop food and basic gear, gray ones more,
   red elites the best; big UFOs drop several items. Weapons you already own
@@ -109,9 +133,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 - **Supply crates:** every few minutes a crate drifts down on a parachute
   near you, trailing orange smoke (the tracker shows how far it is). Walk up
   to it: a weapon you don't have yet, golden apples, maybe a shield or a tool.
-- **Difficulty curve:** the sky starts gentle (small saucers, mostly
-  peaceful) and grows tougher with your progress: more and bigger UFOs, up to
-  football-field giants, and angrier ones.
+- **Difficulty curve:** follows the missions (see above).
 
 ### Creatures
 
@@ -184,26 +206,35 @@ blown away.
 
 ## UFOs (Mods on)
 
-UFOs roam the skies anywhere from treetop height to high overhead. **Classic
-flying saucers are the most common**, in many variations: detailed hulls with
-panels, rims and portholes, or perfectly smooth minimal ones, tall-dome
-saucers, dark ones, glowing ones that light up at night. There are also
-spheres (a pure smooth ball too), orbs, tic-tacs, pyramids, black triangles,
-cigars, rings, spinning diamonds and a cube inside a sphere, each with its
-own blinking or color-cycling lights. Sizes run from small scouts through
-large ships and motherships to **giants as big as a football field**. They
+UFOs roam the skies anywhere from treetop height to high overhead. They are
+**plain, clean shapes** (they look real because they are simple: no
+lights, panels or portholes): **smooth saucers** are the most common (lens,
+flat disc and gently domed, each with its own proportions), then **gray-black
+spheres** with a grainy surface, **white tic-tacs**, **tori** (rings), rounded
+**cubes** and square **cube-rings**. Finishes vary: brushed metal, satin,
+glossy, matte. A few glow faintly (a soft light at night); a UFO that has
+been shot down never glows again. Sizes run from small scouts through large
+ships and motherships to **giants as big as a football field**. They
 arrive from far away (never popping up in plain sight: the spawn distance
 follows how far you can see), and there are far more of them at night.
 
 - **Mostly peaceful:** UFOs drift around, hover over lakes, zig-zag, follow
-  animals, beam up a cow, **blink** to a spot nearby, **dive into mountains
-  and under the sea** and come out elsewhere, or shoot off into the sky.
+  animals, beam up a cow, **dash** to a spot nearby (a streak across the sky
+  in a split second, no light: sometimes on their own, often when you shoot
+  at them or a missile closes in), **dive into mountains and under the sea**
+  and come out elsewhere, or shoot off into the sky.
   They turn **hostile** when you shoot them, when you **stare** at one for
   too long, and now and then on their own mood. At most **four** attack you
   at once; the rest circle and wait.
-- **Varied attacks** (each UFO has its style and laser colour): single
-  volleys, three-shot bursts, heavy plasma balls, **seeking shots** that home
-  in on a vehicle (fool them with flares), and beam-and-abduct runs.
+- **Different ships fight differently**, each style with its own colour and
+  sound: **rapid bursts** of five cyan bolts (tic-tacs, saucers), **slow
+  heavy** orange balls that explode (spheres, cubes), **spread** fans of
+  magenta bolts (saucers, rings), **charged shots** (the ship glows up for a
+  second with a rising whine, then one very fast white bolt: move!),
+  **sweeping beams** (a red laser whose end runs across the ground through
+  you: step off its line), **seeking** lime plasma against vehicles (fool it
+  with flares), and beam-and-abduct runs. A shot that reaches you always
+  hurts; standing still gets you hit, moving out of the way doesn't.
 - **On foot:** a hostile UFO races over, stops above you and lifts you in a
   cone of blue light. Reach the ship and you're **abducted**. Get out of the
   light (you can still move), hide under a roof, or shoot it down. After you
@@ -219,8 +250,8 @@ follows how far you can see), and there are far more of them at night.
 - **In your jet** each UFO has a personality: most flee (a bit slower than
   the jet at full throttle, so you can catch them), some are faster and get
   away, and fighters attack you with lasers and head-on passes.
-- **Enemy jets** (below) patrol the sky in a darker paint and take the UFOs'
-  side once you attack them.
+- **Enemy jets** (below) patrol the sky in a darker paint. Most take the UFOs'
+  side once you attack them; some rogue pilots go after UFOs on their own.
 
 **Settings > UFOs:** one **UFO activity** slider from Off and Very rare up to
 **UFO APOCALYPSE**, and **Advanced** options: spawn chance, max count,
@@ -257,31 +288,35 @@ moves instantly in any direction.
 | Boost (3x) | `Ctrl` |
 | Laser cannon (big ships fire several barrels, all aimed at the crosshair) | Left click |
 | Tractor beam (lifts creatures, and loose blocks, into the ship) | Hold right click |
-| **Teleport dash**: a bright streak, then you are there | `R` |
+| **Teleport dash**: the ship streaks along the view at extreme speed (a split second; distance, travel time or off in Settings > Vehicles; shown in the I panel) | `R` |
 | **Superweapon**: after a short charge, a huge laser straight down that burns a shaft through the ground | `B` |
 | Chase camera / far / belly view | `F5` |
 | Stats and controls | `I` |
 
 **Settings > Vehicles:** top and slowest speed, **ghost mode** (fly through
-the terrain, burning a tunnel), and whether the beam lifts blocks. Creatures
+the terrain, burning a tunnel), whether the beam lifts blocks, and the
+**teleport dash** distance (Off, 0.5x-3x) and travel time (0.08-0.6 s). Creatures
 you beam up are "stored": their drops go to your inventory, as do the blocks.
 
 ### Fighter jet
 
 Press **J** (or right click with the **Jet Radio**) to call in your F-22
-style stealth fighter (a detailed model with folding landing gear, wingtip
-lights and a layered afterburner). It lands on the **runway of a nearby
+style stealth fighter (in Survival from mission 8; always in Creative): a
+detailed model (canopy frame, pilot, probes, folding landing gear, a layered
+afterburner) in a satin grey paint with panel lines and a subtle two-tone
+livery that catches the sun and the moon, so it is clearly visible at night.
+Its navigation, strobe and formation lights switch on only at night. It lands on the **runway of a nearby
 airport** if there is one, or on any flat strip, or, if there's no flat ground
 around (or **Settings > Vehicles > Called-in jet arrives airborne** is on),
 it arrives in the air with you already in the cockpit. Airports also have
 fighters parked in front of the hangars: walk up and press **F**.
 
-It flies like a jet: thrust from the throttle (and the afterburner), lift
-that needs airspeed, drag, gravity, and a stall below the stall speed (the
-nose drops). It can't hover. **Takeoff is a real ground roll**: full
-throttle, about 100 blocks on the wheels (60 with the afterburner), the nose
-rises at flying speed (flight assist does it for you), the wheels leave the
-ground and fold away. Land gently, level and wheels first, gear down. Hitting
+It flies like a jet (the flight model of the first UFO COMBAT build): thrust
+from the throttle (and the afterburner), lift that needs airspeed, drag,
+gravity, and a stall below the stall speed (the nose drops). It can't hover.
+**Takeoff is a real ground roll**: full throttle, about 130 blocks on the
+wheels (less with the afterburner), the nose rises at flying speed (flight
+assist does it for you), the wheels leave the ground and fold away. Land gently, level and wheels first, gear down. Hitting
 the ground any other way destroys it, and you with it, unless you **eject**
 (F in the air: the seat fires you out and a parachute opens).
 
@@ -294,7 +329,7 @@ the ground any other way destroys it, and you with it, unless you **eject**
 | Rudder (yaw) | `Q` / `E` |
 | Air brake / wheel brakes | `Space` |
 | Autocannon (tracers) | Left click (aims a little for you; **overheats** after about two seconds: watch the heat bar) |
-| **Missile lock** | **Hold** right click: the target nearest the middle of your view (even behind you) is locked, the camera turns to look at it. Release after **1 s** for one missile, after **3 s** for a **salvo of four**. A missile at a target behind you turns around. A quick tap fires an unguided one |
+| **Missile lock** | **Hold** right click: the target nearest the middle of your view (even behind you) is locked, the camera turns to look at it. Release after **1 s** for one missile, after **3 s** for a **salvo of four**. A missile at a target behind you turns around. Let go before LOCKED and nothing fires: the camera just turns back |
 | **Flares** | `C` (a burst of decoys; they fool missiles and seeking shots, which may even turn on whoever fired them) |
 | Nuclear bomb | `B` (it drops on a parachute: get clear! No cooldown) |
 | Chase / cockpit view | `F5` |
@@ -308,14 +343,18 @@ INCOMING** with a red arrow around the crosshair pointing at where it comes
 from and a beeping that speeds up as it closes in. Missiles have a limited
 turn rate: **sharp turns (and flares) make them miss**. With flight assist
 off, the mouse is the stick (up/down pitch, left/right roll). **Settings >
-Vehicles:** top speed up to 2500 km/h (default about 800), acceleration, turn
+Vehicles:** top speed up to 2500 km/h (default about 580), acceleration, turn
 rate, stall speed, flight assist, cannon aim assist, enemy jets, and whether
 the jet arrives airborne.
 
-**Enemy jets:** aliens have fighters too. They patrol high up, **neutral**,
-until you attack them or shoot at UFOs: then they hunt you, first with
-missiles from a distance and then with their cannon, drop flares and break
-away from your missiles. Shoot one down for good loot. **Settings >
+**Enemy jets:** there are hostile fighters too. They patrol high up,
+**neutral**, until you attack them or (most of them) shoot at UFOs: then they
+hunt you, first with missiles from a distance and then with their cannon,
+drop flares and break away from your missiles. Shoot one down for good loot.
+Some are **rogue pilots** that now and then attack a UFO on their own (the
+UFO fights back and dodges): handy, but they never clear the sky for you
+(weaker against UFOs, long pauses, at most two kills, and their kills don't
+count as yours). **Settings >
 Vehicles:** how many patrol at once (0-3, default 1).
 
 **The nuke** goes off with a blinding white flash, a fireball, a shockwave
@@ -369,42 +408,53 @@ every preset shows drifting particles.
 | Potato | old laptops | Low | 7 chunks | 3 full-detail chunks, coarse far terrain, 70% resolution, few particles |
 | Balanced | most PCs | Medium | 12 chunks | preset detail, medium far terrain and effects |
 | Beautiful | gaming PCs | High | 20 chunks | fine far terrain, full effects |
-| Max | high-end GPUs | Ultra | 32 chunks | 10 full-detail chunks, finest far terrain |
+| Max | high-end GPUs | Ultra | 32 chunks | 10 full-detail chunks, fine far terrain |
+| Extreme | powerful PCs | Ultra | 72 chunks | 14 full-detail chunks, the finest far terrain |
 
-and the individual controls: **full-detail distance** (chunks drawn in
-full detail; Auto uses the preset's), **far terrain (LOD) quality**,
-**resolution scale** (50-100%) and **effects detail** (particles).
+and the individual controls: **full-detail distance** (up to 24 chunks;
+Auto uses the preset's), **far terrain (LOD) quality** (up to Extreme),
+**resolution scale** (50-200%: above 100% supersamples) and **effects
+detail** (particles).
 
-**Render distance** (Settings > Graphics) goes up to 100 chunks (default
-10). The area around you is drawn in full detail, and the land beyond it in
+**Render distance** (Settings > Graphics) goes up to 256 chunks, about 4 km
+(default 10). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
 
 ## Settings reference
 
 Settings (main menu or pause menu) are grouped in tabs; each tab has a
-**Reset to defaults** button for just that group, and everything is saved
-in the browser.
+**Reset to defaults** button for just that group. Every change is saved in
+the browser at once (no Save button) and comes back exactly the same after a
+reload or a later visit: one versioned settings object, read before anything
+else is applied, so your values always win over defaults and presets. A
+graphics preset sets the individual graphics options (you can change them
+afterwards; they are kept), and keeps a render distance you set yourself.
+The settings keep a reserved slot in the browser's storage, so even a storage
+filled up by big world saves can't stop them from being saved.
 
 | Tab | Settings (default) |
 | --- | --- |
-| Graphics | Render distance 2-100 chunks (10), graphics preset Low / Medium / High / **Ultra** with individual options, show FPS (on) |
-| Performance | One-click presets Potato / Balanced / Beautiful / Max; full-detail distance (Auto), far terrain quality (Medium), resolution scale 50-100% (100%), effects detail (High) |
+| Graphics | Render distance 2-256 chunks (10), graphics preset Low / Medium / High / **Ultra** with individual options, show FPS (on) |
+| Performance | One-click presets Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto), far terrain quality Low-Extreme (Medium), resolution scale 50-200% (100%), effects detail (High) |
 | Controls | Field of view 50-110 (75), mouse sensitivity (1x), invert Y (off), binocular zoom 2-12x (6x) |
 | Audio | Master, blocks and footsteps, weapons and explosions, creatures, player, menus |
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, creatures spawn (on), time of day and lock, stats on the HUD (off) |
 | Weapons | Grenade and bazooka blast size (1x), laser blaster color Red / Green / Blue (Red); airstrike: meteors per strike 1-40 (7), spread 0-80 (22), delay 1-20 s (5 s), fall angle 0-70 degrees (35), fall speed 30-250 (95), meteor blast size (1x); nuke size 12-96 (44), nuke effects intensity Low / Medium / **High** |
 | Mobs | Zombie spawn rate Off to APOCALYPSE (1x), max zombies 0-400 (8), zombie health and damage 0.25-5x (1x), daylight zombies (off) |
 | UFOs | UFO activity Off to UFO APOCALYPSE (Normal); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
-| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), jet flight assist (on), jet arrives airborne (off), jet top speed 288-2520 km/h (792), cannon aim assist (on), enemy jets 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
+| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on), jet arrives airborne (off), jet top speed 288-2520 km/h (576), cannon aim assist (on), enemy jets 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
 
 Heavy values show a short performance note next to the slider (for example
 hundreds of zombies, or a long full-detail distance).
 
 ## The world
 
-Rolling hills, beaches and lakes, with caves, ores and glowing crystals
-underground. Forests and meadows alternate: oaks with irregular crowns and
+A world at the scale of classic block games, 128 blocks tall: continents
+and big oceans, long **mountain ranges** rising a hundred blocks above the
+sea with bare rock and snowy peaks, rivers, and big biomes (forests, plains,
+taigas, snowy lands, deserts, savannas, jungles, swamps, badlands), with
+caves, ores and glowing crystals underground. Forests and meadows alternate: oaks with irregular crowns and
 branches, pale birch groves, dark pine woods on the hills, and rare huge old
 oaks with roots spreading over the ground. On High and Ultra the ground
 comes alive with grass, reeds along the water, ferns in the shade of trees,
@@ -490,10 +540,18 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has four test suites (`cd tools && npm install && npm test`; the
+`/tools` has six test suites (`cd tools && npm install && npm test`; the
 browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
 environment variable):
 
+- `round3-tests.mjs`: the Round 3 features in the real game: UFO shots that
+  always hurt, attack styles, the UFO redesign, dashes, rogue fighters, the
+  jet's paint and night lights, the world and graphics limits, and the
+  mission chain. About 5 minutes.
+- `settings-tests.mjs`: every setting in every tab changed through the
+  menus, then a reload: all values restored and applied; presets vs. later
+  changes, corrupted or missing data, a full browser storage, two open tabs,
+  a lost graphics context. About 5 minutes.
 - `unit-tests.mjs`: fast Node tests of the pure logic (save format, the
   voxel light engine against a brute-force reference, terrain, caves, trees
   and water, mining rules, inventory, collision, explosion falloff,

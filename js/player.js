@@ -221,7 +221,7 @@ export class Player {
 
   // Deals damage in half-hearts. Returns true if it was applied (creative
   // players, the dead and the briefly invulnerable take none).
-  damage(amount, cause, { pierce = false } = {}) {
+  damage(amount, cause, { pierce = false, projectile = false } = {}) {
     // In a vehicle, hits land on the vehicle instead (unless `pierce`: the
     // vehicle itself was destroyed with the pilot inside).
     if (this.vehicle && !pierce) {
@@ -238,14 +238,19 @@ export class Player {
       if (amount <= 0) return false;
     }
     // Right after a hit only a stronger hit counts (and only its excess).
+    // (Projectiles, a UFO's or an alien's shots, always count in full: each
+    // one that reaches you hurts, bursts included.)
     let applied = amount;
-    if (this._invulnerable > 0) {
+    if (projectile) {
+      // no grace time
+    } else if (this._invulnerable > 0) {
       if (amount <= this._lastDamage) return false;
       applied = amount - this._lastDamage;
+      this._lastDamage = amount;
     } else {
       this._invulnerable = INVULNERABLE_TIME;
+      this._lastDamage = amount;
     }
-    this._lastDamage = amount;
     if (this.absorption > 0) {
       const soak = Math.min(this.absorption, applied);
       this.absorption -= soak;

@@ -358,6 +358,12 @@ async function arena(y = 60) {
     if (g.vehicles.active) g.vehicles.exit();
     g.vehicles.parachute.close(g.player);
     g.setMode("survival");
+    // (Round 3: these checks test the UFO features on their own, without the
+    // mission chain: no mission set-ups, rules or locked jets.)
+    g.testFlags.noMissions = true;
+    g.missions.enabled = false;
+    g.progress.enabled = false;
+    g.ufos.rules = null;
     g.ufos.graceT = 0; // (Round 2: UFOs ignore a player who has just respawned)
     g.mobs.spawning = false; // (night in the arena: no zombies wandering in)
     g.settingsPanel.set("ufos.activity", 0);
@@ -392,7 +398,7 @@ async function respawnIfDead() {
   }
 }
 
-await check("UFOs: ten distinct designs in four sizes; durability scales with size; far ones drawn cheaply", async () => {
+await check("UFOs: eight distinct minimal designs in four sizes; durability scales with size; far ones drawn cheaply", async () => {
   await arena();
   const r = await v((g) => {
     const out = {};
@@ -401,7 +407,7 @@ await check("UFOs: ten distinct designs in four sizes; durability scales with si
       out[size] = { hp: u.maxHealth, r: u.radius };
     }
     const designs = new Set();
-    for (const d of ["saucer", "saucer_dark", "tictac", "sphere", "pyramid", "triangle", "cigar", "ring", "diamond", "cubesphere"]) {
+    for (const d of ["saucer", "saucer_disc", "saucer_domed", "tictac", "sphere", "torus", "cube", "cubering"]) {
       const u = g.ufos.spawn({ design: d, size: "small", pos: g.player.position.clone().add(new g.THREE.Vector3(0, 60, -400)) });
       designs.add(u.model.hull.geometry.uuid);
     }
@@ -410,10 +416,10 @@ await check("UFOs: ten distinct designs in four sizes; durability scales with si
     g.ufos.clear();
     return { out, designs: designs.size, far };
   });
-  assert(r.designs === 10, `distinct hulls: ${r.designs}`);
+  assert(r.designs === 8, `distinct hulls: ${r.designs}`);
   assert(r.out.small.hp < r.out.medium.hp && r.out.medium.hp < r.out.large.hp && r.out.large.hp < r.out.mothership.hp, `health by size ${JSON.stringify(r.out)}`);
   assert(r.out.mothership.r > 30, "motherships are huge");
-  assert(r.far >= 10, `far UFOs use the cheap model: ${r.far}`);
+  assert(r.far >= 8, `far UFOs use the cheap model: ${r.far}`);
 });
 
 await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fills the sky; more at night", async () => {
@@ -551,7 +557,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
   assert(r.sphere, "grenades and meteors hit UFOs (sphere test)");
   // A blaster bolt hits a UFO.
   const hit = await v((g) => {
-    const u = g.ufos.spawn({ size: "large", design: "cigar", pos: g.player.getEyePosition().add(new g.THREE.Vector3(0, 0, -25)) });
+    const u = g.ufos.spawn({ size: "large", design: "tictac", pos: g.player.getEyePosition().add(new g.THREE.Vector3(0, 0, -25)) });
     u.state = "trick";
     u.trick = "hover";
     u.timer = 999;
@@ -573,7 +579,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
 await check("shot down: the UFO falls burning, crash-lands (crater), leaves a boardable wreck, and armed aliens climb out", async () => {
   await arena();
   const r0 = await v((g) => {
-    const u = g.ufos.spawn({ size: "medium", design: "pyramid", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
+    const u = g.ufos.spawn({ size: "medium", design: "cube", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
     u.crashPlan = { exploded: false, crew: 4 }; // (the outcome is random in the game)
     window.__downs = g.stats.world.ufosDown;
     window.__boom = g.effects.explosionCount;
@@ -615,9 +621,20 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
     g.player.health = 20;
     const px = w.pos.x + w.radius + 1;
     g.world.prepareArea(px, w.pos.z, 2);
-    const top = g.world.surfaceY(Math.floor(px), Math.floor(w.pos.z));
-    g.player.position.set(px, Math.max(top + 1, w.pos.y) + 0.05, w.pos.z);
+    // (A small stone step beside the wreck to stand on: with Round 3's taller
+    // terrain the ground next to a crater can be far below or above.)
+    const sy = Math.floor(w.pos.y) - 1;
+    const pad = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      pad.push(Math.floor(px) + dx, sy, Math.floor(w.pos.z) + dz, 3);
+      for (let dy = 1; dy <= 3; dy++) pad.push(Math.floor(px) + dx, sy + dy, Math.floor(w.pos.z) + dz, 0);
+    }
+    g.world.setBlocks(pad);
+    window.__step = [];
+    for (let i = 0; i < pad.length; i += 4) if (pad[i + 3] === 3) window.__step.push([pad[i], pad[i + 1], pad[i + 2]]);
+    g.player.position.set(Math.floor(px) + 0.5, sy + 1.05, Math.floor(w.pos.z) + 0.5);
     g.player.velocity.set(0, 0, 0);
+    g.player.resetFall();
     return !!w;
   });
   assert(r, "a wreck exists");
@@ -629,6 +646,12 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
     return { cause: g.deathCause, enabled: g.vehicles.enabled, dead: g.player.dead, mode: g.gameState, w: w && { alive: w.alive, d: w.pos.distanceTo(g.player.position), r: w.radius, cd: Math.hypot(w.pos.x - g.player.position.x, w.pos.z - g.player.position.z) }, near: g.vehicles.nearestEnterable()?.type, all: g.vehicles.vehicles.map((x) => `${x.type}:${x.crashed}:${x.unusable}:${x.alive}`) };
   });
   assert(inside && !inside.crashed && inside.hud, `boarded ${JSON.stringify(inside)} ${JSON.stringify(dbg)}`);
+  // (The stone step goes again, so the ship has room.)
+  await v((g) => {
+    const e = [];
+    for (const [x, y, z] of window.__step || []) e.push(x, y, z, 0);
+    g.world.setBlocks(e);
+  });
   // Boarding a wreck lifts it out of its crater by itself first.
   await until((g) => g.vehicles.active.liftOff <= 0, 60000);
   const y0 = await v((g) => g.vehicles.active.pos.y);
@@ -705,6 +728,7 @@ await check("ghost mode flies through terrain, burning a tunnel", async () => {
   });
   await page.keyboard.down("KeyW");
   await frames(10);
+  await until((g) => g.vehicles.active.pos.y < window.__arena.y - 0.5, 20000);
   await page.keyboard.up("KeyW");
   const after = await v((g) => ({ id: g.world.getBlock(window.__arena.x, window.__arena.y, window.__arena.z), y: g.vehicles.active.pos.y }));
   await v((g) => g.settingsPanel.set("vehicles.ufoGhost", false));
@@ -720,6 +744,7 @@ await check("leaving: underground to the surface; mid-air on a parachute, landin
   assert(!up.vehicle && !up.solid, `exit from underground: ${JSON.stringify(up)}`);
   // Mid-air.
   await v((g) => {
+    for (const k of ["alien", "alien_gray", "alien_red"]) g.mobs.removeKind(k); // (their shots would count as fall damage here)
     const w = g.vehicles.vehicles.find((x) => x.type === "ufo");
     w.pos.set(window.__arena.x + 0.5, window.__arena.y + 22, window.__arena.z + 0.5);
     g.vehicles.enter(w);
@@ -851,8 +876,11 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
     const edits = [];
     for (let dz = -170; dz <= 12; dz++) for (let dx = -8; dx <= 8; dx++) {
       edits.push(a.x + 20 + dx, a.y, a.z + dz, 3);
-      for (let dy = 1; dy <= 14; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
+      for (let dy = 1; dy <= 45; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
     }
+    // (Round 3's taller terrain: an open climb-out past the end of the strip.)
+    g.world.prepareArea(a.x + 20, a.z - 260, 6);
+    for (let dz = -340; dz < -170; dz++) for (let dx = -10; dx <= 10; dx++) for (let dy = 1; dy <= 45; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
     g.world.setBlocks(edits);
     g.sky.setHours(11);
   });
@@ -1143,12 +1171,18 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   const landed = await until((g) => g.player.onGround && !g.vehicles.parachute.active, 120000);
   assert(landed && (await v((g) => g.gameState)) === "playing", "landed safely");
   // 7. The aliens come out and fight: shoot them with the laser blaster.
+  // (Round 3: every alien shot that reaches you counts; keep the test player
+  // alive from the moment it lands.)
+  await v((g) => g.setMode("creative"));
   const aliens = await until((g) => g.mobs.countKind("alien") > 0, 90000);
   const adbg = aliens ? null : await v((g) => ({ pending: g.ufos.pendingCrews.map((c) => ({ d: c.pos.distanceTo(g.player.position).toFixed(0), delay: c.delay, tries: c.tries, count: c.count, water: c.water, meshed: !!g.world.getChunk(Math.floor(c.pos.x) >> 4, Math.floor(c.pos.z) >> 4)?.meshed })), view: g.ufos.viewDistance, mobs: g.mobs.mobs.map((m) => m.kind).join(","), dead: g.player.dead, mode: g.player.mode, gs: g.gameState, ufos: g.ufos.count }));
   assert(aliens, `aliens climbed out ${JSON.stringify(adbg)}`);
   await v((g) => {
     g.setMode("creative"); // keep the test player alive while the aliens fire
-    g.inventory.selected = 6;
+    // The laser blaster in hand (wherever it is in the hotbar).
+    const idx = g.inventory.slots.findIndex((s, i) => i < 9 && s && s.id === 292);
+    if (idx < 0) g.inventory.slots[6] = { id: 292, count: 1 };
+    g.inventory.selected = idx >= 0 ? idx : 6;
   });
   const cleared = await until((g) => {
     const a = g.mobs.mobs.find((m) => m.kind.startsWith("alien") && !m.dead);
@@ -1159,7 +1193,9 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
     // Walk right up to it (so the wreck it may stand under isn't in the
     // way), then blast.
+    // (Round 3's steeper terrain: step onto a ledge next to it if walking can't get there.)
     if (d.length() > 3) g.player.position.addScaledVector(d.clone().setY(0).normalize(), Math.min(0.8, d.length() - 3));
+    if (d.length() > 6 && Math.abs(d.y) > 2) g.player.position.set(a.pos.x - (d.x / d.length()) * 3, a.pos.y + 0.2, a.pos.z - (d.z / d.length()) * 3);
     g.weapons._cooldowns.blaster = 0;
     g.weapons.press("blaster");
     g.weapons.release();

@@ -451,6 +451,112 @@ export class Audio {
     this._hit({ type: "highpass", f: 4000, q: 0.7, d: 0.025, v: gain * 0.6, attack: 0.001 }, t - ctx.currentTime);
   }
 
+  // An enemy UFO's shot: each attack style has its own voice.
+  //   volley  a falling "pew"      rapid   short high chirps
+  //   heavy   a deep, heavy whump  spread  a wide, buzzing chord
+  //   charged a hard electric crack (after its charge whine)
+  //   sweep   a searing hum for the length of the beam
+  //   seeker  a warbling plasma
+  playUfoShot(style = "volley", distance = 0) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx || distance > 260) return;
+    const gain = 0.3 / (1 + distance / 16);
+    if (gain < 0.004) return;
+    const t = ctx.currentTime + Math.min(distance / 343, 0.5);
+    const out = ctx.createGain();
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = Math.max(600, 9000 / (1 + distance / 30));
+    out.connect(lp).connect(this._out || this.master);
+    const osc = (type, f0, f1, d, g, at = 0, lfo = 0) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t + at);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + at + d);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0.0001, t + at);
+      og.gain.exponentialRampToValueAtTime(g, t + at + 0.006);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + at + d);
+      if (lfo) {
+        const l = ctx.createOscillator();
+        l.frequency.value = lfo;
+        const lg = ctx.createGain();
+        lg.gain.value = f0 * 0.18;
+        l.connect(lg).connect(o.frequency);
+        l.start(t + at);
+        l.stop(t + at + d + 0.05);
+      }
+      o.connect(og).connect(out);
+      o.start(t + at);
+      o.stop(t + at + d + 0.05);
+    };
+    out.gain.value = gain;
+    const at = t - ctx.currentTime;
+    switch (style) {
+      case "rapid":
+        osc("square", 2600, 1300, 0.06, 0.5);
+        osc("sine", 3900, 1800, 0.05, 0.3);
+        break;
+      case "heavy":
+        osc("sine", 240, 45, 0.55, 0.9);
+        osc("sawtooth", 120, 40, 0.4, 0.35);
+        this._hit({ type: "lowpass", f: 500, q: 0.8, d: 0.35, v: gain * 0.9 }, at);
+        break;
+      case "spread":
+        for (const m of [1, 1.26, 1.5]) osc("sawtooth", 900 * m, 260 * m, 0.24, 0.28);
+        break;
+      case "charged":
+        osc("triangle", 3400, 180, 0.32, 0.8);
+        osc("square", 1700, 90, 0.2, 0.3);
+        this._hit({ type: "highpass", f: 2500, q: 0.7, d: 0.09, v: gain * 1.2, attack: 0.001 }, at);
+        break;
+      case "sweep":
+        osc("sawtooth", 180, 150, 1.5, 0.45, 0, 7);
+        osc("square", 540, 470, 1.5, 0.12, 0, 11);
+        this._hit({ type: "bandpass", f: 3000, q: 1.5, d: 1.4, v: gain * 0.4, attack: 0.05 }, at);
+        break;
+      case "seeker":
+        osc("sine", 700, 300, 0.5, 0.7, 0, 14);
+        break;
+      default:
+        osc("sawtooth", 1300, 110, 0.26, 0.55);
+        osc("sine", 1960, 170, 0.26, 0.45);
+        break;
+    }
+  }
+
+  // A UFO dashing past: a short, airy whoosh (a band of noise sweeping down).
+  playUfoDash(distance = 0) {
+    this._cat("creatures");
+    const ctx = this.ctx;
+    if (!ctx || distance > 400) return;
+    const v = 0.28 / (1 + distance / 25);
+    if (v < 0.004) return;
+    this._hit({ type: "bandpass", f: 2400, fEnd: 300, q: 1.2, d: 0.35, v, attack: 0.02 }, Math.min(distance / 343, 0.6));
+  }
+
+  // A UFO charging a shot: a rising whine for `dur` seconds.
+  playUfoCharge(dur = 1.3, distance = 0) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx || distance > 260) return;
+    const gain = 0.18 / (1 + distance / 16);
+    if (gain < 0.004) return;
+    const t = ctx.currentTime + Math.min(distance / 343, 0.5);
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(1900, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
+    o.connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + dur + 0.1);
+  }
+
   // A laser bolt hitting a block: a sizzling crackle.
   playLaserHit(distance = 0) {
     this._cat("weapons");

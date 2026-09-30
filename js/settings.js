@@ -1,8 +1,10 @@
 // Player settings: defaults, validation, and the tabbed settings screen.
 //
-// Everything is saved in localStorage (storage.js) under one JSON object, so
-// a setting added later simply falls back to its default in older saves, and
-// garbage values are clamped back into range on load.
+// Everything is saved in localStorage (storage.js) as one versioned JSON
+// object (`v`: SETTINGS_VERSION) under the game's prefix, the moment it
+// changes. On load it is read before anything else applies a default, a
+// preset or a menu value: a setting added later simply falls back to its
+// default in older saves, and garbage values are clamped back into range.
 //
 // Most settings are declared once in SCHEMA below (where they live in the
 // settings object, their group, type, range and default). The settings
@@ -65,9 +67,9 @@ export const SCHEMA = [
   { key: "showFps", id: "show-fps", group: "video", type: "checkbox", label: "Show FPS counter", def: true, static: true },
 
   // ----- Performance -----
-  { key: "perf.detailDistance", group: "performance", type: "range", label: "Full-detail distance (chunks)", min: 0, max: 16, step: 1, def: 0, fmt: (v) => (v === 0 ? "Auto" : int(v)), hint: "Chunks drawn in full detail around you (Auto: the graphics preset's). Beyond them the land is drawn as simplified tiles.", note: (v) => (v >= 12 ? "Heavy: every full-detail chunk is meshed and lit on the main thread." : "") },
-  { key: "perf.lodQuality", group: "performance", type: "select", label: "Far terrain (LOD) quality", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]], def: "medium", hint: "How detailed the simplified distant land is. The far terrain distance is the render distance on the Graphics tab." },
-  { key: "perf.resolution", group: "performance", type: "range", label: "Resolution scale", min: 0.5, max: 1, step: 0.05, def: 1, fmt: pct, hint: "Draws fewer pixels and scales the picture up: the biggest speed-up on weak graphics cards." },
+  { key: "perf.detailDistance", group: "performance", type: "range", label: "Full-detail distance (chunks)", min: 0, max: 24, step: 1, def: 0, fmt: (v) => (v === 0 ? "Auto" : int(v)), hint: "Chunks drawn in full detail around you (Auto: the graphics preset's). Beyond them the land is drawn as simplified tiles.", note: (v) => (v >= 18 ? "Very heavy: every full-detail chunk is meshed and lit on the main thread (fine on a fast CPU)." : v >= 12 ? "Heavy: every full-detail chunk is meshed and lit on the main thread." : "") },
+  { key: "perf.lodQuality", group: "performance", type: "select", label: "Far terrain (LOD) quality", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"], ["extreme", "Extreme"]], def: "medium", hint: "How detailed the simplified distant land is (it always follows the same terrain as the full-detail chunks). The far terrain distance is the render distance on the Graphics tab." },
+  { key: "perf.resolution", group: "performance", type: "range", label: "Resolution scale", min: 0.5, max: 2, step: 0.05, def: 1, fmt: pct, hint: "Below 100%: fewer pixels, scaled up (the biggest speed-up on weak graphics cards). Above 100%: supersampling, sharper edges on a powerful GPU.", note: (v) => (v > 1.3 ? "Heavy: draws many more pixels (only for strong graphics cards)." : "") },
   { key: "perf.effects", group: "performance", type: "select", label: "Effects detail", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "Particles in explosions, trails and smoke." },
 
   // ----- Controls -----
@@ -117,10 +119,12 @@ export const SCHEMA = [
   { key: "vehicles.ufoTopSpeed", group: "vehicles", type: "range", label: "UFO top speed (blocks/s)", values: [20, 50, 100, 200, 300, 500, 800, 1200], min: 20, max: 1200, def: 300, fmt: int, sub: "Your UFO", hint: "The mouse wheel sets the cruising speed between the slowest and the top speed; Ctrl boosts it 3x.", note: (v) => (v >= 800 ? "Faster than the world can load: you'll outrun the terrain." : "") },
   { key: "vehicles.ufoMinSpeed", group: "vehicles", type: "range", label: "UFO slowest speed (blocks/s)", values: [0.5, 1, 2, 4, 8], min: 0.5, max: 8, def: 2, fmt: (v) => String(v) },
   { key: "vehicles.ufoGhost", group: "vehicles", type: "checkbox", label: "Ghost mode: fly through terrain, burning a tunnel", def: false },
+  { key: "vehicles.ufoDash", group: "vehicles", type: "range", label: "Teleport dash distance (R)", values: [0, 0.5, 1, 1.5, 2, 3], min: 0, max: 3, def: 1, fmt: (v) => (v <= 0 ? "Off" : `${v}x`), hint: "How far R dashes your UFO along the view (it grows with the cruise speed). Off disables the dash." },
+  { key: "vehicles.ufoDashTime", group: "vehicles", type: "range", label: "Teleport dash travel time", values: [0.08, 0.15, 0.25, 0.4, 0.6], min: 0.08, max: 0.6, def: 0.25, fmt: (v) => `${v} s`, hint: "How long the ultra-fast trip takes: shorter is nearly instant, longer lets you watch the world streak by." },
   { key: "vehicles.beamBlocks", group: "vehicles", type: "checkbox", label: "Tractor beam also lifts loose blocks", def: true },
   { key: "vehicles.jetAssist", group: "vehicles", type: "checkbox", label: "Flight assist (the jet flies toward the crosshair)", def: true, sub: "Fighter jet", hint: "Off: the mouse is the stick (up/down pitch, left/right roll), for experienced pilots." },
   { key: "vehicles.jetAirborne", group: "vehicles", type: "checkbox", label: "Called-in jet arrives airborne (you start in the cockpit)", def: false },
-  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 220, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed. The default is about 800 km/h.", note: (v) => (v > 420 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
+  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 160, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed. The default is about 580 km/h.", note: (v) => (v > 420 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
   { key: "vehicles.jetAimAssist", group: "vehicles", type: "checkbox", label: "Cannon aim assist (pulls shots toward a target near the nose)", def: true },
   { key: "vehicles.enemyJets", group: "vehicles", type: "range", label: "Enemy jets patrolling at once", min: 0, max: 3, step: 1, def: 1, fmt: int, hint: "Neutral until you attack them or the UFOs; then they hunt you with missiles and guns." },
   { key: "vehicles.jetAccel", group: "vehicles", type: "range", label: "Jet acceleration (thrust)", min: 0.5, max: 2.5, step: 0.1, def: 1, fmt: times },
@@ -165,8 +169,17 @@ export function validValue(e, raw) {
   return Math.max(e.min, Math.min(e.max, n));
 }
 
+// The settings object's format version (the `v` field). Older saves (no
+// version) are read and upgraded; unknown or broken values fall back to
+// their defaults.
+export const SETTINGS_VERSION = 4;
+
 export const DEFAULT_SETTINGS = {
+  v: SETTINGS_VERSION,
   renderDistance: 10,
+  // Whether the player set the render distance themselves (then picking a
+  // graphics preset keeps it instead of adopting the preset's suggestion).
+  renderDistanceCustom: false,
   graphics: "ultra",
   gfxOverrides: {},
   volume: { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
@@ -174,18 +187,44 @@ export const DEFAULT_SETTINGS = {
 };
 for (const e of SCHEMA) setPath(DEFAULT_SETTINGS, e.key, e.def);
 
-// Returns a complete, valid settings object from whatever was saved.
-export function normalizeSettings(raw) {
-  const s = raw && typeof raw === "object" ? raw : {};
-  const out = JSON.parse(JSON.stringify(s));
+// Returns a complete, valid, current-version settings object from whatever
+// was saved (nothing, an older version, or garbage). Only known settings are
+// kept. opts (from the game, which knows its graphics presets and options):
+// presets: valid preset names; defaultPreset; minRenderDistance,
+// maxRenderDistance; isOverride(key, value): a valid individual graphics option.
+export function normalizeSettings(raw, opts = {}) {
+  const s = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const out = { v: SETTINGS_VERSION };
   for (const e of SCHEMA) setPath(out, e.key, validValue(e, getPath(s, e.key)));
+  // Render distance (chunks).
+  const minRD = opts.minRenderDistance ?? 2;
+  const maxRD = opts.maxRenderDistance ?? 256;
+  const rd = Math.round(Number(s.renderDistance));
+  out.renderDistance = Number.isFinite(rd) && s.renderDistance !== null && s.renderDistance !== "" ? Math.max(minRD, Math.min(maxRD, rd)) : DEFAULT_SETTINGS.renderDistance;
+  out.renderDistanceCustom = s.renderDistanceCustom === true;
+  // Graphics preset and individual options.
+  const presets = opts.presets || ["low", "medium", "high", "ultra"];
+  out.graphics = presets.includes(s.graphics) ? s.graphics : opts.defaultPreset || DEFAULT_SETTINGS.graphics;
+  out.gfxOverrides = {};
+  if (s.gfxOverrides && typeof s.gfxOverrides === "object" && !Array.isArray(s.gfxOverrides)) {
+    for (const [k, val] of Object.entries(s.gfxOverrides)) {
+      if (typeof val !== "string") continue;
+      if (opts.isOverride && !opts.isOverride(k, val)) continue;
+      out.gfxOverrides[k] = val;
+    }
+  }
+  // Volumes 0-1 per category.
   out.volume = {};
   for (const [k] of AUDIO_CATEGORIES) {
-    const n = Number(s.volume?.[k]);
-    out.volume[k] = Number.isFinite(n) && s.volume?.[k] !== null ? Math.max(0, Math.min(1, n)) : 1;
+    const raw = s.volume && typeof s.volume === "object" ? s.volume[k] : undefined;
+    const n = Number(raw);
+    out.volume[k] = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1;
   }
   out.mods = s.mods !== false;
-  out.gfxOverrides = s.gfxOverrides && typeof s.gfxOverrides === "object" ? { ...s.gfxOverrides } : {};
+  // Upgrades from older versions. (Round 2 raised the jet's default top
+  // speed to 220; Round 3 went back to 160: a value still at that old
+  // default follows it, once. Saves before Round 3 had no `v` and no `rev`.)
+  if (!Number.isFinite(s.v) && (s.rev ?? 0) < 3 && out.vehicles.jetMaxSpeed === 220) out.vehicles.jetMaxSpeed = 160;
   return out;
 }
 
@@ -241,6 +280,18 @@ export class SettingsPanel {
     this._controls.get(key)?.set(v);
     this._apply(key, v);
     this.save();
+  }
+
+  // Takes a value saved elsewhere (another tab of the game): updates the
+  // row and applies it, without saving it again.
+  adopt(key, value) {
+    const e = SCHEMA_BY_KEY.get(key);
+    const v = e ? validValue(e, value) : value;
+    if (JSON.stringify(getPath(this.settings, key)) === JSON.stringify(v)) return false;
+    setPath(this.settings, key, v);
+    this._controls.get(key)?.set(v);
+    this._apply(key, v);
+    return true;
   }
 
   // Extra work for a group's "Reset to defaults" (hand-written settings).

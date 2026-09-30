@@ -6,11 +6,11 @@ import { UI, isMobileDevice } from "./ui.js";
 import { BLOCK, BLOCK_INFO, HOTBAR, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
-import { normalizeSettings, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
+import { normalizeSettings, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
@@ -25,11 +25,10 @@ import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
 import { MobManager } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
-import { rayAabb } from "./physics.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO, SHIELD_MAX } from "./weapons.js";
-import { LaserBolts } from "./lasers.js";
+import { LaserBolts, sweptSphere, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
@@ -44,6 +43,7 @@ import "./vehicle-jet.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, rollLoot, alienColour } from "./progression.js";
+import { MissionDirector } from "./missions.js";
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
@@ -126,8 +126,32 @@ const scene = new THREE.Scene();
 // simplified level-of-detail tiles (see lod.js).
 const DEFAULT_RENDER_DISTANCE = 10;
 const MIN_RENDER_DISTANCE = 2;
-const MAX_RENDER_DISTANCE = 100;
-const settings = normalizeSettings(loadSettings());
+const MAX_RENDER_DISTANCE = 256; // (Round 3: was 100) beyond the detail area it is all cheap LOD tiles
+// The saved settings are read first, before any default, graphics preset
+// or menu value is applied: everything below starts from them, and they
+// always win. (normalizeSettings validates every value, falls back to the
+// default for anything missing or broken, and upgrades older versions.)
+setActiveSeed(SEED);
+const SETTINGS_OPTIONS = {
+  presets: PRESET_ORDER,
+  defaultPreset: DEFAULT_PRESET,
+  minRenderDistance: MIN_RENDER_DISTANCE,
+  maxRenderDistance: MAX_RENDER_DISTANCE,
+  isOverride: (key, value) => !!GFX_OPTIONS[key]?.choices.some(([c]) => c === value),
+};
+const settings = normalizeSettings(loadSettings(), SETTINGS_OPTIONS);
+// Written back at once in the current format (and in its reserved slot, see storage.js).
+let settingsSaveWarned = false;
+function persistSettings() {
+  if (!saveSettings(settings) && !settingsSaveWarned) {
+    settingsSaveWarned = true;
+    setTimeout(() => toast?.("Browser storage is full: your settings can't be saved. Free some space (site data) to keep them.", 8), 0);
+  }
+}
+setStorageFullHandler(({ evicted, ok }) => {
+  if (ok && evicted.length) setTimeout(() => toast?.(`Browser storage was full: the saved block changes of ${evicted.length} other world${evicted.length > 1 ? "s" : ""} were removed to keep your settings.`, 8), 0);
+});
+persistSettings();
 
 function clampRenderDistance(value) {
   const n = Math.round(Number(value));
@@ -279,7 +303,7 @@ ui.graphicsSelect.value = graphicsPreset;
 // Sub-screens of the main and pause menus (settings, mods, controls, stats).
 const screens = new MenuScreens();
 // The settings screen (tabs, rows built from the schema in settings.js).
-const settingsPanel = new SettingsPanel(settings, () => saveSettings(settings));
+const settingsPanel = new SettingsPanel(settings, persistSettings);
 // Per-weapon explosion-size multipliers.
 for (const kind of ["grenade", "bazooka", "airstrike"]) settingsPanel.on(`explosionScale.${kind}`, (v) => (explosionScale[kind] = v));
 
@@ -337,13 +361,15 @@ for (const k of ["activity", "spawnChance", "maxCount", "aggression", "detection
   settingsPanel.on(`ufos.${k}`, (v) => (ufos.config[k] = v));
 }
 // Your UFO: speed range, ghost mode, beam lifting blocks.
-vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
+vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true, dash: 1, dashTime: 0.25 };
 settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = v));
 settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
+settingsPanel.on("vehicles.ufoDash", (v) => (vehicles.config.ufo.dash = v));
+settingsPanel.on("vehicles.ufoDashTime", (v) => (vehicles.config.ufo.dashTime = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
 // The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
-vehicles.config.jet = { maxSpeed: 220, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
+vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 settingsPanel.on("vehicles.jetMaxSpeed", (v) => {
   vehicles.config.jet.maxSpeed = v;
   ufos.jetMaxSpeed = v;
@@ -359,8 +385,11 @@ const airports = new AirportManager({ sites: world.terrain.sites, vehicles, worl
 // Enemy jets (patrolling neutral, hostile once provoked).
 const enemyJets = new EnemyJetManager({ vehicles, ufos, player, world });
 enemyJets.onDown = (jet, cause) => {
-  stats.add("enemyJetsDown");
-  if (hooks.onEnemyJetDown) hooks.onEnemyJetDown(jet, cause);
+  // (Only the player's kills count: a jet shot down by a UFO it attacked isn't.)
+  if (!jet.downedByOther) {
+    stats.add("enemyJetsDown");
+    if (hooks.onEnemyJetDown) hooks.onEnemyJetDown(jet, cause);
+  }
 };
 const hooks = {}; // late-bound game hooks (progression), see below
 settingsPanel.on("vehicles.enemyJets", (v) => (enemyJets.config.count = v));
@@ -371,6 +400,7 @@ vehicles.ufos = ufos;
 settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
 settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
 nuke.onDetonate = (center, R) => {
+  hooks.onNuke?.(center, R);
   stats.add("nukes");
   mobs.explosion(center, R * 1.4, true);
   ufos.explosion(center, R * 2.2, true);
@@ -484,7 +514,7 @@ lasers.addProvider({
     return {
       distance: h.distance,
       hit(b, point) {
-        ufos.damage(h.ufo, b.damage, fromPlayer(b.owner), point);
+        ufos.damage(h.ufo, b.damage, fromPlayer(b.owner), point, b.owner === "rogue" ? b.source : null);
         ufoHitFx(point);
         audio.playUfoHit(point.distanceTo(effects.listener));
         if (fromPlayer(b.owner)) hud.hitMarker?.();
@@ -492,11 +522,23 @@ lasers.addProvider({
     };
   },
 });
+// Vehicles: tested in each vehicle's own frame of motion (a jet moves
+// several blocks a frame), with the bolt's glow counting as part of it, so
+// a bolt that visibly reaches a vehicle always hits it.
 lasers.addProvider({
-  raycast(origin, dir, maxDist, bolt) {
-    const h = vehicles.raycast(origin, dir, maxDist, bolt.source);
-    if (!h) return null;
-    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" ? "enemyjet" : "player") };
+  raycast(origin, dir, maxDist, bolt, dt) {
+    if (!vehicles.enabled) return null;
+    const step = Math.max(maxDist, bolt.step ?? maxDist);
+    let best = null;
+    for (const v of vehicles.vehicles) {
+      if (!v.alive || v === bolt.source) continue;
+      const r = (v.hitRadius ?? v.radius) + bolt.radius * 2;
+      const t = sweptSphere(origin, dir, step, v.pos, r, v.vel, dt);
+      if (t !== null && t <= maxDist && (!best || t < best.distance)) best = { vehicle: v, distance: t };
+    }
+    if (!best) return null;
+    const h = best;
+    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "player") };
   },
 });
 // Enemy bolts hit the player on foot.
@@ -504,17 +546,24 @@ const playerBoxMin = new THREE.Vector3();
 const playerBoxMax = new THREE.Vector3();
 lasers.addProvider({
   ignores: (b) => fromPlayer(b.owner),
-  raycast(origin, dir, maxDist) {
+  raycast(origin, dir, maxDist, bolt, dt) {
     if (player.dead || player.vehicle) return null;
+    // The body, grown by the bolt's glowing halo: a bolt that visibly
+    // touches you hits you. Tested while you move (sprinting sideways
+    // doesn't let a bolt slip through between two frames; dodging early
+    // still works because the shot flies where you were going to be).
     const p = player.position;
-    playerBoxMin.set(p.x - 0.35, p.y, p.z - 0.35);
-    playerBoxMax.set(p.x + 0.35, p.y + 1.85, p.z + 0.35);
-    const t = rayAabb(origin, dir, playerBoxMin, playerBoxMax, maxDist);
-    if (t === null) return null;
+    const pad = 0.12 + (bolt.radius ?? 0.1) * 2.2;
+    playerBoxMin.set(p.x - 0.35 - pad, p.y - pad * 0.5, p.z - 0.35 - pad);
+    playerBoxMax.set(p.x + 0.35 + pad, p.y + 1.85 + pad, p.z + 0.35 + pad);
+    const step = Math.max(maxDist, bolt.step ?? maxDist);
+    const t = sweptBox(origin, dir, step, playerBoxMin, playerBoxMax, player.velocity, dt);
+    if (t === null || t > maxDist) return null;
     return {
       distance: t,
       hit(b, point, d) {
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" ? "enemyjet" : "ufo_laser")) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        // Every shot that reaches you hurts (no grace time between shots).
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
@@ -538,6 +587,9 @@ ufos.onShotDown = (u, byPlayer) => {
   if (byPlayer) {
     stats.add("ufosDown");
     if (u.size === "mothership" || u.size === "giant") stats.add("ufosDownBig");
+    if (u.S.idx >= 2) stats.add("ufosDownLarge");
+    if (vehicles.active?.type === "jet") stats.add("ufosDownByJet");
+    hooks.onUfoDown?.(u);
     audio.playNotice();
     // The wreck and its crew are loot (Survival): what falls out gets better as you go.
     if (!player.creative && mods.enabled) dropLoot(rollLoot("ufo", u.size, progressTier(), ownedItems()), u.pos);
@@ -625,8 +677,21 @@ function findRunway() {
     runwayTops = null;
   }
 }
+// Survival: fighter jets (calling one, and the ones parked at airports) are
+// part of the mission chain: they become available with mission 8, "Take to
+// the air" (a jet on day one would skip the whole curve). Creative: always.
+const JET_MISSION = MISSIONS.findIndex((m) => m.id === "wings");
+function jetLocked() {
+  return !player.creative && progress.enabled && progress.step < JET_MISSION;
+}
+const JET_LOCKED_TEXT = `Fighter jets join the fight with mission ${JET_MISSION + 1} ("${MISSIONS[JET_MISSION].title}"). Esc > Missions shows the way there.`;
+vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : null);
 function callJet(force = false) {
   if (!mods.enabled || player.dead || gameState !== "playing") return;
+  if (!force && jetLocked()) {
+    toast(JET_LOCKED_TEXT, 4);
+    return;
+  }
   if (vehicles.active) {
     toast("Get out of your vehicle first (F).", 2);
     return;
@@ -662,6 +727,7 @@ function callJet(force = false) {
     toast(strip.airport ? `Your jet is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your jet has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
   } else {
     playerJet = spawnAirborne();
+    stats.add("takeoffs"); // (already in the air: that counts as a takeoff)
     toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
   }
   jetSpawnAirborne = spawnAirborne;
@@ -797,15 +863,27 @@ hooks.onEnemyJetDown = (jet) => {
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
 crates.onMessage = (t) => toast(t, 5);
+// The mission director: sets up each mission in the world and points the marker at its target.
+const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast });
+hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
+hooks.onNuke = (center) => missionDirector.nukeDetonated(center);
+vehicles.onTakeoff = () => stats.add("takeoffs");
+progress.onStart = (m) => {
+  setTimeout(() => toast(`NEW MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}. ${m.text}`, 7), 6500);
+};
+// (testFlags.noMissions: the older test suites check UFO features without the mission chain.)
+const testFlags = { noMissions: false };
 function refreshSurvivalSystems() {
   const on = mods.enabled && !player.creative;
   crates.enabled = on;
-  progress.enabled = on;
+  progress.enabled = on && !testFlags.noMissions;
+  missionDirector.enabled = on && !testFlags.noMissions;
   if (!on) crates.clear();
 }
 mods.onChange(refreshSurvivalSystems);
 refreshSurvivalSystems();
 progress.onComplete = (m) => {
+  stats.add("missionsDone");
   const owned = ownedItems();
   const names = [];
   for (const [id, n] of m.reward) {
@@ -835,7 +913,7 @@ function refreshModsPills() {
 refreshModsPills();
 function setModsEnabled(on) {
   settings.mods = on;
-  saveSettings(settings);
+  persistSettings();
   modsCheckbox.checked = on;
   mods.set(on);
   if (on && gameState !== "start") fillStartingWeapons(false);
@@ -1089,6 +1167,7 @@ const DEATH_MESSAGES = {
   cannon: "Hit by your own jet's cannon",
   enemyjet: "Shot down by an enemy fighter",
   enemymissile: "Hit by an enemy missile",
+  roguemissile: "Caught in a dogfight between a fighter and a UFO",
   enemymissile_fall: "Blown out of the sky by an enemy missile",
 };
 let lastBlastHitTime = -Infinity;
@@ -1173,10 +1252,10 @@ hud.respawnBtn.addEventListener("click", respawn);
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
 effects.onExplosion = (center, radius, source) => {
-  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile";
+  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile" && source !== "roguemissile";
   mobs.explosion(center, radius, byPlayer);
   ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
-  vehicles.explosion(center, radius);
+  vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center
@@ -1253,14 +1332,19 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, 
   lod.configure({ detailDistance: settings.perf.detailDistance > 0 ? settings.perf.detailDistance : preset.detailDistance });
   grass.configure({ level: preset.grass });
   world.setMeshOptions({ fancyLeaves: preset.fancyLeaves });
-  if (adoptRenderDistance) setRenderDistance(preset.renderDistance);
+  // A preset suggests a render distance; it is adopted only while the player
+  // hasn't set one of their own (see PROGRESS.md, "Settings persistence").
+  if (adoptRenderDistance === "force" || (adoptRenderDistance && !settings.renderDistanceCustom)) {
+    settings.renderDistanceCustom = false;
+    setRenderDistance(preset.renderDistance);
+  }
   ui.graphicsSelect.value = graphicsPreset;
   ui.startGraphicsSelect.value = graphicsPreset;
   ui.graphicsHintEl.textContent = describePreset(preset);
   refreshGfxOptions();
   if (!graphicsLowered) {
     settings.graphics = graphicsPreset;
-    saveSettings(settings);
+    persistSettings();
   }
   prepareGraphics();
 }
@@ -1375,7 +1459,7 @@ function setRenderDistance(value) {
   updateViewDistance();
   lod.configure({ renderDistance: viewRD });
   settings.renderDistance = renderDistance;
-  saveSettings(settings);
+  persistSettings();
 }
 
 // ---------- Settings menu ----------
@@ -1445,7 +1529,7 @@ for (const [key, label] of AUDIO_CATEGORIES) {
   volumeSliders[key] = SettingsPanel.range(`vol-${key}`, settings.volume[key], (v) => `${Math.round(v * 100)}%`, (v) => {
     settings.volume[key] = v;
     audio.setVolume(key, v);
-    saveSettings(settings);
+    persistSettings();
   });
 }
 settingsPanel.onReset("audio", () => {
@@ -1480,11 +1564,11 @@ const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v
 
 // Graphics: "Reset to defaults" goes back to the default preset, its render
 // distance, and no individual overrides.
-settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: true, keepOverrides: false, userPick: true }));
+settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: "force", keepOverrides: false, userPick: true }));
 
 // Performance: full-detail distance, far-terrain quality, resolution scale
 // and effects detail, plus one-click presets for different computers.
-const LOD_QUALITY = { low: 0.55, medium: 1, high: 1.5, ultra: 2 };
+const LOD_QUALITY = { low: 0.55, medium: 1, high: 1.5, ultra: 2, extreme: 3 };
 function applyDetailDistance() {
   const d = settings.perf.detailDistance;
   lod.configure({ detailDistance: d > 0 ? d : activePreset.detailDistance });
@@ -1499,6 +1583,7 @@ const PERF_PRESETS = {
   balanced: { label: "Balanced", hint: "Most PCs", graphics: "medium", renderDistance: 12, detail: 0, lod: "medium", resolution: 1, effects: "medium" },
   beautiful: { label: "Beautiful", hint: "Gaming PCs", graphics: "high", renderDistance: 20, detail: 0, lod: "high", resolution: 1, effects: "high" },
   max: { label: "Max", hint: "High-end GPUs", graphics: "ultra", renderDistance: 32, detail: 10, lod: "ultra", resolution: 1, effects: "high" },
+  extreme: { label: "Extreme", hint: "Powerful PCs", graphics: "ultra", renderDistance: 72, detail: 14, lod: "extreme", resolution: 1, effects: "high" },
 };
 const perfPresetsEl = document.getElementById("perf-presets");
 for (const [key, p] of Object.entries(PERF_PRESETS)) {
@@ -1518,6 +1603,8 @@ function applyPerfPreset(key) {
   settingsPanel.set("perf.effects", p.effects);
   settingsPanel.set("perf.resolution", p.resolution);
   setGraphics(p.graphics, { keepOverrides: false, userPick: true });
+  // (A performance preset is a whole set, render distance included.)
+  settings.renderDistanceCustom = false;
   setRenderDistance(p.renderDistance);
   refreshPerfPresets();
 }
@@ -1528,6 +1615,44 @@ function refreshPerfPresets() {
     btn.classList.toggle("active", match);
   }
 }
+// Another tab of the game changed the settings: take them over here too, so
+// this tab never writes its older copy back over them.
+window.addEventListener("storage", (e) => {
+  if (e.key !== "ufocombat_v1_settings" || !e.newValue) return;
+  let fresh;
+  try {
+    fresh = normalizeSettings(JSON.parse(e.newValue), SETTINGS_OPTIONS);
+  } catch (err) {
+    return;
+  }
+  for (const entry of SCHEMA) settingsPanel.adopt(entry.key, getSettingPath(fresh, entry.key));
+  for (const [k] of AUDIO_CATEGORIES) {
+    if (settings.volume[k] === fresh.volume[k]) continue;
+    settings.volume[k] = fresh.volume[k];
+    audio.setVolume(k, fresh.volume[k]);
+    volumeSliders[k].set(fresh.volume[k]);
+  }
+  settings.renderDistanceCustom = fresh.renderDistanceCustom;
+  if (fresh.renderDistance !== renderDistance) {
+    renderDistance = clampRenderDistance(fresh.renderDistance);
+    viewRD = renderDistance;
+    settings.renderDistance = renderDistance;
+    ui.renderDistanceInput.value = String(renderDistance);
+    ui.renderDistanceValueEl.textContent = String(renderDistance);
+    updateViewDistance();
+    lod.configure({ renderDistance: viewRD });
+  }
+  if (fresh.mods !== settings.mods) setModsEnabled(fresh.mods);
+  const gfxChanged = fresh.graphics !== settings.graphics || JSON.stringify(fresh.gfxOverrides) !== JSON.stringify(settings.gfxOverrides);
+  if (gfxChanged && !graphicsLowered) {
+    settings.gfxOverrides = { ...fresh.gfxOverrides };
+    setGraphics(fresh.graphics);
+  }
+});
+function getSettingPath(obj, path) {
+  return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
 settingsPanel.onReset("performance", () => {
   setGraphics(graphicsPreset);
   refreshPerfPresets();
@@ -1547,11 +1672,12 @@ function onGraphicsLost() {
   graphicsReady = false;
   const lower = lowerPreset(graphicsPreset);
   const hadOverrides = Object.keys(settings.gfxOverrides).length > 0;
-  // The saved settings are left alone (a sleeping laptop or a GPU switch also
-  // loses the context, and that must not silently downgrade the player's
-  // choice). The next start runs one step lower for that session only (the
-  // safe start above), because the last one didn't finish cleanly.
-  saveBootRecord({ preset: graphicsPreset, ok: false });
+  // The saved settings are left alone, and so is the next start: a sleeping
+  // laptop, a GPU switch or a driver reset also loses the context, and the
+  // next start used to come up one preset lower with the player's own
+  // graphics options ignored, which looked exactly like "my settings were
+  // reset". (A start that really hangs is still caught by the safe start:
+  // its boot record stays not-ok until the world has been drawn.)
   playerDirty = true;
   flushSave();
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1560,6 +1686,12 @@ function onGraphicsLost() {
   document.getElementById("gpu-lost").classList.remove("hidden");
 }
 document.getElementById("gpu-lost-reload").addEventListener("click", () => location.reload());
+// The player's choice: the next start runs one step lower, for that session
+// only (the safe start); the saved settings are not touched.
+document.getElementById("gpu-lost-lower").addEventListener("click", () => {
+  saveBootRecord({ preset: graphicsPreset, ok: false });
+  location.reload();
+});
 
 // ---------- Game state / pointer lock ----------
 // "start": title menu. "playing": pointer locked, in control. "paused":
@@ -1608,6 +1740,7 @@ for (const [btn, id] of [
   ["menu-controls-btn", "controls-screen"],
   ["pause-controls-btn", "controls-screen"],
   ["pause-stats-btn", "stats-screen"],
+  ["pause-missions-btn", "missions-screen"],
   ["new-world-btn", "new-world-screen"],
 ]) {
   document.getElementById(btn).addEventListener("click", () => {
@@ -1708,6 +1841,7 @@ function closeInventory() {
 }
 
 ui.renderDistanceInput.addEventListener("input", () => {
+  settings.renderDistanceCustom = true; // the player's own choice: presets keep it from now on
   setRenderDistance(ui.renderDistanceInput.value);
 });
 
@@ -1904,7 +2038,7 @@ function updateEnvironment(dt) {
   if (underwater) {
     // The surface above (for the light shafts), and sunlight bent into the water.
     let y = Math.floor(eye.y);
-    while (y < 63 && IS_WET[world.getBlock(eye.x, y + 1, eye.z)]) y++;
+    while (y < WORLD_HEIGHT - 1 && IS_WET[world.getBlock(eye.x, y + 1, eye.z)]) y++;
     waterSurfaceY = surfaceHeight(y, eye.x, eye.z, worldUniforms.uTime.value, worldUniforms.uWaveStrength.value);
     const L = worldUniforms.uLightDir.value;
     const h = Math.hypot(L.x, L.z);
@@ -2006,6 +2140,8 @@ window.__ufo = window.__voxelands = {
   sites: world.terrain.sites,
   progress,
   crates,
+  missions: missionDirector,
+  testFlags,
   dropLoot,
   rollLoot,
   perf,
@@ -2158,6 +2294,45 @@ function updateJetOverlay() {
     missileWarnTextEl.textContent = w.kind === "missile" ? `MISSILE ${Math.round(w.dist)}` : "INCOMING";
   }
 }
+// The mission marker: a diamond over the current mission's target (with its
+// name and distance), or an arrow at the edge of the screen pointing to it.
+const missionMarkerEl = document.getElementById("mission-marker");
+const missionMarkerLabel = missionMarkerEl.querySelector(".mm-label");
+const _mm = new THREE.Vector3();
+function updateMissionMarker(show) {
+  const t = show ? missionDirector.target : null;
+  missionMarkerEl.classList.toggle("hidden", !t);
+  if (!t) return;
+  _mm.copy(t.pos);
+  _mm.y += 2;
+  const d = Math.round(_mm.distanceTo(camera.position));
+  _mm.project(camera);
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  let x = ((_mm.x + 1) / 2) * W;
+  let y = ((1 - _mm.y) / 2) * H;
+  const behind = _mm.z > 1;
+  const off = behind || x < 30 || x > W - 30 || y < 30 || y > H - 30;
+  if (off) {
+    // Clamp to the screen edge, pointing the way to turn.
+    let ax = x - W / 2;
+    let ay = y - H / 2;
+    if (behind) {
+      ax = -ax;
+      ay = -ay;
+      if (Math.abs(ay) < 1 && Math.abs(ax) < 1) ay = H;
+    }
+    const k = Math.min((W / 2 - 40) / Math.max(1e-3, Math.abs(ax)), (H / 2 - 50) / Math.max(1e-3, Math.abs(ay)));
+    x = W / 2 + ax * k;
+    y = H / 2 + ay * k;
+    missionMarkerEl.style.setProperty("--a", `${Math.atan2(ay, ax) + Math.PI / 2}rad`);
+  }
+  missionMarkerEl.classList.toggle("edge", off);
+  missionMarkerEl.style.left = `${x}px`;
+  missionMarkerEl.style.top = `${y}px`;
+  const text = `${t.label} ${d}m`;
+  if (missionMarkerLabel.textContent !== text) missionMarkerLabel.textContent = text;
+}
 // The mission tracker (Survival): the current mission, its objectives, and
 // the way to a supply crate that is on the ground.
 const missionEl = document.getElementById("mission-tracker");
@@ -2166,21 +2341,41 @@ let missionSig = "";
 function updateMissions(dt) {
   const show = gameState === "playing" && crates.enabled && !hudHidden;
   ufos.difficulty = player.creative ? 0.5 : progress.difficulty(stats.world);
+  if (gameState === "playing") missionDirector.update(dt);
+  updateMissionMarker(show);
+  // (Missions complete even with the HUD hidden.)
+  missionT -= dt;
+  const tick = missionT <= 0;
+  if (tick) {
+    missionT = 0.4;
+    progress.update(stats.world);
+  }
   if (!show) {
     if (!missionEl.classList.contains("hidden")) missionEl.classList.add("hidden");
     return;
   }
-  missionT -= dt;
-  if (missionT > 0) return;
-  missionT = 0.4;
-  progress.update(stats.world);
+  if (!tick && !missionEl.classList.contains("hidden")) return;
   const m = progress.mission;
   const parts = [];
   if (m) {
-    parts.push(`<div class="mt-title">MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}</div><div class="mt-text">${m.text}</div>`);
-    for (const o of progress.objectives(stats.world)) parts.push(`<div class="mt-obj${o.value >= o.goal ? " done" : ""}">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${o.label}: ${o.value}/${o.goal}</div>`);
+    parts.push(`<div class="mt-head"><span class="mt-title">${m.title}</span><span class="mt-step">MISSION ${progress.completed + 1}/${MISSIONS.length}</span></div><div class="mt-text">${m.text}</div>`);
+    for (const o of progress.objectives(stats.world)) {
+      parts.push(`<div class="mt-obj${o.value >= o.goal ? " done" : ""}">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${o.label}: ${o.value}/${o.goal}</div>`);
+      parts.push(`<div class="mt-bar"><div style="width:${Math.round((o.value / o.goal) * 100)}%"></div></div>`);
+    }
+    const t = missionDirector.target;
+    if (t) {
+      const dx = t.pos.x - player.position.x;
+      const dz = t.pos.z - player.position.z;
+      const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) / 45) % 8];
+      parts.push(`<div class="mt-target">\u25C6 ${t.label}: ${Math.round(Math.hypot(dx, dz))} blocks ${dir}</div>`);
+    }
+    const note = missionDirector.note();
+    if (note) parts.push(`<div class="mt-note">${note}</div>`);
+    const next = MISSIONS[progress.completed + 1];
+    if (next) parts.push(`<div class="mt-next">Next: ${next.title} (Esc > Missions for the list)</div>`);
   } else {
-    parts.push(`<div class="mt-title">ALL MISSIONS COMPLETE</div>`);
+    parts.push(`<div class="mt-title">ALL MISSIONS COMPLETE</div><div class="mt-text">The invasion is over: the sky stays as tough as it gets. Esc > Missions shows what you did.</div>`);
   }
   const c = crates.nearest(player.position.x, player.position.z);
   if (c) {
@@ -2208,7 +2403,7 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a pistol. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift to fly, wheel for speed. Left click laser, hold right click to beam things up.", 6);
@@ -2233,6 +2428,25 @@ hud.hitMarker = () => {
   }, 90);
 };
 screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById("stats-table"));
+// The mission list (pause menu): every mission, done, current (with its
+// progress) or still to come, and what each one gives.
+screens.onOpen["missions-screen"] = () => {
+  const el = document.getElementById("missions-list");
+  const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const reward = (r) => r.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ");
+  const intro = player.creative ? `<p class="hint">Missions run in Survival (switch the game mode in the pause menu). Creative is free play.</p>` : "";
+  el.innerHTML =
+    intro +
+    progress
+      .list(stats.world)
+      .map((m) => {
+        const mark = m.state === "done" ? "\u2714" : m.n;
+        const obj = m.objectives ? m.objectives.map((o) => `<div class="ml-obj">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${esc(o.label)}: ${o.value}/${o.goal}</div>`).join("") : "";
+        const state = m.state === "current" ? " (current)" : m.state === "done" ? " (done)" : "";
+        return `<div class="ml-item ${m.state}"><div class="ml-n">${mark}</div><div class="ml-title">${esc(m.title)}${state}</div><div class="ml-text">${esc(m.text)}</div><div class="ml-reward">Reward: ${esc(reward(m.reward))}</div>${obj}</div>`;
+      })
+      .join("");
+};
 
 // Altitude-aware view distance: flying a jet or UFO high above the ground you
 // can (and want to) see much farther, so the far terrain (cheap, simplified
