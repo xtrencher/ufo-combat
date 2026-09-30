@@ -634,7 +634,7 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
     for (let i = 0; i < pad.length; i += 4) if (pad[i + 3] === 3) window.__step.push([pad[i], pad[i + 1], pad[i + 2]]);
     g.player.position.set(Math.floor(px) + 0.5, sy + 1.05, Math.floor(w.pos.z) + 0.5);
     g.player.velocity.set(0, 0, 0);
-    g.player.fallDistance = 0;
+    g.player.resetFall();
     return !!w;
   });
   assert(r, "a wreck exists");
@@ -1171,12 +1171,18 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   const landed = await until((g) => g.player.onGround && !g.vehicles.parachute.active, 120000);
   assert(landed && (await v((g) => g.gameState)) === "playing", "landed safely");
   // 7. The aliens come out and fight: shoot them with the laser blaster.
+  // (Round 3: every alien shot that reaches you counts; keep the test player
+  // alive from the moment it lands.)
+  await v((g) => g.setMode("creative"));
   const aliens = await until((g) => g.mobs.countKind("alien") > 0, 90000);
   const adbg = aliens ? null : await v((g) => ({ pending: g.ufos.pendingCrews.map((c) => ({ d: c.pos.distanceTo(g.player.position).toFixed(0), delay: c.delay, tries: c.tries, count: c.count, water: c.water, meshed: !!g.world.getChunk(Math.floor(c.pos.x) >> 4, Math.floor(c.pos.z) >> 4)?.meshed })), view: g.ufos.viewDistance, mobs: g.mobs.mobs.map((m) => m.kind).join(","), dead: g.player.dead, mode: g.player.mode, gs: g.gameState, ufos: g.ufos.count }));
   assert(aliens, `aliens climbed out ${JSON.stringify(adbg)}`);
   await v((g) => {
     g.setMode("creative"); // keep the test player alive while the aliens fire
-    g.inventory.selected = 6;
+    // The laser blaster in hand (wherever it is in the hotbar).
+    const idx = g.inventory.slots.findIndex((s, i) => i < 9 && s && s.id === 292);
+    if (idx < 0) g.inventory.slots[6] = { id: 292, count: 1 };
+    g.inventory.selected = idx >= 0 ? idx : 6;
   });
   const cleared = await until((g) => {
     const a = g.mobs.mobs.find((m) => m.kind.startsWith("alien") && !m.dead);
@@ -1187,7 +1193,9 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
     // Walk right up to it (so the wreck it may stand under isn't in the
     // way), then blast.
+    // (Round 3's steeper terrain: step onto a ledge next to it if walking can't get there.)
     if (d.length() > 3) g.player.position.addScaledVector(d.clone().setY(0).normalize(), Math.min(0.8, d.length() - 3));
+    if (d.length() > 6 && Math.abs(d.y) > 2) g.player.position.set(a.pos.x - (d.x / d.length()) * 3, a.pos.y + 0.2, a.pos.z - (d.z / d.length()) * 3);
     g.weapons._cooldowns.blaster = 0;
     g.weapons.press("blaster");
     g.weapons.release();

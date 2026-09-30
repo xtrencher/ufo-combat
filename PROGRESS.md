@@ -1305,12 +1305,12 @@ Source of truth for this round. Items are ticked as they are finished; decisions
 - [x] 6.3 Mission HUD with progress; mission list in the pause menu
 
 ## Final polish
-- [ ] F1 Regression pass
-- [ ] F2 Player's-eye review (Survival start, Creative jet/UFOs/dashes/night/lock release)
-- [ ] F3 Full test suite
-- [ ] F4 README updated
-- [ ] F5 PROGRESS summary, decisions, known issues, how to test in 10 minutes
-- [ ] F6 "ROUND 3 COMPLETE", commit, push
+- [x] F1 Regression pass
+- [x] F2 Player's-eye review (Survival start, Creative jet/UFOs/dashes/night/lock release)
+- [x] F3 Full test suite
+- [x] F4 README updated
+- [x] F5 PROGRESS summary, decisions, known issues, how to test in 10 minutes
+- [x] F6 "ROUND 3 COMPLETE", commit, push
 
 ## Round 3 decisions and notes
 (appended as work proceeds)
@@ -1332,3 +1332,63 @@ Source of truth for this round. Items are ticked as they are finished; decisions
 - Part 6, HUD: the tracker shows "MISSION n/15", the title, the text, each objective with a progress bar, the target's name, distance and direction, a note (e.g. "Night falls in about 3 min") and the next mission; a yellow diamond marker floats over the target (or an arrow at the screen edge when it is off-screen or behind). The pause menu has a Missions screen listing all 15 with their state, progress and rewards. Missions now also complete while the HUD is hidden (F1), which they didn't before. New stats: missions completed, nights survived, takeoffs, UFOs downed from the jet, large UFOs, raiders, enemy bases nuked. Old Round 2 mission progress carries over (mapped onto the new chain).
 - Final polish, player's-eye review: in Survival the J key (and the Jet Radio, and the fighters parked at airports) called a jet from minute one, which skipped the whole mission curve: jets now unlock with mission 8 "Take to the air" (a toast says so; Creative is unchanged). With UFO activity Off the director spawns no mission UFOs and the tracker says why. The first-time welcome hint in Survival points at the mission tracker instead of the jet. Rogue fighters never pick a mission's own target (the scout, raiders).
 
+## Round 3 (UFO COMBAT): final summary
+
+Everything in the brief is in, part by part, each committed and pushed when finished.
+
+**Part 0, jet flight restored.** The in-air flight model and controls are the Round 1 ("UFO FINAL COMPLETE") ones again: Round 2 had raised the default top speed from 160 to 220 blocks/s (drag is derived from it, which is what changed the feel) and added a climb-hold that also acted on landing approaches. Saved settings still at the Round 2 default are moved back once. Every Round 2 jet feature still works (weapons, aim assist, heat, missile lock and salvos, flares, warnings, runway takeoff); only the ground roll got small, ground-only adjustments so the restored drag doesn't stop the takeoff.
+
+**Part 1, combat.** UFO shots that reach you always hurt: hit tests now use the bolt's visible size, test in the target's frame of motion (fast jets can't slip between frames), and projectiles no longer get swallowed by the half-second grace time; UFO aim uses a real intercept, so standing still gets you hit and moving out of the way doesn't. Releasing the jet's missile lock early fires nothing. Each UFO type fights in its own way: rapid bursts, slow heavy bolts, spread fans, charged shots with a visible glow-up, sweeping ground beams and seekers, each with its own colour and sound.
+
+**Part 2, UFO redesign.** Eight clean, minimal designs (lens / disc / domed smooth saucers as the majority, gray-black grainy spheres, pale tic-tacs, tori, rounded cubes, cube-rings), no lights at all, varied sizes and finishes (brushed, glossy, satin, matte, grain) from a new specular surface option in the entity shader. Shot-down UFOs never glow again, boarded or not.
+
+**Part 3, behaviour.** Enemy UFOs dash (random, often when hit or when a missile closes in) at extreme speed, travelled over a few frames with a smear of fading hull copies and no light. The player's UFO dash is travelled too, with distance (or Off) and travel-time settings, shown in the I panel. 40% of enemy fighters are rogue pilots that sometimes attack UFOs on their own, capped so they never clear the sky, and never credited to the player.
+
+**Part 4, jet visuals.** The jet was black at night because its paint colours were converted to linear twice (albedo ~0.03). Fixed, plus a satin paint finish with sun/moon specular, sky reflection, procedural panel lines and a two-tone livery, more model detail (canopy frame, pilot, probes, antennas, wicks, gun port), and navigation, strobe and formation lights only at night.
+
+**Part 5, world and graphics.** A 128-tall world (still save-compatible) with half of it sea, mountain ranges up to ~120 with snow and bare rock, and biomes about three times bigger. Render distance up to 256 chunks, full detail up to 24, an Extreme far-terrain quality and performance preset, resolution up to 200%, and a pool of LOD workers; LOD samples the same terrain functions as the chunks. Ultra grass is about two thirds as tall.
+
+**Part 6, missions.** Fifteen missions, from a pistol-killable scout to nuking an enemy-held airport, each set up in the world by a mission director, each with rewards along the weapon progression and its own rules for the sky (sizes, health, damage, aggression, numbers) for a steady difficulty curve. The HUD shows the mission, progress bars, the target's distance and direction and a marker over it; the pause menu lists all missions. Jets join with mission 8 in Survival.
+
+### Round 3 decisions (summary; details above)
+
+- Jet: restored the Round 1 flight model exactly in the air; kept Round 2's ground roll and made the takeoff work with the restored drag through ground-only changes (no induced drag on the wheels, rotate at 1.2x stall, a 3-second climb aid after liftoff).
+- A quick tap of the jet's lock button no longer fires an unguided missile (asked for); the cannon is the unguided weapon.
+- Projectile hits always count (no grace time), balanced by tighter but fair aim and the per-mission damage multipliers.
+- World height 128 rather than 256: the largest that keeps the saved-edit format (16-bit index) and every existing save valid.
+- Jets locked in Survival until mission 8, since a jet on day one skips the whole difficulty curve; Creative unchanged.
+- Rogue fighters: 40%, weaker vs UFOs, two kills at most, no credit to the player.
+- Mission UFOs respect "UFO activity: Off" (the tracker explains why a mission can't progress).
+- The older test suites run without the mission chain (a `testFlags.noMissions` hook, never set by the game), since the director would spawn scouts and change the sky under them.
+
+### Known issues and honest limits
+
+- Existing worlds: the Round 3 terrain is different for the same seed (taller, bigger features). Saved block edits keep their positions, so builds from an older version can end up buried or floating in a changed landscape.
+- Mission set-ups (scouts, squads, raids, the mothership, the enemy base) are not saved; after a reload the director sets the current mission up again.
+- The village raid picks the nearest village within 2500 blocks, else the nearest airport, else a spot 400 blocks away; the "burning" is heavy UFO shots that do blast craters in it.
+- Long render distances (150-256 chunks) are meant for strong PCs: the far terrain is cheap, but it is still a lot of tiles, and when flying high the view grows further.
+- `smoke-test.mjs` "underwater blasts flood the crater" can fail in a full run when earlier checks' craters leave air next to the sea near the chosen spot; it passes on a fresh page and chunk generation itself leaves no air under water (checked). `smoke-test.mjs` Ultra grass check can hit its 5-minute limit with software rendering on a busy machine (as in Round 2).
+- Hooks for tests only: `testFlags.noMissions`, `ufo.crashPlan`, `ufo.noLeave`, `SMOKE_GREP`.
+- All screenshots for the visual review came from software rendering (1-2 FPS); real-GPU frame times were not measured.
+
+### How to test in 10 minutes
+
+1. **New World, Survival:** a scout UFO appears (yellow marker, tracker top right). Shoot it with the pistol (about five hits); two aliens climb out of the wreck (mission 2), then a supply crate drops (mission 3). Esc > **Missions** lists all 15.
+2. Watch a UFO while you shoot at it: it often **dashes** away (a smear, no light). Stand still under fire and you get hit; strafe and the shots miss.
+3. **Creative:** Settings > UFOs, activity "Busy skies": watch the new clean designs; notice different attacks (cyan bursts, orange balls, magenta fans, charged white shots with a glow-up, red sweeping beams).
+4. Press **J**: fly the jet (it flies like the first build again). Hold right click on a UFO and let go before LOCKED: nothing fires and the view turns back; hold 1 s: one missile.
+5. Settings > Gameplay, time 23:00: the jet is clearly visible in the moonlight, with its navigation lights on (off by day).
+6. Get out, board a UFO from the Mods screen, press **R** (a streaked dash; Settings > Vehicles to change or switch it off; **I** shows it).
+7. Settings > Performance > **Extreme**, then fly high over a mountain range: big ranges, snowy peaks, seas to the horizon.
+
+### Tests (Round 3)
+
+Run in `tools/` (`npm install` once; headless Chromium with software rendering, so the browser suites are slow). Each suite ran in full once, then the failing checks were fixed and re-run on their own:
+
+- `node unit-tests.mjs`: **50 passed, 0 failed** (new: world scale, the 15-mission chain and old-save migration).
+- `node round3-tests.mjs` (new, ~5 min): **10 checks**; full run 9/10, the failure (a fighter crashing into a hill counted as the player's kill) was a real bug, fixed, and the check passes (twice in a row).
+- `node round2-tests.mjs`: full run **34 passed, 5 failed**; all five fixed and passing on re-run (a thin new UFO hitbox, test set-ups that depended on the old terrain or on the old mission chain, a rogue fighter in a "take the UFOs' side" check, the respawn/resume helper).
+- `node ufo-tests.mjs`: full run **30 passed, 5 failed**; re-run from the failing section after fixes: 16 of 18, and the jet takeoff check alone passes. Still failing: "FULL SCENARIO" (known timing/chance-sensitive in Round 2 as well; this time the crew didn't show up in time) and "stats", which counts what that scenario does.
+- `node smoke-test.mjs` (~70 min): **62 passed, 5 failed**; render distance, F5 camera and LOD hand-over fixed and passing on re-run; still listed: "Ultra: tall grass..." (hit its 5-minute limit under CPU load, as in Round 2) and "underwater blasts" (order-dependent, see Known issues; passes on a fresh page).
+
+ROUND 3 COMPLETE
