@@ -1319,6 +1319,12 @@ ${POINT_LIGHTS}
   uniform vec4 uSurf;   // specular strength, gloss exponent, reflection, grain
   uniform float uBrush; // brushed-metal streaks (0-1)
   uniform vec4 uPanel;  // panel lines: strength, panels per unit; livery: two-tone strength, scale
+  #ifdef USE_SKIN
+    // An aircraft skin (the jets): per-panel tone variation (coating
+    // patches), exhaust soot toward the nozzles, faint grime streaks along
+    // the airflow; x tone, y soot, z where the soot starts (model z), w streaks.
+    uniform vec4 uSkin;
+  #endif
   varying vec3 vLocal;
   float srfHash(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
@@ -1381,7 +1387,21 @@ void main() {
       // Far away the seams fade into the paint.
       float fade = clamp(1.0 - max(wx, wz) * 6.0, 0.0, 1.0);
       albedo.rgb *= 1.0 - uPanel.x * line * fade;
+      #ifdef USE_SKIN
+        // Each panel a slightly different shade (replaced coating patches).
+        vec3 cell = vec3(floor(q.x + row * 0.37), row, floor(q.y * 1.3 + row * 0.21));
+        albedo.rgb *= 1.0 + (srfHash(cell + 3.7) - 0.5) * uSkin.x * (0.4 + 0.6 * fade);
+      #endif
     }
+    #ifdef USE_SKIN
+      // Exhaust soot around the tail, heaviest near the nozzles.
+      float soot = smoothstep(uSkin.z, uSkin.z + 2.2, vLocal.z) * (1.0 - smoothstep(1.2, 2.6, abs(vLocal.x)));
+      soot *= 0.75 + 0.5 * srfNoise(vLocal * vec3(3.0, 3.0, 1.2));
+      albedo.rgb *= 1.0 - uSkin.y * soot;
+      // Grime streaks running back along the airflow.
+      float streak = srfNoise(vec3(vLocal.x * 7.0, vLocal.y * 7.0, vLocal.z * 0.35));
+      albedo.rgb *= 1.0 - uSkin.w * smoothstep(0.55, 0.8, streak);
+    #endif
   #endif
   vec3 color = albedo.rgb * light + uFlash;
   #ifdef USE_SPEC
@@ -1436,6 +1456,10 @@ export function createEntityMaterial(kind, texture = null, { transparent = false
     uniforms.uSurf = { value: new THREE.Vector4(finish.spec ?? 0.5, finish.gloss ?? 40, finish.env ?? 0.3, finish.grain ?? 0) };
     uniforms.uBrush = { value: finish.brush ?? 0 };
     uniforms.uPanel = { value: new THREE.Vector4(finish.panel ?? 0, finish.panelScale ?? 1, finish.livery ?? 0, finish.liveryScale ?? 0.3) };
+    if (finish.skin) {
+      defines.USE_SKIN = "";
+      uniforms.uSkin = { value: new THREE.Vector4(finish.skin.tone ?? 0, finish.skin.soot ?? 0, finish.skin.sootZ ?? 5, finish.skin.streaks ?? 0) };
+    }
   }
   return new THREE.ShaderMaterial({
     uniforms,

@@ -37,16 +37,10 @@ const G = 14; // gravity on the jet (blocks/s^2)
 const CL_SLOPE = 5; // lift coefficient per radian of angle of attack
 const STALL_AOA = 0.3; // radians (~17 degrees)
 const GEAR = 1.35; // center to wheels
-const CANNON_RATE = 16;
-const CANNON_DAMAGE = 5;
-const HEAT_PER_SHOT = 0.05; // the cannon overheats after about 2 s of continuous fire
 const HEAT_COOL = 0.28; // per second (it always cools)
 const HEAT_RESUME = 0.4; // a jammed cannon works again below this
 const ASSIST_CONE = 0.11; // radians: the cannon pulls toward a target this close to the nose
-const MISSILE_COOLDOWN = 0.5;
 const LOCK_TIME = 1.0; // seconds on target: one missile
-const SALVO_TIME = 3.0; // seconds on target: a salvo of four
-const SALVO_SIZE = 4;
 const TAP_TIME = 0.25; // seconds: a right click shorter than this fires an unguided missile
 const LOCK_PEACEFUL = 0.6; // lock score penalty (radians off the view centre) for targets not attacking you
 const FOLLOW_AFTER = 0.8; // seconds the camera stays on the target after the missile got there
@@ -62,6 +56,17 @@ const ROTATE_PITCH = 0.24; // radians: the most the nose rises on the wheels (be
 const ROTATE_SPEED = 1.2; // x the stall speed: the assist rotates for takeoff (lift-off with margin to climb away)
 const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
 export const MISSILE_DAMAGE = 190;
+
+// The two jets you can call in. The Raptor is the heavy one (more armour, a
+// salvo of four, the higher top speed); the Falcon is lighter and nimbler:
+// it turns and rolls faster, stalls later (a shorter takeoff roll),
+// accelerates a little quicker and has a faster-firing cannon and quicker
+// missile reloads, but less armour, a slightly lower top speed and a
+// salvo of two. (The multipliers apply on top of Settings > Vehicles.)
+export const JET_TYPES = {
+  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 120 blocks (100 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 } },
+  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 90 blocks (75 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 } },
+};
 const ROGUE_MISSILE_DAMAGE = 70; // an enemy fighter's missile at a UFO (they help, but never clear the sky for you)
 
 const X = new THREE.Vector3(1, 0, 0);
@@ -96,8 +101,11 @@ function turnToward(dir, want, maxAngle) {
 export class Jet extends Vehicle {
   // data: { pos, yaw, speed, throttle, airborne, health, q }
   constructor(manager, data = {}, opts = {}) {
-    super(manager, { type: opts.type || "jet", name: opts.name || "F-22 Raptor", radius: 7.5, maxHealth: opts.maxHealth || 160 });
-    this.model = createJetModel(1, { paint: opts.paint || "raptor" });
+    const spec = JET_TYPES[data.jetType] || JET_TYPES[opts.jetType] || JET_TYPES.f22;
+    super(manager, { type: opts.type || "jet", name: opts.name || spec.name, radius: 7.5, maxHealth: opts.maxHealth || spec.maxHealth });
+    this.spec = spec;
+    this.jetType = spec.id;
+    this.model = createJetModel(1, { paint: opts.paint || "raptor", type: spec.id });
     this.root.add(this.model.root);
     this.hitRadius = 5.5;
     this.cameraModes = ["chase", "cockpit"];
@@ -149,7 +157,17 @@ export class Jet extends Vehicle {
   }
 
   get cfg() {
-    return this.manager.config.jet || JET_DEFAULTS;
+    const base = this.manager.config.jet || JET_DEFAULTS;
+    const sp = this.spec;
+    if (!sp || sp === JET_TYPES.f22) return base;
+    // (Cached until the settings object or its numbers change.)
+    const key = `${base.maxSpeed}|${base.stallSpeed}|${base.accel}|${base.turnRate}|${base.assist}|${base.aimAssist}|${base.airborne}`;
+    if (this._cfgKey !== key || this._cfgBase !== base) {
+      this._cfgKey = key;
+      this._cfgBase = base;
+      this._cfg = { ...base, maxSpeed: base.maxSpeed * sp.speed, stallSpeed: base.stallSpeed * sp.stall, accel: base.accel * sp.accel, turnRate: base.turnRate * sp.turn };
+    }
+    return this._cfg;
   }
 
   get bottom() {
@@ -251,7 +269,7 @@ export class Jet extends Vehicle {
     // Control rates: they need airspeed to work.
     const authority = clamp(speed / (vStall * 1.4), 0.15, 1) * (this.stalled ? 0.5 : 1);
     const turn = cfg.turnRate;
-    const target = new THREE.Vector3(stick.x * 1.25 * turn, stick.y * 0.55 * turn, stick.z * 3.2 * turn).multiplyScalar(authority);
+    const target = new THREE.Vector3(stick.x * 1.25 * turn, stick.y * 0.55 * turn, stick.z * 3.2 * turn * (this.spec?.roll ?? 1)).multiplyScalar(authority);
     if (this.onGround) {
       target.z = 0; // no rolling on the runway
       target.y = stick.y * 0.5 * clamp(speed / 10, 0, 1); // nosewheel steering
@@ -298,7 +316,7 @@ export class Jet extends Vehicle {
     let err = want - bank;
     err = Math.atan2(Math.sin(err), Math.cos(err));
     const rate = ROLL_GAIN * err - ROLL_DAMP * this.angVel.z;
-    out.z = clamp(rate / (3.2 * Math.max(0.3, this.cfg.turnRate)), -1, 1);
+    out.z = clamp(rate / (3.2 * Math.max(0.3, this.cfg.turnRate) * (this.spec?.roll ?? 1)), -1, 1);
     return out;
   }
 
@@ -517,13 +535,14 @@ export class Jet extends Vehicle {
     }
     // Any other part of the airframe hitting the terrain: nose, wingtips, tails.
     const right = this.right(_w);
+    const pr = this.spec.probes;
     const probes = [
-      [fwd, 7.4],
+      [fwd, pr.nose],
       [fwd, 3],
     ];
     const pts = probes.map(([d, l]) => this.pos.clone().addScaledVector(d, l));
-    pts.push(this.pos.clone().addScaledVector(right, 6.2), this.pos.clone().addScaledVector(right, -6.2));
-    pts.push(this.pos.clone().addScaledVector(fwd, -6).addScaledVector(up, 2.2));
+    pts.push(this.pos.clone().addScaledVector(right, pr.wing), this.pos.clone().addScaledVector(right, -pr.wing));
+    pts.push(this.pos.clone().addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2));
     pts.push(this.pos.clone().addScaledVector(up, this.onGround ? 1.2 : -0.6));
     for (const p of pts) {
       if (p.y < 0 || p.y >= WORLD_HEIGHT) continue;
@@ -594,8 +613,8 @@ export class Jet extends Vehicle {
   _fireCannon(fwd) {
     const mgr = this.manager;
     const right = this.right(new THREE.Vector3());
-    this.cannonT = 1 / CANNON_RATE;
-    this.heat = Math.min(1, this.heat + HEAT_PER_SHOT);
+    this.cannonT = 1 / this.spec.cannonRate;
+    this.heat = Math.min(1, this.heat + this.spec.heatPerShot);
     if (this.heat >= 1) this.jammed = true;
     const from = this.pos.clone().addScaledVector(fwd, 6.6).addScaledVector(right, 0.9).addScaledVector(this.up(_v), 0.35);
     const speed = 700 + Math.max(0, this.vel.dot(fwd));
@@ -605,7 +624,7 @@ export class Jet extends Vehicle {
     dir.y += (Math.random() - 0.5) * 0.008;
     dir.z += (Math.random() - 0.5) * 0.008;
     dir.normalize();
-    mgr.lasers.fire({ from, dir, color: this._tracer || (this._tracer = new THREE.Color(5, 3.4, 1.1)), speed, damage: CANNON_DAMAGE * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: 1100, radius: 0.07, length: 9, scorch: true, sound: false });
+    mgr.lasers.fire({ from, dir, color: this._tracer || (this._tracer = new THREE.Color(5, 3.4, 1.1)), speed, damage: this.spec.cannonDamage * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: 1100, radius: 0.07, length: 9, scorch: true, sound: false });
     mgr.audio?.playCannon?.();
     mgr.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.05, size0: 1.4, size1: 0.3, color0: this._tracer, alpha: 0.9 });
   }
@@ -734,7 +753,7 @@ export class Jet extends Vehicle {
       const wasLocked = lock.locked;
       const wasSalvo = lock.salvo;
       lock.locked = !!lock.target && lock.t >= LOCK_TIME;
-      lock.salvo = !!lock.target && lock.t >= SALVO_TIME;
+      lock.salvo = !!lock.target && lock.t >= this.spec.salvoTime;
       if (lock.target) lock.target.ref.lockedOn = mgr.ufos.time;
       // Look at it (not for a quick click, which fires straight ahead).
       if (lock.target && lock.held > TAP_TIME) {
@@ -753,7 +772,7 @@ export class Jet extends Vehicle {
       }
       if (lock.locked && !wasLocked) mgr.onMessage?.("LOCKED: release to fire (hold for a salvo)");
       if (lock.salvo && !wasSalvo) {
-        mgr.onMessage?.(`SALVO READY x${SALVO_SIZE}`);
+        mgr.onMessage?.(`SALVO READY x${this.spec.salvo}`);
         mgr.audio?.playSalvoTone?.();
       }
     } else {
@@ -808,14 +827,14 @@ export class Jet extends Vehicle {
         const targets = [target];
         const c0 = this._targetPos(target, new THREE.Vector3());
         for (const c of this._lockables()) {
-          if (c.ref === target.ref || targets.length >= SALVO_SIZE) continue;
+          if (c.ref === target.ref || targets.length >= this.spec.salvo) continue;
           if (this._targetPos(c, _w).distanceTo(c0) < 260) targets.push({ kind: c.kind, ref: c.ref });
         }
-        for (let i = 0; i < SALVO_SIZE; i++) this.queued.push({ t: i * 0.14, target: targets[i % targets.length], follow });
-        this.missileT = MISSILE_COOLDOWN + SALVO_SIZE * 0.14;
+        for (let i = 0; i < this.spec.salvo; i++) this.queued.push({ t: i * 0.14, target: targets[i % targets.length], follow });
+        this.missileT = this.spec.missileCooldown + this.spec.salvo * 0.14;
       } else {
         follow.missiles.push(this._launchMissile(target));
-        this.missileT = MISSILE_COOLDOWN;
+        this.missileT = this.spec.missileCooldown;
       }
       // The camera stays on the target until the missile gets there.
       lock.follow = follow;
@@ -823,7 +842,7 @@ export class Jet extends Vehicle {
       // A quick click, or nothing to lock on to: an unguided missile,
       // straight ahead.
       this._launchMissile(null);
-      this.missileT = MISSILE_COOLDOWN;
+      this.missileT = this.spec.missileCooldown;
     } else {
       // Released while the lock was still building: no missile.
       this.manager.onMessage?.("Lock cancelled");
@@ -1243,7 +1262,7 @@ export class Jet extends Vehicle {
     const lockText = lock.follow
       ? `<span class="vh-lock">TRACKING ${nameOf(lock.follow.target)}</span> (RMB: view back)`
       : lock.salvo
-        ? `<span class="vh-lock">SALVO x${SALVO_SIZE} ${nameOf(lock.target)}</span>`
+        ? `<span class="vh-lock">SALVO x${this.spec.salvo} ${nameOf(lock.target)}</span>`
         : lock.locked
           ? `<span class="vh-lock">LOCKED ${nameOf(lock.target)}</span>`
           : lock.target && lock.held > TAP_TIME
@@ -1297,10 +1316,10 @@ export class Jet extends Vehicle {
       stats: [
         ["Top speed (afterburner)", `${Math.round(cfg.maxSpeed * 3.6)} km/h (${Math.round(cfg.maxSpeed)} blocks/s)`],
         ["Stall speed", `${Math.round(cfg.stallSpeed * 3.6)} km/h: the wings stop lifting below it`],
-        ["Takeoff run", "about 120 blocks (80 with the afterburner); the nose rises at 1.2x the stall speed"],
+        ["Takeoff run", `${this.spec.takeoff}; the nose rises at 1.2x the stall speed`],
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
-        ["Autocannon", `${CANNON_RATE} rounds/s, ${CANNON_DAMAGE} damage each; aims a little for you; overheats after ~${Math.round(1 / (HEAT_PER_SHOT * CANNON_RATE - HEAT_COOL))} s of fire`],
-        ["Missiles", `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one, 3 s for a salvo of ${SALVO_SIZE}; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires`],
+        ["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`],
+        ["Missiles", `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one, ${this.spec.salvoTime} s for a salvo of ${this.spec.salvo}; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires`],
         ["Flares", `${FLARE_BURST} decoys per burst, ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", "one big bomb on a parachute; no cooldown"],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],
@@ -1360,7 +1379,7 @@ export class Jet extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), q: this.q.toArray().map((v) => Math.round(v * 10000) / 10000), throttle: Math.round(this.throttle * 100) / 100, speed: Math.round(this.speed * 10) / 10, airborne: !this.onGround };
+    return { ...super.serialize(), jetType: this.jetType, q: this.q.toArray().map((v) => Math.round(v * 10000) / 10000), throttle: Math.round(this.throttle * 100) / 100, speed: Math.round(this.speed * 10) / 10, airborne: !this.onGround };
   }
 
   dispose() {

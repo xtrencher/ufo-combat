@@ -1628,8 +1628,10 @@ export class UfoManager {
     const v = tgt.vehicle;
     const jet = v.type === "jet";
     const flee = jet && u.personality !== "fighter" && !u.hostile;
+    // (Measured against the jet being flown: the two jets differ a little.)
+    const jetTop = (jet && v.cfg?.maxSpeed) || this.jetMaxSpeed;
     if (flee) {
-      const topSpeed = this.jetMaxSpeed * u.fleeFactor;
+      const topSpeed = jetTop * u.fleeFactor;
       const away = _w.copy(u.pos).sub(v.pos).normalize();
       // Evasive weaving while running.
       const t = this.time * 1.7 + u.id;
@@ -1660,7 +1662,7 @@ export class UfoManager {
       u.pass = new THREE.Vector3(rand(-1, 1), rand(-0.3, 0.5), rand(-1, 1)).normalize().multiplyScalar(rand(40, 90));
     }
     const goal = _w.copy(v.pos).add(u.pass);
-    const topSpeed = jet ? this.jetMaxSpeed * 0.9 : u.S.top;
+    const topSpeed = jet ? jetTop * 0.9 : u.S.top;
     this._steer(u, goal, topSpeed, dt, 2.2);
     if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, v.pos)) {
       const st = STYLES[u.style] || STYLES.volley;

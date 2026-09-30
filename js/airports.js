@@ -71,7 +71,8 @@ export class AirportManager {
     const count = 1 + (s.seed % 3);
     for (let i = 0; i < Math.min(count, spots.length); i++) {
       const spot = spots[i];
-      const jet = veh.create("jet", { pos: [spot.x, spot.y + GEAR, spot.z], yaw: spot.yaw });
+      // A mix of Raptors and Falcons (fixed per airport and spot).
+      const jet = veh.create("jet", { jetType: (s.seed + i) % 2 ? "f16" : "f22", pos: [spot.x, spot.y + GEAR, spot.z], yaw: spot.yaw });
       if (!jet) continue;
       jet.transient = true; // never saved: the airport puts it out again next time
       jet.keep = true; // not evicted by the vehicle cap while the airport is near

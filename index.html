@@ -747,6 +747,25 @@
     white-space: nowrap;
   }
   #hud-toast.show { opacity: 1; }
+  #jet-picker {
+    position: fixed;
+    bottom: 22%;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    pointer-events: none;
+    z-index: 11;
+    font-family: system-ui, sans-serif;
+    color: #fff;
+  }
+  #jet-picker .jp-title { position: absolute; bottom: 100%; left: 0; right: 0; text-align: center; margin-bottom: 6px; font-weight: 700; text-shadow: 0 0 6px #000; }
+  #jet-picker .jp-opt { background: rgba(10,14,20,0.72); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 8px 14px; min-width: 190px; }
+  #jet-picker .jp-opt.last { border-color: #ffd257; }
+  #jet-picker .jp-opt b { display: block; font-size: 15px; }
+  #jet-picker .jp-opt kbd { display: inline-block; min-width: 16px; padding: 0 4px; margin-right: 6px; border: 1px solid #ccc; border-radius: 3px; text-align: center; font: 700 12px ui-monospace, monospace; }
+  #jet-picker .jp-opt span { font-size: 12px; opacity: 0.8; }
+  #jet-picker.hidden { display: none; }
   #stats-overlay {
     position: fixed;
     top: 8px;
@@ -954,6 +973,7 @@
     <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>
     <div id="vehicle-prompt" class="hidden"></div>
     <div id="hud-toast"></div>
+    <div id="jet-picker" class="hidden"></div>
     <div id="stats-overlay" class="hidden"></div>
     <div id="hit-marker"></div>
     <div id="beam-overlay"></div>

@@ -39,7 +39,7 @@ import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
 import "./vehicle-ufo.js";
-import "./vehicle-jet.js";
+import { JET_TYPES } from "./vehicle-jet.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, rollLoot, alienColour } from "./progression.js";
@@ -688,7 +688,47 @@ function jetLocked() {
 }
 const JET_LOCKED_TEXT = `Fighter jets join the fight with mission ${JET_MISSION + 1} ("${MISSIONS[JET_MISSION].title}"). Esc > Missions shows the way there.`;
 vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : null);
-function callJet(force = false) {
+// J (or the Jet Radio) opens a small picker: 1 the F-22 Raptor, 2 the F-16
+// Fighting Falcon; J again calls the one you took last time.
+const jetPickerEl = document.getElementById("jet-picker");
+let jetPickT = 0;
+let lastJetType = "f22";
+function jetPickerOpen() {
+  return jetPickT > 0;
+}
+function openJetPicker() {
+  if (!mods.enabled || player.dead || gameState !== "playing") return;
+  if (jetLocked()) {
+    toast(JET_LOCKED_TEXT, 4);
+    return;
+  }
+  if (vehicles.active) {
+    toast("Get out of your vehicle first (F).", 2);
+    return;
+  }
+  jetPickT = 6;
+  const opt = (n, id) => {
+    const t = JET_TYPES[id];
+    return `<div class="jp-opt${id === lastJetType ? " last" : ""}"><b><kbd>${n}</kbd>${t.name}</b><span>${t.id === "f22" ? "Heavy: more armour, top speed, salvo of 4" : "Agile: faster turns and rolls, shorter takeoff, faster cannon, salvo of 2"}</span></div>`;
+  };
+  jetPickerEl.innerHTML = `<div class="jp-title">Call in a jet: press 1 or 2 (J: the ${JET_TYPES[lastJetType].name} again)</div>${opt(1, "f22")}${opt(2, "f16")}`;
+  jetPickerEl.classList.remove("hidden");
+}
+function closeJetPicker() {
+  jetPickT = 0;
+  jetPickerEl.classList.add("hidden");
+}
+function pickJet(type) {
+  closeJetPicker();
+  lastJetType = JET_TYPES[type] ? type : "f22";
+  callJet(false, lastJetType);
+}
+function updateJetPicker(dt) {
+  if (jetPickT <= 0) return;
+  jetPickT -= dt;
+  if (jetPickT <= 0 || gameState !== "playing" || vehicles.active || player.dead) closeJetPicker();
+}
+function callJet(force = false, type = lastJetType) {
   if (!mods.enabled || player.dead || gameState !== "playing") return;
   if (!force && jetLocked()) {
     toast(JET_LOCKED_TEXT, 4);
@@ -713,20 +753,21 @@ function callJet(force = false) {
   const spawnAirborne = () => {
     const p = player.position;
     const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
-    const jet = vehicles.create("jet", { pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
+    const jet = vehicles.create("jet", { jetType: type, pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
     jet.keep = true;
     jet.isPlayerJet = true;
     vehicles.enter(jet);
     return jet;
   };
   if (strip) {
-    playerJet = vehicles.create("jet", { pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
+    playerJet = vehicles.create("jet", { jetType: type, pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
     playerJet.keep = true; // never evicted by the vehicle cap
     playerJet.isPlayerJet = true;
     jetWatchT = 2.5;
     const dir = Math.round(((Math.atan2(strip.x - player.position.x, -(strip.z - player.position.z)) * 180) / Math.PI + 360) % 360);
     const away = Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z));
-    toast(strip.airport ? `Your jet is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your jet has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
+    const jn = JET_TYPES[type]?.name ?? "jet";
+    toast(strip.airport ? `Your ${jn} is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your ${jn} has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
   } else {
     playerJet = spawnAirborne();
     stats.add("takeoffs"); // (already in the air: that counts as a takeoff)
@@ -756,7 +797,7 @@ function updateJetWatch(dt) {
     toast("Your jet had to be replaced: it arrives in the air.", 3);
   }
 }
-weapons.onJetRadio = callJet;
+weapons.onJetRadio = openJetPicker;
 
 // Entering and leaving vehicles.
 vehicles.onEnter = (v) => {
@@ -1380,7 +1421,7 @@ const shaderStandIns = new THREE.Group();
 // so the first UFO, beam or jet doesn't stall a frame compiling them.
 {
   const warm = new THREE.Group();
-  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root);
+  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root, createJetModel(1, { type: "f16" }).root);
   const beam = new TractorBeam(warm);
   beam.mesh.visible = true;
   beam.pool.visible = true;
@@ -1818,7 +1859,7 @@ document.addEventListener("pointerlockchange", () => {
     ui.showHud(true);
     if (pendingJetCall) {
       pendingJetCall = false;
-      setTimeout(callJet, 50);
+      setTimeout(openJetPicker, 50);
     }
   } else if (gameState === "playing" || gameState === "paused") {
     showPause();
@@ -1893,12 +1934,20 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   const idx = DIGIT_CODES.indexOf(e.code);
+  // (While the jet picker is up, 1 and 2 pick a jet instead of a hotbar slot.)
+  if (jetPickerOpen() && (idx === 0 || idx === 1)) {
+    if (!e.repeat) pickJet(idx === 0 ? "f22" : "f16");
+    return;
+  }
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
-  else if (e.code === "KeyJ" && mods.enabled) callJet();
+  else if (e.code === "KeyJ" && mods.enabled) {
+    if (jetPickerOpen()) pickJet(lastJetType);
+    else openJetPicker();
+  }
 });
 
 // F1: hide the whole HUD (and the item in hand) for clean screenshots.
@@ -2501,6 +2550,7 @@ function animate() {
     airports.update(dt);
     crates.update(dt);
     updateJetWatch(dt);
+    updateJetPicker(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     updateAltitudeView(dt);
     ufos.viewDistance = viewRD * 16;
