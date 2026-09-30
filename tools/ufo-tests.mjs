@@ -630,6 +630,8 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
       for (let dy = 1; dy <= 3; dy++) pad.push(Math.floor(px) + dx, sy + dy, Math.floor(w.pos.z) + dz, 0);
     }
     g.world.setBlocks(pad);
+    window.__step = [];
+    for (let i = 0; i < pad.length; i += 4) if (pad[i + 3] === 3) window.__step.push([pad[i], pad[i + 1], pad[i + 2]]);
     g.player.position.set(Math.floor(px) + 0.5, sy + 1.05, Math.floor(w.pos.z) + 0.5);
     g.player.velocity.set(0, 0, 0);
     g.player.fallDistance = 0;
@@ -644,6 +646,12 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
     return { cause: g.deathCause, enabled: g.vehicles.enabled, dead: g.player.dead, mode: g.gameState, w: w && { alive: w.alive, d: w.pos.distanceTo(g.player.position), r: w.radius, cd: Math.hypot(w.pos.x - g.player.position.x, w.pos.z - g.player.position.z) }, near: g.vehicles.nearestEnterable()?.type, all: g.vehicles.vehicles.map((x) => `${x.type}:${x.crashed}:${x.unusable}:${x.alive}`) };
   });
   assert(inside && !inside.crashed && inside.hud, `boarded ${JSON.stringify(inside)} ${JSON.stringify(dbg)}`);
+  // (The stone step goes again, so the ship has room.)
+  await v((g) => {
+    const e = [];
+    for (const [x, y, z] of window.__step || []) e.push(x, y, z, 0);
+    g.world.setBlocks(e);
+  });
   // Boarding a wreck lifts it out of its crater by itself first.
   await until((g) => g.vehicles.active.liftOff <= 0, 60000);
   const y0 = await v((g) => g.vehicles.active.pos.y);
@@ -868,8 +876,11 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
     const edits = [];
     for (let dz = -170; dz <= 12; dz++) for (let dx = -8; dx <= 8; dx++) {
       edits.push(a.x + 20 + dx, a.y, a.z + dz, 3);
-      for (let dy = 1; dy <= 14; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
+      for (let dy = 1; dy <= 45; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
     }
+    // (Round 3's taller terrain: an open climb-out past the end of the strip.)
+    g.world.prepareArea(a.x + 20, a.z - 260, 6);
+    for (let dz = -340; dz < -170; dz++) for (let dx = -10; dx <= 10; dx++) for (let dy = 1; dy <= 45; dy++) edits.push(a.x + 20 + dx, a.y + dy, a.z + dz, 0);
     g.world.setBlocks(edits);
     g.sky.setHours(11);
   });
