@@ -504,7 +504,7 @@ weapons.getLockables = () => {
   }
   return list;
 };
-player.damageFilter = (amount, cause) => weapons.shieldFilter(amount, cause);
+player.damageFilter = (amount, cause, from) => weapons.shieldFilter(amount, cause, from);
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
   ignores: (b) => (b.owner === "ufo" || b.owner === "enemyjet") && !b.friendlyFire,
@@ -2493,12 +2493,16 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a pistol. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
-  if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! They shoot back. Clear them out, then board their wrecked UFO (F).", 5);
+  if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! Their lasers hurt: keep moving, and hit back (bow, sword, or better).", 5);
+  if (!v && itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "bow") hint("bow", "The bow: hold right click to draw (a full draw in a second), let go to shoot. Arrows drop with distance.", 5);
+  if (!v && inventory.offhand && itemInfo(inventory.offhand.id)?.weapon?.kind === "shield") hint("shield", "A shield in your off hand: hold right click (with a sword or tool in hand) to raise it. It stops hits from the front.", 6);
+  const wk = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
+  if (!v && wk && weapons.status(wk)?.mag > 1) hint("reload", "Guns have magazines: they reload by themselves when empty, or press R.", 4);
 }
 function updateStatsOverlay(dt) {
   statsOverlayT -= dt;

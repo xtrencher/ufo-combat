@@ -37,6 +37,7 @@ export class MissionDirector {
   update(dt) {
     const m = this.enabled ? this.mission : null;
     this.ufos.rules = this.enabled ? this.progress.rules : null;
+    this.mobs.alienDamageScale = this.enabled ? this.progress.rules.damage : 1;
     this._trackNight();
     if (!m) {
       this.target = null;

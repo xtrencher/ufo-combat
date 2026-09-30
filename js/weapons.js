@@ -33,6 +33,7 @@ const RESTITUTION = 0.38;
 export const PISTOL_DAMAGE = 5;
 const PISTOL_RANGE = 160;
 export const ROCKET_SPEED = 75;
+const ROCKET_DIRECT = 90; // extra damage of a rocket that hits a UFO or vehicle square on
 const ROCKET_GRAVITY = -2.5;
 const ROCKET_LIFE = 12;
 const MIN_INTERVAL = { grenade: 0.12, pistol: 0.2, bazooka: 0.2, airstrike: 0.8, blaster: 0.2, railgun: 0.5 };
@@ -861,8 +862,14 @@ export class WeaponSystem {
         const c = t.center(this._v);
         const to = c.sub(r.pos);
         const dist = to.length();
-        // Proximity fuse: a homing rocket that gets close enough goes off.
-        if (dist < (t.radius || 1) * 0.6 + 1.4 && r.age > 0.25) return r.pos.clone();
+        // Proximity fuse: a homing rocket that gets close enough goes off
+        // (squarely on a UFO or vehicle: the direct hit counts too).
+        if (dist < (t.radius || 1) * 0.6 + 1.4 && r.age > 0.25) {
+          const d2 = to.clone().divideScalar(dist || 1);
+          const th = this._targetHit(r.pos, d2, dist + 1);
+          if (th) th.hit(ROCKET_DIRECT, d2, r.pos.clone());
+          return r.pos.clone();
+        }
         const speed = r.vel.length();
         const want = to.divideScalar(dist || 1);
         const cur = r.vel.clone().divideScalar(speed || 1);
@@ -879,7 +886,12 @@ export class WeaponSystem {
     const blockHit = this.world.raycast(r.pos, dir, len, { solidOnly: true });
     const mobHit = this.mobs.raycast(r.pos, dir, blockHit ? blockHit.distance : len);
     const tHit = this._targetHit(r.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
-    if (tHit) return r.pos.clone().addScaledVector(dir, tHit.distance);
+    if (tHit) {
+      // A direct hit on a UFO or a vehicle: the warhead's punch on top of the blast.
+      const at = r.pos.clone().addScaledVector(dir, tHit.distance);
+      tHit.hit(ROCKET_DIRECT, dir, at);
+      return at;
+    }
     if (mobHit) return r.pos.clone().addScaledVector(dir, mobHit.distance);
     if (blockHit) return r.pos.clone().addScaledVector(dir, Math.max(0, blockHit.distance - 0.3));
     // Smoke trail and glowing exhaust along the path.

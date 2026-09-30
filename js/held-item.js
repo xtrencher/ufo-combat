@@ -222,7 +222,7 @@ export class HeldItem {
       const model = id ? itemModel(id) : null;
       if (model) {
         this.offMesh = new THREE.Mesh(model.geometry, this.materials[model.kind]);
-        this.offMesh.scale.setScalar(0.62);
+        this.offMesh.scale.setScalar(0.56);
         bindEntityLight(this.offMesh, () => this.light);
         this.pivot.add(this.offMesh);
       }
@@ -235,8 +235,8 @@ export class HeldItem {
     const k = this.shieldLevel;
     // Lowered: at the bottom left, turned side-on; raised: in front of the
     // left half of the view, facing forward.
-    m.position.set(-0.5 + k * 0.2, -0.52 + k * 0.3, -0.72 + k * 0.12);
-    m.rotation.set(-0.15 + k * 0.1, 0.95 - k * 0.8, 0.12 - k * 0.1);
+    m.position.set(-0.6 + k * 0.28, -0.6 + k * 0.36, -0.74 + k * 0.12);
+    m.rotation.set(-0.2 + k * 0.15, 1.0 - k * 0.85, 0.14 - k * 0.12);
     if (this._shieldHit > 0) {
       const h = this._shieldHit * this._shieldHit;
       m.position.z += h * 0.08;

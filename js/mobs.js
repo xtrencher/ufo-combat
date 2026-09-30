@@ -869,10 +869,12 @@ export class MobManager {
     dir.normalize();
     m.aimTime = this.time;
     const range = dist * 1.4 + 40;
+    // (Survival: alien guns follow the mission curve, like the UFOs' do.)
+    const damage = Math.max(1, Math.round(m.spec.laserDamage * (this.alienDamageScale ?? 1)));
     if (weapon === "plasma") {
-      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage: m.spec.laserDamage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
+      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
     } else {
-      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage: m.spec.laserDamage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
+      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
     }
   }
 
