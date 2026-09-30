@@ -25,11 +25,10 @@ import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
 import { MobManager } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
-import { rayAabb } from "./physics.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO, SHIELD_MAX } from "./weapons.js";
-import { LaserBolts } from "./lasers.js";
+import { LaserBolts, sweptSphere, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
@@ -499,10 +498,22 @@ lasers.addProvider({
     };
   },
 });
+// Vehicles: tested in each vehicle's own frame of motion (a jet moves
+// several blocks a frame), with the bolt's glow counting as part of it, so
+// a bolt that visibly reaches a vehicle always hits it.
 lasers.addProvider({
-  raycast(origin, dir, maxDist, bolt) {
-    const h = vehicles.raycast(origin, dir, maxDist, bolt.source);
-    if (!h) return null;
+  raycast(origin, dir, maxDist, bolt, dt) {
+    if (!vehicles.enabled) return null;
+    const step = Math.max(maxDist, bolt.step ?? maxDist);
+    let best = null;
+    for (const v of vehicles.vehicles) {
+      if (!v.alive || v === bolt.source) continue;
+      const r = (v.hitRadius ?? v.radius) + bolt.radius * 2;
+      const t = sweptSphere(origin, dir, step, v.pos, r, v.vel, dt);
+      if (t !== null && t <= maxDist && (!best || t < best.distance)) best = { vehicle: v, distance: t };
+    }
+    if (!best) return null;
+    const h = best;
     return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" ? "enemyjet" : "player") };
   },
 });
@@ -511,17 +522,24 @@ const playerBoxMin = new THREE.Vector3();
 const playerBoxMax = new THREE.Vector3();
 lasers.addProvider({
   ignores: (b) => fromPlayer(b.owner),
-  raycast(origin, dir, maxDist) {
+  raycast(origin, dir, maxDist, bolt, dt) {
     if (player.dead || player.vehicle) return null;
+    // The body, grown by the bolt's glowing halo: a bolt that visibly
+    // touches you hits you. Tested while you move (sprinting sideways
+    // doesn't let a bolt slip through between two frames; dodging early
+    // still works because the shot flies where you were going to be).
     const p = player.position;
-    playerBoxMin.set(p.x - 0.35, p.y, p.z - 0.35);
-    playerBoxMax.set(p.x + 0.35, p.y + 1.85, p.z + 0.35);
-    const t = rayAabb(origin, dir, playerBoxMin, playerBoxMax, maxDist);
-    if (t === null) return null;
+    const pad = 0.12 + (bolt.radius ?? 0.1) * 2.2;
+    playerBoxMin.set(p.x - 0.35 - pad, p.y - pad * 0.5, p.z - 0.35 - pad);
+    playerBoxMax.set(p.x + 0.35 + pad, p.y + 1.85 + pad, p.z + 0.35 + pad);
+    const step = Math.max(maxDist, bolt.step ?? maxDist);
+    const t = sweptBox(origin, dir, step, playerBoxMin, playerBoxMax, player.velocity, dt);
+    if (t === null || t > maxDist) return null;
     return {
       distance: t,
       hit(b, point, d) {
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" ? "enemyjet" : "ufo_laser")) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        // Every shot that reaches you hurts (no grace time between shots).
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" ? "enemyjet" : "ufo_laser", { projectile: true })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
