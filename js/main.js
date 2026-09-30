@@ -854,11 +854,13 @@ vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
   setTimeout(() => toast(`NEW MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}. ${m.text}`, 7), 6500);
 };
+// (testFlags.noMissions: the older test suites check UFO features without the mission chain.)
+const testFlags = { noMissions: false };
 function refreshSurvivalSystems() {
   const on = mods.enabled && !player.creative;
   crates.enabled = on;
-  progress.enabled = on;
-  missionDirector.enabled = on;
+  progress.enabled = on && !testFlags.noMissions;
+  missionDirector.enabled = on && !testFlags.noMissions;
   if (!on) crates.clear();
 }
 mods.onChange(refreshSurvivalSystems);
@@ -2069,6 +2071,7 @@ window.__ufo = window.__voxelands = {
   progress,
   crates,
   missions: missionDirector,
+  testFlags,
   dropLoot,
   rollLoot,
   perf,

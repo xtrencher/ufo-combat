@@ -210,9 +210,9 @@ try {
     assert(saved.graphics === "low", `graphics setting not persisted: ${JSON.stringify(saved)}`);
   });
 
-  await check("default render distance is 10 chunks, up to 100", async () => {
+  await check("default render distance is 10 chunks, up to 256", async () => {
     const slider = await page.$eval("#render-distance", (el) => ({ value: el.value, max: el.max }));
-    assert(slider.value === "10" && slider.max === "100", `slider ${JSON.stringify(slider)}, expected 10 of max 100`);
+    assert(slider.value === "10" && slider.max === "256", `slider ${JSON.stringify(slider)}, expected 10 of max 256 (Round 3)`);
     const live = await page.evaluate(() => window.__voxelands.renderDistance);
     assert(live === 10, `game render distance is ${live}, expected 10`);
   });
@@ -402,8 +402,15 @@ try {
       });
     const frames = (n = 3) => page.evaluate((k) => new Promise((r) => { let i = 0; const f = () => (++i >= k ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
     // Look down a little so the camera behind rises over nearby terrain.
+    // (Round 3's world can put a tree or a slope right behind the spawn:
+    // clear a little room so the camera isn't pulled in by a block.)
     await page.evaluate(() => {
-      window.__voxelands.player.pitch = -0.6;
+      const v = window.__voxelands;
+      const p = v.player.position;
+      const e = [];
+      for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) for (let dy = 0; dy <= 6; dy++) e.push(Math.floor(p.x) + dx, Math.floor(p.y) + dy, Math.floor(p.z) + dz, 0);
+      v.world.setBlocks(e);
+      v.player.pitch = -0.6;
     });
     let s0 = await state();
     assert(s0.mode === 0 && !s0.avatar && s0.camDist < 0.05, `starts in first person: ${JSON.stringify(s0)}`);

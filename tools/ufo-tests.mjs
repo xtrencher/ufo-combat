@@ -360,6 +360,7 @@ async function arena(y = 60) {
     g.setMode("survival");
     // (Round 3: these checks test the UFO features on their own, without the
     // mission chain: no mission set-ups, rules or locked jets.)
+    g.testFlags.noMissions = true;
     g.missions.enabled = false;
     g.progress.enabled = false;
     g.ufos.rules = null;
@@ -620,9 +621,18 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
     g.player.health = 20;
     const px = w.pos.x + w.radius + 1;
     g.world.prepareArea(px, w.pos.z, 2);
-    const top = g.world.surfaceY(Math.floor(px), Math.floor(w.pos.z));
-    g.player.position.set(px, Math.max(top + 1, w.pos.y) + 0.05, w.pos.z);
+    // (A small stone step beside the wreck to stand on: with Round 3's taller
+    // terrain the ground next to a crater can be far below or above.)
+    const sy = Math.floor(w.pos.y) - 1;
+    const pad = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      pad.push(Math.floor(px) + dx, sy, Math.floor(w.pos.z) + dz, 3);
+      for (let dy = 1; dy <= 3; dy++) pad.push(Math.floor(px) + dx, sy + dy, Math.floor(w.pos.z) + dz, 0);
+    }
+    g.world.setBlocks(pad);
+    g.player.position.set(Math.floor(px) + 0.5, sy + 1.05, Math.floor(w.pos.z) + 0.5);
     g.player.velocity.set(0, 0, 0);
+    g.player.fallDistance = 0;
     return !!w;
   });
   assert(r, "a wreck exists");
@@ -710,6 +720,7 @@ await check("ghost mode flies through terrain, burning a tunnel", async () => {
   });
   await page.keyboard.down("KeyW");
   await frames(10);
+  await until((g) => g.vehicles.active.pos.y < window.__arena.y - 0.5, 20000);
   await page.keyboard.up("KeyW");
   const after = await v((g) => ({ id: g.world.getBlock(window.__arena.x, window.__arena.y, window.__arena.z), y: g.vehicles.active.pos.y }));
   await v((g) => g.settingsPanel.set("vehicles.ufoGhost", false));
@@ -725,6 +736,7 @@ await check("leaving: underground to the surface; mid-air on a parachute, landin
   assert(!up.vehicle && !up.solid, `exit from underground: ${JSON.stringify(up)}`);
   // Mid-air.
   await v((g) => {
+    for (const k of ["alien", "alien_gray", "alien_red"]) g.mobs.removeKind(k); // (their shots would count as fall damage here)
     const w = g.vehicles.vehicles.find((x) => x.type === "ufo");
     w.pos.set(window.__arena.x + 0.5, window.__arena.y + 22, window.__arena.z + 0.5);
     g.vehicles.enter(w);

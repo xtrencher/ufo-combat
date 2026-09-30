@@ -456,8 +456,9 @@ export class LodSystem {
     const own = this._mesh(node.key);
     if (node.detail) {
       // Keep showing the old LOD tile until all its chunks are meshed (but
-      // never around the player: rather a gap than coarse ground underfoot).
-      if (!node.ready && own && node.d >= 2) out.tiles.add(own);
+      // never the tile the player is in: rather a gap than coarse ground underfoot;
+      // with 128-tall chunks, meshing a ring takes longer, so the ring around it is kept).
+      if (!node.ready && own && node.d >= 1) out.tiles.add(own);
       else this._showChunks(node.tx, node.tz, out);
       return;
     }
