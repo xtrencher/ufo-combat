@@ -814,33 +814,93 @@ const BUTTERFLY = {
   },
 };
 
+// The parrot: a scarlet macaw. It sits upright on a branch (body leaning a
+// little forward, wings folded along its sides, the long tail hanging down)
+// and flies with its body tipped forward and big wings beating; a round red
+// head with a white face patch, a pale hooked upper beak over a dark lower
+// one, yellow and blue bands on the wings, and a long red-and-blue tail.
 const PARROT = {
   parts: [
-    { name: "body", size: [4, 5, 7], pivot: [0, 4, 0], from: [-2, -2.5, -3.5] },
-    { name: "head", size: [3, 3, 3], pivot: [0, 6.5, 3], from: [-1.5, -1, 0], parent: "body" },
-    { name: "beak", size: [2, 1, 2], pivot: [0, 6, 6], from: [-1, -0.5, 0], parent: "head", rigid: true },
-    { name: "wingL", size: [1, 3, 4], pivot: [-2, 5, 0], from: [-1, -2.5, -2], parent: "body" },
-    { name: "wingR", size: [1, 3, 4], pivot: [2, 5, 0], from: [0, -2.5, -2], parent: "body" },
-    { name: "tail", size: [2, 2, 5], pivot: [0, 4, -3.5], from: [-1, -1, -5], parent: "body" },
+    { name: "body", size: [4, 6, 4], pivot: [0, 4, 0], from: [-2, -2.5, -2] },
+    { name: "head", size: [4, 4, 4], pivot: [0, 7.5, 0.4], from: [-2, -0.5, -1.6], parent: "body" },
+    { name: "beakTop", size: [2, 2, 1.5], pivot: [0, 8.5, 2.4], from: [-1, -1.2, 0], parent: "head", rigid: true },
+    { name: "beakHook", size: [1, 1.5, 1], pivot: [0, 8.5, 2.4], from: [-0.5, -2.4, 1], parent: "head", rigid: true },
+    { name: "beakLow", size: [1.6, 1, 1.2], pivot: [0, 8.5, 2.4], from: [-0.8, -2.2, -0.1], parent: "head", rigid: true },
+    { name: "wingL", size: [1, 5.5, 4], pivot: [-2, 6.2, 0.2], from: [-1, -5.5, -2.4], parent: "body" },
+    { name: "wingR", size: [1, 5.5, 4], pivot: [2, 6.2, 0.2], from: [0, -5.5, -2.4], parent: "body" },
+    { name: "tail", size: [2, 1, 8], pivot: [0, 2, -1.6], from: [-1, -0.5, -8], parent: "body" },
+    { name: "legL", size: [1, 2, 1], pivot: [-1, 1.5, 0.3], from: [-0.5, -2, -0.5], parent: "body" },
+    { name: "legR", size: [1, 2, 1], pivot: [1, 1.5, 0.3], from: [-0.5, -2, -0.5], parent: "body" },
   ],
   paint(s) {
-    const body = hex(0x2f9e44);
-    const belly = hex(0xf7b733);
-    const blue = hex(0x2b6fd1);
-    const beakC = hex(0x2a2320);
-    s.part("body", (f, x, y, w, h) => (f === "bottom" ? grain(belly, x, y, 171, 0.1) : grain(body, x, y, 172, 0.1)));
-    s.part("head", () => grain(blue, 3, 3, 173, 0.1));
-    s.part("beak", () => beakC);
-    for (const wing of ["wingL", "wingR"]) s.part(wing, (f, x, y, w, h) => grain(body, x, y, 174, 0.12));
-    s.part("tail", (f, x, y, w, h) => grain(hex(0xd6336c), x, y, 175, 0.1));
+    const red = hex(0xd8231f);
+    const red2 = hex(0xb3140f);
+    const yellow = hex(0xf5c518);
+    const blue = hex(0x1f5fd0);
+    const blue2 = hex(0x2a86e6);
+    const white = hex(0xf4efe6);
+    const horn = hex(0xe9dcc0);
+    const dark = hex(0x1e1a18);
+    const feather = (c, x, y, seed) => grain(c, x, y, seed, 0.12);
+    s.part("body", (f, x, y, w, h) => {
+      if (f === "bottom") return feather(red2, x, y, 171);
+      // A slightly darker back, fine feather rows.
+      const c = f === "back" ? red2 : red;
+      return y % 3 === 2 ? shade(feather(c, x, y, 172), 0.9) : feather(c, x, y, 172);
+    });
+    s.part("head", (f, x, y, w, h) => {
+      let c = feather(red, x, y, 173);
+      // The bare white face patch around the eye, a black eye with a glint.
+      if (f === "left" || f === "right") {
+        const fx = fromFront(f, x, w);
+        if (fx < w * 0.6 && y > h * 0.3 && y < h * 0.85) c = grain(white, x, y, 174, 0.05);
+        if (fx === 2 && y === Math.floor(h * 0.45)) c = dark;
+        if (fx === 3 && y === Math.floor(h * 0.45)) c = [30, 26, 24];
+        if (fx === 2 && y === Math.floor(h * 0.45) - 1) c = [250, 248, 240];
+      }
+      if (f === "front" && y > h * 0.35) c = grain(white, x, y, 175, 0.05);
+      return c;
+    });
+    s.part("beakTop", (f, x, y) => grain(horn, x, y, 176, 0.08));
+    s.part("beakHook", (f, x, y, w, h) => (y > h * 0.5 ? dark : grain(horn, x, y, 177, 0.08)));
+    s.part("beakLow", () => dark);
+    for (const wing of ["wingL", "wingR"]) {
+      s.part(wing, (f, x, y, w, h) => {
+        // Top of the wing red, then a yellow band, then blue flight feathers.
+        const t = f === "top" ? 0 : f === "bottom" ? 1 : y / (h - 1);
+        let c = t < 0.28 ? red : t < 0.5 ? yellow : t < 0.8 ? blue2 : blue;
+        if (t >= 0.5 && (x + Math.floor(y / 2)) % 3 === 0) c = shade(c, 0.85); // feather edges
+        return feather(c, x, y, 178);
+      });
+    }
+    s.part("tail", (f, x, y, w, h) => {
+      // Long red feathers tipped with blue.
+      const along = f === "top" || f === "bottom" ? y / (h - 1) : f === "back" ? 1 : f === "front" ? 0 : 1 - fromFront(f, x, w) / (w - 1);
+      const c = along > 0.6 ? blue : along > 0.45 ? mix(red, blue, (along - 0.45) / 0.15) : red;
+      return feather(c, x, y, 179);
+    });
+    for (const leg of ["legL", "legR"]) s.part(leg, () => hex(0x5b5147));
   },
   animate(p, st) {
-    const flap = Math.sin(st.time * 10) * 0.5;
-    p.wingL.rotation.z = 0.3 + flap;
-    p.wingR.rotation.z = -0.3 - flap;
-    p.tail.rotation.x = Math.sin(st.time * 2) * 0.1;
-    p.head.rotation.y = st.headYaw;
-    p.head.rotation.x = -st.headPitch;
+    // st.perch: 0 flying ... 1 sitting on a branch.
+    const k = st.perch ?? 0;
+    const fly = 1 - k;
+    const beat = Math.sin(st.time * 12);
+    // The body tips forward in flight and sits upright on a perch.
+    p.body.rotation.x = 0.95 * fly + 0.18 * k + Math.sin(st.time * 1.7) * 0.03 * k;
+    // Wings: spread and beating in flight, folded along the sides when perched.
+    const spread = fly * (1.25 + beat * 0.55);
+    p.wingL.rotation.z = -(0.06 + spread);
+    p.wingR.rotation.z = 0.06 + spread;
+    p.wingL.rotation.x = p.wingR.rotation.x = -0.35 * fly;
+    // The tail hangs down behind when perched, streams out behind in flight.
+    // (Counter the body's tilt: straight back in flight, hanging down on a perch.)
+    p.tail.rotation.x = -(0.95 * fly + 1.3 * k) + Math.sin(st.time * 2) * 0.05;
+    // Legs tucked in flight.
+    p.legL.rotation.x = p.legR.rotation.x = -1.2 * fly;
+    // The head looks around when perched; level in flight.
+    p.head.rotation.y = st.headYaw + k * Math.sin(st.time * 0.9) * 0.5;
+    p.head.rotation.x = -0.9 * fly - st.headPitch + k * Math.sin(st.time * 1.3) * 0.1;
   },
 };
 

@@ -10,7 +10,7 @@
 // a player can reach quickly (real targets at sniper range), with a total
 // mob cap and simplified, cheaper AI for anything far from the player.
 import * as THREE from "three";
-import { BLOCK, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
 import { ITEM, meleeDamage } from "./items.js";
 import { sweepAxis, rayAabb } from "./physics.js";
 import { createMobModel } from "./mob-models.js";
@@ -937,6 +937,28 @@ export class MobManager {
   _thinkFly(m, dt) {
     const spec = m.spec;
     m.flyTimer -= dt;
+    // Parrots sit on branches between flights (see _perchSpot).
+    if (m.kind === "parrot") {
+      m.perch = (m.perch ?? 0) + ((m.perched ? 1 : 0) - (m.perch ?? 0)) * Math.min(1, dt * 4);
+      if (m.perched) {
+        m.perchT -= dt;
+        const below = this.world.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y - 0.1), Math.floor(m.pos.z));
+        if (m.perchT > 0 && IS_SOLID[below] && m.hurtTime > 1) {
+          m.headYaw = Math.sin(this.time * 0.7 + m.id) * 0.6;
+          return { x: 0, y: 0, z: 0, speed: 0 };
+        }
+        m.perched = false;
+        m.flyTarget = null;
+      } else if (m.flyTarget?.perch) {
+        const d = Math.hypot(m.flyTarget.x - m.pos.x, m.flyTarget.y - m.pos.y, m.flyTarget.z - m.pos.z);
+        if (d < 0.35) {
+          m.perched = true;
+          m.perchT = 4 + Math.random() * 8;
+          m.vel.set(0, 0, 0);
+          return { x: 0, y: 0, z: 0, speed: 0 };
+        }
+      }
+    }
     if (!m.flyTarget || m.flyTimer <= 0 || m.blocked) {
       const r = spec.homeRadius;
       const a = Math.random() * Math.PI * 2;
@@ -947,6 +969,13 @@ export class MobManager {
         z: m.home.z + Math.sin(a) * d,
       };
       m.flyTimer = 2 + Math.random() * 3;
+      if (m.kind === "parrot" && Math.random() < 0.55) {
+        const spot = this._perchSpot(m);
+        if (spot) {
+          m.flyTarget = spot;
+          m.flyTimer = 8;
+        }
+      }
     }
     const dx = m.flyTarget.x - m.pos.x;
     const dy = m.flyTarget.y - m.pos.y;
@@ -957,6 +986,26 @@ export class MobManager {
     m.headYaw = 0;
     m.headPitch = 0;
     return { x: dx / dist, y: dy / dist, z: dz / dist, speed };
+  }
+
+  // A place for a parrot to sit near its home: the top of a leaf or log
+  // block with air above it (a branch in the canopy), or null.
+  _perchSpot(m) {
+    const w = this.world;
+    for (let k = 0; k < 6; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 1 + Math.random() * m.spec.homeRadius * 0.7;
+      const x = Math.floor(m.home.x + Math.cos(a) * d);
+      const z = Math.floor(m.home.z + Math.sin(a) * d);
+      if (!w.getChunk(x >> 4, z >> 4)) continue;
+      const top = w.surfaceY(x, z);
+      if (top < 0) continue;
+      const id = w.getBlock(x, top, z);
+      if (!(IS_LEAVES[id] || BLOCK_INFO[id]?.log)) continue;
+      if (w.getBlock(x, top + 1, z) !== BLOCK.AIR || w.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
+      return { x: x + 0.5, y: top + 1.02, z: z + 0.5, perch: true };
+    }
+    return null;
   }
 
   _physicsFly(m, dt, want) {
@@ -1464,6 +1513,7 @@ export class MobManager {
       hide: m.hide,
       attack: m.attack,
       aim: m.ai.target ? 1 : 0,
+      perch: m.perch ?? 0,
     });
   }
 }
