@@ -1731,8 +1731,8 @@ await check("missions: the first one is the skeleton (Round 4), then the landing
   assert(r.first === "skeleton" && r.stillFirst, `the skeleton first: ${JSON.stringify(r)}`);
   assert(r.second === "landing" && r.apples === 3, `next mission and a reward: ${JSON.stringify(r)}`);
   await frames(6);
-  const tracker = await v(() => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent }));
-  assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${tracker.text}`);
+  const tracker = await v((g) => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent, step: g.progress.step, id: g.progress.mission?.id, kills: g.stats.world.skeletonsKilled, base: g.progress.base.skeletonsKilled }));
+  assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${JSON.stringify(tracker)}`);
 });
 
 await check("loot: a shot-down UFO and killed aliens drop items in Survival (none in Creative)", async () => {

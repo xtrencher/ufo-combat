@@ -1124,6 +1124,8 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     u.crashPlan = { exploded: false, crew: 3 }; // (random in the game)
     u.noLeave = true; // (it may fly away for good in the game)
     u.blinkT = 1e9; // (or blink out of the way of the missile)
+    u.dodgeMul = 0; // (or dash away from it)
+    u.maxHealth = u.health = 150; // (Round 4: a healthy medium ship takes two missiles; this one is already damaged)
     window.__u = u;
     window.__downs = g.stats.world.ufosDown;
   });
@@ -1143,6 +1145,8 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   assert(locked, "chased the fleeing UFO and locked on");
   // 4. Missile away.
   await page.mouse.up({ button: "right" }); // (letting go fires)
+  await frames(2);
+  const launch = await v((g) => ({ missiles: g.vehicles.active?.missiles.length, queued: g.vehicles.active?.queued?.length, fired: g.stats.world.missilesFired, lock: g.vehicles.active?.lock && { t: !!g.vehicles.active.lock.target, follow: !!g.vehicles.active.lock.follow } }));
   const falling = await until((g) => {
     const j = g.vehicles.active;
     j.pos.y = Math.max(j.pos.y, 100);
@@ -1153,8 +1157,8 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   }, 120000);
   await page.keyboard.up("ShiftLeft");
   await page.keyboard.up("KeyW");
-  const fdbg = falling ? null : await v((g) => ({ missiles: g.vehicles.active?.missiles.length, dist: g.vehicles.active && window.__u.pos.distanceTo(g.vehicles.active.pos), hp: window.__u.health, max: window.__u.maxHealth, state: window.__u.state, speed: window.__u.vel.length(), jet: g.vehicles.active?.speed }));
-  assert(falling, `the missile hit and the UFO is going down ${JSON.stringify(fdbg)}`);
+  const fdbg = falling ? null : await v((g) => ({ ufoDash: window.__u.dash ? 1 : 0, missiles: g.vehicles.active?.missiles.length, dist: g.vehicles.active && window.__u.pos.distanceTo(g.vehicles.active.pos), hp: window.__u.health, max: window.__u.maxHealth, state: window.__u.state, speed: window.__u.vel.length(), jet: g.vehicles.active?.speed }));
+  assert(falling, `the missile hit and the UFO is going down ${JSON.stringify(fdbg)} launch ${JSON.stringify(launch)}`);
   // 5. It crash-lands (a crater and a wreck), counted as shot down.
   const wreck = await until((g) => {
     const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.crashed && !x.unusable);

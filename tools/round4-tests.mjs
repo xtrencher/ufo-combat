@@ -528,7 +528,12 @@ await check("aliens and skeletons shoot from their weapon's muzzle (the gun's ti
       const p = g.player.position;
       const x = Math.floor(p.x + 2) + 0.5;
       const z = Math.floor(p.z - 9) + 0.5;
-      const m = g.mobs.spawn(kind, x, g.world.surfaceY(Math.floor(x), Math.floor(z)) + 1, z);
+      // (In the open: a muzzle inside a tree or a hillside falls back to the eyes, by design.)
+      const top = g.world.surfaceY(Math.floor(x), Math.floor(z));
+      const air = [];
+      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = 1; dy <= 4; dy++) air.push(Math.floor(x) + dx, top + dy, Math.floor(z) + dz, 0);
+      g.world.setBlocks(air);
+      const m = g.mobs.spawn(kind, x, top + 1, z);
       m.ai.target = true;
       m.aggro = true;
       fired = null;
@@ -852,6 +857,8 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     g.player.position.set(c.pos.x + 1, c.pos.y, c.pos.z);
     g.player.resetFall();
     window.__step(0.5);
+    // (A crate can land on a treetop or a ledge: back down on the ground, without a fall.)
+    window.__place(g.player.position.x, g.player.position.z);
     out.pistol = g.inventory.slots.some((s) => s && s.id === 287);
     out.m4 = g.progress.mission?.id;
     // 4. The scout, with the pistol (a magazine, then reloads).
