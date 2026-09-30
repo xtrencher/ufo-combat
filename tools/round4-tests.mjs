@@ -722,7 +722,12 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     g.ufos.clear();
     // (The game loads the land around the player as it plays; the hand-stepped
     // time here doesn't, and earlier checks moved the player far away.)
-    g.world.prepareArea(g.player.position.x, g.player.position.z, 8);
+    // (It starts where a new Survival world does: at the spawn, on dry land.)
+    g.world.prepareArea(g.spawn.x, g.spawn.z, 8);
+    g.player.position.set(g.spawn.x + 0.5, g.world.surfaceY(g.spawn.x, g.spawn.z) + 1, g.spawn.z + 0.5);
+    g.player.velocity.set(0, 0, 0);
+    g.player.resetFall();
+    g.player.air = 10;
     // (Earlier checks leave aliens, skeletons and fighters around: a clean start.)
     g.mobs.clear();
     g.enemyJets.clear();
@@ -862,11 +867,11 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     for (let k = 0; k < 90 && !u.falling && u.state !== "gone"; k++) {
       const d = Math.hypot(u.pos.x - g.player.position.x, u.pos.z - g.player.position.z);
       if (d > 70) {
-        const q = (d - 60) / d;
-        const nx = g.player.position.x + (u.pos.x - g.player.position.x) * q;
-        const nz = g.player.position.z + (u.pos.z - g.player.position.z) * q;
-        const top = g.world.surfaceY(Math.floor(nx), Math.floor(nz));
-        if (top > 0) window.__place(nx, nz);
+        // (It wanders within its tether: bring it back within pistol range
+        // rather than walking the player over unknown ground.)
+        const q = 60 / d;
+        u.pos.x = g.player.position.x + (u.pos.x - g.player.position.x) * q;
+        u.pos.z = g.player.position.z + (u.pos.z - g.player.position.z) * q;
       }
       window.__face(u.pos, 0);
       g.weapons.press("pistol");

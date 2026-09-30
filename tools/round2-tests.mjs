@@ -433,7 +433,10 @@ await check("range: a UFO 500 blocks away can be hit; a UFO's shots reach the pl
     const u = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: p.position.x, y: 160, z: p.position.z - 500 } });
     u.state = "hover_test";
     const h0 = u.health;
-    // Aim at it and fire the pistol (hitscan).
+    // Aim at its middle (a flat saucer is thinner than the eye's height above
+    // its centre) and fire the pistol (hitscan).
+    const eye = p.getEyePosition();
+    p.pitch = Math.atan2(u.pos.y - eye.y, eye.z - u.pos.z);
     g.weapons.firePistol();
     return { h0, h1: u.health, dist: 500, range: g.weapons._range(160, 0.6) };
   });
@@ -1146,7 +1149,9 @@ await check("missile lock: hold RMB locks the target nearest the view centre (ev
       if (ufo.health < u0 || ufo.falling) hit = true;
       lastState = `${ufo.state}/${fired?.target ? "tgt" : "none"}/age${fired?.age?.toFixed(1)}/${jet.missiles.includes(fired)}`;
     }
-    // Salvo: hold 3.2 s.
+    // Salvo: hold 3.2 s. (Round 4: the camera still follows the hit target; a
+    // click then only brings it back, so end that first.)
+    jet._endFollow?.(true);
     jet.missileT = 0;
     for (const m of jet.missiles) g.scene?.remove?.(m.mesh);
     jet.missiles.length = 0;
@@ -1258,6 +1263,9 @@ await check("enemy jets (Round 4: patrol fighters): neutral while the player sho
     g.enemyJets.config.count = 1;
     g.ufos.lastPlayerAttack = undefined; // (earlier tests shot UFOs)
     g.ufos.clear(); // (a patrol hunts UFOs: its shots at them are not the point here)
+    // (Round 4: in Survival patrols fly only from the jet mission on; this is a player past it.)
+    const allowed = g.enemyJets.allowed;
+    g.enemyJets.allowed = () => true;
     const p = g.player.position;
     const e = g.enemyJets.spawn({ dist: 500, angle: 0.3, rogue: false }); // (Round 3: a rogue pilot doesn't take the UFOs' side)
     g.setMode("survival");
@@ -1303,6 +1311,7 @@ await check("enemy jets (Round 4: patrol fighters): neutral while the player sho
     g.vehicles.remove(e);
     g.setMode("creative");
     g.enemyJets.config.count = 0;
+    g.enemyJets.allowed = allowed;
     g.ufos.lastPlayerAttack = undefined;
     return out;
   });
@@ -1356,19 +1365,31 @@ await check("UFO piloting: teleport dash (travelled, with a streak), big ships a
     const target = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: tp.x, y: tp.y, z: tp.z } });
     target.pos.copy(tp);
     g.lasers.bolts.length = 0;
-    ufo._cannonT = 0;
-    g.vehicles.input.buttons[0] = true;
-    g.vehicles.update(0.05);
-    g.vehicles.input.buttons[0] = false;
+    // (Round 4: a ship fires its own kind's weapon; a rapid burst's five
+    // shots leave one after another, each from the next barrel.)
+    ufo.style = "rapid";
+    ufo.gun.t = 0;
+    ufo.gun.queue.length = 0;
+    const seen = new Set();
+    const muzzles = new Set();
     let worst = 0;
-    for (const b of g.lasers.bolts) {
-      // Closest approach of the bolt's line to the target centre.
-      const to = target.pos.clone().sub(b.pos);
-      const along = to.dot(b.dir);
-      const miss = to.addScaledVector(b.dir, -along).length();
-      worst = Math.max(worst, miss);
+    g.vehicles.input.buttons[0] = true;
+    for (let i = 0; i < 8; i++) {
+      g.vehicles.update(0.05);
+      target.pos.copy(tp);
+      if (i === 0) g.vehicles.input.buttons[0] = false;
+      for (const b of g.lasers.bolts) {
+        if (seen.has(b)) continue;
+        seen.add(b);
+        muzzles.add(`${Math.round(b.pos.x - ufo.pos.x)},${Math.round(b.pos.z - ufo.pos.z)}`);
+        // Closest approach of the bolt's line to the target centre.
+        const to = target.pos.clone().sub(b.pos);
+        const along = to.dot(b.dir);
+        const miss = to.addScaledVector(b.dir, -along).length();
+        worst = Math.max(worst, miss);
+      }
     }
-    out.bolts = g.lasers.bolts.length;
+    out.bolts = muzzles.size;
     out.worstMiss = worst;
     out.targetR = target.radius;
     g.ufos.clear();
@@ -1565,7 +1586,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
     const s = g.sites.nearest(g.player.position.x, g.player.position.z, 200, "airport");
     g.airports.timer = 0;
     g.airports.update(0.1);
-    const jets = g.vehicles.vehicles.filter((x) => x.parkedAt);
+    const jets = g.vehicles.vehicles.filter((x) => x.parkedAt && x.type === "jet"); // (Round 4: hangar UFOs are parked too)
     const spots = g.sites.parkingSpots(s);
     return {
       n: jets.length,

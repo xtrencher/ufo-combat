@@ -889,7 +889,10 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
     g.world.setBlocks(edits);
     g.sky.setHours(11);
   });
+  // (Round 4: J opens the jet picker; 1 is the F-22.)
   await page.keyboard.press("KeyJ");
+  await frames(1);
+  await page.keyboard.press("Digit1");
   await frames(2);
   const jet = await v((g) => {
     const j = g.vehicles.vehicles.find((x) => x.type === "jet");
@@ -1103,7 +1106,9 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     g.settingsPanel.set("vehicles.jetAirborne", true);
   });
   await v((g) => { g.ufos.time += 3; }); // (a second call right after the last one is ignored)
-  await page.keyboard.press("KeyJ");
+  await page.keyboard.press("KeyJ"); // (the jet picker, then the F-22)
+  await frames(1);
+  await page.keyboard.press("Digit1");
   await frames(2);
   const jdbg = await v((g) => ({ active: g.vehicles.active?.type, gs: g.gameState, dead: g.player.dead, vs: g.vehicles.vehicles.map((x) => `${x.type}:${x.alive}`) }));
   assert(jdbg.active === "jet", `in the jet, airborne ${JSON.stringify(jdbg)}`);

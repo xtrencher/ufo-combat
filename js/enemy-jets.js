@@ -29,6 +29,11 @@ const HUNT_ENGAGE = [35, 55]; // seconds per engagement
 const HUNT_PAUSE = [25, 50]; // seconds between engagements
 const HUNT_MAX_KILLS = 3;
 const SPEED = 1.05; // top speed vs the player's jet at the same settings (they used to be 0.9x)
+// Strafing runs at a target on the ground (blocks): attack height above it,
+// how far out it turns in, and how close it comes before pulling out.
+const STRAFE_HEIGHT = 75;
+const STRAFE_OUT = 750;
+const STRAFE_BREAK = 120;
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -149,35 +154,53 @@ export class EnemyJet extends Jet {
         ai.flareLeft--;
       }
     } else if (hostile) {
-      // Pursuit with lead. It comes in high and drops toward the target as it
-      // closes (so it never dives into the ground on the way).
       const speed = Math.max(60, this.speed);
       const lead = dist / (speed + 100);
       const lowTarget = P.pos.y < this.pos.y + 80;
-      const lift = lowTarget ? clamp((dist - 140) * 0.3, 0, 180) : 0;
+      const angle = _q2.copy(P.pos).sub(this.pos).normalize().angleTo(fwd); // to the target itself
       const aim = _w.copy(P.pos).addScaledVector(P.vel, lead * 0.6);
-      aim.y += lift;
+      const flat = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
+      if (lowTarget) {
+        // Strafing runs against a target on (or near) the ground: out to
+        // attack height, turn in, a shallow run with the nose on the target
+        // (the guns fire on the way in), pull out over it and extend again.
+        if (ai.run === "extend") {
+          const ax = this.pos.x - P.pos.x;
+          const az = this.pos.z - P.pos.z;
+          const al = Math.hypot(ax, az) || 1;
+          aim.set(P.pos.x + (ax / al) * 900, P.pos.y + STRAFE_HEIGHT, P.pos.z + (az / al) * 900);
+          if (flat > STRAFE_OUT) ai.run = "attack";
+        } else {
+          ai.run = "attack";
+          if (angle > 0.7) {
+            // Still turning in: level, at attack height, fast.
+            aim.y = clamp(this.pos.y, P.pos.y + STRAFE_HEIGHT - 15, P.pos.y + STRAFE_HEIGHT + 35);
+          } else {
+            aim.y += 1; // the nose on the target (the chest)
+          }
+          if (flat < STRAFE_BREAK || (angle > 1.2 && flat < 320)) ai.run = "extend";
+        }
+      } else {
+        ai.run = null;
+      }
       aim.sub(this.pos);
       const aimDist = aim.length();
       aim.divideScalar(aimDist || 1);
-      const angle = _q2.copy(P.pos).sub(this.pos).normalize().angleTo(fwd); // to the target itself
       wantYaw = Math.atan2(-aim.x, -aim.z);
       wantPitch = Math.asin(clamp(aim.y, -1, 1));
       throttle = 1;
-      ab = dist > 350;
-      // Strafing runs: fire on the way in, then pull up and turn away before the target (or the ground) is too close.
-      if (dist < 110 && lowTarget) {
-        wantYaw += 1.1;
-        wantPitch = 0.6;
-      } else if (dist < 90 && angle > 0.5) {
+      ab = ai.run === "attack" ? angle > 0.7 : dist > 350;
+      if (!lowTarget && dist < 90 && angle > 0.5) {
+        // (Air to air: break off rather than ram.)
         wantYaw += 1.2;
         wantPitch = 0.4;
       }
-      if (lowTarget) wantPitch = Math.max(wantPitch, -clamp(0.3 + groundClear / 500, 0.3, 0.8));
+      if (lowTarget) wantPitch = Math.max(wantPitch, -0.55);
       // Guns: bursts when the nose is on the target.
       ai.burstT -= dt;
-      if (dist < 600 && angle < 0.07 && ai.burstT <= 0 && !this.jammed) {
-        ai.burstLeft = 14 + Math.floor(Math.random() * 10);
+      if (dist < 600 && angle < (lowTarget ? 0.06 : 0.07) && ai.burstT <= 0 && !this.jammed) {
+        // (Short bursts at someone on foot: a strafing run hurts, it doesn't shred.)
+        ai.burstLeft = lowTarget ? 4 + Math.floor(Math.random() * 3) : 14 + Math.floor(Math.random() * 10);
         ai.burstT = 2.2 + Math.random() * 2;
       }
       if (ai.burstLeft > 0 && this.cannonT <= 0 && !this.jammed) {
@@ -246,8 +269,12 @@ export class EnemyJet extends Jet {
       throttle = 0.65;
     }
 
-    // Terrain: pull up before the ground (looking ahead along the flight path).
-    if (groundClear < 45 + this.speed * 0.3 && this.vel.y < 30) {
+    // Terrain: pull up before the ground (looking ahead along the flight
+    // path). On a strafing run it goes lower, watching its sink rate.
+    const strafing = hostile && ai.run === "attack";
+    const floor = strafing ? 20 + this.speed * 0.08 - Math.min(0, this.vel.y) * 2.2 : 45 + this.speed * 0.3;
+    if (groundClear < floor && this.vel.y < 30) {
+      if (strafing) ai.run = "extend";
       wantPitch = Math.max(wantPitch, clamp((110 - groundClear) / 70, 0.2, 1));
       throttle = 1;
     }
@@ -329,8 +356,10 @@ export class EnemyJet extends Jet {
     const ang = d.clone().normalize().angleTo(fwd);
     if (ang > 0.12) return fwd.clone();
     const target = P.pos.clone().addScaledVector(P.vel, dist / speed);
+    const onFoot = !this.manager.player.vehicle;
+    if (onFoot) target.y += 1; // (the chest)
     const aim = target.sub(from).normalize();
-    return fwd.clone().lerp(aim, 0.7).normalize();
+    return onFoot ? aim.clone() : fwd.clone().lerp(aim, 0.7).normalize(); // (on foot: short bursts, see _autopilot; moving makes them miss)
   }
 
   onDestroyed(cause) {

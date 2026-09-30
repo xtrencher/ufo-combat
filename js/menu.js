@@ -56,7 +56,7 @@ export const CONTROLS = [
   ]],
   ["Fighter jet", [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
-    ["W / S", "Throttle up / down (a takeoff roll takes about 120 blocks: use a runway)"],
+    ["W / S", "Throttle up / down (a takeoff roll takes about 120 blocks, 90 in the F-16: use a runway)"],
     ["Shift", "Afterburner"],
     ["A / D", "Bank harder (flight assist; without it: roll)"],
     ["Q / E", "Rudder (yaw)"],
@@ -134,20 +134,20 @@ export class MenuScreens {
 
 // Tips shown (one at a time, rotating) at the bottom of the main menu.
 export const MENU_TIPS = [
-  "Survival starts with a pistol only: shoot UFOs and their crews for better weapons.",
+  "Survival starts with a sword: skeletons drop bows, supply crates bring guns, alien leaders carry alien weapons.",
   "Supply crates drop by parachute with orange smoke: walk up to open one.",
   "Hold the right mouse button with the bazooka to lock on; release for a homing rocket.",
   "The railgun's beam goes through everything: blocks, creatures and UFOs.",
-  "Press J to call your fighter jet. Airports have long runways: much easier to take off from.",
-  "In the jet, hold the right mouse button to lock missiles: 1 second for one, 3 seconds for a salvo of four.",
+  "Press J to call a fighter jet (1: F-22, 2: F-16). Airports have long runways: much easier to take off from.",
+  "In the jet, tap right click for an unguided missile, or hold it to lock: 1 second for one, longer for a salvo.",
   "Press C in the jet for flares: they fool missiles and seeking shots.",
   "Press I in any vehicle for its stats and controls.",
-  "A UFO shot down over land may crash in one piece: board it with F and fly it yourself.",
-  "In your own UFO: R teleports you forward, B fires a huge laser straight down.",
+  "A UFO shot down over land may crash in one piece: board it with F and fly it yourself (in Survival from the Salvage mission).",
+  "In your own UFO: R dashes you forward (hold it to keep going), B fires a huge laser straight down.",
   "A shield in your off hand blocks everything from the front while raised (hold right click), but not from behind.",
   "Golden apples add extra hearts on top of your health.",
   "UFOs are mostly peaceful: they turn hostile if you shoot them or stare at them too long.",
-  "Enemy jets leave you alone until you attack them or their UFOs.",
+  "Patrol fighters hunt UFOs and leave you alone, unless you shoot at one of them.",
 ];
 
 // The main menu's frame rate readout and its low-FPS advice: a live counter,
