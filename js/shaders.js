@@ -1318,6 +1318,7 @@ ${POINT_LIGHTS}
   // grain or lathe-turned "brushed" marks in object space.
   uniform vec4 uSurf;   // specular strength, gloss exponent, reflection, grain
   uniform float uBrush; // brushed-metal streaks (0-1)
+  uniform vec4 uPanel;  // panel lines: strength, panels per unit; livery: two-tone strength, scale
   varying vec3 vLocal;
   float srfHash(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
@@ -1360,6 +1361,27 @@ void main() {
     }
     float brush = 0.0;
     if (uBrush > 0.0) brush = (srfNoise(vec3(length(vLocal.xz) * 520.0, vLocal.y * 3.0, 0.5)) - 0.5) * uBrush;
+    if (uPanel.z > 0.0) {
+      // A two-tone livery: large soft-edged patches of a lighter shade.
+      float n = srfNoise(vLocal * uPanel.w) * 0.65 + srfNoise(vLocal * uPanel.w * 2.3 + 7.1) * 0.35;
+      albedo.rgb *= 1.0 + uPanel.z * smoothstep(0.52, 0.58, n);
+    }
+    if (uPanel.x > 0.0) {
+      // Panel lines: a staggered grid of thin seams (anti-aliased by the
+      // screen footprint, so they don't shimmer far away).
+      vec3 q = vLocal * uPanel.y;
+      float row = floor(q.z);
+      float dx = 0.5 - abs(fract(q.x + row * 0.37) - 0.5);
+      float dz = 0.5 - abs(fract(q.z) - 0.5);
+      float dy = 0.5 - abs(fract(q.y * 1.3 + row * 0.21) - 0.5);
+      float wx = fwidth(q.x) + 0.012;
+      float wz = fwidth(q.z) + 0.012;
+      float wy = fwidth(q.y * 1.3) + 0.012;
+      float line = max(max(1.0 - smoothstep(0.0, wx, dx), 1.0 - smoothstep(0.0, wz, dz)), 1.0 - smoothstep(0.0, wy, dy) * 1.0);
+      // Far away the seams fade into the paint.
+      float fade = clamp(1.0 - max(wx, wz) * 6.0, 0.0, 1.0);
+      albedo.rgb *= 1.0 - uPanel.x * line * fade;
+    }
   #endif
   vec3 color = albedo.rgb * light + uFlash;
   #ifdef USE_SPEC
@@ -1413,6 +1435,7 @@ export function createEntityMaterial(kind, texture = null, { transparent = false
     defines.USE_SPEC = "";
     uniforms.uSurf = { value: new THREE.Vector4(finish.spec ?? 0.5, finish.gloss ?? 40, finish.env ?? 0.3, finish.grain ?? 0) };
     uniforms.uBrush = { value: finish.brush ?? 0 };
+    uniforms.uPanel = { value: new THREE.Vector4(finish.panel ?? 0, finish.panelScale ?? 1, finish.livery ?? 0, finish.liveryScale ?? 0.3) };
   }
   return new THREE.ShaderMaterial({
     uniforms,

@@ -17,15 +17,23 @@ import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { LAYER_FX } from "./layers.js";
 
 const PAINTS = {
-  raptor: { grey: 0x7c848c, dark: 0x5d646c, light: 0x9aa2a9, accent: 0x3a3e44, canopy: 0xb89a3c },
-  enemy: { grey: 0x3e4148, dark: 0x25272c, light: 0x585c66, accent: 0x8a1c1c, canopy: 0x8a3030 },
+  raptor: { grey: 0x6f777f, dark: 0x535a62, light: 0x8d959c, accent: 0x3a3e44, canopy: 0xb89a3c },
+  enemy: { grey: 0x4a4e56, dark: 0x2c2f35, light: 0x60646e, accent: 0x8a1c1c, canopy: 0x8a3030 },
+};
+// The paint's surface: satin with a soft sheen (the sun and the moon glint
+// on it), panel lines in a staggered grid, and a subtle two-tone livery.
+const FINISH = {
+  raptor: { spec: 0.75, gloss: 42, env: 0.3, grain: 0.02, panel: 0.3, panelScale: 0.9, livery: 0.16, liveryScale: 0.26 },
+  enemy: { spec: 0.8, gloss: 50, env: 0.35, grain: 0.02, panel: 0.32, panelScale: 0.9, livery: 0.22, liveryScale: 0.3 },
 };
 let GREY = PAINTS.raptor.grey;
 let GREY_DARK = PAINTS.raptor.dark;
 let GREY_LIGHT = PAINTS.raptor.light;
 
 function colorize(geo, hex, shade = null) {
-  const c = new THREE.Color(hex).convertSRGBToLinear();
+  // (new THREE.Color(hex) is already linear: converting it again made the
+  // whole jet nearly black, which is why it was a silhouette at night.)
+  const c = new THREE.Color(hex);
   const pos = geo.getAttribute("position");
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
@@ -246,6 +254,23 @@ function buildGeometry(paint = "raptor") {
       parts.push(colorize(petal, 0x2a2d32));
     }
   }
+  // More detail: the gun port on the right shoulder, AoA probes, antenna
+  // blades under the belly, static wicks on the wing and tail tips, light
+  // intake lips, and the canopy frame and bow.
+  parts.push(colorize(new THREE.BoxGeometry(0.22, 0.05, 0.5).translate(1.25, 0.52, -1.6), 0x15171a));
+  for (const s of [1, -1]) {
+    parts.push(colorize(new THREE.CylinderGeometry(0.015, 0.02, 0.35, 4).rotateZ(s * 1.2).translate(s * 0.42, 0.05, -5.9), 0xb8bcc2));
+    parts.push(colorize(new THREE.BoxGeometry(0.06, 0.04, 2.1).translate(s * 1.46, 0.46, -1.55), pal.light));
+    for (const [x, z] of [[6.55, 2.35], [4.25, 6.9]]) parts.push(colorize(new THREE.CylinderGeometry(0.012, 0.012, 0.45, 4).rotateX(Math.PI / 2).translate(s * x, -0.1, z + 0.2), 0x2a2d32));
+  }
+  for (const z of [-0.6, 2.2]) parts.push(colorize(new THREE.BoxGeometry(0.03, 0.28, 0.4).translate(0, -0.72, z), GREY_DARK));
+  // The canopy frame: a dark rim around its base and a bow across it.
+  parts.push(colorize(new THREE.TorusGeometry(1, 0.035, 5, 40).rotateX(Math.PI / 2).scale(0.53, 1, 1.91).translate(0, 0.43, -3.9), 0x2b2e33));
+  parts.push(colorize(new THREE.TorusGeometry(1, 0.035, 5, 20, Math.PI).scale(0.52, 0.49, 1).translate(0, 0.42, -3.05), 0x2b2e33));
+  // The pilot: a seat, a grey helmet with a dark visor.
+  parts.push(colorize(new THREE.BoxGeometry(0.42, 0.55, 0.3).translate(0, 0.55, -3.35), 0x202226));
+  parts.push(colorize(new THREE.SphereGeometry(0.17, 10, 8).translate(0, 0.86, -3.6), 0x9ca2a8));
+  parts.push(colorize(new THREE.SphereGeometry(0.14, 10, 8).scale(1, 0.7, 0.6).translate(0, 0.86, -3.72), 0x121417));
   const hull = merge(parts);
 
   // Canopy: a long, gold-tinted bubble.
@@ -317,7 +342,10 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
   body.scale.setScalar(scale);
   root.add(body);
   const light = { sky: 15, block: 0, flash: new THREE.Color(0, 0, 0) };
-  const hullMesh = new THREE.Mesh(hull, createEntityMaterial("color"));
+  const hullMat = createEntityMaterial("color", null, { finish: FINISH[paint] || FINISH.raptor });
+  // (A little ambient fill so it reads as a shape, not a hole, in the shade and at night.)
+  hullMat.uniforms.uFill.value = 0.45;
+  const hullMesh = new THREE.Mesh(hull, hullMat);
   hullMesh.castShadow = true;
   bindEntityLight(hullMesh, () => light);
   body.add(hullMesh);
@@ -387,6 +415,25 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
     return sp;
   };
   const nav = [navSprite(new THREE.Color(4, 0.2, 0.2), -6.6, -0.05, 2.0, 0.9), navSprite(new THREE.Color(0.2, 4, 0.3), 6.6, -0.05, 2.0, 0.9), navSprite(new THREE.Color(4, 4, 4.5), -3.6, 2.2, 6.4, 0.8), navSprite(new THREE.Color(4, 4, 4.5), 3.6, 2.2, 6.4, 0.8)];
+  // Formation ("slime") lights: soft green strips on the fuselage sides and
+  // the tails, and the cockpit's dim instrument glow; night only too.
+  const stripGeo = new THREE.PlaneGeometry(0.08, 0.9);
+  const stripMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 1.6, 0.5), fog: true, side: THREE.DoubleSide });
+  const strips = [];
+  for (const s of [1, -1]) {
+    for (const [x, y, z, rz] of [[1.72, 0.05, 0.8, 0], [2.3, 1.4, 5.3, -s * 0.49]]) {
+      const m = new THREE.Mesh(stripGeo, stripMat);
+      m.rotation.set(Math.PI / 2, s > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
+      m.rotation.z = rz;
+      m.position.set(s * x, y, z);
+      m.layers.set(LAYER_FX);
+      body.add(m);
+      strips.push(m);
+    }
+  }
+  const cockpitGlow = navSprite(new THREE.Color(0.15, 0.5, 0.25), 0, 0.7, -4.2, 0.9);
+  // Off until setLights says it is night.
+  for (const o of [...nav, ...strips, cockpitGlow]) o.visible = false;
   return {
     root,
     body,
@@ -433,13 +480,25 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
     get gear() {
       return gearT;
     },
-    // Wingtip navigation lights and tail strobes (t: time; dark: 0-1 night).
+    // Wingtip navigation lights, tail strobes, formation lights and the
+    // cockpit glow: switched on only at night (t: time; dark: 0-1 night).
     setLights(t, dark = 0) {
-      const strobe = (t % 1.2) < 0.08 ? 1 : 0;
-      nav[0].visible = nav[1].visible = true;
-      nav[0].material.color.setRGB(4 * (0.6 + 0.4 * dark), 0.2, 0.2);
-      nav[1].material.color.setRGB(0.2, 4 * (0.6 + 0.4 * dark), 0.3);
-      nav[2].visible = nav[3].visible = strobe > 0 || (t % 1.2) > 0.4 && (t % 1.2) < 0.47;
+      const on = dark > 0.3;
+      const k = Math.min(1, (dark - 0.3) / 0.25);
+      const strobe = (t % 1.2) < 0.08 || ((t % 1.2) > 0.4 && (t % 1.2) < 0.47);
+      nav[0].visible = nav[1].visible = on;
+      nav[0].material.color.setRGB(4 * k, 0.2 * k, 0.2 * k);
+      nav[1].material.color.setRGB(0.2 * k, 4 * k, 0.3 * k);
+      nav[2].visible = nav[3].visible = on && strobe;
+      for (const m of strips) m.visible = on;
+      stripMat.color.setRGB(0.3 * k, 1.6 * k, 0.5 * k);
+      cockpitGlow.visible = on;
+      // The ambient fill (so the jet reads as a shape in the dark) is a night thing.
+      hullMat.uniforms.uFill.value = 0.08 + 0.5 * dark;
+      cockpitGlow.material.color.setRGB(0.15 * k, 0.5 * k, 0.25 * k);
+    },
+    get lightsOn() {
+      return nav[0].visible;
     },
   };
 }

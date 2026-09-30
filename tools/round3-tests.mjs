@@ -601,6 +601,41 @@ await check("enemy jets: rogue pilots sometimes attack UFOs on their own (the UF
   assert(r.playerDowns === 0 && !r.ufoByPlayer, `nothing is credited to the player: ${j}`);
 });
 
+// ================= Part 4: jet visuals =================
+
+await check("jet visuals: a lit paint finish (specular, panel lines, livery) bright enough to see at night, more detail; navigation lights only at night", async () => {
+  await play();
+  await skyArena();
+  const r = await v((g) => {
+    const p = g.player.position;
+    const jet = g.vehicles.create("jet", { pos: [p.x, p.y + 60, p.z], yaw: 0, airborne: true, speed: 120, throttle: 0.7 });
+    const hull = jet.model.hull;
+    const col = hull.geometry.getAttribute("color");
+    let sum = 0;
+    for (let i = 0; i < col.count; i++) sum += (col.getX(i) + col.getY(i) + col.getZ(i)) / 3;
+    const avg = sum / col.count;
+    const mat = hull.material;
+    const lit = "USE_SPEC" in (mat.defines || {}) && mat.uniforms.uSurf.value.x > 0.3 && mat.uniforms.uPanel.value.x > 0 && mat.uniforms.uPanel.value.z > 0;
+    g.vehicles.night = 0;
+    g.vehicles.update(0.05);
+    const dayLights = jet.model.lightsOn;
+    const dayFill = mat.uniforms.uFill.value;
+    g.vehicles.night = 1;
+    g.vehicles.update(0.05);
+    const nightLights = jet.model.lightsOn;
+    const nightFill = mat.uniforms.uFill.value;
+    const verts = hull.geometry.getAttribute("position").count;
+    g.vehicles.remove(jet);
+    return { avg, lit, dayLights, nightLights, dayFill, nightFill, verts };
+  });
+  const j = JSON.stringify(r);
+  assert(r.avg > 0.08, `the paint isn't near-black: ${j}`);
+  assert(r.lit, `a specular finish with panel lines and a livery: ${j}`);
+  assert(!r.dayLights && r.nightLights, `navigation lights only at night: ${j}`);
+  assert(r.nightFill > r.dayFill, `more ambient fill at night: ${j}`);
+  assert(r.verts > 3000, `a detailed model: ${j}`);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);
