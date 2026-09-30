@@ -690,7 +690,7 @@ function findRunway() {
   }
 }
 // Survival: fighter jets (calling one, and the ones parked at airports) are
-// part of the mission chain: they become available with mission 8, "Take to
+// part of the mission chain: they become available with mission 10, "Take to
 // the air" (a jet on day one would skip the whole curve). Creative: always.
 const JET_MISSION = MISSIONS.findIndex((m) => m.id === "wings");
 function jetLocked() {

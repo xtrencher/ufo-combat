@@ -288,6 +288,7 @@ export class MissionDirector {
       const a = Math.random() * Math.PI * 2;
       const u = this.ufos.spawn({ size: "small", design: ["saucer", "saucer_disc", "saucer_domed"][Math.floor(Math.random() * 3)], style: "volley", crewKind: "alien", pos: { x: spot.x + Math.cos(a) * 140, y: spot.y + 70, z: spot.z + Math.sin(a) * 140 }, hidden: true });
       u.immune = true;
+      u.peaceful = true; // watching it come down (the marker is on it) must not anger it
       u.noLeave = true;
       u.missionTarget = true;
       u.dodgeMul = 0;
@@ -298,6 +299,7 @@ export class MissionDirector {
       u.waypoint = new THREE.Vector3(spot.x, spot.y + u.info.bottom * u.radius + 0.3, spot.z);
       st.ship = u;
       st.spot = spot;
+      st.landAt = u.waypoint.clone();
       st.phase = "incoming";
       st.crew = [];
       st.t = 0;
@@ -310,6 +312,14 @@ export class MissionDirector {
         return;
       }
       this._setTarget(st.ship, "Landing UFO");
+      // (Nothing may send it anywhere else before it is down.)
+      if (st.ship.state !== "trick" || st.ship.trick !== "land") {
+        if (st.ship.beam) st.ship.beam.set(false);
+        st.ship.state = "trick";
+        st.ship.trick = "land";
+        st.ship.timer = 1e9;
+        st.ship.waypoint = st.landAt.clone();
+      }
       if (st.ship.landed) {
         st.phase = "landed";
         st.landedT = 0;
@@ -342,6 +352,7 @@ export class MissionDirector {
     st.leaveT -= 0.5;
     if (st.leaveT <= 0 && shipOk && st.ship.state !== "leave") {
       st.ship.immune = false;
+      st.ship.peaceful = false;
       st.ship.noLeave = false;
       st.ship.missionTarget = false;
       this.ufos._leave(st.ship);

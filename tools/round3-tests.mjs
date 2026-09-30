@@ -554,7 +554,7 @@ await check("player UFO dash: travelled at extreme speed (not a cut), adjustable
   assert(r.info && r.infoOff, `the I panel shows the dash: ${j}`);
 });
 
-await check("enemy jets: rogue pilots sometimes attack UFOs on their own (the UFO fights back), others ignore them; kills aren't the player's and they stay neutral", async () => {
+await check("enemy jets (Round 4: every patrol fighter hunts UFOs): a fighter attacks a UFO on its own (the UFO fights back); kills aren't the player's and it stays neutral", async () => {
   await play();
   await skyArena();
   const r = await v((g) => {
@@ -597,7 +597,6 @@ await check("enemy jets: rogue pilots sometimes attack UFOs on their own (the UF
   assert(r.picked, `the rogue picked the UFO: ${j}`);
   assert(r.hurt, `it hurt the UFO: ${j}`);
   assert(r.firedBack, `the UFO fought back: ${j}`);
-  assert(!r.calmHunts, `a normal fighter ignores UFOs: ${j}`);
   assert(r.rogueProvoked === 0 && !r.rogueHostile, `hits from the UFO don't turn it on the player: ${j}`);
   assert(r.playerDowns === 0 && !r.ufoByPlayer, `nothing is credited to the player: ${j}`);
 });
@@ -666,24 +665,27 @@ await check("world and graphics: 128-tall world, render distance up to 256 chunk
 
 // ================= Part 6: missions and balance =================
 
-await check("missions: 15 missions from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
+await check("missions: the chain (19 missions in Round 4) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
   await v((g) => {
     g.setMode("survival");
     g.ufos.config.activity = 1;
     g.inventory.clear();
     g.progress.load(null, g.stats.world);
+    // (Round 4: the scout is mission 4, after the skeleton, the landing and the first crate.)
+    g.progress.step = 3;
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
     g.player.health = 20;
   });
   await play();
   await frames(30);
-  // Mission 1: a small, weak scout nearby, low, that the pistol can kill.
+  // Mission 4: a small, weak scout nearby, low, that the pistol can kill.
   const m1 = await until((g) => {
     const u = g.ufos.ufos.find((x) => x.missionTarget);
     return u && { size: u.size, hp: u.maxHealth, dist: Math.round(u.pos.distanceTo(g.player.position)), agl: Math.round(u.pos.y - g.world.heightAt(Math.floor(u.pos.x), Math.floor(u.pos.z))), marker: !document.getElementById("mission-marker").classList.contains("hidden"), tracker: document.getElementById("mission-tracker").textContent, rulesSmall: Object.keys(g.ufos.rules?.sizes || {}).join(), crew: u.crashPlan };
   }, 60000);
   assert(m1, "a scout was spawned for mission 1");
-  assert(m1.size === "small" && m1.hp <= 30 && m1.dist < 200 && m1.agl < 60, `a small, weak, close, low scout: ${JSON.stringify(m1)}`);
-  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 1\/15/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
+  assert(m1.size === "small" && m1.hp <= 45 && m1.dist < 200 && m1.agl < 60, `a small, weak, close, low scout: ${JSON.stringify(m1)}`);
+  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/19/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
   assert(m1.rulesSmall === "small", `early skies only have small UFOs: ${JSON.stringify(m1)}`);
   // The pistol kills it: 5 damage a shot.
   const kill = await v((g) => {
@@ -696,14 +698,14 @@ await check("missions: 15 missions from a pistol scout to nuking an enemy base; 
     }
     return shots;
   });
-  assert(kill <= 6, `about five pistol shots bring it down: ${kill}`);
+  assert(kill <= 9, `about eight pistol shots (under a magazine) bring it down: ${kill}`);
   await play();
   const m2 = await until((g) => g.progress.mission?.id === "crew" && g.progress.mission.id, 30000);
   assert(m2 === "crew", "the crew mission follows");
   // Mission 3: a supply crate drops for you.
   await v((g) => {
-    g.stats.add("aliensKilled", 2);
-    g.progress.update(g.stats.world);
+    g.progress.step = 2;
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
   });
   await play();
   const crate = await until((g) => g.progress.mission?.id === "supply" && g.crates.crates.length > 0 && g.crates.crates.length, 30000);
@@ -711,7 +713,7 @@ await check("missions: 15 missions from a pistol scout to nuking an enemy base; 
   // Jump ahead: the rules get harder along the chain.
   const rules = await v((g) => {
     const out = [];
-    for (const step of [0, 5, 9, 12, 14]) {
+    for (const step of [3, 7, 11, 15, 18]) {
       g.progress.step = step;
       g.progress.base = { ...g.progress._pick(g.stats.world) };
       g.ufos.rules = g.progress.rules;
@@ -726,7 +728,7 @@ await check("missions: 15 missions from a pistol scout to nuking an enemy base; 
   // Late missions: a village raid, a mothership, the enemy base (set up by the director).
   const late = await v(async (g) => {
     const out = {};
-    for (const [step, key] of [[10, "village"], [12, "mothership"], [13, "airport"]]) {
+    for (const [step, key] of [[12, "village"], [16, "mothership"], [17, "airport"]]) {
       g.progress.step = step;
       g.progress.base = { ...g.progress._pick(g.stats.world) };
       g.missions.state = { t: 0 };
@@ -757,7 +759,7 @@ await check("missions: 15 missions from a pistol scout to nuking an enemy base; 
     const l = g.progress.list(g.stats.world);
     return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
   });
-  assert(list.n === 15 && list.done === 3 && list.current === "The long night" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  assert(list.n === 19 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
   await v((g) => {
     g.progress.load(null, g.stats.world);
     g.setMode("creative");

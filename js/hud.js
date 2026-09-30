@@ -193,7 +193,7 @@ export class Hud {
       this._hasOff = hasOff;
       this.offhandEl.classList.toggle("hidden", !hasOff);
     }
-    if (inv.selected !== this._selected) {
+    if (inv.selected !== this._selected && this.slots[inv.selected]) {
       if (this._selected >= 0) this.slots[this._selected].el.classList.remove("selected");
       this._selected = inv.selected;
       this.slots[this._selected].el.classList.add("selected");

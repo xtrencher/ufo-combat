@@ -60,7 +60,7 @@ export class Player {
 
     this.health = MAX_HEALTH;
     this.absorption = 0; // golden half-hearts (golden apples): soaked up before health
-    this.damageFilter = null; // (amount, cause) -> amount: the energy shield
+    this.damageFilter = null; // (amount, cause, from) -> amount: the off-hand shield
     this.air = MAX_AIR;
     this.dead = false;
     this.hurtTime = 99; // seconds since the last damage (drives hurt effects)

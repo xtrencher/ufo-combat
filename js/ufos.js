@@ -536,7 +536,7 @@ export class UfoManager {
 
   // Makes a UFO angry at the player for a while.
   anger(u, seconds = rand(35, 70)) {
-    if (u.falling || u.state === "gone") return;
+    if (u.falling || u.state === "gone" || u.peaceful) return; // (peaceful: a mission's landing ship)
     u.hostile = true;
     u.hostileT = Math.max(u.hostileT, seconds);
     u.lastSeen = this.time;
@@ -914,7 +914,7 @@ export class UfoManager {
       }
       return;
     }
-    if (agg <= 0 || this.graceT > 0 || this.player.dead) return;
+    if (agg <= 0 || this.graceT > 0 || this.player.dead || u.peaceful) return;
     const pv = tgt.vehicle;
     const disguised = pv?.type === "ufo";
     if (disguised) return;
