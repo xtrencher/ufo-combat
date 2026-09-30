@@ -6,11 +6,11 @@ import { UI, isMobileDevice } from "./ui.js";
 import { BLOCK, BLOCK_INFO, HOTBAR, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
-import { normalizeSettings, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
+import { normalizeSettings, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
@@ -127,14 +127,31 @@ const scene = new THREE.Scene();
 const DEFAULT_RENDER_DISTANCE = 10;
 const MIN_RENDER_DISTANCE = 2;
 const MAX_RENDER_DISTANCE = 256; // (Round 3: was 100) beyond the detail area it is all cheap LOD tiles
-const settings = normalizeSettings(loadSettings());
-// Round 3: the jet flies as it did in the first build again. Round 2 raised
-// the default top speed to 220 (saved with every setting); a value still at
-// that old default goes back to the original 160 once.
-if ((settings.rev ?? 0) < 3) {
-  if (settings.vehicles?.jetMaxSpeed === 220) settings.vehicles.jetMaxSpeed = 160;
-  settings.rev = 3;
+// The saved settings are read first, before any default, graphics preset
+// or menu value is applied: everything below starts from them, and they
+// always win. (normalizeSettings validates every value, falls back to the
+// default for anything missing or broken, and upgrades older versions.)
+setActiveSeed(SEED);
+const SETTINGS_OPTIONS = {
+  presets: PRESET_ORDER,
+  defaultPreset: DEFAULT_PRESET,
+  minRenderDistance: MIN_RENDER_DISTANCE,
+  maxRenderDistance: MAX_RENDER_DISTANCE,
+  isOverride: (key, value) => !!GFX_OPTIONS[key]?.choices.some(([c]) => c === value),
+};
+const settings = normalizeSettings(loadSettings(), SETTINGS_OPTIONS);
+// Written back at once in the current format (and in its reserved slot, see storage.js).
+let settingsSaveWarned = false;
+function persistSettings() {
+  if (!saveSettings(settings) && !settingsSaveWarned) {
+    settingsSaveWarned = true;
+    setTimeout(() => toast?.("Browser storage is full: your settings can't be saved. Free some space (site data) to keep them.", 8), 0);
+  }
 }
+setStorageFullHandler(({ evicted, ok }) => {
+  if (ok && evicted.length) setTimeout(() => toast?.(`Browser storage was full: the saved block changes of ${evicted.length} other world${evicted.length > 1 ? "s" : ""} were removed to keep your settings.`, 8), 0);
+});
+persistSettings();
 
 function clampRenderDistance(value) {
   const n = Math.round(Number(value));
@@ -286,7 +303,7 @@ ui.graphicsSelect.value = graphicsPreset;
 // Sub-screens of the main and pause menus (settings, mods, controls, stats).
 const screens = new MenuScreens();
 // The settings screen (tabs, rows built from the schema in settings.js).
-const settingsPanel = new SettingsPanel(settings, () => saveSettings(settings));
+const settingsPanel = new SettingsPanel(settings, persistSettings);
 // Per-weapon explosion-size multipliers.
 for (const kind of ["grenade", "bazooka", "airstrike"]) settingsPanel.on(`explosionScale.${kind}`, (v) => (explosionScale[kind] = v));
 
@@ -896,7 +913,7 @@ function refreshModsPills() {
 refreshModsPills();
 function setModsEnabled(on) {
   settings.mods = on;
-  saveSettings(settings);
+  persistSettings();
   modsCheckbox.checked = on;
   mods.set(on);
   if (on && gameState !== "start") fillStartingWeapons(false);
@@ -1315,14 +1332,19 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, 
   lod.configure({ detailDistance: settings.perf.detailDistance > 0 ? settings.perf.detailDistance : preset.detailDistance });
   grass.configure({ level: preset.grass });
   world.setMeshOptions({ fancyLeaves: preset.fancyLeaves });
-  if (adoptRenderDistance) setRenderDistance(preset.renderDistance);
+  // A preset suggests a render distance; it is adopted only while the player
+  // hasn't set one of their own (see PROGRESS.md, "Settings persistence").
+  if (adoptRenderDistance === "force" || (adoptRenderDistance && !settings.renderDistanceCustom)) {
+    settings.renderDistanceCustom = false;
+    setRenderDistance(preset.renderDistance);
+  }
   ui.graphicsSelect.value = graphicsPreset;
   ui.startGraphicsSelect.value = graphicsPreset;
   ui.graphicsHintEl.textContent = describePreset(preset);
   refreshGfxOptions();
   if (!graphicsLowered) {
     settings.graphics = graphicsPreset;
-    saveSettings(settings);
+    persistSettings();
   }
   prepareGraphics();
 }
@@ -1437,7 +1459,7 @@ function setRenderDistance(value) {
   updateViewDistance();
   lod.configure({ renderDistance: viewRD });
   settings.renderDistance = renderDistance;
-  saveSettings(settings);
+  persistSettings();
 }
 
 // ---------- Settings menu ----------
@@ -1507,7 +1529,7 @@ for (const [key, label] of AUDIO_CATEGORIES) {
   volumeSliders[key] = SettingsPanel.range(`vol-${key}`, settings.volume[key], (v) => `${Math.round(v * 100)}%`, (v) => {
     settings.volume[key] = v;
     audio.setVolume(key, v);
-    saveSettings(settings);
+    persistSettings();
   });
 }
 settingsPanel.onReset("audio", () => {
@@ -1542,7 +1564,7 @@ const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v
 
 // Graphics: "Reset to defaults" goes back to the default preset, its render
 // distance, and no individual overrides.
-settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: true, keepOverrides: false, userPick: true }));
+settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: "force", keepOverrides: false, userPick: true }));
 
 // Performance: full-detail distance, far-terrain quality, resolution scale
 // and effects detail, plus one-click presets for different computers.
@@ -1581,6 +1603,8 @@ function applyPerfPreset(key) {
   settingsPanel.set("perf.effects", p.effects);
   settingsPanel.set("perf.resolution", p.resolution);
   setGraphics(p.graphics, { keepOverrides: false, userPick: true });
+  // (A performance preset is a whole set, render distance included.)
+  settings.renderDistanceCustom = false;
   setRenderDistance(p.renderDistance);
   refreshPerfPresets();
 }
@@ -1591,6 +1615,44 @@ function refreshPerfPresets() {
     btn.classList.toggle("active", match);
   }
 }
+// Another tab of the game changed the settings: take them over here too, so
+// this tab never writes its older copy back over them.
+window.addEventListener("storage", (e) => {
+  if (e.key !== "ufocombat_v1_settings" || !e.newValue) return;
+  let fresh;
+  try {
+    fresh = normalizeSettings(JSON.parse(e.newValue), SETTINGS_OPTIONS);
+  } catch (err) {
+    return;
+  }
+  for (const entry of SCHEMA) settingsPanel.adopt(entry.key, getSettingPath(fresh, entry.key));
+  for (const [k] of AUDIO_CATEGORIES) {
+    if (settings.volume[k] === fresh.volume[k]) continue;
+    settings.volume[k] = fresh.volume[k];
+    audio.setVolume(k, fresh.volume[k]);
+    volumeSliders[k].set(fresh.volume[k]);
+  }
+  settings.renderDistanceCustom = fresh.renderDistanceCustom;
+  if (fresh.renderDistance !== renderDistance) {
+    renderDistance = clampRenderDistance(fresh.renderDistance);
+    viewRD = renderDistance;
+    settings.renderDistance = renderDistance;
+    ui.renderDistanceInput.value = String(renderDistance);
+    ui.renderDistanceValueEl.textContent = String(renderDistance);
+    updateViewDistance();
+    lod.configure({ renderDistance: viewRD });
+  }
+  if (fresh.mods !== settings.mods) setModsEnabled(fresh.mods);
+  const gfxChanged = fresh.graphics !== settings.graphics || JSON.stringify(fresh.gfxOverrides) !== JSON.stringify(settings.gfxOverrides);
+  if (gfxChanged && !graphicsLowered) {
+    settings.gfxOverrides = { ...fresh.gfxOverrides };
+    setGraphics(fresh.graphics);
+  }
+});
+function getSettingPath(obj, path) {
+  return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
 settingsPanel.onReset("performance", () => {
   setGraphics(graphicsPreset);
   refreshPerfPresets();
@@ -1610,11 +1672,12 @@ function onGraphicsLost() {
   graphicsReady = false;
   const lower = lowerPreset(graphicsPreset);
   const hadOverrides = Object.keys(settings.gfxOverrides).length > 0;
-  // The saved settings are left alone (a sleeping laptop or a GPU switch also
-  // loses the context, and that must not silently downgrade the player's
-  // choice). The next start runs one step lower for that session only (the
-  // safe start above), because the last one didn't finish cleanly.
-  saveBootRecord({ preset: graphicsPreset, ok: false });
+  // The saved settings are left alone, and so is the next start: a sleeping
+  // laptop, a GPU switch or a driver reset also loses the context, and the
+  // next start used to come up one preset lower with the player's own
+  // graphics options ignored, which looked exactly like "my settings were
+  // reset". (A start that really hangs is still caught by the safe start:
+  // its boot record stays not-ok until the world has been drawn.)
   playerDirty = true;
   flushSave();
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1623,6 +1686,12 @@ function onGraphicsLost() {
   document.getElementById("gpu-lost").classList.remove("hidden");
 }
 document.getElementById("gpu-lost-reload").addEventListener("click", () => location.reload());
+// The player's choice: the next start runs one step lower, for that session
+// only (the safe start); the saved settings are not touched.
+document.getElementById("gpu-lost-lower").addEventListener("click", () => {
+  saveBootRecord({ preset: graphicsPreset, ok: false });
+  location.reload();
+});
 
 // ---------- Game state / pointer lock ----------
 // "start": title menu. "playing": pointer locked, in control. "paused":
@@ -1772,6 +1841,7 @@ function closeInventory() {
 }
 
 ui.renderDistanceInput.addEventListener("input", () => {
+  settings.renderDistanceCustom = true; // the player's own choice: presets keep it from now on
   setRenderDistance(ui.renderDistanceInput.value);
 });
 

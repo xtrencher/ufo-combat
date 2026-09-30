@@ -1392,3 +1392,46 @@ Run in `tools/` (`npm install` once; headless Chromium with software rendering, 
 - `node smoke-test.mjs` (~70 min): **62 passed, 5 failed**; render distance, F5 camera and LOD hand-over fixed and passing on re-run; still listed: "Ultra: tall grass..." (hit its 5-minute limit under CPU load, as in Round 2) and "underwater blasts" (order-dependent, see Known issues; passes on a fresh page).
 
 ROUND 3 COMPLETE
+
+# Settings persistence fix
+
+Report: some or all settings went back to their defaults after a reload.
+
+## Root causes
+
+A headless test that changes every setting through the menus and reloads (tools/settings-tests.mjs) found that a plain reload already kept everything. The resets came from the paths a real browser takes and that test didn't:
+
+1. **Full browser storage.** The block edits of every world played are saved in the same localStorage as the settings (one max-size nuke adds ~150 KB; the origin's quota is ~5 MB). Once it was full, every settings write failed with only a console warning, and on the next start the settings silently went back to their last successful save (for a newer player, the defaults).
+2. **The safe start after a lost graphics context.** A lost WebGL context (a laptop going to sleep, a GPU switch or driver reset, a frame that took too long) wrote a "failed start" record, and the next start came up one graphics preset lower with the player's individual graphics options ignored for that session. The saved settings were intact, but the menus showed the lowered preset, which looks exactly like the graphics settings having been reset.
+3. **A second open tab** kept its own in-memory copy of the settings and wrote the whole object back whenever it saved anything, undoing changes made in the other tab.
+4. **Render distance vs. presets.** Picking a graphics preset always replaced the render distance with the preset's suggestion, even one the player had set themselves.
+5. Smaller: the settings had no format version, unknown or junk fields were carried along, and individual graphics options weren't validated.
+
+## Fix
+
+- **One versioned object** (`v: 4`, `SETTINGS_VERSION` in settings.js) under `ufocombat_v1_settings`, built from scratch by `normalizeSettings` on load. Only known settings are kept, and every value is validated: missing or broken values (including corrupted JSON and wrong types) fall back to the default without errors. Older, unversioned saves are read and upgraded (including the Round 3 jet top speed migration, which moved here from main.js).
+- **Load first.** The settings are read and normalized before anything applies a default, a graphics preset or a menu value, and written straight back in the current format. Every control saves immediately on change (no Save button).
+- **A reserved slot** (storage.js): the settings JSON is padded to a fixed 16 KB size, so rewriting it never needs more room, however full the storage gets. As a last resort, if a storage that was already full before this change can't take even that, the saved block edits of other worlds (never the current one, largest first) are removed and the player is told in a toast. If nothing works, a toast says the storage is full instead of failing silently.
+- **Lost graphics context:** the next start is no longer lowered by itself. The dialog offers "Reload" (same settings) or "Reload with lower graphics once" (the old safe-start behaviour, only when chosen, for that session, saved settings untouched). A start that really hangs while compiling shaders is still caught by the safe start.
+- **Two tabs:** each tab listens for the other's saves (the `storage` event) and takes the new values over without writing them back, so neither overwrites the other with an older copy.
+
+## Graphics presets vs. individual settings (decision)
+
+- Picking a **graphics preset** sets the individual graphics options (shadows, anti-aliasing, bloom, ...). That is what a preset is, so it clears earlier per-option overrides. Options changed *after* picking it are kept as the player's overrides, marked "Custom", and survive reloads. Nothing re-applies a preset on its own at startup.
+- It **no longer touches a render distance the player set**. It adopts its suggested distance only while the player hasn't moved the slider (`renderDistanceCustom`). A **performance preset** (Potato ... Extreme) is an explicit full set, so it still sets the render distance (and full-detail distance, far-terrain quality, resolution and effects), and "Reset to defaults" on the Graphics tab resets it too.
+- Presets never change audio, controls, gameplay, weapon, mob, UFO, vehicle or HUD settings.
+
+## Coverage and tests
+
+The saved settings cover every setting in the game: graphics (preset and individual options), render distance, full-detail distance, far-terrain quality, resolution, effects, audio (six volumes), controls (FOV, sensitivity, invert Y, binocular zoom), gameplay (difficulty, creature spawning, time lock), HUD (FPS counter, stats overlay), weapons, zombies, UFOs, vehicles, and Mods on/off. The time of day stays per world (saved with the world, as before).
+
+`tools/settings-tests.mjs` (new, `npm run test:settings`), 7 checks:
+- every setting (all schema settings in all tabs, six volumes, preset, a graphics option, render distance, Mods) is changed through the real controls, is in storage at once, and after a reload is restored, applied, and left unchanged by a second reload;
+- a preset plus later changes;
+- missing, corrupted and garbage data, and an unversioned older save;
+- a completely full storage;
+- two open tabs;
+- the render distance vs. presets;
+- a lost graphics context, including "Reload with lower graphics once".
+
+It passed 7/7 in three consecutive full runs with no console errors. In the very first run, before the diff output was added, the "second reload keeps everything" assertion failed once; it didn't come back in four later runs, and the cause wasn't identified. The Round 2 settings checks and the smoke startup/lost-graphics checks (updated for the new dialog) pass.

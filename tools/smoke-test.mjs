@@ -2541,7 +2541,7 @@ try {
     }
   });
 
-  await check("a lost graphics context saves, lowers the graphics a step and asks for a reload", async () => {
+  await check("a lost graphics context saves, keeps the settings and asks for a reload (lower graphics once only if the player asks)", async () => {
     const { p, ctx } = await freshPage(async (p) => {
       await p.addInitScript(() => {
         if (!sessionStorage.getItem("primed")) {
@@ -2562,8 +2562,10 @@ try {
       player: !!localStorage.getItem("ufocombat_v1_player_42"),
     }));
     console.log(`        ${JSON.stringify(s)}`);
-    assert(s.label === "Low" && s.saved.graphics === "medium" && s.boot.preset === "medium" && !s.boot.ok, `expected Low for the next start (saved settings unchanged, the failed boot recorded): ${JSON.stringify(s)}`);
-    assert(s.saved.gfxOverrides.bloom === "off" && s.resetShown, `the saved options stay, and the panel should say the next start is lowered: ${JSON.stringify(s)}`);
+    // (Settings persistence fix: a lost context no longer lowers the next
+    // start by itself; the dialog offers it as a choice.)
+    assert(s.label === "Low" && s.saved.graphics === "medium" && !(s.boot && s.boot.ok === false && s.boot.preset === "medium"), `the next start isn't lowered on its own (saved settings unchanged): ${JSON.stringify(s)}`);
+    assert(s.saved.gfxOverrides.bloom === "off" && s.resetShown, `the saved options stay, and the dialog names the lower option: ${JSON.stringify(s)}`);
     assert(s.player, "the player should be saved");
     await ctx.close();
   });

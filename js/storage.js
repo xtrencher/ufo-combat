@@ -145,23 +145,89 @@ export function saveEdits(seed, edits, cache = null, dirtyKeys = null) {
   }
 }
 
+// Settings live in one versioned object under `${PREFIX}settings`.
+//
+// The world saves (block edits of every world played) share the browser's
+// ~5 MB localStorage quota with the settings. Once they had filled it, every
+// settings write failed (only a console warning), and the settings quietly
+// went back to their last saved values on the next start. So the settings
+// keep a reserved slot: the JSON is padded with spaces (JSON.parse ignores
+// them) to SETTINGS_RESERVE characters, and rewriting a key with a value of
+// the same size never needs more room, however full the storage gets. If a
+// write still fails (a storage that was already full before this slot
+// existed), the unpadded JSON is tried, and as a last resort the saved block
+// edits of another world (never the one being played, largest first) are
+// removed to make room; `onStorageFull` is told about it.
+const SETTINGS_KEY = `${PREFIX}settings`;
+const SETTINGS_RESERVE = 16384;
+let activeSeed = null;
+export let onStorageFull = null; // (info: { evicted: [seeds], ok }) => void
+export function setStorageFullHandler(fn) {
+  onStorageFull = fn;
+}
+// The world being played (its saves are never removed to make room).
+export function setActiveSeed(seed) {
+  activeSeed = seed;
+}
+
 export function loadSettings() {
   try {
-    const raw = localStorage.getItem(`${PREFIX}settings`);
+    const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch (err) {
+    // Corrupted: the defaults (and the next change overwrites the bad data).
+    console.warn("UFO COMBAT: saved settings were unreadable; using the defaults", err);
     return {};
   }
 }
 
-export function saveSettings(settings) {
+function trySet(key, value) {
   try {
-    localStorage.setItem(`${PREFIX}settings`, JSON.stringify(settings));
+    localStorage.setItem(key, value);
+    return true;
   } catch (err) {
-    console.warn("UFO COMBAT: failed to save settings", err);
+    return false;
   }
+}
+
+// Saves the settings at once. Returns true when they are stored.
+export function saveSettings(settings) {
+  let json;
+  try {
+    json = JSON.stringify(settings);
+  } catch (err) {
+    console.warn("UFO COMBAT: settings couldn't be serialized", err);
+    return false;
+  }
+  const padded = json.length < SETTINGS_RESERVE ? json + " ".repeat(SETTINGS_RESERVE - json.length) : json;
+  if (trySet(SETTINGS_KEY, padded) || trySet(SETTINGS_KEY, json)) return true;
+  // Full: make room by removing other worlds' block edits, largest first.
+  const evicted = [];
+  let keys = [];
+  try {
+    keys = Object.keys(localStorage).filter((k) => k.startsWith(`${PREFIX}edits_`) && k !== editsKey(activeSeed));
+  } catch (err) {
+    keys = [];
+  }
+  keys.sort((a, b) => (localStorage.getItem(b)?.length ?? 0) - (localStorage.getItem(a)?.length ?? 0));
+  for (const k of keys) {
+    try {
+      localStorage.removeItem(k);
+    } catch (err) {
+      continue;
+    }
+    evicted.push(k.slice(`${PREFIX}edits_`.length));
+    if (trySet(SETTINGS_KEY, padded) || trySet(SETTINGS_KEY, json)) {
+      console.warn(`UFO COMBAT: browser storage was full; removed the saved block edits of other worlds (${evicted.join(", ")}) to keep the settings`);
+      onStorageFull?.({ evicted, ok: true });
+      return true;
+    }
+  }
+  console.warn("UFO COMBAT: failed to save settings (browser storage full)");
+  onStorageFull?.({ evicted, ok: false });
+  return false;
 }
 
 // How the last start went: { preset, ok }. ok stays false until the world

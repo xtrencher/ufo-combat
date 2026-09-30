@@ -424,8 +424,14 @@ the horizon.
 ## Settings reference
 
 Settings (main menu or pause menu) are grouped in tabs; each tab has a
-**Reset to defaults** button for just that group, and everything is saved
-in the browser.
+**Reset to defaults** button for just that group. Every change is saved in
+the browser at once (no Save button) and comes back exactly the same after a
+reload or a later visit: one versioned settings object, read before anything
+else is applied, so your values always win over defaults and presets. A
+graphics preset sets the individual graphics options (you can change them
+afterwards; they are kept), and keeps a render distance you set yourself.
+The settings keep a reserved slot in the browser's storage, so even a storage
+filled up by big world saves can't stop them from being saved.
 
 | Tab | Settings (default) |
 | --- | --- |
@@ -534,7 +540,7 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has five test suites (`cd tools && npm install && npm test`; the
+`/tools` has six test suites (`cd tools && npm install && npm test`; the
 browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
 environment variable):
 
@@ -542,6 +548,10 @@ environment variable):
   always hurt, attack styles, the UFO redesign, dashes, rogue fighters, the
   jet's paint and night lights, the world and graphics limits, and the
   mission chain. About 5 minutes.
+- `settings-tests.mjs`: every setting in every tab changed through the
+  menus, then a reload: all values restored and applied; presets vs. later
+  changes, corrupted or missing data, a full browser storage, two open tabs,
+  a lost graphics context. About 5 minutes.
 - `unit-tests.mjs`: fast Node tests of the pure logic (save format, the
   voxel light engine against a brute-force reference, terrain, caves, trees
   and water, mining rules, inventory, collision, explosion falloff,

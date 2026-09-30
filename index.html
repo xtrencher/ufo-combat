@@ -1303,13 +1303,15 @@
       <h2>The graphics card stopped responding</h2>
       <p style="font-size:14px; line-height:1.5; opacity:0.9;">
         The browser lost its connection to the graphics card (the WebGL
-        context was lost), usually because drawing a frame took too long.
-        Your world and settings are saved. The next start runs one step lower
-        (<b id="gpu-lost-preset">High</b>) for that session only<span
-        id="gpu-lost-reset" class="hidden">, without your individual graphics options</span>,
-        and your saved graphics setting stays as it is: reload to go on playing.
+        context was lost): drawing a frame took too long, the computer went to
+        sleep, or the graphics driver restarted. Your world and all your
+        settings are saved and stay as they are. Reload to go on playing; if
+        this keeps happening, reload once with lower graphics
+        (<b id="gpu-lost-preset">High</b><span id="gpu-lost-reset" class="hidden">,
+        without your individual graphics options</span>) for that session only.
       </p>
       <div class="menu-buttons">
+        <button class="btn secondary" id="gpu-lost-lower">Reload with lower graphics once</button>
         <button class="btn" id="gpu-lost-reload">Reload</button>
       </div>
     </div>

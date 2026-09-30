@@ -1,8 +1,10 @@
 // Player settings: defaults, validation, and the tabbed settings screen.
 //
-// Everything is saved in localStorage (storage.js) under one JSON object, so
-// a setting added later simply falls back to its default in older saves, and
-// garbage values are clamped back into range on load.
+// Everything is saved in localStorage (storage.js) as one versioned JSON
+// object (`v`: SETTINGS_VERSION) under the game's prefix, the moment it
+// changes. On load it is read before anything else applies a default, a
+// preset or a menu value: a setting added later simply falls back to its
+// default in older saves, and garbage values are clamped back into range.
 //
 // Most settings are declared once in SCHEMA below (where they live in the
 // settings object, their group, type, range and default). The settings
@@ -167,8 +169,17 @@ export function validValue(e, raw) {
   return Math.max(e.min, Math.min(e.max, n));
 }
 
+// The settings object's format version (the `v` field). Older saves (no
+// version) are read and upgraded; unknown or broken values fall back to
+// their defaults.
+export const SETTINGS_VERSION = 4;
+
 export const DEFAULT_SETTINGS = {
+  v: SETTINGS_VERSION,
   renderDistance: 10,
+  // Whether the player set the render distance themselves (then picking a
+  // graphics preset keeps it instead of adopting the preset's suggestion).
+  renderDistanceCustom: false,
   graphics: "ultra",
   gfxOverrides: {},
   volume: { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
@@ -176,18 +187,44 @@ export const DEFAULT_SETTINGS = {
 };
 for (const e of SCHEMA) setPath(DEFAULT_SETTINGS, e.key, e.def);
 
-// Returns a complete, valid settings object from whatever was saved.
-export function normalizeSettings(raw) {
-  const s = raw && typeof raw === "object" ? raw : {};
-  const out = JSON.parse(JSON.stringify(s));
+// Returns a complete, valid, current-version settings object from whatever
+// was saved (nothing, an older version, or garbage). Only known settings are
+// kept. opts (from the game, which knows its graphics presets and options):
+// presets: valid preset names; defaultPreset; minRenderDistance,
+// maxRenderDistance; isOverride(key, value): a valid individual graphics option.
+export function normalizeSettings(raw, opts = {}) {
+  const s = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const out = { v: SETTINGS_VERSION };
   for (const e of SCHEMA) setPath(out, e.key, validValue(e, getPath(s, e.key)));
+  // Render distance (chunks).
+  const minRD = opts.minRenderDistance ?? 2;
+  const maxRD = opts.maxRenderDistance ?? 256;
+  const rd = Math.round(Number(s.renderDistance));
+  out.renderDistance = Number.isFinite(rd) && s.renderDistance !== null && s.renderDistance !== "" ? Math.max(minRD, Math.min(maxRD, rd)) : DEFAULT_SETTINGS.renderDistance;
+  out.renderDistanceCustom = s.renderDistanceCustom === true;
+  // Graphics preset and individual options.
+  const presets = opts.presets || ["low", "medium", "high", "ultra"];
+  out.graphics = presets.includes(s.graphics) ? s.graphics : opts.defaultPreset || DEFAULT_SETTINGS.graphics;
+  out.gfxOverrides = {};
+  if (s.gfxOverrides && typeof s.gfxOverrides === "object" && !Array.isArray(s.gfxOverrides)) {
+    for (const [k, val] of Object.entries(s.gfxOverrides)) {
+      if (typeof val !== "string") continue;
+      if (opts.isOverride && !opts.isOverride(k, val)) continue;
+      out.gfxOverrides[k] = val;
+    }
+  }
+  // Volumes 0-1 per category.
   out.volume = {};
   for (const [k] of AUDIO_CATEGORIES) {
-    const n = Number(s.volume?.[k]);
-    out.volume[k] = Number.isFinite(n) && s.volume?.[k] !== null ? Math.max(0, Math.min(1, n)) : 1;
+    const raw = s.volume && typeof s.volume === "object" ? s.volume[k] : undefined;
+    const n = Number(raw);
+    out.volume[k] = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1;
   }
   out.mods = s.mods !== false;
-  out.gfxOverrides = s.gfxOverrides && typeof s.gfxOverrides === "object" ? { ...s.gfxOverrides } : {};
+  // Upgrades from older versions. (Round 2 raised the jet's default top
+  // speed to 220; Round 3 went back to 160: a value still at that old
+  // default follows it, once. Saves before Round 3 had no `v` and no `rev`.)
+  if (!Number.isFinite(s.v) && (s.rev ?? 0) < 3 && out.vehicles.jetMaxSpeed === 220) out.vehicles.jetMaxSpeed = 160;
   return out;
 }
 
@@ -243,6 +280,18 @@ export class SettingsPanel {
     this._controls.get(key)?.set(v);
     this._apply(key, v);
     this.save();
+  }
+
+  // Takes a value saved elsewhere (another tab of the game): updates the
+  // row and applies it, without saving it again.
+  adopt(key, value) {
+    const e = SCHEMA_BY_KEY.get(key);
+    const v = e ? validValue(e, value) : value;
+    if (JSON.stringify(getPath(this.settings, key)) === JSON.stringify(v)) return false;
+    setPath(this.settings, key, v);
+    this._controls.get(key)?.set(v);
+    this._apply(key, v);
+    return true;
   }
 
   // Extra work for a group's "Reset to defaults" (hand-written settings).
