@@ -252,6 +252,17 @@ try {
   // so there is nothing to collide with, then each key is held until the
   // player has moved. The displacement is compared against the camera's
   // forward/right vectors for two different headings.
+  // (Round 4: a new Survival world opens with a mission skeleton that shoots
+  // at the player. This suite tests the engine, not the missions (see
+  // round4-tests.mjs), so the chain is switched off for the rest of the run.)
+  await page.evaluate(() => {
+    const v = window.__voxelands;
+    v.testFlags.noMissions = true;
+    v.missions.enabled = false;
+    v.progress.enabled = false;
+    for (const m of v.mobs.mobs) if (m.missionTarget) m.dead = true;
+  });
+
   await check("WASD move in the correct camera-relative directions", async () => {
     const expectations = {
       KeyW: [1, 0],
@@ -370,10 +381,11 @@ try {
     assert(live === 6, `render distance is ${live} after slider change, expected 6`);
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ufocombat_v1_settings") || "{}"));
     assert(saved.renderDistance === 6, `saved settings: ${JSON.stringify(saved)}`);
-    // The Graphics selector applies a preset and its suggested render distance.
+    // The Graphics selector applies a preset; a render distance the player
+    // set is kept (the settings-persistence rules; see settings-tests.mjs).
     await page.selectOption("#graphics-preset", "medium");
     const med = await page.evaluate(() => ({ g: window.__voxelands.graphics, rd: window.__voxelands.renderDistance, s: JSON.parse(localStorage.getItem("ufocombat_v1_settings")) }));
-    assert(med.g === "medium" && med.rd === 16 && med.s.graphics === "medium", `graphics selector: ${JSON.stringify(med)}`);
+    assert(med.g === "medium" && med.rd === 6 && med.s.graphics === "medium", `graphics selector: ${JSON.stringify(med)}`);
     await page.selectOption("#graphics-preset", "low");
     // Restore the default for the rest of the run.
     await page.$eval("#render-distance", (el) => {
@@ -1274,9 +1286,12 @@ try {
     await page.waitForTimeout(400);
     const before = await page.evaluate(() => ({ shots: window.__voxelands.weapons.shots, holes: window.__voxelands.decals.count }));
     for (let i = 0; i < 6; i++) {
+      const n = await page.evaluate(() => window.__voxelands.weapons.shots);
       await page.mouse.down({ button: "right" });
       await page.mouse.up({ button: "right" });
-      await page.waitForTimeout(150);
+      // (Round 4: the pistol fires at most every 0.2 s; with slow software
+      // frames, wait for the shot and the cooldown rather than the clock.)
+      await page.waitForFunction((k) => window.__voxelands.weapons.shots > k && window.__voxelands.weapons._cooldowns.pistol <= 0, n, { timeout: 15000, polling: 30 });
     }
     const after = await page.evaluate(() => ({ shots: window.__voxelands.weapons.shots, holes: window.__voxelands.decals.count }));
     console.log(`        6 clicks -> ${after.shots - before.shots} shots, ${after.holes - before.holes} bullet holes`);
@@ -2284,7 +2299,8 @@ try {
       setTime(Math.PI * 1.5);
       for (let i = 0; i < 600; i++) mobs._updateSpawning(0.5);
       const hostile = mobs.countOf(true);
-      const passive = mobs.countOf(false);
+      // (Land animals: fish, parrots and butterflies have their own cap, villagers their villages.)
+      const passive = mobs.mobs.filter((m) => !m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager").length;
       // Far-away mobs despawn.
       const far = mobs.spawn("zombie", player.position.x + 200, 40, player.position.z);
       mobs.update(0.016);
