@@ -1476,12 +1476,12 @@ Source of truth for this round (jet fixes, survival progression, weapons balance
 - [x] 5.1 Parrot redesigned (model and texture)
 
 ## Final polish
-- [ ] F1 Regression pass
-- [ ] F2 Player's-eye review (Survival opening and first missions; Creative jets, roll, missiles, enemy jets, UFO piloting)
-- [ ] F3 Full test suite
-- [ ] F4 README updated
-- [ ] F5 PROGRESS summary, decisions, known issues, how to test
-- [ ] F6 "ROUND 4 COMPLETE", commit, push
+- [x] F1 Regression pass
+- [x] F2 Player's-eye review (Survival opening and first missions; Creative jets, roll, missiles, enemy jets, UFO piloting)
+- [x] F3 Full test suite
+- [x] F4 README updated
+- [x] F5 PROGRESS summary, decisions, known issues, how to test
+- [x] F6 "ROUND 4 COMPLETE", commit, push
 
 ## Round 4 decisions and notes
 (appended as work proceeds)
@@ -1536,3 +1536,49 @@ Source of truth for this round (jet fixes, survival progression, weapons balance
 - Final polish, a second mission bug found by the suite: the mission director's `_groundSpot` (where the skeleton stands and the visitors' UFO lands) refused any spot more than 1 block above the natural terrain height (meant to skip treetops), and only looked in loaded chunks at the full distance. At an airport or in a city (paved above the natural ground), or with a short render distance (2-4 chunks: nothing loaded 75 blocks out), it found nothing, forever, and missions 1-2 never started. Now it rejects water, leaves and logs directly, avoids roofs (6+ blocks above the natural ground) and steep spots while it can, and comes closer (0.55x, then 0.3x the distance, at least 10 blocks) when the far ring isn't loaded, so a spot is always found on dry land.
 - Tests: `weapons.refill()` (every magazine full, no reload running) for the older suites, which fire weapons back to back; round2/ufo/smoke checks that described Round 3 rules (pistol start, energy shield, enemy jets turning on the player for shooting UFOs, the old first mission, a tap firing nothing, the generic UFO cannon) now check the Round 4 rules instead.
 - Final polish, patrol fighters that never attacked: a fighter the player provokes is supposed to hunt the player with missiles and guns, but against a player on foot it never fired its cannon and rarely a missile (measured over 60 s from 150, 300 and 500 blocks: 0 cannon rounds, at most one missile). The pursuit aimed high above a ground target (so it wouldn't dive into the terrain), which kept the nose outside the gun cone; it closed inside missile range and orbited. (The Round 3 code was worse: it flew into the ground.) Now against a target on or near the ground it flies strafing runs: out to ~750 blocks, a level afterburner turn-in at ~75 above the target, a shallow run with the nose on the target (short 4-6 round bursts within 0.06 rad, the cannon aimed at the chest with its lead; the natural spread and the target's own movement make most of them miss at range), a pull-out over the target (earlier the faster it sinks), then out again. Measured on open ground over 60 s: 3-7 runs, 2-4 missile hits, some cannon bursts, no crashes. Against a player in the air nothing changed. Moving, taking cover under trees or a roof, and the shield all help, and the provocation still ends after 60 s.
+
+## Round 4 summary
+
+**What changed for the player**
+- Jets: takeoff works at any frame rate (the ground roll bled speed at 60 FPS and more); flight assist banks at most ~65 degrees and levels off without overshoot; a right-click tap fires an unguided missile, a lock takes only UFOs and aircraft (attackers first), and the camera follows the target to the hit (right click returns it); pinpoint navigation lights and an aircraft-skin shader; a second jet, the F-16 (own model, lighter and more agile, faster cannon, two-missile salvos), chosen with a picker on J (1 / 2, J again for the last one).
+- The air war: patrol fighters hunt only UFOs and fly a little faster; only a fighter the player attacks turns on the player; the hijacked fighter of "Air superiority" is the one exception. UFOs have ~1.6x health; a beam goes wherever its ship goes (or switches off); every UFO carries one kind of alien; aliens and skeletons shoot from their weapon's muzzle; small alien ships sometimes hover in airport hangars.
+- Your UFO: the camera keeps the crosshair clear of the hull for every size and pitch; hold R to keep dashing with no distance limit; each ship fires its own kind's weapon.
+- Survival: basic gear only (stone sword, stone pickaxe, 5 apples); a 19-mission chain that opens on foot (skeleton and its bow, a UFO landing whose crew waits 35 s, the first crate with the pistol, the first scout) and moves up to jets (mission 10) and alien ships (mission 15, Salvage); UFO numbers come from the missions (the UFO activity settings are Creative's); weapons come in lanes (bow from skeletons, standard weapons from crates, alien weapons from alien leaders); missions pay only apples and golden apples; every weapon has a magazine or cooldown shown on the HUD (R reloads); the shield is a classic off-hand shield that blocks from the front.
+- The parrot is a scarlet macaw that perches on branches.
+- Found and fixed in the final pass: the landing UFO of mission 2 could be angered by watching it and never land (the mission stalled); missions 1-2 never started at an airport, in a city or with a short render distance (no "ground spot" found); a provoked patrol fighter never actually attacked a player on foot (it now flies strafing runs); a quote in a settings hint that stopped the whole game from loading (caught by the test suite minutes after it was pushed, fixed in the next commit).
+
+**Decisions** (details per part above)
+- Missiles: a tap fires unguided, but letting go while a lock is still building still fires nothing: by then the view has turned toward the target, so a straight-ahead missile would go where the player isn't looking.
+- Patrol fighters appear in Survival only from the jet mission on, and can't clear the sky for the player (45% cannon vs UFOs, one missile per engagement, long pauses, at most 3 kills, no credit or loot for the player).
+- Missions that need a fighter hunting the player use a *hijacked* fighter, so "patrols only attack UFOs" holds without contradiction.
+- Weapon lanes are strict: wrecks and fighters drop no weapons (a fifth source would short-circuit the lanes). Alien weapons are guaranteed from mission leaders, so no mission depends on luck.
+- The Jet Radio is no longer a reward: J needs no item (the radio stays in Creative).
+- The shield takes right click only when the main hand has no right-click use (as in the classic games); it blocks the front half of hits, explosions included, and never falls, drowning, fire or the nuke.
+- Old saves: a Round 3 save continues with the equivalent new mission (the new opening is skipped: those players already have weapons).
+- Patrol fighters against someone on foot fly strafing runs (short bursts, missiles from a distance) rather than full-length bursts: the cannon is aimed well, so the player's movement, cover and the shield are what make it miss.
+
+**Known issues**
+- Software rendering (the test machine) makes the browser suites slow; three Chromium instances at once on 4 cores time out while booting, so the suites are run two at a time.
+- Smoke test, "Ultra: tall grass, reeds...": times out at 300 s under software rendering (heavy Ultra frames), as in Rounds 2 and 3.
+- Smoke test, "a lost graphics context saves...": intermittent (passed in one full run, failed in the next): the context was lost before the first frame had been drawn, so the boot record still read "not ok". This is the settings-persistence code, which this round was asked not to touch.
+- round2-tests, "missions: the first one is the skeleton...": failed once in a full run (the tracker showed mission 1 again a few frames after the check had reached mission 2), but passed alone, from the check before it, and in the previous full run. Diagnostics are now in its failure message; no cause was found in the game code (nothing moves the chain back).
+- Timing checks (the unit test's "< 3 ms per chunk" terrain speed, real-time key and mouse checks) fail when other browser suites run at the same time on this 4-core machine; they pass alone.
+
+**How to test in 10 minutes**
+1. `cd tools && npm install && node unit-tests.mjs` (seconds) and `node round4-tests.mjs` (about 3 minutes): every Round 4 feature in the real game.
+2. In the browser: New World in Survival. Follow the marker to the skeleton, kill it with the sword, pick up the bow (hold right click to draw). Watch the UFO land (staring at it is fine), wait for the two aliens, shoot them. Walk to the orange smoke for the pistol; note the magazine and reload on the HUD (R reloads early).
+3. Switch to Creative (Esc). Hold right click with the sword: the off-hand shield comes up. Press J, then 2: an F-16 on a runway; full throttle, lift off; bank hard with the mouse (it stops at ~65 degrees and levels off cleanly). Tap right click: an unguided missile. Hold right click on a UFO until LOCKED, release: the camera follows the missile to the hit; right click brings it back.
+4. Mods screen: spawn a UFO, board it (F), hold R to streak along; left click fires its own weapon.
+
+**Test results (final code)**
+- `node --check` / `tools/check-syntax.mjs`: 73 files parse cleanly.
+- `unit-tests.mjs`: 52 passed, 0 failed (alone).
+- `round4-tests.mjs` (new, 15 checks, ~4 min): 15 passed, 0 failed.
+- `round3-tests.mjs`: 10 passed, 0 failed.
+- `settings-tests.mjs`: 7 passed, 0 failed.
+- `round2-tests.mjs`: 38 passed, 1 failed (the intermittent missions-tracker check above; its fixes for the Round 4 rules all pass: loadout, off-hand shield, patrol fighters, missile tap and salvo, ship weapons, parked jets, range).
+- `ufo-tests.mjs` (~45 min): 35 passed, 0 failed.
+- `smoke-test.mjs` (~75 min, alone): 65 passed, 2 failed (the two known issues above).
+- Zero console errors in every suite run.
+
+ROUND 4 COMPLETE
