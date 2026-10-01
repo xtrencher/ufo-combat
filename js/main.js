@@ -27,7 +27,7 @@ import { MobManager } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
-import { WeaponSystem, RAIL_DAMAGE_UFO, SHIELD_MAX } from "./weapons.js";
+import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
 import { LaserBolts, sweptSphere, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
@@ -39,7 +39,7 @@ import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
 import "./vehicle-ufo.js";
-import "./vehicle-jet.js";
+import { JET_TYPES } from "./vehicle-jet.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, rollLoot, alienColour } from "./progression.js";
@@ -504,7 +504,7 @@ weapons.getLockables = () => {
   }
   return list;
 };
-player.damageFilter = (amount, cause) => weapons.shieldFilter(amount, cause);
+player.damageFilter = (amount, cause, from) => weapons.shieldFilter(amount, cause, from);
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
   ignores: (b) => (b.owner === "ufo" || b.owner === "enemyjet") && !b.friendlyFire,
@@ -563,7 +563,7 @@ lasers.addProvider({
       distance: t,
       hit(b, point, d) {
         // Every shot that reaches you hurts (no grace time between shots).
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true, from: point.clone().addScaledVector(d, -4) })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
@@ -605,12 +605,22 @@ ufos.onEscape = () => {
 };
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
+  const at = new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z);
   if (m.spec.alien) {
     stats.add("aliensKilled");
-    if (!player.creative && mods.enabled) dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), ownedItems()), new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z));
-  }
-  else if (m.kind === "zombie") stats.add("zombiesKilled");
-  else stats.add("mobsKilled");
+    if (!player.creative && mods.enabled) {
+      // A mission patrol's leader always carries its new alien weapon.
+      const owned = ownedItems();
+      if (m.leaderDrop && !owned.has(m.leaderDrop)) dropLoot([[m.leaderDrop, 1]], at);
+      else dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), owned), at);
+    }
+  } else if (m.kind === "zombie") stats.add("zombiesKilled");
+  else if (m.kind === "skeleton") {
+    stats.add("skeletonsKilled");
+    // Skeletons drop their bow (if you don't have one yet): a plain
+    // block-game item, so with mods off too.
+    if (!player.creative) dropLoot(rollLoot("skeleton", null, progressTier(), ownedItems()), at);
+  } else stats.add("mobsKilled");
 };
 
 // ---------- Calling in the jet ----------
@@ -642,13 +652,15 @@ function stripOk(x0, z0, dx, dz, len) {
   if (h0 < 0) return -1;
   const sideX = -dz;
   const sideZ = dx;
+  // (Level to within a block under the wheels and under the wingtips, which
+  // reach 6.4 blocks out: a two-block rise there would clip a wing.)
   for (let t = -8; t <= len; t += 4) {
-    for (const s of [-6, 0, 6]) {
+    for (const s of [-7, 0, 7]) {
       const x = Math.floor(x0 + dx * t + sideX * s);
       const z = Math.floor(z0 + dz * t + sideZ * s);
       if (!world.getChunk(x >> 4, z >> 4)) return -1;
       const h = columnTop(x, z);
-      if (h < 0 || Math.abs(h - h0) > (s === 0 ? 1 : 2)) return -1;
+      if (h < 0 || h - h0 > 1 || h0 - h > (s === 0 ? 1 : 3)) return -1;
       const top = world.getBlock(x, h, z);
       if (BLOCK_INFO[top]?.leaves || BLOCK_INFO[top]?.log || IS_WET[world.getBlock(x, h + 1, z)]) return -1;
     }
@@ -667,7 +679,7 @@ function findRunway() {
         const sz = p.z + Math.sin(ang) * r;
         for (let h = 0; h < 8; h++) {
           const yaw = (h / 8) * Math.PI * 2;
-          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 110);
+          const y = stripOk(sx, sz, -Math.sin(yaw), -Math.cos(yaw), 140); // the ground roll is ~120 blocks
           if (y >= 0) return { x: Math.floor(sx) + 0.5, y: y + 1, z: Math.floor(sz) + 0.5, yaw };
         }
       }
@@ -678,15 +690,64 @@ function findRunway() {
   }
 }
 // Survival: fighter jets (calling one, and the ones parked at airports) are
-// part of the mission chain: they become available with mission 8, "Take to
+// part of the mission chain: they become available with mission 10, "Take to
 // the air" (a jet on day one would skip the whole curve). Creative: always.
 const JET_MISSION = MISSIONS.findIndex((m) => m.id === "wings");
 function jetLocked() {
   return !player.creative && progress.enabled && progress.step < JET_MISSION;
 }
 const JET_LOCKED_TEXT = `Fighter jets join the fight with mission ${JET_MISSION + 1} ("${MISSIONS[JET_MISSION].title}"). Esc > Missions shows the way there.`;
-vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : null);
-function callJet(force = false) {
+// UFOs (wrecks and the ones in airport hangars) can be boarded from the
+// "Salvage" mission on; before that the player fights on foot.
+const UFO_MISSION = MISSIONS.findIndex((m) => m.id === "salvage");
+function ufoLocked() {
+  return !player.creative && progress.enabled && progress.step < UFO_MISSION;
+}
+const UFO_LOCKED_TEXT = `You can't fly alien ships yet: that comes with mission ${UFO_MISSION + 1} ("${MISSIONS[UFO_MISSION].title}").`;
+vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : v.type === "ufo" && ufoLocked() ? UFO_LOCKED_TEXT : null);
+// Patrol fighters (they hunt UFOs) join the sky with the player's own jets.
+enemyJets.allowed = () => !jetLocked();
+// J (or the Jet Radio) opens a small picker: 1 the F-22 Raptor, 2 the F-16
+// Fighting Falcon; J again calls the one you took last time.
+const jetPickerEl = document.getElementById("jet-picker");
+let jetPickT = 0;
+let lastJetType = "f22";
+function jetPickerOpen() {
+  return jetPickT > 0;
+}
+function openJetPicker() {
+  if (!mods.enabled || player.dead || gameState !== "playing") return;
+  if (jetLocked()) {
+    toast(JET_LOCKED_TEXT, 4);
+    return;
+  }
+  if (vehicles.active) {
+    toast("Get out of your vehicle first (F).", 2);
+    return;
+  }
+  jetPickT = 6;
+  const opt = (n, id) => {
+    const t = JET_TYPES[id];
+    return `<div class="jp-opt${id === lastJetType ? " last" : ""}"><b><kbd>${n}</kbd>${t.name}</b><span>${t.id === "f22" ? "Heavy: more armour, top speed, salvo of 4" : "Agile: faster turns and rolls, shorter takeoff, faster cannon, salvo of 2"}</span></div>`;
+  };
+  jetPickerEl.innerHTML = `<div class="jp-title">Call in a jet: press 1 or 2 (J: the ${JET_TYPES[lastJetType].name} again)</div>${opt(1, "f22")}${opt(2, "f16")}`;
+  jetPickerEl.classList.remove("hidden");
+}
+function closeJetPicker() {
+  jetPickT = 0;
+  jetPickerEl.classList.add("hidden");
+}
+function pickJet(type) {
+  closeJetPicker();
+  lastJetType = JET_TYPES[type] ? type : "f22";
+  callJet(false, lastJetType);
+}
+function updateJetPicker(dt) {
+  if (jetPickT <= 0) return;
+  jetPickT -= dt;
+  if (jetPickT <= 0 || gameState !== "playing" || vehicles.active || player.dead) closeJetPicker();
+}
+function callJet(force = false, type = lastJetType) {
   if (!mods.enabled || player.dead || gameState !== "playing") return;
   if (!force && jetLocked()) {
     toast(JET_LOCKED_TEXT, 4);
@@ -711,20 +772,21 @@ function callJet(force = false) {
   const spawnAirborne = () => {
     const p = player.position;
     const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), 24);
-    const jet = vehicles.create("jet", { pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
+    const jet = vehicles.create("jet", { jetType: type, pos: [p.x, Math.min(200, Math.max(ground + 70, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62, throttle: 0.75 });
     jet.keep = true;
     jet.isPlayerJet = true;
     vehicles.enter(jet);
     return jet;
   };
   if (strip) {
-    playerJet = vehicles.create("jet", { pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
+    playerJet = vehicles.create("jet", { jetType: type, pos: [strip.x, strip.y + 1.35, strip.z], yaw: strip.yaw });
     playerJet.keep = true; // never evicted by the vehicle cap
     playerJet.isPlayerJet = true;
     jetWatchT = 2.5;
     const dir = Math.round(((Math.atan2(strip.x - player.position.x, -(strip.z - player.position.z)) * 180) / Math.PI + 360) % 360);
     const away = Math.round(Math.hypot(strip.x - player.position.x, strip.z - player.position.z));
-    toast(strip.airport ? `Your jet is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your jet has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
+    const jn = JET_TYPES[type]?.name ?? "jet";
+    toast(strip.airport ? `Your ${jn} is waiting on the runway of the ${strip.airport.kind === "city" ? "city's airport" : "airport"}, ${away} blocks away (heading ${dir}\u00b0): walk up and press F` : `Your ${jn} has landed ${away} blocks away (heading ${dir}\u00b0): walk up and press F`, 4);
   } else {
     playerJet = spawnAirborne();
     stats.add("takeoffs"); // (already in the air: that counts as a takeoff)
@@ -754,10 +816,11 @@ function updateJetWatch(dt) {
     toast("Your jet had to be replaced: it arrives in the air.", 3);
   }
 }
-weapons.onJetRadio = callJet;
+weapons.onJetRadio = openJetPicker;
 
 // Entering and leaving vehicles.
 vehicles.onEnter = (v) => {
+  airports.boarded(v);
   chord.reset();
   interaction.release();
   weapons.cancel();
@@ -802,10 +865,13 @@ let loadoutGiven = false;
 function fillStartingWeapons(fresh) {
   if (loadoutGiven || !mods.enabled) return;
   loadoutGiven = true;
-  (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((id, i) => {
-    if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, 1);
-    else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
+  (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((entry, i) => {
+    const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
+    if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, n);
+    else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, n);
   });
+  // Creative: a shield in the off hand too.
+  if (player.creative && !inventory.offhand) inventory.offhand = makeStack(ITEM.SHIELD, 1);
 }
 
 if (savedPlayer) {
@@ -824,6 +890,7 @@ if (savedPlayer) {
   if (Number.isFinite(savedPlayer.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, savedPlayer.health));
   if (Number.isFinite(savedPlayer.air)) player.air = Math.max(0, Math.min(MAX_AIR, savedPlayer.air));
   inventory.load(savedPlayer.inv);
+  inventory.loadOffhand(savedPlayer.off);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
   // Worlds from before the loadout flag existed already had their weapons.
@@ -848,6 +915,7 @@ const progressTier = () => progress.tier(stats.world);
 const ownedItems = () => {
   const set = new Set();
   for (const s of inventory.slots) if (s) set.add(s.id);
+  if (inventory.offhand) set.add(inventory.offhand.id);
   return set;
 };
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
@@ -862,10 +930,14 @@ hooks.onEnemyJetDown = (jet) => {
 };
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
+// (The first crate is the "Supply drop" mission's; after that they come by themselves.)
+const SUPPLY_MISSION = MISSIONS.findIndex((m) => m.id === "supply");
+crates.randomAllowed = () => !progress.enabled || progress.step > SUPPLY_MISSION;
 crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast });
 hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
+mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center) => missionDirector.nukeDetonated(center);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
@@ -875,6 +947,7 @@ progress.onStart = (m) => {
 const testFlags = { noMissions: false };
 function refreshSurvivalSystems() {
   const on = mods.enabled && !player.creative;
+  settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   progress.enabled = on && !testFlags.noMissions;
   missionDirector.enabled = on && !testFlags.noMissions;
@@ -1060,6 +1133,7 @@ function playerState() {
     health: player.dead ? MAX_HEALTH : player.health,
     air: player.dead ? MAX_AIR : round3(player.air),
     inv: inventory.serialize(),
+    off: inventory.serializeOffhand(),
     sel: inventory.selected,
     time: round3(sky.time),
     modStash: mods.serialize(),
@@ -1119,6 +1193,9 @@ function markInventoryChanged() {
 }
 
 interaction.onChange = markInventoryChanged;
+interaction.onMessage = (t) => toast(t, 2.5);
+weapons.onChange = markInventoryChanged;
+weapons.onMessage = (t) => toast(t, 1.6);
 invScreen.onChange = markInventoryChanged;
 invScreen.onDrop = (stack) => interaction.throwStack(stack);
 world.onBlockPopped = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
@@ -1202,8 +1279,7 @@ player.onDeath = (cause) => {
 function dropEverything() {
   const at = player.position.clone();
   at.y += 0.8;
-  for (let i = 0; i < inventory.slots.length; i++) {
-    const s = inventory.slots[i];
+  for (const s of [...inventory.slots, inventory.offhand]) {
     if (!s) continue;
     const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
     entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
@@ -1264,7 +1340,7 @@ effects.onExplosion = (center, radius, source) => {
   const hurtReach = radius * 1.8;
   if (dist < hurtReach && !player.dead) {
     const dmg = Math.floor(30 * size * Math.pow(1 - dist / hurtReach, 1.3));
-    if (dmg > 0 && player.damage(dmg, source)) {
+    if (dmg > 0 && player.damage(dmg, source, { from: center })) {
       lastBlastHitTime = performance.now();
       lastBlastSource = source;
     }
@@ -1300,6 +1376,7 @@ function setMode(mode) {
 function giveCreativeItems() {
   if (inventory.isEmpty()) fillCreativeHotbar();
   if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
+  if (!inventory.offhand) inventory.offhand = makeStack(ITEM.SHIELD, 1);
   markInventoryChanged();
 }
 
@@ -1378,7 +1455,7 @@ const shaderStandIns = new THREE.Group();
 // so the first UFO, beam or jet doesn't stall a frame compiling them.
 {
   const warm = new THREE.Group();
-  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root);
+  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root, createJetModel(1, { type: "f16" }).root);
   const beam = new TractorBeam(warm);
   beam.mesh.visible = true;
   beam.pool.visible = true;
@@ -1816,7 +1893,7 @@ document.addEventListener("pointerlockchange", () => {
     ui.showHud(true);
     if (pendingJetCall) {
       pendingJetCall = false;
-      setTimeout(callJet, 50);
+      setTimeout(openJetPicker, 50);
     }
   } else if (gameState === "playing" || gameState === "paused") {
     showPause();
@@ -1891,12 +1968,25 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   const idx = DIGIT_CODES.indexOf(e.code);
+  // (While the jet picker is up, 1 and 2 pick a jet instead of a hotbar slot.)
+  if (jetPickerOpen() && (idx === 0 || idx === 1)) {
+    if (!e.repeat) pickJet(idx === 0 ? "f22" : "f16");
+    return;
+  }
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
-  else if (e.code === "KeyJ" && mods.enabled) callJet();
+  else if (e.code === "KeyR") {
+    // Reload the weapon in hand early.
+    const kind = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
+    if (kind) weapons.startReload(kind);
+  }
+  else if (e.code === "KeyJ" && mods.enabled) {
+    if (jetPickerOpen()) pickJet(lastJetType);
+    else openJetPicker();
+  }
 });
 
 // F1: hide the whole HUD (and the item in hand) for clean screenshots.
@@ -2403,12 +2493,16 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a pistol. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-8. Press J for your jet. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
-  else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift to fly, wheel for speed. Left click laser, hold right click to beam things up.", 6);
+  else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
-  if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! They shoot back. Clear them out, then board their wrecked UFO (F).", 5);
+  if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! Their lasers hurt: keep moving, and hit back (bow, sword, or better).", 5);
+  if (!v && itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "bow") hint("bow", "The bow: hold right click to draw (a full draw in a second), let go to shoot. Arrows drop with distance.", 5);
+  if (!v && inventory.offhand && itemInfo(inventory.offhand.id)?.weapon?.kind === "shield") hint("shield", "A shield in your off hand: hold right click (with a sword or tool in hand) to raise it. It stops hits from the front.", 6);
+  const wk = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
+  if (!v && wk && weapons.status(wk)?.mag > 1) hint("reload", "Guns have magazines: they reload by themselves when empty, or press R.", 4);
 }
 function updateStatsOverlay(dt) {
   statsOverlayT -= dt;
@@ -2499,6 +2593,7 @@ function animate() {
     airports.update(dt);
     crates.update(dt);
     updateJetWatch(dt);
+    updateJetPicker(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     updateAltitudeView(dt);
     ufos.viewDistance = viewRD * 16;
@@ -2554,7 +2649,7 @@ function animate() {
   }
   updateEnvironment(dt);
   hud.update(dt, player);
-  hud.setShield(weapons.shield.energy / SHIELD_MAX, itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "shield", weapons.shield.broken > 0);
+  hud.setWeaponStatus(gameState === "playing" && !vehicles.active ? weapons.status(itemInfo(inventory.selectedStack?.id)?.weapon?.kind) : null);
   hud.setAttackCharge(gameState === "playing" ? mobs.charge(interaction.tool) : 1);
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);

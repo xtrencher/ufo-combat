@@ -433,7 +433,10 @@ await check("range: a UFO 500 blocks away can be hit; a UFO's shots reach the pl
     const u = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: p.position.x, y: 160, z: p.position.z - 500 } });
     u.state = "hover_test";
     const h0 = u.health;
-    // Aim at it and fire the pistol (hitscan).
+    // Aim at its middle (a flat saucer is thinner than the eye's height above
+    // its centre) and fire the pistol (hitscan).
+    const eye = p.getEyePosition();
+    p.pitch = Math.atan2(u.pos.y - eye.y, eye.z - u.pos.z);
     g.weapons.firePistol();
     return { h0, h1: u.health, dist: 500, range: g.weapons._range(160, 0.6) };
   });
@@ -721,9 +724,9 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
       grid: !!el.querySelector(".craft-grid"),
       book: !!el.querySelector(".recipe-book"),
       tabs: [...el.querySelectorAll(".inv-tab")].map((b) => b.textContent),
-      loadouts: [ALL_WEAPONS.length, CREATIVE_LOADOUT.length, SURVIVAL_LOADOUT.length, SURVIVAL_LOADOUT[0] === ITEM.PISTOL],
+      loadouts: [ALL_WEAPONS.length, CREATIVE_LOADOUT.length, SURVIVAL_LOADOUT.length, SURVIVAL_LOADOUT[0] === ITEM.STONE_SWORD],
     };
-    // The weapons tab shows every weapon (11), the others hide them.
+    // The weapons tab shows every weapon (10, the bow and the shield: 12), the others hide them.
     const shown = () => [...el.querySelectorAll(".inv-palette .slot")].filter((s) => !s.classList.contains("hidden")).length;
     g.invScreen.setTab(0);
     out.weaponsShown = shown();
@@ -740,8 +743,9 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
   assert(!fs.existsSync(path.join(ROOT, "js", "crafting.js")), "crafting.js is deleted");
   assert(!r.craftingModule && !r.grid && !r.book, `crafting is gone: ${JSON.stringify(r)}`);
   assert(r.tabs.length >= 3, `palette tabs: ${r.tabs}`);
-  assert(r.loadouts[0] === 11 && r.loadouts[1] === 11 && r.loadouts[2] === 1 && r.loadouts[3], `loadouts ${r.loadouts}`);
-  assert(r.weaponsShown === 11 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
+  // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
+  assert(r.loadouts[0] === 10 && r.loadouts[1] === 11 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts}`);
+  assert(r.weaponsShown === 12 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
   assert(r.missing === 0, `creative has every weapon (${r.missing} missing)`);
 });
 
@@ -833,16 +837,18 @@ await check("laser minigun: spins up first, then a stream of bolts", async () =>
   assert(r.spin === 1 && r.spinAfter < 0.05, `spins up and down: ${r.spin} -> ${r.spinAfter}`);
 });
 
-await check("energy shield: soaks explosions and attacks, not falls; drains, breaks, recharges", async () => {
-  await equip("SHIELD");
-  await v((g) => {
+await check("shield (Round 4: the classic off-hand shield): raised, it stops attacks and explosions from the front, not falls; it wears and breaks", async () => {
+  await play();
+  const r = await v(async (g) => {
+    const { makeStack } = await import("./js/inventory.js");
+    const { ITEM } = await import("./js/items.js");
+    g.weapons.cancel();
     g.setMode("survival");
-    g.player.health = 20;
-    g.player.absorption = 0;
-    g.player._invulnerable = 0;
-  });
-  const r = await v((g) => {
     const p = g.player;
+    p.absorption = 0;
+    g.inventory.offhand = makeStack(ITEM.SHIELD, 1);
+    g.inventory.slots[0] = makeStack(ITEM.STONE_SWORD, 1);
+    g.inventory.selected = 0;
     const hit = (amount, cause) => {
       p.health = 20;
       p._invulnerable = 0;
@@ -852,33 +858,31 @@ await check("energy shield: soaks explosions and attacks, not falls; drains, bre
     };
     const out = {};
     out.noShield = hit(10, "grenade");
-    g.weapons.press("shield");
-    g.weapons.update(0.05);
+    g.interaction.mouseDown(2);
+    for (let i = 0; i < 5; i++) g.weapons.update(0.05);
     out.up = g.weapons.shield.up;
     out.explosion = hit(10, "grenade");
     out.attack = hit(10, "alien");
     out.fall = hit(10, "fall");
-    const e0 = g.weapons.shield.energy;
-    for (let i = 0; i < 20; i++) g.weapons.update(0.1);
-    out.drained = e0 - g.weapons.shield.energy;
-    // Break it with a huge hit.
-    hit(40, "bazooka");
+    const d0 = g.inventory.offhand.dur;
+    hit(4, "zombie");
+    out.wear = d0 - g.inventory.offhand.dur;
+    // Break it.
+    g.inventory.offhand.dur = 3;
+    hit(10, "alien");
     g.weapons.update(0.05);
-    out.broken = g.weapons.shield.broken > 0 && !g.weapons.shield.up;
+    out.broken = !g.inventory.offhand && !g.weapons.shield.up;
     out.afterBreak = hit(10, "grenade");
-    g.weapons.release();
-    for (let i = 0; i < 100; i++) g.weapons.update(0.1);
-    out.recharged = g.weapons.shield.energy;
+    g.interaction.mouseUp(2);
+    g.weapons.update(0.05);
     p.health = 20;
     return out;
   });
   assert(r.noShield === 10, `no shield: full damage ${r.noShield}`);
-  assert(r.up && r.explosion <= 3 && r.explosion >= 1, `explosion mostly soaked: ${r.explosion}`);
-  assert(r.attack <= 4 && r.attack >= 2, `attack reduced: ${r.attack}`);
+  assert(r.up && r.explosion === 0 && r.attack === 0, `blocked from the front: ${JSON.stringify(r)}`);
   assert(r.fall === 10, `falls pass through: ${r.fall}`);
-  assert(r.drained > 3, `energy drains while raised: ${r.drained}`);
-  assert(r.broken && r.afterBreak === 10, `a broken shield does nothing: ${r.afterBreak}`);
-  assert(r.recharged > 90, `it recharges: ${r.recharged}`);
+  assert(r.wear === 5, `it wears by 1 + the damage stopped: ${r.wear}`);
+  assert(r.broken && r.afterBreak === 10, `a broken shield is gone: ${JSON.stringify(r)}`);
   await v((g) => g.setMode("creative"));
 });
 
@@ -1145,7 +1149,9 @@ await check("missile lock: hold RMB locks the target nearest the view centre (ev
       if (ufo.health < u0 || ufo.falling) hit = true;
       lastState = `${ufo.state}/${fired?.target ? "tgt" : "none"}/age${fired?.age?.toFixed(1)}/${jet.missiles.includes(fired)}`;
     }
-    // Salvo: hold 3.2 s.
+    // Salvo: hold 3.2 s. (Round 4: the camera still follows the hit target; a
+    // click then only brings it back, so end that first.)
+    jet._endFollow?.(true);
     jet.missileT = 0;
     for (const m of jet.missiles) g.scene?.remove?.(m.mesh);
     jet.missiles.length = 0;
@@ -1163,17 +1169,32 @@ await check("missile lock: hold RMB locks the target nearest the view centre (ev
     g.vehicles.input.buttons[2] = false;
     for (let i = 0; i < 12; i++) g.vehicles.update(0.05);
     const four = jet.missiles.length;
-    // Released before the lock completes: no missile, the camera turns back.
+    // (Round 4) A quick tap fires one unguided missile straight ahead.
+    jet.missiles.length = 0;
+    jet.queued.length = 0;
+    jet.missileT = 0;
+    jet._endFollow?.();
+    g.vehicles.input.buttons[2] = true;
+    g.vehicles.update(0.05);
+    g.vehicles.input.buttons[2] = false;
+    for (let i = 0; i < 4; i++) g.vehicles.update(0.05);
+    const tapShot = jet.missiles[0] || jet.queued[0];
+    const tapUnguided = !!tapShot && !tapShot.target;
+    // Released while the lock is still building: no missile, the camera turns back.
+    for (const m of jet.missiles) m.mesh?.parent?.remove(m.mesh);
     jet.missiles.length = 0;
     jet.queued.length = 0;
     jet.missileT = 0;
     g.vehicles.input.buttons[2] = true;
-    g.vehicles.update(0.05);
+    for (let i = 0; i < 10; i++) {
+      ufo.pos.copy(jet.pos).addScaledVector(jet.forward(new V()), -400);
+      g.vehicles.update(0.05);
+    }
     g.vehicles.input.buttons[2] = false;
     for (let i = 0; i < 40; i++) g.vehicles.update(0.05);
     const tap = jet.missiles[0] || jet.queued[0];
     const lookBack = jet.lock.look;
-    const out = { minDist, lastState, lockedAt, targetOk, lookAt, one, behind, hit, salvoAt, four, tapNone: !tap, lookBack, hp: ufo.health / hp0 };
+    const out = { minDist, lastState, lockedAt, targetOk, lookAt, one, behind, hit, salvoAt, four, tapUnguided, tapNone: !tap, lookBack, hp: ufo.health / hp0 };
     g.ufos.clear();
     for (const m of jet.missiles) m.mesh.parent?.remove(m.mesh);
     jet.missiles.length = 0;
@@ -1186,6 +1207,7 @@ await check("missile lock: hold RMB locks the target nearest the view centre (ev
   assert(r.behind && r.hit, `the rear shot turned around and hit: ${JSON.stringify({ behind: r.behind, hit: r.hit, min: r.minDist, st: r.lastState })}`);
   assert(r.salvoAt > 2.8 && r.salvoAt < 3.3, `salvo ready after about 3 s: ${r.salvoAt}`);
   assert(r.four === 4, `a salvo is four missiles: ${r.four}`);
+  assert(r.tapUnguided, "a quick tap fires one unguided missile (Round 4)");
   assert(r.tapNone, "releasing before the lock completes fires nothing");
   assert(r.lookBack < 0.05, `the camera returned to normal: ${r.lookBack}`);
 });
@@ -1232,7 +1254,7 @@ await check("flares fool an enemy missile; sharp turns and flares mean it misses
   assert(r.decoyed && r.gone && r.hpLoss < 5, `the flares took it: ${JSON.stringify(r)}`);
 });
 
-await check("enemy jets: neutral and harmless until the player attacks UFOs or them; then they hunt with missiles and guns", async () => {
+await check("enemy jets (Round 4: patrol fighters): neutral while the player shoots UFOs; the one the player attacks hunts with missiles and guns", async () => {
   await play();
   await skyArena();
   const r = await v((g) => {
@@ -1240,6 +1262,10 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
     for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
     g.enemyJets.config.count = 1;
     g.ufos.lastPlayerAttack = undefined; // (earlier tests shot UFOs)
+    g.ufos.clear(); // (a patrol hunts UFOs: its shots at them are not the point here)
+    // (Round 4: in Survival patrols fly only from the jet mission on; this is a player past it.)
+    const allowed = g.enemyJets.allowed;
+    g.enemyJets.allowed = () => true;
     const p = g.player.position;
     const e = g.enemyJets.spawn({ dist: 500, angle: 0.3, rogue: false }); // (Round 3: a rogue pilot doesn't take the UFOs' side)
     g.setMode("survival");
@@ -1254,8 +1280,18 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
       if (e.missiles.length) peaceful = false;
     }
     const quiet = { peaceful, shots: g.lasers.fired - fired0, alive: e.alive, dist: e.pos.distanceTo(p) };
-    // The player attacks a UFO: the jets turn hostile.
-    g.ufos.lastPlayerAttack = g.ufos.time;
+    // The player attacks UFOs: the patrol stays neutral.
+    let calm = true;
+    for (let i = 0; i < 200; i++) {
+      g.ufos.time += 0.05;
+      g.ufos.lastPlayerAttack = g.ufos.time - 1;
+      g.enemyJets.update(0.05);
+      g.vehicles.update(0.05);
+      if (e.hostile || e.missiles.length) calm = false;
+    }
+    quiet.calmAfterUfos = calm;
+    // The player shoots the fighter itself: it turns hostile.
+    e.damage(4, "bullet", true);
     let attacked = false;
     let missiles = 0;
     let shots = 0;
@@ -1275,11 +1311,13 @@ await check("enemy jets: neutral and harmless until the player attacks UFOs or t
     g.vehicles.remove(e);
     g.setMode("creative");
     g.enemyJets.config.count = 0;
+    g.enemyJets.allowed = allowed;
     g.ufos.lastPlayerAttack = undefined;
     return out;
   });
   assert(r.quiet.peaceful && r.quiet.shots === 0 && r.quiet.alive, `neutral at first: ${JSON.stringify(r.quiet)}`);
-  assert(r.hostile && r.attacked, `hostile after the player attacked UFOs: ${JSON.stringify(r)}`);
+  assert(r.quiet.calmAfterUfos, `still neutral while the player shoots UFOs: ${JSON.stringify(r.quiet)}`);
+  assert(r.hostile && r.attacked, `hostile after the player attacked it: ${JSON.stringify(r)}`);
 });
 
 await check("UFO piloting: teleport dash (travelled, with a streak), big ships aim all barrels at the crosshair, the vertical superweapon digs a shaft", async () => {
@@ -1327,19 +1365,31 @@ await check("UFO piloting: teleport dash (travelled, with a streak), big ships a
     const target = g.ufos.spawn({ design: "saucer", size: "medium", pos: { x: tp.x, y: tp.y, z: tp.z } });
     target.pos.copy(tp);
     g.lasers.bolts.length = 0;
-    ufo._cannonT = 0;
-    g.vehicles.input.buttons[0] = true;
-    g.vehicles.update(0.05);
-    g.vehicles.input.buttons[0] = false;
+    // (Round 4: a ship fires its own kind's weapon; a rapid burst's five
+    // shots leave one after another, each from the next barrel.)
+    ufo.style = "rapid";
+    ufo.gun.t = 0;
+    ufo.gun.queue.length = 0;
+    const seen = new Set();
+    const muzzles = new Set();
     let worst = 0;
-    for (const b of g.lasers.bolts) {
-      // Closest approach of the bolt's line to the target centre.
-      const to = target.pos.clone().sub(b.pos);
-      const along = to.dot(b.dir);
-      const miss = to.addScaledVector(b.dir, -along).length();
-      worst = Math.max(worst, miss);
+    g.vehicles.input.buttons[0] = true;
+    for (let i = 0; i < 8; i++) {
+      g.vehicles.update(0.05);
+      target.pos.copy(tp);
+      if (i === 0) g.vehicles.input.buttons[0] = false;
+      for (const b of g.lasers.bolts) {
+        if (seen.has(b)) continue;
+        seen.add(b);
+        muzzles.add(`${Math.round(b.pos.x - ufo.pos.x)},${Math.round(b.pos.z - ufo.pos.z)}`);
+        // Closest approach of the bolt's line to the target centre.
+        const to = target.pos.clone().sub(b.pos);
+        const along = to.dot(b.dir);
+        const miss = to.addScaledVector(b.dir, -along).length();
+        worst = Math.max(worst, miss);
+      }
     }
-    out.bolts = g.lasers.bolts.length;
+    out.bolts = muzzles.size;
     out.worstMiss = worst;
     out.targetR = target.radius;
     g.ufos.clear();
@@ -1536,7 +1586,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
     const s = g.sites.nearest(g.player.position.x, g.player.position.z, 200, "airport");
     g.airports.timer = 0;
     g.airports.update(0.1);
-    const jets = g.vehicles.vehicles.filter((x) => x.parkedAt);
+    const jets = g.vehicles.vehicles.filter((x) => x.parkedAt && x.type === "jet"); // (Round 4: hangar UFOs are parked too)
     const spots = g.sites.parkingSpots(s);
     return {
       n: jets.length,
@@ -1657,7 +1707,7 @@ await check("supply crate: falls on a parachute with smoke, then opens when you 
   assert(weapons.weapons >= 1 && weapons.apples >= 1, `a weapon and golden apples: ${JSON.stringify(weapons)}`);
 });
 
-await check("missions: the first one is 'shoot down a scout UFO', then its crew; finishing one gives a reward and starts the next; the tracker shows it", async () => {
+await check("missions: the first one is the skeleton (Round 4), then the landing; finishing one gives a reward and starts the next; the tracker shows it", async () => {
   await v((g) => {
     g.setMode("survival");
     g.inventory.clear();
@@ -1668,20 +1718,21 @@ await check("missions: the first one is 'shoot down a scout UFO', then its crew;
     g.progress.load(null, g.stats.world); // (here: nothing can count between the reset and the checks)
     const first = g.progress.mission.id;
     g.stats.add("aliensKilled", 2);
-    g.progress.update(g.stats.world);
-    const stillFirst = g.progress.mission.id === "first_contact";
     g.stats.add("ufosDown");
     g.progress.update(g.stats.world);
+    const stillFirst = g.progress.mission.id === "skeleton";
+    g.stats.add("skeletonsKilled");
+    g.progress.update(g.stats.world);
     const second = g.progress.mission.id;
-    const gun = g.inventory.countItem(ITEM.GRENADE);
-    return { first, stillFirst, second, gun, step: g.progress.step };
+    const apples = g.inventory.countItem(ITEM.APPLE);
+    return { first, stillFirst, second, apples, step: g.progress.step };
   });
-  // (Round 3: the chain starts with a scout to shoot down, then its crew.)
-  assert(r.first === "first_contact" && r.stillFirst, `the scout first: ${JSON.stringify(r)}`);
-  assert(r.second === "crew" && r.gun === 1, `next mission and a reward: ${JSON.stringify(r)}`);
+  // (Round 4: the chain starts on foot with a skeleton, then a UFO landing; rewards are apples.)
+  assert(r.first === "skeleton" && r.stillFirst, `the skeleton first: ${JSON.stringify(r)}`);
+  assert(r.second === "landing" && r.apples === 3, `next mission and a reward: ${JSON.stringify(r)}`);
   await frames(6);
-  const tracker = await v(() => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent }));
-  assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${tracker.text}`);
+  const tracker = await v((g) => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent, step: g.progress.step, id: g.progress.mission?.id, kills: g.stats.world.skeletonsKilled, base: g.progress.base.skeletonsKilled }));
+  assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${JSON.stringify(tracker)}`);
 });
 
 await check("loot: a shot-down UFO and killed aliens drop items in Survival (none in Creative)", async () => {
@@ -1797,26 +1848,27 @@ await check("main menu: Ultra by default, a new world starts at 17:50, live FPS,
   assert(miss === null, "a miss");
 });
 
-await check("a new Survival world starts with a pistol only and the first mission; Creative has every weapon; missions survive a reload", async () => {
+await check("a new Survival world starts with basic gear (Round 4) and the first mission; missions and rewards survive a reload", async () => {
   await v((g) => g.setGraphics("low"));
   await play();
   const start = await v(async (g) => {
     const { ITEM } = await import("./js/items.js");
-    return { slots: g.inventory.slots.filter(Boolean).map((s) => s.id), mode: g.player.mode, mission: g.progress.mission.id, pistol: ITEM.PISTOL, crates: g.crates.enabled };
+    const gear = [ITEM.STONE_SWORD, ITEM.STONE_PICKAXE, ITEM.APPLE];
+    const slots = g.inventory.slots.filter(Boolean).map((s) => s.id);
+    return { slots, mode: g.player.mode, mission: g.progress.mission.id, gear: slots.length === 3 && gear.every((id) => slots.includes(id)), crates: g.crates.enabled };
   });
-  assert(start.mode === "survival" && start.slots.length === 1 && start.slots[0] === start.pistol, `pistol only: ${JSON.stringify(start)}`);
-  assert(start.mission === "first_contact" && start.crates, `first mission, crates on: ${JSON.stringify(start)}`);
+  assert(start.mode === "survival" && start.gear, `basic gear only: ${JSON.stringify(start)}`);
+  assert(start.mission === "skeleton" && start.crates, `first mission, crates on: ${JSON.stringify(start)}`);
   // Finish the first mission, save, reload.
   await v((g) => {
-    g.stats.add("ufosDown");
-    g.stats.add("aliensKilled", 2);
+    g.stats.add("skeletonsKilled");
     g.progress.update(g.stats.world);
     g.flushSave();
   });
   await boot();
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
-  const after = await v((g) => ({ step: g.progress.step, mission: g.progress.mission.id, has: g.inventory.slots.filter(Boolean).length }));
-  assert(after.step === 1 && after.mission === "crew" && after.has >= 2, `the mission and the reward were saved: ${JSON.stringify(after)}`);
+  const after = await v((g) => ({ step: g.progress.step, mission: g.progress.mission.id, apples: g.inventory.slots.filter((s) => s && s.id === 261).reduce((n, s) => n + s.count, 0) }));
+  assert(after.step === 1 && after.mission === "landing" && after.apples === 8, `the mission and the reward (3 apples) were saved: ${JSON.stringify(after)}`);
 });
 
 // ================= Performance =================

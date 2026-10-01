@@ -558,7 +558,7 @@ export class VehicleManager {
     const near = playing && !v ? this.nearestEnterable() : null;
     if (this.promptEl) {
       this.promptEl.classList.toggle("hidden", !near);
-      if (near) this.promptEl.textContent = `Press F to board the ${near.name}`;
+      if (near) this.promptEl.textContent = this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : `Press F to board the ${near.name}`;
     }
     if (!v || !playing || this._hudTimer > 0 || !this.hudEl) return;
     this._hudTimer = 0.1;

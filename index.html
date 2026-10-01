@@ -259,9 +259,23 @@
   #hearts, #bubbles, #absorb { display: flex; gap: 1px; }
   #absorb { position: absolute; left: 0; bottom: 21px; }
   #absorb canvas { image-rendering: pixelated; filter: drop-shadow(0 0 3px rgba(255,200,50,0.7)); }
-  #shield-bar { position: absolute; right: 0; bottom: 22px; width: 140px; height: 6px; background: rgba(0,0,0,0.5); border: 1px solid rgba(120,200,255,0.5); border-radius: 2px; overflow: hidden; }
-  #shield-bar > div { height: 100%; width: 100%; background: linear-gradient(90deg, #35a7ff, #a5e9ff); transition: background 0.2s; }
-  #shield-bar.broken > div { background: #ff5a4a; }
+  /* The off-hand slot (the shield), left of the hotbar, like in classic block games. */
+  #offhand-slot { position: fixed; bottom: 14px; left: calc(50% - 262px - 60px); z-index: 10; pointer-events: none; }
+  #offhand-slot.hidden { display: none; }
+  /* The weapon in hand: rounds left and the reload / cooldown, right of the hotbar. */
+  #weapon-status { position: fixed; bottom: 18px; left: calc(50% + 266px); min-width: 96px; z-index: 10; pointer-events: none; font: 700 13px ui-monospace, Consolas, monospace; color: #fff; text-shadow: 1px 1px 0 #000; }
+  #weapon-status .ws-ammo { font-size: 18px; }
+  #weapon-status .ws-ammo small { font-size: 12px; opacity: 0.75; }
+  #weapon-status .ws-label { font-size: 11px; color: #ffd257; letter-spacing: 1px; text-transform: uppercase; }
+  #weapon-status .ws-bar { margin-top: 3px; width: 96px; height: 5px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.35); border-radius: 2px; overflow: hidden; }
+  #weapon-status .ws-bar > div { height: 100%; background: linear-gradient(90deg, #ffb02e, #ffe07a); }
+  #weapon-status.hot .ws-bar > div { background: linear-gradient(90deg, #ff5a2a, #ffb02e); }
+  #weapon-status.hidden { display: none; }
+  /* A reload / cooldown ring under the crosshair while it runs. */
+  #reload-bar { position: fixed; left: 50%; top: calc(50% + 22px); width: 44px; height: 4px; margin-left: -22px; background: rgba(0,0,0,0.45); border-radius: 2px; overflow: hidden; pointer-events: none; z-index: 10; }
+  #reload-bar > div { height: 100%; width: 0; background: #ffd257; }
+  #reload-bar.hidden { display: none; }
+  @media (max-width: 760px) { #weapon-status { left: auto; right: 8px; bottom: 76px; } #offhand-slot { left: 8px; } }
   #bubbles { flex-direction: row-reverse; }
   #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
   #item-name {
@@ -376,6 +390,9 @@
   .inv-body { display: flex; gap: 14px; align-items: flex-start; }
   .inv-grid { display: grid; grid-template-columns: repeat(9, 38px); gap: 2px; }
   .inv-hotbar { margin-top: 8px; }
+  .survival-hidden { display: none !important; }
+  .inv-offhand { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .inv-offhand .inv-label { margin: 0; font-weight: 500; opacity: 0.85; }
   .inv-palette {
     display: grid;
     grid-template-columns: repeat(9, 38px);
@@ -744,9 +761,32 @@
     z-index: 10;
     opacity: 0;
     transition: opacity 0.3s;
-    white-space: nowrap;
+    /* Long messages wrap (centred) instead of running off the screen. */
+    width: max-content;
+    max-width: min(90vw, 980px);
+    text-align: center;
+    line-height: 1.3;
   }
   #hud-toast.show { opacity: 1; }
+  #jet-picker {
+    position: fixed;
+    bottom: 22%;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    pointer-events: none;
+    z-index: 11;
+    font-family: system-ui, sans-serif;
+    color: #fff;
+  }
+  #jet-picker .jp-title { position: absolute; bottom: 100%; left: 0; right: 0; text-align: center; margin-bottom: 6px; font-weight: 700; text-shadow: 0 0 6px #000; }
+  #jet-picker .jp-opt { background: rgba(10,14,20,0.72); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 8px 14px; min-width: 190px; }
+  #jet-picker .jp-opt.last { border-color: #ffd257; }
+  #jet-picker .jp-opt b { display: block; font-size: 15px; }
+  #jet-picker .jp-opt kbd { display: inline-block; min-width: 16px; padding: 0 4px; margin-right: 6px; border: 1px solid #ccc; border-radius: 3px; text-align: center; font: 700 12px ui-monospace, monospace; }
+  #jet-picker .jp-opt span { font-size: 12px; opacity: 0.8; }
+  #jet-picker.hidden { display: none; }
   #stats-overlay {
     position: fixed;
     top: 8px;
@@ -945,8 +985,11 @@
     <div id="fps-counter">FPS: --</div>
     <div id="mode-badge" class="hidden"></div>
     <div id="item-name"></div>
-    <div id="status-bars"><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div><div id="shield-bar" class="hidden"><div></div></div></div>
+    <div id="status-bars"><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
     <div id="hotbar"></div>
+    <div id="offhand-slot" class="hidden"></div>
+    <div id="weapon-status" class="hidden"><div class="ws-label"></div><div class="ws-ammo"></div><div class="ws-bar"><div></div></div></div>
+    <div id="reload-bar" class="hidden"><div></div></div>
     <div id="vehicle-hud" class="hidden"></div>
     <div id="vehicle-info" class="hidden"></div>
     <div id="mission-tracker" class="hidden"></div>
@@ -954,6 +997,7 @@
     <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>
     <div id="vehicle-prompt" class="hidden"></div>
     <div id="hud-toast"></div>
+    <div id="jet-picker" class="hidden"></div>
     <div id="stats-overlay" class="hidden"></div>
     <div id="hit-marker"></div>
     <div id="beam-overlay"></div>
@@ -1227,6 +1271,7 @@
       </div>
 
       <div class="settings-page hidden" data-page="ufos">
+        <div class="hint hidden" id="ufo-survival-note">Survival: the mission chain decides how many UFOs there are and how big (no UFOs at first, then a single one, then more). UFO activity, spawn chance, max UFOs and sizes are Creative settings.</div>
         <div class="auto-rows"></div>
         <button class="advanced-toggle">&#9656; Advanced</button>
         <div class="auto-rows-advanced hidden"></div>

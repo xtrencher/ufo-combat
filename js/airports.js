@@ -1,12 +1,14 @@
 // Airports in use: aircraft parked on the aprons of the airports and cities
-// (sites.js) near the player. A parked fighter is a real jet (boardable with
-// F, like the one called in with J); they are set out when the player comes
-// within range and put away when they leave. Parked jets are never saved.
+// (sites.js) near the player, and now and then a UFO hovering in a hangar.
+// A parked fighter is a real jet (boardable with F, like the one called in
+// with J); they are set out when the player comes within range and put away
+// when they leave. Parked aircraft are never saved.
 import { RUNWAY_HALF } from "./sites.js";
 
 const NEAR = 420; // blocks: parked aircraft appear inside this range
 const FAR = 900; // and are put away beyond this
 const GEAR = 1.35;
+const HANGAR_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "tictac"]; // flat enough for the hangar doors
 
 export class AirportManager {
   constructor({ sites, vehicles, world, player }) {
@@ -54,7 +56,7 @@ export class AirportManager {
       const [, xs, zs] = /^(?:\w+):(-?\d+),(-?\d+)$/.exec(id) || [];
       const d = Math.hypot(Number(xs) - p.x, Number(zs) - p.z);
       if (d > FAR) {
-        for (const j of jets) if (j.alive && !j.occupied && veh.vehicles.includes(j)) veh.remove(j);
+        for (const j of jets) if (j.alive && !j.occupied && j.parkedAt && veh.vehicles.includes(j)) veh.remove(j);
         this.parked.delete(id);
       }
     }
@@ -71,18 +73,46 @@ export class AirportManager {
     const count = 1 + (s.seed % 3);
     for (let i = 0; i < Math.min(count, spots.length); i++) {
       const spot = spots[i];
-      const jet = veh.create("jet", { pos: [spot.x, spot.y + GEAR, spot.z], yaw: spot.yaw });
+      // A mix of Raptors and Falcons (fixed per airport and spot).
+      const jet = veh.create("jet", { jetType: (s.seed + i) % 2 ? "f16" : "f22", pos: [spot.x, spot.y + GEAR, spot.z], yaw: spot.yaw });
       if (!jet) continue;
       jet.transient = true; // never saved: the airport puts it out again next time
       jet.keep = true; // not evicted by the vehicle cap while the airport is near
       jet.parkedAt = s.id;
       jets.push(jet);
     }
+    // Now and then an alien ship hovers in a hangar, just above the floor
+    // (seized, or left behind): about one hangar in three, fixed per airport.
+    // It can be boarded once the mission chain gets that far (see
+    // vehicles.canBoard in main.js).
+    for (const h of this.sites.hangarSpots(s)) {
+      if (((s.seed >>> (h.id * 4 + 3)) & 3) !== 0 && !(h.id === 1 && (s.seed & 7) === 0)) continue;
+      const design = HANGAR_DESIGNS[(s.seed >>> (h.id * 3)) % HANGAR_DESIGNS.length];
+      const radius = 4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 10; // 4-4.9: through the doorway with room to spare
+      const ufo = veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
+      if (!ufo) continue;
+      ufo.pos.y = h.y + ufo.bottom + 0.9; // hovering a little above the floor
+      ufo.hangar = true;
+      ufo.transient = true;
+      ufo.keep = true;
+      ufo.parkedAt = s.id;
+      jets.push(ufo);
+    }
     this.parked.set(s.id, jets);
   }
 
+  // A parked aircraft the player boarded is theirs from now on: a normal
+  // vehicle (saved with the world), no longer put away with the airport.
+  boarded(v) {
+    if (!v.parkedAt) return;
+    v.parkedAt = null;
+    v.transient = false;
+    v.hangar = false;
+    if (v.type === "jet") v.keep = false;
+  }
+
   clear() {
-    for (const jets of this.parked.values()) for (const j of jets) if (j.alive && !j.occupied && this.vehicles.vehicles.includes(j)) this.vehicles.remove(j);
+    for (const jets of this.parked.values()) for (const j of jets) if (j.alive && !j.occupied && j.parkedAt && this.vehicles.vehicles.includes(j)) this.vehicles.remove(j);
     this.parked.clear();
   }
 }

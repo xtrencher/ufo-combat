@@ -48,6 +48,35 @@ export class Inventory {
   constructor() {
     this.slots = new Array(INVENTORY_SIZE).fill(null);
     this.selected = 0;
+    // The off hand: a shield (like in classic block games), or nothing.
+    this.offhand = null;
+  }
+
+  // Whether an item goes in the off hand (the shield).
+  static isOffhandItem(id) {
+    return !!itemInfo(id)?.offhand;
+  }
+
+  // Puts the selected hotbar item (a shield) in the off hand, swapping with
+  // whatever was there. Returns true if it moved.
+  equipSelectedOffhand() {
+    const s = this.selectedStack;
+    if (!s || !Inventory.isOffhandItem(s.id)) return false;
+    this.slots[this.selected] = this.offhand;
+    this.offhand = s;
+    return true;
+  }
+
+  // Wears the off-hand item (the shield blocking); true if it broke.
+  damageOffhand(amount = 1) {
+    const s = this.offhand;
+    if (!s || s.dur === undefined) return false;
+    s.dur -= amount;
+    if (s.dur <= 0) {
+      this.offhand = null;
+      return true;
+    }
+    return false;
   }
 
   get selectedStack() {
@@ -58,6 +87,13 @@ export class Inventory {
   // didn't fit.
   add(id, count = 1, dur) {
     if (count <= 0 || !itemInfo(id)) return count;
+    // A shield picked up with the off hand free goes straight into it.
+    if (!this.offhand && Inventory.isOffhandItem(id)) {
+      this.offhand = makeStack(id, 1, dur);
+      if (count <= 1) return 0;
+      count -= 1;
+      dur = undefined;
+    }
     const stack = makeStack(id, count, dur);
     // Merge into any existing stacks first, then fill empty slots.
     const limit = maxStack(id);
@@ -90,6 +126,7 @@ export class Inventory {
   countItem(id) {
     let n = 0;
     for (const s of this.slots) if (s && s.id === id) n += s.count;
+    if (this.offhand && this.offhand.id === id) n += this.offhand.count;
     return n;
   }
 
@@ -120,11 +157,35 @@ export class Inventory {
   }
 
   isEmpty() {
-    return this.slots.every((s) => !s);
+    return this.slots.every((s) => !s) && !this.offhand;
   }
 
   clear() {
     this.slots.fill(null);
+    this.offhand = null;
+  }
+
+  // The off hand for the save: [id, count, dur] or 0.
+  serializeOffhand() {
+    const s = this.offhand;
+    return s ? (s.dur !== undefined ? [s.id, s.count, s.dur] : [s.id, s.count]) : 0;
+  }
+
+  // Loads the off hand; an older save's shield (in a hotbar or inventory
+  // slot) moves into it when it is empty.
+  loadOffhand(data) {
+    this.offhand = null;
+    if (Array.isArray(data)) {
+      const [id, count, dur] = data;
+      if (Number.isInteger(id) && itemInfo(id) && Inventory.isOffhandItem(id) && Number.isInteger(count) && count > 0) this.offhand = makeStack(id, 1, Number.isInteger(dur) && dur > 0 ? dur : undefined);
+    }
+    if (!this.offhand) {
+      const i = this.slots.findIndex((s) => s && Inventory.isOffhandItem(s.id));
+      if (i >= 0) {
+        this.offhand = this.slots[i];
+        this.slots[i] = null;
+      }
+    }
   }
 
   serialize() {

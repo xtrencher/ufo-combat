@@ -1,9 +1,10 @@
-// Enemy fighter jets: a hostile air force in a darker paint. They patrol
-// the sky and leave the player alone (neutral) until the player attacks
-// them, or (most of them) attacks the UFOs they guard; then they hunt the
-// player, first with missiles from a distance and then with their cannon.
-// Some pilots are rogues: now and then they go after a UFO on their own,
-// which can help the player (see ROGUE_* below for the limits). They use the same
+// Patrol fighters: another air force in a darker paint, fighting the UFOs.
+// They patrol the sky and go after UFOs (they never clear the sky for you:
+// see HUNT_* below for the limits), and leave the player alone unless the
+// player attacks one of them directly: then that fighter (only that one)
+// hunts the player for a while, first with missiles from a distance and
+// then with its cannon. Missions can also send a hijacked fighter (flown
+// for the aliens) that hunts the player from the start. They use the same
 // flight model as the player's jet (vehicle-jet.js), flown by a simple
 // autopilot: patrol between waypoints, pursue with lead, evade incoming
 // missiles with flares and a hard break, and pull up before the ground.
@@ -13,20 +14,26 @@ import { Jet } from "./vehicle-jet.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
 export const ENEMY_JET_DEFAULTS = { count: 1 }; // how many patrol at once (0 = none)
-const HOSTILE_TIME = 60; // seconds of anger after the player last attacked a UFO or a jet
+const HOSTILE_TIME = 60; // seconds of anger after the player last attacked this fighter
 const MISSILE_INTERVAL = 9;
 const MAX_JETS = 3;
 // Damage causes that don't come from the player.
 const NOT_PLAYER = new Set(["ufo_laser", "enemyjet", "enemymissile", "explosion_other", "roguemissile", "crash"]);
-// Rogue pilots: some fighters go after UFOs on their own now and then
-// (they can help the player, but never clear the sky: weaker guns and
-// missiles against UFOs, at most two kills, long pauses, only small to
-// large ships, and the UFOs fight back and dodge).
-const ROGUE_CHANCE = 0.4; // share of fighters that do it at all
-const ROGUE_CANNON = 0.45; // their cannon's damage against UFOs
-const ROGUE_ENGAGE = [35, 55]; // seconds per engagement
-const ROGUE_PAUSE = [60, 120]; // seconds between engagements
-const ROGUE_MAX_KILLS = 2;
+// Hunting UFOs: they help the player, but never clear the sky for them:
+// weaker guns and missiles against UFOs, engagements with pauses between
+// them, a few kills at most per fighter, only small to large ships, never a
+// mission's own target, and the UFOs fight back and dodge. Their kills are
+// never the player's.
+const HUNT_CANNON = 0.45; // their cannon's damage against UFOs
+const HUNT_ENGAGE = [35, 55]; // seconds per engagement
+const HUNT_PAUSE = [25, 50]; // seconds between engagements
+const HUNT_MAX_KILLS = 3;
+const SPEED = 1.05; // top speed vs the player's jet at the same settings (they used to be 0.9x)
+// Strafing runs at a target on the ground (blocks): attack height above it,
+// how far out it turns in, and how close it comes before pulling out.
+const STRAFE_HEIGHT = 75;
+const STRAFE_OUT = 750;
+const STRAFE_BREAK = 120;
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -38,7 +45,10 @@ function clamp(v, a, b) {
 
 export class EnemyJet extends Jet {
   constructor(manager, data = {}) {
-    super(manager, { ...data, airborne: true }, { type: "enemyjet", name: "Hostile fighter", paint: "enemy", maxHealth: 120 });
+    // (A hijacked fighter, sent by a mission, flies for the aliens.)
+    const hijacked = !!data.hijacked;
+    super(manager, { ...data, airborne: true }, { type: "enemyjet", name: hijacked ? "Hijacked fighter" : "Patrol fighter", paint: hijacked ? "enemy" : "patrol", maxHealth: 120 });
+    this.hijacked = hijacked;
     this.isEnemyJet = true;
     this.unusable = true; // can't be boarded
     this.transient = true; // never saved
@@ -47,32 +57,38 @@ export class EnemyJet extends Jet {
     this.provoked = 0; // seconds left of anger from being attacked
     this.aiState = "patrol";
     this.ai = { wp: null, wpT: 0, burstT: 0, burstLeft: 0, breakT: 0, breakDir: 1, missileT: 4 + Math.random() * 6, flareLeft: 0, lostT: 0 };
-    // A rogue pilot hunts UFOs on its own now and then.
-    this.rogue = data.rogue ?? Math.random() < ROGUE_CHANCE;
-    this.hunt = { ufo: null, t: 0, pause: 15 + Math.random() * 40, kills: 0, missile: false, checkT: 0 };
+    // Patrols hunt UFOs (engagements with pauses between them).
+    this.hunt = { ufo: null, t: 0, pause: 8 + Math.random() * 20, kills: 0, missile: false, checkT: 0 };
     this.throttle = 0.7;
     this.age = 0;
     this.keepWreck = false;
     this.cameraModes = ["chase"];
   }
 
-  // Attacks by the player make it (and its wingmen) hostile; hits from a
-  // UFO it is fighting (or a stray blast) don't.
+  // An attack by the player makes this fighter (only this one) hostile; hits
+  // from a UFO it is fighting (or a stray blast) don't.
   damage(amount, cause = "vehicle", byPlayer = false) {
     const other = NOT_PLAYER.has(cause);
     const ok = super.damage(amount, cause, byPlayer);
     if (ok && !this.alive && other) this.downedByOther = true;
     if (ok && this.alive && !other) {
+      if (this.provoked <= 0 && !this.hijacked) this.manager.onMessage?.("You attacked a patrol fighter: it's coming after you!");
       this.provoked = HOSTILE_TIME;
-      this.manager.enemyJets?.provoke(this);
+      this.hunt.ufo = null;
     }
     return ok;
   }
 
   get cfg() {
-    // Slightly slower than the player's jet at the same settings.
+    // A little faster than the player's jet at the same settings.
     const base = this.manager.config.jet || { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
-    return { ...base, maxSpeed: Math.min(base.maxSpeed, 260) * 0.9, turnRate: 0.85, accel: base.accel, assist: true, aimAssist: true };
+    if (this._cfgBase !== base || this._cfgMax !== base.maxSpeed || this._cfgAccel !== base.accel) {
+      this._cfgBase = base;
+      this._cfgMax = base.maxSpeed;
+      this._cfgAccel = base.accel;
+      this._cfg = { ...base, maxSpeed: Math.min(base.maxSpeed, 260) * SPEED, stallSpeed: base.stallSpeed ?? 42, turnRate: 0.9, accel: base.accel * 1.1, assist: true, aimAssist: true };
+    }
+    return this._cfg;
   }
 
   serialize() {
@@ -97,7 +113,8 @@ export class EnemyJet extends Jet {
     const P = this._player();
     const toP = _w.copy(P.pos).sub(this.pos);
     const dist = toP.length();
-    const hostile = (this.hostile || this.provoked > 0) && !mgr.player.dead;
+    const hostile = (this.hijacked || this.provoked > 0) && !mgr.player.dead;
+    this.hostile = hostile;
     let wantYaw = this.aimYaw;
     let wantPitch = this.aimPitch;
     let throttle = 0.7;
@@ -137,35 +154,53 @@ export class EnemyJet extends Jet {
         ai.flareLeft--;
       }
     } else if (hostile) {
-      // Pursuit with lead. It comes in high and drops toward the target as it
-      // closes (so it never dives into the ground on the way).
       const speed = Math.max(60, this.speed);
       const lead = dist / (speed + 100);
       const lowTarget = P.pos.y < this.pos.y + 80;
-      const lift = lowTarget ? clamp((dist - 140) * 0.3, 0, 180) : 0;
+      const angle = _q2.copy(P.pos).sub(this.pos).normalize().angleTo(fwd); // to the target itself
       const aim = _w.copy(P.pos).addScaledVector(P.vel, lead * 0.6);
-      aim.y += lift;
+      const flat = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
+      if (lowTarget) {
+        // Strafing runs against a target on (or near) the ground: out to
+        // attack height, turn in, a shallow run with the nose on the target
+        // (the guns fire on the way in), pull out over it and extend again.
+        if (ai.run === "extend") {
+          const ax = this.pos.x - P.pos.x;
+          const az = this.pos.z - P.pos.z;
+          const al = Math.hypot(ax, az) || 1;
+          aim.set(P.pos.x + (ax / al) * 900, P.pos.y + STRAFE_HEIGHT, P.pos.z + (az / al) * 900);
+          if (flat > STRAFE_OUT) ai.run = "attack";
+        } else {
+          ai.run = "attack";
+          if (angle > 0.7) {
+            // Still turning in: level, at attack height, fast.
+            aim.y = clamp(this.pos.y, P.pos.y + STRAFE_HEIGHT - 15, P.pos.y + STRAFE_HEIGHT + 35);
+          } else {
+            aim.y += 1; // the nose on the target (the chest)
+          }
+          if (flat < STRAFE_BREAK || (angle > 1.2 && flat < 320)) ai.run = "extend";
+        }
+      } else {
+        ai.run = null;
+      }
       aim.sub(this.pos);
       const aimDist = aim.length();
       aim.divideScalar(aimDist || 1);
-      const angle = _q2.copy(P.pos).sub(this.pos).normalize().angleTo(fwd); // to the target itself
       wantYaw = Math.atan2(-aim.x, -aim.z);
       wantPitch = Math.asin(clamp(aim.y, -1, 1));
       throttle = 1;
-      ab = dist > 350;
-      // Strafing runs: fire on the way in, then pull up and turn away before the target (or the ground) is too close.
-      if (dist < 110 && lowTarget) {
-        wantYaw += 1.1;
-        wantPitch = 0.6;
-      } else if (dist < 90 && angle > 0.5) {
+      ab = ai.run === "attack" ? angle > 0.7 : dist > 350;
+      if (!lowTarget && dist < 90 && angle > 0.5) {
+        // (Air to air: break off rather than ram.)
         wantYaw += 1.2;
         wantPitch = 0.4;
       }
-      if (lowTarget) wantPitch = Math.max(wantPitch, -clamp(0.3 + groundClear / 500, 0.3, 0.8));
+      if (lowTarget) wantPitch = Math.max(wantPitch, -0.55);
       // Guns: bursts when the nose is on the target.
       ai.burstT -= dt;
-      if (dist < 600 && angle < 0.07 && ai.burstT <= 0 && !this.jammed) {
-        ai.burstLeft = 14 + Math.floor(Math.random() * 10);
+      if (dist < 600 && angle < (lowTarget ? 0.06 : 0.07) && ai.burstT <= 0 && !this.jammed) {
+        // (Short bursts at someone on foot: a strafing run hurts, it doesn't shred.)
+        ai.burstLeft = lowTarget ? 4 + Math.floor(Math.random() * 3) : 14 + Math.floor(Math.random() * 10);
         ai.burstT = 2.2 + Math.random() * 2;
       }
       if (ai.burstLeft > 0 && this.cannonT <= 0 && !this.jammed) {
@@ -180,7 +215,7 @@ export class EnemyJet extends Jet {
         mgr.onMessage?.("ENEMY MISSILE LAUNCH!");
       }
     } else if (this._hunting(dt)) {
-      // Hunting a UFO on its own (a rogue pilot).
+      // Hunting a UFO.
       const u = this.hunt.ufo;
       const toU = _w.copy(u.pos).sub(this.pos);
       const ud = toU.length();
@@ -204,7 +239,7 @@ export class EnemyJet extends Jet {
       if (ai.burstLeft > 0 && this.cannonT <= 0 && !this.jammed) {
         ai.burstLeft--;
         this.cannonOwner = "rogue";
-        this.cannonScale = ROGUE_CANNON;
+        this.cannonScale = HUNT_CANNON;
         this._fireCannon(fwd);
         this.cannonOwner = "enemyjet";
         this.cannonScale = 1;
@@ -234,8 +269,12 @@ export class EnemyJet extends Jet {
       throttle = 0.65;
     }
 
-    // Terrain: pull up before the ground (looking ahead along the flight path).
-    if (groundClear < 45 + this.speed * 0.3 && this.vel.y < 30) {
+    // Terrain: pull up before the ground (looking ahead along the flight
+    // path). On a strafing run it goes lower, watching its sink rate.
+    const strafing = hostile && ai.run === "attack";
+    const floor = strafing ? 20 + this.speed * 0.08 - Math.min(0, this.vel.y) * 2.2 : 45 + this.speed * 0.3;
+    if (groundClear < floor && this.vel.y < 30) {
+      if (strafing) ai.run = "extend";
       wantPitch = Math.max(wantPitch, clamp((110 - groundClear) / 70, 0.2, 1));
       throttle = 1;
     }
@@ -251,13 +290,13 @@ export class EnemyJet extends Jet {
     this._assistStick(stick);
   }
 
-  // Is it hunting a UFO right now? Picks one now and then (rogue pilots
-  // only, never while angry at the player), gives up after a while.
+  // Is it hunting a UFO right now? Picks one now and then (never while
+  // angry at the player), gives up after a while.
   _hunting(dt) {
     const h = this.hunt;
     const mgr = this.manager;
     const ufos = mgr.ufos;
-    if (!this.rogue || !ufos || h.kills >= ROGUE_MAX_KILLS) return false;
+    if (this.hijacked || !ufos || h.kills >= HUNT_MAX_KILLS) return false;
     if (h.ufo) {
       const u = h.ufo;
       h.t -= dt;
@@ -265,7 +304,7 @@ export class EnemyJet extends Jet {
       if (gone || h.t <= 0) {
         if (u.falling && !u.byPlayer) h.kills++;
         h.ufo = null;
-        h.pause = ROGUE_PAUSE[0] + Math.random() * (ROGUE_PAUSE[1] - ROGUE_PAUSE[0]);
+        h.pause = HUNT_PAUSE[0] + Math.random() * (HUNT_PAUSE[1] - HUNT_PAUSE[0]);
         return false;
       }
       return true;
@@ -274,9 +313,9 @@ export class EnemyJet extends Jet {
     h.checkT -= dt;
     if (h.pause > 0 || h.checkT > 0) return false;
     h.checkT = 4;
-    // Half the time it just carries on with its patrol.
-    if (Math.random() < 0.5) {
-      h.pause = 20 + Math.random() * 30;
+    // Now and then it just carries on with its patrol.
+    if (Math.random() < 0.3) {
+      h.pause = 15 + Math.random() * 20;
       return false;
     }
     // A UFO it can see, not too big, somewhere the player can see it too.
@@ -294,12 +333,12 @@ export class EnemyJet extends Jet {
     }
     if (!best) return false;
     h.ufo = best;
-    h.t = ROGUE_ENGAGE[0] + Math.random() * (ROGUE_ENGAGE[1] - ROGUE_ENGAGE[0]);
+    h.t = HUNT_ENGAGE[0] + Math.random() * (HUNT_ENGAGE[1] - HUNT_ENGAGE[0]);
     h.missile = false;
     return true;
   }
 
-  // The enemy aims at the player, not at UFOs (unless it is hunting one).
+  // A hostile fighter aims at the player, a hunting one at its UFO.
   _assistDir(from, fwd, speed) {
     if (this.hunt?.ufo && this.cannonOwner === "rogue") {
       const u = this.hunt.ufo;
@@ -317,14 +356,16 @@ export class EnemyJet extends Jet {
     const ang = d.clone().normalize().angleTo(fwd);
     if (ang > 0.12) return fwd.clone();
     const target = P.pos.clone().addScaledVector(P.vel, dist / speed);
+    const onFoot = !this.manager.player.vehicle;
+    if (onFoot) target.y += 1; // (the chest)
     const aim = target.sub(from).normalize();
-    return fwd.clone().lerp(aim, 0.7).normalize();
+    return onFoot ? aim.clone() : fwd.clone().lerp(aim, 0.7).normalize(); // (on foot: short bursts, see _autopilot; moving makes them miss)
   }
 
   onDestroyed(cause) {
     // A crash counts for the player only while it was hunting them (they
     // outflew it); anything else not done by the player isn't theirs.
-    if (NOT_PLAYER.has(cause) && !(cause === "crash" && (this.hostile || this.provoked > 0))) this.downedByOther = true;
+    if (NOT_PLAYER.has(cause) && !(cause === "crash" && (this.hijacked || this.provoked > 0))) this.downedByOther = true;
     super.onDestroyed(cause);
     this.manager.enemyJets?.onDown(this, cause);
   }
@@ -332,7 +373,7 @@ export class EnemyJet extends Jet {
 
 VehicleManager.register("enemyjet", EnemyJet);
 
-// Spawns and removes the patrols; decides when they turn hostile.
+// Spawns and removes the patrols.
 export class EnemyJetManager {
   constructor({ vehicles, ufos, player, world }) {
     this.vehicles = vehicles;
@@ -345,21 +386,12 @@ export class EnemyJetManager {
     this.reinforceT = 0;
     this.onDown = () => {};
     this.downed = 0;
+    this.allowed = () => true; // Survival: patrols only once the player has jets (set by the game)
     vehicles.enemyJets = this;
   }
 
   get jets() {
     return this.vehicles.vehicles.filter((v) => v.isEnemyJet && v.alive);
-  }
-
-  // Someone attacked a jet: every jet turns on the player for a while.
-  provoke() {
-    for (const j of this.jets) j.provoked = Math.max(j.provoked, HOSTILE_TIME);
-  }
-
-  _hostileNow() {
-    const u = this.ufos;
-    return u.lastPlayerAttack !== undefined && u.time - u.lastPlayerAttack < HOSTILE_TIME;
   }
 
   spawn(opts = {}) {
@@ -371,12 +403,10 @@ export class EnemyJetManager {
     const g = this.world.heightAt(Math.floor(x), Math.floor(z));
     const y = Math.max(g + 110, 130) + Math.random() * 40;
     // Flying across (tangent), or straight at the player when hostile.
-    const yaw = opts.toward ? Math.atan2(-(p.x - x), -(p.z - z)) : Math.atan2(Math.sin(a), -Math.cos(a)) + (Math.random() - 0.5);
-    const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7, rogue: opts.hostile ? false : opts.rogue });
-    if (jet && opts.hostile) {
-      jet.provoked = HOSTILE_TIME;
-      this.vehicles.onMessage?.("ENEMY FIGHTER SCRAMBLED! The aliens have an air force.");
-    }
+    // (opts.hostile: a hijacked fighter, flown for the aliens: a mission's.)
+    const yaw = opts.toward || opts.hostile ? Math.atan2(-(p.x - x), -(p.z - z)) : Math.atan2(Math.sin(a), -Math.cos(a)) + (Math.random() - 0.5);
+    const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7, hijacked: !!opts.hostile });
+    if (jet && opts.hostile) this.vehicles.onMessage?.("HIJACKED FIGHTER INBOUND! The aliens have taken one of ours.");
     return jet;
   }
 
@@ -387,15 +417,11 @@ export class EnemyJetManager {
       return;
     }
     const jets = this.jets;
-    const hostile = this._hostileNow();
     for (const j of jets) {
-      // Most fighters take the UFOs' side when the player attacks them; a
-      // rogue one only turns on the player when it is attacked itself.
-      j.hostile = hostile && !j.rogue;
       // Far away for good: gone.
       if (j.pos.distanceTo(this.player.position) > 4200) veh.remove(j);
     }
-    const max = Math.min(MAX_JETS, Math.round(this.config.count));
+    const max = this.allowed() ? Math.min(MAX_JETS, Math.round(this.config.count)) : 0;
     // (A mission's fighter stays whatever the setting says.)
     if (jets.length > max) {
       const extra = jets.find((j) => !j.mission);
@@ -405,12 +431,6 @@ export class EnemyJetManager {
     if (this.timer <= 0) {
       this.timer = 45 + Math.random() * 60;
       if (jets.length < max && !this.player.dead) this.spawn({});
-    }
-    // Attacking UFOs brings reinforcements at once, from the direction the player faces.
-    this.reinforceT -= dt;
-    if (hostile && jets.length < max && this.reinforceT <= 0 && !this.player.dead) {
-      this.reinforceT = 70;
-      this.spawn({ dist: 900, toward: true, hostile: true, angle: -this.player.yaw + Math.PI / 2 + (Math.random() - 0.5) * 2 });
     }
   }
 

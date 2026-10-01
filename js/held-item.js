@@ -40,47 +40,6 @@ function makeFlashTexture() {
 }
 const EQUIP_TIME = 0.2;
 
-// The energy shield: a curved hexagonal force field in front of the view,
-// nearly clear in the middle and bright toward the edges, flashing where it
-// is hit. Drawn with the held item (over the world).
-const shieldVertex = /* glsl */ `
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-const shieldFragment = /* glsl */ `
-uniform float uTime;
-uniform float uLevel;   // 0-1: raised
-uniform float uFlash;   // 0-1: a hit
-uniform float uEnergy;  // 0-1: what's left
-varying vec2 vUv;
-// Distance to the nearest edge of a hexagonal cell grid (0 at the edges).
-float hexEdge(vec2 p) {
-  p *= vec2(1.0, 1.1547);
-  vec2 q = vec2(p.x * 1.1547, p.y + p.x * 0.5773);
-  vec2 f = fract(q) - 0.5;
-  // Simplified: a triangle-lattice edge distance.
-  vec2 a = abs(f);
-  return min(min(a.x, a.y), abs(a.x + a.y - 0.5) * 0.7071 + 0.0) * 2.0;
-}
-void main() {
-  vec2 c = vUv - 0.5;
-  float r = length(c * vec2(1.0, 1.35));
-  float edge = smoothstep(0.18, 0.55, r);
-  float hex = 1.0 - smoothstep(0.02, 0.09, hexEdge(vUv * vec2(9.0, 7.0) + vec2(uTime * 0.05, 0.0)));
-  float scan = 0.5 + 0.5 * sin((vUv.y * 40.0) - uTime * 3.0);
-  float a = (0.05 + 0.55 * edge + 0.5 * hex * (0.35 + edge) + 0.05 * scan * edge) * uLevel;
-  a += uFlash * (0.25 + 0.6 * hex) * (0.4 + edge);
-  a *= smoothstep(0.62, 0.42, r + 0.02); // round off the panel
-  vec3 low = vec3(1.4, 0.35, 0.2);
-  vec3 col = mix(low, vec3(0.3, 1.6, 3.2), smoothstep(0.15, 0.6, uEnergy));
-  col += vec3(1.5, 1.5, 1.6) * uFlash;
-  gl_FragColor = vec4(col * (0.7 + hex), clamp(a, 0.0, 0.9));
-}
-`;
-
 function armGeometry() {
   const g = new THREE.BoxGeometry(0.2, 0.2, 0.72);
   const skin = new THREE.Color().setRGB(0.86, 0.64, 0.48, THREE.SRGBColorSpace);
@@ -124,26 +83,16 @@ export class HeldItem {
     this.flash.visible = false;
     this.railGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash.material.map, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, color: new THREE.Color(1.5, 3.2, 6) }));
     this.railGlow.visible = false;
-    // The shield's force field (raised while the shield is held up).
-    this.shieldMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uLevel: { value: 0 }, uFlash: { value: 0 }, uEnergy: { value: 1 } },
-      vertexShader: shieldVertex,
-      fragmentShader: shieldFragment,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthTest: false,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    this.shieldPanel = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.55), this.shieldMat);
-    this.shieldPanel.position.set(0, -0.02, -0.75);
-    this.shieldPanel.visible = false;
-    this.shieldPanel.renderOrder = 5;
-    this.pivot.add(this.shieldPanel);
-    this.shieldLevel = 0; // 0-1 raise animation
-    this.shieldFlash = 0;
-    this.shieldEnergy = 1;
+    // The shield in the off hand (left): low at the side of the view,
+    // brought up in front of the left half of it while raised. It never
+    // covers the whole screen, and there is no overlay.
+    this.offhandId = 0;
+    this.offMesh = null;
+    this._offShown = 0;
     this.shieldUp = false;
+    this.shieldLevel = 0; // 0-1 raise animation
+    this._shieldHit = 0;
+    this.bowDraw = 0; // 0-1: how far the bow is drawn
     this.setItem(0, true);
   }
 
@@ -258,6 +207,45 @@ export class HeldItem {
     if (this._swing >= 0.5) this._swing = 0;
   }
 
+  // The raised shield took a hit: it jolts.
+  shieldHit() {
+    this._shieldHit = 1;
+  }
+
+  // The off-hand model (a shield), rebuilt when the item changes.
+  _updateOffhand(dt) {
+    const id = this.offhandId || 0;
+    if (id !== this._offShown) {
+      this._offShown = id;
+      if (this.offMesh) this.pivot.remove(this.offMesh);
+      this.offMesh = null;
+      const model = id ? itemModel(id) : null;
+      if (model) {
+        this.offMesh = new THREE.Mesh(model.geometry, this.materials[model.kind]);
+        this.offMesh.scale.setScalar(0.56);
+        bindEntityLight(this.offMesh, () => this.light);
+        this.pivot.add(this.offMesh);
+      }
+    }
+    const m = this.offMesh;
+    if (!m) return;
+    const up = this.shieldUp ? 1 : 0;
+    this.shieldLevel += (up - this.shieldLevel) * Math.min(1, dt * 14);
+    this._shieldHit = Math.max(0, this._shieldHit - dt * 5);
+    const k = this.shieldLevel;
+    // Lowered: at the bottom left, turned side-on; raised: in front of the
+    // left half of the view, facing forward.
+    m.position.set(-0.6 + k * 0.28, -0.6 + k * 0.36, -0.74 + k * 0.12);
+    m.rotation.set(-0.2 + k * 0.15, 1.0 - k * 0.85, 0.14 - k * 0.12);
+    if (this._shieldHit > 0) {
+      const h = this._shieldHit * this._shieldHit;
+      m.position.z += h * 0.08;
+      m.position.x += (Math.random() - 0.5) * 0.02 * h;
+      m.rotation.x += h * 0.12;
+    }
+    m.visible = this.visible;
+  }
+
   // Fires the held gun: recoil kick and a muzzle flash.
   fire(power = 1) {
     this._kick = 1;
@@ -324,18 +312,21 @@ export class HeldItem {
       m.position.x += (Math.random() - 0.5) * 0.012 * ch;
       m.position.y += (Math.random() - 0.5) * 0.012 * ch;
     }
-    // The shield's force field.
-    const raise = itemInfo(this.itemId)?.weapon?.kind === "shield" && this.shieldUp ? 1 : 0;
-    this.shieldLevel += (raise - this.shieldLevel) * Math.min(1, dt * 12);
-    this.shieldFlash = Math.max(0, this.shieldFlash - dt * 3.5);
-    this.shieldPanel.visible = this.shieldLevel > 0.02 || this.shieldFlash > 0.02;
-    if (this.shieldPanel.visible) {
-      const u = this.shieldMat.uniforms;
-      u.uTime.value += dt;
-      u.uLevel.value = this.shieldLevel;
-      u.uFlash.value = this.shieldFlash;
-      u.uEnergy.value = this.shieldEnergy;
-      this.shieldPanel.scale.setScalar(0.85 + 0.15 * this.shieldLevel);
+    // The off hand (the shield).
+    this._updateOffhand(dt);
+    // Drawing the bow: it comes toward the middle and tilts; it trembles at
+    // a full draw.
+    if (this.bowDraw > 0 && itemInfo(this.itemId)?.weapon?.kind === "bow") {
+      const d = this.bowDraw;
+      m.position.x -= d * 0.16;
+      m.position.y += d * 0.05;
+      m.position.z += d * 0.1;
+      m.rotation.y += d * 0.35;
+      m.rotation.z -= d * 0.25;
+      if (d >= 1) {
+        m.position.x += (Math.random() - 0.5) * 0.006;
+        m.position.y += (Math.random() - 0.5) * 0.006;
+      }
     }
     this._flash += dt;
     this._flashFrames = this._flash === dt ? 0 : (this._flashFrames || 0) + 1;

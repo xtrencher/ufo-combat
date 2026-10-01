@@ -57,11 +57,13 @@ export const MAX_ATTACKERS = 4; // UFOs attacking the player at the same time
 // laser damage, hover height over a beamed player, alien crew size range.
 // A giant is about the size of a football field.
 export const SIZES = {
-  small: { r: [3, 4.5], health: 40, cruise: 16, top: 55, laser: 2, hover: 11, crew: [1, 3], idx: 0 },
-  medium: { r: [6, 8.5], health: 130, cruise: 12, top: 45, laser: 3, hover: 14, crew: [1, 5], idx: 1 },
-  large: { r: [12, 17], health: 480, cruise: 8, top: 34, laser: 5, hover: 20, crew: [2, 8], idx: 2 },
-  mothership: { r: [32, 42], health: 2200, cruise: 5, top: 22, laser: 8, hover: 36, crew: [4, 10], idx: 3 },
-  giant: { r: [58, 74], health: 6500, cruise: 3.5, top: 16, laser: 12, hover: 60, crew: [6, 10], idx: 4 },
+// (Round 4: about 1.6x the old health; they went down too easily. Survival
+// scales it further per mission, see progression.js.)
+  small: { r: [3, 4.5], health: 65, cruise: 16, top: 55, laser: 2, hover: 11, crew: [1, 3], idx: 0 },
+  medium: { r: [6, 8.5], health: 210, cruise: 12, top: 45, laser: 3, hover: 14, crew: [1, 5], idx: 1 },
+  large: { r: [12, 17], health: 760, cruise: 8, top: 34, laser: 5, hover: 20, crew: [2, 8], idx: 2 },
+  mothership: { r: [32, 42], health: 3400, cruise: 5, top: 22, laser: 8, hover: 36, crew: [4, 10], idx: 3 },
+  giant: { r: [58, 74], health: 9500, cruise: 3.5, top: 16, laser: 12, hover: 60, crew: [6, 10], idx: 4 },
 };
 const SIZE_WEIGHTS = {
   small: { small: 6, medium: 3, large: 0.8, mothership: 0.1, giant: 0.02 },
@@ -142,6 +144,32 @@ function pickWeighted(weights) {
   return Object.keys(weights)[0];
 }
 
+// A UFO's attack style from its design family and size (rand: a random
+// number source; the player's ships use a seeded one, so a ship keeps it).
+export function pickUfoStyle(design, sizeIdx, rand = Math.random) {
+  const w = { ...(STYLE_WEIGHTS[familyOf(design)] || STYLE_WEIGHTS.saucer) };
+  if (sizeIdx === 0) {
+    // Small scouts: nothing that blows holes or homes in.
+    delete w.heavy;
+    delete w.seeker;
+    if (!Object.keys(w).length) w.rapid = 1;
+  }
+  if (sizeIdx >= 2) {
+    if (w.heavy) w.heavy *= 2;
+    if (w.seeker) w.seeker *= 2;
+    if (w.sweep) w.sweep *= 1.5;
+  }
+  if (sizeIdx >= 3) delete w.abductor;
+  let total = 0;
+  for (const k in w) total += w[k];
+  let r = rand() * total;
+  for (const k in w) {
+    r -= w[k];
+    if (r <= 0) return k;
+  }
+  return Object.keys(w)[0];
+}
+
 function familyOf(design) {
   if (design.startsWith("saucer")) return "saucer";
   if (design.startsWith("sphere")) return "sphere";
@@ -204,9 +232,18 @@ export class UfoManager {
     return Math.max(0, Math.min(1, 1 - this.sky.daylight));
   }
 
+  // In Survival the mission chain sets how many UFOs there are (`rules.max`
+  // at most in the sky by day, more at night, and `rules.rate` new ones per
+  // second): the UFO activity, spawn chance, max count and size settings are
+  // Creative's. (Round 3 rules had a `count` multiplier instead: still read.)
+  get missionDriven() {
+    return !!this.rules && this.rules.max !== undefined;
+  }
+
   get maxCount() {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
+    if (this.missionDriven) return Math.min(MAX_UFOS, Math.round(this.rules.max * nightBoost));
     const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost * (this.rules?.count ?? 1));
     return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
@@ -214,6 +251,7 @@ export class UfoManager {
   // Expected new UFOs per second.
   get spawnRate() {
     const c = this.config;
+    if (this.missionDriven) return this.rules.rate * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
     return (c.activity / 50) * c.spawnChance * (1 + (c.nightMultiplier - 1) * this.night);
   }
 
@@ -239,7 +277,7 @@ export class UfoManager {
   // medium saucers at first, motherships and giants only much later.
   _sizeWeights() {
     // Survival: the current mission decides (see progression.js).
-    if (this.rules && this.config.sizes === "balanced") return this.rules.sizes;
+    if (this.missionDriven || (this.rules && this.config.sizes === "balanced")) return this.rules.sizes;
     const base = SIZE_WEIGHTS[this.config.sizes] || SIZE_WEIGHTS.balanced;
     if (this.config.sizes !== "balanced") return base;
     const easy = { small: 6, medium: 3, large: 0.5, mothership: 0.03, giant: 0 };
@@ -286,6 +324,8 @@ export class UfoManager {
       personality,
       style,
       laserKey: STYLES[style]?.color || ufoLaserKey(spec),
+      // Its crew: one kind of alien per ship (they come from the same world).
+      crewKind: opts.crewKind || this._crewKind(S.idx),
       temper: Math.random() < 0.25 ? rand(0.6, 1) : rand(0, 0.5), // how easily it turns hostile
       fleeFactor: personality === "fast" ? rand(1.25, 1.6) : rand(0.8, 0.95),
       state: opts.state || "roam",
@@ -329,20 +369,7 @@ export class UfoManager {
   }
 
   _pickStyle(design, S) {
-    const w = { ...(STYLE_WEIGHTS[familyOf(design)] || STYLE_WEIGHTS.saucer) };
-    if (S.idx === 0) {
-      // Small scouts: nothing that blows holes or homes in.
-      delete w.heavy;
-      delete w.seeker;
-      if (!Object.keys(w).length) w.rapid = 1;
-    }
-    if (S.idx >= 2) {
-      if (w.heavy) w.heavy *= 2;
-      if (w.seeker) w.seeker *= 2;
-      if (w.sweep) w.sweep *= 1.5;
-    }
-    if (S.idx >= 3) delete w.abductor;
-    return pickWeighted(w);
+    return pickUfoStyle(design, S.idx);
   }
 
   _waterAt(x, z) {
@@ -414,7 +441,7 @@ export class UfoManager {
   }
 
   _updateSpawning(dt) {
-    if (this.config.activity <= 0) return;
+    if (this.missionDriven ? this.rules.max <= 0 : this.config.activity <= 0) return;
     this._spawnT -= dt;
     if (this._spawnT > 0) return;
     this._spawnT = 1;
@@ -481,6 +508,14 @@ export class UfoManager {
   // player flying a UFO, maybe its neighbours).
   damage(u, amount, byPlayer = true, from = null, attacker = null) {
     if (u.state === "gone" || u.falling || amount <= 0) return false;
+    // A mission's landing ship: its hull shrugs off hand weapons.
+    if (u.immune || (u.immuneUntil && this.time < u.immuneUntil)) {
+      if (byPlayer && this.time - (u.immuneMsgT ?? -99) > 6) {
+        u.immuneMsgT = this.time;
+        this.onMessage?.("It doesn't even scratch the hull. Deal with the crew.");
+      }
+      return false;
+    }
     u.health -= amount;
     u.hurtTime = 0;
     // Attacked by an enemy fighter: it fights back (and dodges).
@@ -501,7 +536,7 @@ export class UfoManager {
 
   // Makes a UFO angry at the player for a while.
   anger(u, seconds = rand(35, 70)) {
-    if (u.falling || u.state === "gone") return;
+    if (u.falling || u.state === "gone" || u.peaceful) return; // (peaceful: a mission's landing ship)
     u.hostile = true;
     u.hostileT = Math.max(u.hostileT, seconds);
     u.lastSeen = this.time;
@@ -636,6 +671,12 @@ export class UfoManager {
       if (u.falling) this._fall(u, step);
       else this._think(u, step, tgt, dist);
       if (u.beam) {
+        // The beam always hangs from the ship: it follows it, and goes out
+        // the moment the ship stops beaming (shot and dodging, dashing,
+        // falling, or off to attack), instead of staying behind in the air.
+        const beaming = !u.falling && !u.dash && (u.state === "beam" || (u.state === "trick" && u.trick === "abduct"));
+        if (!beaming && u.beam.on) u.beam.set(false);
+        u.beam.top.set(u.pos.x, u.pos.y - u.info.bottom * u.radius, u.pos.z);
         u.beam.update(step, this.effects);
         if (u.beam.on && u === this.beamingPlayer) beamOnPlayer = u;
         if (!u.beam.on && u.beam.strength < 0.02 && u.state !== "beam" && u.state !== "trick") this._freeBeam(u);
@@ -873,7 +914,7 @@ export class UfoManager {
       }
       return;
     }
-    if (agg <= 0 || this.graceT > 0 || this.player.dead) return;
+    if (agg <= 0 || this.graceT > 0 || this.player.dead || u.peaceful) return;
     const pv = tgt.vehicle;
     const disguised = pv?.type === "ufo";
     if (disguised) return;
@@ -1050,7 +1091,7 @@ export class UfoManager {
     // Stay above the ground and below the ceiling (not while leaving, or
     // while it is allowed to pass through terrain: diving, burrowing).
     if (u.state !== "leave" && u.state !== "emerge" && u.ghostT <= 0) {
-      const minY = this._minAltitude(u, u.state === "beam" || u.trick === "hover_lake" || u.trick === "abduct" ? 2 : 4);
+      const minY = this._minAltitude(u, u.trick === "land" ? 0.3 : u.state === "beam" || u.trick === "hover_lake" || u.trick === "abduct" ? 2 : 4);
       if (u.pos.y < minY) {
         u.pos.y += (minY - u.pos.y) * Math.min(1, dt * 4);
         if (u.vel.y < 0) u.vel.y = 0;
@@ -1134,6 +1175,17 @@ export class UfoManager {
           const a = Math.random() * Math.PI * 2;
           u.vel.set(Math.cos(a) * cruise * 2.4, rand(-0.6, 0.6) * cruise, Math.sin(a) * cruise * 2.4);
         }
+        break;
+      }
+      case "land": {
+        // A mission's landing: down to just above the ground, slowly, and
+        // sits there (the director sends it off again).
+        const d = this._steer(u, u.waypoint, Math.max(4, cruise * 0.9), dt, 1.6);
+        if (d < 0.8) {
+          u.vel.multiplyScalar(Math.exp(-5 * dt));
+          u.landed = true;
+        }
+        u.spinBoost = 0.4;
         break;
       }
       case "follow": {
@@ -1468,7 +1520,7 @@ export class UfoManager {
       let d = Infinity;
       for (let y = 0.1; y < 1.9; y += 0.3) d = Math.min(d, segPointDist(from, sw.end, _x.set(p.x, p.y + y, p.z)));
       if (d < 0.35 + width * 2) {
-        this.player.damage(dmg, "ufo_laser", { projectile: true });
+        this.player.damage(dmg, "ufo_laser", { projectile: true, from });
         touched = true;
       }
     }
@@ -1628,8 +1680,10 @@ export class UfoManager {
     const v = tgt.vehicle;
     const jet = v.type === "jet";
     const flee = jet && u.personality !== "fighter" && !u.hostile;
+    // (Measured against the jet being flown: the two jets differ a little.)
+    const jetTop = (jet && v.cfg?.maxSpeed) || this.jetMaxSpeed;
     if (flee) {
-      const topSpeed = this.jetMaxSpeed * u.fleeFactor;
+      const topSpeed = jetTop * u.fleeFactor;
       const away = _w.copy(u.pos).sub(v.pos).normalize();
       // Evasive weaving while running.
       const t = this.time * 1.7 + u.id;
@@ -1660,7 +1714,7 @@ export class UfoManager {
       u.pass = new THREE.Vector3(rand(-1, 1), rand(-0.3, 0.5), rand(-1, 1)).normalize().multiplyScalar(rand(40, 90));
     }
     const goal = _w.copy(v.pos).add(u.pass);
-    const topSpeed = jet ? this.jetMaxSpeed * 0.9 : u.S.top;
+    const topSpeed = jet ? jetTop * 0.9 : u.S.top;
     this._steer(u, goal, topSpeed, dt, 2.2);
     if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, v.pos)) {
       const st = STYLES[u.style] || STYLES.volley;
@@ -1781,6 +1835,7 @@ export class UfoManager {
       wreck: exploded,
       tilt,
       health: Math.round((120 + u.radius * 40) * 0.4),
+      style: u.style, // flown by the player, it fights the way it did
     });
     if (wreck) {
       wreck.byPlayer = u.byPlayer;
@@ -1791,7 +1846,7 @@ export class UfoManager {
     // come out of an exploded wreck too: the survivors.)
     const [lo, hi] = u.S.crew;
     const crew = u.crashPlan?.crew ?? Math.max(1, Math.round(lo + Math.pow(Math.random(), 1.5) * (hi - lo) + (Math.random() < 0.15 ? hi - lo : 0)));
-    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx, kind: u.crashPlan?.crewKind ?? null });
+    this.pendingCrews.push({ pos: new THREE.Vector3(at.x, wreckY, at.z), count: Math.min(10, crew), radius: u.radius, delay: exploded ? 2.2 : 1.2, water, sizeIdx: u.S.idx, kind: u.crashPlan?.crewKind ?? u.crewKind ?? this._crewKind(u.S.idx) });
     if (this.onShotDown) this.onShotDown(u, u.byPlayer);
     if (this.onCrash) this.onCrash({ ufo: u, pos: at, exploded, wreck, byPlayer: u.byPlayer, crew: Math.min(10, crew) });
     u.state = "gone";
@@ -1806,9 +1861,9 @@ export class UfoManager {
     while (list.length + 1 > MAX_KEPT_WRECKS) this.vehicles.remove(list.shift());
   }
 
-  // Aliens climb out of a wreck once its ground is loaded: green, gray and
-  // red, in a random mix. Beside a wreck in the sea they wade out onto the
-  // nearest shore.
+  // Aliens climb out of a wreck once its ground is loaded: the ship's crew,
+  // all of one kind (green, gray or red). Beside a wreck in the sea they
+  // wade out onto the nearest shore.
   _updateCrews(dt) {
     for (let i = this.pendingCrews.length - 1; i >= 0; i--) {
       const c = this.pendingCrews[i];
@@ -1831,7 +1886,7 @@ export class UfoManager {
         if (c.water && top < SEA_LEVEL + 1) continue; // dry land only
         const id = this.world.getBlock(x, top + 1, z);
         if (IS_SOLID[id] || IS_WET[id] || this.world.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
-        const kind = c.kind || this._crewKind(c.sizeIdx);
+        const kind = c.kind || (c.kind = this._crewKind(c.sizeIdx));
         const m = this.mobs.spawn(kind, x + 0.5, top + 1, z + 0.5);
         if (m) {
           m.ai.target = true;
@@ -1848,9 +1903,21 @@ export class UfoManager {
     }
   }
 
-  // Green foot soldiers, gray sharpshooters and red brutes (more of them from
-  // bigger ships).
+  // A ship's crew: green foot soldiers, gray sharpshooters or red brutes
+  // (the tougher kinds more often on bigger ships; in Survival the current
+  // mission decides which kinds are about: `rules.crew`).
   _crewKind(sizeIdx) {
+    const w = this.rules?.crew;
+    if (w) {
+      const total = (w.alien ?? 0) + (w.alien_gray ?? 0) + (w.alien_red ?? 0);
+      if (total > 0) {
+        let r = Math.random() * total;
+        for (const k of ["alien", "alien_gray", "alien_red"]) {
+          r -= w[k] ?? 0;
+          if (r <= 0) return k;
+        }
+      }
+    }
     const r = Math.random();
     const red = 0.05 + sizeIdx * 0.06;
     const gray = 0.22 + sizeIdx * 0.03;

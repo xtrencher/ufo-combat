@@ -10,7 +10,7 @@
 // a player can reach quickly (real targets at sniper range), with a total
 // mob cap and simplified, cheaper AI for anything far from the player.
 import * as THREE from "three";
-import { BLOCK, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
 import { ITEM, meleeDamage } from "./items.js";
 import { sweepAxis, rayAabb } from "./physics.js";
 import { createMobModel } from "./mob-models.js";
@@ -155,6 +155,16 @@ export const SPECIES = {
     drops: [[ITEM.RAW_MEAT, 1, 1, 0.4]],
   },
 };
+
+// Ranged weapons: the shoulder pivot of the arm holding it and the reach
+// from there to the muzzle (the bow's grip), in model pixels (mob-models.js).
+const MUZZLES = {
+  skeleton: { pivot: [-4.5, 21.5, 0], reach: 12 },
+  alien: { pivot: [4, 16, 0], reach: 14.5 },
+  alien_gray: { pivot: [3.5, 19, 0], reach: 22.5 },
+  alien_red: { pivot: [6.5, 19, 0], reach: 17.5 },
+};
+const _mz = new THREE.Vector3();
 
 const PASSIVE_KINDS = Object.keys(SPECIES).filter((k) => !SPECIES[k].hostile && !SPECIES[k].flies && k !== "villager");
 const HOSTILE_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].hostile);
@@ -603,6 +613,20 @@ export class MobManager {
 
   // ---------- AI ----------
 
+  // Ends the calm of a landed crew member (the timer ran out, or it was
+  // attacked): it and the rest of its group turn on the player.
+  wake(m) {
+    for (const o of this.mobs) {
+      if (o.dead || !(o.calmT > 0)) continue;
+      if (o !== m && (!m.group || o.group !== m.group)) continue;
+      o.calmT = 0;
+      o.aggro = true;
+    }
+    m.calmT = 0;
+    m.aggro = true;
+    this.onWake?.(m);
+  }
+
   // Aliens fight anyone (a Creative player too, who just can't be hurt);
   // everything else leaves Creative players alone.
   _canTarget(m) {
@@ -632,7 +656,8 @@ export class MobManager {
       // player from wherever they are, at any height.
       const sight = m.aggro ? Math.max(m.spec.sight, 160) : m.spec.sight;
       const vertical = m.aggro ? 60 : 10;
-      if (this._canTarget(m) && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
+      // (A calm crew member looks around and leaves the player be for now.)
+      if (this._canTarget(m) && !(m.calmT > 0) && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
       else ai.target = false;
       if (ai.target) {
         lookAtPlayer = true;
@@ -750,7 +775,13 @@ export class MobManager {
     m.attackCooldown = 1.0;
     m.attack = 0;
     const dmg = m.kind === "zombie" ? Math.max(1, Math.round(m.spec.damage * this.zombies.damage)) : m.spec.damage;
-    const applied = this.player.damage(dmg, m.kind);
+    const applied = this.player.damage(dmg, m.kind, { from: m.pos });
+    // (Blocked by a raised shield: the attacker is pushed back a little.)
+    if (!applied && this.player.shielded) {
+      m.knock.x -= nx * 5;
+      m.knock.z -= nz * 5;
+      m.stagger = Math.max(m.stagger, 0.3);
+    }
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
@@ -764,21 +795,39 @@ export class MobManager {
 
   // ---------- Ranged combat (skeleton arrows) ----------
 
+  // Where a ranged mob's shot leaves its weapon: the shoulder of the arm
+  // holding it (model pivot, turned with the mob) plus the arm-and-weapon
+  // length along the aim (the arm is raised along the aim while it targets
+  // the player, see mob-models.js). Falls back to the eyes for other kinds.
+  _muzzle(m, aim, out = new THREE.Vector3()) {
+    const w = MUZZLES[m.kind];
+    if (!w) return out.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(aim, m.spec.r + 0.3);
+    const [px, py, pz] = w.pivot;
+    const c = Math.cos(m.yaw);
+    const sn = Math.sin(m.yaw);
+    out.set(m.pos.x + (px * c + pz * sn) / 16, m.pos.y + py / 16, m.pos.z + (-px * sn + pz * c) / 16);
+    return out.addScaledVector(aim, w.reach / 16);
+  }
+
   _shootArrow(m, dx, dy, dz) {
     // dx/dy/dz are feet-to-feet; aim from the archer's actual eye height at
     // the player's torso center (matches the hitbox center in
     // _arrowHitsPlayer), not at the player's feet, or a level shot from an
     // elevated eye already clears a same-height target's hitbox before any
     // gravity compensation is even added.
-    const vdy = dy + 0.9 - m.spec.eye;
-    const dist = Math.hypot(dx, vdy, dz) || 1;
+    // The arrow leaves the bow (held out in the left hand), aimed from there.
+    const guess = new THREE.Vector3(dx, dy + 0.9 - m.spec.eye, dz).normalize();
+    const start = this._muzzle(m, guess);
+    const vdx = m.pos.x + dx - start.x;
+    const vdz = m.pos.z + dz - start.z;
+    const vdy = m.pos.y + dy + 0.9 - start.y;
+    const dist = Math.hypot(vdx, vdy, vdz) || 1;
     const t = Math.max(0.35, dist / ARROW_SPEED);
     // Aims a little high to help compensate for the drop over the flight.
     const riseComp = -0.5 * ARROW_GRAVITY * t * 0.55;
-    const dir = new THREE.Vector3(dx, vdy + riseComp, dz).normalize();
-    const start = m.pos.clone();
-    start.y += m.spec.eye;
-    start.addScaledVector(dir, m.spec.r + 0.3);
+    const dir = new THREE.Vector3(vdx, vdy + riseComp, vdz).normalize();
+    // (Inside a wall at point blank: from the archer's eyes instead.)
+    if (IS_SOLID[this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))]) start.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(dir, m.spec.r + 0.3);
     const mesh = new THREE.Group();
     mesh.add(new THREE.Mesh(this._arrowGeo, this._arrowMat), new THREE.Mesh(this._arrowTipGeo, this._arrowMat));
     this.group.add(mesh);
@@ -800,10 +849,11 @@ export class MobManager {
       m.burst = 2; // two more follow the first
       m.burstT = 0.12;
     }
-    const from = m.pos.clone();
-    from.y += m.spec.eye - 0.4;
     const target = this.player.getEyePosition();
     target.y -= 0.6;
+    // The bolt leaves the gun's muzzle (the gun arm is raised along the aim).
+    const from = this._muzzle(m, _mz.copy(target).sub(m.pos).setY(target.y - m.pos.y - m.spec.eye + 0.4).normalize());
+    if (IS_SOLID[this.world.getBlock(Math.floor(from.x), Math.floor(from.y), Math.floor(from.z))]) from.set(m.pos.x, m.pos.y + m.spec.eye - 0.4, m.pos.z);
     const aimVel = this.player.vehicle ? this.player.vehicle.vel : this.player.velocity;
     const speed = weapon === "plasma" ? 38 : weapon === "burst" ? 110 : 62;
     const dist0 = target.distanceTo(from);
@@ -817,13 +867,14 @@ export class MobManager {
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;
     dir.normalize();
-    from.addScaledVector(dir, m.spec.r + 0.4);
     m.aimTime = this.time;
     const range = dist * 1.4 + 40;
+    // (Survival: alien guns follow the mission curve, like the UFOs' do.)
+    const damage = Math.max(1, Math.round(m.spec.laserDamage * (this.alienDamageScale ?? 1)));
     if (weapon === "plasma") {
-      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage: m.spec.laserDamage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
+      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
     } else {
-      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage: m.spec.laserDamage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
+      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
     }
   }
 
@@ -855,8 +906,7 @@ export class MobManager {
       const blockHit = w.raycast(a.pos, dir, len, { solidOnly: true });
       const playerT = this._arrowHitsPlayer(a.pos, dir, blockHit ? blockHit.distance : len);
       if (playerT !== null) {
-        this.player.damage(ARROW_DAMAGE, "skeleton");
-        this.player.applyImpulse(this._tmp.set(dir.x * 4, 2, dir.z * 4));
+        if (this.player.damage(ARROW_DAMAGE, "skeleton", { from: a.pos.clone().addScaledVector(dir, -3) })) this.player.applyImpulse(this._tmp.set(dir.x * 4, 2, dir.z * 4));
         this.group.remove(a.mesh);
         this.arrows.splice(i, 1);
         continue;
@@ -887,6 +937,28 @@ export class MobManager {
   _thinkFly(m, dt) {
     const spec = m.spec;
     m.flyTimer -= dt;
+    // Parrots sit on branches between flights (see _perchSpot).
+    if (m.kind === "parrot") {
+      m.perch = (m.perch ?? 0) + ((m.perched ? 1 : 0) - (m.perch ?? 0)) * Math.min(1, dt * 4);
+      if (m.perched) {
+        m.perchT -= dt;
+        const below = this.world.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y - 0.1), Math.floor(m.pos.z));
+        if (m.perchT > 0 && IS_SOLID[below] && m.hurtTime > 1) {
+          m.headYaw = Math.sin(this.time * 0.7 + m.id) * 0.6;
+          return { x: 0, y: 0, z: 0, speed: 0 };
+        }
+        m.perched = false;
+        m.flyTarget = null;
+      } else if (m.flyTarget?.perch) {
+        const d = Math.hypot(m.flyTarget.x - m.pos.x, m.flyTarget.y - m.pos.y, m.flyTarget.z - m.pos.z);
+        if (d < 0.35) {
+          m.perched = true;
+          m.perchT = 4 + Math.random() * 8;
+          m.vel.set(0, 0, 0);
+          return { x: 0, y: 0, z: 0, speed: 0 };
+        }
+      }
+    }
     if (!m.flyTarget || m.flyTimer <= 0 || m.blocked) {
       const r = spec.homeRadius;
       const a = Math.random() * Math.PI * 2;
@@ -897,6 +969,13 @@ export class MobManager {
         z: m.home.z + Math.sin(a) * d,
       };
       m.flyTimer = 2 + Math.random() * 3;
+      if (m.kind === "parrot" && Math.random() < 0.55) {
+        const spot = this._perchSpot(m);
+        if (spot) {
+          m.flyTarget = spot;
+          m.flyTimer = 8;
+        }
+      }
     }
     const dx = m.flyTarget.x - m.pos.x;
     const dy = m.flyTarget.y - m.pos.y;
@@ -907,6 +986,26 @@ export class MobManager {
     m.headYaw = 0;
     m.headPitch = 0;
     return { x: dx / dist, y: dy / dist, z: dz / dist, speed };
+  }
+
+  // A place for a parrot to sit near its home: the top of a leaf or log
+  // block with air above it (a branch in the canopy), or null.
+  _perchSpot(m) {
+    const w = this.world;
+    for (let k = 0; k < 6; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 1 + Math.random() * m.spec.homeRadius * 0.7;
+      const x = Math.floor(m.home.x + Math.cos(a) * d);
+      const z = Math.floor(m.home.z + Math.sin(a) * d);
+      if (!w.getChunk(x >> 4, z >> 4)) continue;
+      const top = w.surfaceY(x, z);
+      if (top < 0) continue;
+      const id = w.getBlock(x, top, z);
+      if (!(IS_LEAVES[id] || BLOCK_INFO[id]?.log)) continue;
+      if (w.getBlock(x, top + 1, z) !== BLOCK.AIR || w.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
+      return { x: x + 0.5, y: top + 1.02, z: z + 0.5, perch: true };
+    }
+    return null;
   }
 
   _physicsFly(m, dt, want) {
@@ -1074,6 +1173,9 @@ export class MobManager {
   _hurt(m, amount, dir, kb, byPlayer = false) {
     if (m.dead || m.invulnerable > 0 || amount <= 0) return false;
     if (byPlayer) m.lastPlayerHit = this.time;
+    // A calm crew member (just landed, looking around) that gets hit
+    // stops looking around: it (and its mates) fight back at once.
+    if (byPlayer && m.calmT > 0) this.wake(m);
     if (m.spec.hides && m.hide > 0.5) amount *= 0.5; // the shell takes most of it
     m.health -= amount;
     m.hurtTime = 0;
@@ -1268,6 +1370,10 @@ export class MobManager {
       m.attackCooldown -= dt;
       m.attack = Math.min(1, m.attack + dt / 0.35);
       m.stagger = Math.max(0, m.stagger - dt);
+      if (m.calmT > 0 && !m.dead) {
+        m.calmT -= dt;
+        if (m.calmT <= 0) this.wake(m);
+      }
       if (m.burst > 0) {
         m.burstT -= dt;
         if (m.burstT <= 0 && !m.dead) {
@@ -1290,7 +1396,7 @@ export class MobManager {
           this._remove(i);
           continue;
         }
-        if (m.spec.hostile && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
+        if (m.spec.hostile && !m.missionTarget && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
           this._remove(i);
           continue;
         }
@@ -1356,7 +1462,7 @@ export class MobManager {
 
   // Zombies burn in direct daylight.
   _daylight(m, dt, daylight) {
-    m.burning = m.spec.hostile && !m.spec.noBurn && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
+    m.burning = m.spec.hostile && !m.spec.noBurn && !m.fireproof && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
     if (!m.burning) return;
     m.burnTimer += dt;
     if (m.burnTimer >= 1) {
@@ -1407,6 +1513,7 @@ export class MobManager {
       hide: m.hide,
       attack: m.attack,
       aim: m.ai.target ? 1 : 0,
+      perch: m.perch ?? 0,
     });
   }
 }

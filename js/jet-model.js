@@ -1,4 +1,6 @@
-// A stealth fighter modelled on the F-22 Raptor, built from simple
+// Two fighters, built from simple procedural pieces: a stealth fighter
+// modelled on the F-22 Raptor (below) and a light fighter modelled on the
+// F-16 Fighting Falcon (buildF16Geometry). The Raptor, built from simple
 // procedural pieces in the game's style: an angular, chined fuselage lofted
 // from diamond-ish cross sections, a gold-tinted bubble canopy, caret
 // intakes, diamond wings, all-moving tailplanes, twin vertical tails canted
@@ -9,7 +11,8 @@
 // leading-edge flaps, engine nozzle petals, retractable landing gear (down
 // on the ground, folded away in the air), wingtip navigation lights and a
 // layered afterburner (white-hot core, orange plume, shock diamonds).
-// `paint`: "raptor" (the player's grey) or "enemy" (charcoal with red).
+// `paint`: "raptor" (the player's grey) or "enemy" (charcoal with red);
+// `type`: "f22" or "f16".
 //
 // Model space: nose toward -Z, up +Y, right +X; about 15 blocks long.
 import * as THREE from "three";
@@ -19,12 +22,20 @@ import { LAYER_FX } from "./layers.js";
 const PAINTS = {
   raptor: { grey: 0x6f777f, dark: 0x535a62, light: 0x8d959c, accent: 0x3a3e44, canopy: 0xb89a3c },
   enemy: { grey: 0x4a4e56, dark: 0x2c2f35, light: 0x60646e, accent: 0x8a1c1c, canopy: 0x8a3030 },
+  // The patrol fighters: slate blue-grey with a sand accent.
+  patrol: { grey: 0x56606c, dark: 0x3d4550, light: 0x6c7784, accent: 0xa8842a, canopy: 0x6f7c88 },
+  // The Falcon's two-tone air-superiority grey, a darker radome and a smoky gold canopy.
+  falcon: { grey: 0x87909a, dark: 0x656d76, light: 0xa3abb3, accent: 0x4a5058, canopy: 0x9c8a4c },
 };
 // The paint's surface: satin with a soft sheen (the sun and the moon glint
 // on it), panel lines in a staggered grid, and a subtle two-tone livery.
+// The skin: coating patches of slightly different shades, exhaust soot at
+// the tail, faint grime streaks along the airflow.
 const FINISH = {
-  raptor: { spec: 0.75, gloss: 42, env: 0.3, grain: 0.02, panel: 0.3, panelScale: 0.9, livery: 0.16, liveryScale: 0.26 },
-  enemy: { spec: 0.8, gloss: 50, env: 0.35, grain: 0.02, panel: 0.32, panelScale: 0.9, livery: 0.22, liveryScale: 0.3 },
+  raptor: { spec: 0.75, gloss: 42, env: 0.3, grain: 0.025, panel: 0.3, panelScale: 0.9, livery: 0.16, liveryScale: 0.26, skin: { tone: 0.09, soot: 0.45, sootZ: 5.2, streaks: 0.06 } },
+  enemy: { spec: 0.8, gloss: 50, env: 0.35, grain: 0.025, panel: 0.32, panelScale: 0.9, livery: 0.22, liveryScale: 0.3, skin: { tone: 0.08, soot: 0.4, sootZ: 5.2, streaks: 0.07 } },
+  patrol: { spec: 0.8, gloss: 48, env: 0.33, grain: 0.025, panel: 0.3, panelScale: 0.9, livery: 0.2, liveryScale: 0.28, skin: { tone: 0.08, soot: 0.4, sootZ: 5.2, streaks: 0.07 } },
+  falcon: { spec: 0.85, gloss: 55, env: 0.32, grain: 0.02, panel: 0.28, panelScale: 1.1, livery: 0.14, liveryScale: 0.3, skin: { tone: 0.07, soot: 0.5, sootZ: 4.6, streaks: 0.05 } },
 };
 let GREY = PAINTS.raptor.grey;
 let GREY_DARK = PAINTS.raptor.dark;
@@ -282,6 +293,169 @@ function buildGeometry(paint = "raptor") {
   return cachedByPaint[paint];
 }
 
+// The F-16 Fighting Falcon: a light single-engine fighter. A rounder
+// fuselage with a dorsal spine, the chin intake under the cockpit, a big
+// frameless bubble canopy, leading-edge root extensions blending into a
+// cropped-delta wing with missile rails on the tips, one tall fin, ventral
+// fins, all-moving tailplanes and a single round nozzle.
+function buildF16Geometry(paint = "falcon") {
+  const key = `f16:${paint}`;
+  if (cachedByPaint[key]) return cachedByPaint[key];
+  const pal = PAINTS[paint] || PAINTS.falcon;
+  const G = pal.grey;
+  const GD = pal.dark;
+  const parts = [];
+  const fus = loft([
+    section(-7.0, 0.02, 0.02, 0.02),
+    section(-6.3, 0.26, 0.24, 0.22),
+    section(-5.2, 0.44, 0.42, 0.38),
+    section(-4.2, 0.55, 0.52, 0.45),
+    section(-2.8, 0.66, 0.66, 0.55),
+    section(-1.2, 0.8, 0.74, 0.6, 0.05),
+    section(1.0, 0.9, 0.76, 0.62, 0.1),
+    section(3.2, 0.84, 0.7, 0.58, 0.06),
+    section(5.0, 0.7, 0.6, 0.55),
+    section(6.2, 0.56, 0.52, 0.52),
+  ]);
+  parts.push(colorize(fus, G, (x, y, z) => (y > 0.05 ? 1.04 : 0.88)));
+  // The chin intake: a rounded duct under the cockpit, with a dark mouth.
+  const intake = loft([
+    { z: -3.05, pts: [[0, -0.42], [0.5, -0.48], [0.6, -0.78], [0.46, -1.02], [0, -1.07], [-0.46, -1.02], [-0.6, -0.78], [-0.5, -0.48]] },
+    { z: -1.2, pts: [[0, -0.45], [0.52, -0.5], [0.6, -0.78], [0.46, -1.0], [0, -1.04], [-0.46, -1.0], [-0.6, -0.78], [-0.52, -0.5]] },
+    { z: 1.4, pts: [[0, -0.45], [0.42, -0.48], [0.46, -0.64], [0.34, -0.74], [0, -0.76], [-0.34, -0.74], [-0.46, -0.64], [-0.42, -0.48]] },
+  ]);
+  parts.push(colorize(intake, GD, (x, y, z) => (z < -2.9 ? 0.7 : 1)));
+  parts.push(colorize(new THREE.CircleGeometry(1, 16).scale(0.5, 0.26, 1).rotateY(Math.PI).translate(0, -0.76, -3.07), 0x0d0e11));
+  for (const s of [1, -1]) {
+    // Leading-edge root extension, blending the wing into the forebody.
+    const lerx = plate(
+      [
+        [s * 0.5, -4.0],
+        [s * 1.05, -1.4],
+        [s * 1.6, 0.3],
+        [s * 0.6, 0.4],
+      ],
+      0.08
+    );
+    lerx.translate(0, 0.04, 0);
+    parts.push(colorize(lerx, G, (x, y, z) => (y > 0 ? 1.02 : 0.86)));
+    // The cropped delta wing.
+    const wing = plate(
+      [
+        [s * 0.75, -0.6],
+        [s * 4.85, 2.3],
+        [s * 4.85, 3.2],
+        [s * 0.75, 3.4],
+      ],
+      0.12
+    );
+    wing.translate(0, -0.05, 0);
+    parts.push(colorize(wing, G, (x, y, z) => (y > -0.04 ? 1.02 : 0.84)));
+    // Flaperons and leading-edge flaps (darker strips).
+    parts.push(colorize(new THREE.BoxGeometry(3.2, 0.03, 0.3).translate(s * 2.6, -0.01, 3.2), GD));
+    parts.push(colorize(new THREE.BoxGeometry(4.8, 0.03, 0.18).rotateY(s * -0.62).translate(s * 2.8, 0.0, 0.85), GD));
+    // Wingtip rails, each with a white heat-seeking missile.
+    parts.push(colorize(new THREE.BoxGeometry(0.1, 0.12, 2.2).translate(s * 4.92, -0.06, 2.55), GD));
+    parts.push(colorize(new THREE.CylinderGeometry(0.075, 0.075, 2.6, 8).rotateX(Math.PI / 2).translate(s * 4.98, -0.2, 2.4), 0xdfe1e3));
+    parts.push(colorize(new THREE.ConeGeometry(0.075, 0.3, 8).rotateX(-Math.PI / 2).translate(s * 4.98, -0.2, 0.95), 0x3a3c40));
+    for (const r of [0, Math.PI / 2]) parts.push(colorize(new THREE.BoxGeometry(0.42, 0.02, 0.26).rotateZ(r).translate(s * 4.98, -0.2, 3.55), 0x9aa0a6));
+    // All-moving tailplanes.
+    const stab = plate(
+      [
+        [s * 0.62, 4.6],
+        [s * 3.0, 5.95],
+        [s * 3.0, 6.6],
+        [s * 0.62, 6.65],
+      ],
+      0.08
+    );
+    stab.translate(0, -0.12, 0);
+    parts.push(colorize(stab, G));
+    // Ventral fins under the tail, canted outward.
+    const ventral = plate(
+      [
+        [0, 3.9],
+        [0, 5.0],
+        [0.65, 4.95],
+        [0.65, 4.45],
+      ],
+      0.05
+    );
+    ventral.rotateZ(-Math.PI / 2);
+    ventral.rotateZ(s * 0.5);
+    ventral.translate(s * 0.42, -0.45, 0);
+    parts.push(colorize(ventral, GD));
+    // Speed brakes beside the nozzle.
+    parts.push(colorize(new THREE.BoxGeometry(0.5, 0.06, 0.9).translate(s * 0.72, 0.02, 5.75), GD));
+  }
+  // The tall single fin, with a rudder line, a tail flash and an antenna fairing.
+  const fin = plate(
+    [
+      [0, 2.5],
+      [0, 6.1],
+      [3.15, 6.35],
+      [3.15, 5.25],
+    ],
+    0.1
+  );
+  fin.rotateZ(Math.PI / 2);
+  fin.translate(0, 0.55, 0);
+  parts.push(colorize(fin, G, () => 0.98));
+  parts.push(colorize(new THREE.BoxGeometry(0.13, 1.9, 0.05).translate(0, 1.75, 5.72), GD));
+  parts.push(colorize(new THREE.BoxGeometry(0.12, 0.55, 0.9).translate(0, 2.6, 5.7), pal.accent));
+  parts.push(colorize(new THREE.BoxGeometry(0.14, 0.14, 0.9).translate(0, 3.66, 6.1), GD));
+  // The round nozzle with its petals and a dark throat.
+  parts.push(colorize(new THREE.CylinderGeometry(0.46, 0.54, 1.1, 16, 1, true).rotateX(Math.PI / 2).translate(0, 0, 6.72), 0x3a3d42));
+  parts.push(colorize(new THREE.CircleGeometry(0.44, 16).translate(0, 0, 7.2), 0x0c0d0f));
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    parts.push(colorize(new THREE.BoxGeometry(0.2, 0.03, 0.5).rotateZ(a + Math.PI / 2).translate(Math.cos(a) * 0.48, Math.sin(a) * 0.48, 7.1), 0x2a2d32));
+  }
+  // Radome, pitot probe, the gun port on the left shoulder, AoA probes and antennas.
+  parts.push(colorize(new THREE.ConeGeometry(0.26, 1.3, 10).rotateX(-Math.PI / 2).translate(0, 0, -6.55), pal.accent));
+  parts.push(colorize(new THREE.CylinderGeometry(0.022, 0.022, 1.0, 5).rotateX(Math.PI / 2).translate(0, 0, -7.6), 0xb8bcc2));
+  parts.push(colorize(new THREE.BoxGeometry(0.06, 0.18, 0.5).translate(-0.7, 0.38, -2.4), 0x15171a));
+  for (const s of [1, -1]) parts.push(colorize(new THREE.CylinderGeometry(0.014, 0.02, 0.3, 4).rotateZ(s * 1.2).translate(s * 0.38, 0.05, -5.5), 0xb8bcc2));
+  for (const z of [-0.2, 2.4]) parts.push(colorize(new THREE.BoxGeometry(0.03, 0.26, 0.36).translate(0, -0.78, z), GD));
+  parts.push(colorize(new THREE.BoxGeometry(0.03, 0.2, 0.3).translate(0, 0.86, 1.2), GD));
+  // The canopy's rear frame, the pilot and the seat.
+  parts.push(colorize(new THREE.TorusGeometry(1, 0.035, 5, 20, Math.PI).scale(0.46, 0.55, 1).translate(0, 0.5, -2.05), 0x2b2e33));
+  parts.push(colorize(new THREE.BoxGeometry(0.4, 0.55, 0.3).translate(0, 0.62, -3.25), 0x202226));
+  parts.push(colorize(new THREE.SphereGeometry(0.16, 10, 8).translate(0, 0.98, -3.45), 0x9ca2a8));
+  parts.push(colorize(new THREE.SphereGeometry(0.13, 10, 8).scale(1, 0.7, 0.6).translate(0, 0.98, -3.57), 0x121417));
+  const hull = merge(parts);
+  const canopy = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  canopy.scale(0.46, 0.55, 1.65);
+  canopy.translate(0, 0.5, -3.65);
+  cachedByPaint[key] = { hull, canopy, pal };
+  return cachedByPaint[key];
+}
+
+// Where the working parts sit on each airframe: gear legs, nozzles (with the
+// flame's radius), navigation and formation lights, the cockpit glow.
+const LAYOUTS = {
+  f22: {
+    nose: { at: [0, -0.5, -4.6], wheels: [-0.13, 0.13], r: 0.2, len: 0.65 },
+    main: { at: [1.6, -0.45, 2.0], r: 0.3, len: 0.6 },
+    nozzles: [[0.62, -0.02, 7.62, 0.34], [-0.62, -0.02, 7.62, 0.34]],
+    nav: [[-6.6, -0.05, 2.0], [6.6, -0.05, 2.0], [-3.6, 2.2, 6.4], [3.6, 2.2, 6.4]],
+    strips: [[1.72, 0.05, 0.8, 0], [2.3, 1.4, 5.3, 0.49]],
+    cockpit: [0, 0.7, -4.2],
+    length: 15.2,
+    span: 13.2,
+  },
+  f16: {
+    nose: { at: [0, -0.98, -2.4], wheels: [0], r: 0.19, len: 0.18 },
+    main: { at: [1.05, -0.62, 1.0], r: 0.28, len: 0.45 },
+    nozzles: [[0, 0, 7.25, 0.42]],
+    nav: [[-5.05, -0.06, 1.3], [5.05, -0.06, 1.3], [0, 3.8, 6.4], [0, -0.82, 5.0]],
+    strips: [[0.84, 0.12, -0.9, 0], [0.08, 2.0, 5.3, 0]],
+    cockpit: [0, 0.74, -4.0],
+    length: 14.8,
+    span: 10.3,
+  },
+};
+
 // Landing gear: strut, wheel(s) and a door plate, hanging down from a pivot
 // at the origin (the strut's top). Returns { group, wheelGeo shared }.
 function gearLeg(wheels, wheelR, len, spread) {
@@ -316,6 +490,8 @@ function flameTexture() {
 }
 
 let flameTex = null;
+const NAV_SIZE = 0.32; // navigation light sprites (blocks)
+const STROBE_SIZE = 0.28;
 
 let glowTex = null;
 function softGlowTexture() {
@@ -335,8 +511,10 @@ function softGlowTexture() {
 
 // Creates a jet model: { root, light, setThrottle(throttle, afterburner, t),
 // setGear(0-1, 1 = down), setLights(t, night) }.
-export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
-  const { hull, canopy, pal } = buildGeometry(paint);
+export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {}) {
+  const L = LAYOUTS[type] || LAYOUTS.f22;
+  if (type === "f16" && paint === "raptor") paint = "falcon";
+  const { hull, canopy, pal } = type === "f16" ? buildF16Geometry(paint) : buildGeometry(paint);
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.scale.setScalar(scale);
@@ -362,25 +540,28 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
     body.add(m);
     return m;
   };
-  const noseGeo = gearLeg([-0.13, 0.13], 0.2, 0.65, 0.5);
-  const mainGeo = gearLeg([0], 0.3, 0.6, 0.5);
-  const gear = { nose: mkGear(noseGeo, 0, -0.5, -4.6), left: mkGear(mainGeo, -1.6, -0.45, 2.0), right: mkGear(mainGeo, 1.6, -0.45, 2.0) };
+  const noseGeo = gearLeg(L.nose.wheels, L.nose.r, L.nose.len, 0.5);
+  const mainGeo = gearLeg([0], L.main.r, L.main.len, 0.5);
+  const [mx, my, mz] = L.main.at;
+  const gear = { nose: mkGear(noseGeo, ...L.nose.at), left: mkGear(mainGeo, -mx, my, mz), right: mkGear(mainGeo, mx, my, mz) };
+  const noseY = L.nose.at[1];
   let gearT = 1;
   // Afterburner flames: layered additive cones out of each nozzle.
   if (!flameTex) flameTex = flameTexture();
   const flames = [];
-  for (const s of [1, -1]) {
+  for (const [nx, ny, nz, nr] of L.nozzles) {
+    const k = nr / 0.34;
     // Wide at the nozzle (z = 0), tapering to a point behind (z = 1).
-    const cone = new THREE.ConeGeometry(0.34, 1, 12, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+    const cone = new THREE.ConeGeometry(nr, 1, 12, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
     const mat = new THREE.MeshBasicMaterial({ map: flameTex, color: new THREE.Color(3, 2, 1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true });
     const flame = new THREE.Mesh(cone, mat);
-    flame.position.set(s * 0.62, -0.02, 7.62);
+    flame.position.set(nx, ny, nz);
     flame.layers.set(LAYER_FX);
     flame.renderOrder = 12;
     body.add(flame);
     // The white-hot core inside the plume.
-    const core = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1, 10, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 4.2, 5), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true }));
-    core.position.set(s * 0.62, -0.02, 7.62);
+    const core = new THREE.Mesh(new THREE.ConeGeometry(0.2 * k, 1, 10, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 4.2, 5), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true }));
+    core.position.set(nx, ny, nz);
     core.layers.set(LAYER_FX);
     core.renderOrder = 13;
     body.add(core);
@@ -390,20 +571,20 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
       const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color: new THREE.Color(3.2, 3.4, 5), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
       d.layers.set(LAYER_FX);
       d.visible = false;
-      d.position.set(s * 0.62, -0.02, 8.4 + i * 0.95);
+      d.position.set(nx, ny, nz + 0.8 + i * 0.95);
       body.add(d);
       diamonds.push(d);
     }
     // A hot glowing disc inside the nozzle, and a soft halo behind it.
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.4).rotateY(Math.PI), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 1.2, 0.5), fog: true }));
-    glow.position.set(s * 0.62, -0.02, 7.6);
+    const glow = new THREE.Mesh(type === "f16" ? new THREE.CircleGeometry(nr * 0.95, 16) : new THREE.PlaneGeometry(0.7, 0.4).rotateY(Math.PI), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 1.2, 0.5), fog: true, side: THREE.DoubleSide }));
+    glow.position.set(nx, ny, nz - 0.02);
     body.add(glow);
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color: new THREE.Color(2, 1.1, 0.5), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
     halo.layers.set(LAYER_FX);
-    halo.position.set(s * 0.62, -0.02, 7.9);
-    halo.scale.setScalar(1.5);
+    halo.position.set(nx, ny, nz + 0.28);
+    halo.scale.setScalar(1.2);
     body.add(halo);
-    flames.push({ flame, core, glow, halo, diamonds });
+    flames.push({ flame, core, glow, halo, diamonds, k });
   }
   // Navigation lights: red (left) and green (right) wingtips, white tail strobes.
   const navSprite = (color, x, y, z, size) => {
@@ -414,24 +595,26 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
     body.add(sp);
     return sp;
   };
-  const nav = [navSprite(new THREE.Color(4, 0.2, 0.2), -6.6, -0.05, 2.0, 0.9), navSprite(new THREE.Color(0.2, 4, 0.3), 6.6, -0.05, 2.0, 0.9), navSprite(new THREE.Color(4, 4, 4.5), -3.6, 2.2, 6.4, 0.8), navSprite(new THREE.Color(4, 4, 4.5), 3.6, 2.2, 6.4, 0.8)];
+  // (Small points of light: a real navigation light is a pinpoint, not a
+  // glowing ball; the bloom does the rest.)
+  const nav = [navSprite(new THREE.Color(2.4, 0.15, 0.15), ...L.nav[0], NAV_SIZE), navSprite(new THREE.Color(0.15, 2.4, 0.2), ...L.nav[1], NAV_SIZE), navSprite(new THREE.Color(2.6, 2.6, 3), ...L.nav[2], STROBE_SIZE), navSprite(new THREE.Color(2.6, 2.6, 3), ...L.nav[3], STROBE_SIZE)];
   // Formation ("slime") lights: soft green strips on the fuselage sides and
   // the tails, and the cockpit's dim instrument glow; night only too.
-  const stripGeo = new THREE.PlaneGeometry(0.08, 0.9);
-  const stripMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 1.6, 0.5), fog: true, side: THREE.DoubleSide });
+  const stripGeo = new THREE.PlaneGeometry(0.05, 0.7);
+  const stripMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 1.0, 0.35), fog: true, side: THREE.DoubleSide });
   const strips = [];
   for (const s of [1, -1]) {
-    for (const [x, y, z, rz] of [[1.72, 0.05, 0.8, 0], [2.3, 1.4, 5.3, -s * 0.49]]) {
+    for (const [x, y, z, cant] of L.strips) {
       const m = new THREE.Mesh(stripGeo, stripMat);
       m.rotation.set(Math.PI / 2, s > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
-      m.rotation.z = rz;
+      m.rotation.z = -s * cant;
       m.position.set(s * x, y, z);
       m.layers.set(LAYER_FX);
       body.add(m);
       strips.push(m);
     }
   }
-  const cockpitGlow = navSprite(new THREE.Color(0.15, 0.5, 0.25), 0, 0.7, -4.2, 0.9);
+  const cockpitGlow = navSprite(new THREE.Color(0.1, 0.35, 0.18), ...L.cockpit, 0.4);
   // Off until setLights says it is night.
   for (const o of [...nav, ...strips, cockpitGlow]) o.visible = false;
   return {
@@ -440,14 +623,15 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
     light,
     hull: hullMesh,
     canopy: canopyMesh,
-    length: 15.2 * scale,
-    span: 13.2 * scale,
+    type,
+    length: L.length * scale,
+    span: L.span * scale,
     // throttle 0-1; afterburner: long, bright blue-white flames.
     setThrottle(throttle, afterburner, t) {
       for (const f of flames) {
         const flicker = 0.9 + Math.sin(t * 43 + f.flame.position.x * 7) * 0.1;
         const len = afterburner ? 5.6 + Math.sin(t * 31) * 0.5 : 0.4 + throttle * 1.8;
-        f.flame.scale.set(afterburner ? 1.15 : 0.8, afterburner ? 1.15 : 0.8, len * flicker);
+        f.flame.scale.set(afterburner ? 1.15 : 0.8, afterburner ? 1.15 : 0.8, len * flicker * (0.7 + 0.3 * f.k));
         f.flame.visible = throttle > 0.05 || afterburner;
         f.flame.material.color.setRGB(afterburner ? 2.2 : 3, afterburner ? 2.2 : 1.6, afterburner ? 3.2 : 0.8);
         f.flame.material.opacity = afterburner ? 1 : 0.35 + throttle * 0.5;
@@ -457,13 +641,13 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
         for (let i = 0; i < f.diamonds.length; i++) {
           const d = f.diamonds[i];
           d.visible = afterburner;
-          if (afterburner) d.scale.setScalar((0.55 - i * 0.09) * (0.85 + 0.25 * Math.sin(t * 60 + i * 2)));
+          if (afterburner) d.scale.setScalar((0.5 - i * 0.08) * f.k * (0.85 + 0.25 * Math.sin(t * 60 + i * 2)));
         }
         const g = 0.4 + throttle * 1.6 + (afterburner ? 2 : 0);
         f.glow.material.color.setRGB(g * 1.3, g * 0.6, g * 0.3);
         f.halo.visible = throttle > 0.05;
         f.halo.material.color.setRGB(g * 0.8, g * 0.4, g * 0.25 + (afterburner ? 0.5 : 0));
-        f.halo.scale.setScalar(1.2 + throttle * 1.2 + (afterburner ? 1.6 : 0));
+        f.halo.scale.setScalar((0.9 + throttle * 0.8 + (afterburner ? 1.1 : 0)) * f.k);
       }
     },
     // 1 = wheels down (on the ground, taking off), 0 = folded away.
@@ -475,7 +659,7 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
       gear.nose.rotation.x = (1 - down) * 1.5;
       gear.left.rotation.z = (1 - down) * -1.4;
       gear.right.rotation.z = (1 - down) * 1.4;
-      gear.nose.position.y = -0.5 + (1 - down) * 0.2;
+      gear.nose.position.y = noseY + (1 - down) * 0.2;
     },
     get gear() {
       return gearT;
@@ -487,15 +671,15 @@ export function createJetModel(scale = 1, { paint = "raptor" } = {}) {
       const k = Math.min(1, (dark - 0.3) / 0.25);
       const strobe = (t % 1.2) < 0.08 || ((t % 1.2) > 0.4 && (t % 1.2) < 0.47);
       nav[0].visible = nav[1].visible = on;
-      nav[0].material.color.setRGB(4 * k, 0.2 * k, 0.2 * k);
-      nav[1].material.color.setRGB(0.2 * k, 4 * k, 0.3 * k);
+      nav[0].material.color.setRGB(2.4 * k, 0.15 * k, 0.15 * k);
+      nav[1].material.color.setRGB(0.15 * k, 2.4 * k, 0.2 * k);
       nav[2].visible = nav[3].visible = on && strobe;
       for (const m of strips) m.visible = on;
-      stripMat.color.setRGB(0.3 * k, 1.6 * k, 0.5 * k);
+      stripMat.color.setRGB(0.2 * k, 1.0 * k, 0.35 * k);
       cockpitGlow.visible = on;
       // The ambient fill (so the jet reads as a shape in the dark) is a night thing.
       hullMat.uniforms.uFill.value = 0.08 + 0.5 * dark;
-      cockpitGlow.material.color.setRGB(0.15 * k, 0.5 * k, 0.25 * k);
+      cockpitGlow.material.color.setRGB(0.1 * k, 0.35 * k, 0.18 * k);
     },
     get lightsOn() {
       return nav[0].visible;
