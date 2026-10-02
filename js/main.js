@@ -624,7 +624,11 @@ ufos.onShotDown = (u, byPlayer) => {
     hooks.onUfoDown?.(u);
     audio.playNotice();
     // The wreck and its crew are loot (Survival): what falls out gets better as you go.
-    if (!player.creative && mods.enabled) dropLoot(rollLoot("ufo", u.size, progressTier(), ownedItems()), u.pos);
+    if (!player.creative && mods.enabled) {
+      const loot = rollLoot("ufo", u.size, progressTier(), ownedItems());
+      if (u.absorbed) giveLoot(loot);
+      else dropLoot(loot, u.pos);
+    }
   }
 };
 ufos.onAbductPlayer = () => {
@@ -930,8 +934,23 @@ function dropLoot(list, at) {
   }
   if (list.length) stats.add("lootDropped", list.length);
 }
+// Loot that goes straight into the hold (a ship swallowed by the player's tractor beam).
+function giveLoot(list) {
+  for (const [id, n] of list) {
+    const left = inventory.add(id, n);
+    if (left > 0) entities.spawn(id, left, player.position.clone().add(new THREE.Vector3(0, 1, 0)));
+  }
+  if (list.length) {
+    stats.add("lootDropped", list.length);
+    toast(`Into the hold: ${list.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ")}`, 3);
+  }
+}
 hooks.onEnemyJetDown = (jet) => {
-  if (!player.creative && mods.enabled) dropLoot(rollLoot("enemyjet", null, progressTier(), ownedItems()), jet.pos.clone().setY(Math.max(jet.pos.y - 2, 3)));
+  if (!player.creative && mods.enabled) {
+    const loot = rollLoot("enemyjet", null, progressTier(), ownedItems());
+    if (jet.absorbedBy) giveLoot(loot);
+    else dropLoot(loot, jet.pos.clone().setY(Math.max(jet.pos.y - 2, 3)));
+  }
 };
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
@@ -2345,7 +2364,7 @@ const missileWarnTextEl = missileWarnEl.querySelector(".mw-text");
 const _lockV = new THREE.Vector3();
 function updateJetOverlay() {
   const v = vehicles.active;
-  const o = v?.type === "jet" && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
+  const o = (v?.type === "jet" || v?.type === "ufo") && v.overlay && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
   const place = (el, p) => {
     el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
     el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;

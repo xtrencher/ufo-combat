@@ -482,6 +482,144 @@ await check("jet: the salvo charges over the lock (pips and charge reported), th
 });
 
 
+// ================= Part 5: UFOs =================
+
+const newShip = (radius = 14, y = 100) =>
+  v((g, o) => {
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    g.ufos.clear();
+    const p = g.player.position;
+    const ship = g.vehicles.create("ufo", { design: "saucer", seed: 7, radius: o.radius, pos: [p.x, o.y, p.z], yaw: 0 });
+    g.vehicles.enter(ship);
+    window.__ship = ship;
+    return true;
+  }, { radius, y });
+
+await check("UFOs have no altitude limit: a piloted ship climbs to 6000, an enemy UFO keeps its height", async () => {
+  await newShip(7, 200);
+  const r = await v((g) => {
+    const ship = window.__ship;
+    const dt = 1 / 60;
+    g.player.keys.add("Space");
+    for (let t = 0; t < 4; t += dt) g.vehicles.update(dt);
+    g.player.keys.delete("Space");
+    const out = { climbed: Math.round(ship.pos.y) };
+    ship.pos.y = 6000;
+    for (let t = 0; t < 1; t += dt) g.vehicles.update(dt);
+    out.high = Math.round(ship.pos.y);
+    g.vehicles.exit({ force: true });
+    // An enemy one at 2500 is not pushed down.
+    g.setMode("creative");
+    g.testFlags.noMissions = true;
+    g.ufos.config.activity = 0;
+    g.ufos.clear();
+    const p = g.player.position;
+    const u = g.ufos.spawn({ pos: new g.THREE.Vector3(p.x + 40, 2500, p.z), size: "medium" });
+    for (let t = 0; t < 3; t += dt) g.ufos.update(dt);
+    out.enemy = Math.round(u.pos.y);
+    g.ufos.clear();
+    return out;
+  });
+  assert(r.climbed > 205, `climbed ${JSON.stringify(r)}`);
+  assert(r.high >= 5990 && r.enemy > 2300, JSON.stringify(r));
+});
+
+await check("player UFO beam: works at altitude (floating beam), swallows a smaller UFO, ignores a bigger one", async () => {
+  await newShip(14, 3000);
+  const r = await v((g) => {
+    g.testFlags.noMissions = true;
+    g.ufos.config.activity = 0;
+    const ship = window.__ship;
+    const p = ship.pos;
+    const small = g.ufos.spawn({ pos: new g.THREE.Vector3(p.x + 1, p.y - 60, p.z + 1), size: "small" });
+    const big = g.ufos.spawn({ pos: new g.THREE.Vector3(p.x + 3, p.y - 90, p.z), size: "giant" });
+    small.hostile = false;
+    small.radius = 4;
+    big.radius = 40;
+    const down0 = g.stats.world.ufosDown;
+    g.vehicles.input.buttons[2] = true;
+    const dt = 1 / 60;
+    let y0 = small.pos.y;
+    let swallowed = false;
+    for (let t = 0; t < 14 && !swallowed; t += dt) {
+      g.vehicles.update(dt);
+      g.ufos.update(dt);
+      small.pos.x = small.pos.x; // (the beam moves it)
+      if (small.state === "gone") swallowed = true;
+    }
+    const out = { beamOn: ship.beam.on, floating: ship.beam.floating, swallowed, bigStill: big.state !== "gone" && !big.captured, counted: g.stats.world.ufosDown - down0 };
+    g.vehicles.input.buttons[2] = false;
+    g.vehicles.exit({ force: true });
+    g.ufos.clear();
+    return out;
+  });
+  assert(r.beamOn && r.floating && r.swallowed && r.bigStill && r.counted >= 1, JSON.stringify(r));
+});
+
+await check("player UFO beam: an enemy jet in the beam is pulled in and swallowed (and counts as down)", async () => {
+  await newShip(14, 1500);
+  const r = await v((g) => {
+    g.testFlags.noMissions = true;
+    const ship = window.__ship;
+    const p = ship.pos;
+    const jet = g.vehicles.create("jet", { pos: [p.x, p.y - 70, p.z + 2], yaw: 0, airborne: true, speed: 0, throttle: 0 });
+    jet.isEnemyJet = true;
+    g.vehicles.input.buttons[2] = true;
+    const dt = 1 / 60;
+    const d0 = jet.pos.distanceTo(ship.pos);
+    let gone = false;
+    let minD = d0;
+    for (let t = 0; t < 14 && !gone; t += dt) {
+      g.vehicles.update(dt);
+      minD = Math.min(minD, jet.pos.distanceTo(ship.pos));
+      if (!jet.alive) gone = true;
+    }
+    g.vehicles.input.buttons[2] = false;
+    g.vehicles.exit({ force: true });
+    return { d0: Math.round(d0), minD: Math.round(minD), gone, absorbed: !!jet.absorbedBy };
+  });
+  assert(r.gone && r.absorbed && r.minD < r.d0 * 0.5, JSON.stringify(r));
+});
+
+await check("player UFO: holding T locks a UFO and, after 3 s, fires a salvo of homing laser bolts that hit it", async () => {
+  await newShip(14, 400);
+  const r = await v((g) => {
+    g.testFlags.noMissions = true;
+    g.ufos.config.activity = 0;
+    const ship = window.__ship;
+    const p = ship.pos;
+    g.vehicles.camYawHack = true;
+    ship.camYaw = 0;
+    ship.camPitch = 0;
+    const target = g.ufos.spawn({ pos: new g.THREE.Vector3(p.x, p.y, p.z - 220), size: "large" });
+    target.hostile = false;
+    const hp0 = target.health;
+    g.player.keys.add("KeyT");
+    const dt = 1 / 60;
+    let locked = false;
+    for (let t = 0; t < 3.4; t += dt) {
+      g.vehicles.update(dt);
+      g.lasers.update(dt);
+      g.ufos.update(dt);
+      target.pos.set(p.x, p.y, p.z - 220);
+      if (ship.lockOn.t >= 1) locked = true;
+    }
+    g.player.keys.delete("KeyT");
+    const fired = g.lasers.bolts.length;
+    for (let t = 0; t < 3; t += dt) {
+      g.lasers.update(dt);
+      g.ufos.update(dt);
+      g.vehicles.update(dt);
+    }
+    const out = { locked, fired, cool: ship.lockOn.cool > 1, dmg: Math.round(hp0 - target.health) };
+    g.vehicles.exit({ force: true });
+    g.ufos.clear();
+    return out;
+  });
+  assert(r.locked && r.fired >= 4 && r.cool && r.dmg > 0, JSON.stringify(r));
+});
+
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

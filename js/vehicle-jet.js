@@ -152,6 +152,7 @@ export class Jet extends Vehicle {
     this.throttle = Number.isFinite(data.throttle) ? data.throttle : 0;
     this.afterburner = false;
     this.brake = false;
+    this.beamHeld = 0; // seconds left in a UFO's tractor beam
     this.rollAcc = 0; // signed roll (rad) done recently, fading over ROLL_EVADE_WINDOW
     this.rollEvadeT = 0; // cooldown of the roll evasion
     this.airbrake = 0; // 0-1: how far the air brakes are open (Space held in the air: panels / control surfaces, a lot of drag)
@@ -472,6 +473,20 @@ export class Jet extends Vehicle {
       this._updateMissiles(dt);
       this._updateFlares(dt);
       this._updateWreck(dt);
+      return;
+    }
+    // Held in a UFO's tractor beam: no flying, drawn along by the beam (it sets `vel`).
+    if (this.beamHeld > 0) {
+      this.beamHeld -= dt;
+      this.afterburner = false;
+      this.throttle = Math.max(0, this.throttle - dt);
+      this.q.multiply(_q.setFromAxisAngle(Z, 0.9 * dt)).normalize();
+      this.angVel.set(0, 0, 0);
+      this.pos.addScaledVector(this.vel, dt);
+      this._updateMissiles(dt);
+      this._updateFlares(dt);
+      this._place();
+      this.model.setThrottle(this.throttle, false, this.time);
       return;
     }
     const cfg = this.cfg;
@@ -1755,6 +1770,13 @@ export class Jet extends Vehicle {
     this.queued.length = 0;
     this.lock.holding = false;
     this.lock.follow = null;
+    if (this.absorbedBy) {
+      // Swallowed by a tractor beam: a flash, no wreck, no blast.
+      fx.glow.spawn({ x: this.pos.x, y: this.pos.y, z: this.pos.z, life: 0.5, size0: 14, size1: 2, color0: new THREE.Color(0.5, 1.2, 2), alpha: 0.9 });
+      this.root.visible = false;
+      this.removeAt = 0.2;
+      return;
+    }
     const ground = mgr.groundBelow(this.pos.x, this.pos.y, this.pos.z);
     const inAir = !this.onGround && cause !== "crash" && this.pos.y - GEAR - ground > 8;
     if (!inAir) {

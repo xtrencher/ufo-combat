@@ -689,7 +689,9 @@ export class UfoManager {
         step = Math.min(0.2, u.lazy);
         u.lazy = 0;
       }
-      if (u.falling) this._fall(u, step);
+      if (u.captured && this._updateCaptured(u, step)) {
+        // held in the player's tractor beam: no thinking, no shooting
+      } else if (u.falling) this._fall(u, step);
       else this._think(u, step, tgt, dist);
       if (u.beam) {
         // The beam always hangs from the ship: it follows it, and goes out
@@ -710,6 +712,46 @@ export class UfoManager {
     // One engine hum for the nearest UFO.
     this.lastHum = humD;
     if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
+  }
+
+  // A UFO held by the player's tractor beam: the beam sets its pull velocity
+  // each frame; it tumbles, stops fighting, and is let go (angry) when the
+  // beam lets go or its ship is lost.
+  _updateCaptured(u, dt) {
+    const c = u.captured;
+    if (!c.by.alive || c.by.beam.strength < 0.3 || this.time - c.last > 0.4 || u.falling || u.state === "gone") {
+      u.captured = null;
+      u.pullVel = null;
+      if (!u.falling && u.state !== "gone") this.anger(u, 60);
+      return false;
+    }
+    if (!u.heldFlag) {
+      u.heldFlag = true;
+      this._stopWeapons(u);
+      if (u.beam?.on) u.beam.set(false);
+    }
+    u.vel.copy(u.pullVel);
+    u.pos.addScaledVector(u.vel, dt);
+    u.yaw += dt * 2.2;
+    u.lastSeen = this.time;
+    return true;
+  }
+
+  // Swallowed by the player's ship: gone in a flash, counted as shot down (its
+  // loot goes straight into the hold).
+  absorb(u, ship) {
+    if (u.state === "gone" || u.falling) return;
+    this._stopWeapons(u);
+    const fx = this.effects;
+    const col = u.model?.halo?.material?.color || new THREE.Color(0.5, 1.2, 2);
+    fx.glow.spawn({ x: u.pos.x, y: u.pos.y, z: u.pos.z, life: 0.5, size0: u.radius * 2.2, size1: u.radius * 0.3, color0: col, alpha: 0.9 });
+    for (let i = 0; i < 14; i++) fx.glow.spawn({ x: u.pos.x + rand(-1, 1) * u.radius, y: u.pos.y + rand(-0.5, 0.5) * u.radius, z: u.pos.z + rand(-1, 1) * u.radius, vx: rand(-4, 4), vy: rand(2, 9), vz: rand(-4, 4), life: rand(0.4, 0.9), size0: 0.4, size1: 0.05, color0: col, gravity: -0.2, drag: 1.5 });
+    u.absorbed = true;
+    u.byPlayer = true;
+    u.captured = null;
+    u.state = "gone";
+    this.onMessage?.(`Swallowed a ${u.size} UFO!`);
+    if (this.onShotDown) this.onShotDown(u, true);
   }
 
   _remove(i) {
@@ -776,7 +818,7 @@ export class UfoManager {
     const d = rand(minDist, Math.max(minDist + 1, maxDist));
     const to = new THREE.Vector3(u.pos.x + Math.cos(a) * d, 0, u.pos.z + Math.sin(a) * d);
     const ground = this._groundAt(to.x, to.z) + u.info.bottom * u.radius + 6;
-    to.y = Math.min(320, Math.max(ground, u.pos.y + rand(-30, 40)));
+    to.y = Math.max(ground, u.pos.y + rand(-30, 40));
     const len = to.distanceTo(u.pos);
     u.dash = { from: u.pos.clone(), to, t: 0, dur: THREE.MathUtils.clamp(len / 1100, 0.06, 0.2), last: u.pos.clone() };
     u.blinkT = rand(15, 60);
@@ -1120,7 +1162,7 @@ export class UfoManager {
         if (u.vel.y < 0) u.vel.y = 0;
       }
     }
-    if (u.state !== "leave" && u.pos.y > 320 + u.radius) u.vel.y = Math.min(u.vel.y, 0);
+    // (No ceiling: UFOs fly as high as they like. Round 6)
     const before = u.pos.y - u.info.bottom * u.radius;
     u.pos.addScaledVector(u.vel, dt);
     // Crossing the sea surface: a splash.
@@ -1716,7 +1758,6 @@ export class UfoManager {
       dir.y += Math.sin(t * 1.3) * 0.25;
       const ground = this._minAltitude(u, 8);
       if (u.pos.y < ground + 10) dir.y = Math.abs(dir.y) + 0.3;
-      if (u.pos.y > 260) dir.y = -Math.abs(dir.y);
       dir.normalize().multiplyScalar(topSpeed);
       u.vel.lerp(dir, Math.min(1, dt * 1.6));
       // Parting shots now and then.
