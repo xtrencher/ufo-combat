@@ -1613,7 +1613,7 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - [x] 3.3 Water crash: sink, explode on seabed, aliens spawn in water, head to player
 - [x] 3.4 Persistence: rare retreat
 - [x] 3.5 Abducted animals vanish inside the UFO
-- [ ] 3.6 Hangar UFOs hidden in bunkers, armed guards, late-mission boarding
+- [x] 3.6 Hangar UFOs hidden in bunkers, armed guards, late-mission boarding
 
 ## Part 4: UFO piloting
 - [x] 4.1 Faster dash, random dash speed per UFO
@@ -1635,17 +1635,17 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - [x] 6.6 Realistic nuke mushroom cloud
 
 ## Part 7: World and graphics
-- [ ] 7.1 Craters in LOD terrain
-- [ ] 7.2 Cities with skyscrapers, bigger mountains
-- [ ] 7.3 Bigger, varied airports
-- [ ] 7.4 Shorter ultra grass
-- [ ] 7.5 Breakable grass, no floating grass after explosions
-- [ ] 7.6 Natural see-through leaves
-- [ ] 7.7 Subtle walking view bob
-- [ ] 7.8 Supply drops on solid ground, new crate and ropes
+- [x] 7.1 Craters in LOD terrain
+- [x] 7.2 Cities with skyscrapers, bigger mountains
+- [x] 7.3 Bigger, varied airports
+- [x] 7.4 Shorter ultra grass
+- [x] 7.5 Breakable grass, no floating grass after explosions
+- [x] 7.6 Natural see-through leaves
+- [x] 7.7 Subtle walking view bob
+- [x] 7.8 Supply drops on solid ground, new crate and ropes
 
 ## Part 8: Missions and defaults
-- [ ] 8.1 The Long Night at night, eventful
+- [x] 8.1 The Long Night at night, eventful
 - [ ] 8.2 Re-check mission chain and difficulty
 - [x] 8.3 Defaults: Medium, 15 chunks, volume 30%
 
@@ -1684,3 +1684,13 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - Part 6: items: the shield is gone entirely (item id 296 reserved, off-hand slot, raising, audio, HUD, README); armor in four materials (leather, gold, iron, diamond) x four pieces (ids 300-315) with classic defense points (leather 1/3/2/1, gold 2/5/3/1, iron 2/6/5/2, diamond 3/8/6/3; 4% less damage per point, up to 80%), wear (they lose durability on hits and break), four armor slots in the inventory (click, shift-click, or right click the piece in hand), an armor bar of ten chestplates above the hearts, auto-equip when the slot is free, an Armor tab in the Creative palette, drops from zombies (4.5%), skeletons (6%), guards (35%), green/gray/blue/red aliens (7/9/9/14%) with the material by mission tier and creature (leather early, diamond only late and rare). Armor does nothing against falls, drowning, void, starvation, crashes, abduction or the nuke.
 - Part 6.1: the bow draws through three pull stages (3 sprites: limbs bend, string and nocked arrow come back), the bow is raised in front of you with the arrow toward the crosshair while nocking, trembles at full draw; a fuller draw gives faster, flatter, harder arrows (as before: 16-58 b/s, 2-9 damage). 6.2: the laser blaster has no magazine and no reload and fires continuously (about 4.5 bolts/s) for 3 damage a bolt (the pistol: 5). 6.3: the pistol fires a real bullet (240 b/s, tracer) from the muzzle, aimed at what is under the crosshair.
 - Part 6.6 nuke: the cloud is planned puff by puff (stem, rolling torus cap with a bright rim, dome, a collar of vapour under the cap, a white condensation ring racing out, glowing fire inside) and driven analytically (smooth, cheap), orange early and grey-brown later, thinning out over the last minute (125 s in all); puff counts follow the intensity setting and the effects quality of the graphics preset (fewer, bigger puffs on Low); the cloud pools do not use distance fog (it is seen from beyond the view distance).
+- Part 3.6 bunkers: instead of ships sitting in open hangars, airports (35% of fields, 60% regional, 95% international) hide an underground bunker: a trench ramp (15 wide) drops from the apron to a tunnel and a 25x22 hall with lumen ceiling lights; a yard with walls, a watch tower and a guard hut marks it from outside. `sites.bunkerSpots` gives the hall floor (the alien ship hovers there, nose out, small designs only), a restricted zone (46 blocks) and 4-6 guard posts (top of the ramp, foot of the ramp, inside). `airports.js` sets them out with the airport (guards via `mobs.spawnGuard`, put away with it), retries a bunker whose chunks have not loaded yet (they can lie far from the apron), shows a "Restricted area" toast on the first alarm, and boarding stays locked by the existing `canBoard` until mission 15. Guards: 22 health, rifle (1.5 damage, 2.3 s cooldown), posted until the player enters the zone or shoots one; the alarm spreads to the guards nearby for 25 s. Balance: a guard squad is lethal for a player who runs into the hall at low level, but they are only dangerous inside the zone and never chase far; the ship cannot be boarded before the Salvage mission anyway.
+- Part 7.1: world.queueEdit records edits for chunks that are not loaded (`lodDirty`), and the LOD system re-meshes the affected tiles on its next flush, so a nuke crater or a big blast shows in the distant terrain too.
+- Part 7.2: mountains are bigger (ridge frequency 1/340, amplitude 104, snow line 98; columns over 100 blocks went from 1.6% to 5.4%); cities have lots of four kinds (park, house, midrise, skyscraper) with multi-box setbacks, curtain-wall windows, antennas and street lamps; the biggest cities (international) reach 80 blocks.
+- Part 7.3: airports come in three sizes (field: half-length 150, regional 200, international 250; runway 14-20 wide), with an apron, 2-4 hangars, tower, terminal, fuel tanks, radar and parking. Sites are placed on an 800-block grid with up to 16 tries each, so one is within ~1300 blocks of the spawn for about 5 in 8 worlds and within 2600 for all (a bigger footprint means fewer sites fit than before: this is the trade-off for variety). `airports.runwayNear` reports the real half length.
+- Part 7.4: Ultra grass is shorter (blade scale 0.68 -> 0.46, tall tufts 1.4 -> 1.1 per block), High 1.0 -> 0.72.
+- Part 7.5: grass is breakable: a left click at the ground (swing/mining a block top) clears the tufts in a 1.2 block radius, and explosions clear the plants within radius + 2.5 (cap 30) so none hover over a crater; cleared columns stay bare for 150 s. The plants themselves are always rebuilt from the real blocks when a chunk is re-meshed, so nothing can float over a missing block.
+- Part 7.6: leaf textures have more see-through gaps (28% instead of 17%; birch 30%), a texture-only change (no extra geometry or shader cost).
+- Part 7.7: a subtle step bob in first person (about 2 cm vertical, 1 cm sideways, a hair of roll; 1.4x when sprinting; eased in and out; none when scoped/dead); the aim and raycasts use the eye position without bob.
+- Part 7.8: supply drops only come down on dry land (7 sample columns 4 blocks around must be above the sea, the ground solid and not wet; the search tries 16 directions on 5 widening rings and gives up rather than dropping in water). New crate: planks with seams, steel brackets and bands, a lighter lid, a white plate with a red cross on every side, and four lifting eyes; eight cords run from the eyes to points exactly on the canopy's rim (they were floating below the canopy before).
+- Part 8.1 Long Night: when the mission starts the clock runs 30x to dusk (a frozen clock is unfrozen: dawn would never come); a night is dusk 19:30 to dawn 5:30 (about 250 s). Three alien landing parties arrive at 35, 105 and 170 s (3, 4 and 5 aliens, grays and greens, on open ground ~70 blocks away, marked on the HUD) on top of the usual zombies and UFO scouts. A death restarts the night from dusk (instead of waiting a whole day for the next one).

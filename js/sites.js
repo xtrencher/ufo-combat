@@ -429,7 +429,7 @@ export class SiteGrower {
     const [vx, vz] = this.dirV(site);
     const yaw = Math.atan2(-vx, -vz);
     return (site.bunkers || []).map((b) => {
-      const floorY = site.y - (BUNKER_RAMP >> 1) + 1;
+      const floorY = site.y - (BUNKER_RAMP >> 1) + 2; // (feet: on top of the floor block)
       const cvh = (b.hv0 + b.hv1) / 2;
       const [x, z] = this.toWorld(site, b.uc, cvh);
       const at = (u, v, y) => {
@@ -437,7 +437,7 @@ export class SiteGrower {
         return { x: wx + 0.5, y, z: wz + 0.5 };
       };
       const top = site.y + 1;
-      const guards = [at(b.uc - 9, b.rv0 - 3, top), at(b.uc + 9, b.rv0 - 3, top), at(b.uc - 5, b.hv0 + 2, floorY), at(b.uc + 5, b.hv0 + 2, floorY)];
+      const guards = [at(b.uc - 9, b.rv0 + 3, top), at(b.uc + 9, b.rv0 + 3, top), at(b.uc - 5, b.hv0 + 2, floorY), at(b.uc + 5, b.hv0 + 2, floorY)];
       if (site.size === "international") guards.push(at(b.uc - 9, cvh + 6, floorY), at(b.uc + 9, cvh + 6, floorY));
       const [zx, zz] = this.toWorld(site, b.uc, (b.cv0 + b.cv1) / 2);
       return { id: b.id, x: x + 0.5, y: floorY, z: z + 0.5, yaw, zone: { x: zx + 0.5, z: zz + 0.5, r: 46 }, guards };

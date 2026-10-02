@@ -18,7 +18,7 @@ Open the game (see **Running locally** below). The main menu flies slowly
 over your world at sunset while UFOs drift by. **Click one to shoot it**: a
 few hits and it blows up (the next one comes by sooner). The menu shows a
 live **FPS** counter; if it runs poorly it suggests a lower graphics preset.
-The default preset is **Ultra**; anything you choose is saved and always wins.
+The default preset is **Medium** (render distance 15 chunks, master volume 30%); anything you choose is saved and always wins.
 
 - **Play / Continue** enters the world (the last world you played is
   continued; pick **Survival** or **Creative** with the two cards under the
@@ -61,7 +61,7 @@ mode, your position, inventory and health.
 | Sneak (slow, won't walk off edges) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
 | Place a block / use / eat (hold to eat) / fire the weapon in hand | Right click |
-| Raise the shield in your off hand (with a sword, a tool or an empty hand) | Hold right click |
+| Wear a piece of armor (when it is in your hand) | Right click |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Select hotbar slot | `1`-`9` or scroll wheel |
@@ -98,12 +98,13 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   their ingots directly.
 - **Caves and ores:** caves wind underground with coal, iron, gold and, deep
   down, diamonds. Glowing lumen crystals grow on deep cave ceilings.
-- **The shield** lives in its own **off-hand** slot (next to the hotbar;
-  right click with a shield in hand puts it there). Hold right click with a
-  sword, a tool or an empty hand to raise it: it blocks every hit from the
-  front half (arrows, lasers, melee, explosions) and none from behind, and
-  wears by 1 + the damage it stopped until it breaks. Falls, drowning and
-  fire go through.
+- **Armor** (Round 5; the shield is gone): four slots (head, chest, legs,
+  feet) in four tiers (leather, gold, iron, diamond). Every defense point
+  turns away 4% of the damage (up to 80%), the HUD shows an armor bar, and
+  every hit wears each piece. Pick a piece up with its slot free and it is
+  worn at once; right click one in your hand, or use the armor row in the
+  inventory. Aliens, UFOs, supply crates and bunker guards drop armor, better
+  the further the mission chain has got. Falls, drowning and fire go through.
 - **Dying** shows a big red **NOOB!** with the cause. You drop everything
   where you died and respawn at the world spawn with full health.
 
@@ -122,7 +123,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   | 3 | Supply drop | Open the supply crate dropped for you: the **pistol** | 3 apples |
   | 4 | First contact | Shoot down a small scout UFO | Golden apple |
   | 5 | The crew | Kill the aliens that climb out of the wreck | Golden apple, 2 apples |
-  | 6 | The long night | Survive a night, dusk to dawn, without dying | Golden apple, 4 apples |
+  | 6 | The long night | The clock jumps ahead to dusk: survive the night (about 4 minutes) without dying; three alien landing parties come. A death restarts the night | Golden apple, 4 apples |
   | 7 | Laser patrol | Wipe out a landed green patrol; its leader carries the **laser blaster** | Golden apple |
   | 8 | Scout hunter | Shoot down three UFOs | 2 golden apples |
   | 9 | Gray squad | Wipe out a gray squad; its leader carries the **laser minigun** | 2 golden apples |
@@ -150,7 +151,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   - **Supply crates** (the first one with mission 3, then every few minutes
     after it): a standard weapon you don't have yet while any are left, the
     lower ones first as the chain unlocks them (pistol; grenades, machine
-    gun, shield; sniper rifle; bazooka; airstrike designator), plus golden
+    gun, armor; sniper rifle; bazooka; airstrike designator), plus golden
     apples, food and sometimes a tool.
   - **Aliens:** their leaders (missions 7, 9 and 14) carry the alien
     weapons: laser blaster, laser minigun, railgun. Later on ordinary aliens
@@ -188,8 +189,7 @@ a note warns next to the heavy values.
 ### Weapons (Mods on)
 
 Survival starts with a sword (weapons come from the lanes above); Creative
-has them all (the hotbar first, the rest in the inventory, the shield in the
-off hand). With one selected, right click uses it instead of placing a
+has them all (the hotbar first, the rest in the inventory). With one selected, right click uses it instead of placing a
 block. Ammo is unlimited, but every gun has a **magazine and a reload
 time**, shown next to the hotbar (with a bar while it reloads). An empty
 magazine reloads by itself; `R` reloads early. Reloads carry on while you
@@ -203,17 +203,19 @@ hold something else.
 | Sniper rifle | 1 | 1.8 s |
 | Grenade | 1 | 1.4 s |
 | Bazooka | 1 | 3 s |
-| Laser blaster | 18 | 2 s |
+| Laser blaster | none: fires continuously | - |
 | Railgun | 1 | 3.5 s |
 | Airstrike designator | 1 | 25 s |
 | Laser minigun | overheats after about 4 s of fire | cools in 3 s |
 
-- **Bow:** hold right click to draw (about a second for full power; a quick
+- **Bow:** hold right click to draw (the bow visibly bends and the arrow
+  is pulled back in stages; about a second for full power, a quick
   release is a weak shot), let go to shoot. Arrows fly in an arc and stick
   where they land.
 
-- **Pistol:** hitscan shots with a muzzle flash and recoil. Bullets spark and
-  leave holes in blocks, and hurt and push back creatures.
+- **Pistol:** real bullets (fast projectiles, 240 blocks/s) with a muzzle
+  flash and recoil. Bullets spark and leave holes in blocks, and hurt and
+  push back creatures.
 - **Grenade:** hold right click to charge the throw (the bar under the
   crosshair fills in about 1.5 s), release to throw. A quick click lobs it a
   few blocks, a full charge about 25. It bounces and rolls, blinks, and
@@ -228,17 +230,15 @@ hold something else.
   climbing recoil.
 - **Sniper rifle:** right click scopes in (a zoomed view through a scope),
   left click fires a long-range, high-damage shot.
-- **Laser blaster:** short glowing sci-fi bolts in red, green or blue
+- **Laser pistol (blaster):** short glowing sci-fi bolts in red, green or blue
   (**Settings > Weapons**) that glow, spark on impact and leave scorch marks.
-  Hold right click for repeat fire.
+  Hold right click for continuous fire: it never reloads, but each bolt is
+  weaker (3) than a pistol round (5).
 - **Railgun:** hold right click for about a second (glowing coils, a rising
   whine), then one extremely bright beam that **destroys every block along
   its line** and hits every creature, UFO and vehicle in it, very hard.
 - **Laser minigun:** hold right click: the barrels spin up for a second, then
   a huge stream of laser bolts.
-- **Shield:** a classic wood-and-iron shield for the **off hand** (see
-  **Survival basics**): hold right click behind a sword to raise it. It
-  blocks everything from the front and nothing from behind, and wears out.
 - **Airstrike designator:** aim its laser and right click. After the delay a
   shower of meteors screams in at an angle from high up and far away: each
   one has a glowing, white-hot core, a heat glow, a fiery tail and a long
@@ -258,7 +258,9 @@ UFOs roam the skies anywhere from treetop height to high overhead. They are
 lights, panels or portholes): **smooth saucers** are the most common (lens,
 flat disc and gently domed, each with its own proportions), then **gray-black
 spheres** with a grainy surface, **white tic-tacs**, **tori** (rings), rounded
-**cubes** and square **cube-rings**. Finishes vary: brushed metal, satin,
+a large flat black **triangle** with dim lights at the corners, plus the
+odd **boomerang** and **cylinder** (real-sighting shapes: they fly along their
+long axis). Finishes vary: brushed metal, satin,
 glossy, matte. A few glow faintly (a soft light at night); a UFO that has
 been shot down never glows again. Sizes run from small scouts through large
 ships and motherships to **giants as big as a football field**. They
@@ -291,7 +293,9 @@ follows how far you can see), and there are far more of them at night.
 - **Shot down:** its lights go out and it falls. Over land it crashes, and
   then either **explodes into a burnt-out wreck** (unusable) or **lands in
   one piece**, embedded in the ground, and can be boarded with **F** and
-  flown (damaged, but it works). Over the sea it sinks below the surface.
+  flown (damaged, but it works). The crash explosion scales with the ship's
+  size. Over the sea it **sinks and explodes on the seabed**; its crew
+  spawns in the water and swims for you.
   Between **1 and 10 aliens** climb out (more from bigger ships), all of one
   kind per ship: **green** ones with pistols, **gray** ones with fast
   three-shot bursts, or tough **red** ones with plasma. Their shots leave
@@ -325,7 +329,9 @@ the world, including the one you're sitting in.
 ### Your UFO
 
 Board a UFO that came down in one piece, or one of the small ships that
-sometimes hover in **airport hangars** (in Survival both from mission 15,
+sometimes hover in the hall of a **secured underground bunker** at an
+airport (armed human guards stand watch and open fire when you enter the
+restricted zone; in Survival boarding works from mission 15,
 "Salvage"; before that they are locked), or in Creative spawn one from the
 **Mods** screen (any shape and size). It has no physics limits: it hovers
 perfectly still and moves instantly in any direction. The camera keeps the
@@ -341,8 +347,9 @@ ship low in the view so the crosshair is always clear.
 | Boost (3x) | `Ctrl` |
 | The ship's own weapon (what its kind fires: rapid bursts, heavy plasma, spread fans, charged shots, a sweeping beam, seeker plasma or pulse bolts; bigger ships hit harder) | Left click |
 | Tractor beam (lifts creatures, and loose blocks, into the ship) | Hold right click |
-| **Teleport dash**: the ship streaks along the view at extreme speed (a split second; distance, travel time or off in Settings > Vehicles; shown in the I panel). **Hold** `R` to keep streaking, with no distance limit | `R` |
-| **Superweapon**: after a short charge, a huge laser straight down that burns a shaft through the ground | `B` |
+| **Teleport dash**: the ship streaks along the view at extreme speed (a split second; distance, travel time or off in Settings > Vehicles; shown in the I panel). **Hold** `R` to keep streaking, with no distance limit. Every ship has its own random dash speed (about 900-3500 b/s) | `R` |
+| **Superweapon**: after a short charge, a huge laser straight down; hold the ship moving and it carves a continuous trench along its path | `B` |
+| **Ghost mode** (fly through terrain; shown in the HUD) | `G` |
 | Chase camera / far / belly view | `F5` |
 | Stats and controls | `I` |
 
@@ -371,27 +378,37 @@ around (or **Settings > Vehicles > Called-in jet arrives airborne** is on),
 it arrives in the air with you already in the cockpit. Airports also have
 fighters (both kinds) parked in front of the hangars: walk up and press **F**.
 
-It flies like a jet (the flight model of the first UFO COMBAT build): thrust
-from the throttle (and the afterburner), lift that needs airspeed, drag,
-gravity, and a stall below the stall speed (the nose drops). It can't hover.
-**Takeoff is a real ground roll**: full throttle, about 120 blocks on the
-wheels for the F-22 and 90 for the F-16 (less with the afterburner), the
-nose rises at flying speed (flight assist does it for you), the wheels
-leave the ground and fold away; it works the same at any frame rate. Land gently, level and wheels first, gear down. Hitting
-the ground any other way destroys it, and you with it, unless you **eject**
-(F in the air: the seat fires you out and a parachute opens).
+It flies like a jet: the **throttle runs 0-100%** and your speed follows it
+(about 1000 km/h at 100%, a bit more with the afterburner), lift needs
+airspeed, drag, gravity, and a stall below the stall speed (the nose drops).
+It can't hover. **Takeoff is a real ground roll** and forgiving: full
+throttle, a few seconds on the wheels, the nose rises at flying speed (flight
+assist does it for you), the wheels leave the ground and fold away; small
+angles and imperfect runways are fine. **Landing is reliable**: come in
+level, wheels first, at a reasonable sink rate, and the jet rolls out; hold
+`Space` for the wheel brakes until it stops. On the ground, `S` at 0% throttle
+**reverses slowly**. A hard slam or a nose/wing-first hit still destroys it,
+and you with it, unless you **eject** (F in the air: the seat fires you out
+and a parachute opens). Both jets are agile: **full 360 degree rolls** (hold
+`A`/`D`; it stops cleanly when you let go) and **loops** work, with the aim
+and the jet handled as quaternions so nothing flips at the top. **Free look:
+hold both mouse buttons** to freeze the controls and look around freely; the
+ailerons, elevators and rudders on the model move with your inputs. A jet
+destroyed in the air blows up in a **big fireball** and its burning wreck
+falls and explodes again on impact. The engine sound is much quieter now.
 
 | Action | Key |
 | --- | --- |
 | Steer | Mouse (with **flight assist**, the default: fly toward the crosshair; the little nose marker shows where the jet points) |
 | Throttle up / down | `W` / `S` |
 | Afterburner | `Shift` |
-| Roll (flight assist banks at most about 65 degrees in a turn and levels off smoothly, without overshooting) | `A` / `D` |
+| Roll (full 360 degrees; flight assist banks at most about 65 degrees in a turn and levels off smoothly, without overshooting) | `A` / `D` |
+| Free look (the controls freeze, the mouse looks around) | Hold **both** mouse buttons |
 | Rudder (yaw) | `Q` / `E` |
-| Air brake / wheel brakes | `Space` |
+| Air brake / wheel brakes (reverse on the ground: `S` at 0%) | `Space` |
 | Autocannon (tracers) | Left click (aims a little for you; **overheats** after about two seconds: watch the heat bar) |
 | **Missile** | A **click** of right click fires one **unguided** missile straight ahead (also when there's nothing to lock) |
-| **Missile lock** | **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it. Release after **1 s** for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. After launch the **camera follows the target until the hit**; right click brings it back at once. Let go before LOCKED and nothing fires |
+| **Missile lock** | **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it. Release after **1 s** for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
 | **Flares** | `C` (a burst of decoys; they fool missiles and seeking shots, which may even turn on whoever fired them) |
 | Nuclear bomb | `B` (it drops on a parachute: get clear! No cooldown) |
 | Chase / cockpit view | `F5` |
@@ -405,7 +422,7 @@ INCOMING** with a red arrow around the crosshair pointing at where it comes
 from and a beeping that speeds up as it closes in. Missiles have a limited
 turn rate: **sharp turns (and flares) make them miss**. With flight assist
 off, the mouse is the stick (up/down pitch, left/right roll). **Settings >
-Vehicles:** top speed up to 2500 km/h (default about 580), acceleration, turn
+Vehicles:** top speed up to 2500 km/h (default about 1000), acceleration, turn
 rate, stall speed, flight assist, cannon aim assist, patrol fighters, and
 whether the jet arrives airborne.
 
@@ -522,17 +539,31 @@ comes alive with grass, reeds along the water, ferns in the shade of trees,
 and flowers.
 
 **Villages** (a few houses and a farm), and much bigger **airports and
-cities**, dot the land (usually one within about a thousand blocks of the
-start; **F3** shows the nearest). The land is levelled under them, distant
-terrain included:
+cities**, dot the land (usually one within about 1300 blocks of the start;
+**F3** shows the nearest). The land is levelled under them, distant terrain
+included. **Airports** come in three sizes (small field, regional,
+international) with runways from 300 to 500 blocks long and 14-20 wide, an
+apron, 2-4 hangars, a tower, a terminal, fuel tanks, a radar and parked
+fighters; many hide a **secured underground bunker** (a ramp down from the
+apron to a lit hall) with an alien ship inside and armed human guards who
+open fire when you enter the restricted zone. **Cities** have streets,
+parks, houses, mid-rise blocks and **skyscrapers** up to about 80 blocks with
+setbacks, glass walls and rooftop antennas. Mountains are bigger, with snow
+on the peaks. Supply crates are redesigned (planks, steel brackets, a red
+cross; cords tied from the crate to the parachute's rim) and only ever land
+on dry ground. Grass is shorter and **breakable** (a swing at the ground cuts
+it; explosions burn it away), the leaves are more see-through and the view
+sways a little with your steps. Craters, nuke craters included, show in the
+distant terrain too.
 
-- An **airport** has a 260-block dark runway with markings, threshold
-  stripes and edge lights that glow at night, a taxiway, an apron with three
-  hangars and fighters parked in front of them, a control tower and fuel
-  tanks, and a few villagers walking about.
-- A **city** is an airport with a grid of streets and buildings of all
-  heights next to it: towers with windows, floors and lit rooms, houses, and
-  a crowd of villagers.
+
+- An **airport** has a long dark runway with markings, threshold stripes and
+  edge lights that glow at night, an apron with hangars and fighters parked
+  in front of them, a control tower, a terminal, fuel tanks, a radar, a few
+  villagers walking about and, often, a guarded bunker.
+- A **city** is an airport with a grid of streets and lots of all kinds next
+  to it: skyscrapers with windows and lit rooms, mid-rise blocks, houses,
+  parks, street lamps, and a crowd of villagers.
 
 ## Sharing a world
 

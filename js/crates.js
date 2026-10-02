@@ -171,8 +171,8 @@ export class SupplyCrates {
   // A drop point near `dist` blocks from p on solid ground: tries a ring of
   // directions, then wider rings.
   _findLand(p, dist) {
-    for (let ring = 0; ring < 5; ring++) {
-      const d = dist * (1 + ring * 0.45);
+    for (const f of [1, 0.7, 0.45, 0.25, 1.45, 1.9, 2.8]) {
+      const d = dist * f;
       const a0 = Math.random() * Math.PI * 2;
       for (let k = 0; k < 16; k++) {
         const a = a0 + (k / 16) * Math.PI * 2;

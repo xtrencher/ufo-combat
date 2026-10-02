@@ -1375,6 +1375,72 @@ console.log("\nAirports and cities (sites.js)");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nRound 5: pathfinding and bunkers");
+{
+  const { Pathfinder } = await import("../js/pathfinding.js");
+  const { BLOCK } = await import("../js/blocks.js");
+  const { TerrainGenerator } = await import("../js/terrain.js");
+
+  await test("A* walks around a wall, climbs out of a pit with a big jump, and a creature that can only step 1 stays in", () => {
+    const Y = 10; // (ground level of the test world)
+    const blocks = new Map();
+    const set = (x, y, z, id) => blocks.set(`${x},${y + Y},${z}`, id);
+    for (let x = -30; x <= 30; x++) for (let z = -30; z <= 30; z++) { set(x, 0, z, BLOCK.STONE); set(x, -1, z, BLOCK.STONE); }
+    const world = { getBlock: (x, y, z) => blocks.get(`${x},${y},${z}`) ?? 0 };
+    // A wall 3 high from z = -10..10 at x = 5.
+    for (let z = -10; z <= 10; z++) for (let y = 1; y <= 3; y++) set(5, y, z, BLOCK.STONE);
+    const pf = new Pathfinder(world);
+    const r = pf.find([0, Y + 1, 0], { x: 10.5, y: Y + 1, z: 0.5 }, { h: 2, maxNodes: 4000 });
+    assert.ok(r.reached, "reached the far side");
+    assert.ok(r.path.every(([x, , z]) => !(x === 5 && z >= -10 && z <= 10)), "never through the wall");
+    assert.ok(r.path.length > 20, `a detour: ${r.path.length}`);
+    // A pit 2 deep (3x3): the rim is a rise of 2 from its floor.
+    for (let x = -20; x <= -18; x++) for (let z = -1; z <= 1; z++) { set(x, 0, z, 0); set(x, -1, z, 0); set(x, -2, z, BLOCK.STONE); }
+    const out = pf.find([-19, Y - 1, 0], { x: -10.5, y: Y + 1, z: 0.5 }, { h: 2, step: 2, maxNodes: 4000 });
+    assert.ok(out.reached, "an alien climbs out of the pit");
+    const stuck = pf.find([-19, Y - 1, 0], { x: -10.5, y: Y + 1, z: 0.5 }, { h: 2, step: 1, maxNodes: 600 });
+    assert.ok(!stuck.reached, "a creature that can only step 1 stays in");
+  });
+
+  await test("airport bunkers: deterministic spots, a hall below the apron with floor, guards, a zone, and a ramp down", () => {
+    const t = new TerrainGenerator(42);
+    let site = null;
+    for (let cz = -6; cz <= 6 && !site; cz++) for (let cx = -6; cx <= 6 && !site; cx++) {
+      const s = t.sites._site(cx, cz);
+      if (s && s.kind === "airport" && s.bunkers.length) site = s;
+    }
+    assert.ok(site, "an airport with a bunker exists");
+    const a = t.sites.bunkerSpots(site);
+    const b = t.sites.bunkerSpots(site);
+    assert.deepEqual(a, b);
+    const spot = a[0];
+    assert.ok(spot.guards.length >= 4 && spot.zone.r >= 40);
+    assert.ok(spot.y < site.y, "the hall lies below the surface");
+    const S = 16;
+    const chunks = new Map();
+    const blockAt = (wx, y, wz) => {
+      const cx = wx >> 4;
+      const cz = wz >> 4;
+      const key = `${cx},${cz}`;
+      if (!chunks.has(key)) {
+        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 128) };
+        t.generate(chunk);
+        chunks.set(key, chunk);
+      }
+      return chunks.get(key).blocks[(y * S + (wz & 15)) * S + (wx & 15)];
+    };
+    const hx = Math.floor(spot.x);
+    const hz = Math.floor(spot.z);
+    assert.notEqual(blockAt(hx, spot.y - 1, hz), 0, "a floor");
+    for (let k = 0; k < 6; k++) assert.equal(blockAt(hx, Math.floor(spot.y) + k, hz), 0, "air in the hall for the ship");
+    for (const g of spot.guards) {
+      assert.notEqual(blockAt(Math.floor(g.x), Math.floor(g.y) - 1, Math.floor(g.z)), 0, "guards stand on something");
+      assert.equal(blockAt(Math.floor(g.x), Math.floor(g.y), Math.floor(g.z)), 0, "and have room");
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 console.log("\nProgression (progression.js)");
 {
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
