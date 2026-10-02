@@ -1898,13 +1898,13 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 
 ## Group 8: Testing
 - [x] 8.1 tools/mp-tests.mjs: host + client in two headless pages via a local PeerServer: join by code, nicknames, movement sync, block change, hit, Dogfight scoring
-- [ ] 8.2 Local two-tab testing documented (and works with the tab in the background)
+- [x] 8.2 Local two-tab testing documented (and works with the tab in the background)
 
 ## Final polish
 - [ ] F.1 Regression pass (single-player unchanged)
 - [ ] F.2 Multiplayer review in two tabs (host/join, nicknames, Survival, Creative, Dogfight to the end, client leaving, host leaving)
 - [ ] F.3 Full test suite once
-- [ ] F.4 README "How to play with friends"
+- [x] F.4 README "How to play with friends"
 - [ ] F.5 PROGRESS summary, decisions, known issues (incl. no TURN), 10-minute MP test
 - [ ] F.6 "ROUND 7 COMPLETE", commit, push
 
