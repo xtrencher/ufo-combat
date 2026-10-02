@@ -348,7 +348,15 @@ export class VehicleManager {
   // F: board a vehicle nearby, or get out of the one you're in.
   toggle() {
     if (!this.enabled) return false;
-    if (this.active) return this.exit();
+    if (this.active) {
+      // (Online Dogfight: no getting out.)
+      const why = this.exitLocked?.();
+      if (why) {
+        this.onMessage?.(why);
+        return false;
+      }
+      return this.exit();
+    }
     const v = this.nearestEnterable();
     if (!v) return false;
     // (Survival: the game can hold a vehicle back, e.g. jets before their mission.)

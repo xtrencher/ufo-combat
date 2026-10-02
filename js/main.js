@@ -905,6 +905,11 @@ vehicles.onExit = () => {
 };
 vehicles.onPilotKilled = (cause, v) => {
   const shotDown = cause === "enemyjet" || cause === "enemymissile";
+  // (Online: shot down by another player lately, or crashed while they were on your tail.)
+  if (v.lastHitByPid && v.lastHitByPid !== net.pid && performance.now() - (v.lastHitByT ?? 0) < 12000) {
+    player.damage(9999, `pvp@${v.lastHitByPid}`, { pierce: true });
+    return;
+  }
   player.damage(9999, shotDown ? cause : v.type === "jet" ? (cause === "crash" ? "jet_crash" : "jet_down") : "ufo_down", { pierce: true });
 };
 vehicles.onPilotHurt = () => {
@@ -1018,8 +1023,10 @@ progress.onStart = (m) => {
 };
 // (testFlags.noMissions: the older test suites check UFO features without the mission chain.)
 const testFlags = { noMissions: false };
+// (Online Dogfight: no missions or supply drops while it lasts.)
+let survivalPaused = false;
 function refreshSurvivalSystems() {
-  const on = mods.enabled && !player.creative;
+  const on = mods.enabled && !player.creative && !survivalPaused;
   settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   progress.enabled = on && !testFlags.noMissions;
@@ -1358,11 +1365,12 @@ player.onDeath = (cause) => {
   if (invScreen.isOpen) invScreen.close();
   chord.reset();
   interaction.release();
-  dropEverything();
+  // (Dogfight: nothing to drop, and back in a jet in a moment, mouse and all.)
+  if (!mp.dogfight?.live) dropEverything();
   gameState = "dead";
   hud.showDeath(deathMessage(cause));
   mp.playerDied?.(cause, deathMessage(cause));
-  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  if (document.pointerLockElement === canvas && !mp.dogfight?.live) document.exitPointerLock();
   playerDirty = true;
 };
 
@@ -1413,7 +1421,12 @@ function respawn() {
   playerDirty = true;
   gameState = "paused";
   audio.ensureStarted();
-  requestLock();
+  // (Still holding the mouse, e.g. a Dogfight respawn: straight back in.)
+  if (document.pointerLockElement === canvas) {
+    gameState = "playing";
+    player.enabled = true;
+    ui.showHud(true);
+  } else requestLock();
 }
 hud.respawnBtn.addEventListener("click", respawn);
 
@@ -1432,7 +1445,13 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   if (!info.mirror) vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
   else if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer ? "explosion" : "explosion_other");
   // (Another player's blast that hurts or kills you: theirs, in the death message.)
-  if (info.mirror && info.by) source = `${source}@${info.by}`;
+  if (info.mirror && info.by) {
+    source = `${source}@${info.by}`;
+    if (vehicles.active && info.by !== net.pid && center.distanceTo(vehicles.active.pos) < radius * 2.5) {
+      vehicles.active.lastHitByPid = info.by;
+      vehicles.active.lastHitByT = performance.now();
+    }
+  }
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center
@@ -2423,6 +2442,11 @@ const game = {
       }
     }
     game.teleport(best ? best[0] + 0.5 : x, null, best ? best[1] + 0.5 : z);
+  },
+  // Dogfight online: missions and supply drops stop (and come back after).
+  setSurvivalPaused(on) {
+    survivalPaused = !!on;
+    refreshSurvivalSystems();
   },
   // The creative tools' "summon a UFO" (a guest asks the host: js/net/coop.js).
   summonUfo(kind, pos) {

@@ -250,7 +250,7 @@ export class MpMenus {
     this._hudT = 0.5;
     const mp = this.mp;
     const hud = $("mp-hud");
-    const show = mp.active && (this.game.gameState === "playing" || this.game.gameState === "inventory" || this.game.gameState === "dead");
+    const show = mp.active && !document.body.classList.contains("hud-off") && (this.game.gameState === "playing" || this.game.gameState === "inventory" || this.game.gameState === "dead");
     hud.classList.toggle("hidden", !show);
     if (!show) return;
     const net = mp.net;
@@ -260,6 +260,8 @@ export class MpMenus {
     const parts = [`${MODE_NAMES[mp.mode] || mp.mode} · Room ${net.code} · ${net.playerCount} player${net.playerCount === 1 ? "" : "s"}`];
     if (net.isClient) parts.push(`${lag} ms`);
     let html = `<div class="mp-chip">${parts.join(" · ")}</div>`;
+    const df = mp.dogfight?.hudLine();
+    if (df) html += `<div class="mp-chip">${df} · Tab: scores</div>`;
     if (net.isClient && silent > 3) html += `<div class="mp-chip warn">Connection to ${host?.nick ?? "the host"} is lagging (${Math.floor(silent)} s)...</div>`;
     else if (net.isClient && !mp.stateLoaded) html += `<div class="mp-chip">Receiving the world...</div>`;
     if (hud.innerHTML !== html) hud.innerHTML = html;

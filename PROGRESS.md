@@ -1887,9 +1887,9 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - [x] 5.3 Creative together (flight, spawning tools host-only or synced)
 
 ## Group 6: Dogfight mode
-- [ ] 6.1 Everyone in a jet, respawn in a jet nearby, no leaving the jet
-- [ ] 6.2 Player-vs-player damage (cannon, missiles), kills/deaths, scoreboard
-- [ ] 6.3 Host sets the death limit; match end: winner/loser screen for everyone, rematch
+- [x] 6.1 Everyone in a jet, respawn in a jet nearby, no leaving the jet
+- [x] 6.2 Player-vs-player damage (cannon, missiles), kills/deaths, scoreboard
+- [x] 6.3 Host sets the death limit; match end: winner/loser screen for everyone, rematch
 
 ## Group 7: Multiplayer menu
 - [ ] 7.1 Host / Join screens (room code, nickname), invite link, connection status
@@ -1917,4 +1917,5 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - Missiles: a player's missiles are judged by the shooter like their other shots (the target jet's flares are mirrored as decoys there, and its roll is measured from the received attitude, so flares and the roll evasion still work); the AI's missiles are the host's. The warning display of a jet also sees missiles fired on other machines at it.
 - Group 5 (`js/net/coop.js`): the host's mission director runs the one chain; its state (step, objectives, marker, boss bar, note) goes to the guests twice a second when it changes, and a finished mission ("misdone") gives every player the reward. The director now looks at every player: missions pause only when everyone is down, star fragments and runway landings count for anyone, and the long night starts over only when the whole group is down at once (a team wipe; one death is a respawn, not a restart, with friends still fighting). Guests report the stats only they can see (crates opened, take-offs, ships boarded). A guest gets a supply crate of their own during the supply-drop mission (crates are personal, like the loot). Group balance: per extra player 30% more UFOs, 25% more UFO health (the Overlord too) and 20% more health for hostile creatures, capped at 6 players.
 - Guests' things are kept by the host, in its world save, by nickname ("guests_<seed>", at most 24): inventory, armour, health, place. A guest who joins again has them back; a new guest starts next to the host. A dead guest can respawn next to the nearest friend on foot ("Respawn near Bob").
+- Group 6 (`js/net/dogfight.js`): the host runs the match (countdown, live, over) and the scores; everyone is put in an F-22 (the same jet for everyone: fair) on a ring 380 blocks around the arena (the host's position at the start), 150 blocks up, facing the middle; no getting out (F says so); after a death the player is back in a jet 3 s later without a menu (the mouse stays captured). The kill goes to the last player who hit the jet in the 12 s before it went down (so a crash with someone on your tail is their kill). A player at the death limit is out and watches (free flight, no weapons, not a target); the last one in wins (or the most kills if the last ones go down together). UFOs, enemy fighters, missions and supply drops are off during a Dogfight. Hold Tab for the scoreboard (also in co-op: players and pings).
 - In an online game nothing pauses: Esc only takes your hands off the controls (you can still fall and be hurt), and a hidden tab keeps simulating through a worker clock (20 Hz, without drawing).

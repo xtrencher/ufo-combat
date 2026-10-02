@@ -310,8 +310,9 @@ export class VehicleSync {
     if (cause === "explosion" || cause === "explosion_other") return false;
     const mine = cause === "player" || cause === "cannon" || cause === "beam" || cause === "missile" || cause === "pvp";
     if (!mine && !this.net.isHost) return false;
-    // Friendly fire is off in co-op: only Dogfight lets players hurt each other's aircraft.
-    if (mine && v.netOcc && this.mp.mode !== "dogfight") return false;
+    // Friendly fire is off in co-op: only Dogfight lets players hurt each other's aircraft
+    // (and not someone who is out of the match, watching).
+    if (mine && v.netOcc && (this.mp.mode !== "dogfight" || this.mp.dogfight?.watching)) return false;
     v.hurtTime = 0;
     this.net.toAll({ t: "vhit", nid: v.net.nid, dmg: Math.round(amount * 10) / 10, cause, by: this.net.pid });
     this.game.hud?.hitMarker?.();

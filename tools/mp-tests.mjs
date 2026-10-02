@@ -300,7 +300,9 @@ await check("the host's UFO appears on the client (a puppet, where the host has 
   hostUfoId = await v(host, (g, cp) => {
     g.ufos.config.activity = 0;
     for (const u of [...g.ufos.ufos]) u.state = "gone";
-    const u = g.ufos.spawn({ size: "small", pos: new g.THREE.Vector3(cp[0] + 22, cp[1] + 9, cp[2]) });
+    // Straight above the client (nothing in the way of the shot), out of reach of the ground.
+    const top = g.world.surfaceY(Math.floor(cp[0]), Math.floor(cp[2]));
+    const u = g.ufos.spawn({ size: "small", pos: new g.THREE.Vector3(cp[0] + 4, Math.max(cp[1], top) + 16, cp[2] + 3) });
     u.state = "trick";
     u.trick = "hover";
     u.timer = 999;
@@ -319,21 +321,25 @@ await check("the host's UFO appears on the client (a puppet, where the host has 
 
 await check("a hit: the client's pistol shot at the host's UFO is applied by the host", async () => {
   const before = await v(host, (g, id) => g.ufos.ufos.find((u) => u.id === id)?.health, hostUfoId);
-  // The client aims at the puppet and fires the real pistol.
-  await v(client, (g, id) => {
-    const u = g.mp.entities.ufoById.get(id);
-    const eye = g.player.getEyePosition();
-    const d = u.pos.clone().sub(eye);
-    g.player.yaw = Math.atan2(-d.x, -d.z);
-    g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
-    g.setMode("survival");
-    g.weapons.enabled = true;
-    g.weapons.firePistol();
-  }, hostUfoId);
-  const after = await until(host, (g, a) => {
-    const u = g.ufos.ufos.find((x) => x.id === a.id);
-    return u && u.health < a.before && { health: u.health, by: u.lastHitPid };
-  }, 15000, { id: hostUfoId, before });
+  // The client aims at the puppet and fires the real pistol (a few times if
+  // a shot goes wide: the ship drifts a little while it hovers).
+  let after = null;
+  for (let k = 0; k < 4 && !after; k++) {
+    await v(client, (g, id) => {
+      const u = g.mp.entities.ufoById.get(id);
+      const eye = g.player.getEyePosition();
+      const d = u.pos.clone().sub(eye);
+      g.player.yaw = Math.atan2(-d.x, -d.z);
+      g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+      g.setMode("survival");
+      g.weapons.enabled = true;
+      g.weapons.firePistol();
+    }, hostUfoId);
+    after = await until(host, (g, a) => {
+      const u = g.ufos.ufos.find((x) => x.id === a.id);
+      return u && u.health < a.before && { health: u.health, by: u.lastHitPid };
+    }, 5000, { id: hostUfoId, before });
+  }
   assert(after, `the host's UFO was not hurt (health ${before})`);
   const bobPid = await v(client, (g) => g.net.pid);
   assert(after.by === bobPid, `hit attributed to ${after.by}, not ${bobPid}`);
@@ -406,6 +412,55 @@ await check("only the host picks the mode: Creative for everyone, a guest can't 
   await v(host, (g) => g.mp.rules.setMode("survival"));
   const back = await until(client, (g) => g.player.mode === "survival", 10000);
   assert(back, "the client did not switch back to Survival");
+});
+
+await check("Dogfight: everyone in a jet, PvP hits, kills and deaths on the scoreboard, a winner and a loser", async () => {
+  // The host picks Dogfight and a death limit of 3 in the Multiplayer screen (the real controls).
+  await host.evaluate(() => {
+    const ui = window.__ufo.mp.ui;
+    ui.open();
+    const deaths = document.getElementById("mp-lobby-deaths");
+    deaths.value = "3";
+    deaths.dispatchEvent(new Event("change"));
+    const mode = document.getElementById("mp-lobby-mode");
+    mode.value = "dogfight";
+    mode.dispatchEvent(new Event("change"));
+  });
+  await play(host);
+  await play(client);
+  const inJets = await until(client, (g) => g.mp.mode === "dogfight" && g.vehicles.active?.type === "jet" && g.mp.dogfight.phase === "live" && g.mp.dogfight.deathLimit === 3, 30000);
+  assert(inJets, "the client is not in a jet in a live dogfight");
+  const hostJet = await until(host, (g) => g.vehicles.active?.type === "jet" && g.mp.dogfight.phase === "live", 20000);
+  assert(hostJet, "the host is not in a jet");
+  const bob = await v(client, (g) => g.net.pid);
+  // The host shoots the client's jet down, three times (each time the client is back in a jet after 3 s).
+  for (let round = 1; round <= 3; round++) {
+    const ok = await until(host, (g, pid) => {
+      const r = g.mp.players.get(pid);
+      const v = r?.vehicle;
+      if (!v || !v.alive || !v.puppet) return false;
+      // Cannon-like hits (the shooter's call, sent to the owner).
+      for (let k = 0; k < 6; k++) v.damage(60, "player", true);
+      return true;
+    }, 20000, bob);
+    assert(ok, `round ${round}: the host could not find the client's jet`);
+    const deaths = await until(host, (g, a) => (g.mp.dogfight.scores.get(a.pid)?.d ?? 0) >= a.round && g.mp.dogfight.scores.get(a.pid).d, 20000, { pid: bob, round });
+    assert(deaths, `round ${round}: the client's death was not counted`);
+    if (round < 3) {
+      const back = await until(client, (g) => !g.player.dead && g.vehicles.active?.type === "jet" && g.vehicles.active.alive, 20000);
+      assert(back, `round ${round}: the client was not put back in a jet`);
+    }
+  }
+  const scores = await v(host, (g, pid) => ({ host: g.mp.dogfight.scores.get(1), bob: g.mp.dogfight.scores.get(pid), phase: g.mp.dogfight.phase, winner: g.mp.dogfight.winner }), bob);
+  assert(scores.host.k === 3 && scores.bob.d === 3 && scores.bob.out, JSON.stringify(scores));
+  assert(scores.phase === "over" && scores.winner === 1, JSON.stringify(scores));
+  // Everyone sees the end: the client its defeat, the host its victory.
+  const cres = await until(client, () => !document.getElementById("mp-results").classList.contains("hidden") && document.getElementById("mp-result-big").textContent, 15000);
+  const hres = await until(host, () => !document.getElementById("mp-results").classList.contains("hidden") && document.getElementById("mp-result-big").textContent, 15000);
+  assert(cres === "DEFEAT" && hres === "VICTORY", `client ${cres}, host ${hres}`);
+  // The client's scoreboard shows the same numbers.
+  const board = await v(client, (g, pid) => ({ host: g.mp.dogfight.scores.get(1), me: g.mp.dogfight.scores.get(pid) }), bob);
+  assert(board.host.k === 3 && board.me.d === 3, JSON.stringify(board));
 });
 
 // ---------- Summary ----------
