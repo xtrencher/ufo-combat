@@ -26,6 +26,7 @@ import { RulesSync } from "./rules.js";
 import { EntitySync } from "./entities.js";
 import { CoopSync } from "./coop.js";
 import { Dogfight } from "./dogfight.js";
+import { ItemSync } from "./items.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -45,6 +46,7 @@ export class Multiplayer {
     this.entities = this.addModule(new EntitySync(this));
     this.coop = this.addModule(new CoopSync(this));
     this.dogfight = this.addModule(new Dogfight(this));
+    this.items = this.addModule(new ItemSync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);

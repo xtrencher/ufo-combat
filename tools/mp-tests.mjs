@@ -308,6 +308,35 @@ await check("explosions: a client's blast carves the crater on the host (as edit
 });
 
 let hostUfoId = null;
+await check("items handed over: what the client throws lands on the host's side, and only one player can pick it up", async () => {
+  const key = await v(client, (g) => {
+    g.setMode("survival");
+    if (g.player.dead) g.respawn();
+    g.inventory.slots[7] = { id: 10, count: 5 };
+    g.inventory.selected = 7;
+    g.interaction.dropSelected(true);
+    const it = g.entities.items.find((x) => x.shared && x.id === 10);
+    return it && it.shared;
+  });
+  assert(key, "the client's thrown stack is not shared");
+  const there = await until(host, (g, k) => g.mp.items.byKey.has(k), 10000, key);
+  assert(there, "the thrown stack never reached the host");
+  // Both reach for it at once: one gets it, the other doesn't (no copies).
+  const hostBefore = await v(host, (g) => g.inventory.slots.reduce((n, s) => n + (s && s.id === 10 ? s.count : 0), 0));
+  const clientBefore = await v(client, (g) => g.inventory.slots.reduce((n, s) => n + (s && s.id === 10 ? s.count : 0), 0));
+  await Promise.all([
+    v(host, (g, k) => g.entities.onPickup(g.mp.items.byKey.get(k)), key),
+    v(client, (g, k) => g.entities.onPickup(g.mp.items.byKey.get(k)), key),
+  ]);
+  const gone = await until(host, (g, k) => !g.mp.items.byKey.has(k), 10000, key);
+  const gone2 = await until(client, (g, k) => !g.mp.items.byKey.has(k), 10000, key);
+  assert(gone && gone2, "the stack is still lying around");
+  await sleep(500);
+  const hostGot = (await v(host, (g) => g.inventory.slots.reduce((n, s) => n + (s && s.id === 10 ? s.count : 0), 0))) - hostBefore;
+  const clientGot = (await v(client, (g) => g.inventory.slots.reduce((n, s) => n + (s && s.id === 10 ? s.count : 0), 0))) - clientBefore;
+  assert(hostGot + clientGot === 5 && (hostGot === 0 || clientGot === 0), `host got ${hostGot}, client got ${clientGot}`);
+});
+
 await check("the host's UFO appears on the client (a puppet, where the host has it)", async () => {
   const cpos = await v(client, (g) => g.player.position.toArray());
   hostUfoId = await v(host, (g, cp) => {

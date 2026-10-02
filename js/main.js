@@ -1379,11 +1379,14 @@ player.onDeath = (cause) => {
 function dropEverything() {
   const at = player.position.clone();
   at.y += 0.8;
-  for (const s of [...inventory.slots, ...inventory.armor]) {
-    if (!s) continue;
-    const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
-    entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
-  }
+  // (Online they land in everyone's world: a friend can bring them back.)
+  mp.items.share(() => {
+    for (const s of [...inventory.slots, ...inventory.armor]) {
+      if (!s) continue;
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
+      entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
+    }
+  });
   inventory.clear();
   markInventoryChanged();
 }

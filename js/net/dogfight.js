@@ -37,7 +37,7 @@ export class Dogfight {
     this.startAt = 0; // host time the fight starts
     this.winner = 0;
     this.match = 0;
-    this._respawnT = null;
+    this._respawnAt = null;
     this._sig = "";
     this._resultsShown = 0;
     this._tab = false;
@@ -126,7 +126,7 @@ export class Dogfight {
     }
     // A watcher (out of the match) gets their own mode back.
     if (this.watching) this._unwatch();
-    this._respawnT = null;
+    this._respawnAt = null;
     this.scores.clear();
     document.getElementById("mp-countdown").classList.add("hidden");
     document.getElementById("mp-results").classList.add("hidden");
@@ -256,7 +256,8 @@ export class Dogfight {
     const killer = m ? Number(m[1]) : 0;
     if (this.net.isHost) this._onDeath(HOST_PID, killer);
     else this.net.toHost({ t: "dfdeath", killer });
-    this._respawnT = RESPAWN_DELAY;
+    // (Real seconds: a slow computer's clamped frames don't stretch the wait.)
+    this._respawnAt = performance.now() + RESPAWN_DELAY * 1000;
   }
 
   update(dt) {
@@ -287,10 +288,10 @@ export class Dogfight {
     // In a jet, always (unless out, or watching the results).
     if ((this.phase === "countdown" || this.phase === "live") && !this.me?.out && g.gameState !== "start") {
       if (g.player.dead) {
+        if (!this._respawnAt) this._respawnAt = performance.now() + RESPAWN_DELAY * 1000;
         this._deathScreen(true);
-        this._respawnT = (this._respawnT ?? RESPAWN_DELAY) - dt;
-        if (this._respawnT <= 0) {
-          this._respawnT = null;
+        if (performance.now() >= this._respawnAt) {
+          this._respawnAt = null;
           this._putInJet(false);
         }
       } else if (!g.vehicles.active && g.gameState !== "start") {
@@ -385,7 +386,7 @@ export class Dogfight {
       note.classList.toggle("hidden", !on);
       if (on) {
         const s = this.me;
-        const text = `Back in a jet in ${Math.max(1, Math.ceil(this._respawnT ?? 0))}...  (deaths ${s ? s.d : 0}/${this.deathLimit})`;
+        const text = `Back in a jet in ${Math.max(1, Math.ceil(((this._respawnAt ?? 0) - performance.now()) / 1000))}...  (deaths ${s ? s.d : 0}/${this.deathLimit})`;
         if (note.textContent !== text) note.textContent = text;
       }
     }

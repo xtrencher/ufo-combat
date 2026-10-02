@@ -171,10 +171,11 @@ export class ItemEntities {
   _merge() {
     for (let i = 0; i < this.items.length; i++) {
       const a = this.items[i];
-      if (a.dur !== undefined || a.count >= maxStack(a.id)) continue;
+      // (Items shared online keep to themselves: each is one claim at the host.)
+      if (a.dur !== undefined || a.count >= maxStack(a.id) || a.shared) continue;
       for (let j = this.items.length - 1; j > i; j--) {
         const b = this.items[j];
-        if (b.id !== a.id || b.dur !== undefined) continue;
+        if (b.id !== a.id || b.dur !== undefined || b.shared) continue;
         if (a.pos.distanceToSquared(b.pos) > 0.8 * 0.8) continue;
         const room = maxStack(a.id) - a.count;
         const n = Math.min(room, b.count);
