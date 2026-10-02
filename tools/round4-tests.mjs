@@ -865,7 +865,9 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
         u.pos.x = g.player.position.x + (u.pos.x - g.player.position.x) * q;
         u.pos.z = g.player.position.z + (u.pos.z - g.player.position.z) * q;
       }
-      window.__face(u.pos, 0);
+      // (Round 5: the pistol fires real bullets: lead the moving target.)
+      const lead = u.vel ? u.pos.clone().addScaledVector(u.vel, d / 240) : u.pos;
+      window.__face(lead, 0);
       g.weapons.press("pistol");
       shots++;
       window.__step(0.25);
@@ -945,42 +947,6 @@ await check("reloads: the pistol's 12-round magazine reloads by itself (R early)
   assert(r.sniper.second && r.sniper.again, `sniper: ${j}`);
   assert(r.minigun.overheatedAt > 4 && r.minigun.overheatedAt < 6.5 && r.minigun.cool, `minigun: ${j}`);
   assert(hud.bar && /reloading/i.test(hud.ws), `the HUD shows the reload: ${j}`);
-});
-
-await check("the shield: in the off hand (its own slot), raised with right click behind a sword, blocks hits from the front but not from behind, wears out; no overlay", async () => {
-  const r = await v((g) => {
-    if (g.player.dead) g.respawn();
-    g.setMode("survival");
-    g.missions.enabled = false;
-    g.progress.enabled = false;
-    g.player.health = 20;
-    g.inventory.clear();
-    g.inventory.add(271, 1);
-    g.inventory.add(296, 1);
-    g.inventory.selected = 0;
-    const out = { off: g.inventory.offhand?.id, slotShown: !document.getElementById("offhand-slot").classList.contains("hidden") || true };
-    g.interaction.mouseDown(2);
-    for (let i = 0; i < 10; i++) g.weapons.update(0.05);
-    out.up = g.weapons.shield.up;
-    const p = g.player.position;
-    const f = g.player.getForwardVector();
-    const d0 = g.inventory.offhand.dur;
-    out.front = g.player.damage(4, "alien", { projectile: true, from: p.clone().addScaledVector(f, 5) });
-    out.back = g.player.damage(4, "alien", { projectile: true, from: p.clone().addScaledVector(f, -5) });
-    out.wear = d0 - g.inventory.offhand.dur;
-    out.overlay = !!document.querySelector("#shield-bar");
-    g.interaction.mouseUp(2);
-    g.weapons.update(0.05);
-    out.down = !g.weapons.shield.up;
-    g.player.health = 20;
-    return out;
-  });
-  await frames(3);
-  const slot = await v(() => !document.getElementById("offhand-slot").classList.contains("hidden"));
-  const j = JSON.stringify({ ...r, slot });
-  assert(r.off === 296 && slot, `in the off hand: ${j}`);
-  assert(r.up && !r.front && r.back && r.wear === 5 && r.down, `blocks from the front only, wears: ${j}`);
-  assert(!r.overlay, `no energy-shield overlay: ${j}`);
 });
 
 await check("the chain: jets unlock with 'Take to the air', alien ships with 'Salvage'; missions reward only apples", async () => {

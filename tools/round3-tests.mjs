@@ -700,8 +700,10 @@ await check("missions: the chain (19 missions in Round 4) from a pistol scout to
   });
   assert(kill <= 9, `about eight pistol shots (under a magazine) bring it down: ${kill}`);
   await play();
-  const m2 = await until((g) => g.progress.mission?.id === "crew" && g.progress.mission.id, 30000);
-  assert(m2 === "crew", "the crew mission follows");
+  // (Software rendering runs few frames a second: let the scout fall and crash by stepping the UFOs.)
+  await v((g) => { for (let i = 0; i < 400 && g.ufos.ufos.some((u) => u.falling); i++) g.ufos.update(0.05); });
+  const m2 = await until((g) => g.progress.mission?.id === "crew" && g.progress.mission.id, 60000);
+  assert(m2 === "crew", `the crew mission follows: ${JSON.stringify(await v((g) => ({ down: g.stats.world.ufosDown, step: g.progress.step, id: g.progress.mission?.id, dead: g.player.dead, state: g.gameState, en: g.progress.enabled, ufos: g.ufos.ufos.map((u) => ({ st: u.state, fall: u.falling, y: Math.round(u.pos.y), vy: Math.round(u.vel.y), splashed: u.splashed, ground: g.world.heightAt(Math.floor(u.pos.x), Math.floor(u.pos.z)), chunk: !!g.world.getChunk(Math.floor(u.pos.x) >> 4, Math.floor(u.pos.z) >> 4) })) })))}`);
   // Mission 3: a supply crate drops for you.
   await v((g) => {
     g.progress.step = 2;

@@ -181,12 +181,12 @@ try {
     await page.waitForTimeout(1500);
   });
 
-  await check("default graphics preset is Ultra and renders a real image", async () => {
+  await check("default graphics preset is Medium (Round 5) and renders a real image", async () => {
     const preset = await page.evaluate(() => window.__voxelands.graphics);
-    assert(preset === "ultra", `default preset is ${preset}`);
+    assert(preset === "medium", `default preset is ${preset}`);
     const stats = await page.evaluate(() => window.__voxelands.captureStats());
-    console.log(`        ultra: mean luminance ${stats.mean.toFixed(3)}, std ${stats.std.toFixed(3)}, black ${(stats.blackFraction * 100).toFixed(1)}%`);
-    assert(stats.mean > 0.08 && stats.std > 0.03 && stats.blackFraction < 0.5, `ultra frame looks blank: ${JSON.stringify(stats)}`);
+    console.log(`        medium: mean luminance ${stats.mean.toFixed(3)}, std ${stats.std.toFixed(3)}, black ${(stats.blackFraction * 100).toFixed(1)}%`);
+    assert(stats.mean > 0.08 && stats.std > 0.03 && stats.blackFraction < 0.5, `medium frame looks blank: ${JSON.stringify(stats)}`);
   });
 
   // Software rendering (SwiftShader) makes the heavier presets take seconds
@@ -210,11 +210,11 @@ try {
     assert(saved.graphics === "low", `graphics setting not persisted: ${JSON.stringify(saved)}`);
   });
 
-  await check("default render distance is 10 chunks, up to 256", async () => {
+  await check("default render distance is 15 chunks, up to 256 (Round 5)", async () => {
     const slider = await page.$eval("#render-distance", (el) => ({ value: el.value, max: el.max }));
-    assert(slider.value === "10" && slider.max === "256", `slider ${JSON.stringify(slider)}, expected 10 of max 256 (Round 3)`);
+    assert(slider.value === "15" && slider.max === "256", `slider ${JSON.stringify(slider)}, expected 15 of max 256 (Round 5)`);
     const live = await page.evaluate(() => window.__voxelands.renderDistance);
-    assert(live === 10, `game render distance is ${live}, expected 10`);
+    assert(live === 15, `game render distance is ${live}, expected 15`);
   });
 
   await check("Play button locks pointer and starts the game", async () => {
@@ -1293,6 +1293,8 @@ try {
       // frames, wait for the shot and the cooldown rather than the clock.)
       await page.waitForFunction((k) => window.__voxelands.weapons.shots > k && window.__voxelands.weapons._cooldowns.pistol <= 0, n, { timeout: 15000, polling: 30 });
     }
+    // (Round 5: a real bullet: it takes a few frames to reach the wall.)
+    await page.waitForFunction((h0) => window.__voxelands.decals.count - h0 >= 6, before.holes, { timeout: 20000, polling: 50 }).catch(() => {});
     const after = await page.evaluate(() => ({ shots: window.__voxelands.weapons.shots, holes: window.__voxelands.decals.count }));
     console.log(`        6 clicks -> ${after.shots - before.shots} shots, ${after.holes - before.holes} bullet holes`);
     assert(after.shots - before.shots === 6 && after.holes - before.holes === 6, "every click should fire and leave a hole in the wall");

@@ -434,10 +434,11 @@ await check("range: a UFO 500 blocks away can be hit; a UFO's shots reach the pl
     u.state = "hover_test";
     const h0 = u.health;
     // Aim at its middle (a flat saucer is thinner than the eye's height above
-    // its centre) and fire the pistol (hitscan).
+    // its centre) and fire the pistol (a real bullet since Round 5).
     const eye = p.getEyePosition();
     p.pitch = Math.atan2(u.pos.y - eye.y, eye.z - u.pos.z);
     g.weapons.firePistol();
+    for (let i = 0; i < 100; i++) g.lasers.update(0.025); // (Round 5: a real bullet, about a second and a half away)
     return { h0, h1: u.health, dist: 500, range: g.weapons._range(160, 0.6) };
   });
   assert(r.h1 < r.h0, `the pistol hit a UFO 500 blocks away: ${JSON.stringify(r)}`);
@@ -726,7 +727,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
       tabs: [...el.querySelectorAll(".inv-tab")].map((b) => b.textContent),
       loadouts: [ALL_WEAPONS.length, CREATIVE_LOADOUT.length, SURVIVAL_LOADOUT.length, SURVIVAL_LOADOUT[0] === ITEM.STONE_SWORD],
     };
-    // The weapons tab shows every weapon (10, the bow and the shield: 12), the others hide them.
+    // The weapons tab shows every weapon (10 and the bow: 11), the others hide them.
     const shown = () => [...el.querySelectorAll(".inv-palette .slot")].filter((s) => !s.classList.contains("hidden")).length;
     g.invScreen.setTab(0);
     out.weaponsShown = shown();
@@ -745,7 +746,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
   assert(r.tabs.length >= 3, `palette tabs: ${r.tabs}`);
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
   assert(r.loadouts[0] === 10 && r.loadouts[1] === 11 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts}`);
-  assert(r.weaponsShown === 12 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
+  assert(r.weaponsShown === 11 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
   assert(r.missing === 0, `creative has every weapon (${r.missing} missing)`);
 });
 
@@ -835,55 +836,6 @@ await check("laser minigun: spins up first, then a stream of bolts", async () =>
   assert(r.firstBolt > 0.8 && r.firstBolt < 1.3, `bolts start after the spin-up: ${r.firstBolt}`);
   assert(r.shots >= 35 && r.during > 12, `a big stream: ${r.shots} shots, ${r.during} bolts in flight`);
   assert(r.spin === 1 && r.spinAfter < 0.05, `spins up and down: ${r.spin} -> ${r.spinAfter}`);
-});
-
-await check("shield (Round 4: the classic off-hand shield): raised, it stops attacks and explosions from the front, not falls; it wears and breaks", async () => {
-  await play();
-  const r = await v(async (g) => {
-    const { makeStack } = await import("./js/inventory.js");
-    const { ITEM } = await import("./js/items.js");
-    g.weapons.cancel();
-    g.setMode("survival");
-    const p = g.player;
-    p.absorption = 0;
-    g.inventory.offhand = makeStack(ITEM.SHIELD, 1);
-    g.inventory.slots[0] = makeStack(ITEM.STONE_SWORD, 1);
-    g.inventory.selected = 0;
-    const hit = (amount, cause) => {
-      p.health = 20;
-      p._invulnerable = 0;
-      p._lastDamage = 0;
-      p.damage(amount, cause);
-      return 20 - p.health;
-    };
-    const out = {};
-    out.noShield = hit(10, "grenade");
-    g.interaction.mouseDown(2);
-    for (let i = 0; i < 5; i++) g.weapons.update(0.05);
-    out.up = g.weapons.shield.up;
-    out.explosion = hit(10, "grenade");
-    out.attack = hit(10, "alien");
-    out.fall = hit(10, "fall");
-    const d0 = g.inventory.offhand.dur;
-    hit(4, "zombie");
-    out.wear = d0 - g.inventory.offhand.dur;
-    // Break it.
-    g.inventory.offhand.dur = 3;
-    hit(10, "alien");
-    g.weapons.update(0.05);
-    out.broken = !g.inventory.offhand && !g.weapons.shield.up;
-    out.afterBreak = hit(10, "grenade");
-    g.interaction.mouseUp(2);
-    g.weapons.update(0.05);
-    p.health = 20;
-    return out;
-  });
-  assert(r.noShield === 10, `no shield: full damage ${r.noShield}`);
-  assert(r.up && r.explosion === 0 && r.attack === 0, `blocked from the front: ${JSON.stringify(r)}`);
-  assert(r.fall === 10, `falls pass through: ${r.fall}`);
-  assert(r.wear === 5, `it wears by 1 + the damage stopped: ${r.wear}`);
-  assert(r.broken && r.afterBreak === 10, `a broken shield is gone: ${JSON.stringify(r)}`);
-  await v((g) => g.setMode("creative"));
 });
 
 await check("golden apple: full health plus golden hearts that soak damage first", async () => {

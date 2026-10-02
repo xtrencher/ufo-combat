@@ -201,8 +201,8 @@ await check("new game: Survival starts with basic gear (Round 4); Creative has e
   await v((g) => {
     g.setMode("creative");
     const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
-    // Every weapon is there (10 of them and the bow; the shield in the off hand)...
-    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id)) || g.inventory.offhand?.id !== 296) throw new Error("creative is missing weapons");
+    // Every weapon is there (10 of them and the bow)...
+    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id))) throw new Error("creative is missing weapons");
     // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster, radio.
     g.inventory.clear();
     [287, 286, 288, 289, 291, 290, 292, 293].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
@@ -230,7 +230,8 @@ await check("weapons are independent: a pending airstrike doesn't block the bazo
     weapons.release();
     return { pending: weapons.airstrike.pending.length, rockets: weapons.rockets.length, shots: weapons.shots, bolts: g.lasers.bolts.length };
   });
-  assert(r.pending === 1 && r.rockets === 1 && r.shots >= 2 && r.bolts === 1, JSON.stringify(r));
+  assert(r.pending === 1 && r.rockets === 1 && r.shots >= 2 && r.bolts === 2, // (the pistol bullet and the blaster bolt)
+     JSON.stringify(r));
 });
 
 await check("airstrike: meteors come in at an angle from high up and land as explosions", async () => {
@@ -539,6 +540,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
     aim(u);
     const h0 = u.health;
     g.weapons.firePistol();
+    for (let i = 0; i < 40; i++) g.lasers.update(0.025); // (a real bullet: it needs a moment to get there)
     hurt.pistol = h0 - u.health;
     let h = u.health;
     g.weapons.fireMachineGun();

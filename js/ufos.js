@@ -650,11 +650,14 @@ export class UfoManager {
     const night = this.night;
     if (this.camera) this.camera.getWorldDirection(this._camDir);
     // Count the attackers first, so the cap holds within a frame.
+    // (Against a jet, the ones that run away from it are not attackers.)
+    const vsJet = this._playerVehicle()?.type === "jet";
+    const flees = (u) => vsJet && u.personality !== "fighter" && !u.hostile;
     this.attackers = 0;
-    for (const u of this.ufos) if (!u.falling && (u.state === "attack" || u.state === "react" || u.state === "beam")) this.attackers++;
+    for (const u of this.ufos) if (!u.falling && (u.state === "attack" || u.state === "react" || u.state === "beam") && !flees(u)) this.attackers++;
     // Taking to a jet with a crowd of them on you: the surplus fall back to circling.
     if (this.attackers > this.maxAttackers) {
-      const extra = this.ufos.filter((u) => !u.falling && u.state === "attack" && !u.missionTarget).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
+      const extra = this.ufos.filter((u) => !u.falling && u.state === "attack" && !u.missionTarget && !flees(u)).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
       for (const u of extra) {
         if (this.attackers <= this.maxAttackers) break;
         u.state = "circle";

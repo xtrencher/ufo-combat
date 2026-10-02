@@ -632,17 +632,21 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has seven test suites (`cd tools && npm install && npm test`; the
+`/tools` has eight test suites (`cd tools && npm install && npm test`; the
 browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
 environment variable):
 
+- `round5-tests.mjs`: the Round 5 features in the real game: the defaults,
+  jet throttle and speed, loops and rolls, free look (both mouse buttons),
+  armor, bunkers with guards, supply drops on dry land, breakable grass, the
+  Long Night, the new UFO shapes and the blue alien.
 - `round4-tests.mjs`: the Round 4 features in the real game: jet takeoff at
   144, 60 and 20 FPS, the damped bank, missiles (unguided click, locks on
   aircraft only, attackers first, the camera following the target), the jet
   picker and the F-16, patrol fighters, UFO health, the tractor beam, one
-  crew kind per UFO, muzzles, hangar UFOs, the UFO camera, held dash and
+  crew kind per UFO, muzzles, bunker UFOs, the UFO camera, held dash and
   ship weapons, the Survival opening played through (skeleton, bow, landing,
-  crate, scout), reloads, the shield, the chain's locks and rewards, and the
+  crate, scout), reloads, armor, the chain's locks and rewards, and the
   parrot. About 3 minutes; `--only=word` and `--from=word` as below.
 - `round3-tests.mjs`: the Round 3 features in the real game: UFO shots that
   always hurt, attack styles, the UFO redesign, dashes, rogue fighters, the
@@ -666,7 +670,7 @@ environment variable):
 - `round2-tests.mjs`: the Round 2 features in the real game: settings that
   survive reloads, the jet respawn, terrain and view distance, UFO spawn and
   ranges, aliens and skeletons, the new weapons (railgun, minigun, lock-on,
-  shield), the jet (takeoff, cannon heat, missile lock and salvos, flares,
+  armor), the jet (takeoff, cannon heat, missile lock and salvos, flares,
   warnings), enemy jets, UFO piloting, airports and cities, supply crates,
   missions and loot, the difficulty curve, and the main menu. It boots a
   fresh page and takes about 20 minutes with software rendering.
