@@ -52,6 +52,9 @@ import { createJetModel } from "./jet-model.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { Stats } from "./stats.js";
 import { FullscreenControl } from "./fullscreen.js";
+import { NetSession, normalizeRoomCode } from "./net/session.js";
+import { bootJoin, inviteUrl } from "./net/boot-join.js";
+import { Multiplayer } from "./net/multiplayer.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -71,8 +74,6 @@ function randomSeed() {
   return Math.floor(Math.random() * 2147483647) >>> 0;
 }
 
-const SEED = parseSeedFromURL();
-
 // ---------- Startup ----------
 // index.html shows a loading message until the game has started, and any
 // error before that (see __ufoBoot there).
@@ -89,6 +90,16 @@ if (isMobileDevice()) {
   document.getElementById("mobile-block").classList.remove("hidden");
   throw new Error("UFO COMBAT: mobile device detected, game not started.");
 }
+
+// ---------- Multiplayer: joining ----------
+// ?join=CODE (an invite link, or the Join screen): connect to the host before
+// anything is built, since its welcome carries the world's seed. A guest's
+// session never reads or writes the guest's own saved worlds.
+const net = new NetSession();
+const JOIN_PARAM = new URLSearchParams(window.location.search).get("join");
+const joinWelcome = JOIN_PARAM !== null ? await bootJoin(net, normalizeRoomCode(JOIN_PARAM)) : null;
+const GUEST = !!joinWelcome;
+const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
 
 // ---------- Renderer / scene / camera ----------
 const canvas = document.getElementById("game-canvas");
@@ -247,7 +258,7 @@ window.addEventListener("resize", onResize);
 
 // ---------- World ----------
 const world = new World(scene, SEED);
-world.loadEdits(loadEdits(SEED));
+if (!GUEST) world.loadEdits(loadEdits(SEED));
 postfx.setWaterMaterial(world.materials.water);
 world.meshOptions.fancyLeaves = activePreset.fancyLeaves; // before the first chunks are meshed
 // Decides which chunks are meshed and shown, and draws the land beyond them.
@@ -275,7 +286,7 @@ const encodedEditCache = new Map();
 const [spawnX, spawnZ] = world.terrain.spawnColumn();
 
 // A saved player (position, inventory, ...) for this world, if any.
-const savedPlayer = loadPlayer(SEED);
+const savedPlayer = GUEST ? null : loadPlayer(SEED);
 const savedPos = Array.isArray(savedPlayer?.pos) && savedPlayer.pos.length === 3 && savedPlayer.pos.every(Number.isFinite) ? savedPlayer.pos : null;
 const startX = savedPos ? savedPos[0] : spawnX + 0.5;
 const startZ = savedPos ? savedPos[2] : spawnZ + 0.5;
@@ -1088,6 +1099,17 @@ ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
 document.getElementById("world-state").textContent = savedPlayer ? `(saved ${savedPlayer.mode === "creative" ? "creative" : "survival"} world)` : "(new world)";
+if (GUEST) {
+  // A guest's main menu: into the host's game (the host picks the mode; no new worlds from here).
+  ui.setPlayLabel("Join the game");
+  document.body.classList.add("mp-guest");
+  for (const id of ["new-world-btn", "menu-mp-btn"]) document.getElementById(id).classList.add("hidden");
+  document.querySelector("#start-menu .mode-cards")?.classList.add("hidden");
+  document.querySelector("#start-menu .mode-select-row")?.classList.add("hidden");
+  document.getElementById("world-state").textContent = `(${joinWelcome.hostNick || "the host"}'s world, room ${net.code})`;
+  document.getElementById("main-menu-btn").textContent = "Leave game";
+  document.getElementById("copy-link-btn").textContent = "Copy invite link";
+}
 // The main menu's background: a slow flyover with a UFO drifting by.
 const flyover = new MenuFlyover(scene, world, { effects, audio });
 flyover.setCenter(player.position);
@@ -1163,6 +1185,13 @@ let playerDirty = false;
 let lastPlayerSave = 0;
 
 function flushSave() {
+  // A guest in someone else's game saves nothing (the host keeps the world).
+  if (GUEST) {
+    pendingSave = false;
+    world.dirtyEditChunks.clear();
+    lastSaveTime = lastPlayerSave = performance.now();
+    return;
+  }
   if (pendingSave) {
     saveEdits(SEED, world.edits, encodedEditCache, world.dirtyEditChunks);
     world.dirtyEditChunks.clear();
@@ -1800,7 +1829,8 @@ function showPause() {
   if (gameState === "start" || gameState === "dead" || gameState === "inventory") return;
   if (document.pointerLockElement === canvas) return;
   gameState = "paused";
-  player.enabled = false;
+  // (Online the world goes on: the player still falls, swims and can be hurt, just without controls.)
+  player.enabled = mp.active;
   chord.reset();
   audio.setJetEngine(0, false, 0, false);
   interaction.release();
@@ -1810,12 +1840,13 @@ function showPause() {
 
 ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
-  setMode(ui.modeSelect.value);
+  // Online the room decides the mode (Dogfight plays by Survival's rules, in a jet).
+  setMode(mp.active ? (mp.mode === "creative" ? "creative" : "survival") : ui.modeSelect.value);
   // (A world that hasn't had its starting loadout yet gets Creative's from fillStartingWeapons.)
   if (player.creative && loadoutGiven) giveCreativeItems();
   fillStartingWeapons(newWorld);
   markInventoryChanged();
-  saveJSON("last", { seed: SEED });
+  if (!GUEST) saveJSON("last", { seed: SEED });
   requestLock();
 });
 
@@ -1870,6 +1901,11 @@ document.getElementById("new-world-create").addEventListener("click", () => {
 // Back to the main menu: save and reload this world's page (the menu
 // then offers to continue it).
 document.getElementById("main-menu-btn").addEventListener("click", () => {
+  if (GUEST) {
+    mp.leave();
+    return;
+  }
+  if (mp.isHost && net.playerCount > 1 && !window.confirm("Going to the main menu closes the room: everyone else is sent back to their own worlds. Go?")) return;
   playerDirty = true;
   flushSave();
   leavingToMenu = true;
@@ -1942,6 +1978,11 @@ ui.renderDistanceInput.addEventListener("input", () => {
 });
 
 ui.copyLinkBtn.addEventListener("click", () => {
+  if (mp.active) {
+    navigator.clipboard?.writeText(inviteUrl(net.code)).catch(() => {});
+    toast("Invite link copied", 2);
+    return;
+  }
   const url = new URL(window.location.href);
   url.searchParams.set("seed", String(SEED));
   navigator.clipboard?.writeText(url.toString()).catch(() => {});
@@ -2215,8 +2256,108 @@ function renderFrame() {
 // main-thread simulation time and the time spent issuing draw calls.
 const perf = { simMs: 0, renderMs: 0, maxSimMs: 0 };
 
+// ---------- Multiplayer ----------
+// (See js/net/: the session, and one module per part of the game that is
+// shared online. Everything goes through this facade.)
+const game = {
+  THREE,
+  SEED,
+  GUEST,
+  joinWelcome,
+  world,
+  scene,
+  camera,
+  player,
+  inventory,
+  entities,
+  interaction,
+  effects,
+  audio,
+  sky,
+  mobs,
+  weapons,
+  lasers,
+  nuke,
+  enemyJets,
+  airports,
+  vehicles,
+  ufos,
+  stats,
+  progress,
+  missions: missionDirector,
+  crates,
+  mods,
+  settings,
+  settingsPanel,
+  screens,
+  ui,
+  hud,
+  avatar,
+  falling,
+  waterSim,
+  toast,
+  setMode,
+  respawn,
+  requestLock,
+  flushSave,
+  dropLoot,
+  giveLoot,
+  rollLoot,
+  progressTier,
+  ownedItems,
+  markInventoryChanged,
+  spawn: { x: spawnX, z: spawnZ },
+  get gameState() {
+    return gameState;
+  },
+  // A step of the game while the tab is hidden (the background clock).
+  backgroundStep() {
+    const ft = clock.getDelta();
+    simulate(Math.min(ft, MAX_DT), ft);
+  },
+  // Leaving the page on purpose (no "are you sure" prompt).
+  allowUnload() {
+    leavingToMenu = true;
+  },
+  // A room was opened from a menu: the game mode follows the room's.
+  hostStarted(mode) {
+    if (mode === "creative" || mode === "survival") {
+      ui.modeSelect.value = mode;
+      if (gameState !== "start") setMode(mode);
+    }
+    refreshPlayLabels();
+  },
+  // The session ended under a guest (the host left, the connection dropped).
+  leftOnline() {
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    if (gameState === "playing" || gameState === "inventory") gameState = "paused";
+    ui.hidePauseMenu();
+    ui.showHud(false);
+  },
+};
+const mp = new Multiplayer(net, game);
+// The lobby's Play button: into the game (or back into it).
+function refreshPlayLabels() {
+  const lobbyPlay = document.getElementById("mp-lobby-play");
+  lobbyPlay.textContent = gameState === "start" ? (GUEST ? "Join the game" : "Play") : "Resume";
+}
+document.getElementById("mp-lobby-play").addEventListener("click", () => {
+  screens.closeAll();
+  if (gameState === "start") ui.playBtn.click();
+  else {
+    audio.ensureStarted();
+    requestLock();
+  }
+});
+screens.onOpen["mp-lobby"] = ((prev) => () => {
+  prev?.();
+  refreshPlayLabels();
+})(screens.onOpen["mp-lobby"]);
+
 window.__ufo = window.__voxelands = {
   THREE,
+  mp,
+  net,
   world,
   player,
   camera,
@@ -2614,17 +2755,17 @@ function updateAltitudeView(dt) {
 const clock = new THREE.Clock();
 const MAX_DT = 0.05;
 
-function animate() {
-  requestAnimationFrame(animate);
-  const frameStart = performance.now();
-  const frameTime = clock.getDelta();
-  const dt = Math.min(frameTime, MAX_DT); // simulation step (clamped after hitches)
-
+// One step of the game: everything but drawing. (In a hidden tab during a
+// multiplayer game the background clock calls it without animate().)
+function simulate(dt, frameTime) {
   // The world keeps running behind the inventory and death screens; only
-  // the pause and start menus freeze it.
-  const running = gameState === "playing" || gameState === "inventory" || gameState === "dead";
+  // the pause and start menus freeze it. Online nothing pauses: the pause
+  // menu just takes your hands off the controls (a guest who hasn't clicked
+  // into the game yet sees the world go on behind the menu).
+  const online = mp.active;
+  const running = gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || (GUEST && gameState === "start")));
   if (running) {
-    player.update(dt);
+    if (gameState !== "start") player.update(dt);
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
     if (player.splashEvent) audio.playSplash();
     // Vehicles (the seated player rides along) and UFOs.
@@ -2652,12 +2793,15 @@ function animate() {
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
     lasers.update(dt);
-  } else if (gameState === "start") {
+  }
+  if (gameState === "start") {
     flyover.update(dt, camera, worldUniforms.uNight.value);
     effects.listener.copy(camera.position);
-    effects.update(dt);
+    if (!running) effects.update(dt);
     menuPerf.update(frameTime, graphicsPreset);
     menuUfoHint.classList.toggle("hidden", !(flyover.ufoVisible && flyover.score === 0));
+  } else if (running) {
+    // (the view follows the player: see above)
   } else if (vehicles.active) {
     vehicles.updateCamera(camera, 0); // keep the view behind the menus sensible
   } else {
@@ -2697,6 +2841,15 @@ function animate() {
   held.update(dt, player, heldLight, camera, interaction.eating);
   avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0 });
   updateDebug(dt, frameTime);
+  mp.update(dt);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const frameStart = performance.now();
+  const frameTime = clock.getDelta();
+  const dt = Math.min(frameTime, MAX_DT); // simulation step (clamped after hitches)
+  simulate(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
   const simEnd = performance.now();
@@ -2718,3 +2871,5 @@ if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
+// A guest: the world is built, now the game state comes from the host.
+if (GUEST) mp.startGuest();
