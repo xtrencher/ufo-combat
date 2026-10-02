@@ -1725,3 +1725,60 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - Also fixed on the way: fleeing UFOs no longer count as jet attackers; the called-in jet starts further down the runway when its far end is not loaded (long international runways); no guards are spawned on Peaceful.
 
 ROUND 5 COMPLETE
+
+# Round 6 (UFO COMBAT) checklist
+
+Source of truth for this round. Ticked as finished; decisions in "Round 6 decisions" at the end.
+
+## Part 1: UI and fullscreen
+- [ ] 1.1 Redesign main menu and all in-game menus (consistent modern minimalist style)
+- [ ] 1.2 Fullscreen button (corner, on hover) + hotkey, never covering gameplay
+- [ ] 1.3 Keyboard Lock API in fullscreen, preventDefault on combos, graceful fallback, README
+
+## Part 2: Balance and weapons
+- [ ] 2.1 Fewer UFOs overall, especially in a jet
+- [ ] 2.2 Bow: full draw much farther/faster
+- [ ] 2.3 Laser pistol more damage
+- [ ] 2.4 More frequent weapon drops; crates give standard weapons in progression
+- [ ] 2.5 Remove iron and diamonds (items, drops, ore blocks decision)
+- [ ] 2.6 Skeleton point-blank arrow aim fix
+- [ ] 2.7 Survival hides/locks rule-changing settings (Creative only)
+
+## Part 3: Nuke
+- [ ] 3.1 Default size = old max, setting allows bigger
+- [ ] 3.2 Much wider crater horizontally
+- [ ] 3.3 Destroys trees, grass/plants, buildings (villages, cities, airports), runways
+
+## Part 4: Jets
+- [ ] 4.1 Full control during lock-on
+- [ ] 4.2 Salvo charging animation + HUD
+- [ ] 4.3 Roll-evasion of close enemy missiles (>90 deg)
+- [ ] 4.4 Remove calling in jets; airports only
+- [ ] 4.5 Airports rarer, one near spawn, bigger, longer runways
+- [ ] 4.6 Air brakes (key, animation, sound, HUD, stall risk)
+
+## Part 5: UFOs
+- [ ] 5.1 Remove altitude limit
+- [ ] 5.2 Player UFO tractor beam on smaller UFOs and jets
+- [ ] 5.3 Player UFO lock-on salvo
+
+## Part 6: Missions
+- [ ] 6.1 Landing mission + red alien squad
+- [ ] 6.2 Final boss mission (mothership) before the 25-UFO mission
+- [ ] 6.3 Meteor-themed mission
+- [ ] 6.4 Re-check chain and difficulty curve
+
+## Part 7: World
+- [ ] 7.1 Varied terrain/biomes
+- [ ] 7.2 Default render distance 25
+
+## Final polish
+- [ ] F.1 Regression pass
+- [ ] F.2 Player's-eye review
+- [ ] F.3 Full test suite once
+- [ ] F.4 README
+- [ ] F.5 PROGRESS summary, decisions, known issues, 10-minute test
+- [ ] F.6 "ROUND 6 COMPLETE", commit, push
+
+## Round 6 decisions and notes
+(appended as work proceeds)
