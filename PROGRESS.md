@@ -1818,7 +1818,7 @@ Source of truth for this round. Ticked as finished; decisions in "Round 6 decisi
 
 ## Known issues
 - The default render distance of 25 chunks is heavy for weak GPUs and CPUs (the FPS counter in the main menu suggests a lower preset when it runs poorly); the headless test machine (software rendering) is much slower than before at it, so the browser suites take longer.
-- Fog hides the ground when you fly very high (the world is only drawn out to the render distance): above ~600 blocks the view is mostly sky.
+- The view distance grows with altitude (the existing altitude-aware view: up to 2.2x on Medium), but it is still finite: very high up (above ~900 blocks) the ground is out of sight and the view is mostly sky.
 - The Keyboard Lock API exists only in Chromium browsers; elsewhere Ctrl+W / Ctrl+T / Ctrl+N cannot be cancelled by a page (README says to sprint with a double-tap of W there).
 - An evaded missile is only a jet's missile (UFO seeker bolts are still dodged by flares and hard turns, not by rolling).
 - The Overlord can crash onto its surroundings when it falls (as every big ship does): keep your distance when it goes down.

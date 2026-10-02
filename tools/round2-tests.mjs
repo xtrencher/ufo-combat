@@ -175,6 +175,8 @@ if (args.from || args.only) {
 
 await check("settings persist across a reload (every group), and defaults never overwrite them", async () => {
   await v((g) => {
+    // (Round 6: the rule settings are Creative's; in Survival the game uses their defaults, so this check runs in Creative.)
+    g.setMode("creative");
     const s = g.settingsPanel;
     s.set("fov", 92);
     s.set("sensitivity", 2.5);
@@ -205,6 +207,7 @@ await check("settings persist across a reload (every group), and defaults never 
   const before = await v((g) => JSON.parse(localStorage.getItem("ufocombat_v1_settings")));
   await boot();
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
+  await v((g) => g.setMode("creative"));
   const after = await v((g) => ({
     fov: g.settings.fov,
     sens: g.settings.sensitivity,

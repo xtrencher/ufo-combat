@@ -685,7 +685,7 @@ await check("missions: the chain (21 missions in Round 6) from a pistol scout to
   }, 60000);
   assert(m1, "a scout was spawned for mission 1");
   assert(m1.size === "small" && m1.hp <= 45 && m1.dist < 200 && m1.agl < 60, `a small, weak, close, low scout: ${JSON.stringify(m1)}`);
-  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/19/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
+  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/21/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
   assert(m1.rulesSmall === "small", `early skies only have small UFOs: ${JSON.stringify(m1)}`);
   // The pistol kills it: 5 damage a shot.
   const kill = await v((g) => {
