@@ -20,6 +20,9 @@ import { MpMenus } from "./ui.js";
 import { soloUrl, hideBootJoin } from "./boot-join.js";
 import { PlayerSync } from "./players.js";
 import { VehicleSync } from "./vehicles.js";
+import { WorldSync } from "./world.js";
+import { FxSync } from "./fx.js";
+import { RulesSync } from "./rules.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -33,6 +36,9 @@ export class Multiplayer {
     this.ui = new MpMenus(this);
     this.players = this.addModule(new PlayerSync(this));
     this.vehicles = this.addModule(new VehicleSync(this));
+    this.world = this.addModule(new WorldSync(this));
+    this.fx = this.addModule(new FxSync(this));
+    this.rules = this.addModule(new RulesSync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);

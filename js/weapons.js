@@ -1138,14 +1138,7 @@ export class WeaponSystem {
     const speed = ARROW_SPEED_MIN + (ARROW_SPEED_MAX - ARROW_SPEED_MIN) * power * power;
     const pos = this._handPoint(0.5, 0.12, 0.08);
     if (IS_SOLID[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]) pos.copy(p.getEyePosition());
-    if (!this._arrowGeo) {
-      const shaft = new THREE.CylinderGeometry(0.022, 0.022, 0.72, 5).rotateX(Math.PI / 2);
-      const tip = new THREE.ConeGeometry(0.045, 0.14, 5).rotateX(-Math.PI / 2).translate(0, 0, -0.42);
-      const fl = new THREE.BoxGeometry(0.12, 0.012, 0.16).translate(0, 0, 0.3);
-      const fl2 = new THREE.BoxGeometry(0.012, 0.12, 0.16).translate(0, 0, 0.3);
-      this._arrowGeo = mergeColored([[shaft, 0x8a6a3c], [tip, 0x5a5a5e], [fl, 0xe8e2d4], [fl2, 0xe8e2d4]]);
-    }
-    const mesh = new THREE.Mesh(this._arrowGeo, this.material);
+    const mesh = new THREE.Mesh(this.arrowGeometry(), this.material);
     const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, gravity: ARROW_GRAVITY + (ARROW_GRAVITY_FULL - ARROW_GRAVITY) * power * power, stuck: false, light: { sky: 15, block: 0 } };
     bindEntityLight(mesh, () => a.light);
     mesh.position.copy(pos);
@@ -1154,6 +1147,18 @@ export class WeaponSystem {
     this.held.fire(0.4);
     this.audio.playBowShot?.(power);
     return a;
+  }
+
+  // The arrow's model (also drawn for other players' arrows online).
+  arrowGeometry() {
+    if (!this._arrowGeo) {
+      const shaft = new THREE.CylinderGeometry(0.022, 0.022, 0.72, 5).rotateX(Math.PI / 2);
+      const tip = new THREE.ConeGeometry(0.045, 0.14, 5).rotateX(-Math.PI / 2).translate(0, 0, -0.42);
+      const fl = new THREE.BoxGeometry(0.12, 0.012, 0.16).translate(0, 0, 0.3);
+      const fl2 = new THREE.BoxGeometry(0.012, 0.12, 0.16).translate(0, 0, 0.3);
+      this._arrowGeo = mergeColored([[shaft, 0x8a6a3c], [tip, 0x5a5a5e], [fl, 0xe8e2d4], [fl2, 0xe8e2d4]]);
+    }
+    return this._arrowGeo;
   }
 
   _updateArrows(dt) {

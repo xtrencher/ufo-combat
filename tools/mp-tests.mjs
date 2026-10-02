@@ -247,6 +247,53 @@ await check("movement sync: each side sees the other walk to where it went (inte
   }
 });
 
+await check("a block change on either side shows on the other (and a race ends the same on both)", async () => {
+  const spot = await v(host, (g) => {
+    const x = g.spawn.x + 3;
+    const z = g.spawn.z + 3;
+    const y = g.world.surfaceY(x, z) + 4;
+    g.world.setBlock(x, y, z, 1); // stone, in the air
+    return [x, y, z];
+  });
+  const seen = await until(client, (g, p) => g.world.getBlock(...p) === 1, 15000, spot);
+  assert(seen, `client never got the host's block at ${spot}`);
+  // The client breaks it and puts another one up.
+  await v(client, (g, p) => {
+    g.world.setBlock(p[0], p[1], p[2], 0);
+    g.world.setBlock(p[0], p[1] + 1, p[2], 1);
+  }, spot);
+  const gone = await until(host, (g, p) => g.world.getBlock(p[0], p[1], p[2]) === 0 && g.world.getBlock(p[0], p[1] + 1, p[2]) === 1, 15000, spot);
+  assert(gone, "host never got the client's changes");
+  // A race: both change the same block at once; both must end the same.
+  await Promise.all([v(host, (g, p) => g.world.setBlock(p[0], p[1] + 2, p[2], 1), spot), v(client, (g, p) => g.world.setBlock(p[0], p[1] + 2, p[2], 3), spot)]);
+  await sleep(2500);
+  const a = await v(host, (g, p) => g.world.getBlock(p[0], p[1] + 2, p[2]), spot);
+  const b = await v(client, (g, p) => g.world.getBlock(p[0], p[1] + 2, p[2]), spot);
+  assert(a === b, `race: host ${a}, client ${b}`);
+});
+
+await check("explosions: a client's blast carves the crater on the host (as edits) and is seen there", async () => {
+  const before = await v(host, (g) => g.effects.explosionCount);
+  const at = await v(client, (g) => {
+    // A dry spot near the spawn (water soaks up a blast).
+    let x = g.spawn.x - 12;
+    let z = g.spawn.z + 8;
+    for (let k = 0; k < 40; k++) {
+      const y = g.world.surfaceY(x, z);
+      if (y > 0 && g.world.getBlock(x, y, z) !== 5 && g.world.getBlock(x, y + 1, z) === 0) break;
+      x += 3;
+      z -= 2;
+    }
+    const y = g.world.surfaceY(x, z);
+    g.effects.explode(new g.THREE.Vector3(x + 0.5, y, z + 0.5), { radius: 4, source: "grenade" });
+    return [x, y, z, g.world.getBlock(x, y, z)];
+  });
+  const seen = await until(host, (g, b) => g.effects.explosionCount > b, 15000, before);
+  assert(seen, "the host never saw the explosion");
+  const carved = await until(host, (g, p) => g.world.getBlock(p[0], p[1], p[2]) === p[3], 15000, at);
+  assert(carved, `the crater block at ${at} is still there on the host`);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length}/${results.length} multiplayer checks passed`);

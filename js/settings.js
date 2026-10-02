@@ -279,8 +279,35 @@ export class SettingsPanel {
   // Creative; everything else is what the player chose.
   effective(key) {
     const e = SCHEMA_BY_KEY.get(key);
+    if (this.hostRules && e?.creativeOnly && key in this.hostRules) return validValue(e, this.hostRules[key]);
     if (this.survival && e?.creativeOnly) return e.def;
     return this.get(key);
+  }
+
+  // Online as a guest: the host's rule settings (every Creative-only setting,
+  // as the host's game uses them) replace this player's own, which stay saved
+  // untouched for their own worlds; the rows are hidden with a note. null:
+  // this player's own settings again.
+  setHostRules(rules) {
+    this.hostRules = rules && typeof rules === "object" ? rules : null;
+    for (const e of SCHEMA) if (e.creativeOnly) for (const fn of this._appliers.get(e.key) || []) fn(this.effective(e.key));
+    for (const el of this._creativeOnly) el.classList.toggle("host-rule-hidden", !!this.hostRules);
+    let note = document.getElementById("host-rules-note");
+    if (!note) {
+      note = document.createElement("div");
+      note.id = "host-rules-note";
+      note.className = "hint host-locked-note hidden";
+      note.textContent = "Online: the host sets the game's rules (game mode, difficulty, weapons, creatures, UFOs, vehicles, the clock). Your own settings for them are kept for your worlds.";
+      document.querySelector("#settings-screen .settings-tabs")?.after(note);
+    }
+    note.classList.toggle("hidden", !this.hostRules);
+  }
+
+  // The values of every rule setting this game uses right now (the host sends them).
+  ruleValues() {
+    const out = {};
+    for (const e of SCHEMA) if (e.creativeOnly) out[e.key] = this.effective(e.key);
+    return out;
   }
 
   // Changes a setting from code (updates its row, applies and saves it).
@@ -357,7 +384,7 @@ export class SettingsPanel {
 
   _apply(key, v) {
     const e = SCHEMA_BY_KEY.get(key);
-    const used = this.survival && e?.creativeOnly ? e.def : v;
+    const used = this.hostRules && e?.creativeOnly && key in this.hostRules ? validValue(e, this.hostRules[key]) : this.survival && e?.creativeOnly ? e.def : v;
     for (const fn of this._appliers.get(key) || []) fn(used);
     const note = this._notes?.get(key);
     if (note && e?.note) {

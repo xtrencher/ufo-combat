@@ -1859,21 +1859,21 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - **Mods:** sync goes through a small registry (`net.registerSync(name, {...})` / `net.on(type, fn)`), so a new mod can add its own replicated state without touching the core.
 
 ## Group 1: Networking core
-- [ ] 1.1 js/net/config.js (signaling, STUN, TURN placeholder, rates), PeerJS loader (lazy, CDN)
-- [ ] 1.2 Session: host/join, room codes, reliable + unreliable channels, handshake (version, nickname), heartbeat, clock offset, chunked bulk messages, relay, sync registry
-- [ ] 1.3 Join boot flow (?join=CODE, connect before the world is built, seed from host), guest sessions never save
-- [ ] 1.4 Disconnect handling and error messages (host left, kicked, room not found, ICE failure, timeouts)
-- [ ] 1.5 Background tab simulation (worker clock) and no pausing of the world in multiplayer
+- [x] 1.1 js/net/config.js (signaling, STUN, TURN placeholder, rates), PeerJS loader (lazy, CDN)
+- [x] 1.2 Session: host/join, room codes, reliable + unreliable channels, handshake (version, nickname), heartbeat, clock offset, chunked bulk messages, relay, sync registry
+- [x] 1.3 Join boot flow (?join=CODE, connect before the world is built, seed from host), guest sessions never save
+- [x] 1.4 Disconnect handling and error messages (host left, kicked, room not found, ICE failure, timeouts)
+- [x] 1.5 Background tab simulation (worker clock) and no pausing of the world in multiplayer
 
 ## Group 2: Players
-- [ ] 2.1 Nicknames (everyone, host included), stored locally
-- [ ] 2.2 Player states at 20 Hz, interpolation, remote avatars (walk/sneak/swim/fly/held item/death), nameplates above heads and vehicles
+- [x] 2.1 Nicknames (everyone, host included), stored locally
+- [x] 2.2 Player states at 20 Hz, interpolation, remote avatars (walk/sneak/swim/fly/held item/death), nameplates above heads and vehicles
 - [ ] 2.3 Remote vehicles as puppets (jets: throttle, afterburner, gear, surfaces, brakes; UFOs: tilt, lights, beam), ownership, claims, airport jets
 
 ## Group 3: World and rules sync
-- [ ] 3.1 Block edits: capture, send, apply, race resolution, full edit transfer on join
-- [ ] 3.2 Explosions, nuke, airstrike meteors and weapon effects mirrored (tracers, bolts, rockets, grenades, arrows, rail beams)
-- [ ] 3.3 Time of day, mode and rule settings from the host (host only can change them; clients locked)
+- [x] 3.1 Block edits: capture, send, apply, race resolution, full edit transfer on join
+- [x] 3.2 Explosions, nuke, airstrike meteors and weapon effects mirrored (tracers, bolts, rockets, grenades, arrows, rail beams)
+- [x] 3.3 Time of day, mode and rule settings from the host (host only can change them; clients locked)
 
 ## Group 4: Host-authoritative entities and combat
 - [ ] 4.1 UFOs, hostile creatures, enemy jets: host snapshots, client puppets (spawn, interpolation, death, crash)
@@ -1910,3 +1910,7 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 
 ## Round 7 decisions and notes
 (appended as work proceeds)
+- Groups 1-3: `js/net/` holds everything online: `config.js` (signaling, STUN, TURN placeholder, rates), `session.js` (PeerJS: rooms, two channels, hello/welcome, heartbeat and clock offset, parts for big messages, relay, a sync registry), `boot-join.js` (?join=CODE: the nickname prompt and connecting before the world is built), `multiplayer.js` (the facade: modules, lifecycle), `players.js`, `vehicles.js`, `world.js`, `fx.js`, `rules.js`, `ui.js`, `bgclock.js`, `interp.js`, `nameplate.js`. Game code got small hooks only (vehicle added/removed/destroyed, `setBlocks(..., {remote})`, `explode(..., {mirror})`, `detonate(..., {mirror})`, `fire({mirror})`, `audio.playDistant`, `settingsPanel.setHostRules`).
+- The PeerJS library is loaded only when multiplayer is used (single player never touches the network). Data channels use the "raw" serialisation (JSON strings of our own), so big messages are split by us (30 000 characters a part) and the unordered channel never carries anything that big.
+- Explosives hurt everyone nearby in every mode (like the single-player self-damage: a careless grenade can hurt a friend, and the death message names them: "Blown up by Bob's grenade"); direct fire (bullets, bolts, the rail, the cannon) never hurts another player in co-op, only in Dogfight.
+- In an online game nothing pauses: Esc only takes your hands off the controls (you can still fall and be hurt), and a hidden tab keeps simulating through a worker clock (20 Hz, without drawing).

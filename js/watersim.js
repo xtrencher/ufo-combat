@@ -52,8 +52,8 @@ export class WaterSim {
   // recordEdit: false means the batch is out-of-band scaffolding (test
   // arenas, world setup), not a real player/explosion edit, so water leaves
   // it alone.
-  _onEdit(changed, { recordEdit = true } = {}) {
-    if (!recordEdit) return;
+  _onEdit(changed, { recordEdit = true, remote = false } = {}) {
+    if (!recordEdit || remote) return;
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1];

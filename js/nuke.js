@@ -75,8 +75,11 @@ export class NukeSystem {
     return INTENSITY[this.config.intensity] ?? 1;
   }
 
-  detonate(center) {
-    const R = this.radius;
+  // opts.mirror (multiplayer): another player's nuke seen here: the flash,
+  // fireball, shockwave and cloud, and what it does to this player, but not
+  // the crater (its blocks arrive as edits). opts.R: its size.
+  detonate(center, { mirror = false, R: size = null } = {}) {
+    const R = size ?? this.radius;
     const d = {
       center: center.clone(),
       R,
@@ -89,7 +92,12 @@ export class NukeSystem {
       slices: Math.max(SLICES_MIN, Math.ceil(R / 4)), // the crater is carved in this many slices over frames
       clearR: R * 1.3, // everything standing within this is destroyed (see _scorch)
       height: Math.min(300, 50 + R * 3.8), // mushroom cap height above the ground
+      mirror,
     };
+    if (mirror) {
+      d.slice = d.slices;
+      d.scorched = true;
+    }
     this._buildCloud(d);
     this.active.push(d);
     this.count++;
@@ -110,7 +118,7 @@ export class NukeSystem {
     this.effects._flashPower = 60000;
     this.effects._flashTime = 0;
     if (this.audio?.playNuke) this.audio.playNuke(dist, R);
-    if (this.onDetonate) this.onDetonate(center, R);
+    if (this.onDetonate) this.onDetonate(center, R, { mirror });
     return d;
   }
 
@@ -488,7 +496,7 @@ export class NukeSystem {
       // Crater: one slice per frame.
       if (d.slice < d.slices) this._carveSlice(d);
       if (!d.scorched) d.scorched = this._scorch(d, 700);
-      else if (d.slice >= d.slices && d.t - (d.retryT ?? 0) > 2) {
+      else if (!d.mirror && d.slice >= d.slices && d.t - (d.retryT ?? 0) > 2) {
         d.retryT = d.t;
         this._retryDeferred(d, 1500);
       }
@@ -522,7 +530,7 @@ export class NukeSystem {
       }
       this._updateCloud(d, dt);
       if (d.t > 125 && d.slice >= d.slices && d.scorched) {
-        this._retryDeferred(d, 4000);
+        if (!d.mirror) this._retryDeferred(d, 4000);
         this.active.splice(i, 1);
       }
     }

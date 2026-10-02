@@ -1886,7 +1886,7 @@ export class Jet extends Vehicle {
 }
 
 // A missile: white body, grey fins, dark seeker head (along -Z).
-function missileGeometry() {
+export function missileGeometry() {
   const parts = [
     [new THREE.CylinderGeometry(0.16, 0.16, 2.6, 8).rotateX(Math.PI / 2), 0xe8e8e8],
     [new THREE.ConeGeometry(0.16, 0.5, 8).rotateX(-Math.PI / 2).translate(0, 0, -1.55), 0x2a2d33],
@@ -1897,7 +1897,7 @@ function missileGeometry() {
 }
 
 // The bomb: a fat dark-green body with a yellow band and four fins.
-function nukeGeometry() {
+export function nukeGeometry() {
   const parts = [
     [new THREE.CylinderGeometry(0.45, 0.45, 2.4, 12), 0x3b4a2c],
     [new THREE.SphereGeometry(0.45, 12, 8).translate(0, -1.2, 0), 0x3b4a2c],

@@ -347,6 +347,8 @@ lasers.listener = () => effects.listener;
 lasers.holes = decals; // (the pistol's bullets leave bullet holes)
 const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
 lasers.addProvider({
+  // (Online, a bolt fired on another machine never hits creatures here: its shooter or the host judged that.)
+  ignores: (b) => b.mirror,
   raycast(origin, dir, maxDist, bolt) {
     const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && (m.spec.alien || m.spec.sentry)));
     if (!hit) return null;
@@ -416,15 +418,18 @@ vehicles.nuke = nuke;
 vehicles.ufos = ufos;
 settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
 settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
-nuke.onDetonate = (center, R) => {
+nuke.onDetonate = (center, R, info = {}) => {
   hooks.onNuke?.(center, R);
-  stats.add("nukes");
+  if (!info.mirror) stats.add("nukes");
   // Damage reach: the crater grows with the nuke's size, the reach of the blast on creatures,
   // ships and you only slowly (a size-96 nuke does not kill across 250 blocks).
+  // (Online, another player's nuke only hurts this player and their vehicle here.)
   const Rd = 44 * Math.pow(R / 44, 0.45);
-  mobs.explosion(center, Math.max(R * 1.2, Rd * 1.4), true);
-  ufos.explosion(center, Rd * 2.2, true);
-  vehicles.explosion(center, Rd * 1.6);
+  if (!info.mirror) {
+    mobs.explosion(center, Math.max(R * 1.2, Rd * 1.4), true);
+    ufos.explosion(center, Rd * 2.2, true);
+    vehicles.explosion(center, Rd * 1.6);
+  } else if (vehicles.active) vehicles.explosionOn(vehicles.active, center, Rd * 1.6);
   // The player: deadly within about twice the crater radius, thrown far.
   if (!player.dead && !player.vehicle) {
     const off = player.position.clone().sub(center);
@@ -544,7 +549,7 @@ player.damageFilter = (amount, cause) => {
 };
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
-  ignores: (b) => (b.owner === "ufo" || b.owner === "enemyjet") && !b.friendlyFire,
+  ignores: (b) => ((b.owner === "ufo" || b.owner === "enemyjet") && !b.friendlyFire) || b.mirror,
   raycast(origin, dir, maxDist, bolt) {
     const h = ufos.raycast(origin, dir, maxDist, (u) => u !== bolt.source);
     if (!h) return null;
@@ -563,12 +568,18 @@ lasers.addProvider({
 // several blocks a frame), with the bolt's glow counting as part of it, so
 // a bolt that visibly reaches a vehicle always hits it.
 lasers.addProvider({
+  // Online: another machine's bolt only hits our own vehicle here (an AI's
+  // shot is judged by the player it is aimed at); another player's shots
+  // were judged by them. Our own shots hit the other players' vehicles (and
+  // the claim goes to them); the host's AI never hits them here.
+  ignores: (b) => b.mirror && fromPlayer(b.owner),
   raycast(origin, dir, maxDist, bolt, dt) {
     if (!vehicles.enabled) return null;
     const step = Math.max(maxDist, bolt.step ?? maxDist);
     let best = null;
     for (const v of vehicles.vehicles) {
       if (!v.alive || v === bolt.source) continue;
+      if (bolt.mirror ? v !== vehicles.active : v.puppet && !fromPlayer(bolt.owner)) continue;
       const r = (v.hitRadius ?? v.radius) + bolt.radius * 2;
       const t = sweptSphere(origin, dir, step, v.pos, r, v.vel, dt);
       if (t !== null && t <= maxDist && (!best || t < best.distance)) best = { vehicle: v, distance: t };
@@ -605,8 +616,11 @@ lasers.addProvider({
     };
   },
 });
-// The UFO cannon's bolts (and big enemy ones) blow small holes.
-lasers.onBlast = (point, bolt) => effects.explode(point, { radius: bolt.blast, source: bolt.owner === "playerufo" ? "ufocannon" : "ufo_laser" });
+// The UFO cannon's bolts (and big enemy ones) blow small holes. (A bolt from
+// another machine online: its blast arrives from there.)
+lasers.onBlast = (point, bolt) => {
+  if (!bolt.mirror) effects.explode(point, { radius: bolt.blast, source: bolt.owner === "playerufo" ? "ufocannon" : "ufo_laser" });
+};
 
 // Messages across the middle of the screen.
 const toastEl = document.getElementById("hud-toast");
@@ -1367,13 +1381,19 @@ hud.respawnBtn.addEventListener("click", respawn);
 // Explosions hurt (lethally up close) and shove the player away from the
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
-effects.onExplosion = (center, radius, source) => {
+effects.onExplosion = (center, radius, source, info = {}) => {
   const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile" && source !== "roguemissile";
-  mobs.explosion(center, radius, byPlayer);
+  // Online, another machine's explosion (info.mirror) only hurts this player and
+  // their own vehicle here: what it did to creatures, UFOs and other vehicles
+  // was judged where it went off.
+  if (!info.mirror) mobs.explosion(center, radius, byPlayer);
   // The blast takes the plants with it (the burnt ring too), so none are left floating over the crater.
   if (grass.density > 0 && center.distanceTo(player.position) < 90) grass.clear(center.x, center.z, Math.min(radius + 2.5, 30));
-  ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
-  vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
+  if (!info.mirror) ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
+  if (!info.mirror) vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
+  else if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer ? "explosion" : "explosion_other");
+  // (Another player's blast that hurts or kills you: theirs, in the death message.)
+  if (info.mirror && info.by) source = `${source}@${info.by}`;
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center
@@ -1421,7 +1441,18 @@ function giveCreativeItems() {
 }
 
 ui.modeSelect.addEventListener("change", () => setMode(ui.modeSelect.value));
-ui.pauseModeSelect.addEventListener("change", () => setMode(ui.pauseModeSelect.value));
+ui.pauseModeSelect.addEventListener("change", () => {
+  // Online only the host picks the mode (for everyone).
+  if (mp.active) {
+    if (mp.isHost) mp.rules.setMode(ui.pauseModeSelect.value);
+    else {
+      ui.pauseModeSelect.value = player.mode;
+      toast("The host picks the game mode.", 2.5);
+    }
+    return;
+  }
+  setMode(ui.pauseModeSelect.value);
+});
 
 // ---------- Graphics ----------
 const allWorldMaterials = [world.materials.opaque, world.materials.cutout, world.materials.water, world.materials.cutoutDepth, lod.material, grass.material];
@@ -1659,11 +1690,14 @@ settingsPanel.onReset("audio", () => {
 });
 
 // Gameplay: difficulty, creature spawning, time of day.
+// (Online as a guest the host's difficulty applies: see js/net/rules.js.)
+let hostDifficulty = null;
+const difficulty = () => hostDifficulty ?? settings.difficulty;
 function applyDifficulty() {
-  player.mobDamageScale = DIFFICULTY_DAMAGE[settings.difficulty] ?? 1;
+  player.mobDamageScale = DIFFICULTY_DAMAGE[difficulty()] ?? 1;
   mobs.spawning = settingsPanel.effective("mobSpawning");
-  mobs.hostileSpawning = settings.difficulty !== "peaceful";
-  if (settings.difficulty === "peaceful") mobs.removeHostiles();
+  mobs.hostileSpawning = difficulty() !== "peaceful";
+  if (difficulty() === "peaceful") mobs.removeHostiles();
 }
 settingsPanel.on("difficulty", applyDifficulty);
 settingsPanel.on("mobSpawning", applyDifficulty);
@@ -2311,6 +2345,30 @@ const game = {
   get gameState() {
     return gameState;
   },
+  get difficulty() {
+    return difficulty();
+  },
+  // A guest: the host's difficulty (null: our own again).
+  setHostDifficulty(d) {
+    hostDifficulty = d;
+    const sel = document.getElementById("difficulty");
+    if (sel) sel.disabled = d !== null;
+    applyDifficulty();
+  },
+  // The host's Mods switch (a guest's own setting is not touched).
+  setModsFromHost(on) {
+    modsCheckbox.disabled = true;
+    if (mods.enabled === on) return;
+    mods.set(on);
+    if (on && gameState !== "start") fillStartingWeapons(false);
+    markInventoryChanged();
+    refreshModsPills();
+  },
+  setModsEnabled,
+  get timeSlider() {
+    return timeSlider;
+  },
+  grass,
   // A step of the game while the tab is hidden (the background clock).
   backgroundStep() {
     const ft = clock.getDelta();

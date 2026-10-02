@@ -27,7 +27,10 @@ export class FallingBlocks {
     this._pending = []; // flat [x, y, z, ...] cells to check
     this.settledInstantly = 0; // loose blocks moved without animation (stats / tests)
     this.onBreak = null; // (x, y, z, id): a falling block broke (landed in a torch's cell)
-    world.changeListeners.push((changed) => this._notify(changed));
+    // (Not for another player's edits online: their sand already fell, see world.js.)
+    world.changeListeners.push((changed, opts) => {
+      if (!opts?.remote) this._notify(changed);
+    });
   }
 
   get active() {
