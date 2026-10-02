@@ -4,15 +4,16 @@
 // player's inventory has 36 slots: 0-8 are the hotbar, 9-35 the main area.
 // UI screens hold one "cursor" stack (what the mouse is carrying) and call
 // clickSlot()/quickMove() on arrays of slots.
-import { maxStack, itemInfo } from "./items.js";
+import { maxStack, itemInfo, ARMOR_SLOTS, ARMOR_REDUCTION_PER_POINT } from "./items.js";
 
 export const HOTBAR_SIZE = 9;
 export const INVENTORY_SIZE = 36;
 
 export function makeStack(id, count = 1, dur) {
   const stack = { id, count };
-  const tool = itemInfo(id)?.tool;
-  if (tool) stack.dur = dur ?? tool.durability;
+  const info = itemInfo(id);
+  const wear = info?.tool || info?.armor;
+  if (wear) stack.dur = dur ?? wear.durability;
   return stack;
 }
 
@@ -48,35 +49,53 @@ export class Inventory {
   constructor() {
     this.slots = new Array(INVENTORY_SIZE).fill(null);
     this.selected = 0;
-    // The off hand: a shield (like in classic block games), or nothing.
-    this.offhand = null;
+    // The armor worn: one piece per slot (head, chest, legs, feet), or null.
+    this.armor = new Array(ARMOR_SLOTS.length).fill(null);
   }
 
-  // Whether an item goes in the off hand (the shield).
-  static isOffhandItem(id) {
-    return !!itemInfo(id)?.offhand;
+  // The armor slot an item goes in (0-3), or -1 if it is not armor.
+  static armorSlotOf(id) {
+    const a = itemInfo(id)?.armor;
+    return a ? a.slot : -1;
   }
 
-  // Puts the selected hotbar item (a shield) in the off hand, swapping with
-  // whatever was there. Returns true if it moved.
-  equipSelectedOffhand() {
+  // Wears the selected hotbar item (armor), swapping with the piece in that
+  // slot. Returns true if it moved.
+  equipSelectedArmor() {
     const s = this.selectedStack;
-    if (!s || !Inventory.isOffhandItem(s.id)) return false;
-    this.slots[this.selected] = this.offhand;
-    this.offhand = s;
+    const slot = s ? Inventory.armorSlotOf(s.id) : -1;
+    if (slot < 0) return false;
+    this.slots[this.selected] = this.armor[slot];
+    this.armor[slot] = s;
     return true;
   }
 
-  // Wears the off-hand item (the shield blocking); true if it broke.
-  damageOffhand(amount = 1) {
-    const s = this.offhand;
-    if (!s || s.dur === undefined) return false;
-    s.dur -= amount;
-    if (s.dur <= 0) {
-      this.offhand = null;
-      return true;
+  // The defense points of everything worn.
+  armorPoints() {
+    let n = 0;
+    for (const s of this.armor) if (s) n += itemInfo(s.id)?.armor?.points ?? 0;
+    return n;
+  }
+
+  // The share of damage the armor worn turns away (0-0.8).
+  armorReduction() {
+    return Math.min(0.8, this.armorPoints() * ARMOR_REDUCTION_PER_POINT);
+  }
+
+  // Every worn piece wears by `amount` (at least 1); returns the names of the
+  // pieces that broke.
+  damageArmor(amount = 1) {
+    const broken = [];
+    for (let i = 0; i < this.armor.length; i++) {
+      const s = this.armor[i];
+      if (!s || s.dur === undefined) continue;
+      s.dur -= Math.max(1, Math.round(amount));
+      if (s.dur <= 0) {
+        broken.push(itemInfo(s.id)?.name ?? "armor");
+        this.armor[i] = null;
+      }
     }
-    return false;
+    return broken;
   }
 
   get selectedStack() {
@@ -87,9 +106,11 @@ export class Inventory {
   // didn't fit.
   add(id, count = 1, dur) {
     if (count <= 0 || !itemInfo(id)) return count;
-    // A shield picked up with the off hand free goes straight into it.
-    if (!this.offhand && Inventory.isOffhandItem(id)) {
-      this.offhand = makeStack(id, 1, dur);
+    // A piece of armor picked up with its slot free is put on at once.
+    const aslot = Inventory.armorSlotOf(id);
+    if (aslot >= 0 && !this.armor[aslot]) {
+      this.armor[aslot] = makeStack(id, 1, dur);
+      this.justWorn = id;
       if (count <= 1) return 0;
       count -= 1;
       dur = undefined;
@@ -126,7 +147,7 @@ export class Inventory {
   countItem(id) {
     let n = 0;
     for (const s of this.slots) if (s && s.id === id) n += s.count;
-    if (this.offhand && this.offhand.id === id) n += this.offhand.count;
+    for (const a of this.armor) if (a && a.id === id) n += a.count;
     return n;
   }
 
@@ -157,34 +178,29 @@ export class Inventory {
   }
 
   isEmpty() {
-    return this.slots.every((s) => !s) && !this.offhand;
+    return this.slots.every((s) => !s) && this.armor.every((a) => !a);
   }
 
   clear() {
     this.slots.fill(null);
-    this.offhand = null;
+    this.armor.fill(null);
   }
 
-  // The off hand for the save: [id, count, dur] or 0.
-  serializeOffhand() {
-    const s = this.offhand;
-    return s ? (s.dur !== undefined ? [s.id, s.count, s.dur] : [s.id, s.count]) : 0;
+  // The armor worn, for the save: per slot [id, count, dur] or 0.
+  serializeArmor() {
+    return this.armor.map((s) => (s ? [s.id, s.count, s.dur] : 0));
   }
 
-  // Loads the off hand; an older save's shield (in a hotbar or inventory
-  // slot) moves into it when it is empty.
-  loadOffhand(data) {
-    this.offhand = null;
-    if (Array.isArray(data)) {
-      const [id, count, dur] = data;
-      if (Number.isInteger(id) && itemInfo(id) && Inventory.isOffhandItem(id) && Number.isInteger(count) && count > 0) this.offhand = makeStack(id, 1, Number.isInteger(dur) && dur > 0 ? dur : undefined);
-    }
-    if (!this.offhand) {
-      const i = this.slots.findIndex((s) => s && Inventory.isOffhandItem(s.id));
-      if (i >= 0) {
-        this.offhand = this.slots[i];
-        this.slots[i] = null;
-      }
+  // Loads the armor worn (an old save has none).
+  loadArmor(data) {
+    this.armor.fill(null);
+    if (!Array.isArray(data)) return;
+    for (let i = 0; i < Math.min(data.length, this.armor.length); i++) {
+      const e = data[i];
+      if (!Array.isArray(e)) continue;
+      const [id, count, dur] = e;
+      if (!Number.isInteger(id) || Inventory.armorSlotOf(id) !== i) continue;
+      this.armor[i] = makeStack(id, 1, Number.isInteger(dur) && dur > 0 ? dur : undefined);
     }
   }
 

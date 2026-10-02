@@ -1582,3 +1582,146 @@ Source of truth for this round (jet fixes, survival progression, weapons balance
 - Zero console errors in every suite run.
 
 ROUND 4 COMPLETE
+
+# Round 5 (UFO COMBAT) checklist
+
+Source of truth for this round. Ticked as finished; decisions in "Round 5 decisions" at the end.
+
+## Part 1: Jet flight, takeoff and landing
+- [x] 1.1 Throttle 0-100%, ~1000 km/h at 100%, speed scales over the range
+- [x] 1.2 Reliable landing, level on wheels after touchdown, brakes to full stop
+- [x] 1.3 Slow reverse on the ground
+- [x] 1.4 Takeoff tolerant of small angles / imperfect runways
+- [x] 1.5 Both jets more agile
+- [x] 1.6 Full rolls and loops (quaternions), clean roll stop
+- [x] 1.7 Free look (both mouse buttons) freezes controls
+- [x] 1.8 Animated ailerons, elevators, rudders
+- [x] 1.9 Jet models more detail, all lights attached to the model
+- [x] 1.10 Engine sound much quieter
+
+## Part 2: Jet combat
+- [x] 2.1 Lock-on stays on the target
+- [x] 2.2 Locking a UFO does not anger other UFOs
+- [x] 2.3 Fewer UFO attackers when in a jet
+- [x] 2.4 Missile camera follow keeps full jet control
+- [x] 2.5 Jet destroyed in air: big explosion, burning wreck falls, explodes on impact
+- [x] 2.6 Enemy jets faster
+
+## Part 3: UFOs
+- [x] 3.1 Shapes: remove rounded cube; add triangle, boomerang, cylinder
+- [x] 3.2 Crash explosion scales with UFO size
+- [x] 3.3 Water crash: sink, explode on seabed, aliens spawn in water, head to player
+- [x] 3.4 Persistence: rare retreat
+- [x] 3.5 Abducted animals vanish inside the UFO
+- [x] 3.6 Hangar UFOs hidden in bunkers, armed guards, late-mission boarding
+
+## Part 4: UFO piloting
+- [x] 4.1 Faster dash, random dash speed per UFO
+- [x] 4.2 Ghost mode toggle key and HUD state
+- [x] 4.3 Tic-tac long axis forward
+- [x] 4.4 Superweapon laser carves continuously
+
+## Part 5: Aliens and mobs
+- [x] 5.1 Pathfinding AI, clear line of fire
+- [x] 5.2 Blue alien type
+- [x] 5.3 Spiders neutral in daylight
+
+## Part 6: Weapons and items
+- [x] 6.1 Bow charge/draw animation
+- [x] 6.2 Laser pistol: no reload, continuous
+- [x] 6.3 Pistol real projectiles
+- [x] 6.4 Remove shield
+- [x] 6.5 Armor drops, slots, HUD
+- [x] 6.6 Realistic nuke mushroom cloud
+
+## Part 7: World and graphics
+- [x] 7.1 Craters in LOD terrain
+- [x] 7.2 Cities with skyscrapers, bigger mountains
+- [x] 7.3 Bigger, varied airports
+- [x] 7.4 Shorter ultra grass
+- [x] 7.5 Breakable grass, no floating grass after explosions
+- [x] 7.6 Natural see-through leaves
+- [x] 7.7 Subtle walking view bob
+- [x] 7.8 Supply drops on solid ground, new crate and ropes
+
+## Part 8: Missions and defaults
+- [x] 8.1 The Long Night at night, eventful
+- [x] 8.2 Re-check mission chain and difficulty
+- [x] 8.3 Defaults: Medium, 15 chunks, volume 30%
+
+## Final polish
+- [x] F.1 Regression pass
+- [x] F.2 Player's-eye review
+- [x] F.3 Full suite
+- [x] F.4 README
+- [x] F.5 Summary, decisions, known issues, 10-minute test
+- [x] F.6 ROUND 5 COMPLETE
+
+## Round 5 decisions and notes
+(appended as work proceeds)
+- Part 1, flight model (js/vehicle-jet.js): thrust grows with the square of the throttle and drag with the square of the speed, so the speed you settle at is proportional to the throttle (measured at 60 FPS in level flight: 0% ~ idle, 30% 285, 50% 474, 70% 663, 100% 947, afterburner 1080 km/h; the top-speed setting default is 300 b/s = 1080 km/h with the afterburner, 88% of it at 100% throttle). Old saves still at the old 160 default move to 300 once (settings version 5). Ground thrust, takeoff rolls and lift-off are unchanged (a takeoff still needs ~5 s / 100 blocks).
+- Part 1, loops and rolls: the aim (crosshair) is now a quaternion (`aimQ`) turned by the mouse about its own axes, so pitch is not clamped and a loop is just pulling the mouse back (measured: a 360 degree loop, alive, no sideways drift). The jet follows the aim with body-frame commands and bank measured against the aim's own up, so it stays on the loop instead of rolling upright at the top. The aim levels its own roll (sin of the bank, so the inverted attitude is the unstable one and the jet rolls out of it by itself once the mouse stops). `aimYaw`/`aimPitch` are still there as accessors (enemy autopilot, tests). A/D roll the jet continuously (a full roll in 1.5 s; -472 degrees in 2 s measured); the roll axis responds 2x faster than pitch/yaw, so letting go stops within ~5 degrees and the damped bank controller then returns to wings-level with no overshoot (measured).
+- Part 1, ground: three contact points (nose wheel and both main wheels) follow the ground's slope and tilt, so the jet sits level on its wheels on runways and follows imperfect ground; the nose only rises for takeoff (throttle above 45%, no brakes, at speed) and settles at once otherwise (leftover air rotation is cancelled); lift is dumped on the ground unless rotating. Landing: a sink rate up to 9 b/s is clean, up to 17 hurts (damage grows with it, "HARD LANDING"), beyond that, 40 degrees of bank, a nose-down slam, a 22 b/s sideways slide or 220 b/s ground speed crash it. Brakes stop 75 b/s in ~3 s. S at 0% throttle reverses at up to 5 b/s.
+- Part 1.7 free look: both mouse buttons for 0.07 s freeze the controls (rates zeroed, no weapons, no lock) and the mouse moves a head-like look offset; letting go re-levels the aim from the nose and the camera comes back smoothly (measured: 0.1 degree camera jump).
+- Part 2.4: the old "looking" flag forced the aim to the nose every frame during a lock hold or a missile follow (mouse ignored). Follow now leaves mouse and keys fully live (the camera is only blended toward the target; a small ring marks where the mouse steers); while the lock button is held the mouse is left alone but the jet keeps flying toward its aim and all keys work.
+- Part 2.1/2.2: a tracked target stays until release, death or 2200 blocks away; only the tracked UFO gets `lockedOn` (after 0.3 s); the old "switch if clearly better" rule made the lock sweep across UFOs and anger each. Part 2.3: against a jet at most 2 UFOs attack (4 otherwise); extra attackers fall back to circling when you take to a jet.
+- Part 2.5: a jet destroyed more than 8 blocks above the ground (not by a crash) explodes (radius 11 + fireball, smoke, debris), then the burning wreck tumbles and falls (gravity 20, drag, fire and smoke trail, secondary flashes) and explodes again where it lands (or after 45 s). Enemy jets use the same code.
+- Part 1.8/1.9 model: stabilators, flaperons and rudders are separate hinged parts on both jets (axes: stabilators about X, flaperons about the hinge line, rudders about the fin's own axis; deflection smoothed); the nav lights were placed by hand and several floated beside the airframe (F-22 tail strobes and fin strips 1 block outside the fin, F-16 wingtips beyond the wing, the belly strobe below the belly): they are now computed from the geometry (fin tips, wing tip edge, rail tip, belly) and the formation strips lie on the fuselage and fins. Extra detail: beaver tail, intake splitter plates, refuelling door, a real rudder line.
+- Part 1.10: engine sound master gain 0.55 -> 0.14, roar 0.25+0.6t -> 0.15+0.4t, whine and afterburner roughly halved.
+- Part 8.3 defaults: graphics Medium (medium preset suggests 15 chunks), render distance 15, master volume 30% (the audio class, settings schema and the Reset buttons agree).
+
+- Part 3.1 shapes: the rounded cube and the cube ring are gone (old saved wrecks map to a disc saucer and a torus); new: a flat black triangle (rounded, thin, with a dim light at each corner and a faint red one under the middle), a boomerang (a wide flat chevron with a row of dim lights along its leading edge) and a metal cylinder with raised bands. Designs with a front (tic-tac, triangle, boomerang, cylinder) point where they fly instead of spinning, both as enemies and as the player's ship (the tic-tac's long axis lies along X in its model, so the piloted ship adds a quarter turn: its long axis now points forward).
+- Part 3.2: crash blasts scale with the ship: the crater radius is capped (a mothership/giant crater would not survive more than 36 blocks) but the new `visual` size of `effects.explode` (fireball, shock ring, shake, roar, flash) is uncapped (small scout 12, medium 18, large 22, mothership 51, giant 86 grenade-radius-equivalents, measured). The damage reach is the crater's size (x1.5 at most), so a far-off crashing mothership never kills you across the map.
+- Part 3.3 sea crashes: no more explosion at the water surface: a big splash, the wreck sinks (as before) and goes off on the sea floor (crater capped at 14, visual 0.75x) with a geyser of water over it; the crew now comes up in the water around the wreck (open water cells next to it) and swims or wades toward the player (the old code sent them to the nearest shore).
+- Part 3.4: after a hit a UFO stays angry for 90-150 s (35-70 before), a hurt one (<90% health) keeps fighting for as long as it saw the player in the last 6 s, the 'evade' reaction is rare (weights 0.5-1.2 against counter 4-6), and a UFO with a jet on its tail leaves with 0.08-0.15%/s instead of 0.8-4%/s.
+- Part 3.5: a creature caught in an enemy UFO's beam is its prisoner: it rises to the ship at 4.6 b/s whatever the beam does, drifts to the middle of the beam, and vanishes in a flash inside (or at once if the ship is shot down or leaves). It never falls back.
+- Part 4.1: every piloted ship gets a fixed random dash factor (log scale 1 to 6, from its look and size) on top of the settings' base speed (900-3500 b/s): measured 1390-4390 b/s at the default settings (before 250-2500), labelled fast / very fast / extreme in the info panel. A tap goes sqrt(factor) farther. A dash into ground that has not loaded yet stops (it would end up inside terrain that streams in under the ship).
+- Part 4.2: G toggles ghost mode while piloting (the Settings row follows, and it persists like the setting does); switching off is refused while the hull is inside solid blocks. The HUD shows GHOST ON. (Persistence of settings itself was not touched.)
+- Part 4.4: the superweapon digs every column under the ship each frame (per-column depth bookkeeping), so it carves a trench along its path for the whole 2.6 s.
+- Part 5.1: js/pathfinding.js (A* on feet cells: 8 directions without corner cutting, 1-block jumps, 2-block big jumps for aliens, drops up to the species' maxDrop, swimming, partial path to the closest cell when no path is found within the node budget). Ranged creatures with `pathfind` (aliens, skeletons, guards, blue aliens) check for a clear line of fire from their eyes to the player's chest (a ray every ~0.25 s); without one (or when out of range) they follow a path to the nearest cell within range that has one (goal test with a capped number of rays), and they shoot only with a clear line (measured in a walled arena: 0 shots without line of sight, all three kinds walk around a 40-block wall). Stuck creatures re-plan with a bigger search, then escape to the surface, and an alien stuck for 16 s is called back to a free spot near the player (so no mission can stall on an alien in a sealed hole). 2800 search nodes per frame in total.
+- Part 5.2: the blue alien (own model: slender, blue skin, glowing cyan seams, crest and fins; weapon: a scatter of four fast bolts, strong up close, weak at range; behaviour: quick, blinks to flank (to a spot 7-12 blocks from you with a clear shot) every 6-9 s when far or hurt; appears from mission 11); and the guard (below, Part 3.6).
+- Part 5.3: spiders are neutral when the sky is bright (daylight and light level 12+) unless provoked (a hit: 30 s); in the dark (night, caves) they hunt as before.
+- Part 6: items: the shield is gone entirely (item id 296 reserved, off-hand slot, raising, audio, HUD, README); armor in four materials (leather, gold, iron, diamond) x four pieces (ids 300-315) with classic defense points (leather 1/3/2/1, gold 2/5/3/1, iron 2/6/5/2, diamond 3/8/6/3; 4% less damage per point, up to 80%), wear (they lose durability on hits and break), four armor slots in the inventory (click, shift-click, or right click the piece in hand), an armor bar of ten chestplates above the hearts, auto-equip when the slot is free, an Armor tab in the Creative palette, drops from zombies (4.5%), skeletons (6%), guards (35%), green/gray/blue/red aliens (7/9/9/14%) with the material by mission tier and creature (leather early, diamond only late and rare). Armor does nothing against falls, drowning, void, starvation, crashes, abduction or the nuke.
+- Part 6.1: the bow draws through three pull stages (3 sprites: limbs bend, string and nocked arrow come back), the bow is raised in front of you with the arrow toward the crosshair while nocking, trembles at full draw; a fuller draw gives faster, flatter, harder arrows (as before: 16-58 b/s, 2-9 damage). 6.2: the laser blaster has no magazine and no reload and fires continuously (about 4.5 bolts/s) for 3 damage a bolt (the pistol: 5). 6.3: the pistol fires a real bullet (240 b/s, tracer) from the muzzle, aimed at what is under the crosshair.
+- Part 6.6 nuke: the cloud is planned puff by puff (stem, rolling torus cap with a bright rim, dome, a collar of vapour under the cap, a white condensation ring racing out, glowing fire inside) and driven analytically (smooth, cheap), orange early and grey-brown later, thinning out over the last minute (125 s in all); puff counts follow the intensity setting and the effects quality of the graphics preset (fewer, bigger puffs on Low); the cloud pools do not use distance fog (it is seen from beyond the view distance).
+- Part 3.6 bunkers: instead of ships sitting in open hangars, airports (35% of fields, 60% regional, 95% international) hide an underground bunker: a trench ramp (15 wide) drops from the apron to a tunnel and a 25x22 hall with lumen ceiling lights; a yard with walls, a watch tower and a guard hut marks it from outside. `sites.bunkerSpots` gives the hall floor (the alien ship hovers there, nose out, small designs only), a restricted zone (46 blocks) and 4-6 guard posts (top of the ramp, foot of the ramp, inside). `airports.js` sets them out with the airport (guards via `mobs.spawnGuard`, put away with it), retries a bunker whose chunks have not loaded yet (they can lie far from the apron), shows a "Restricted area" toast on the first alarm, and boarding stays locked by the existing `canBoard` until mission 15. Guards: 22 health, rifle (1.5 damage, 2.3 s cooldown), posted until the player enters the zone or shoots one; the alarm spreads to the guards nearby for 25 s. Balance: a guard squad is lethal for a player who runs into the hall at low level, but they are only dangerous inside the zone and never chase far; the ship cannot be boarded before the Salvage mission anyway.
+- Part 7.1: world.queueEdit records edits for chunks that are not loaded (`lodDirty`), and the LOD system re-meshes the affected tiles on its next flush, so a nuke crater or a big blast shows in the distant terrain too.
+- Part 7.2: mountains are bigger (ridge frequency 1/340, amplitude 104, snow line 98; columns over 100 blocks went from 1.6% to 5.4%); cities have lots of four kinds (park, house, midrise, skyscraper) with multi-box setbacks, curtain-wall windows, antennas and street lamps; the biggest cities (international) reach 80 blocks.
+- Part 7.3: airports come in three sizes (field: half-length 150, regional 200, international 250; runway 14-20 wide), with an apron, 2-4 hangars, tower, terminal, fuel tanks, radar and parking. Sites are placed on an 800-block grid with up to 16 tries each, so one is within ~1300 blocks of the spawn for about 5 in 8 worlds and within 2600 for all (a bigger footprint means fewer sites fit than before: this is the trade-off for variety). `airports.runwayNear` reports the real half length.
+- Part 7.4: Ultra grass is shorter (blade scale 0.68 -> 0.46, tall tufts 1.4 -> 1.1 per block), High 1.0 -> 0.72.
+- Part 7.5: grass is breakable: a left click at the ground (swing/mining a block top) clears the tufts in a 1.2 block radius, and explosions clear the plants within radius + 2.5 (cap 30) so none hover over a crater; cleared columns stay bare for 150 s. The plants themselves are always rebuilt from the real blocks when a chunk is re-meshed, so nothing can float over a missing block.
+- Part 7.6: leaf textures have more see-through gaps (28% instead of 17%; birch 30%), a texture-only change (no extra geometry or shader cost).
+- Part 7.7: a subtle step bob in first person (about 2 cm vertical, 1 cm sideways, a hair of roll; 1.4x when sprinting; eased in and out; none when scoped/dead); the aim and raycasts use the eye position without bob.
+- Part 7.8: supply drops only come down on dry land (7 sample columns 4 blocks around must be above the sea, the ground solid and not wet; the search tries 16 directions on 5 widening rings and gives up rather than dropping in water). New crate: planks with seams, steel brackets and bands, a lighter lid, a white plate with a red cross on every side, and four lifting eyes; eight cords run from the eyes to points exactly on the canopy's rim (they were floating below the canopy before).
+- Part 8.1 Long Night: when the mission starts the clock runs 30x to dusk (a frozen clock is unfrozen: dawn would never come); a night is dusk 19:30 to dawn 5:30 (about 250 s). Three alien landing parties arrive at 35, 105 and 170 s (3, 4 and 5 aliens, grays and greens, on open ground ~70 blocks away, marked on the HUD) on top of the usual zombies and UFO scouts. A death restarts the night from dusk (instead of waiting a whole day for the next one).
+- Part 8.2 chain re-check: the chain still has 19 missions and every mission is no easier than the one before (unit test). Round 5 side effects checked: blue aliens join the crews from mission 11, armor drops start with the first aliens and get better with the chain, bunker guards only matter at airports (the Sunburn base included) and the ship in a bunker is locked until Salvage (mission 15). The Long Night (mission 6) now gives a guaranteed, bounded event instead of waiting for a natural night: a 4-minute night with 12 aliens in three waves at tier 1 gear (stone sword, bow, pistol, grenades); an alien wave does 0.6x damage in that mission's rules, so it is demanding but fair. Retrying after a death costs about a minute, not a day.
+- Tests: the old browser suites were updated where Round 5 changed behaviour on purpose (shield checks removed, Medium/15 chunks defaults, the pistol is a real bullet so the checks lead or wait for it, UFO designs list, bunkers instead of hangar ships, the scout crash is stepped by hand because software rendering runs only a few frames a second). New: `tools/round5-tests.mjs` (11 checks) and Round 5 unit tests (armor, A* pathfinding, bunker geometry). A UFO shot down is counted when it crashes (as before), which on a slow machine can take a while: the mission test steps the UFOs itself.
+
+## Round 5 summary of changes (for the player)
+- Jets: throttle 0-100% with speed proportional to it (about 1000 km/h at 100%), reliable landings and a slow reverse, forgiving takeoff, much more agile (full rolls, loops), free look with both mouse buttons, animated control surfaces, detailed models with lights on the airframe, a much quieter engine, a stable missile lock that does not anger other UFOs, a free camera while a missile flies, a big explosion and a burning falling wreck when a jet is shot down, faster enemy jets.
+- UFOs: no more rounded cubes; a black triangle, a boomerang and a cylinder instead; crash blasts scale with the size; sea crashes sink and explode on the seabed with a swimming crew; UFOs keep fighting; abducted animals vanish inside the ship; a random dash speed per ship, ghost mode on `G`, tic-tacs fly long end first, the superweapon carves along its path; at most two UFOs attack a jet at once.
+- Aliens: pathfinding (A*) around walls and out of holes, moving to a clear line of fire before shooting; a blue alien that blinks and fires scatter shots; spiders are neutral in daylight.
+- Weapons and gear: a bow that is really drawn, a laser pistol with no reload, a pistol with real bullets, no shield, four armor pieces in four tiers (drops, inventory slots, HUD, damage reduction), a realistic nuke mushroom cloud scaled by the graphics preset.
+- World: craters in the distant terrain, bigger mountains, cities with skyscrapers, three airport sizes with long runways, guarded bunkers with ships inside, shorter breakable grass, more see-through leaves, a subtle walking bob, supply crates on dry land with a redesigned crate and correct cords.
+- Missions: the Long Night really is at night and eventful; defaults Medium, 15 chunks, 30% volume.
+
+## Known issues
+- Software rendering (the test machine) is slow, so the Ultra smoke check and some long browser checks can time out there; they are not game faults.
+- The LOD does not draw skyscraper tops above the full-detail distance as separate buildings: far cities show as flat pads with tinted ground (the same as earlier rounds).
+- A guard squad in a bunker is lethal for a player who runs in unprepared: by design, but the restricted zone (46 blocks) is generous; the toast "Restricted area!" appears on the first alarm.
+- The spawn point is within 1300 blocks of an airport/city in about 5 of 8 worlds (up to 2600 for all tested seeds).
+- Supply drops give up (no drop) when there is no dry land within about 3x the usual distance (a tiny island in the ocean).
+
+## How to test in 10 minutes
+1. Open the game, click Play (Medium, 15 chunks, volume 30% by default). In Creative press `E`, take the Jet Radio (or press `J`), pick `1` (F-22). Hold `W` to 100% and `Shift`: takeoff in a few seconds. Pull the mouse back for a loop, hold `A` for a full roll, hold both mouse buttons to look around, press `S` to 0% and land on the runway with `Space`.
+2. Hold right click on a UFO for the missile lock (stays on it), release for the missile: the camera follows it and you keep control. Shoot an enemy jet down to see the explosion and the burning wreck.
+3. Press `F3` for the nearest airport; fly to it, find the bunker (walled yard with a ramp), walk in as a Survival player: guards fire and a toast says "Restricted area". A UFO hovers in the hall (boardable from mission 15).
+4. Spawn a UFO from the Mods screen, fly it (`F` to board): `R` dashes (each ship its own speed), `G` ghost mode, `B` the superweapon along a path.
+5. Survival: new world; play the first missions (skeleton, landing, supply crate, scout, crew); mission 6 jumps to dusk and sends three landing parties; `Esc > Missions` lists the chain. Aliens walk around walls to reach you; blue aliens (mission 11+) blink.
+6. `tools`: `npm test` (unit tests first; the browser suites need Chromium).
+
+## Round 5 final test status
+- unit-tests 54/54; round5-tests 11/11; round4 14/14; round3 10/10; settings 7/7; round2 38/38 and ufo-tests 35/35 (the few that failed in the full run were fixed and re-run individually: the old checks assumed the slow jet, hitscan pistol, small mountains, 10-chunk defaults or a runway end inside the render distance; two timing-sensitive ones, "on foot beam" and "board the wreck", pass alone but can time out when three browsers share the machine). smoke-test: 64 of 67 passed in the last full run; the three failures were fixed afterwards (pistol bullet holes: bullets now leave bullet holes through `lasers.holes`, verified with a probe: 6 clicks = 6 holes; startup default preset Medium; the context-loss test waits three frames like a real start) but the smoke suite was not re-run end to end after them (software rendering makes it about 50 minutes; a targeted re-run timed out clicking Play on the loaded machine).
+- Also fixed on the way: fleeing UFOs no longer count as jet attackers; the called-in jet starts further down the runway when its far end is not loaded (long international runways); no guards are spawned on Peaceful.
+
+ROUND 5 COMPLETE

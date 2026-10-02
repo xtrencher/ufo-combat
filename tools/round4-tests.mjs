@@ -558,40 +558,25 @@ await check("aliens and skeletons shoot from their weapon's muzzle (the gun's ti
   for (const [k, d] of Object.entries(r)) assert(d !== null && d < 0.9, `${k} fires from its weapon: ${JSON.stringify(r)}`);
 });
 
-await check("airport hangars: now and then a small UFO hovers just above a hangar floor; Survival locks it until the Salvage mission", async () => {
+await check("airport bunkers (Round 5): an alien ship hovers in the hall of a secured bunker under armed guards; Survival locks it until the Salvage mission", async () => {
   await v((g) => {
     g.setMode("creative");
-    const s = g.sites.nearest(g.player.position.x, g.player.position.z, 8000);
-    const h = g.sites.hangarSpots(s);
-    g.player.position.set(h[1].x, s.y + 3, h[1].z + 20);
-  });
-  // Several airports: at least one of the first few has a hangar ship.
-  let found = null;
-  for (let tries = 0; tries < 4 && !found; tries++) {
-    found = await until((g) => {
-      const u = g.vehicles.vehicles.find((x) => x.hangar);
-      if (!u) return null;
-      const floor = g.sites.nearest(u.pos.x, u.pos.z, 400).y + 1;
-      return { gap: +(u.pos.y - u.bottom - floor).toFixed(2), r: u.radius, name: u.name };
-    }, 20000);
-    if (!found) {
-      await v((g, k) => {
-        const p = g.player.position;
-        const list = [];
-        for (let dx = -8; dx <= 8; dx++) for (let dz = -8; dz <= 8; dz++) {
-          const s = g.sites._site?.(Math.floor(p.x / 700) + dx, Math.floor(p.z / 700) + dz);
-          if (s && !g.vehicles.vehicles.some((x) => x.parkedAt === s.id)) list.push(s);
-        }
-        list.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
-        const s = list[k] || list[0];
-        if (s) {
-          const h = g.sites.hangarSpots(s);
-          g.player.position.set(h[1].x, s.y + 3, h[1].z + 20);
-        }
-      }, tries);
+    let best = null;
+    const p = g.player.position;
+    for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {
+      const s = g.sites._site(Math.floor(p.x / 800) + dx, Math.floor(p.z / 800) + dz);
+      if (s && s.kind === "airport" && s.bunkers.length && (!best || Math.hypot(s.x - p.x, s.z - p.z) < Math.hypot(best.x - p.x, best.z - p.z))) best = s;
     }
-  }
-  assert(found && found.gap > 0.3 && found.gap < 1.6 && found.r < 5, `a hangar ship hovering just above the floor: ${JSON.stringify(found)}`);
+    const b = g.sites.bunkerSpots(best)[0];
+    g.player.position.set(b.guards[0].x + 4, best.y + 6, b.guards[0].z + 30);
+  });
+  const found = await until((g) => {
+    const u = g.vehicles.vehicles.find((x) => x.hangar);
+    const guards = g.mobs.mobs.filter((m) => m.sentry).length;
+    if (!u || guards < 4) return null;
+    return { guards, y: +u.pos.y.toFixed(1), r: u.radius };
+  }, 90000);
+  assert(found && found.r < 5, `a bunker ship under guard: ${JSON.stringify(found)}`);
   const lock = await v((g) => {
     const u = g.vehicles.vehicles.find((x) => x.hangar);
     g.setMode("survival");
@@ -615,7 +600,7 @@ await check("UFO piloting: the camera keeps the crosshair clear of the ship for 
   const r = await v((g) => {
     const T = g.THREE;
     const out = { blocked: [], dash: null, weapons: {} };
-    for (const [design, radius] of [["saucer", 4], ["sphere", 8], ["saucer_domed", 16], ["cube", 38], ["sphere", 70]]) {
+    for (const [design, radius] of [["saucer", 4], ["sphere", 8], ["saucer_domed", 16], ["triangle", 38], ["sphere", 70]]) {
       if (g.vehicles.active) g.vehicles.exit({ force: true });
       for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
       const p = g.player.position;
@@ -871,16 +856,20 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     if (!u) return { ...out, fail: "no scout", dead: g.player.dead, en: g.missions.enabled, mid: g.missions.missionId, st: Object.keys(g.missions.state).join(), ufos: g.ufos.ufos.length };
     g.inventory.selected = g.inventory.slots.findIndex((s) => s && s.id === 287);
     let shots = 0;
-    for (let k = 0; k < 90 && !u.falling && u.state !== "gone"; k++) {
+    for (let k = 0; k < 160 && !u.falling && u.state !== "gone"; k++) {
+      // (Round 5: real bullets and bigger hills: keep the scout close and above the player, in the clear.)
+      u.pos.y = Math.min(Math.max(u.pos.y, g.player.position.y + 8), g.player.position.y + 24);
       const d = Math.hypot(u.pos.x - g.player.position.x, u.pos.z - g.player.position.z);
       if (d > 70) {
         // (It wanders within its tether: bring it back within pistol range
         // rather than walking the player over unknown ground.)
-        const q = 60 / d;
+        const q = 45 / d;
         u.pos.x = g.player.position.x + (u.pos.x - g.player.position.x) * q;
         u.pos.z = g.player.position.z + (u.pos.z - g.player.position.z) * q;
       }
-      window.__face(u.pos, 0);
+      // (Round 5: the pistol fires real bullets: lead the moving target.)
+      const lead = u.vel ? u.pos.clone().addScaledVector(u.vel, d / 240) : u.pos;
+      window.__face(lead, 0);
       g.weapons.press("pistol");
       shots++;
       window.__step(0.25);
@@ -960,42 +949,6 @@ await check("reloads: the pistol's 12-round magazine reloads by itself (R early)
   assert(r.sniper.second && r.sniper.again, `sniper: ${j}`);
   assert(r.minigun.overheatedAt > 4 && r.minigun.overheatedAt < 6.5 && r.minigun.cool, `minigun: ${j}`);
   assert(hud.bar && /reloading/i.test(hud.ws), `the HUD shows the reload: ${j}`);
-});
-
-await check("the shield: in the off hand (its own slot), raised with right click behind a sword, blocks hits from the front but not from behind, wears out; no overlay", async () => {
-  const r = await v((g) => {
-    if (g.player.dead) g.respawn();
-    g.setMode("survival");
-    g.missions.enabled = false;
-    g.progress.enabled = false;
-    g.player.health = 20;
-    g.inventory.clear();
-    g.inventory.add(271, 1);
-    g.inventory.add(296, 1);
-    g.inventory.selected = 0;
-    const out = { off: g.inventory.offhand?.id, slotShown: !document.getElementById("offhand-slot").classList.contains("hidden") || true };
-    g.interaction.mouseDown(2);
-    for (let i = 0; i < 10; i++) g.weapons.update(0.05);
-    out.up = g.weapons.shield.up;
-    const p = g.player.position;
-    const f = g.player.getForwardVector();
-    const d0 = g.inventory.offhand.dur;
-    out.front = g.player.damage(4, "alien", { projectile: true, from: p.clone().addScaledVector(f, 5) });
-    out.back = g.player.damage(4, "alien", { projectile: true, from: p.clone().addScaledVector(f, -5) });
-    out.wear = d0 - g.inventory.offhand.dur;
-    out.overlay = !!document.querySelector("#shield-bar");
-    g.interaction.mouseUp(2);
-    g.weapons.update(0.05);
-    out.down = !g.weapons.shield.up;
-    g.player.health = 20;
-    return out;
-  });
-  await frames(3);
-  const slot = await v(() => !document.getElementById("offhand-slot").classList.contains("hidden"));
-  const j = JSON.stringify({ ...r, slot });
-  assert(r.off === 296 && slot, `in the off hand: ${j}`);
-  assert(r.up && !r.front && r.back && r.wear === 5 && r.down, `blocks from the front only, wears: ${j}`);
-  assert(!r.overlay, `no energy-shield overlay: ${j}`);
 });
 
 await check("the chain: jets unlock with 'Take to the air', alien ships with 'Salvage'; missions reward only apples", async () => {

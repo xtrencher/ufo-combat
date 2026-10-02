@@ -114,7 +114,7 @@ export class Audio {
     this._shaperCurve = null;
     // Per-category volume (0-1), set from the settings menu. Each category
     // has its own gain node feeding the master gain.
-    this.volumes = { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 };
+    this.volumes = { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 };
     this.buses = {};
     this._out = null; // the bus of the sound being played
   }
@@ -736,7 +736,7 @@ export class Audio {
       whineF.frequency.value = 2400;
       whineF.Q.value = 6;
       const whineG = ctx.createGain();
-      whineG.gain.value = 0.05;
+      whineG.gain.value = 0.02;
       whine.connect(whineF).connect(whineG).connect(out);
       whine.start();
       // Afterburner rumble.
@@ -751,12 +751,12 @@ export class Audio {
     }
     const j = this._jet;
     const t = ctx.currentTime;
-    j.out.gain.setTargetAtTime(active ? 0.55 : 0, t, active ? 0.2 : 0.4);
+    j.out.gain.setTargetAtTime(active ? 0.14 : 0, t, active ? 0.2 : 0.4);
     j.roarF.frequency.setTargetAtTime(350 + throttle * 1400 + speed * 3, t, 0.2);
-    j.roarG.gain.setTargetAtTime(0.25 + throttle * 0.6, t, 0.2);
+    j.roarG.gain.setTargetAtTime(0.15 + throttle * 0.4, t, 0.2);
     j.whine.frequency.setTargetAtTime(600 + throttle * 900, t, 0.3);
     j.whineF.frequency.setTargetAtTime(1800 + throttle * 1800, t, 0.3);
-    j.abG.gain.setTargetAtTime(afterburner ? 1.4 : 0, t, 0.15);
+    j.abG.gain.setTargetAtTime(afterburner ? 0.7 : 0, t, 0.15);
   }
 
   // One autocannon round (a very short, low crack; they come 16 a second).
@@ -877,7 +877,7 @@ export class Audio {
     this._hit({ type: "lowpass", f: 200, q: 1, d: 0.2, v: 0.4 });
   }
 
-  // ---------- Railgun, minigun, shield, and other gadgets ----------
+  // ---------- Railgun, minigun and other gadgets ----------
 
   // The railgun charging: a rising electrical whine over `dur` seconds.
   playRailCharge(dur = 1) {
@@ -984,25 +984,6 @@ export class Audio {
     this._hit({ type: "bandpass", f: 2400, q: 1.6, d: 0.03, v: 0.08, attack: 0.001, fEnd: 1200 });
   }
 
-  // The shield: a rising hum when raised, a soft falling one when lowered, a
-  // ping when it soaks a hit, and a glassy shatter when it breaks.
-  playShieldUp() {
-    this._cat("player");
-    this._hit({ type: "bandpass", f: 500, q: 3, d: 0.3, v: 0.25, fEnd: 1800, attack: 0.03 });
-    this._hit({ type: "highpass", f: 3500, q: 0.6, d: 0.2, v: 0.06, attack: 0.05 });
-  }
-
-  playShieldDown() {
-    this._cat("player");
-    this._hit({ type: "bandpass", f: 1500, q: 3, d: 0.25, v: 0.16, fEnd: 400, attack: 0.02 });
-  }
-
-  playShieldHit(strength = 1) {
-    this._cat("player");
-    this._hit({ type: "bandpass", f: 2400, q: 8, d: 0.14, v: 0.26 * Math.min(1.4, strength), fEnd: 1500, attack: 0.002 });
-    this._hit({ type: "lowpass", f: 300, q: 1, d: 0.1, v: 0.3 * Math.min(1.4, strength), attack: 0.002 });
-  }
-
   // The bow: a creaking draw, a twang with a whoosh, a thunk on impact.
   playBowDraw() {
     this._cat("weapons");
@@ -1031,12 +1012,6 @@ export class Audio {
     }
     this._hit({ type: "bandpass", f: 1900, q: 4, d: 0.04, v: 0.16, attack: 0.001 });
     this._hit({ type: "bandpass", f: 1300, q: 4, d: 0.05, v: 0.2, attack: 0.001 }, 0.35);
-  }
-
-  playShieldBreak() {
-    this._cat("player");
-    this._hit({ type: "bandpass", f: 4200, q: 10, d: 0.35, v: 0.5, n: 6, spread: 0.03, jitter: 0.5 });
-    this._hit({ type: "lowpass", f: 200, q: 1, d: 0.5, v: 0.6 });
   }
 
   // A supply crate falling: a descending whistle.

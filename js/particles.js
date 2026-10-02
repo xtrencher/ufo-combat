@@ -151,7 +151,7 @@ void main() {
 
 export class BillboardPool {
   // additive: true for glowing particles (fire, sparks), false for smoke.
-  constructor(scene, capacity = 300, { additive = false } = {}) {
+  constructor(scene, capacity = 300, { additive = false, fog = true } = {}) {
     this.capacity = capacity;
     this.particles = [];
 
@@ -175,7 +175,7 @@ export class BillboardPool {
       fragmentShader: billboardFragment,
       transparent: true,
       depthWrite: false,
-      fog: true,
+      fog,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       defines: additive ? { ADDITIVE: "" } : {},
     });
@@ -187,10 +187,12 @@ export class BillboardPool {
   }
 
   // opts: { x,y,z, vx,vy,vz, life, size0, size1, color0, color1 (THREE.Color),
-  //         alpha, gravity (multiplier), drag (per second), spin }
+  //         alpha, gravity (multiplier), drag (per second), spin, hold (0-1: the
+  //         share of its life it stays fully opaque before fading) }
+  // Returns the particle (a long-lived effect may move it itself).
   spawn(o) {
     if (this.particles.length >= this.capacity) this.particles.shift();
-    this.particles.push({
+    const p = {
       x: o.x, y: o.y, z: o.z,
       vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0,
       life: o.life, maxLife: o.life,
@@ -201,7 +203,10 @@ export class BillboardPool {
       drag: o.drag ?? 0,
       rot: Math.random() * 6.28,
       spin: o.spin ?? (Math.random() - 0.5) * 2,
-    });
+      hold: o.hold ?? 0,
+    };
+    this.particles.push(p);
+    return p;
   }
 
   update(dt) {
@@ -225,8 +230,8 @@ export class BillboardPool {
 
       const t = 1 - p.life / p.maxLife; // normalized age 0 -> 1
       const grow = 1 - (1 - t) * (1 - t); // ease-out growth
-      const fadeIn = Math.min(1, t / 0.08);
-      const alpha = p.alpha * fadeIn * Math.pow(1 - t, 1.5);
+      const fadeIn = p.hold > 0 ? 1 : Math.min(1, t / 0.08);
+      const alpha = p.alpha * fadeIn * (p.hold > 0 ? (t < p.hold ? 1 : Math.pow(1 - (t - p.hold) / (1 - p.hold), 1.5)) : Math.pow(1 - t, 1.5));
 
       pos[n * 3] = p.x;
       pos[n * 3 + 1] = p.y;

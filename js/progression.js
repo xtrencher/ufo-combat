@@ -6,12 +6,12 @@
 // apples). Weapons come from four places, each in its own lane:
 //   - skeletons: the bow;
 //   - supply crates: standard weapons (pistol, grenades, machine gun,
-//     shield, sniper rifle, bazooka, airstrike designator), by tier;
+//     sniper rifle, bazooka, airstrike designator), by tier;
 //   - aliens: alien weapons, weakest to strongest (laser blaster, laser
 //     minigun, railgun), only once the chain gets that far;
 //   - missions: apples and golden apples only (no weapons).
 // UFO wrecks and patrol fighters drop food, golden apples and tools.
-import { ITEM } from "./items.js";
+import { ITEM, armorId } from "./items.js";
 
 // ---------- Weapons by source and tier ----------
 
@@ -20,7 +20,6 @@ export const CRATE_WEAPONS = [
   [ITEM.PISTOL, 0],
   [ITEM.GRENADE, 1],
   [ITEM.MACHINE_GUN, 1],
-  [ITEM.SHIELD, 1],
   [ITEM.SNIPER_RIFLE, 2],
   [ITEM.BAZOOKA, 3],
   [ITEM.AIRSTRIKE, 4],
@@ -34,7 +33,7 @@ export const ALIEN_WEAPONS = [
   [ITEM.MINIGUN, 3, "gray"],
   [ITEM.RAILGUN, 4, "red"],
 ];
-const KIND_RANK = { green: 0, gray: 1, red: 2 };
+const KIND_RANK = { green: 0, gray: 1, blue: 1, red: 2 };
 
 // (Round 3 name, kept for callers: every weapon that can drop, by tier.)
 export const WEAPON_TIERS = [...CRATE_WEAPONS, ...ALIEN_WEAPONS.map(([id, t]) => [id, t])];
@@ -80,7 +79,8 @@ const EARLY = { small: 1 };
 const LATE = { small: 2.5, medium: 4, large: 3, mothership: 0.7, giant: 0.18 };
 const GREEN = { alien: 1 };
 const GREEN_GRAY = { alien: 2, alien_gray: 1 };
-const ALL_CREWS = { alien: 3, alien_gray: 2, alien_red: 1 };
+const GREEN_GRAY_BLUE = { alien: 2, alien_gray: 1, alien_blue: 1 };
+const ALL_CREWS = { alien: 3, alien_gray: 2, alien_red: 1, alien_blue: 1.5 };
 
 export const MISSIONS = [
   {
@@ -203,7 +203,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 4, 0.03, GREEN_GRAY),
+    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 4, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "village",
@@ -213,7 +213,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "village",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 4, 0.03, GREEN_GRAY),
+    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 4, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "reds",
@@ -229,7 +229,7 @@ export const MISSIONS = [
   {
     id: "salvage",
     title: "Salvage",
-    text: "The next UFO you shoot down will come down in one piece. Board it (walk up, press F): alien ships are yours to fly from now on, the ones hidden in airport hangars too.",
+    text: "The next UFO you shoot down will come down in one piece. Board it (walk up, press F): alien ships are yours to fly from now on, the ones kept in the guarded bunkers of airports too.",
     objectives: [{ stat: "ufosBoarded", goal: 1, label: "UFOs boarded" }],
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "intact",
@@ -463,12 +463,12 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
       // Alien weapons, weakest first, once the chain gets there (a mission's
       // patrol leader always drops the new one: see missions.js).
       const w = pickAlienWeapon(detail, tier, have);
-      const wChance = { green: 0.2, gray: 0.25, red: 0.35 }[detail] ?? 0.2;
+      const wChance = { green: 0.2, gray: 0.25, blue: 0.25, red: 0.35 }[detail] ?? 0.2;
       if (w != null && rand() < wChance) {
         add(w, 1);
         break;
       }
-      const chance = { green: 0.28, gray: 0.42, red: 0.65 }[detail] ?? 0.3;
+      const chance = { green: 0.28, gray: 0.42, blue: 0.42, red: 0.65 }[detail] ?? 0.3;
       if (rand() > chance + tier * 0.03) break;
       const r = rand();
       if (r < 0.55) add(food(), 1 + Math.floor(rand() * 2));
@@ -508,7 +508,49 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
   return out;
 }
 
-// The alien kind's colour: "green" | "gray" | "red".
+// ---------- Armor drops ----------
+// Creatures sometimes drop a piece of armor: how often, and of which
+// material (leather, gold, iron, diamond: tiers 0-3), depends on the creature
+// and on how far the mission chain is (`tier` 0-5), so there is leather at
+// the start and diamond only late (and rarely).
+const ARMOR_CHANCE = { zombie: 0.045, skeleton: 0.06, guard: 0.35, green: 0.07, gray: 0.09, blue: 0.09, red: 0.14 };
+const ARMOR_BY_TIER = [
+  [1, 0, 0, 0],
+  [0.7, 0.3, 0, 0],
+  [0.4, 0.3, 0.3, 0],
+  [0.2, 0.25, 0.45, 0.1],
+  [0.1, 0.2, 0.45, 0.25],
+  [0, 0.15, 0.45, 0.4],
+];
+// Which creature's armor tends toward which material: a shift of the weights toward the better ones.
+const ARMOR_SHIFT = { zombie: -1, skeleton: -1, guard: 1, green: 0, gray: 1, blue: 1, red: 2 };
+
+// What `who` ("zombie", "skeleton", "guard", "green", "gray", "blue", "red")
+// drops on dying: [[itemId, 1]] or []. `worn`: a Set of the armor ids worn
+// (a piece for a free slot is likelier).
+export function rollArmorDrop(who, tier, worn = new Set(), rand = Math.random) {
+  if (rand() >= (ARMOR_CHANCE[who] ?? 0)) return [];
+  const row = ARMOR_BY_TIER[Math.max(0, Math.min(ARMOR_BY_TIER.length - 1, tier))];
+  const shift = ARMOR_SHIFT[who] ?? 0;
+  // (A better creature's weights are moved up to the better materials.)
+  const w = row.map((_, i) => row[Math.max(0, Math.min(3, i - shift))]);
+  const total = w.reduce((a, b) => a + b, 0) || 1;
+  let r = rand() * total;
+  let t = 0;
+  for (let i = 0; i < w.length; i++) {
+    r -= w[i];
+    if (r <= 0) {
+      t = i;
+      break;
+    }
+  }
+  // A piece for a slot not yet covered by this material, if possible.
+  const slots = [0, 1, 2, 3].filter((sl) => !worn.has(armorId(t, sl)));
+  const pool = slots.length ? slots : [0, 1, 2, 3];
+  return [[armorId(t, pool[Math.floor(rand() * pool.length)]), 1]];
+}
+
+// The alien kind's colour: "green" | "gray" | "blue" | "red".
 export function alienColour(kind) {
-  return kind === "alien_red" ? "red" : kind === "alien_gray" ? "gray" : "green";
+  return kind === "alien_red" ? "red" : kind === "alien_gray" ? "gray" : kind === "alien_blue" ? "blue" : "green";
 }

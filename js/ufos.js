@@ -27,7 +27,7 @@
 // crew of aliens (1 to 10, green, gray and red) climbs out and hunts the
 // player.
 import * as THREE from "three";
-import { createUfoModel, designInfo, randomUfoSpec, ufoLaserKey } from "./ufo-models.js";
+import { createUfoModel, designInfo, designFacingOffset, randomUfoSpec, ufoLaserKey } from "./ufo-models.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { LASER_COLORS } from "./lasers.js";
 import { IS_SOLID, IS_WET, BLOCK } from "./blocks.js";
@@ -52,6 +52,7 @@ export const UFO_DEFAULTS = {
 };
 
 export const MAX_ATTACKERS = 4; // UFOs attacking the player at the same time
+export const JET_MAX_ATTACKERS = 2; // ... while the player flies a jet (they are fast and you have no cover: two is plenty)
 
 // Per size: radius range (blocks), health, cruise and top speed (blocks/s),
 // laser damage, hover height over a beamed player, alien crew size range.
@@ -74,7 +75,7 @@ const SIZE_WEIGHTS = {
 // Attack styles. Each UFO has one, picked from its family's list, and its
 // own bolt color and sound, so different ships clearly fight differently:
 //   rapid    quick bursts of five thin, fast bolts (tic-tacs, saucers)
-//   heavy    one slow, big glowing ball that explodes (spheres, cubes)
+//   heavy    one slow, big glowing ball that explodes (spheres, triangles, cylinders)
 //   spread   a fan of five bolts across the target (saucers, rings)
 //   charged  the ship glows up for over a second, then one very fast,
 //            very hard bolt (spheres, tic-tacs): watch for the glow and move
@@ -101,8 +102,9 @@ const STYLE_WEIGHTS = {
   sphere: { charged: 45, heavy: 35, seeker: 20 },
   tictac: { rapid: 60, charged: 40 },
   torus: { sweep: 60, spread: 40 },
-  cube: { heavy: 40, spread: 30, seeker: 30 },
-  cubering: { sweep: 40, charged: 30, heavy: 30 },
+  triangle: { heavy: 30, spread: 25, seeker: 25, rapid: 20 },
+  boomerang: { rapid: 35, spread: 30, sweep: 35 },
+  cylinder: { heavy: 40, sweep: 30, charged: 30 },
 };
 
 const TRICKS = ["hover_lake", "zigzag", "follow", "abduct", "hover", "abduct", "dive", "burrow", "blink_hop"];
@@ -175,8 +177,6 @@ function familyOf(design) {
   if (design.startsWith("sphere")) return "sphere";
   if (design.startsWith("tictac")) return "tictac";
   if (design.startsWith("torus")) return "torus";
-  if (design.startsWith("cubering")) return "cubering";
-  if (design.startsWith("cube")) return "cube";
   return design;
 }
 
@@ -199,7 +199,7 @@ export class UfoManager {
     this._spawnT = 3;
     this._id = 1;
     this.viewDistance = 160; // blocks (fog end); set by the game
-    this.jetMaxSpeed = 150; // the jet's top speed (for fleeing UFOs)
+    this.jetMaxSpeed = 280; // the jet's top speed (for fleeing UFOs)
     this.pendingCrews = []; // aliens waiting for their wreck's chunk to load
     this.beams = []; // spare tractor beams
     this.attackers = 0; // UFOs attacking the player right now (at most MAX_ATTACKERS)
@@ -546,7 +546,7 @@ export class UfoManager {
     const pv = this._playerVehicle();
     // A slot among the (at most MAX_ATTACKERS) attackers, decided before
     // its state changes.
-    const slot = u.state === "attack" || u.state === "react" || u.state === "beam" || this.attackers < MAX_ATTACKERS;
+    const slot = u.state === "attack" || u.state === "react" || u.state === "beam" || this.attackers < this.maxAttackers;
     if (pv?.type === "ufo" && !u.hostile) {
       u.hostile = true;
       u.hostileT = 60;
@@ -559,7 +559,7 @@ export class UfoManager {
         if (o !== u && !o.hostile && !o.falling && o.pos.distanceTo(u.pos) < 120 && Math.random() < 0.15 * this._agg()) this.anger(o, rand(20, 40));
       }
     }
-    this.anger(u);
+    this.anger(u, rand(90, 150)); // (shot at: it fights on)
     u.alert = 8;
     u.stare = 0;
     if (u.state === "attack" || u.state === "react" || u.state === "beam") return; // already fighting
@@ -570,7 +570,8 @@ export class UfoManager {
     this.attackers++;
     // React (on foot): counterattack, fly in to beam, or evade.
     if (!pv) {
-      const w = u.personality === "fighter" ? { counter: 5, beam: 3, evade: 2 } : u.personality === "evader" ? { counter: 2.5, beam: 1.5, evade: 6 } : { counter: 3, beam: 2, evade: 4 };
+      // (Shot at, they fight on: evading is the rare reaction.)
+      const w = u.personality === "fighter" ? { counter: 6, beam: 3, evade: 0.5 } : u.personality === "evader" ? { counter: 4, beam: 1.5, evade: 1.2 } : { counter: 4.5, beam: 2, evade: 0.8 };
       const agg = this._agg();
       w.counter *= 0.4 + agg;
       w.beam *= agg * (this.player.creative ? 0 : 1) * (u.style === "abductor" ? 2.5 : 0.6);
@@ -630,7 +631,12 @@ export class UfoManager {
   // Can this UFO join the attack (fewer than MAX_ATTACKERS at it right now)?
   _wantAttack(u) {
     if (u.state === "attack" || u.state === "react" || u.state === "beam") return true;
-    return this.attackers < MAX_ATTACKERS;
+    return this.attackers < this.maxAttackers;
+  }
+
+  // How many UFOs may attack at once: fewer against a jet.
+  get maxAttackers() {
+    return this._playerVehicle()?.type === "jet" ? JET_MAX_ATTACKERS : MAX_ATTACKERS;
   }
 
   update(dt) {
@@ -644,8 +650,20 @@ export class UfoManager {
     const night = this.night;
     if (this.camera) this.camera.getWorldDirection(this._camDir);
     // Count the attackers first, so the cap holds within a frame.
+    // (Against a jet, the ones that run away from it are not attackers.)
+    const vsJet = this._playerVehicle()?.type === "jet";
+    const flees = (u) => vsJet && u.personality !== "fighter" && !u.hostile;
     this.attackers = 0;
-    for (const u of this.ufos) if (!u.falling && (u.state === "attack" || u.state === "react" || u.state === "beam")) this.attackers++;
+    for (const u of this.ufos) if (!u.falling && (u.state === "attack" || u.state === "react" || u.state === "beam") && !flees(u)) this.attackers++;
+    // Taking to a jet with a crowd of them on you: the surplus fall back to circling.
+    if (this.attackers > this.maxAttackers) {
+      const extra = this.ufos.filter((u) => !u.falling && u.state === "attack" && !u.missionTarget && !flees(u)).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
+      for (const u of extra) {
+        if (this.attackers <= this.maxAttackers) break;
+        u.state = "circle";
+        this.attackers--;
+      }
+    }
     let humD = Infinity;
     let beamOnPlayer = null;
     for (let i = this.ufos.length - 1; i >= 0; i--) {
@@ -902,6 +920,8 @@ export class UfoManager {
     const agg = this._agg();
     if (u.hostile) {
       u.hostileT -= dt;
+      // One that has been hurt keeps fighting for as long as it can see you.
+      if (u.hostileT <= 0 && u.health < u.maxHealth * 0.9 && this.time - u.lastSeen < 6) u.hostileT = 10;
       const lost = this.time - u.lastSeen > 25 || dist > this.range * 1.4;
       if (u.hostileT <= 0 || lost || this.player.dead || (this.graceT > 0 && !tgt.vehicle)) {
         u.hostile = false;
@@ -973,7 +993,7 @@ export class UfoManager {
     // a UFO leaves forever.
     if (u.state !== "leave" && u.state !== "emerge") {
       let leaveChance = 0.0004; // per second
-      if (pv?.type === "jet" && dist < 350 && u.personality !== "fighter" && u.hostile) leaveChance = u.personality === "fast" ? 0.04 : 0.008;
+      if (pv?.type === "jet" && dist < 350 && u.personality !== "fighter" && u.hostile) leaveChance = u.personality === "fast" ? 0.0015 : 0.0008; // (rarely)
       if (!u.noLeave && Math.random() < leaveChance * dt) this._leave(u); // (noLeave: for tests)
     }
 
@@ -1105,13 +1125,13 @@ export class UfoManager {
     if ((before - SEA_LEVEL - 1) * (after - SEA_LEVEL - 1) < 0 && this._waterAt(u.pos.x, u.pos.z)) this._splash(u);
   }
 
-  _splash(u) {
+  _splash(u, scale = 1) {
     const fx = this.effects;
-    const n = Math.round(20 * effectsQuality.scale);
-    const r = Math.min(u.radius * 0.7, 14);
+    const n = Math.round((20 + (scale > 1 ? u.radius * 1.5 : 0)) * effectsQuality.scale * scale);
+    const r = Math.min(u.radius * 0.7, 14) * (scale > 1 ? 1.6 : 1);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      fx.smoke.spawn({ x: u.pos.x + Math.cos(a) * r, y: SEA_LEVEL + 1.2, z: u.pos.z + Math.sin(a) * r, vx: Math.cos(a) * rand(2, 6), vy: rand(3, 9), vz: Math.sin(a) * rand(2, 6), life: rand(0.8, 1.6), size0: 0.8 + r * 0.06, size1: 2.2 + r * 0.15, color0: WATER_C[0], color1: WATER_C[1], alpha: 0.55, drag: 1.4, gravity: 0.5 });
+      fx.smoke.spawn({ x: u.pos.x + Math.cos(a) * r, y: SEA_LEVEL + 1.2, z: u.pos.z + Math.sin(a) * r, vx: Math.cos(a) * rand(2, 6) * scale, vy: rand(3, 9) * Math.sqrt(scale), vz: Math.sin(a) * rand(2, 6) * scale, life: rand(0.8, 1.6) * Math.sqrt(scale), size0: 0.8 + r * 0.06, size1: 2.2 + r * 0.15, color0: WATER_C[0], color1: WATER_C[1], alpha: 0.55, drag: 1.4, gravity: 0.5 });
     }
     if (this.audio?.playSplash && u.pos.distanceTo(this.player.position) < 120) this.audio.playSplash();
   }
@@ -1214,8 +1234,9 @@ export class UfoManager {
         const ground = this._groundAt(u.pos.x, u.pos.z);
         beam.set(d < 4, top, ground, 2.5 + u.radius * 0.25);
         if (beam.on && beam.strength > 0.5) {
-          const took = this.mobs.beamLift(beam, 3.5, top.y - 0.3);
-          if (took.length) {
+          const took = this.mobs.beamLift(beam, 3.5, top.y - 0.3, u);
+          if (took.length || u.abductDone) {
+            u.abductDone = false;
             beam.set(false);
             u.target = null;
             // Satisfied: often it leaves for good right away.
@@ -1586,7 +1607,7 @@ export class UfoManager {
     const ground = this._groundAt(u.pos.x, u.pos.z) - 1;
     beam.set(true, top, ground, 3 + u.radius * 0.35);
     // Beaming also lifts animals that happen to be under it.
-    this.mobs.beamLift(beam, 3, top.y - 0.3);
+    this.mobs.beamLift(beam, 3, top.y - 0.3, u);
     if (!this.beamingPlayer && beam.strength > 0.5 && beam.contains(this.player.position.clone().setY(p.y + 0.9))) {
       this.beamingPlayer = u;
       this._beamTime = 0;
@@ -1759,9 +1780,9 @@ export class UfoManager {
     if (inWater) {
       // Into the sea: it slows, and sinks toward the sea floor.
       if (!u.splashed) {
+        // A big splash and it sinks (it explodes on the sea floor, in _crash).
         u.splashed = true;
-        this._splash(u);
-        this.effects.explode(new THREE.Vector3(u.pos.x, SEA_LEVEL + 1, u.pos.z), { radius: Math.min(9, 3 + u.radius * 0.35), source: "ufo_crash" });
+        this._splash(u, 2.2);
       }
       u.vel.y = Math.max(u.vel.y - 3 * dt, -10);
       u.vel.multiplyScalar(Math.exp(-1.1 * dt));
@@ -1800,6 +1821,19 @@ export class UfoManager {
     if (hitGround || u.pos.y < 0) this._crash(u);
   }
 
+  // The water thrown up over a ship that blew up on the sea floor.
+  _geyser(u, size) {
+    const fx = this.effects;
+    const n = Math.round((30 + size * 2.5) * effectsQuality.scale);
+    const r = Math.min(size * 0.5, 22);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.random() * r;
+      fx.smoke.spawn({ x: u.pos.x + Math.cos(a) * d, y: SEA_LEVEL + 1, z: u.pos.z + Math.sin(a) * d, vx: Math.cos(a) * rand(0, 5), vy: rand(10, 26) * Math.sqrt(size / 8), vz: Math.sin(a) * rand(0, 5), life: rand(1.2, 2.4), size0: 1 + r * 0.08, size1: 3 + r * 0.25, color0: WATER_C[0], color1: WATER_C[1], alpha: 0.6, drag: 0.6, gravity: 0.8 });
+    }
+    if (this.audio?.playSplash && u.pos.distanceTo(this.player.position) < 200) this.audio.playSplash();
+  }
+
   _crash(u) {
     const fx = this.effects;
     const bottom = u.info.bottom * u.radius;
@@ -1815,9 +1849,17 @@ export class UfoManager {
       exploded = false;
       this.forceIntact = false;
     }
-    const radius = exploded ? Math.min(34, 7 + u.radius * 1.0) : Math.min(15, 3.5 + u.radius * 0.6);
+    // The blast grows with the ship: the crater is capped (the terrain would
+    // not survive more), but the fireball, the shock ring, the shake and the
+    // roar follow its size all the way: a scout makes a bang, a mothership a
+    // mushroom of fire.
+    const radius = exploded ? Math.min(36, 6 + u.radius * 0.9) : Math.min(16, 3 + u.radius * 0.5);
+    const visual = exploded ? 8 + u.radius * 1.15 : 5 + u.radius * 0.8;
     const at = new THREE.Vector3(u.pos.x, Math.max(floor + 0.5, u.pos.y - bottom * 0.5), u.pos.z);
-    fx.explode(at, { radius: water ? Math.min(radius, 12) : radius, source: "ufo_crash" });
+    // (In the sea it goes off on the sea floor, under the water; the water
+    // above comes up as a geyser.)
+    fx.explode(at, { radius: water ? Math.min(radius, 14) : radius, visual: water ? visual * 0.75 : visual, source: "ufo_crash" });
+    if (water) this._geyser(u, visual);
     // The hull is embedded in the ground (in water it sits on the sea floor,
     // below the surface): its lower part intersects the terrain blocks.
     const tilt = [rand(-0.5, 0.5) * (exploded ? 1.4 : 1), rand(-0.5, 0.5) * (exploded ? 1.4 : 1)];
@@ -1874,7 +1916,9 @@ export class UfoManager {
       const bz = Math.floor(c.pos.z);
       if (!this.world.getChunk(bx >> 4, bz >> 4)?.meshed) continue;
       let spawned = 0;
-      const reach = c.water ? 70 : 6;
+      // (Beside a wreck in the sea they come up in the water around it, and
+      // swim (or wade) toward the player: they are not sent to the nearest shore.)
+      const reach = c.water ? 4 + c.radius * 0.35 : 6;
       for (let k = 0; k < c.count * 8 && spawned < c.count; k++) {
         const a = Math.random() * Math.PI * 2;
         const d = c.radius * 0.8 + 1.5 + Math.random() * (c.water ? reach : 4 + c.radius * 0.15);
@@ -1883,7 +1927,18 @@ export class UfoManager {
         if (!this.world.getChunk(x >> 4, z >> 4)) continue;
         const top = this.world.surfaceY(x, z);
         if (top < 0) continue;
-        if (c.water && top < SEA_LEVEL + 1) continue; // dry land only
+        if (c.water) {
+          // Open water: the sea floor below the surface and water at the surface.
+          if (top >= SEA_LEVEL - 1 || !IS_WET[this.world.getBlock(x, SEA_LEVEL, z)] || this.world.getBlock(x, SEA_LEVEL + 1, z) !== BLOCK.AIR) continue;
+          const kind = c.kind || (c.kind = this._crewKind(c.sizeIdx));
+          const m = this.mobs.spawn(kind, x + 0.5, SEA_LEVEL + 0.3, z + 0.5);
+          if (m) {
+            m.ai.target = true;
+            m.aggro = true;
+            spawned++;
+          }
+          continue;
+        }
         const id = this.world.getBlock(x, top + 1, z);
         if (IS_SOLID[id] || IS_WET[id] || this.world.getBlock(x, top + 2, z) !== BLOCK.AIR) continue;
         const kind = c.kind || (c.kind = this._crewKind(c.sizeIdx));
@@ -1909,10 +1964,10 @@ export class UfoManager {
   _crewKind(sizeIdx) {
     const w = this.rules?.crew;
     if (w) {
-      const total = (w.alien ?? 0) + (w.alien_gray ?? 0) + (w.alien_red ?? 0);
+      const total = (w.alien ?? 0) + (w.alien_gray ?? 0) + (w.alien_red ?? 0) + (w.alien_blue ?? 0);
       if (total > 0) {
         let r = Math.random() * total;
-        for (const k of ["alien", "alien_gray", "alien_red"]) {
+        for (const k of ["alien", "alien_gray", "alien_blue", "alien_red"]) {
           r -= w[k] ?? 0;
           if (r <= 0) return k;
         }
@@ -1921,7 +1976,8 @@ export class UfoManager {
     const r = Math.random();
     const red = 0.05 + sizeIdx * 0.06;
     const gray = 0.22 + sizeIdx * 0.03;
-    return r < red ? "alien_red" : r < red + gray ? "alien_gray" : "alien";
+    const blue = 0.1 + sizeIdx * 0.02;
+    return r < red ? "alien_red" : r < red + gray ? "alien_gray" : r < red + gray + blue ? "alien_blue" : "alien";
   }
 
   // ---------- Drawing ----------
@@ -1929,8 +1985,11 @@ export class UfoManager {
   _place(u, dt, dist = u.pos.distanceTo(this.player.position), night = this.night) {
     const m = u.model;
     m.root.position.copy(u.pos);
+    // Designs with a front (tic-tac, triangle, boomerang, cylinder) point where
+    // they go instead of spinning.
+    const facing = designFacingOffset(u.design);
     if (!u.falling) {
-      u.yaw += (u.spin * (u.spinBoost || 1)) * dt;
+      if (facing === null) u.yaw += (u.spin * (u.spinBoost || 1)) * dt;
       u.spinBoost = 1;
       // Bank into the direction of motion.
       const localV = _v.copy(u.vel).applyAxisAngle(_up, -u.yaw);
@@ -1938,10 +1997,8 @@ export class UfoManager {
       u.tilt.x += (THREE.MathUtils.clamp(localV.z / sp, -1, 1) * 0.35 - u.tilt.x) * Math.min(1, dt * 3);
       u.tilt.y += (THREE.MathUtils.clamp(-localV.x / sp, -1, 1) * 0.35 - u.tilt.y) * Math.min(1, dt * 3);
     }
-    const spinning = u.design === "tictac";
-    // Elongated designs point where they go instead of spinning.
-    if (spinning && !u.falling && u.vel.lengthSq() > 1) {
-      const heading = Math.atan2(-u.vel.x, -u.vel.z) + Math.PI / 2;
+    if (facing !== null && !u.falling && u.vel.lengthSq() > 1) {
+      const heading = Math.atan2(-u.vel.x, -u.vel.z) + facing;
       u.yaw += Math.atan2(Math.sin(heading - u.yaw), Math.cos(heading - u.yaw)) * Math.min(1, dt * 3);
     }
     m.body.rotation.set(u.tilt.x, u.yaw, u.tilt.y, "YXZ");

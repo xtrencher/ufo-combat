@@ -449,13 +449,13 @@ await check("UFO redesign: minimal designs (saucers most common, spheres, tic-ta
   });
   const j = JSON.stringify(r);
   assert(r.saucers > 0.5, `smooth saucers are the most common: ${j}`);
-  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"]) assert(r.counts[d] > 0, `${d} appears: ${j}`);
+  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle", "boomerang", "cylinder"]) assert(r.counts[d] > 0, `${d} appears: ${j}`);
   assert(r.glow < 0.35, `most UFOs don't glow: ${j}`);
   assert(r.noLights.length === 0, `no blinking lights on any design: ${j}`);
   assert(["brushed", "glossy", "satin", "matte", "grain"].every((f) => r.finishes.includes(f)), `varied finishes: ${j}`);
   assert(r.sphereMax < 0.06, `spheres are gray-black: ${j}`);
   assert(r.tictacMin > 0.25, `tic-tacs are white or pale gray: ${j}`);
-  assert(r.legacy.every((d) => ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"].includes(d)), `old designs map onto new ones: ${j}`);
+  assert(r.legacy.every((d) => ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle", "boomerang", "cylinder"].includes(d)), `old designs map onto new ones: ${j}`);
   assert(r.glowBefore && !r.glowAfter, `a shot-down UFO never glows: ${j}`);
 });
 
@@ -700,8 +700,10 @@ await check("missions: the chain (19 missions in Round 4) from a pistol scout to
   });
   assert(kill <= 9, `about eight pistol shots (under a magazine) bring it down: ${kill}`);
   await play();
-  const m2 = await until((g) => g.progress.mission?.id === "crew" && g.progress.mission.id, 30000);
-  assert(m2 === "crew", "the crew mission follows");
+  // (Software rendering runs few frames a second: let the scout fall and crash by stepping the UFOs.)
+  await v((g) => { for (let i = 0; i < 400 && g.ufos.ufos.some((u) => u.falling); i++) g.ufos.update(0.05); });
+  const m2 = await until((g) => g.progress.mission?.id === "crew" && g.progress.mission.id, 60000);
+  assert(m2 === "crew", `the crew mission follows: ${JSON.stringify(await v((g) => ({ down: g.stats.world.ufosDown, step: g.progress.step, id: g.progress.mission?.id, dead: g.player.dead, state: g.gameState, en: g.progress.enabled, ufos: g.ufos.ufos.map((u) => ({ st: u.state, fall: u.falling, y: Math.round(u.pos.y), vy: Math.round(u.vel.y), splashed: u.splashed, ground: g.world.heightAt(Math.floor(u.pos.x), Math.floor(u.pos.z)), chunk: !!g.world.getChunk(Math.floor(u.pos.x) >> 4, Math.floor(u.pos.z) >> 4) })) })))}`);
   // Mission 3: a supply crate drops for you.
   await v((g) => {
     g.progress.step = 2;

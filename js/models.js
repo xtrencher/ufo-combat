@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import { BLOCK_INFO, SHAPE, TILE_NAMES } from "./blocks.js";
 import { itemInfo } from "./items.js";
-import { itemIconPixels } from "./itemtextures.js";
+import { itemIconPixels, bowPullPixels } from "./itemtextures.js";
 import { paintTile } from "./textures.js";
 
 // Face corners/uv orientation matching the terrain mesher (+X, -X, +Y, -Y, +Z, -Z).
@@ -332,6 +332,13 @@ export function rocketGeometry() {
 const modelCache = new Map();
 
 // { geometry, kind: "array" | "color", cube: boolean, gun? } for an item id, cached.
+// The bow being drawn: geometry per pull stage (1-3).
+const bowPullCache = new Map();
+export function bowPullGeometry(stage) {
+  if (!bowPullCache.has(stage)) bowPullCache.set(stage, spriteGeometry(bowPullPixels(stage)));
+  return bowPullCache.get(stage);
+}
+
 export function itemModel(id) {
   if (modelCache.has(id)) return modelCache.get(id);
   const info = itemInfo(id);

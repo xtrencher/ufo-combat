@@ -256,12 +256,14 @@
     pointer-events: none;
     z-index: 10;
   }
-  #hearts, #bubbles, #absorb { display: flex; gap: 1px; }
+  #hearts, #bubbles, #absorb, #armor-bar { display: flex; gap: 1px; }
+  #armor-bar.hidden { display: none; }
+  #armor-bar canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
   #absorb { position: absolute; left: 0; bottom: 21px; }
+  #armor-bar { position: absolute; left: 0; bottom: 21px; }
+  #armor-bar:not(.hidden) + #absorb { bottom: 40px; }
   #absorb canvas { image-rendering: pixelated; filter: drop-shadow(0 0 3px rgba(255,200,50,0.7)); }
   /* The off-hand slot (the shield), left of the hotbar, like in classic block games. */
-  #offhand-slot { position: fixed; bottom: 14px; left: calc(50% - 262px - 60px); z-index: 10; pointer-events: none; }
-  #offhand-slot.hidden { display: none; }
   /* The weapon in hand: rounds left and the reload / cooldown, right of the hotbar. */
   #weapon-status { position: fixed; bottom: 18px; left: calc(50% + 266px); min-width: 96px; z-index: 10; pointer-events: none; font: 700 13px ui-monospace, Consolas, monospace; color: #fff; text-shadow: 1px 1px 0 #000; }
   #weapon-status .ws-ammo { font-size: 18px; }
@@ -275,7 +277,7 @@
   #reload-bar { position: fixed; left: 50%; top: calc(50% + 22px); width: 44px; height: 4px; margin-left: -22px; background: rgba(0,0,0,0.45); border-radius: 2px; overflow: hidden; pointer-events: none; z-index: 10; }
   #reload-bar > div { height: 100%; width: 0; background: #ffd257; }
   #reload-bar.hidden { display: none; }
-  @media (max-width: 760px) { #weapon-status { left: auto; right: 8px; bottom: 76px; } #offhand-slot { left: 8px; } }
+  @media (max-width: 760px) { #weapon-status { left: auto; right: 8px; bottom: 76px; } }
   #bubbles { flex-direction: row-reverse; }
   #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
   #item-name {
@@ -391,8 +393,9 @@
   .inv-grid { display: grid; grid-template-columns: repeat(9, 38px); gap: 2px; }
   .inv-hotbar { margin-top: 8px; }
   .survival-hidden { display: none !important; }
-  .inv-offhand { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-  .inv-offhand .inv-label { margin: 0; font-weight: 500; opacity: 0.85; }
+  .inv-armor { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .inv-armor .inv-label { margin: 0 8px 0 0; font-weight: 500; opacity: 0.85; }
+  .inv-armor-points { margin-left: 10px !important; font-size: 12px; }
   .inv-palette {
     display: grid;
     grid-template-columns: repeat(9, 38px);
@@ -861,6 +864,16 @@
     border-right: 2px solid rgba(160,255,190,0.9);
     border-radius: 0 0 8px 8px;
   }
+  #jet-aim {
+    position: fixed;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    pointer-events: none;
+    z-index: 10;
+    border: 2px solid rgba(255,235,140,0.9);
+    border-radius: 50%;
+  }
   .vh-lock { color: #ff5a4a; font-weight: 700; }
   .vh-bar-row { display: flex; align-items: center; gap: 8px; }
   .vh-bar-row > span { flex: 0 0 auto; }
@@ -985,9 +998,8 @@
     <div id="fps-counter">FPS: --</div>
     <div id="mode-badge" class="hidden"></div>
     <div id="item-name"></div>
-    <div id="status-bars"><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="status-bars"><div id="armor-bar" class="hidden"></div><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
     <div id="hotbar"></div>
-    <div id="offhand-slot" class="hidden"></div>
     <div id="weapon-status" class="hidden"><div class="ws-label"></div><div class="ws-ammo"></div><div class="ws-bar"><div></div></div></div>
     <div id="reload-bar" class="hidden"><div></div></div>
     <div id="vehicle-hud" class="hidden"></div>
@@ -1003,6 +1015,7 @@
     <div id="beam-overlay"></div>
     <div id="lock-box" class="hidden"></div>
     <div id="jet-nose" class="hidden"></div>
+    <div id="jet-aim" class="hidden"></div>
   </div>
 
   <pre id="debug-overlay" class="hidden"></pre>

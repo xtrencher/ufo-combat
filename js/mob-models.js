@@ -1261,6 +1261,116 @@ const ALIEN_RED = {
   animate: alienAnimate,
 };
 
+
+// The blue alien: a slender, quick flanker in a dark suit with glowing cyan
+// seams, a crested head and big pale eyes, carrying a stubby scatter
+// emitter. Shared animations with the other aliens.
+const ALIEN_BLUE = {
+  parts: [
+    { name: "legL", size: [2, 10, 2], pivot: [-1.5, 10, 0], from: [-1, -10, -1] },
+    { name: "legR", size: [2, 10, 2], pivot: [1.5, 10, 0], from: [-1, -10, -1] },
+    { name: "body", size: [5, 8, 3], pivot: [0, 10, 0], from: [-2.5, 0, -1.5] },
+    { name: "head", size: [8, 9, 8], pivot: [0, 18, 0], from: [-4, 0, -4], parent: "body" },
+    { name: "crest", size: [1, 5, 6], pivot: [0, 18, 0], from: [-0.5, 9, -3], parent: "head", rigid: true },
+    { name: "finL", size: [1, 4, 3], pivot: [0, 18, 0], from: [-5, 3, -1], parent: "head", rigid: true },
+    { name: "finR", size: [1, 4, 3], pivot: [0, 18, 0], from: [4, 3, -1], parent: "head", rigid: true },
+    { name: "armL", size: [2, 10, 2], pivot: [-3.5, 17, 0], from: [-1, -9, -1], parent: "body" },
+    { name: "armR", size: [2, 10, 2], pivot: [3.5, 17, 0], from: [-1, -9, -1], parent: "body" },
+    { name: "gun", size: [3, 7, 4], pivot: [3.5, 17, 0], from: [-1.5, -15, -2], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const skinA = hex(0x4c97ff);
+    const skinB = hex(0x2d62c8);
+    const suit = hex(0x1c2740);
+    const suitLight = hex(0x2c3b5e);
+    const glow = [90, 230, 255];
+    const blue = (x, y, seed) => grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * 0.8), x, y, seed + 1, 0.07);
+    s.part("head", (f, x, y, w, h) => {
+      let c = blue(x, y, 601);
+      if (f === "top") c = shade(c, 1.08);
+      if (f === "bottom") c = shade(c, 0.8);
+      if (f === "front") {
+        // Big pale slanted eyes and no mouth to speak of.
+        for (const [cx, dir] of [[w * 0.27, -1], [w * 0.73, 1]]) {
+          const dx = x + 0.5 - cx;
+          const dy = y + 0.5 - (h * 0.52 - dx * dir * 0.4);
+          if ((dx * dx) / 11 + (dy * dy) / 6 < 1) c = [235, 250, 255];
+          if (Math.abs(dx + dir * 1.2) < 0.9 && Math.abs(y - h * 0.5) < 1.1) c = [20, 60, 120];
+        }
+        if (y === h - 3 && x >= w * 0.4 && x < w * 0.6) c = shade(c, 0.6);
+      }
+      return c;
+    });
+    for (const part of ["crest", "finL", "finR"]) s.part(part, (f, x, y, w, h) => (y < 2 ? glow : shade(blue(x, y, 611), 0.85)));
+    s.part("body", (f, x, y, w, h) => {
+      let c = grain(mix(suit, suitLight, hash(x >> 1, y >> 1, 621) * 0.6), x, y, 622, 0.08);
+      // Glowing seams down the chest and across the belt.
+      if (f === "front" && (x === 2 || x === w - 3) && y < h - 3) c = glow;
+      if (y >= h - 6 && y < h - 5) c = glow;
+      return c;
+    });
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y >= h - 4 ? blue(x, y, 631) : y === 4 ? glow : grain(suit, x, y, 632, 0.08)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? grain(suitLight, x, y, 641, 0.1) : y === 3 ? glow : grain(suit, x, y, 642, 0.08)));
+    s.part("gun", (f, x, y, w, h) => {
+      let c = grain(hex(0x20263a), x, y, 651, 0.12);
+      if (y < 3) c = [120, 235, 255]; // the muzzle
+      if (y > 3 && y < 6 && (f === "front" || f === "back")) c = glow;
+      return c;
+    });
+  },
+  animate: alienAnimate,
+};
+
+// The guard: a human soldier of the airport's security in olive fatigues, a
+// helmet, a vest and a rifle. (Not an alien: he fights for the humans' bunkers.)
+const GUARD = {
+  parts: [
+    { name: "legL", size: [4, 12, 4], pivot: [-2, 12, 0], from: [-2, -12, -2] },
+    { name: "legR", size: [4, 12, 4], pivot: [2, 12, 0], from: [-2, -12, -2] },
+    { name: "body", size: [8, 12, 4], pivot: [0, 12, 0], from: [-4, 0, -2] },
+    { name: "head", size: [8, 8, 8], pivot: [0, 24, 0], from: [-4, 0, -4], parent: "body" },
+    { name: "helmet", size: [9, 4, 9], pivot: [0, 24, 0], from: [-4.5, 5, -4.5], parent: "head", rigid: true },
+    { name: "armL", size: [4, 12, 4], pivot: [-6, 22, 0], from: [-2, -10, -2], parent: "body" },
+    { name: "armR", size: [4, 12, 4], pivot: [6, 22, 0], from: [-2, -10, -2], parent: "body" },
+    { name: "gun", size: [2, 12, 3], pivot: [6, 22, 0], from: [-1, -20, -1.5], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const olive = hex(0x5b6b3f);
+    const oliveDark = hex(0x45522f);
+    const skin = hex(0xd9a77f);
+    const vest = hex(0x3a4128);
+    const camo = (x, y, seed) => grain(mix(olive, oliveDark, hash(x >> 1, y >> 1, seed) * 0.9), x, y, seed + 1, 0.08);
+    s.part("head", (f, x, y, w, h) => {
+      let c = grain(skin, x, y, 701, 0.06);
+      if (f === "front") {
+        if (y >= 6 && y < 8 && ((x >= 3 && x < 6) || (x >= w - 6 && x < w - 3))) c = [250, 250, 250];
+        if (y >= 7 && y < 8 && ((x === 4) || (x === w - 5))) c = [40, 60, 110];
+        if (y >= 11 && y < 12 && x >= 6 && x < w - 6) c = shade(c, 0.7);
+        if (y >= 8 && y < 10 && (x === 7 || x === 8)) c = shade(c, 0.85);
+      }
+      if (f !== "front" && f !== "top" && y < 4) c = camo(x, y, 702); // the helmet's lower edge
+      return c;
+    });
+    s.part("helmet", (f, x, y, w, h) => (f === "bottom" ? null : camo(x, y, 703)));
+    s.part("body", (f, x, y, w, h) => {
+      let c = camo(x, y, 711);
+      if (y < 8 && (f === "front" || f === "back")) c = grain(vest, x, y, 712, 0.1); // a vest
+      if (f === "front" && y >= 4 && y < 6 && x % 4 !== 0) c = shade(c, 0.8); // pouches
+      if (y >= h - 3) c = grain(hex(0x2c2a24), x, y, 713, 0.1); // belt
+      return c;
+    });
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y >= h - 4 ? grain(skin, x, y, 721, 0.06) : camo(x, y, 722)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? grain(hex(0x23211c), x, y, 731, 0.1) : camo(x, y, 732)));
+    s.part("gun", (f, x, y, w, h) => {
+      let c = grain(hex(0x2b2d30), x, y, 741, 0.12);
+      if (y < 2) c = [255, 190, 90]; // the muzzle
+      if (y > 6 && y < 9) c = grain(hex(0x6a4a2a), x, y, 742, 0.1); // the stock
+      return c;
+    });
+  },
+  animate: alienAnimate,
+};
+
 export const MODELS = {
   fluffalo: FLUFFALO,
   hoplet: HOPLET,
@@ -1279,6 +1389,8 @@ export const MODELS = {
   alien: ALIEN,
   alien_gray: ALIEN_GRAY,
   alien_red: ALIEN_RED,
+  alien_blue: ALIEN_BLUE,
+  guard: GUARD,
 };
 
 // Shared per species: skin texture, material and part geometries.

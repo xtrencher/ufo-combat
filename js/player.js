@@ -60,7 +60,7 @@ export class Player {
 
     this.health = MAX_HEALTH;
     this.absorption = 0; // golden half-hearts (golden apples): soaked up before health
-    this.damageFilter = null; // (amount, cause, from) -> amount: the off-hand shield
+    this.damageFilter = null; // (amount, cause, from) -> amount: the armor worn
     this.air = MAX_AIR;
     this.dead = false;
     this.hurtTime = 99; // seconds since the last damage (drives hurt effects)
@@ -80,6 +80,7 @@ export class Player {
     this.splashEvent = false;
     this.stepBlock = BLOCK.AIR;
     this.walkPhase = 0; // advances while walking (view/held-item bobbing)
+    this._bob = 0; // 0-1: how much the view sways with the steps (eases in and out)
 
     this.keys = new Set();
     this.locked = false;
@@ -221,8 +222,7 @@ export class Player {
 
   // Deals damage in half-hearts. Returns true if it was applied (creative
   // players, the dead and the briefly invulnerable take none).
-  // from: where the hit comes from (a point), if known: a raised shield
-  // only blocks what comes from in front.
+  // from: where the hit comes from (a point), if known.
   damage(amount, cause, { pierce = false, projectile = false, from = null } = {}) {
     // In a vehicle, hits land on the vehicle instead (unless `pierce`: the
     // vehicle itself was destroyed with the pilot inside).
@@ -315,8 +315,17 @@ export class Player {
     // A scoped weapon or binoculars always look from the eyes (first person).
     const mode = this.zoomFov != null || this.binocularFov != null ? "first" : CAMERA_MODES[this.cameraMode] || "first";
     if (mode === "first") {
+      // A subtle sway with the steps (not when scoped; the aim itself is unmoved).
+      let swayY = 0;
+      let swayX = 0;
+      if (this._bob > 0.01 && this.zoomFov == null && this.binocularFov == null && !this.dead) {
+        const k = this._bob * (this.sprinting ? 1.4 : 1);
+        swayY = Math.sin(this.walkPhase * 2) * 0.022 * k;
+        swayX = Math.sin(this.walkPhase) * 0.012 * k;
+        roll += Math.sin(this.walkPhase) * 0.0035 * k;
+      }
       this.camera.rotation.set(pitch, this.yaw, roll);
-      this.camera.position.copy(eye);
+      this.camera.position.set(eye.x + Math.cos(this.yaw) * swayX, eye.y + swayY, eye.z - Math.sin(this.yaw) * swayX);
       this._camDist = 0;
       return;
     }
@@ -447,11 +456,6 @@ export class Player {
     else if (this.inWater) speed = this.sprinting ? SWIM_SPEED * 1.4 : SWIM_SPEED;
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
-    // Behind a raised shield you walk slowly (and can't sprint).
-    if (this.shielded && !this.flying) {
-      speed = Math.min(speed, SNEAK_SPEED * 1.2);
-      this.sprinting = false;
-    }
     this.velocity.x = worldX * speed + this.knockback.x;
     this.velocity.z = worldZ * speed + this.knockback.z;
     const knockbackDecay = Math.exp(-(this.onGround ? 7 : 1.2) * dt);
@@ -525,6 +529,7 @@ export class Player {
 
     // Footsteps (only when actually walking on the ground).
     const walking = this.onGround && !this.flying && (moveX !== 0 || moveZ !== 0);
+    this._bob += ((walking ? Math.min(1, speed / 5) : 0) - this._bob) * Math.min(1, dt * 8);
     if (walking) {
       this.walkPhase += speed * dt * 1.6;
       this._footstepDistance += speed * dt;

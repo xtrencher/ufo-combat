@@ -151,6 +151,17 @@ function section(z, w, top, bottom, chine = 0) {
 
 const cachedByPaint = {};
 
+// A movable control surface: its geometry (coloured, in body space) moved so
+// that its hinge (`pivot`) is at the origin, the hinge axis, and what it does:
+// kind "stab" (an all-moving tailplane: elevator and a little aileron),
+// "ail" (a flaperon on the wing's trailing edge) or "rud" (a rudder). The
+// axis always points the same way on both sides (outboard +X-ish, or up), so
+// a positive deflection lowers the trailing edge: pitch up = negative.
+function movable(geo, pivot, axis, kind, side) {
+  const g = geo.clone().translate(-pivot.x, -pivot.y, -pivot.z);
+  return { geo: merge([g]), pivot: pivot.toArray(), axis: axis.clone().normalize().toArray(), kind, side };
+}
+
 function buildGeometry(paint = "raptor") {
   if (cachedByPaint[paint]) return cachedByPaint[paint];
   const pal = PAINTS[paint] || PAINTS.raptor;
@@ -187,21 +198,42 @@ function buildGeometry(paint = "raptor") {
     parts.push(colorize(new THREE.PlaneGeometry(0.62, 0.9).rotateY(s > 0 ? 0.35 : -0.35).translate(s * 1.44, -0.12, -2.62), 0x101216));
   }
   // Wings: the Raptor's diamond planform (swept leading edge, forward-swept
-  // trailing edge), from the body out to the clipped tip.
+  // trailing edge), from the body out to the clipped tip, with a flaperon on
+  // the trailing edge (it moves: see setControls). Tailplanes (all-moving),
+  // and twin vertical tails canted outward ~28 degrees with rudders.
+  const surfaces = [];
+  const navTail = [];
+  const stripPts = [];
   for (const s of [1, -1]) {
     const w = plate(
       [
         [s * 1.4, -2.2],
         [s * 6.6, 1.6],
         [s * 6.6, 2.4],
-        [s * 4.4, 3.0],
+        [s * 6.2, 2.509],
+        [s * 6.2, 2.009],
+        [s * 2.0, 3.245],
+        [s * 2.0, 3.745],
         [s * 1.5, 3.9],
       ],
       0.14
     );
     w.translate(0, -0.12, 0);
     parts.push(colorize(w, GREY, (x, y, z) => (y > -0.1 ? 1.02 : 0.84)));
-    // Horizontal tailplanes.
+    const flap = plate(
+      [
+        [s * 2.0, 3.245],
+        [s * 2.0, 3.745],
+        [s * 4.4, 3.0],
+        [s * 6.2, 2.509],
+        [s * 6.2, 2.009],
+        [s * 4.4, 2.5],
+      ],
+      0.1
+    );
+    flap.translate(0, -0.12, 0);
+    surfaces.push(movable(colorize(flap, GREY, (x, y, z) => (y > -0.1 ? 1.0 : 0.82)), new THREE.Vector3(s * 2.0, -0.12, 3.245), new THREE.Vector3(4.2, 0, 1.236 * (s > 0 ? -1 : 1) * 1), "ail", s));
+    // Horizontal tailplanes: all-moving, hinged at about 40% of the chord.
     const t = plate(
       [
         [s * 1.2, 4.7],
@@ -212,22 +244,37 @@ function buildGeometry(paint = "raptor") {
       0.1
     );
     t.translate(0, -0.2, 0);
-    parts.push(colorize(t, GREY));
-    // Vertical tails, canted outward ~28 degrees.
+    surfaces.push(movable(colorize(t, GREY), new THREE.Vector3(s * 1.2, -0.2, 5.9), new THREE.Vector3(1, 0, 0), "stab", s));
+    // Vertical tails: the plate lies in X/Z; stand it up (X -> Y) and lean it
+    // outward. The rudder is the trailing part of it.
+    const M = new THREE.Matrix4().makeTranslation(s * 1.05, 0.35, 0).multiply(new THREE.Matrix4().makeRotationZ(-s * 0.49)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
     const fin = plate(
       [
         [0, 3.4],
-        [0, 6.2],
-        [3.1, 6.8],
+        [0, 5.5],
+        [3.1, 5.95],
         [3.1, 5.4],
       ],
       0.09
-    );
-    // The plate lies in X/Z; stand it up (X -> Y) and lean it outward.
-    fin.rotateZ(Math.PI / 2);
-    fin.rotateZ(-s * 0.49);
-    fin.translate(s * 1.05, 0.35, 0);
+    ).applyMatrix4(M);
     parts.push(colorize(fin, GREY, () => 0.97));
+    const rud = plate(
+      [
+        [0, 5.5],
+        [0, 6.2],
+        [3.1, 6.8],
+        [3.1, 5.95],
+      ],
+      0.09
+    ).applyMatrix4(M);
+    const h0 = new THREE.Vector3(0, 0, 5.5).applyMatrix4(M);
+    const h1 = new THREE.Vector3(3.1, 0, 5.95).applyMatrix4(M);
+    surfaces.push(movable(colorize(rud, GREY, () => 0.93), h0, h1.clone().sub(h0), "rud", s));
+    // The fin's tip light and the formation-light strip on its outer face.
+    const tip = new THREE.Vector3(3.1, 0, 6.1).applyMatrix4(M);
+    const out = new THREE.Vector3(0, 1, 0).transformDirection(M).multiplyScalar(0.07);
+    navTail.push(tip.clone().add(new THREE.Vector3(0, 0.02, 0)).toArray());
+    stripPts.push({ at: new THREE.Vector3(1.6, 0, 5.2).applyMatrix4(M).add(out), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -s * 0.49)), s });
   }
   // Engine nozzles: square, two-dimensional thrust vectoring.
   for (const s of [1, -1]) {
@@ -238,6 +285,10 @@ function buildGeometry(paint = "raptor") {
     inner.translate(s * 0.62, -0.02, 7.61);
     parts.push(colorize(inner, 0x0c0d0f));
   }
+  // The "beaver tail" between the engines, intake splitter plates and a refuelling door.
+  parts.push(colorize(new THREE.BoxGeometry(0.5, 0.34, 2.3).translate(0, 0.02, 6.2), 0x3a3e44));
+  for (const s of [1, -1]) parts.push(colorize(new THREE.BoxGeometry(0.03, 0.62, 0.5).translate(s * 1.14, -0.1, -2.5), 0x2a2d32));
+  parts.push(colorize(new THREE.BoxGeometry(0.5, 0.012, 0.9).translate(0, 0.64, -2.2), 0x3a3e44));
   // Landing gear doors / belly details (a darker strip) and a probe light.
   parts.push(colorize(new THREE.BoxGeometry(1.2, 0.05, 5).translate(0, -0.58, 0.8), GREY_DARK));
   // Radome (dark nose cone) and the pitot probe.
@@ -252,9 +303,9 @@ function buildGeometry(paint = "raptor") {
   // Wing leading-edge flaps and trailing-edge flaperons (darker strips).
   for (const s of [1, -1]) {
     parts.push(colorize(new THREE.BoxGeometry(4.6, 0.03, 0.22).rotateY(s * -0.62).translate(s * 4.0, -0.04, 0.05), GREY_DARK));
-    parts.push(colorize(new THREE.BoxGeometry(3.4, 0.03, 0.35).rotateY(s * 0.2).translate(s * 3.4, -0.04, 3.55), GREY_DARK));
-    // A red / dark accent on the tail fins (roundel-free markings).
-    const stripe = new THREE.BoxGeometry(0.03, 0.5, 0.9).rotateZ(-s * 0.49).translate(s * 2.1, 1.75, 6.0);
+    // A dark accent on the tail fins (roundel-free markings), on the fin's own surface.
+    const fm = new THREE.Matrix4().makeTranslation(s * 1.05, 0.35, 0).multiply(new THREE.Matrix4().makeRotationZ(-s * 0.49)).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
+    const stripe = new THREE.BoxGeometry(0.5, 0.14, 0.9).translate(1.9, 0, 5.1).applyMatrix4(fm);
     parts.push(colorize(stripe, pal.accent));
   }
   // Engine nozzle petals: a ring of small plates around each nozzle.
@@ -289,7 +340,7 @@ function buildGeometry(paint = "raptor") {
   canopy.scale(0.52, 0.5, 1.9);
   canopy.translate(0, 0.42, -3.9);
 
-  cachedByPaint[paint] = { hull, canopy, pal };
+  cachedByPaint[paint] = { hull, canopy, pal, surfaces, navTail, stripPts };
   return cachedByPaint[paint];
 }
 
@@ -326,6 +377,8 @@ function buildF16Geometry(paint = "falcon") {
   ]);
   parts.push(colorize(intake, GD, (x, y, z) => (z < -2.9 ? 0.7 : 1)));
   parts.push(colorize(new THREE.CircleGeometry(1, 16).scale(0.5, 0.26, 1).rotateY(Math.PI).translate(0, -0.76, -3.07), 0x0d0e11));
+  const surfaces = [];
+  const stripPts = [];
   for (const s of [1, -1]) {
     // Leading-edge root extension, blending the wing into the forebody.
     const lerx = plate(
@@ -339,20 +392,34 @@ function buildF16Geometry(paint = "falcon") {
     );
     lerx.translate(0, 0.04, 0);
     parts.push(colorize(lerx, G, (x, y, z) => (y > 0 ? 1.02 : 0.86)));
-    // The cropped delta wing.
+    // The cropped delta wing, with a flaperon on the trailing edge.
     const wing = plate(
       [
         [s * 0.75, -0.6],
         [s * 4.85, 2.3],
         [s * 4.85, 3.2],
+        [s * 4.4, 3.22],
+        [s * 4.4, 2.7],
+        [s * 1.0, 2.9],
+        [s * 1.0, 3.388],
         [s * 0.75, 3.4],
       ],
       0.12
     );
     wing.translate(0, -0.05, 0);
     parts.push(colorize(wing, G, (x, y, z) => (y > -0.04 ? 1.02 : 0.84)));
-    // Flaperons and leading-edge flaps (darker strips).
-    parts.push(colorize(new THREE.BoxGeometry(3.2, 0.03, 0.3).translate(s * 2.6, -0.01, 3.2), GD));
+    const flap = plate(
+      [
+        [s * 1.0, 2.9],
+        [s * 1.0, 3.388],
+        [s * 4.4, 3.22],
+        [s * 4.4, 2.7],
+      ],
+      0.1
+    );
+    flap.translate(0, -0.05, 0);
+    surfaces.push(movable(colorize(flap, G, (x, y, z) => (y > -0.04 ? 1.0 : 0.82)), new THREE.Vector3(s * 1.0, -0.05, 2.9), new THREE.Vector3(3.4, 0, s > 0 ? -0.2 : 0.2), "ail", s));
+    // Leading-edge flaps (a darker strip).
     parts.push(colorize(new THREE.BoxGeometry(4.8, 0.03, 0.18).rotateY(s * -0.62).translate(s * 2.8, 0.0, 0.85), GD));
     // Wingtip rails, each with a white heat-seeking missile.
     parts.push(colorize(new THREE.BoxGeometry(0.1, 0.12, 2.2).translate(s * 4.92, -0.06, 2.55), GD));
@@ -370,7 +437,7 @@ function buildF16Geometry(paint = "falcon") {
       0.08
     );
     stab.translate(0, -0.12, 0);
-    parts.push(colorize(stab, G));
+    surfaces.push(movable(colorize(stab, G), new THREE.Vector3(s * 0.62, -0.12, 5.5), new THREE.Vector3(1, 0, 0), "stab", s));
     // Ventral fins under the tail, canted outward.
     const ventral = plate(
       [
@@ -388,22 +455,33 @@ function buildF16Geometry(paint = "falcon") {
     // Speed brakes beside the nozzle.
     parts.push(colorize(new THREE.BoxGeometry(0.5, 0.06, 0.9).translate(s * 0.72, 0.02, 5.75), GD));
   }
-  // The tall single fin, with a rudder line, a tail flash and an antenna fairing.
+  // The tall single fin, with its rudder, a tail flash and an antenna fairing.
+  const fm = new THREE.Matrix4().makeTranslation(0, 0.55, 0).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
   const fin = plate(
     [
       [0, 2.5],
-      [0, 6.1],
-      [3.15, 6.35],
+      [0, 5.0],
+      [3.15, 5.65],
       [3.15, 5.25],
     ],
     0.1
-  );
-  fin.rotateZ(Math.PI / 2);
-  fin.translate(0, 0.55, 0);
+  ).applyMatrix4(fm);
   parts.push(colorize(fin, G, () => 0.98));
-  parts.push(colorize(new THREE.BoxGeometry(0.13, 1.9, 0.05).translate(0, 1.75, 5.72), GD));
-  parts.push(colorize(new THREE.BoxGeometry(0.12, 0.55, 0.9).translate(0, 2.6, 5.7), pal.accent));
-  parts.push(colorize(new THREE.BoxGeometry(0.14, 0.14, 0.9).translate(0, 3.66, 6.1), GD));
+  const rud = plate(
+    [
+      [0, 5.0],
+      [0, 6.1],
+      [3.15, 6.35],
+      [3.15, 5.65],
+    ],
+    0.1
+  ).applyMatrix4(fm);
+  const rh0 = new THREE.Vector3(0, 0, 5.0).applyMatrix4(fm);
+  const rh1 = new THREE.Vector3(3.15, 0, 5.65).applyMatrix4(fm);
+  surfaces.push(movable(colorize(rud, G, () => 0.93), rh0, rh1.clone().sub(rh0), "rud", 0));
+  parts.push(colorize(new THREE.BoxGeometry(0.12, 0.55, 0.9).translate(0, 2.6, 4.8), pal.accent));
+  parts.push(colorize(new THREE.BoxGeometry(0.14, 0.14, 0.9).translate(0, 3.66, 5.45), GD));
+  stripPts.push({ at: new THREE.Vector3(0.056, 2.0, 4.6), q: new THREE.Quaternion(), s: 1 });
   // The round nozzle with its petals and a dark throat.
   parts.push(colorize(new THREE.CylinderGeometry(0.46, 0.54, 1.1, 16, 1, true).rotateX(Math.PI / 2).translate(0, 0, 6.72), 0x3a3d42));
   parts.push(colorize(new THREE.CircleGeometry(0.44, 16).translate(0, 0, 7.2), 0x0c0d0f));
@@ -427,7 +505,7 @@ function buildF16Geometry(paint = "falcon") {
   const canopy = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
   canopy.scale(0.46, 0.55, 1.65);
   canopy.translate(0, 0.5, -3.65);
-  cachedByPaint[key] = { hull, canopy, pal };
+  cachedByPaint[key] = { hull, canopy, pal, surfaces, navTail: [[0, 3.7, 6.0]], stripPts };
   return cachedByPaint[key];
 }
 
@@ -438,8 +516,9 @@ const LAYOUTS = {
     nose: { at: [0, -0.5, -4.6], wheels: [-0.13, 0.13], r: 0.2, len: 0.65 },
     main: { at: [1.6, -0.45, 2.0], r: 0.3, len: 0.6 },
     nozzles: [[0.62, -0.02, 7.62, 0.34], [-0.62, -0.02, 7.62, 0.34]],
-    nav: [[-6.6, -0.05, 2.0], [6.6, -0.05, 2.0], [-3.6, 2.2, 6.4], [3.6, 2.2, 6.4]],
-    strips: [[1.72, 0.05, 0.8, 0], [2.3, 1.4, 5.3, 0.49]],
+    wing: [[-6.55, -0.12, 2.0], [6.55, -0.12, 2.0]],
+    belly: null,
+    strips: [[0.8, 0.06, -4.4, 0]],
     cockpit: [0, 0.7, -4.2],
     length: 15.2,
     span: 13.2,
@@ -448,8 +527,9 @@ const LAYOUTS = {
     nose: { at: [0, -0.98, -2.4], wheels: [0], r: 0.19, len: 0.18 },
     main: { at: [1.05, -0.62, 1.0], r: 0.28, len: 0.45 },
     nozzles: [[0, 0, 7.25, 0.42]],
-    nav: [[-5.05, -0.06, 1.3], [5.05, -0.06, 1.3], [0, 3.8, 6.4], [0, -0.82, 5.0]],
-    strips: [[0.84, 0.12, -0.9, 0], [0.08, 2.0, 5.3, 0]],
+    wing: [[-5.06, -0.2, 2.4], [5.06, -0.2, 2.4]],
+    belly: [0, -0.57, 4.2],
+    strips: [[0.84, 0.12, -0.9, 0]],
     cockpit: [0, 0.74, -4.0],
     length: 14.8,
     span: 10.3,
@@ -514,7 +594,7 @@ function softGlowTexture() {
 export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {}) {
   const L = LAYOUTS[type] || LAYOUTS.f22;
   if (type === "f16" && paint === "raptor") paint = "falcon";
-  const { hull, canopy, pal } = type === "f16" ? buildF16Geometry(paint) : buildGeometry(paint);
+  const { hull, canopy, pal, surfaces: surfDefs, navTail, stripPts } = type === "f16" ? buildF16Geometry(paint) : buildGeometry(paint);
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.scale.setScalar(scale);
@@ -527,6 +607,17 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
   hullMesh.castShadow = true;
   bindEntityLight(hullMesh, () => light);
   body.add(hullMesh);
+  // The control surfaces: groups hinged at their pivots, turned by setControls.
+  const surfaces = surfDefs.map((d) => {
+    const m = new THREE.Mesh(d.geo, hullMat);
+    m.castShadow = true;
+    bindEntityLight(m, () => light);
+    const group = new THREE.Group();
+    group.position.fromArray(d.pivot);
+    group.add(m);
+    body.add(group);
+    return { group, axis: new THREE.Vector3().fromArray(d.axis), kind: d.kind, side: d.side };
+  });
   const canopyMesh = new THREE.Mesh(canopy, new THREE.MeshStandardMaterial({ color: pal.canopy, metalness: 0.9, roughness: 0.15, envMapIntensity: 1, transparent: true, opacity: 0.85 }));
   body.add(canopyMesh);
   // Landing gear: nose leg forward, main legs under the intakes.
@@ -597,7 +688,11 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
   };
   // (Small points of light: a real navigation light is a pinpoint, not a
   // glowing ball; the bloom does the rest.)
-  const nav = [navSprite(new THREE.Color(2.4, 0.15, 0.15), ...L.nav[0], NAV_SIZE), navSprite(new THREE.Color(0.15, 2.4, 0.2), ...L.nav[1], NAV_SIZE), navSprite(new THREE.Color(2.6, 2.6, 3), ...L.nav[2], STROBE_SIZE), navSprite(new THREE.Color(2.6, 2.6, 3), ...L.nav[3], STROBE_SIZE)];
+  // (Every one sits on the airframe: wingtips at the tip edge, strobes on the
+  // tops of the fins and under the belly.)
+  const tails = navTail.map((p) => [p[0], p[1], p[2]]);
+  const strobes = L.belly ? [...tails, L.belly] : tails;
+  const nav = [navSprite(new THREE.Color(2.4, 0.15, 0.15), ...L.wing[0], NAV_SIZE), navSprite(new THREE.Color(0.15, 2.4, 0.2), ...L.wing[1], NAV_SIZE), navSprite(new THREE.Color(2.6, 2.6, 3), ...strobes[0], STROBE_SIZE), navSprite(new THREE.Color(2.6, 2.6, 3), ...strobes[1], STROBE_SIZE)];
   // Formation ("slime") lights: soft green strips on the fuselage sides and
   // the tails, and the cockpit's dim instrument glow; night only too.
   const stripGeo = new THREE.PlaneGeometry(0.05, 0.7);
@@ -609,6 +704,19 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
       m.rotation.set(Math.PI / 2, s > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
       m.rotation.z = -s * cant;
       m.position.set(s * x, y, z);
+      m.layers.set(LAYER_FX);
+      body.add(m);
+      strips.push(m);
+    }
+  }
+  // The strips on the fins: thin boxes lying on the fin's surface.
+  const finStripGeo = new THREE.BoxGeometry(0.03, 0.55, 0.05);
+  for (const sp of stripPts) {
+    for (const side of type === "f16" ? [1, -1] : [1]) {
+      const m = new THREE.Mesh(finStripGeo, stripMat);
+      m.position.copy(sp.at);
+      if (type === "f16") m.position.x *= side;
+      m.quaternion.copy(sp.q);
       m.layers.set(LAYER_FX);
       body.add(m);
       strips.push(m);
@@ -649,6 +757,31 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
         f.halo.material.color.setRGB(g * 0.8, g * 0.4, g * 0.25 + (afterburner ? 0.5 : 0));
         f.halo.scale.setScalar((0.9 + throttle * 0.8 + (afterburner ? 1.1 : 0)) * f.k);
       }
+    },
+    // The control surfaces follow the stick (-1..1 each): the tailplanes move
+    // together for pitch (trailing edge up to pull the nose up) and a little
+    // differentially with the roll, the flaperons move opposite ways for roll
+    // (and droop a little with the gear down, as flaps), the rudders for yaw.
+    setControls(pitch, roll, yaw) {
+      for (const sf of surfaces) {
+        let a = 0;
+        if (sf.kind === "stab") a = -0.42 * pitch - 0.2 * roll * sf.side;
+        else if (sf.kind === "ail") a = -0.5 * roll * sf.side + 0.2 * gearT;
+        else a = -0.5 * yaw;
+        sf.group.quaternion.setFromAxisAngle(sf.axis, a);
+      }
+    },
+    // A burning wreck: no canopy, no flames, charred, glowing from inside.
+    setBurnt(on, t = 0) {
+      canopyMesh.visible = !on;
+      if (!on) return;
+      for (const f of flames) {
+        f.flame.visible = f.core.visible = f.halo.visible = false;
+        for (const d of f.diamonds) d.visible = false;
+      }
+      for (const o of [...nav, ...strips, cockpitGlow]) o.visible = false;
+      hullMat.uniforms.uFill.value = 0.02;
+      light.flash.setRGB(0.55 + 0.25 * Math.sin(t * 17), 0.16 + 0.1 * Math.sin(t * 23 + 1), 0.02);
     },
     // 1 = wheels down (on the ground, taking off), 0 = folded away.
     setGear(down) {

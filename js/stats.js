@@ -9,6 +9,7 @@ export const STAT_LABELS = [
   ["playTime", "Play time"],
   ["aliensKilled", "Aliens killed"],
   ["zombiesKilled", "Zombies killed"],
+  ["guardsKilled", "Guards killed"],
   ["skeletonsKilled", "Skeletons killed"],
   ["mobsKilled", "Other creatures killed"],
   ["deaths", "Deaths"],

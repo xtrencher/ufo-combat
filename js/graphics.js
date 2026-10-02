@@ -52,7 +52,7 @@ export const PRESETS = {
     water: "simple",
     mist: 0.8, // strength of the low mist over water
     raySamples: 32,
-    renderDistance: 16,
+    renderDistance: 15,
     detailDistance: 6,
   },
   high: {
@@ -104,7 +104,7 @@ export const PRESETS = {
 };
 
 export const PRESET_ORDER = ["low", "medium", "high", "ultra"];
-export const DEFAULT_PRESET = "ultra";
+export const DEFAULT_PRESET = "medium";
 
 export function normalizePreset(name) {
   return PRESET_ORDER.includes(name) ? name : DEFAULT_PRESET;

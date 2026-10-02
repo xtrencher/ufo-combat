@@ -808,44 +808,40 @@ await test("no crafting: the module is gone; Survival starts with basic gear (sw
   for (const e of SURVIVAL_LOADOUT) assert.ok(!itemInfo(Array.isArray(e) ? e[0] : e)?.weapon, "no weapon in the Survival start");
   for (const id of ALL_WEAPONS) assert.ok(CREATIVE_LOADOUT.includes(id), `Creative has ${id}`);
   assert.ok(CREATIVE_LOADOUT.includes(ITEM.BOW));
-  for (const id of [...ALL_WEAPONS, ITEM.BOW, ITEM.SHIELD]) assert.ok(itemInfo(id)?.weapon, `weapon ${id}`);
+  for (const id of [...ALL_WEAPONS, ITEM.BOW]) assert.ok(itemInfo(id)?.weapon, `weapon ${id}`);
 });
 
-await test("the shield goes in the off hand (picked up, equipped, saved, an old save's shield moves there) and wears out", () => {
+await test("armor (Round 5): 4 slots, worn on pickup, reduces damage 4% a point (max 80%), wears out, saved; the shield is gone", async () => {
+  const items = await import("../js/items.js");
+  assert.equal(items.ITEM.SHIELD, undefined, "no shield item");
+  assert.equal(items.ARMOR_SLOTS.length, 4);
   const inv = new Inventory();
-  assert.equal(inv.add(ITEM.SHIELD, 1), 0);
-  assert.equal(inv.offhand?.id, ITEM.SHIELD, "picked up into the free off hand");
-  assert.ok(inv.slots.every((s) => !s), "not in the hotbar");
-  inv.add(ITEM.SHIELD, 1);
-  assert.ok(inv.slots.some((s) => s?.id === ITEM.SHIELD), "a second one goes to the inventory");
-  const full = inv.offhand.dur;
-  assert.equal(inv.damageOffhand(10), false);
-  assert.equal(inv.offhand.dur, full - 10);
-  const data = JSON.parse(JSON.stringify({ inv: inv.serialize(), off: inv.serializeOffhand() }));
-  const b = new Inventory();
-  b.load(data.inv);
-  b.loadOffhand(data.off);
-  assert.equal(b.offhand?.dur, full - 10, "saved with its wear");
-  // An older save: the shield in slot 3, no off hand.
-  const c = new Inventory();
-  c.load([0, 0, 0, [ITEM.SHIELD, 1]]);
-  c.loadOffhand(undefined);
-  assert.equal(c.offhand?.id, ITEM.SHIELD);
-  assert.equal(c.slots[3], null);
-  // Equip from the hotbar swaps places.
-  const d = new Inventory();
-  d.slots[0] = { id: ITEM.SHIELD, count: 1, dur: 5 };
-  d.selected = 0;
-  assert.ok(d.equipSelectedOffhand());
-  assert.equal(d.offhand.dur, 5);
-  assert.equal(d.slots[0], null);
-  assert.equal(d.damageOffhand(9), true, "it breaks");
-  assert.equal(d.offhand, null);
+  assert.equal(inv.armor.length, 4);
+  assert.equal(inv.armorReduction(), 0);
+  const ids = [];
+  for (let slot = 0; slot < 4; slot++) {
+    const id = items.armorId(items.ARMOR_TIERS.length - 1, slot);
+    assert.equal(Inventory.armorSlotOf(id), slot);
+    ids.push(id);
+    assert.equal(inv.add(id, 1), 0);
+    assert.equal(inv.armor[slot]?.id, id, "picked up into its free slot, worn at once");
+  }
+  assert.ok(inv.armorPoints() > 0 && inv.armorReduction() <= 0.8);
+  const before = inv.armor[1].dur;
+  const broken = inv.damageArmor(1);
+  assert.equal(inv.armor[1].dur, before - 1);
+  assert.deepEqual(broken, []);
+  const copy = new Inventory();
+  copy.loadArmor(JSON.parse(JSON.stringify(inv.serializeArmor())));
+  assert.equal(copy.armor[1].dur, before - 1);
+  assert.equal(copy.armorPoints(), inv.armorPoints());
+  for (let i = 0; i < 400; i++) inv.damageArmor(5);
+  assert.ok(inv.armor.every((a) => !a), "everything wears out");
 });
 
 await test("every hand weapon reloads or cools down, balanced by damage (the sniper has one round)", async () => {
   const { WEAPON_STATS } = await import("../js/weapon-stats.js");
-  for (const k of ["bow", "pistol", "machinegun", "sniper", "grenade", "bazooka", "blaster", "railgun", "airstrike", "minigun"]) {
+  for (const k of ["bow", "pistol", "machinegun", "sniper", "grenade", "bazooka", "railgun", "airstrike", "minigun"]) {
     const st = WEAPON_STATS[k];
     assert.ok(st && ((st.mag >= 1 && st.reload > 0) || (st.heat > 0 && st.cool > 0)), `${k} has a reload or a cooldown`);
   }
@@ -856,9 +852,9 @@ await test("every hand weapon reloads or cools down, balanced by damage (the sni
   const pistol = dps(5, WEAPON_STATS.pistol.mag, 0.2, WEAPON_STATS.pistol.reload);
   const mg = dps(3, WEAPON_STATS.machinegun.mag, 1 / 12, WEAPON_STATS.machinegun.reload);
   const sniper = dps(34, 1, 0, WEAPON_STATS.sniper.reload);
-  const blaster = dps(7, WEAPON_STATS.blaster.mag, 0.2, WEAPON_STATS.blaster.reload);
+  const blaster = 3 / 0.22; // the laser pistol: no magazine, 3 a bolt, continuous fire (weaker than the pistol)
   const minigun = (3 * 32 * WEAPON_STATS.minigun.heat) / (WEAPON_STATS.minigun.heat + WEAPON_STATS.minigun.cool + 1);
-  assert.ok(pistol < mg && mg < blaster + 1 && blaster < minigun, `crate guns < alien guns: ${[pistol, mg, sniper, blaster, minigun].map((x) => x.toFixed(1))}`);
+  assert.ok(blaster < pistol && pistol < mg && mg < minigun, `crate guns < alien guns: ${[pistol, mg, sniper, blaster, minigun].map((x) => x.toFixed(1))}`);
   assert.ok(sniper < 25 && sniper > 12, `the sniper: big hits, modest sustained damage (${sniper.toFixed(1)})`);
   assert.ok(WEAPON_STATS.railgun.reload > WEAPON_STATS.sniper.reload && WEAPON_STATS.airstrike.reload >= 20);
 });
@@ -1100,7 +1096,7 @@ console.log("\nDistant terrain (lod-mesher.js)");
     const cx = tree[0] >> 4;
     const cz = tree[1] >> 4;
     const list = [];
-    for (let y = 10; y < 64; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) list.push((y * 16 + z) * 16 + x, BLOCK.AIR);
+    for (let y = 10; y < 128; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) list.push((y * 16 + z) * 16 + x, BLOCK.AIR);
     lt.setChunkEdits(`${cx},${cz}`, list);
     const out = {};
     lt.sample(cx * 16 + 5, cz * 16 + 7, out);
@@ -1244,7 +1240,7 @@ console.log("\nFlowing water (watersim.js)");
 console.log("\nAirports and cities (sites.js)");
 {
   const { TerrainGenerator } = await import("../js/terrain.js");
-  const { SITE_CELL, RUNWAY_HALF } = await import("../js/sites.js");
+  const { SITE_CELL } = await import("../js/sites.js");
   const { LodTerrain } = await import("../js/lod-mesher.js");
   const { BLOCK } = await import("../js/blocks.js");
 
@@ -1265,12 +1261,15 @@ console.log("\nAirports and cities (sites.js)");
     assert.ok(a.list.length >= 12, `sites in 81 cells: ${a.list.length}`);
     assert.ok(a.list.some((s) => s.kind === "airport") && a.list.some((s) => s.kind === "city"), "both kinds exist");
     let near = 0;
+    let far = 0;
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const t = new TerrainGenerator(seed * 7919);
       const [sx, sz] = t.spawnColumn();
       if (t.sites.nearest(sx, sz, 1300)) near++;
+      if (t.sites.nearest(sx, sz, 2600)) far++;
     }
-    assert.ok(near >= 7, `nearby sites for ${near}/8 seeds`);
+    assert.ok(near >= 4, `sites within 1300 blocks for ${near}/8 seeds`);
+    assert.ok(far >= 8, `sites within 2600 blocks for ${far}/8 seeds`);
   });
 
   await test("a site is dead flat across its whole footprint (chunks and distant terrain agree), with gentle slopes around it", () => {
@@ -1319,7 +1318,7 @@ console.log("\nAirports and cities (sites.js)");
     const chunks = new Map();
     let runway = 0;
     let markings = 0;
-    for (let u = -RUNWAY_HALF + 4; u <= RUNWAY_HALF - 4; u++) {
+    for (let u = -s.half + 4; u <= s.half - 4; u++) {
       const [wx, wz] = t.sites.toWorld(s, u, 3);
       const id = blockAt(chunks, wx, s.y, wz);
       if (id === BLOCK.BEDROCK) runway++;
@@ -1328,8 +1327,8 @@ console.log("\nAirports and cities (sites.js)");
       // Clear sky above the runway.
       for (let y = s.y + 1; y <= s.y + 12; y++) assert.equal(blockAt(chunks, wx, y, wz), 0, "nothing stands on the runway");
     }
-    assert.ok(runway >= 230, `dark runway blocks: ${runway}`);
-    assert.ok(markings >= 60, `centre line dashes: ${markings}`);
+    assert.ok(runway >= s.half * 2 - 60, `dark runway blocks: ${runway} of ${s.half * 2}`);
+    assert.ok(markings >= s.half / 3, `centre line dashes: ${markings}`);
     // A hangar wall and the tower's brick shaft.
     const h = s.hangars[1];
     const [hx, hz] = t.sites.toWorld(s, h.u0, (h.v0 + h.v1) / 2);
@@ -1372,6 +1371,72 @@ console.log("\nAirports and cities (sites.js)");
     assert.ok(heights.size >= 4, `building heights vary: ${[...heights]}`);
     assert.ok(glass > 10, `windows: ${glass}`);
     assert.ok(s.lots.some((l) => l.kind === "skyscraper") && s.lots.some((l) => l.kind === "house"), "towers and houses");
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log("\nRound 5: pathfinding and bunkers");
+{
+  const { Pathfinder } = await import("../js/pathfinding.js");
+  const { BLOCK } = await import("../js/blocks.js");
+  const { TerrainGenerator } = await import("../js/terrain.js");
+
+  await test("A* walks around a wall, climbs out of a pit with a big jump, and a creature that can only step 1 stays in", () => {
+    const Y = 10; // (ground level of the test world)
+    const blocks = new Map();
+    const set = (x, y, z, id) => blocks.set(`${x},${y + Y},${z}`, id);
+    for (let x = -30; x <= 30; x++) for (let z = -30; z <= 30; z++) { set(x, 0, z, BLOCK.STONE); set(x, -1, z, BLOCK.STONE); }
+    const world = { getBlock: (x, y, z) => blocks.get(`${x},${y},${z}`) ?? 0 };
+    // A wall 3 high from z = -10..10 at x = 5.
+    for (let z = -10; z <= 10; z++) for (let y = 1; y <= 3; y++) set(5, y, z, BLOCK.STONE);
+    const pf = new Pathfinder(world);
+    const r = pf.find([0, Y + 1, 0], { x: 10.5, y: Y + 1, z: 0.5 }, { h: 2, maxNodes: 4000 });
+    assert.ok(r.reached, "reached the far side");
+    assert.ok(r.path.every(([x, , z]) => !(x === 5 && z >= -10 && z <= 10)), "never through the wall");
+    assert.ok(r.path.length > 20, `a detour: ${r.path.length}`);
+    // A pit 2 deep (3x3): the rim is a rise of 2 from its floor.
+    for (let x = -20; x <= -18; x++) for (let z = -1; z <= 1; z++) { set(x, 0, z, 0); set(x, -1, z, 0); set(x, -2, z, BLOCK.STONE); }
+    const out = pf.find([-19, Y - 1, 0], { x: -10.5, y: Y + 1, z: 0.5 }, { h: 2, step: 2, maxNodes: 4000 });
+    assert.ok(out.reached, "an alien climbs out of the pit");
+    const stuck = pf.find([-19, Y - 1, 0], { x: -10.5, y: Y + 1, z: 0.5 }, { h: 2, step: 1, maxNodes: 600 });
+    assert.ok(!stuck.reached, "a creature that can only step 1 stays in");
+  });
+
+  await test("airport bunkers: deterministic spots, a hall below the apron with floor, guards, a zone, and a ramp down", () => {
+    const t = new TerrainGenerator(42);
+    let site = null;
+    for (let cz = -6; cz <= 6 && !site; cz++) for (let cx = -6; cx <= 6 && !site; cx++) {
+      const s = t.sites._site(cx, cz);
+      if (s && s.kind === "airport" && s.bunkers.length) site = s;
+    }
+    assert.ok(site, "an airport with a bunker exists");
+    const a = t.sites.bunkerSpots(site);
+    const b = t.sites.bunkerSpots(site);
+    assert.deepEqual(a, b);
+    const spot = a[0];
+    assert.ok(spot.guards.length >= 4 && spot.zone.r >= 40);
+    assert.ok(spot.y < site.y, "the hall lies below the surface");
+    const S = 16;
+    const chunks = new Map();
+    const blockAt = (wx, y, wz) => {
+      const cx = wx >> 4;
+      const cz = wz >> 4;
+      const key = `${cx},${cz}`;
+      if (!chunks.has(key)) {
+        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 128) };
+        t.generate(chunk);
+        chunks.set(key, chunk);
+      }
+      return chunks.get(key).blocks[(y * S + (wz & 15)) * S + (wx & 15)];
+    };
+    const hx = Math.floor(spot.x);
+    const hz = Math.floor(spot.z);
+    assert.notEqual(blockAt(hx, spot.y - 1, hz), 0, "a floor");
+    for (let k = 0; k < 6; k++) assert.equal(blockAt(hx, Math.floor(spot.y) + k, hz), 0, "air in the hall for the ship");
+    for (const g of spot.guards) {
+      assert.notEqual(blockAt(Math.floor(g.x), Math.floor(g.y) - 1, Math.floor(g.z)), 0, "guards stand on something");
+      assert.equal(blockAt(Math.floor(g.x), Math.floor(g.y), Math.floor(g.z)), 0, "and have room");
+    }
   });
 }
 

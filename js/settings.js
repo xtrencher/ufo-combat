@@ -124,7 +124,7 @@ export const SCHEMA = [
   { key: "vehicles.beamBlocks", group: "vehicles", type: "checkbox", label: "Tractor beam also lifts loose blocks", def: true },
   { key: "vehicles.jetAssist", group: "vehicles", type: "checkbox", label: "Flight assist (the jet flies toward the crosshair)", def: true, sub: "Fighter jet", hint: "Off: the mouse is the stick (up/down pitch, left/right roll), for experienced pilots." },
   { key: "vehicles.jetAirborne", group: "vehicles", type: "checkbox", label: "Called-in jet arrives airborne (you start in the cockpit)", def: false },
-  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 160, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed. The default is about 580 km/h.", note: (v) => (v > 420 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
+  { key: "vehicles.jetMaxSpeed", group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 300, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed (100% throttle alone gives about 88% of it). The default is about 1080 km/h.", note: (v) => (v > 480 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
   { key: "vehicles.jetAimAssist", group: "vehicles", type: "checkbox", label: "Cannon aim assist (pulls shots toward a target near the nose)", def: true },
   { key: "vehicles.enemyJets", group: "vehicles", type: "range", label: "Patrol fighters at once", min: 0, max: 3, step: 1, def: 1, fmt: int, hint: "Fighters that hunt UFOs and leave you alone, unless you attack one of them: that one hunts you with missiles and guns. (Survival: from mission 10, 'Take to the air'.)" },
   { key: "vehicles.jetAccel", group: "vehicles", type: "range", label: "Jet acceleration (thrust)", min: 0.5, max: 2.5, step: 0.1, def: 1, fmt: times },
@@ -172,17 +172,17 @@ export function validValue(e, raw) {
 // The settings object's format version (the `v` field). Older saves (no
 // version) are read and upgraded; unknown or broken values fall back to
 // their defaults.
-export const SETTINGS_VERSION = 4;
+export const SETTINGS_VERSION = 5;
 
 export const DEFAULT_SETTINGS = {
   v: SETTINGS_VERSION,
-  renderDistance: 10,
+  renderDistance: 15,
   // Whether the player set the render distance themselves (then picking a
   // graphics preset keeps it instead of adopting the preset's suggestion).
   renderDistanceCustom: false,
-  graphics: "ultra",
+  graphics: "medium",
   gfxOverrides: {},
-  volume: { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
+  volume: { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,
 };
 for (const e of SCHEMA) setPath(DEFAULT_SETTINGS, e.key, e.def);
@@ -218,13 +218,16 @@ export function normalizeSettings(raw, opts = {}) {
   for (const [k] of AUDIO_CATEGORIES) {
     const raw = s.volume && typeof s.volume === "object" ? s.volume[k] : undefined;
     const n = Number(raw);
-    out.volume[k] = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1;
+    out.volume[k] = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : (k === "master" ? DEFAULT_SETTINGS.volume.master : 1);
   }
   out.mods = s.mods !== false;
   // Upgrades from older versions. (Round 2 raised the jet's default top
   // speed to 220; Round 3 went back to 160: a value still at that old
   // default follows it, once. Saves before Round 3 had no `v` and no `rev`.)
   if (!Number.isFinite(s.v) && (s.rev ?? 0) < 3 && out.vehicles.jetMaxSpeed === 220) out.vehicles.jetMaxSpeed = 160;
+  // Round 5 made the jets much faster: a top speed still at the old default
+  // follows the new one, once.
+  if ((!Number.isFinite(s.v) || s.v < 5) && out.vehicles.jetMaxSpeed === 160) out.vehicles.jetMaxSpeed = 300;
   return out;
 }
 

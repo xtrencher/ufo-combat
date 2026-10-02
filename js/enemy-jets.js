@@ -28,7 +28,7 @@ const HUNT_CANNON = 0.45; // their cannon's damage against UFOs
 const HUNT_ENGAGE = [35, 55]; // seconds per engagement
 const HUNT_PAUSE = [25, 50]; // seconds between engagements
 const HUNT_MAX_KILLS = 3;
-const SPEED = 1.05; // top speed vs the player's jet at the same settings (they used to be 0.9x)
+const SPEED = 1.12; // top speed vs the player's jet at the same settings (they are faster than the player's jets)
 // Strafing runs at a target on the ground (blocks): attack height above it,
 // how far out it turns in, and how close it comes before pulling out.
 const STRAFE_HEIGHT = 75;
@@ -81,12 +81,12 @@ export class EnemyJet extends Jet {
 
   get cfg() {
     // A little faster than the player's jet at the same settings.
-    const base = this.manager.config.jet || { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
+    const base = this.manager.config.jet || { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
     if (this._cfgBase !== base || this._cfgMax !== base.maxSpeed || this._cfgAccel !== base.accel) {
       this._cfgBase = base;
       this._cfgMax = base.maxSpeed;
       this._cfgAccel = base.accel;
-      this._cfg = { ...base, maxSpeed: Math.min(base.maxSpeed, 260) * SPEED, stallSpeed: base.stallSpeed ?? 42, turnRate: 0.9, accel: base.accel * 1.1, assist: true, aimAssist: true };
+      this._cfg = { ...base, maxSpeed: Math.min(base.maxSpeed, 330) * SPEED, stallSpeed: base.stallSpeed ?? 42, turnRate: 1.05, accel: base.accel * 1.25, assist: true, aimAssist: true };
     }
     return this._cfg;
   }

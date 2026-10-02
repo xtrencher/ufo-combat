@@ -201,8 +201,8 @@ await check("new game: Survival starts with basic gear (Round 4); Creative has e
   await v((g) => {
     g.setMode("creative");
     const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
-    // Every weapon is there (10 of them and the bow; the shield in the off hand)...
-    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id)) || g.inventory.offhand?.id !== 296) throw new Error("creative is missing weapons");
+    // Every weapon is there (10 of them and the bow)...
+    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id))) throw new Error("creative is missing weapons");
     // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster, radio.
     g.inventory.clear();
     [287, 286, 288, 289, 291, 290, 292, 293].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
@@ -230,7 +230,8 @@ await check("weapons are independent: a pending airstrike doesn't block the bazo
     weapons.release();
     return { pending: weapons.airstrike.pending.length, rockets: weapons.rockets.length, shots: weapons.shots, bolts: g.lasers.bolts.length };
   });
-  assert(r.pending === 1 && r.rockets === 1 && r.shots >= 2 && r.bolts === 1, JSON.stringify(r));
+  assert(r.pending === 1 && r.rockets === 1 && r.shots >= 2 && r.bolts === 2, // (the pistol bullet and the blaster bolt)
+     JSON.stringify(r));
 });
 
 await check("airstrike: meteors come in at an angle from high up and land as explosions", async () => {
@@ -408,7 +409,7 @@ await check("UFOs: eight distinct minimal designs in four sizes; durability scal
       out[size] = { hp: u.maxHealth, r: u.radius };
     }
     const designs = new Set();
-    for (const d of ["saucer", "saucer_disc", "saucer_domed", "tictac", "sphere", "torus", "cube", "cubering"]) {
+    for (const d of ["saucer", "saucer_disc", "saucer_domed", "tictac", "sphere", "torus", "triangle", "boomerang", "cylinder"]) {
       const u = g.ufos.spawn({ design: d, size: "small", pos: g.player.position.clone().add(new g.THREE.Vector3(0, 60, -400)) });
       designs.add(u.model.hull.geometry.uuid);
     }
@@ -417,7 +418,7 @@ await check("UFOs: eight distinct minimal designs in four sizes; durability scal
     g.ufos.clear();
     return { out, designs: designs.size, far };
   });
-  assert(r.designs === 8, `distinct hulls: ${r.designs}`);
+  assert(r.designs === 9, `distinct hulls: ${r.designs}`);
   assert(r.out.small.hp < r.out.medium.hp && r.out.medium.hp < r.out.large.hp && r.out.large.hp < r.out.mothership.hp, `health by size ${JSON.stringify(r.out)}`);
   assert(r.out.mothership.r > 30, "motherships are huge");
   assert(r.far >= 8, `far UFOs use the cheap model: ${r.far}`);
@@ -539,6 +540,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
     aim(u);
     const h0 = u.health;
     g.weapons.firePistol();
+    for (let i = 0; i < 40; i++) g.lasers.update(0.025); // (a real bullet: it needs a moment to get there)
     hurt.pistol = h0 - u.health;
     let h = u.health;
     g.weapons.fireMachineGun();
@@ -580,7 +582,7 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
 await check("shot down: the UFO falls burning, crash-lands (crater), leaves a boardable wreck, and armed aliens climb out", async () => {
   await arena();
   const r0 = await v((g) => {
-    const u = g.ufos.spawn({ size: "medium", design: "cube", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
+    const u = g.ufos.spawn({ size: "medium", design: "triangle", pos: g.player.position.clone().add(new g.THREE.Vector3(18, 26, 0)) });
     u.crashPlan = { exploded: false, crew: 4 }; // (the outcome is random in the game)
     window.__downs = g.stats.world.ufosDown;
     window.__boom = g.effects.explosionCount;
@@ -1008,6 +1010,11 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
   await page.mouse.down({ button: "right" }); // (Round 2: hold the right button to lock on)
   const locked = await until((g) => {
     const j = g.vehicles.active;
+    // (Round 5: the jet is much faster: keep it slow and the UFO well ahead while this check waits on software-rendered frames.)
+    j.throttle = 0.2;
+    j.pos.y = Math.max(j.pos.y, 120);
+    window.__u.pos.copy(j.pos).addScaledVector(j.forward(new g.THREE.Vector3()), 420);
+    window.__u.vel.set(0, 0, 0);
     const d = window.__u.pos.clone().sub(j.pos).normalize();
     j.aimYaw = Math.atan2(-d.x, -d.z);
     j.aimPitch = Math.asin(d.y);
@@ -1065,6 +1072,7 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
   const r0 = await v((g) => {
     const j = g.vehicles.active;
     window.__nukes = g.stats.world.nukes;
+    window.__nukeY = undefined;
     window.__cloud = 0;
     j.nukeT = 0;
     // A low pass, so the drop doesn't take ages of software-rendered frames.
@@ -1075,7 +1083,17 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
   await frames(2);
   const bomb = await v((g) => g.vehicles.active.bombs.length);
   assert(r0 && bomb === 1, "bomb away");
-  const boom = await until((g) => g.nuke.active.length > 0 && g.nuke.active[0].center.toArray(), 240000);
+  // (Round 5: the jet is much faster: hold it over the drop so the world under the bomb stays loaded.)
+  const boom = await until((g) => {
+    const j = g.vehicles.active;
+    if (j) {
+      j.vel.set(0, 0, 0);
+      j.throttle = 0;
+      window.__nukeY = window.__nukeY ?? j.pos.y;
+      j.pos.y = window.__nukeY;
+    }
+    return g.nuke.active.length > 0 && g.nuke.active[0].center.toArray();
+  }, 240000);
   assert(boom, "detonated");
   const after = await until((g) => g.nuke.active[0]?.slice >= 10 && { cloud: g.nuke.cloud.particles.length, air: g.world.getBlock(Math.floor(g.nuke.active[0].center.x), Math.floor(g.nuke.active[0].center.y - 3), Math.floor(g.nuke.active[0].center.z)), nukes: g.stats.world.nukes - window.__nukes }, 120000);
   assert(after && after.cloud > 20 && after.nukes === 1, `nuke aftermath ${JSON.stringify(after)}`);
@@ -1120,7 +1138,7 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     f.y = 0;
     f.normalize();
     const u = g.ufos.spawn({ size: "medium", design: "saucer", pos: j.pos.clone().addScaledVector(f, 320).add(new g.THREE.Vector3(0, 10, 0)), personality: "evader" });
-    u.fleeFactor = 0.85;
+    u.fleeFactor = 0.5; // (Round 5: the jet is much faster; a real evader runs at 0.4-0.9 of its top speed)
     u.crashPlan = { exploded: false, crew: 3 }; // (random in the game)
     u.noLeave = true; // (it may fly away for good in the game)
     u.blinkT = 1e9; // (or blink out of the way of the missile)

@@ -434,10 +434,11 @@ await check("range: a UFO 500 blocks away can be hit; a UFO's shots reach the pl
     u.state = "hover_test";
     const h0 = u.health;
     // Aim at its middle (a flat saucer is thinner than the eye's height above
-    // its centre) and fire the pistol (hitscan).
+    // its centre) and fire the pistol (a real bullet since Round 5).
     const eye = p.getEyePosition();
     p.pitch = Math.atan2(u.pos.y - eye.y, eye.z - u.pos.z);
     g.weapons.firePistol();
+    for (let i = 0; i < 100; i++) g.lasers.update(0.025); // (Round 5: a real bullet, about a second and a half away)
     return { h0, h1: u.health, dist: 500, range: g.weapons._range(160, 0.6) };
   });
   assert(r.h1 < r.h0, `the pistol hit a UFO 500 blocks away: ${JSON.stringify(r)}`);
@@ -580,7 +581,7 @@ await check("aliens face the player when they shoot, and chase at once after lea
   });
   assert(r.angles.length >= 3, `they shoot: ${r.angles.length} shots`);
   assert(r.angles.every((a) => a < 0.45), `every shot was fired facing the player: max ${Math.max(...r.angles).toFixed(2)} rad`);
-  assert(r.farD1 < r.farD0 - 25, `an alien far away came for the player at once: ${Math.round(r.farD0)} -> ${Math.round(r.farD1)} ${JSON.stringify(r.farInfo)}`);
+  assert(r.farD1 < r.farD0 - 12, `an alien far away came for the player at once (Round 5: they plan paths, and the world here does not stream between steps): ${Math.round(r.farD0)} -> ${Math.round(r.farD1)} ${JSON.stringify(r.farInfo)}`);
   await v((g) => {
     g.mobs.clear();
     g.setMode("creative");
@@ -726,7 +727,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
       tabs: [...el.querySelectorAll(".inv-tab")].map((b) => b.textContent),
       loadouts: [ALL_WEAPONS.length, CREATIVE_LOADOUT.length, SURVIVAL_LOADOUT.length, SURVIVAL_LOADOUT[0] === ITEM.STONE_SWORD],
     };
-    // The weapons tab shows every weapon (10, the bow and the shield: 12), the others hide them.
+    // The weapons tab shows every weapon (10 and the bow: 11), the others hide them.
     const shown = () => [...el.querySelectorAll(".inv-palette .slot")].filter((s) => !s.classList.contains("hidden")).length;
     g.invScreen.setTab(0);
     out.weaponsShown = shown();
@@ -745,7 +746,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
   assert(r.tabs.length >= 3, `palette tabs: ${r.tabs}`);
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
   assert(r.loadouts[0] === 10 && r.loadouts[1] === 11 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts}`);
-  assert(r.weaponsShown === 12 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
+  assert(r.weaponsShown === 11 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
   assert(r.missing === 0, `creative has every weapon (${r.missing} missing)`);
 });
 
@@ -837,55 +838,6 @@ await check("laser minigun: spins up first, then a stream of bolts", async () =>
   assert(r.spin === 1 && r.spinAfter < 0.05, `spins up and down: ${r.spin} -> ${r.spinAfter}`);
 });
 
-await check("shield (Round 4: the classic off-hand shield): raised, it stops attacks and explosions from the front, not falls; it wears and breaks", async () => {
-  await play();
-  const r = await v(async (g) => {
-    const { makeStack } = await import("./js/inventory.js");
-    const { ITEM } = await import("./js/items.js");
-    g.weapons.cancel();
-    g.setMode("survival");
-    const p = g.player;
-    p.absorption = 0;
-    g.inventory.offhand = makeStack(ITEM.SHIELD, 1);
-    g.inventory.slots[0] = makeStack(ITEM.STONE_SWORD, 1);
-    g.inventory.selected = 0;
-    const hit = (amount, cause) => {
-      p.health = 20;
-      p._invulnerable = 0;
-      p._lastDamage = 0;
-      p.damage(amount, cause);
-      return 20 - p.health;
-    };
-    const out = {};
-    out.noShield = hit(10, "grenade");
-    g.interaction.mouseDown(2);
-    for (let i = 0; i < 5; i++) g.weapons.update(0.05);
-    out.up = g.weapons.shield.up;
-    out.explosion = hit(10, "grenade");
-    out.attack = hit(10, "alien");
-    out.fall = hit(10, "fall");
-    const d0 = g.inventory.offhand.dur;
-    hit(4, "zombie");
-    out.wear = d0 - g.inventory.offhand.dur;
-    // Break it.
-    g.inventory.offhand.dur = 3;
-    hit(10, "alien");
-    g.weapons.update(0.05);
-    out.broken = !g.inventory.offhand && !g.weapons.shield.up;
-    out.afterBreak = hit(10, "grenade");
-    g.interaction.mouseUp(2);
-    g.weapons.update(0.05);
-    p.health = 20;
-    return out;
-  });
-  assert(r.noShield === 10, `no shield: full damage ${r.noShield}`);
-  assert(r.up && r.explosion === 0 && r.attack === 0, `blocked from the front: ${JSON.stringify(r)}`);
-  assert(r.fall === 10, `falls pass through: ${r.fall}`);
-  assert(r.wear === 5, `it wears by 1 + the damage stopped: ${r.wear}`);
-  assert(r.broken && r.afterBreak === 10, `a broken shield is gone: ${JSON.stringify(r)}`);
-  await v((g) => g.setMode("creative"));
-});
-
 await check("golden apple: full health plus golden hearts that soak damage first", async () => {
   const r = await v(async (g) => {
     const { ITEM, itemInfo } = await import("./js/items.js");
@@ -919,6 +871,9 @@ await check("bazooka lock-on: hold to lock a UFO near the crosshair, the rocket 
   const r = await v((g) => {
     const p = g.player;
     g.mobs.clear();
+    p.flying = true;
+    p.position.y = 260; // (Round 5: bigger mountains: the line of fire must be clear)
+    p.velocity.set(0, 0, 0);
     p.yaw = 0;
     p.pitch = 0.25;
     const eye = p.getEyePosition();
@@ -1049,7 +1004,7 @@ await check("jet takeoff: a real ground roll on a runway, rotation, liftoff, the
     // Once climbing away fast, the gear folds (lifted here so the test does not depend on the terrain past the pad).
     const gearBefore2 = jet.model.gear;
     if (jet.alive) {
-      jet.pos.y += 45;
+      jet.pos.y += 180; // (Round 5: well above the bigger mountains ahead)
       jet.vel.set(0, 0, -95);
       for (let i = 0; i < 60; i++) g.vehicles.update(0.05);
     }
@@ -1344,10 +1299,10 @@ await check("UFO piloting: teleport dash (travelled, with a streak), big ships a
     // 1. Dash.
     const p0 = ufo.pos.clone();
     g.vehicles.keyDown("KeyR");
-    g.vehicles.update(0.05);
-    g.vehicles.update(0.05);
+    g.vehicles.update(0.016); // (Round 5: dashes are much faster: a thousand blocks a second and more)
+    g.vehicles.update(0.016);
     out.first = ufo.pos.distanceTo(p0);
-    for (let i = 0; i < 2; i++) g.vehicles.update(0.05);
+    for (let i = 0; i < 3; i++) g.vehicles.update(0.05);
     out.streak = g.ufos.trail.ghosts.length > 0;
     for (let i = 0; i < 20; i++) {
       g.vehicles.update(0.05);
@@ -1464,7 +1419,7 @@ await check("UFO designs: smooth saucers are the most common (lens, disc, domed)
     return { counts, saucers, glow, dark, names: Object.keys(UFO_DESIGN_NAMES).length, giantR: SIZES.giant.r, sizes: Object.keys(SIZES) };
   });
   assert(r.saucers / 3000 > 0.5, `saucers are the most common: ${r.saucers / 3000}`);
-  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"]) assert(r.counts[d] > 0, `design ${d} appears`);
+  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle"]) assert(r.counts[d] > 0, `design ${d} appears`);
   assert(r.glow > 200 && r.dark > r.glow * 2, `a few glow faintly, most don't: ${r.glow}/${r.dark}`);
   assert(r.giantR[1] >= 60 && r.sizes.length >= 5, `up to football-field giants: radius ${r.giantR}`);
 });
@@ -1580,7 +1535,7 @@ const gotoSite = (kind, u, vv, h, radius = 9) =>
 await check("airports: parked jets stand on the apron in front of the hangars (boardable, never saved); the runway is real and long", async () => {
   await play();
   await skyArena();
-  const site = await gotoSite("airport", 0, 20, 2, 10);
+  const site = await gotoSite("airport", 0, 20, 2, 16);
   await frames(3);
   const r = await v((g, site) => {
     const s = g.sites.nearest(g.player.position.x, g.player.position.z, 200, "airport");
@@ -1596,6 +1551,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
       nearSpot: jets.every((j) => spots.some((sp) => Math.hypot(sp.x - j.pos.x, sp.z - j.pos.z) < 1)),
       nav: g.airports.nearest().site.id === s.id,
       runway: g.airports.runwayNear(g.player.position.x, g.player.position.z, 500)?.length,
+      dbg: { id: s.id, half: s.half, pos: [Math.round(g.player.position.x), Math.round(g.player.position.z)], ends: g.sites.runwayEnds(s).map((e) => [Math.round(e.x), Math.round(e.z), !!g.world.getChunk(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)]), near: g.sites.nearest(g.player.position.x, g.player.position.z, 500)?.id },
     };
   }, site);
   assert(r.n >= 1 && r.n <= 3, `parked jets: ${r.n}`);
@@ -1606,7 +1562,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
 
 await check("called-in jet uses the airport runway and takes off from it (a real roll, then climbs away)", async () => {
   await play();
-  const site = await gotoSite("airport", 0, 20, 2, 10);
+  const site = await gotoSite("airport", 0, 20, 2, 16);
   await frames(2);
   const r = await v((g, site) => {
     for (const j of [...g.vehicles.vehicles]) if (!j.parkedAt) g.vehicles.remove(j);
@@ -1656,9 +1612,9 @@ await check("cities: streets and towers, and a crowd of villagers walking around
     // Tall buildings.
     for (const lot of s.lots) {
       if (lot.kind !== "skyscraper") continue;
-      const [wx, wz] = g.sites.toWorld(s, lot.u0, Math.floor((lot.v0 + lot.v1) / 2));
+      const [wx, wz] = g.sites.toWorld(s, Math.floor((lot.u0 + lot.u1) / 2), Math.floor((lot.v0 + lot.v1) / 2));
       let top = 0;
-      for (let y = s.y + 1; y < 64; y++) if (g.world.getBlock(wx, y, wz)) top = y - s.y;
+      for (let y = s.y + 1; y < 127; y++) if (g.world.getBlock(wx, y, wz)) top = y - s.y;
       out.tall = Math.max(out.tall, top);
     }
     g.mobs.clear();
@@ -1730,7 +1686,7 @@ await check("missions: the first one is the skeleton (Round 4), then the landing
   // (Round 4: the chain starts on foot with a skeleton, then a UFO landing; rewards are apples.)
   assert(r.first === "skeleton" && r.stillFirst, `the skeleton first: ${JSON.stringify(r)}`);
   assert(r.second === "landing" && r.apples === 3, `next mission and a reward: ${JSON.stringify(r)}`);
-  await frames(6);
+  await until(() => /MISSION 2/.test(document.getElementById("mission-tracker").textContent), 30000);
   const tracker = await v((g) => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent, step: g.progress.step, id: g.progress.mission?.id, kills: g.stats.world.skeletonsKilled, base: g.progress.base.skeletonsKilled }));
   assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${JSON.stringify(tracker)}`);
 });
@@ -1795,7 +1751,7 @@ await check("difficulty curve: a gentle sky at first (small saucers), bigger UFO
 
 // ================= Part 7: menu and defaults =================
 
-await check("main menu: Ultra by default, a new world starts at 17:50, live FPS, low-FPS advice, mode cards, and the saucer can be shot", async () => {
+await check("main menu: Medium by default (Round 5), a new world starts at 17:50, live FPS, low-FPS advice, mode cards, and the saucer can be shot", async () => {
   // (The old page saves its state as it unloads, so the storage is wiped by a script that runs first in the new page, once.)
   await page.addInitScript(() => {
     if (!sessionStorage.getItem("__wiped")) {
@@ -1805,7 +1761,7 @@ await check("main menu: Ultra by default, a new world starts at 17:50, live FPS,
   });
   await boot();
   const first = await v((g) => ({ gfx: g.graphics, hours: g.sky.hours, state: g.gameState, settings: g.settings.graphics }));
-  assert(first.gfx === "ultra" && first.settings === "ultra", `Ultra is the default: ${JSON.stringify(first)}`);
+  assert(first.gfx === "medium" && first.settings === "medium", `Medium is the default (Round 5): ${JSON.stringify(first)}`);
   assert(first.hours > 17.6 && first.hours < 18.4, `a new world starts at about 17:50: ${first.hours}`);
   await v((g) => g.setGraphics("low"));
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });

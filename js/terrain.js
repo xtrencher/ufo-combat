@@ -21,19 +21,22 @@ const REEF_SALT = 0x3c8de061;
 // games): continents and oceans thousands of blocks across, long mountain
 // ranges rising up to ~100 blocks above the sea (a masked, ridged field, so
 // ranges are localized: wide lowlands between them), and winding rivers (a
-// thin band where a low-frequency noise field crosses near zero).
+// thin band where a low-frequency noise field crosses near zero). Round 5:
+// the ranges are bigger: more of the land is mountainous, the massifs are
+// lifted as a whole, the ridges are broader and the crests reach the top of
+// the world (~120 blocks, snow-capped) far more often.
 const CONTINENT_FREQ = 1 / 2600;
 const CONTINENT_AMP = 36;
 const MOUNTAIN_MASK_FREQ = 1 / 1000;
-const MOUNTAIN_MASK_LO = 0.06;
-const MOUNTAIN_MASK_HI = 0.36;
-const MOUNTAIN_RIDGE_FREQ = 1 / 260;
+const MOUNTAIN_MASK_LO = 0.02;
+const MOUNTAIN_MASK_HI = 0.3;
+const MOUNTAIN_RIDGE_FREQ = 1 / 340;
 const MOUNTAIN_PEAK_FREQ = 1 / 75;
-const MOUNTAIN_AMP = 78;
+const MOUNTAIN_AMP = 104;
 const RIVER_FREQ = 1 / 420;
 const RIVER_WIDTH = 0.045;
-export const SNOW_LINE = 92; // mountain peaks above this height are snow-capped
-export const BARE_ROCK_LINE = 68; // mountain slopes above this are exposed stone
+export const SNOW_LINE = 98; // mountain peaks above this height are snow-capped
+export const BARE_ROCK_LINE = 72; // mountain slopes above this are exposed stone
 // The raw height field can overshoot the top of the world in the biggest
 // ranges. Cutting it off there made flat stone plateaus in the full-detail
 // chunks while the distant (LOD) terrain, sampled from the same field, still
@@ -41,8 +44,8 @@ export const BARE_ROCK_LINE = 68; // mountain slopes above this are exposed ston
 // Heights above SOFT_CAP_START are smoothly compressed toward the world's
 // ceiling instead (slope 1 at the start, flattening gently), so peaks keep
 // their shape, and the height every system samples is inside the world.
-const SOFT_CAP_START = 96;
-const SOFT_CAP_RANGE = 26; // asymptote: SOFT_CAP_START + SOFT_CAP_RANGE (122)
+const SOFT_CAP_START = 100;
+const SOFT_CAP_RANGE = 24; // asymptote: SOFT_CAP_START + SOFT_CAP_RANGE (124)
 
 // The block that tops a land column of biome `biome` at height `h`, and the
 // block just below it. One function for chunk generation and for the distant
@@ -121,7 +124,7 @@ export class TerrainGenerator {
       const r = n.fbm2(wx + 1000, wz + 1000, 4, 0.5, 2, MOUNTAIN_RIDGE_FREQ);
       const ridged = Math.pow(1 - Math.abs(r), 1.8);
       const peaks = n.fbm2(wx - 3000, wz + 700, 3, 0.5, 2, MOUNTAIN_PEAK_FREQ);
-      mountains = mountainT * (ridged * MOUNTAIN_AMP * (0.55 + 0.45 * mountainT) + ridged * peaks * 16 + mountainT * 8);
+      mountains = mountainT * (ridged * MOUNTAIN_AMP * (0.55 + 0.45 * mountainT) + ridged * peaks * 20 + mountainT * 24);
     }
     // The coast: a quick step from the sea floor up to the land (a tanh
     // across the coastline), so shores are beaches, not wide marshy flats.
