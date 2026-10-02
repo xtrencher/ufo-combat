@@ -221,6 +221,20 @@ export class UfoManager {
     this.lastHum = 0;
     this._camDir = new THREE.Vector3(0, 0, -1);
     this.trail = new DashTrail(scene); // the smear a dashing UFO leaves
+    // Multiplayer (js/net/entities.js). Host: `targets()` lists every player
+    // (this one and Player-like stand-ins for the others): each UFO picks the
+    // nearest and its AI runs for that player (this.player and the vehicle
+    // are swapped for the moment); new UFOs appear around any player. Guest:
+    // the UFOs are the host's (puppets: `u.net`), placed from its states.
+    this.localPlayer = player;
+    this.localCamera = camera;
+    this.targets = null; // () => [player-like]
+    this.puppets = false;
+    this.groupScale = 1; // more UFOs for a bigger group (set online)
+    this.onPuppetHit = null; // (ufo, amount, from) => void
+    this.onPuppetUpdate = null; // (ufo, dt) => void
+    this.onPuppetAbsorb = null; // (ufo, ship) => void
+    this._cur = null; // the player the current UFO is thinking about (online)
   }
 
   get count() {
@@ -245,8 +259,9 @@ export class UfoManager {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
     const jet = this._playerVehicle()?.type === "jet" ? JET_COUNT_FACTOR : 1;
-    if (this.missionDriven) return this.rules.max <= 0 ? 0 : Math.min(MAX_UFOS, Math.max(1, Math.round(this.rules.max * nightBoost * jet)));
-    const auto = Math.round((3 * c.activity + (c.activity > 0 ? 1 : 0)) * nightBoost * (this.rules?.count ?? 1) * jet);
+    const g = this.groupScale;
+    if (this.missionDriven) return this.rules.max <= 0 ? 0 : Math.min(MAX_UFOS, Math.max(1, Math.round(this.rules.max * nightBoost * jet * g)));
+    const auto = Math.round((3 * c.activity + (c.activity > 0 ? 1 : 0)) * nightBoost * (this.rules?.count ?? 1) * jet * g);
     return Math.min(MAX_UFOS, c.maxCount > 0 ? Math.max(1, Math.round(c.maxCount * jet)) : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
 
@@ -457,7 +472,40 @@ export class UfoManager {
     const expected = this.spawnRate * (1 + 3 * (1 - active / Math.max(1, max)));
     let n = Math.floor(expected) + (Math.random() < expected % 1 ? 1 : 0);
     n = Math.min(n, max - active, 6);
-    for (let k = 0; k < n; k++) this.spawn({});
+    for (let k = 0; k < n; k++) this._aroundAnyone(() => this.spawn({}));
+  }
+
+  // Runs fn with `this.player` set to a random player in the game (online: new
+  // UFOs appear around every player, hidden from that player's view if it is
+  // this one).
+  _aroundAnyone(fn) {
+    const list = this.targets ? this.targets().filter((t) => !t.dead) : null;
+    if (!list || list.length < 2) return fn();
+    const t = list[Math.floor(Math.random() * list.length)];
+    this.player = t;
+    this.camera = t === this.localPlayer ? this.localCamera : null;
+    try {
+      return fn();
+    } finally {
+      this.player = this.localPlayer;
+      this.camera = this.localCamera;
+    }
+  }
+
+  // The nearest player in the game to `pos` (online), or this player: [player, distance].
+  _nearestPlayer(pos, list = this.targets ? this.targets() : null) {
+    if (!list) return [this.localPlayer, pos.distanceTo(this.localPlayer.position)];
+    let best = this.localPlayer;
+    let bestD = Infinity;
+    for (const t of list) {
+      const p = t.vehicle ? t.vehicle.pos : t.position;
+      const d = pos.distanceTo(p) + (t.dead ? 1e6 : 0);
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    return [best, bestD];
   }
 
   // ---------- Queries (weapons, lasers, explosions) ----------
@@ -511,6 +559,13 @@ export class UfoManager {
   // player flying a UFO, maybe its neighbours).
   damage(u, amount, byPlayer = true, from = null, attacker = null) {
     if (u.state === "gone" || u.falling || amount <= 0) return false;
+    // (Online: a guest's hit on the host's UFO goes to the host, after the
+    // same checks as below for what the hull shrugs off.)
+    if (u.net && !u.shield && !u.immune) {
+      u.hurtTime = 0;
+      if (byPlayer) this.onPuppetHit?.(u, amount, from);
+      return true;
+    }
     // A mission's landing ship: its hull shrugs off hand weapons.
     if (u.immune || (u.immuneUntil && this.time < u.immuneUntil)) {
       if (byPlayer && this.time - (u.immuneMsgT ?? -99) > 6) {
@@ -539,6 +594,7 @@ export class UfoManager {
     }
     if (byPlayer) {
       u.byPlayer = true;
+      u.lastHitPid = this.currentAttacker ?? 1; // (online: which player; 1 is the host)
       this.lastPlayerAttack = this.time; // the alien air force takes notice
       this._provoked(u);
     }
@@ -601,6 +657,7 @@ export class UfoManager {
   // ---------- Per frame ----------
 
   _playerVehicle() {
+    if (this._cur) return this._cur.vehicle ?? null;
     return this.vehicles?.active ?? null;
   }
 
@@ -649,6 +706,7 @@ export class UfoManager {
 
   // How many UFOs may attack at once: fewer against a jet.
   get maxAttackers() {
+    if (this._attackCap) return this._attackCap;
     return this._playerVehicle()?.type === "jet" ? JET_MAX_ATTACKERS : MAX_ATTACKERS;
   }
 
@@ -656,11 +714,18 @@ export class UfoManager {
     this.time += dt;
     this.graceT = Math.max(0, this.graceT - dt);
     if (!this.enabled) return;
+    if (this.puppets) {
+      this._updatePuppets(dt);
+      return;
+    }
     this._updateSpawning(dt);
     this._updateCrews(dt);
     const p = this.player.position;
-    const tgt = this._targetInfo();
+    let tgt = this._targetInfo();
     const night = this.night;
+    // Online (host): the attackers' cap covers every player.
+    const targets = this.targets ? this.targets() : null;
+    this._attackCap = targets ? targets.reduce((s, t) => s + (t.vehicle?.type === "jet" ? JET_MAX_ATTACKERS : MAX_ATTACKERS), 0) : 0;
     if (this.camera) this.camera.getWorldDirection(this._camDir);
     // Count the attackers first, so the cap holds within a frame.
     // (Against a jet, the ones that run away from it are not attackers.)
@@ -681,20 +746,64 @@ export class UfoManager {
     let beamOnPlayer = null;
     for (let i = this.ufos.length - 1; i >= 0; i--) {
       const u = this.ufos[i];
-      const dist = u.pos.distanceTo(p);
-      if (u.state === "gone" || (dist > DESPAWN_DISTANCE && !u.falling && u.state !== "attack")) {
+      const localDist = u.pos.distanceTo(p);
+      let dist = localDist;
+      if (targets) {
+        // This UFO thinks about the nearest player (sticking with the one it
+        // is after unless another is much nearer).
+        let [t, d] = this._nearestPlayer(u.pos, targets);
+        const cur = u.tgtPlayer && targets.includes(u.tgtPlayer) && !u.tgtPlayer.dead ? u.tgtPlayer : null;
+        if (cur && cur !== t) {
+          const dc = u.pos.distanceTo(cur.vehicle ? cur.vehicle.pos : cur.position);
+          if (dc < d * 1.5 + 60) {
+            t = cur;
+            d = dc;
+          }
+        }
+        u.tgtPlayer = t;
+        this.player = t;
+        this._cur = t;
+        tgt = this._targetInfo();
+        dist = t === this.localPlayer ? localDist : u.pos.distanceTo(t.position);
+      }
+      try {
+        if (this._stepUfo(u, i, dt, tgt, dist, targets ? Math.min(dist, localDist) : dist, localDist, night)) {
+          if (u === this.beamingPlayer) beamOnPlayer = u;
+        }
+      } finally {
+        this.player = this.localPlayer;
+        this._cur = null;
+      }
+      if (localDist < humD && this.ufos.includes(u)) humD = localDist;
+    }
+    this._attackCap = 0;
+    this._updatePlayerBeam(dt, beamOnPlayer);
+    this.trail.update(dt);
+    // One engine hum for the nearest UFO.
+    this.lastHum = humD;
+    if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
+  }
+
+  // One UFO's step: thinking (about `tgt`, `dist` away), weapons, beam,
+  // drawing. `near`: the nearest player's distance (despawning, lazy
+  // thinking); `localDist`: this player's (drawing). Returns true if its
+  // beam holds this player.
+  _stepUfo(u, i, dt, tgt, dist, near, localDist, night) {
+    let beamOnPlayer = false;
+    {
+      if (u.state === "gone" || (near > DESPAWN_DISTANCE && !u.falling && u.state !== "attack")) {
         this._remove(i);
-        continue;
+        return false;
       }
       u.hurtTime += dt;
       u.age += dt;
       // Far away: think every few frames (with the time saved up).
       let step = dt;
-      if (dist > 380 && !u.falling && u.state !== "leave" && !u.sweep && !u.charge && !u.dash && !(u.queue && u.queue.length)) {
+      if (near > 380 && !u.falling && u.state !== "leave" && !u.sweep && !u.charge && !u.dash && !(u.queue && u.queue.length)) {
         u.lazy += dt;
         if ((Math.floor(this.time * 60) + u.id) % 4 !== 0) {
-          this._place(u, 0, dist, night);
-          continue;
+          this._place(u, 0, localDist, night);
+          return false;
         }
         step = Math.min(0.2, u.lazy);
         u.lazy = 0;
@@ -711,17 +820,38 @@ export class UfoManager {
         if (!beaming && u.beam.on) u.beam.set(false);
         u.beam.top.set(u.pos.x, u.pos.y - u.info.bottom * u.radius, u.pos.z);
         u.beam.update(step, this.effects);
-        if (u.beam.on && u === this.beamingPlayer) beamOnPlayer = u;
+        if (u.beam.on && u === this.beamingPlayer) beamOnPlayer = true;
         if (!u.beam.on && u.beam.strength < 0.02 && u.state !== "beam" && u.state !== "trick") this._freeBeam(u);
       }
-      this._place(u, step, dist, night);
+      this._place(u, step, localDist, night);
+    }
+    return beamOnPlayer;
+  }
+
+  // A guest's UFOs: the host's, placed from its states (entities.js).
+  _updatePuppets(dt) {
+    const p = this.player.position;
+    let humD = Infinity;
+    for (let i = this.ufos.length - 1; i >= 0; i--) {
+      const u = this.ufos[i];
+      if (u.state === "gone") {
+        this._remove(i);
+        continue;
+      }
+      u.hurtTime += dt;
+      u.age += dt;
+      this.onPuppetUpdate?.(u, dt);
+      if (u.beam) {
+        u.beam.top.set(u.pos.x, u.pos.y - u.info.bottom * u.radius, u.pos.z);
+        u.beam.update(dt, this.effects);
+      }
+      const dist = u.pos.distanceTo(p);
+      this._place(u, dt, dist, this.night);
       if (dist < humD) humD = dist;
     }
-    this._updatePlayerBeam(dt, beamOnPlayer);
     this.trail.update(dt);
-    // One engine hum for the nearest UFO.
     this.lastHum = humD;
-    if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
+    if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, 0);
   }
 
   // A UFO held by the player's tractor beam: the beam sets its pull velocity
@@ -751,6 +881,10 @@ export class UfoManager {
   // loot goes straight into the hold).
   absorb(u, ship) {
     if (u.state === "gone" || u.falling) return;
+    if (u.net) {
+      this.onPuppetAbsorb?.(u, ship);
+      return;
+    }
     this._stopWeapons(u);
     const fx = this.effects;
     const col = u.model?.halo?.material?.color || new THREE.Color(0.5, 1.2, 2);
@@ -758,6 +892,7 @@ export class UfoManager {
     for (let i = 0; i < 14; i++) fx.glow.spawn({ x: u.pos.x + rand(-1, 1) * u.radius, y: u.pos.y + rand(-0.5, 0.5) * u.radius, z: u.pos.z + rand(-1, 1) * u.radius, vx: rand(-4, 4), vy: rand(2, 9), vz: rand(-4, 4), life: rand(0.4, 0.9), size0: 0.4, size1: 0.05, color0: col, gravity: -0.2, drag: 1.5 });
     u.absorbed = true;
     u.byPlayer = true;
+    u.lastHitPid = this.currentAttacker ?? 1;
     u.captured = null;
     u.state = "gone";
     this.onMessage?.(`Swallowed a ${u.size} UFO!`);
@@ -962,7 +1097,7 @@ export class UfoManager {
   // Is the player's camera pointing at this UFO? (a wider cone for a bigger
   // UFO or a closer one, and only with a clear line of sight)
   _stared(u, dist) {
-    if (dist > 520 || this.player.dead) return false;
+    if (dist > 520 || this.player.dead || this.player.isRemote) return false;
     const to = _w.copy(u.pos).sub(this.camera ? this.camera.position : this.player.position).normalize();
     const ang = to.angleTo(this._camDir);
     const cone = Math.max(0.06, Math.atan(u.radius / Math.max(10, dist)) * 1.6);
@@ -1617,7 +1752,7 @@ export class UfoManager {
     const p = this.player.position;
     const hover = u.info.bottom * u.radius + u.S.hover;
     const horiz = Math.hypot(u.pos.x - p.x, u.pos.z - p.z);
-    const abduct = u.style === "abductor" && !this.player.creative;
+    const abduct = u.style === "abductor" && !this.player.creative && !this.player.isRemote; // (online: only this player can be abducted)
     if (abduct) {
       const goal = new THREE.Vector3(p.x, Math.max(p.y + hover, this._minAltitude(u, 3)), p.z);
       // Fly in very fast, slowing near the spot above the player.
@@ -1965,7 +2100,7 @@ export class UfoManager {
       const c = this.pendingCrews[i];
       c.delay -= dt;
       if (c.delay > 0) continue;
-      if (c.pos.distanceTo(this.player.position) > Math.max(150, this.viewDistance)) continue;
+      if (this._nearestPlayer(c.pos)[1] > Math.max(150, this.viewDistance)) continue;
       const bx = Math.floor(c.pos.x);
       const bz = Math.floor(c.pos.z);
       if (!this.world.getChunk(bx >> 4, bz >> 4)?.meshed) continue;

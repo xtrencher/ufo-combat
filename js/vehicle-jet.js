@@ -928,7 +928,9 @@ export class Jet extends Vehicle {
       list.push({ kind: "ufo", ref: u, weight: 1, attacking: u.hostile && u.state === "attack" });
     }
     for (const v of mgr.vehicles) {
-      if (v === this || !v.alive || !v.isEnemyJet) continue;
+      // (Dogfight online: the other players' aircraft too.)
+      const rival = mgr.pvp && v.puppet && v.netOcc && !this.isEnemyJet;
+      if (v === this || !v.alive || !(v.isEnemyJet || rival)) continue;
       list.push({ kind: "jet", ref: v, weight: 0.85, attacking: !this.isEnemyJet && (v.hostile || v.provoked > 0) });
     }
     return list;
@@ -1358,7 +1360,7 @@ export class Jet extends Vehicle {
           direct = { kind: "ufo", ref: uh.ufo };
         }
         const vh = m.rogue ? null : mgr.raycast(m.pos, m.dir, step, this);
-        if (!boom && vh && vh.vehicle.isEnemyJet) {
+        if (!boom && vh && (vh.vehicle.isEnemyJet || (mgr.pvp && vh.vehicle.puppet && vh.vehicle.netOcc))) {
           boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
           direct = { kind: "jet", ref: vh.vehicle };
         }
@@ -1510,6 +1512,8 @@ export class Jet extends Vehicle {
       for (const m of v.missiles) if (m.hostile && m.target && (m.target.ref === this || (m.target.kind === "player" && m.target.ref.vehicle === this) || (m.target.kind === "decoy" && m.target.ref.owner === this))) consider(m.pos, "missile");
     }
     for (const b of mgr.lasers.bolts) if (b.homing && !b.homing.returned && b.homing.target === this) consider(b.pos, "seeker");
+    // (Online: missiles fired on another machine at this jet.)
+    if (mgr.remoteMissiles && !this.puppet) for (const pos of mgr.remoteMissiles(this)) consider(pos, "missile");
     if (!best || bestD > 1500) {
       this.warn = null;
       this._warnPos = null;

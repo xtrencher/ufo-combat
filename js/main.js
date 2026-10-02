@@ -640,20 +640,49 @@ mobs.onAlarm = () => {
 };
 ufos.onMessage = (t) => toast(t, 2.5);
 vehicles.onAbduct = () => stats.add("animalsAbducted");
+// A UFO shot down by a player. (Online the host also counts the other
+// players' kills for the shared missions: `mine` false, `inJet` theirs; the
+// loot is everyone's own, see lootFor.)
+function ufoKilled(u, { mine = true, inJet = vehicles.active?.type === "jet" } = {}) {
+  const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
+  add("ufosDown");
+  if (u.size === "mothership" || u.size === "giant") add("ufosDownBig");
+  if (u.S.idx >= 2) add("ufosDownLarge");
+  if (inJet) add("ufosDownByJet");
+  hooks.onUfoDown?.(u);
+  if (mine) audio.playNotice();
+}
+// The loot of a kill, for this player (Survival): what falls out gets better
+// as the missions go on. kind: "ufo" (detail: its size), "alien", "zombie",
+// "guard", "skeleton", "enemyjet". into: straight into the hold (a ship
+// swallowed by this player's tractor beam).
+function lootFor(kind, detail, at, { into = false, leaderDrop = null } = {}) {
+  if (player.creative || player.dead) return;
+  const pos = at.isVector3 ? at : new THREE.Vector3(at[0], at[1], at[2]);
+  if (kind === "ufo") {
+    if (!mods.enabled) return;
+    const loot = rollLoot("ufo", detail, progressTier(), ownedItems());
+    if (into) giveLoot(loot);
+    else dropLoot(loot, pos);
+  } else if (kind === "enemyjet") {
+    if (!mods.enabled) return;
+    const loot = rollLoot("enemyjet", null, progressTier(), ownedItems());
+    if (into) giveLoot(loot);
+    else dropLoot(loot, pos.clone().setY(Math.max(pos.y - 2, 3)));
+  } else if (kind === "alien") {
+    if (!mods.enabled) return;
+    // A mission patrol's leader always carries its new alien weapon.
+    const owned = ownedItems();
+    if (leaderDrop && !owned.has(leaderDrop)) dropLoot([[leaderDrop, 1]], pos);
+    else dropLoot(rollLoot("alien", detail, progressTier(), owned), pos);
+    dropArmor(detail, pos);
+  } else if (kind === "guard" || kind === "zombie") dropArmor(kind, pos);
+  else if (kind === "skeleton") dropLoot(rollLoot("skeleton", null, progressTier(), ownedItems()), pos);
+}
 ufos.onShotDown = (u, byPlayer) => {
   if (byPlayer) {
-    stats.add("ufosDown");
-    if (u.size === "mothership" || u.size === "giant") stats.add("ufosDownBig");
-    if (u.S.idx >= 2) stats.add("ufosDownLarge");
-    if (vehicles.active?.type === "jet") stats.add("ufosDownByJet");
-    hooks.onUfoDown?.(u);
-    audio.playNotice();
-    // The wreck and its crew are loot (Survival): what falls out gets better as you go.
-    if (!player.creative && mods.enabled) {
-      const loot = rollLoot("ufo", u.size, progressTier(), ownedItems());
-      if (u.absorbed) giveLoot(loot);
-      else dropLoot(loot, u.pos);
-    }
+    ufoKilled(u);
+    lootFor("ufo", u.size, u.pos, { into: u.absorbed });
   }
 };
 ufos.onAbductPlayer = () => {
@@ -671,31 +700,30 @@ function dropArmor(who, at) {
   const drop = rollArmorDrop(who, progressTier(), worn);
   if (drop.length) dropLoot(drop, at);
 }
+// A creature killed by a player (online, `mine` false: another player's
+// kill, counted for the shared missions by the host).
+function mobKilled(m, { mine = true } = {}) {
+  const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
+  if (m.spec.alien) add("aliensKilled");
+  else if (m.kind === "guard") add("guardsKilled");
+  else if (m.kind === "zombie") add("zombiesKilled");
+  else if (m.kind === "skeleton") add("skeletonsKilled");
+  else add("mobsKilled");
+}
+// What a killed creature leaves for a player: the loot kind and detail.
+function mobLootKind(m) {
+  if (m.spec.alien) return ["alien", alienColour(m.kind)];
+  if (m.kind === "guard" || m.kind === "zombie") return [m.kind, null];
+  // Skeletons drop their bow (if you don't have one yet): a plain
+  // block-game item, so with mods off too.
+  if (m.kind === "skeleton") return ["skeleton", null];
+  return null;
+}
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
-  const at = new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z);
-  if (m.spec.alien) {
-    stats.add("aliensKilled");
-    if (!player.creative && mods.enabled) {
-      // A mission patrol's leader always carries its new alien weapon.
-      const owned = ownedItems();
-      if (m.leaderDrop && !owned.has(m.leaderDrop)) dropLoot([[m.leaderDrop, 1]], at);
-      else dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), owned), at);
-      dropArmor(alienColour(m.kind), at);
-    }
-  } else if (m.kind === "guard") {
-    stats.add("guardsKilled");
-    if (!player.creative) dropArmor("guard", at);
-  } else if (m.kind === "zombie") {
-    stats.add("zombiesKilled");
-    if (!player.creative) dropArmor("zombie", at);
-  }
-  else if (m.kind === "skeleton") {
-    stats.add("skeletonsKilled");
-    // Skeletons drop their bow (if you don't have one yet): a plain
-    // block-game item, so with mods off too.
-    if (!player.creative) dropLoot(rollLoot("skeleton", null, progressTier(), ownedItems()), at);
-  } else stats.add("mobsKilled");
+  mobKilled(m);
+  const lk = mobLootKind(m);
+  if (lk) lootFor(lk[0], lk[1], new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z), { leaderDrop: m.leaderDrop });
 };
 
 // ---------- Test hook: putting a jet on a strip ----------
@@ -971,11 +999,7 @@ function giveLoot(list) {
   }
 }
 hooks.onEnemyJetDown = (jet) => {
-  if (!player.creative && mods.enabled) {
-    const loot = rollLoot("enemyjet", null, progressTier(), ownedItems());
-    if (jet.absorbedBy) giveLoot(loot);
-    else dropLoot(loot, jet.pos.clone().setY(Math.max(jet.pos.y - 2, 3)));
-  }
+  lootFor("enemyjet", null, jet.pos, { into: !!jet.absorbedBy });
 };
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
@@ -2338,6 +2362,11 @@ const game = {
   dropLoot,
   giveLoot,
   rollLoot,
+  lootFor,
+  ufoKilled,
+  mobKilled,
+  mobLootKind,
+  hooks,
   progressTier,
   ownedItems,
   markInventoryChanged,

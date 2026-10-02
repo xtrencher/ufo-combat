@@ -294,6 +294,78 @@ await check("explosions: a client's blast carves the crater on the host (as edit
   assert(carved, `the crater block at ${at} is still there on the host`);
 });
 
+let hostUfoId = null;
+await check("the host's UFO appears on the client (a puppet, where the host has it)", async () => {
+  const cpos = await v(client, (g) => g.player.position.toArray());
+  hostUfoId = await v(host, (g, cp) => {
+    g.ufos.config.activity = 0;
+    for (const u of [...g.ufos.ufos]) u.state = "gone";
+    const u = g.ufos.spawn({ size: "small", pos: new g.THREE.Vector3(cp[0] + 22, cp[1] + 9, cp[2]) });
+    u.state = "trick";
+    u.trick = "hover";
+    u.timer = 999;
+    u.peaceful = true;
+    return u.id;
+  }, cpos);
+  const seen = await until(client, (g, id) => {
+    const u = g.mp.entities.ufoById.get(id);
+    return u && u.interp.last && { pos: u.pos.toArray(), puppet: !!u.net };
+  }, 20000, hostUfoId);
+  assert(seen && seen.puppet, "no puppet UFO on the client");
+  const hpos = await v(host, (g, id) => g.ufos.ufos.find((u) => u.id === id).pos.toArray(), hostUfoId);
+  const d = Math.hypot(seen.pos[0] - hpos[0], seen.pos[1] - hpos[1], seen.pos[2] - hpos[2]);
+  assert(d < 3, `puppet ${seen.pos} vs host ${hpos}`);
+});
+
+await check("a hit: the client's pistol shot at the host's UFO is applied by the host", async () => {
+  const before = await v(host, (g, id) => g.ufos.ufos.find((u) => u.id === id)?.health, hostUfoId);
+  // The client aims at the puppet and fires the real pistol.
+  await v(client, (g, id) => {
+    const u = g.mp.entities.ufoById.get(id);
+    const eye = g.player.getEyePosition();
+    const d = u.pos.clone().sub(eye);
+    g.player.yaw = Math.atan2(-d.x, -d.z);
+    g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    g.setMode("survival");
+    g.weapons.enabled = true;
+    g.weapons.firePistol();
+  }, hostUfoId);
+  const after = await until(host, (g, a) => {
+    const u = g.ufos.ufos.find((x) => x.id === a.id);
+    return u && u.health < a.before && { health: u.health, by: u.lastHitPid };
+  }, 15000, { id: hostUfoId, before });
+  assert(after, `the host's UFO was not hurt (health ${before})`);
+  const bobPid = await v(client, (g) => g.net.pid);
+  assert(after.by === bobPid, `hit attributed to ${after.by}, not ${bobPid}`);
+});
+
+await check("the host's AI goes for the client: a zombie near the client hunts and hurts them (and shows there)", async () => {
+  const cpos = await v(client, (g) => {
+    g.setMode("survival");
+    g.player.flying = false;
+    g.player.health = 20;
+    return g.player.position.toArray();
+  });
+  const zid = await v(host, (g, cp) => {
+    g.mobs.hostileSpawning = true;
+    const x = Math.floor(cp[0]) + 3;
+    const z = Math.floor(cp[2]);
+    const y = g.world.surfaceY(x, z) + 1;
+    const m = g.mobs.spawn("zombie", x + 0.5, y, z + 0.5);
+    m.fireproof = true;
+    m.persist = true;
+    return m.id;
+  }, cpos);
+  const shown = await until(client, (g, id) => !!g.mp.entities.mobById.get(id), 15000, zid);
+  assert(shown, "the zombie never appeared on the client");
+  const hurt = await until(client, (g) => g.player.health < 20 && g.player.health, 25000);
+  assert(hurt, "the client was never hurt by the host's zombie");
+  await v(host, (g, id) => {
+    const m = g.mobs.mobs.find((x) => x.id === id);
+    if (m) m.dead = true;
+  }, zid);
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length}/${results.length} multiplayer checks passed`);

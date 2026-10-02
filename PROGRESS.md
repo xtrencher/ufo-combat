@@ -1876,10 +1876,10 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - [x] 3.3 Time of day, mode and rule settings from the host (host only can change them; clients locked)
 
 ## Group 4: Host-authoritative entities and combat
-- [ ] 4.1 UFOs, hostile creatures, enemy jets: host snapshots, client puppets (spawn, interpolation, death, crash)
-- [ ] 4.2 AI targets every player (proxies), host keeps terrain around remote players
-- [ ] 4.3 Hit claims (bullets, bolts, melee, rail, rockets/grenades on creatures/UFOs/jets), damage to remote players, kill attribution, instanced loot
-- [ ] 4.4 Missiles and flares across peers (victim-side), enemy bolts mirrored
+- [x] 4.1 UFOs, hostile creatures, enemy jets: host snapshots, client puppets (spawn, interpolation, death, crash)
+- [x] 4.2 AI targets every player (proxies), host keeps terrain around remote players
+- [x] 4.3 Hit claims (bullets, bolts, melee, rail, rockets/grenades on creatures/UFOs/jets), damage to remote players, kill attribution, instanced loot
+- [x] 4.4 Missiles and flares across peers (victim-side), enemy bolts mirrored
 
 ## Group 5: Survival and Creative together
 - [ ] 5.1 Shared mission chain (host runs it; tracker, marker, boss bar, rewards for all; client actions report stats)
@@ -1913,4 +1913,6 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - Groups 1-3: `js/net/` holds everything online: `config.js` (signaling, STUN, TURN placeholder, rates), `session.js` (PeerJS: rooms, two channels, hello/welcome, heartbeat and clock offset, parts for big messages, relay, a sync registry), `boot-join.js` (?join=CODE: the nickname prompt and connecting before the world is built), `multiplayer.js` (the facade: modules, lifecycle), `players.js`, `vehicles.js`, `world.js`, `fx.js`, `rules.js`, `ui.js`, `bgclock.js`, `interp.js`, `nameplate.js`. Game code got small hooks only (vehicle added/removed/destroyed, `setBlocks(..., {remote})`, `explode(..., {mirror})`, `detonate(..., {mirror})`, `fire({mirror})`, `audio.playDistant`, `settingsPanel.setHostRules`).
 - The PeerJS library is loaded only when multiplayer is used (single player never touches the network). Data channels use the "raw" serialisation (JSON strings of our own), so big messages are split by us (30 000 characters a part) and the unordered channel never carries anything that big.
 - Explosives hurt everyone nearby in every mode (like the single-player self-damage: a careless grenade can hurt a friend, and the death message names them: "Blown up by Bob's grenade"); direct fire (bullets, bolts, the rail, the cannon) never hurts another player in co-op, only in Dogfight.
+- Group 4: hostile creatures, UFOs and enemy fighters are the host's. Its AI swaps `this.player` (and the vehicle) per creature/UFO/fighter to the nearest player's stand-in (`AiProxy`: the newest known position, not the drawn one, plus `damage()`/`applyImpulse()` that become messages); new UFOs and hostile creatures spawn around a random player; the host keeps 3 chunks of ground generated (not meshed) around players on foot. Each client gets "eadd" once (design, kind, paint), "es" snapshots at 15 Hz (interest: UFOs 1100 blocks, creatures 120, fighters 2600, with 20% hysteresis) and "erem". Client hits on puppets become "hit" claims (the host sets `currentAttacker` while applying them, so kills, missions and loot know the player). Kills: the killer gets "kill" (their own stats and loot), everyone else within 250 blocks gets "loot" (instanced loot, rolled with their own tier and inventory). Passive animals, fish, birds and villagers stay local on every peer (ambient life).
+- Missiles: a player's missiles are judged by the shooter like their other shots (the target jet's flares are mirrored as decoys there, and its roll is measured from the received attitude, so flares and the roll evasion still work); the AI's missiles are the host's. The warning display of a jet also sees missiles fired on other machines at it.
 - In an online game nothing pauses: Esc only takes your hands off the controls (you can still fall and be hurt), and a hidden tab keeps simulating through a worker clock (20 Hz, without drawing).

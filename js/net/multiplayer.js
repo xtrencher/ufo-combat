@@ -23,6 +23,7 @@ import { VehicleSync } from "./vehicles.js";
 import { WorldSync } from "./world.js";
 import { FxSync } from "./fx.js";
 import { RulesSync } from "./rules.js";
+import { EntitySync } from "./entities.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -39,6 +40,7 @@ export class Multiplayer {
     this.world = this.addModule(new WorldSync(this));
     this.fx = this.addModule(new FxSync(this));
     this.rules = this.addModule(new RulesSync(this));
+    this.entities = this.addModule(new EntitySync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);
@@ -55,6 +57,7 @@ export class Multiplayer {
       for (const m of this.modules) m.stateLoaded?.();
       this.ui.refresh();
     });
+    net.on("feed", (m) => typeof m.text === "string" && this.feed(m.text.slice(0, 120)));
     window.addEventListener("pagehide", () => {
       if (net.active) net.leave();
     });
@@ -136,6 +139,47 @@ export class Multiplayer {
   // A line in the corner feed (joins, leaves, kills).
   feed(text, seconds = 6) {
     this.ui.feed(text, seconds);
+  }
+
+  // A short reference to a thing (a homing bolt's or missile's target) that
+  // every peer can look up: "p:pid" a player, "v:nid" a shared vehicle,
+  // "j:id" an enemy fighter, "u:id" a UFO, "m:id" a creature (host ids).
+  refOf(obj) {
+    if (!obj) return 0;
+    const g = this.game;
+    if (obj === g.player) return `p:${this.net.pid}`;
+    if (obj.isRemote && obj.pid) return `p:${obj.pid}`;
+    if (obj.net?.nid) return `v:${obj.net.nid}`;
+    if (obj.isEnemyJet) return `j:${obj.netEJ ?? obj.id}`;
+    if (obj.model && obj.spec && obj.size && obj.S) return `u:${obj.net?.id ?? obj.id}`;
+    if (obj.kind && obj.spec && obj.pos) return `m:${obj.net?.id ?? obj.id}`;
+    return 0;
+  }
+
+  resolveRef(ref) {
+    if (typeof ref !== "string") return null;
+    const i = ref.indexOf(":");
+    const k = ref.slice(0, i);
+    const id = ref.slice(i + 1);
+    const g = this.game;
+    const host = this.isHost;
+    const e = this.entities;
+    if (k === "p") {
+      const pid = Number(id);
+      if (pid === this.net.pid) {
+        if (g.vehicles.active) return g.vehicles.active;
+        return (this._meTarget ||= { get pos() { return g.player.getEyePosition(); }, get vel() { return g.player.velocity; } });
+      }
+      const r = this.players.get(pid);
+      if (!r) return null;
+      return r.vehicle || { pos: r.position, vel: r.velocity };
+    }
+    if (k === "v") return this.vehicles.byNid(id);
+    const n = Number(id);
+    if (k === "j") return host ? g.vehicles.vehicles.find((v) => v.isEnemyJet && v.id === n) : e.jetById.get(n);
+    if (k === "u") return host ? g.ufos.ufos.find((u) => u.id === n) : e.ufoById.get(n);
+    if (k === "m") return host ? g.mobs.mobs.find((m) => m.id === n) : e.mobById.get(n);
+    return null;
   }
 
   playerName(pid) {

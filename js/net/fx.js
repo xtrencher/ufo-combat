@@ -40,6 +40,8 @@ export class FxSync {
     this._pjId = 1;
     this._pjT = 0;
     this._hook();
+    // Missiles from other machines coming at this player's jet (its warning).
+    mp.game.vehicles.remoteMissiles = (jet) => this._incoming(jet);
     this.net.on("fx", (m, from) => this._onFx(m, from));
     this.net.on("pj", (m, from) => this._onPj(m, from));
   }
@@ -313,6 +315,15 @@ export class FxSync {
     if (kind === "rk" || kind === "gr" || kind === "ar") bindEntityLight(mesh, () => light);
     g.scene.add(mesh);
     return { kind, mesh, light, pos: new THREE.Vector3(), target: new THREE.Vector3(), vel: new THREE.Vector3(), t: 0, extra: 0, trail: 0 };
+  }
+
+  _incoming(jet) {
+    const out = [];
+    if (!this.remotePj.size || !jet?.net) return out;
+    const me = `v:${jet.net.nid}`;
+    const mePlayer = `p:${this.net.pid}`;
+    for (const p of this.remotePj.values()) if (p.kind === "ms" && (p.extra === me || p.extra === mePlayer)) out.push(p.pos);
+    return out;
   }
 
   _updateRemotePj(dt) {

@@ -253,6 +253,17 @@ export class MobManager {
     this.lasers = null; // the laser bolt system (aliens' guns)
     this.alienLaserColor = new THREE.Color(0.5, 5, 0.7);
     this.onPlayerHurt = null; // (mob) => void
+    // Multiplayer (js/net/entities.js). Host: `targets()` lists every player
+    // (this one and Player-like stand-ins for the others): hostile creatures
+    // hunt the nearest one and spawn around all of them. Guest: hostile
+    // creatures are the host's (puppets: `m.net`), drawn from its states and
+    // never thought for here; hits on them go to the host as claims.
+    this.localPlayer = player;
+    this.targets = null; // () => [player-like]
+    this.puppets = false;
+    this.onPuppetHit = null; // (mob, amount, dir, knockback, byPlayer) => void
+    this.onPuppetUpdate = null; // (mob, dt) => void
+    this.keepDrops = null; // (mob) => bool: drops for this player (host: not for another player's kill)
     this._tmp = new THREE.Vector3();
     this._flashColor = new THREE.Color();
     this._c0 = new THREE.Color();
@@ -342,7 +353,9 @@ export class MobManager {
 
   _chunkReady(x, z) {
     const c = this.world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4);
-    return !!c && c.meshed;
+    // (Online the host keeps ground around the other players generated but
+    // not drawn: creatures can live there too.)
+    return !!c && (c.meshed || (!!this.targets && this.player !== this.localPlayer));
   }
 
   _freeAt(x, y, z, h) {
@@ -584,7 +597,8 @@ export class MobManager {
       for (let i = 0; i < 40 && this.countOf(false) < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countOf(false));
     }
     // Zombies: their own rate (a setting, up to an apocalypse) and cap.
-    if (this.hostileSpawning !== false && this.zombies.spawnRate > 0) {
+    // (Online they spawn around every player, on the host only.)
+    if (this.hostileSpawning !== false && this.zombies.spawnRate > 0 && !this.puppets) {
       this._zombieBudget = Math.min(8, this._zombieBudget + dt * ZOMBIE_ATTEMPTS_PER_SECOND * this.zombies.spawnRate);
       let zombies = -1;
       for (let tries = 0; this._zombieBudget >= 1 && tries < 6; tries++) {
@@ -594,7 +608,7 @@ export class MobManager {
           this._zombieBudget = 0;
           break;
         }
-        if (this._trySpawnHostile("zombie")) zombies++;
+        if (this._aroundAnyone(() => this._trySpawnHostile("zombie"))) zombies++;
       }
     }
     this._spawnTimer -= dt;
@@ -603,9 +617,36 @@ export class MobManager {
     const zombieCount = this.countKind("zombie");
     if (this.mobs.length - zombieCount >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
     if (this.countOf(false) < MAX_PASSIVE && Math.random() < 0.3) this._trySpawnPassive(30, 80);
-    if (this.countOf(true) < MAX_HOSTILE && this.hostileSpawning !== false && Math.random() < 0.67) this._trySpawnHostile();
+    if (this.countOf(true) < MAX_HOSTILE * (this.targets ? Math.min(3, this.targets().length) : 1) && this.hostileSpawning !== false && !this.puppets && Math.random() < 0.67) this._aroundAnyone(() => this._trySpawnHostile());
     this._trySpawnVillagers();
     if (Math.random() < 0.4) this._trySpawnFlyers();
+  }
+
+  // Runs fn with `this.player` set to a random player who is in the game
+  // (online: hostile creatures spawn around every player, not just this one).
+  _aroundAnyone(fn) {
+    const list = this.targets ? this.targets().filter((t) => !t.dead && !t.vehicle) : null;
+    if (!list || !list.length) return fn();
+    this.player = list[Math.floor(Math.random() * list.length)];
+    try {
+      return fn();
+    } finally {
+      this.player = this.localPlayer;
+    }
+  }
+
+  // The player a hostile creature goes for: the nearest one in the game.
+  _nearestTarget(m, list) {
+    let best = this.localPlayer;
+    let bestD = Infinity;
+    for (const t of list) {
+      const d = Math.hypot(t.position.x - m.pos.x, t.position.z - m.pos.z) + (t.dead ? 1e6 : 0) + (t.vehicle ? 1e5 : 0);
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    return best;
   }
 
   // ---------- Steering ----------
@@ -1227,9 +1268,19 @@ export class MobManager {
       const len = step.length() || 0.0001;
       const dir = step.clone().divideScalar(len);
       const blockHit = w.raycast(a.pos, dir, len, { solidOnly: true });
-      const playerT = this._arrowHitsPlayer(a.pos, dir, blockHit ? blockHit.distance : len);
-      if (playerT !== null) {
-        if (this.player.damage(ARROW_DAMAGE, "skeleton", { from: a.pos.clone().addScaledVector(dir, -3) })) this.player.applyImpulse(this._tmp.set(dir.x * 4, 2, dir.z * 4));
+      // (Online, the host's arrows hit any player.)
+      let hitPlayer = null;
+      for (const t of this.targets ? this.targets() : [this.player]) {
+        this.player = t;
+        const playerT = this._arrowHitsPlayer(a.pos, dir, blockHit ? blockHit.distance : len);
+        this.player = this.localPlayer;
+        if (playerT !== null) {
+          hitPlayer = t;
+          break;
+        }
+      }
+      if (hitPlayer) {
+        if (hitPlayer.damage(ARROW_DAMAGE, "skeleton", { from: a.pos.clone().addScaledVector(dir, -3) })) hitPlayer.applyImpulse(this._tmp.set(dir.x * 4, 2, dir.z * 4));
         this.group.remove(a.mesh);
         this.arrows.splice(i, 1);
         continue;
@@ -1448,7 +1499,7 @@ export class MobManager {
     const CELL = 2;
     const key = (x, z) => ((Math.floor(x / CELL) & 0xffff) << 16) | (Math.floor(z / CELL) & 0xffff);
     for (const m of list) {
-      if (m.dead) continue;
+      if (m.dead || m.net) continue;
       const k = key(m.pos.x, m.pos.z);
       let cell = grid.get(k);
       if (!cell) grid.set(k, (cell = []));
@@ -1456,7 +1507,7 @@ export class MobManager {
     }
     const p = this.player.position;
     for (const a of list) {
-      if (a.dead) continue;
+      if (a.dead || a.net) continue;
       const cx = Math.floor(a.pos.x / CELL);
       const cz = Math.floor(a.pos.z / CELL);
       for (let gx = cx - 1; gx <= cx + 1; gx++) {
@@ -1496,8 +1547,18 @@ export class MobManager {
   // Damages a mob; (nx, nz) is the knockback direction and `kb` its strength.
   _hurt(m, amount, dir, kb, byPlayer = false) {
     if (m.dead || m.invulnerable > 0 || amount <= 0) return false;
+    // A guest's hit on one of the host's creatures: a claim to the host (it
+    // judges health and death); here only the red flash.
+    if (m.net) {
+      m.hurtTime = 0;
+      m.invulnerable = MOB_INVULNERABLE;
+      this.onPuppetHit?.(m, amount, dir, kb, byPlayer);
+      this.audio.playMob(m.kind, "hurt", this._distTo(m));
+      return true;
+    }
     if (byPlayer) {
       m.lastPlayerHit = this.time;
+      m.lastHitPid = this.currentAttacker ?? 1; // (online: which player; 1 is the host)
       // Hit by the player: a spider is provoked (they are neutral in daylight
       // otherwise); a guard (and the guards near him) raise the alarm.
       if (m.kind === "spider") m.provokedT = 30;
@@ -1563,7 +1624,7 @@ export class MobManager {
         drag: 2,
       });
     }
-    for (const [id, min, max, chance] of m.spec.drops) {
+    for (const [id, min, max, chance] of this.keepDrops && !this.keepDrops(m) ? [] : m.spec.drops) {
       if (Math.random() > chance) continue;
       const n = min + Math.floor(Math.random() * (max - min + 1));
       if (n > 0) this.entities.spawn(id, n, new THREE.Vector3(c.x, c.y + 0.4, c.z));
@@ -1694,8 +1755,34 @@ export class MobManager {
     const crowdDist = zombieCount > 60 ? CROWD_DISTANCE_MANY : CROWD_DISTANCE;
     this.crowd.begin();
 
+    const targets = this.targets ? this.targets() : null;
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
+      // A guest's copy of the host's creature: placed from the host's states.
+      if (m.net) {
+        m.hurtTime += dt;
+        if (m.dead) m.deathTime += dt;
+        this.onPuppetUpdate?.(m, dt);
+        this._afterMove(m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z), crowdDist);
+        continue;
+      }
+      // Online (host): a hostile creature thinks about the nearest player.
+      if (targets && m.spec.hostile) this.player = this._nearestTarget(m, targets);
+      try {
+        this._updateMob(m, i, dt, crowdDist, daylight, targets ? Math.hypot(m.pos.x - p.x, m.pos.z - p.z) : null);
+      } finally {
+        this.player = this.localPlayer;
+      }
+    }
+    this.crowd.end();
+    this._separate(dt);
+  }
+
+  // One creature's step. `localDist`: its distance from this player (for
+  // drawing) when it thinks about someone else.
+  _updateMob(m, i, dt, crowdDist, daylight, localDist = null) {
+    const p = this.player.position;
+    {
       m.hurtTime += dt;
       m.invulnerable = Math.max(0, m.invulnerable - dt);
       m.attackCooldown -= dt;
@@ -1714,23 +1801,24 @@ export class MobManager {
         }
       }
       const dist = Math.hypot(m.pos.x - p.x, m.pos.z - p.z);
+      const drawDist = localDist ?? dist;
 
       if (m.dead) {
         m.deathTime += dt;
         if (m.deathTime >= DEATH_TIME) {
           this._die(i);
-          continue;
+          return;
         }
       } else {
-        if (m.abductedBy && this._abductStep(m, i, dt)) continue;
+        if (m.abductedBy && this._abductStep(m, i, dt)) return;
         // Despawning: far away, in unloaded terrain, or (zombies) lingering far off.
         if ((dist > DESPAWN_FAR && !m.persist) || !this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4) || m.pos.y < -10) {
           this._remove(i);
-          continue;
+          return;
         }
         if (m.spec.hostile && !m.missionTarget && !m.persist && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
           this._remove(i);
-          continue;
+          return;
         }
         // Far away, think and move only every third frame (with the time
         // saved up), staggered so the work spreads evenly over frames.
@@ -1738,8 +1826,8 @@ export class MobManager {
         if (dist > LAZY_AI_DISTANCE) {
           m.lazy += dt;
           if ((this._frame + m.id) % 3 !== 0) {
-            this._afterMove(m, dist, crowdDist);
-            continue;
+            this._afterMove(m, drawDist, crowdDist);
+            return;
           }
           step = Math.min(0.15, m.lazy);
           m.lazy = 0;
@@ -1754,10 +1842,8 @@ export class MobManager {
           this._daylight(m, step, daylight);
         }
       }
-      this._afterMove(m, dist, crowdDist);
+      this._afterMove(m, drawDist, crowdDist);
     }
-    this.crowd.end();
-    this._separate(dt);
   }
 
   // Light and drawing after a mob moved: its own model up close, or a

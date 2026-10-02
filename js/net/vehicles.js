@@ -215,12 +215,14 @@ export class VehicleSync {
       v.pos.fromArray(st.p);
       if (st.v) v.vel.fromArray(st.v);
       if (Number.isFinite(st.hp)) v.health = st.hp;
-      v.netOcc = st.o | 0;
-      v.occupied = !!v.netOcc;
-      v.unusable = !!v.netOcc || v.wreck || !v.alive;
+      if (!v.isEnemyJet) {
+        v.netOcc = st.o | 0;
+        v.occupied = !!v.netOcc;
+        v.unusable = !!v.netOcc || v.wreck || !v.alive;
+      }
     }
     const night = this.vehicles.night ?? 0;
-    if (v.type === "jet") {
+    if (v.type === "jet" || v.isEnemyJet) {
       if (st) {
         if (st.q) v.q.fromArray(st.q);
         v.throttle = st.th ?? 0;
@@ -243,6 +245,9 @@ export class VehicleSync {
           v.angVel.set(_e.x * k, _e.y * k, _e.z * k);
         } else v._lastQ = new THREE.Quaternion();
         v._lastQ.copy(v.q);
+        // The roll done lately (another player's missile at this jet can be rolled away from).
+        v.rollAcc = (v.rollAcc || 0) * Math.exp(-dt / 2.2) + (v.onGround ? 0 : v.angVel.z * dt);
+        v.rollEvadeT = Math.max(0, (v.rollEvadeT || 0) - dt);
       }
       v._place();
       if (v.alive) {
@@ -295,17 +300,18 @@ export class VehicleSync {
     fx.smoke.spawn({ x: v.pos.x + j(), y: v.pos.y, z: v.pos.z + j(), vx: j() * 0.4, vy: 0.5, vz: j() * 0.4, life: 4, size0: 2.2, size1: 10, color0: c.s0, color1: c.s1, alpha: 0.75, drag: 0.5 });
   }
 
-  // Damage to someone else's vehicle. Shots by this player (bullets, bolts,
-  // the cannon, the railgun) are the shooter's call: they go to the owner.
-  // Blasts and homing missiles are judged by the owner itself (it sees the
-  // same explosions and missiles), so they are ignored here, as is anything
-  // the host's AI does (the owner sees the AI's shots too).
+  // Damage to someone else's vehicle. Blasts are judged by the owner itself
+  // (the explosion reaches it too), as are the AI's laser bolts (they fly
+  // there too). Anything else goes to the owner: this player's shots,
+  // cannon, missiles (the shooter's call), and on the host the AI's
+  // missiles, sweeping lasers and the like (the host's call).
   _puppetDamage(v, amount, cause, byPlayer) {
     if (!v.alive || amount <= 0) return false;
-    const mine = cause === "player" || cause === "cannon" || cause === "beam";
-    if (!mine) return false;
+    if (cause === "explosion" || cause === "explosion_other") return false;
+    const mine = cause === "player" || cause === "cannon" || cause === "beam" || cause === "missile" || cause === "pvp";
+    if (!mine && !this.net.isHost) return false;
     // Friendly fire is off in co-op: only Dogfight lets players hurt each other's aircraft.
-    if (v.netOcc && this.mp.mode !== "dogfight") return false;
+    if (mine && v.netOcc && this.mp.mode !== "dogfight") return false;
     v.hurtTime = 0;
     this.net.toAll({ t: "vhit", nid: v.net.nid, dmg: Math.round(amount * 10) / 10, cause, by: this.net.pid });
     this.game.hud?.hitMarker?.();
@@ -425,7 +431,7 @@ export class VehicleSync {
 
   _state(v) {
     const s = { n: v.net.nid, p: vec2(v.pos), v: vec1(v.vel), hp: Math.round(v.health), o: v === this.vehicles.active ? this.net.pid : 0 };
-    if (v.type === "jet") {
+    if (v.type === "jet" || v.isEnemyJet) {
       s.q = v.q.toArray().map(r3);
       s.th = r2(v.throttle);
       s.f = (v.afterburner ? 1 : 0) | (v.onGround ? 2 : 0) | (v.brake ? 4 : 0);
