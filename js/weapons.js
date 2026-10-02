@@ -338,6 +338,657 @@ export class WeaponSystem {
           this.fireBlaster();
         }
         return;
+      case "railgun":
+        if (cd.railgun > 0 || this.rail.charging || !this._ready("railgun")) return;
+        this.rail.charging = true;
+        this.rail.t = 0;
+        this.audio.playRailCharge?.(RAIL_CHARGE);
+        return;
+      case "minigun":
+        if (!this._ready("minigun")) return;
+        this.minigun.held = true;
+        return;
+      case "bazooka":
+        // Hold to lock on; the rocket flies when the button is released
+        // (a quick tap fires an unguided one at once).
+        if (!this._ready("bazooka")) return;
+        this.lock.held = true;
+        this.lock.progress = 0;
+        this.lock.locked = false;
+        this.lock.target = null;
+        return;
+      case "airstrike":
+        if (cd.airstrike > 0 || !this._ready("airstrike")) return;
+        cd.airstrike = MIN_INTERVAL.airstrike;
+        this._spend("airstrike");
+        this.fireAirstrike();
+        return;
+      default:
+        if (!(kind in cd)) return;
+        if (!this._ready(kind)) return;
+        if (cd[kind] > 0) {
+          // Clicked a moment too early: fires as soon as it's ready, so
+          // every click counts (even when frames are slow).
+          this._queued = kind;
+          return;
+        }
+        cd[kind] = MIN_INTERVAL[kind] || 0.1;
+        this._spend(kind);
+        if (kind === "pistol") this.firePistol();
+        else if (kind === "bazooka") this.fireBazooka();
+    }
+  }
+
+  // Right button released: a drawn grenade is thrown, a drawn bow shoots;
+  // automatic fire stops.
+  release() {
+    this._mgFiring = false;
+    this._blasterFiring = false;
+    this.minigun.held = false;
+    if (this.bow.drawing) {
+      this.bow.drawing = false;
+      const power = Math.min(1, this.bow.t / BOW_DRAW);
+      this.bow.t = 0;
+      // (A click too short to even nock the arrow shoots nothing.)
+      if (power >= 0.1) {
+        this._spend("bow");
+        this.shootArrow(power);
+      }
+      return;
+    }
+    if (this.lock.held) {
+      this.lock.held = false;
+      const cd = this._cooldowns;
+      if (cd.bazooka <= 0 && this._ready("bazooka", true)) {
+        cd.bazooka = MIN_INTERVAL.bazooka;
+        this._spend("bazooka");
+        this.fireBazooka(this.lock.locked ? this.lock.target : null);
+      }
+      this.lock.target = null;
+      this.lock.progress = 0;
+      this.lock.locked = false;
+      return;
+    }
+    if (!this.charging) return;
+    const power = this.charge;
+    this.charging = false;
+    this.chargeTime = 0;
+    this._cooldowns.grenade = MIN_INTERVAL.grenade;
+    this._spend("grenade");
+    this.throwGrenade(power);
+  }
+
+  // The sniper fires on left click (right click is its scope): one round,
+  // then a reload.
+  sniperShot() {
+    if (!this.enabled || !this._ready("sniper")) return null;
+    this._spend("sniper");
+    return this.fireSniper();
+  }
+
+  // Un-scopes the sniper (or clears its FOV/sensitivity override, if it was
+  // already off, harmlessly).
+  _applyScope() {
+    this.player.zoomFov = this.scoped ? SNIPER_ZOOM_FOV : null;
+    this.player.zoomSensMul = this.scoped ? 0.28 : 1;
+  }
+
+  // Switching items, opening a screen or dying drops a drawn throw, stops
+  // the machine gun and un-scopes the sniper.
+  cancel() {
+    this._queued = null;
+    this.bow.drawing = false;
+    this.bow.t = 0;
+    this.charging = false;
+    this.chargeTime = 0;
+    this._mgFiring = false;
+    this._blasterFiring = false;
+    this.rail.charging = false;
+    this.minigun.held = false;
+    this.lock.held = false;
+    this.lock.target = null;
+    this.lock.progress = 0;
+    this.lock.locked = false;
+    if (this.scoped) {
+      this.scoped = false;
+      this._applyScope();
+    }
+  }
+
+  // The sniper fires on left click (right click toggles its scope instead).
+  fireSniper() {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    this.shots++;
+    const range = this._range(SNIPER_RANGE, 1.2);
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
+    const muzzle = this._handPoint(0.9, 0.26, 0.14);
+    this.effects.muzzleFlash(muzzle, 1.8);
+    this.held.fire(1.6);
+    p.kick(0.07);
+    this.audio.playSniperShot ? this.audio.playSniperShot() : this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, SNIPER_DAMAGE, muzzle)) return { type: "target" };
+    const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
+    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : range;
+    const endPoint = eye.clone().addScaledVector(dir, dist);
+    this._spawnTracer(muzzle, endPoint);
+    if (isMob) {
+      this.mobs.shoot(mobHit.mob, SNIPER_DAMAGE, dir, 6);
+      this._burst(endPoint, dir.clone().negate(), this._c.blood, 12, 4.5);
+      return { type: "mob", mob: mobHit.mob, point: endPoint };
+    }
+    if (blockHit) {
+      if (this._isRealBlock(endPoint)) {
+        const n = blockHit.normal;
+        const normal = new THREE.Vector3(n[0], n[1], n[2]);
+        this.decals.add(endPoint, blockHit.block, n);
+        this._burst(endPoint, normal, this._c.spark, 6, 2.2);
+      }
+      this.audio.playRicochet(Math.min(blockHit.distance, 300));
+      return { type: "block", block: blockHit.block, point: endPoint, distance: blockHit.distance };
+    }
+    return { type: "miss" };
+  }
+
+  // A single machine-gun shot (called repeatedly from update() while held).
+  fireMachineGun() {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    // Spread and camera recoil both grow the longer the trigger is held.
+    const spread = 0.006 + this._mgHeat * 0.03;
+    dir.x += (Math.random() - 0.5) * spread;
+    dir.y += (Math.random() - 0.5) * spread;
+    dir.z += (Math.random() - 0.5) * spread;
+    dir.normalize();
+    this.shots++;
+    const range = this._range(MACHINEGUN_RANGE, 0.55);
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
+    const muzzle = this._handPoint(0.7, 0.3, 0.16);
+    this.effects.muzzleFlash(muzzle, 0.85);
+    this.held.fire(0.55);
+    p.kick(0.016 + this._mgHeat * 0.022);
+    this.audio.playMachineGun ? this.audio.playMachineGun() : this.audio.playGunshot();
+    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, MACHINEGUN_DAMAGE, muzzle)) return;
+    const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
+    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : range;
+    const endPoint = eye.clone().addScaledVector(dir, dist);
+    this._spawnTracer(muzzle, endPoint);
+    if (isMob) {
+      this.mobs.shoot(mobHit.mob, MACHINEGUN_DAMAGE, dir, 2);
+      this._burst(endPoint, dir.clone().negate(), this._c.blood, 5, 2.5);
+      return;
+    }
+    if (blockHit && this._isRealBlock(endPoint)) {
+      const n = blockHit.normal;
+      const normal = new THREE.Vector3(n[0], n[1], n[2]);
+      this.decals.add(endPoint, blockHit.block, n);
+      for (let i = 0; i < 4; i++) {
+        const v = normal.clone().multiplyScalar(2 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 2, (Math.random() - 0.5) * 4));
+        this.effects.glow.spawn({ x: endPoint.x, y: endPoint.y, z: endPoint.z, vx: v.x, vy: v.y, vz: v.z, life: 0.12 + Math.random() * 0.2, size0: 0.05, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
+      }
+    }
+    if (blockHit) this.audio.playRicochet(blockHit.distance);
+  }
+
+  // Locks the airstrike target where the laser currently points; the meteor
+  // shower lands there (and around it) after the delay set in the settings.
+  fireAirstrike() {
+    const target = this._aimPoint(this._range(AIRSTRIKE_AIM_RANGE, 1.1));
+    this.airstrike.call(target);
+    this.held.fire(0.3);
+    this.audio.playLockOn ? this.audio.playLockOn() : this.audio.playThrow();
+    // A red marker flash where the strike will land.
+    this.effects.glow.spawn({ x: target.x, y: target.y + 0.5, z: target.z, life: 0.5, size0: 2.5, size1: 0.6, color0: this._c.blink, alpha: 0.9 });
+  }
+
+  // ---------- Laser blaster ----------
+
+  fireBlaster() {
+    if (!this.lasers) return null;
+    const p = this.player;
+    const muzzle = this._handPoint(0.75, 0.26, 0.15);
+    // Aim from the muzzle at whatever is under the crosshair.
+    const target = this._aimPoint(this._range(BLASTER_RANGE, 0.9));
+    const dir = target.sub(muzzle);
+    if (dir.lengthSq() < 0.5) dir.copy(p.getForwardVector());
+    dir.normalize();
+    const eye = p.getEyePosition();
+    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
+    this.shots++;
+    this.held.fire(0.6);
+    p.kick(0.02);
+    this.effects.muzzleFlash(muzzle, 0.8);
+    return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED * (this.viewRange > 300 ? 1.6 : 1), damage: BLASTER_DAMAGE, owner: "player", source: p, range: this._range(BLASTER_RANGE, 0.9) });
+  }
+
+  // The nearest extra target (UFO, vehicle) along a ray, or null.
+  _targetHit(origin, dir, maxDist) {
+    let best = null;
+    for (const t of this.targets) {
+      const h = t.raycast(origin, dir, maxDist);
+      if (h && (!best || h.distance < best.distance)) best = h;
+    }
+    return best;
+  }
+
+  _targetSphere(p, r) {
+    for (const t of this.targets) if (t.sphereHit(p, r)) return true;
+    return false;
+  }
+
+  // Metal sparks off a UFO's hull.
+  _hullSparks(point, dir, n = 8) {
+    for (let i = 0; i < n; i++) {
+      const v = dir.clone().multiplyScalar(-3 - Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6));
+      this.effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.2 + Math.random() * 0.3, size0: 0.1, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
+    }
+  }
+
+  // A hitscan shot against the extra targets, if one is nearer than
+  // `nearest` (the block or mob hit). Returns true if it hit one.
+  _shootTargets(eye, dir, nearest, damage, muzzle) {
+    const t = this._targetHit(eye, dir, nearest);
+    if (!t) return false;
+    const point = eye.clone().addScaledVector(dir, t.distance);
+    t.hit(damage, dir, point);
+    this._hullSparks(point, dir);
+    if (muzzle) this._spawnTracer(muzzle, point);
+    return true;
+  }
+
+  // A block hit is "real" (a loaded chunk) vs. an approximate heightfield
+  // guess for unloaded/distant terrain, which shouldn't get decals or sparks.
+  _isRealBlock(point) {
+    return !!this.world.getChunk(Math.floor(point.x) >> 4, Math.floor(point.z) >> 4);
+  }
+
+  _spawnTracer(a, b) {
+    const t = this._tracers[this._tracerNext];
+    this._tracerNext = (this._tracerNext + 1) % this._tracers.length;
+    const pos = t.line.geometry.attributes.position;
+    pos.setXYZ(0, a.x, a.y, a.z);
+    pos.setXYZ(1, b.x, b.y, b.z);
+    pos.needsUpdate = true;
+    t.line.geometry.computeBoundingSphere();
+    t.age = 0;
+    t.line.visible = true;
+    t.line.material.opacity = 0.9;
+  }
+
+  _updateLaser(active) {
+    this._laser.visible = active;
+    this._laserDot.visible = active;
+    if (!active) return;
+    const origin = this._handPoint(0.5, 0.24, 0.15);
+    const target = this._aimPoint(this._range(AIRSTRIKE_AIM_RANGE, 1.1));
+    const pos = this._laser.geometry.attributes.position;
+    pos.setXYZ(0, origin.x, origin.y, origin.z);
+    pos.setXYZ(1, target.x, target.y, target.z);
+    pos.needsUpdate = true;
+    this._laser.geometry.computeBoundingSphere();
+    this._laserDot.position.copy(target);
+  }
+
+  // Where a shot or throw leaves the hand, in world space (just right of
+  // and below the eyes, a little ahead).
+  _handPoint(forwardDist, right = 0.28, down = 0.2) {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const f = p.getForwardVector();
+    const r = new THREE.Vector3(Math.cos(p.yaw), 0, -Math.sin(p.yaw));
+    return eye.addScaledVector(f, forwardDist).addScaledVector(r, right).add(new THREE.Vector3(0, -down, 0));
+  }
+
+  // The world point under the crosshair (for aiming projectiles from the hand).
+  _aimPoint(range = 200) {
+    const eye = this.player.getEyePosition();
+    const dir = this.player.getForwardVector();
+    const hit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    return eye.addScaledVector(dir, hit ? hit.distance : range);
+  }
+
+  // ---------- Grenade ----------
+
+  // power 0-1: a quick click lobs it a short way, a full charge throws far.
+  throwGrenade(power) {
+    const p = this.player;
+    const dir = p.getForwardVector();
+    dir.y += 0.12; // a little lob so level throws arc
+    dir.normalize();
+    const speed = THROW_SPEED_MIN + (THROW_SPEED_MAX - THROW_SPEED_MIN) * power;
+    const vel = dir.multiplyScalar(speed);
+    vel.x += p.velocity.x * 0.5;
+    vel.z += p.velocity.z * 0.5;
+    const pos = this._handPoint(0.45, 0.18, 0.12);
+    // Never start inside a wall.
+    if (IS_SOLID[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]) pos.copy(p.getEyePosition());
+    const mesh = new THREE.Mesh(this._grenadeGeo, this.material);
+    mesh.castShadow = true;
+    const g = { pos, vel, age: 0, mesh, light: { sky: 15, block: 0 }, spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(), angle: 0, blink: 0, power };
+    bindEntityLight(mesh, () => g.light);
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this.grenades.push(g);
+    this.held.swing();
+    this.audio.playThrow();
+    return g;
+  }
+
+  _solidAt(x, y, z) {
+    return IS_SOLID[this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))] === 1;
+  }
+
+  _updateGrenade(g, dt) {
+    g.age += dt;
+    const w = this.world;
+    const pos = g.pos;
+    const vel = g.vel;
+    const inWater = IS_WET[w.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))] === 1;
+    vel.y += GRENADE_GRAVITY * (inWater ? 0.3 : 1) * dt;
+    if (inWater) vel.multiplyScalar(Math.exp(-2.5 * dt));
+    // Sub-stepped, axis-separated movement with bounces.
+    const steps = Math.max(1, Math.ceil((vel.length() * dt) / 0.08));
+    const sdt = dt / steps;
+    let resting = false;
+    for (let s = 0; s < steps; s++) {
+      for (const axis of ["x", "y", "z"]) {
+        const d = vel[axis] * sdt;
+        if (d === 0) continue;
+        const probe = pos.clone();
+        probe[axis] += d + Math.sign(d) * GRENADE_R;
+        if (this._solidAt(probe.x, probe.y, probe.z)) {
+          const impact = Math.abs(vel[axis]);
+          vel[axis] = -vel[axis] * RESTITUTION;
+          // Friction along the surface it hit.
+          for (const other of ["x", "y", "z"]) if (other !== axis) vel[other] *= axis === "y" ? 0.72 : 0.88;
+          if (axis === "y" && d < 0) {
+            if (Math.abs(vel.y) < 1.2) vel.y = 0;
+            resting = true;
+          }
+          if (impact > 2) this.audio.playGrenadeBounce(Math.min(1, impact / 15), pos.distanceTo(this.player.getEyePosition()));
+        } else {
+          pos[axis] += d;
+        }
+      }
+    }
+    // Rolling to a stop on the ground.
+    if (resting || this._solidAt(pos.x, pos.y - GRENADE_R - 0.02, pos.z)) {
+      const f = Math.exp(-3 * dt);
+      vel.x *= f;
+      vel.z *= f;
+    }
+    const speed = vel.length();
+    g.angle += speed * dt * 4;
+    g.mesh.position.copy(pos);
+    g.mesh.quaternion.setFromAxisAngle(g.spin, g.angle);
+    g.light = w.lightAt(pos.x, pos.y, pos.z);
+
+    // A red light blinks on the fuse, faster as it runs out.
+    const left = GRENADE_FUSE - g.age;
+    g.blink -= dt;
+    if (g.blink <= 0) {
+      g.blink = left > 2 ? 0.5 : left > 1 ? 0.25 : 0.1;
+      this.effects.glow.spawn({ x: pos.x, y: pos.y + 0.16, z: pos.z, life: 0.08, size0: 0.25, size1: 0.2, color0: this._c.blink, alpha: 1 });
+    }
+
+    // A direct hit on a mob sets it off at once.
+    if (g.age > 0.05 && (this.mobs.sphereHit(pos, GRENADE_R) || this._targetSphere(pos, GRENADE_R))) return true;
+    return g.age >= GRENADE_FUSE || pos.y < -20;
+  }
+
+  // ---------- Pistol ----------
+
+  // The pistol fires a real bullet (a fast projectile with a visible tracer):
+  // it leaves the muzzle aimed at whatever is under the crosshair and takes
+  // time to get there (240 blocks/s), so a moving target must be led, and
+  // far targets are hit a moment after the click. It hits mobs, UFOs and
+  // vehicles on the way (see main.js and lasers.js) and chips blocks.
+  firePistol() {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    // A tiny spread, so rapid fire isn't a laser.
+    dir.x += (Math.random() - 0.5) * 0.004;
+    dir.y += (Math.random() - 0.5) * 0.004;
+    dir.z += (Math.random() - 0.5) * 0.004;
+    dir.normalize();
+    this.shots++;
+    const range = this._range(PISTOL_RANGE, 0.6);
+    // What is under the crosshair: the nearest block, creature, UFO or vehicle.
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    let near = blockHit ? blockHit.distance : range;
+    const mobHit = this.mobs.raycast(eye, dir, near);
+    if (mobHit) near = mobHit.distance;
+    const th = this._targetHit(eye, dir, near);
+    if (th) near = th.distance;
+    const muzzle = this._handPoint(0.7, 0.26, 0.17);
+    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
+    this.effects.muzzleFlash(muzzle, 1);
+    this.held.fire(1);
+    p.kick(0.035);
+    this.audio.playGunshot();
+    const aim = eye.clone().addScaledVector(dir, near).sub(muzzle);
+    if (aim.lengthSq() < 0.25) aim.copy(dir);
+    aim.normalize();
+    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.03, length: 2.6, sound: false, scorch: true, hole: true });
+    return { type: "bullet" };
+  }
+
+  _burst(point, normal, color, count, speed) {
+    for (let i = 0; i < count; i++) {
+      this.effects.debris.spawn(
+        point.x + normal.x * 0.05, point.y + normal.y * 0.05, point.z + normal.z * 0.05,
+        normal.x * speed + (Math.random() - 0.5) * speed, normal.y * speed + Math.random() * speed, normal.z * speed + (Math.random() - 0.5) * speed,
+        0.04 + Math.random() * 0.05, color, 0.4 + Math.random() * 0.4
+      );
+    }
+  }
+
+  // ---------- Bazooka ----------
+
+  fireBazooka(lockTarget = null) {
+    const p = this.player;
+    const start = this._handPoint(0.9, 0.3, 0.19);
+    // Fly toward whatever is under the crosshair.
+    const target = this._aimPoint();
+    const dir = target.clone().sub(start);
+    if (dir.lengthSq() < 1) dir.copy(p.getForwardVector());
+    dir.normalize();
+    const eye = p.getEyePosition();
+    // Point blank against a wall: start from the eyes so it hits the wall.
+    if (IS_SOLID[this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))]) start.copy(eye);
+    const mesh = new THREE.Mesh(this._rocketGeo, this.material);
+    mesh.castShadow = true;
+    const exhaust = new THREE.Sprite(this._exhaustMat);
+    exhaust.layers.set(LAYER_FX);
+    exhaust.position.set(0, 0, 0.36);
+    exhaust.scale.setScalar(0.7);
+    mesh.add(exhaust);
+    const r = { pos: start.clone(), vel: dir.clone().multiplyScalar(ROCKET_SPEED * (lockTarget ? 1.25 : 1)), age: 0, mesh, exhaust, light: { sky: 15, block: 0 }, target: lockTarget };
+    bindEntityLight(mesh, () => r.light);
+    mesh.position.copy(start);
+    mesh.lookAt(start.clone().add(dir));
+    mesh.rotateY(Math.PI); // the model points along -Z
+    this.scene.add(mesh);
+    this.rockets.push(r);
+    this.effects.muzzleFlash(start, 2.5);
+    this.held.fire(2.2);
+    p.kick(0.09);
+    p.applyImpulse(dir.clone().multiplyScalar(-2.5).setY(0));
+    this.audio.playRocketLaunch();
+    // Backblast smoke behind the shoulder.
+    const back = start.clone().addScaledVector(dir, -1.4);
+    for (let i = 0; i < 10; i++) {
+      this.effects.smoke.spawn({
+        x: back.x, y: back.y, z: back.z,
+        vx: -dir.x * (3 + Math.random() * 4) + (Math.random() - 0.5) * 2, vy: Math.random() * 1.5, vz: -dir.z * (3 + Math.random() * 4) + (Math.random() - 0.5) * 2,
+        life: 1 + Math.random(), size0: 0.5, size1: 2.2, color0: this._c.smoke, color1: this._c.smokeEnd, alpha: 0.5, drag: 2.5,
+      });
+    }
+    return r;
+  }
+
+  // Returns the explosion point, or null (keep flying), or false (gone).
+  _updateRocket(r, dt) {
+    r.age += dt;
+    if (r.target) {
+      const t = r.target;
+      if (t.alive && !t.alive()) r.target = null;
+      else {
+        const c = t.center(this._v);
+        const to = c.sub(r.pos);
+        const dist = to.length();
+        // Proximity fuse: a homing rocket that gets close enough goes off
+        // (squarely on a UFO or vehicle: the direct hit counts too).
+        if (dist < (t.radius || 1) * 0.6 + 1.4 && r.age > 0.25) {
+          const d2 = to.clone().divideScalar(dist || 1);
+          const th = this._targetHit(r.pos, d2, dist + 1);
+          if (th) th.hit(ROCKET_DIRECT, d2, r.pos.clone());
+          return r.pos.clone();
+        }
+        const speed = r.vel.length();
+        const want = to.divideScalar(dist || 1);
+        const cur = r.vel.clone().divideScalar(speed || 1);
+        const ang = Math.acos(Math.max(-1, Math.min(1, cur.dot(want))));
+        const k = ang > 1e-4 ? Math.min(1, (ROCKET_TURN * dt) / ang) : 1;
+        cur.lerp(want, k).normalize();
+        r.vel.copy(cur).multiplyScalar(speed);
+      }
+    }
+    if (!r.target) r.vel.y += ROCKET_GRAVITY * dt;
+    const step = r.vel.clone().multiplyScalar(dt);
+    const len = step.length();
+    const dir = step.clone().divideScalar(len || 1);
+    const blockHit = this.world.raycast(r.pos, dir, len, { solidOnly: true });
+    const mobHit = this.mobs.raycast(r.pos, dir, blockHit ? blockHit.distance : len);
+    const tHit = this._targetHit(r.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
+    if (tHit) {
+      // A direct hit on a UFO or a vehicle: the warhead's punch on top of the blast.
+      const at = r.pos.clone().addScaledVector(dir, tHit.distance);
+      tHit.hit(ROCKET_DIRECT, dir, at);
+      return at;
+    }
+    if (mobHit) return r.pos.clone().addScaledVector(dir, mobHit.distance);
+    if (blockHit) return r.pos.clone().addScaledVector(dir, Math.max(0, blockHit.distance - 0.3));
+    // Smoke trail and glowing exhaust along the path.
+    for (let i = 0; i < 3; i++) {
+      const t = Math.random();
+      this.effects.smoke.spawn({
+        x: r.pos.x + step.x * t, y: r.pos.y + step.y * t, z: r.pos.z + step.z * t,
+        vx: (Math.random() - 0.5) * 0.6, vy: 0.3 + Math.random() * 0.4, vz: (Math.random() - 0.5) * 0.6,
+        life: 1.2 + Math.random() * 1.2, size0: 0.35, size1: 1.6, color0: this._c.smoke, color1: this._c.smokeEnd, alpha: 0.45, drag: 1,
+      });
+    }
+    this.effects.glow.spawn({ x: r.pos.x, y: r.pos.y, z: r.pos.z, life: 0.12, size0: 0.5, size1: 0.1, color0: this._c.exhaust, alpha: 0.9 });
+    r.pos.add(step);
+    r.mesh.position.copy(r.pos);
+    r.mesh.lookAt(r.pos.clone().add(dir));
+    r.mesh.rotateY(Math.PI);
+    r.exhaust.scale.setScalar(0.6 + Math.random() * 0.3);
+    r.light = this.world.lightAt(r.pos.x, r.pos.y, r.pos.z);
+    // Keeps flying over distant/unloaded terrain (its raycast above already
+    // hit-tests the height map out there) rather than vanishing unexploded.
+    if (r.age > ROCKET_LIFE || r.pos.y < -20 || r.pos.y > 300) return false;
+    return null;
+  }
+
+  // ---------- Railgun ----------
+
+  _updateRail(dt, activeKind) {
+    const rail = this.rail;
+    if (rail.charging && activeKind !== "railgun") rail.charging = false;
+    if (rail.charging) {
+      rail.t += dt;
+      if (rail.t >= RAIL_CHARGE) {
+        rail.charging = false;
+        rail.t = 0;
+        this._cooldowns.railgun = MIN_INTERVAL.railgun;
+        this._spend("railgun");
+        this.fireRailgun();
+      }
+    }
+    this.held.charge = rail.charging ? Math.min(1, rail.t / RAIL_CHARGE) : 0;
+    for (const b of rail.beams) {
+      if (!b.mesh.visible) continue;
+      b.age += dt;
+      const k = b.age / b.life;
+      if (k >= 1) {
+        b.mesh.visible = false;
+        continue;
+      }
+      const fade = (1 - k) * (1 - k);
+      b.core.material.opacity = fade;
+      b.halo.material.opacity = 0.7 * fade;
+      const w = 1 + k * 1.8;
+      b.core.scale.x = b.core.scale.y = b.w0 * (1 - k * 0.7);
+      b.halo.scale.x = b.halo.scale.y = b.w0 * 3.2 * w;
+    }
+  }
+
+  _beam(from, to, w0 = 0.22, life = 0.75) {
+    let b = this.rail.beams.find((x) => !x.mesh.visible);
+    if (!b) {
+      const geo = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).rotateX(Math.PI / 2);
+      const mk = (color, opacity) => {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide }));
+        m.frustumCulled = false;
+        m.layers.set(LAYER_FX);
+        return m;
+      };
+      const mesh = new THREE.Group();
+      const core = mk(new THREE.Color(9, 11, 14), 1);
+      const halo = mk(new THREE.Color(0.8, 2.2, 6), 0.7);
+      mesh.add(halo, core);
+      mesh.visible = false;
+      mesh.layers.set(LAYER_FX);
+      this.scene.add(mesh);
+      b = { mesh, core, halo, age: 0, life, w0 };
+      this.rail.beams.push(b);
+    }
+    const len = from.distanceTo(to);
+    b.mesh.position.copy(from).add(to).multiplyScalar(0.5);
+    b.mesh.lookAt(to);
+    b.mesh.scale.set(1, 1, len);
+    b.core.scale.set(w0, w0, 1);
+    // The wide glow starts a few blocks ahead of the muzzle: the camera must not sit inside it.
+    const skip = Math.min(len * 0.5, 3.6);
+    b.halo.scale.set(w0 * 3.2, w0 * 3.2, (len - skip) / len);
+    b.halo.position.set(0, 0, skip / (2 * len));
+    b.w0 = w0;
+    b.age = 0;
+    b.life = life;
+    b.mesh.visible = true;
+    return b;
+  }
+
+  // The shot: destroys every block within RAIL_RADIUS of the line, hits every
+  // creature, UFO and vehicle on it.
+  fireRailgun() {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    const muzzle = this._handPoint(0.9, 0.24, 0.16);
+    const range = Math.min(RAIL_RANGE, Math.max(400, this.viewRange * 2));
+    const end = eye.clone().addScaledVector(dir, range);
+
+    // Blocks: a tube of air along the ray (loaded chunks only).
+    const world = this.world;
+    const removedSet = new Set();
+    const removed = [];
+    const edits = [];
+    const R = RAIL_RADIUS;
+    const R2 = R * R;
+    const ri = Math.ceil(R);
+    const step = 0.9;
+    for (let d = 0; d < range; d += step) {
+      const cx = eye.x + dir.x * d;
+      const cy = eye.y + dir.y * d;
+      const cz = eye.z + dir.z * d;
+      if (cy < -4 || cy > 200) break;
       const bx = Math.floor(cx);
       const by = Math.floor(cy);
       const bz = Math.floor(cz);
