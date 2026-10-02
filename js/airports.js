@@ -38,10 +38,19 @@ export class AirportManager {
     if (!s) return null;
     const ends = this.sites.runwayEnds(s);
     ends.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
-    const e = ends[0];
-    // The chunks under the runway must exist (the jet stands on real blocks).
-    if (!this.world.getChunk(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)) return null;
-    return { site: s, ...e, halfLength: s.half };
+    // The chunks under the runway must exist (the jet stands on real blocks):
+    // on a long runway the far end can lie beyond the render distance, so the
+    // start moves inward until the ground is there (keeping at least 200
+    // blocks of runway to roll on).
+    for (const e of ends) {
+      for (let d = 0; e.length - d >= 200; d += 16) {
+        const sx = e.x + e.dx * d;
+        const sz = e.z + e.dz * d;
+        if (!this.world.getChunk(Math.floor(sx) >> 4, Math.floor(sz) >> 4)) continue;
+        return { site: s, ...e, x: sx, z: sz, length: e.length - d, halfLength: s.half };
+      }
+    }
+    return null;
   }
 
   update(dt) {
@@ -119,7 +128,8 @@ export class AirportManager {
         ufo.parkedAt = s.id;
         jets.push(ufo);
       }
-      if (this.mobs) for (const g of h.guards) {
+      // (No guards on Peaceful: no hostile creatures at all.)
+      if (this.mobs && this.mobs.hostileSpawning !== false) for (const g of h.guards) {
         const m = this.mobs.spawnGuard(g.x, g.y, g.z, h.zone);
         if (m) guards.push(m);
       }

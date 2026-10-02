@@ -581,7 +581,7 @@ await check("aliens face the player when they shoot, and chase at once after lea
   });
   assert(r.angles.length >= 3, `they shoot: ${r.angles.length} shots`);
   assert(r.angles.every((a) => a < 0.45), `every shot was fired facing the player: max ${Math.max(...r.angles).toFixed(2)} rad`);
-  assert(r.farD1 < r.farD0 - 25, `an alien far away came for the player at once: ${Math.round(r.farD0)} -> ${Math.round(r.farD1)} ${JSON.stringify(r.farInfo)}`);
+  assert(r.farD1 < r.farD0 - 12, `an alien far away came for the player at once (Round 5: they plan paths, and the world here does not stream between steps): ${Math.round(r.farD0)} -> ${Math.round(r.farD1)} ${JSON.stringify(r.farInfo)}`);
   await v((g) => {
     g.mobs.clear();
     g.setMode("creative");
@@ -871,6 +871,9 @@ await check("bazooka lock-on: hold to lock a UFO near the crosshair, the rocket 
   const r = await v((g) => {
     const p = g.player;
     g.mobs.clear();
+    p.flying = true;
+    p.position.y = 260; // (Round 5: bigger mountains: the line of fire must be clear)
+    p.velocity.set(0, 0, 0);
     p.yaw = 0;
     p.pitch = 0.25;
     const eye = p.getEyePosition();
@@ -1001,7 +1004,7 @@ await check("jet takeoff: a real ground roll on a runway, rotation, liftoff, the
     // Once climbing away fast, the gear folds (lifted here so the test does not depend on the terrain past the pad).
     const gearBefore2 = jet.model.gear;
     if (jet.alive) {
-      jet.pos.y += 45;
+      jet.pos.y += 180; // (Round 5: well above the bigger mountains ahead)
       jet.vel.set(0, 0, -95);
       for (let i = 0; i < 60; i++) g.vehicles.update(0.05);
     }
@@ -1296,10 +1299,10 @@ await check("UFO piloting: teleport dash (travelled, with a streak), big ships a
     // 1. Dash.
     const p0 = ufo.pos.clone();
     g.vehicles.keyDown("KeyR");
-    g.vehicles.update(0.05);
-    g.vehicles.update(0.05);
+    g.vehicles.update(0.016); // (Round 5: dashes are much faster: a thousand blocks a second and more)
+    g.vehicles.update(0.016);
     out.first = ufo.pos.distanceTo(p0);
-    for (let i = 0; i < 2; i++) g.vehicles.update(0.05);
+    for (let i = 0; i < 3; i++) g.vehicles.update(0.05);
     out.streak = g.ufos.trail.ghosts.length > 0;
     for (let i = 0; i < 20; i++) {
       g.vehicles.update(0.05);
@@ -1532,7 +1535,7 @@ const gotoSite = (kind, u, vv, h, radius = 9) =>
 await check("airports: parked jets stand on the apron in front of the hangars (boardable, never saved); the runway is real and long", async () => {
   await play();
   await skyArena();
-  const site = await gotoSite("airport", 0, 20, 2, 10);
+  const site = await gotoSite("airport", 0, 20, 2, 16);
   await frames(3);
   const r = await v((g, site) => {
     const s = g.sites.nearest(g.player.position.x, g.player.position.z, 200, "airport");
@@ -1548,6 +1551,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
       nearSpot: jets.every((j) => spots.some((sp) => Math.hypot(sp.x - j.pos.x, sp.z - j.pos.z) < 1)),
       nav: g.airports.nearest().site.id === s.id,
       runway: g.airports.runwayNear(g.player.position.x, g.player.position.z, 500)?.length,
+      dbg: { id: s.id, half: s.half, pos: [Math.round(g.player.position.x), Math.round(g.player.position.z)], ends: g.sites.runwayEnds(s).map((e) => [Math.round(e.x), Math.round(e.z), !!g.world.getChunk(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)]), near: g.sites.nearest(g.player.position.x, g.player.position.z, 500)?.id },
     };
   }, site);
   assert(r.n >= 1 && r.n <= 3, `parked jets: ${r.n}`);
@@ -1558,7 +1562,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
 
 await check("called-in jet uses the airport runway and takes off from it (a real roll, then climbs away)", async () => {
   await play();
-  const site = await gotoSite("airport", 0, 20, 2, 10);
+  const site = await gotoSite("airport", 0, 20, 2, 16);
   await frames(2);
   const r = await v((g, site) => {
     for (const j of [...g.vehicles.vehicles]) if (!j.parkedAt) g.vehicles.remove(j);
@@ -1608,9 +1612,9 @@ await check("cities: streets and towers, and a crowd of villagers walking around
     // Tall buildings.
     for (const lot of s.lots) {
       if (lot.kind !== "skyscraper") continue;
-      const [wx, wz] = g.sites.toWorld(s, lot.u0, Math.floor((lot.v0 + lot.v1) / 2));
+      const [wx, wz] = g.sites.toWorld(s, Math.floor((lot.u0 + lot.u1) / 2), Math.floor((lot.v0 + lot.v1) / 2));
       let top = 0;
-      for (let y = s.y + 1; y < 64; y++) if (g.world.getBlock(wx, y, wz)) top = y - s.y;
+      for (let y = s.y + 1; y < 127; y++) if (g.world.getBlock(wx, y, wz)) top = y - s.y;
       out.tall = Math.max(out.tall, top);
     }
     g.mobs.clear();
@@ -1682,7 +1686,7 @@ await check("missions: the first one is the skeleton (Round 4), then the landing
   // (Round 4: the chain starts on foot with a skeleton, then a UFO landing; rewards are apples.)
   assert(r.first === "skeleton" && r.stillFirst, `the skeleton first: ${JSON.stringify(r)}`);
   assert(r.second === "landing" && r.apples === 3, `next mission and a reward: ${JSON.stringify(r)}`);
-  await frames(6);
+  await until(() => /MISSION 2/.test(document.getElementById("mission-tracker").textContent), 30000);
   const tracker = await v((g) => ({ shown: !document.getElementById("mission-tracker").classList.contains("hidden"), text: document.getElementById("mission-tracker").textContent, step: g.progress.step, id: g.progress.mission?.id, kills: g.stats.world.skeletonsKilled, base: g.progress.base.skeletonsKilled }));
   assert(tracker.shown && /MISSION 2/.test(tracker.text), `the tracker: ${JSON.stringify(tracker)}`);
 });
@@ -1747,7 +1751,7 @@ await check("difficulty curve: a gentle sky at first (small saucers), bigger UFO
 
 // ================= Part 7: menu and defaults =================
 
-await check("main menu: Ultra by default, a new world starts at 17:50, live FPS, low-FPS advice, mode cards, and the saucer can be shot", async () => {
+await check("main menu: Medium by default (Round 5), a new world starts at 17:50, live FPS, low-FPS advice, mode cards, and the saucer can be shot", async () => {
   // (The old page saves its state as it unloads, so the storage is wiped by a script that runs first in the new page, once.)
   await page.addInitScript(() => {
     if (!sessionStorage.getItem("__wiped")) {
@@ -1757,7 +1761,7 @@ await check("main menu: Ultra by default, a new world starts at 17:50, live FPS,
   });
   await boot();
   const first = await v((g) => ({ gfx: g.graphics, hours: g.sky.hours, state: g.gameState, settings: g.settings.graphics }));
-  assert(first.gfx === "ultra" && first.settings === "ultra", `Ultra is the default: ${JSON.stringify(first)}`);
+  assert(first.gfx === "medium" && first.settings === "medium", `Medium is the default (Round 5): ${JSON.stringify(first)}`);
   assert(first.hours > 17.6 && first.hours < 18.4, `a new world starts at about 17:50: ${first.hours}`);
   await v((g) => g.setGraphics("low"));
   await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
