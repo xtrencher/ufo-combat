@@ -51,6 +51,7 @@ import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
 import { createJetModel } from "./jet-model.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { Stats } from "./stats.js";
+import { FullscreenControl } from "./fullscreen.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -1909,6 +1910,16 @@ document.getElementById("main-menu-btn").addEventListener("click", () => {
 });
 let leavingToMenu = false;
 
+// Fullscreen button, F11 / Alt+Enter and the Keyboard Lock API (js/fullscreen.js).
+const fullscreen = new FullscreenControl({ isInGame: () => gameState === "playing" || gameState === "inventory" });
+// With the keyboard locked (fullscreen in Chromium) Esc reaches the page as a
+// key press and the browser no longer drops the pointer lock itself: do it here.
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Escape" && !e.repeat && fullscreen.keyboardLocked && gameState === "playing" && document.pointerLockElement === canvas) {
+    document.exitPointerLock();
+  }
+});
+
 // Esc steps back out of a sub-screen.
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape" && screens.open) {
@@ -1924,6 +1935,7 @@ ui.resumeBtn.addEventListener("click", () => {
 
 document.addEventListener("pointerlockchange", () => {
   const locked = document.pointerLockElement === canvas;
+  document.body.classList.toggle("pointer-locked", locked);
   player.setLocked(locked);
   if (locked) {
     gameState = "playing";

@@ -1731,9 +1731,9 @@ ROUND 5 COMPLETE
 Source of truth for this round. Ticked as finished; decisions in "Round 6 decisions" at the end.
 
 ## Part 1: UI and fullscreen
-- [ ] 1.1 Redesign main menu and all in-game menus (consistent modern minimalist style)
-- [ ] 1.2 Fullscreen button (corner, on hover) + hotkey, never covering gameplay
-- [ ] 1.3 Keyboard Lock API in fullscreen, preventDefault on combos, graceful fallback, README
+- [x] 1.1 Redesign main menu and all in-game menus (consistent modern minimalist style)
+- [x] 1.2 Fullscreen button (corner, on hover) + hotkey, never covering gameplay
+- [x] 1.3 Keyboard Lock API in fullscreen, preventDefault on combos, graceful fallback, README
 
 ## Part 2: Balance and weapons
 - [ ] 2.1 Fewer UFOs overall, especially in a jet

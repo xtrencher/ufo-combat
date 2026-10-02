@@ -21,6 +21,7 @@ export const CONTROLS = [
     ["E", "Inventory (all items in Creative)"],
     ["Q", "Drop the held item (whole stack with Ctrl)"],
     ["Middle click", "Pick the targeted block (Creative)"],
+    ["F11 or Alt+Enter", "Fullscreen (or the corner button, top right, when the mouse is free). In Chromium browsers fullscreen also locks the keyboard, so Ctrl+W, Ctrl+R and the like reach the game; hold Esc to leave fullscreen then"],
   ]],
   ["Weapons (Mods on)", [
     ["Grenade", "Hold right click to charge, release to throw"],
