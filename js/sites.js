@@ -113,7 +113,7 @@ export class SiteGrower {
       const flip = hash2((this.seed ^ ORIENT_SALT ^ 0x77) >>> 0, cx * 16 + t, cz) < 0.5 ? 1 : -1;
       const site = { kind, size: sizeName, x, z, axis, flip, rect: null, y: 0, seed: (this.seed ^ Math.imul(x, 0x9e3779b1) ^ Math.imul(z, 0x85ebca6b)) >>> 0, id: `${kind}:${x},${z}` };
       if (!this._fits(site)) continue;
-      if (this.home && Math.abs(x - this.home.x) < 2 * REACH + 40 && Math.abs(z - this.home.z) < 2 * REACH + 40) return null; // (the home airport has its space)
+      if (this.home && Math.hypot(x - this.home.x, z - this.home.z) < 1700) return null; // (the home airport has its space: the other sites are at least this far from it)
       return site;
     }
     return null;

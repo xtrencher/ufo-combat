@@ -52,7 +52,7 @@ export const PRESETS = {
     water: "simple",
     mist: 0.8, // strength of the low mist over water
     raySamples: 32,
-    renderDistance: 15,
+    renderDistance: 25, // (Round 6: the default)
     detailDistance: 6,
   },
   high: {
@@ -75,7 +75,7 @@ export const PRESETS = {
     water: "refract",
     mist: 1.0, // strength of the low mist over water
     raySamples: 48,
-    renderDistance: 20,
+    renderDistance: 28,
     detailDistance: 8,
   },
   ultra: {
@@ -98,7 +98,7 @@ export const PRESETS = {
     water: "ssr",
     mist: 1.0, // strength of the low mist over water
     raySamples: 72,
-    renderDistance: 20,
+    renderDistance: 32,
     detailDistance: 8,
   },
 };

@@ -38,6 +38,7 @@ const NO_TREE_BIOMES = new Set([BIOME.DESERT, BIOME.BADLANDS, BIOME.SNOWY_PLAINS
 // forests are the densest.
 const BIOME_DENSITY = {
   [BIOME.JUNGLE]: 1,
+  [BIOME.MEADOW]: 0.05, // a lone tree here and there in the flowers
   [BIOME.DARK_FOREST]: 0.95,
   [BIOME.FOREST]: 0.7,
   [BIOME.BIRCH_FOREST]: 0.7,
@@ -97,6 +98,7 @@ export class TreeGrower {
     if (biome === BIOME.TAIGA || biome === BIOME.SNOWY_TAIGA) species = TREE.PINE;
     else if (biome === BIOME.BIRCH_FOREST) species = TREE.BIRCH;
     else if (biome === BIOME.DARK_FOREST && k < 0.22) species = TREE.OLD_OAK;
+    else if (biome === BIOME.JUNGLE && k < 0.35) species = TREE.OLD_OAK; // the jungle's giants
     else if ((biome === BIOME.FOREST || biome === BIOME.PLAINS) && forest > 0.28 && k < 0.12) species = TREE.OLD_OAK;
     return { r, species, h };
   }

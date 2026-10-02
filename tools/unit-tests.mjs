@@ -990,7 +990,16 @@ console.log("\nDistant terrain (lod-mesher.js)");
   await test("walls exactly cover every height step inside a tile, and skirts close every border", () => {
     const lt = new LodTerrain(seed);
     for (const level of [1, 3]) {
-      const m = buildLodTile(lt, level, 3, -2, pal);
+      // (A tile with tree boxes has extra walls: the first tile without any is the one to check.)
+      let m = null;
+      for (const [tx, tz] of [[3, -2], [0, 0], [5, 5], [-4, 2], [8, -7], [2, 9], [-6, -6], [11, 3], [-9, 7]]) {
+        const cand = buildLodTile(lt, level, tx, tz, pal);
+        if (!facesOf(cand).some((f) => f.kind === LOD_KIND.LEAVES)) {
+          m = cand;
+          break;
+        }
+      }
+      assert.ok(m, "a tile without trees to check");
       const step = 1 << level;
       const N = LOD_CELLS;
       const heights = [];

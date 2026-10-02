@@ -27,13 +27,26 @@ const REEF_SALT = 0x3c8de061;
 // the world (~120 blocks, snow-capped) far more often.
 const CONTINENT_FREQ = 1 / 2600;
 const CONTINENT_AMP = 36;
-const MOUNTAIN_MASK_FREQ = 1 / 1000;
-const MOUNTAIN_MASK_LO = 0.02;
-const MOUNTAIN_MASK_HI = 0.3;
-const MOUNTAIN_RIDGE_FREQ = 1 / 340;
+const MOUNTAIN_MASK_FREQ = 1 / 1400; // Round 6: bigger ranges...
+const MOUNTAIN_MASK_LO = -0.03;
+const MOUNTAIN_MASK_HI = 0.2;
+const MOUNTAIN_RIDGE_FREQ = 1 / 430; // ...with broader massifs and ridges...
 const MOUNTAIN_PEAK_FREQ = 1 / 75;
-const MOUNTAIN_AMP = 104;
+const MOUNTAIN_AMP = 135; // ...and taller crests (the soft cap below still keeps them inside the world)
 const RIVER_FREQ = 1 / 420;
+// Round 6 landforms: a low-frequency "relief" field decides where the land is
+// very flat (wide meadows and plains, deserts as flat as a table) and where it
+// is rugged; a second, ridged field cuts long, wide valleys that sink toward the
+// sea level, so a mountain range gets deep valleys between its massifs.
+const RELIEF_FREQ = 1 / 1900;
+const FLAT_LO = -0.02; // relief below this: flat country (fully flat at FLAT_LO - FLAT_SPAN)
+const FLAT_SPAN = 0.2;
+const VALLEY_FREQ = 1 / 820;
+const VALLEY_FLOOR = SEA_LEVEL + 4; // the valley floor (a little above the sea)
+function smooth01(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
+}
 const RIVER_WIDTH = 0.045;
 export const SNOW_LINE = 98; // mountain peaks above this height are snow-capped
 export const BARE_ROCK_LINE = 72; // mountain slopes above this are exposed stone
@@ -112,6 +125,7 @@ export class TerrainGenerator {
     const n = this.noise;
     const continent = n.fbm2(wx, wz, 4, 0.5, 2, CONTINENT_FREQ);
     const detail = n.fbm2(wx, wz, 4, 0.5, 2, 1 / 80);
+    const relief = n.fbm2(wx - 7000, wz + 5000, 3, 0.5, 2, RELIEF_FREQ);
     // Mountain ranges only on land, fading out toward the coast.
     const mask = n.fbm2(wx + 500, wz - 500, 3, 0.5, 2, MOUNTAIN_MASK_FREQ);
     const land = Math.max(0, Math.min(1, (continent + 0.02) / 0.14));
@@ -129,7 +143,23 @@ export class TerrainGenerator {
     // across the coastline), so shores are beaches, not wide marshy flats.
     // Detail hills are gentler out at sea, fuller on land.
     const coast = 6 * Math.tanh(continent * 22);
-    let height = BASE_HEIGHT + continent * CONTINENT_AMP + coast + detail * AMPLITUDE * (0.55 + 0.45 * land) + mountains;
+    // Flat country: where the relief field is low, the hills die away (down to a
+    // tenth) and the mountains are held back, leaving wide, nearly level plains.
+    const flatT = smooth01((FLAT_LO - relief) / FLAT_SPAN) * land;
+    mountains *= 1 - 0.85 * flatT;
+    let height = BASE_HEIGHT + continent * CONTINENT_AMP + coast + detail * AMPLITUDE * (0.55 + 0.45 * land) * (1 - 0.92 * flatT) + mountains;
+    // Deep valleys: long winding channels (a ridged field again) that cut the high
+    // ground down toward the sea. Barely there on the lowlands (nothing to cut),
+    // dramatic between the massifs of a mountain range.
+    if (height > VALLEY_FLOOR + 3 && land > 0) {
+      const vn = n.fbm2(wx + 3000, wz - 6000, 3, 0.5, 2, VALLEY_FREQ);
+      const vBand = 1 - Math.abs(vn);
+      const valleyT = smooth01((vBand - 0.915) / 0.06) * land * (1 - flatT);
+      if (valleyT > 0) {
+        const floorY = VALLEY_FLOOR + 3 * detail;
+        height = height * (1 - valleyT) + Math.min(height, floorY) * valleyT;
+      }
+    }
     if (height > SOFT_CAP_START) height = SOFT_CAP_START + SOFT_CAP_RANGE * Math.tanh((height - SOFT_CAP_START) / (SOFT_CAP_RANGE + 2));
     const riverN = n.fbm2(wx - 2000, wz + 2000, 2, 0.5, 2, RIVER_FREQ);
     const riverBand = 1 - Math.abs(riverN);
@@ -139,7 +169,7 @@ export class TerrainGenerator {
       const k = Math.min(1, (riverBand - (1 - RIVER_WIDTH)) / RIVER_WIDTH);
       height = height * (1 - k) + (SEA_LEVEL - 3) * k;
     }
-    return { height: Math.floor(Math.max(3, height)), mountainT, river };
+    return { height: Math.floor(Math.max(3, height)), mountainT, river, flat: flatT };
   }
 
   heightAt(wx, wz) {
@@ -150,7 +180,7 @@ export class TerrainGenerator {
   // heightAt): used by tree placement and by the game for the F3 debug overlay.
   biomeAt(wx, wz) {
     const info = this._terrainInfo(wx, wz);
-    return this.biomes.biomeAt(wx, wz, info.height, info.mountainT, info.river);
+    return this.biomes.biomeAt(wx, wz, info.height, info.mountainT, info.river, info.flat);
   }
 
   // Where new players start: the first land column along a diagonal from the
@@ -246,7 +276,7 @@ export class TerrainGenerator {
         const info = this._terrainInfo(baseX + lx, baseZ + lz);
         H[(lz + 1) * (S + 2) + (lx + 1)] = info.height;
         if (lx >= 0 && lx < S && lz >= 0 && lz < S) {
-          Biome[lz * S + lx] = this.biomes.biomeAt(baseX + lx, baseZ + lz, info.height, info.mountainT, info.river);
+          Biome[lz * S + lx] = this.biomes.biomeAt(baseX + lx, baseZ + lz, info.height, info.mountainT, info.river, info.flat);
         }
       }
     }
@@ -309,10 +339,11 @@ export class TerrainGenerator {
         if (blocks[ground] === BLOCK.GRASS && blocks[above] === BLOCK.AIR) {
           const r = hash2(this.seed ^ PLANT_SALT, wx, wz);
           const patch = this.noise.perlin2(wx * 0.045 + 31.7, wz * 0.045 - 12.3); // -0.7..0.7
-          const flowerChance = Math.max(0, patch - 0.15) * 0.25;
+          const meadow = biomeAt(lx, lz) === BIOME.MEADOW;
+          const flowerChance = meadow ? 0.06 + Math.max(0, patch) * 0.16 : Math.max(0, patch - 0.15) * 0.25;
           if (r < flowerChance) {
             blocks[above] = hash2(this.seed ^ 0x2f6b, wx, wz) < 0.5 ? BLOCK.FLOWER_RED : BLOCK.FLOWER_YELLOW;
-          } else if (r < flowerChance + 0.11 + Math.max(0, -patch) * 0.1) {
+          } else if (r < flowerChance + (meadow ? 0.2 : 0.11) + Math.max(0, -patch) * 0.1) {
             blocks[above] = BLOCK.TALL_GRASS;
           }
         } else if (blocks[ground] === BLOCK.SAND && blocks[above] === BLOCK.AIR && biomeAt(lx, lz) === BIOME.DESERT) {

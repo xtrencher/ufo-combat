@@ -210,11 +210,11 @@ try {
     assert(saved.graphics === "low", `graphics setting not persisted: ${JSON.stringify(saved)}`);
   });
 
-  await check("default render distance is 15 chunks, up to 256 (Round 5)", async () => {
+  await check("default render distance is 25 chunks, up to 256 (Round 6)", async () => {
     const slider = await page.$eval("#render-distance", (el) => ({ value: el.value, max: el.max }));
-    assert(slider.value === "15" && slider.max === "256", `slider ${JSON.stringify(slider)}, expected 15 of max 256 (Round 5)`);
+    assert(slider.value === "25" && slider.max === "256", `slider ${JSON.stringify(slider)}, expected 25 of max 256 (Round 6)`);
     const live = await page.evaluate(() => window.__voxelands.renderDistance);
-    assert(live === 15, `game render distance is ${live}, expected 15`);
+    assert(live === 25, `game render distance is ${live}, expected 25`);
   });
 
   await check("Play button locks pointer and starts the game", async () => {

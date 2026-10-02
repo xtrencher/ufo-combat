@@ -25,6 +25,7 @@ export const BIOME = Object.freeze({
   SWAMP: 15,
   BADLANDS: 16,
   MOUNTAINS: 17,
+  MEADOW: 18, // Round 6: very flat, flowery grassland (the flat country of the temperate zone)
 });
 
 export const BIOME_NAMES = {
@@ -46,6 +47,7 @@ export const BIOME_NAMES = {
   [BIOME.SWAMP]: "Swamp",
   [BIOME.BADLANDS]: "Badlands",
   [BIOME.MOUNTAINS]: "Mountains",
+  [BIOME.MEADOW]: "Meadow",
 };
 
 // Biomes cold enough that their ground is snow-capped and their trees (if
@@ -68,15 +70,16 @@ export class BiomeSource {
   climate(wx, wz) {
     // Big biomes (Round 3: several hundred to a couple of thousand blocks
     // across, like classic block games), with a little wobble at the edges.
-    const t = this.tempNoise.fbm2(wx, wz, 3, 0.45, 2, 1 / 1500) * 1.15;
-    const m = this.moistNoise.fbm2(wx + 4000, wz - 4000, 3, 0.45, 2, 1 / 1300) * 1.15;
+    // (Round 6: bigger again, so a desert or a jungle is a region you travel through for a long time.)
+    const t = this.tempNoise.fbm2(wx, wz, 3, 0.45, 2, 1 / 2200) * 1.2;
+    const m = this.moistNoise.fbm2(wx + 4000, wz - 4000, 3, 0.45, 2, 1 / 1900) * 1.2;
     return { t, m };
   }
 
   // h: terrain height at (wx, wz). mountainT: 0-1, how mountainous. river:
   // whether this column sits in a river channel (both from terrain.js, which
   // already computes them while finding the height).
-  biomeAt(wx, wz, h, mountainT, river) {
+  biomeAt(wx, wz, h, mountainT, river, flat = 0) {
     if (h < SEA_LEVEL - 1) {
       const { t } = this.climate(wx, wz);
       if (h < SEA_LEVEL - 12) return BIOME.DEEP_OCEAN;
@@ -87,18 +90,19 @@ export class BiomeSource {
     if (mountainT > 0.45 && h > SEA_LEVEL + 14) return BIOME.MOUNTAINS;
     const { t, m } = this.climate(wx, wz);
     if (t < -0.3) return m > -0.05 ? BIOME.SNOWY_TAIGA : BIOME.SNOWY_PLAINS;
-    if (t > 0.3) {
-      if (m > 0.25) return BIOME.JUNGLE;
-      if (m > -0.15) return BIOME.SAVANNA;
+    // The hot zone is wide: deserts take the dry half of it, jungles the wet third, savanna between.
+    if (t > 0.16) {
+      if (m > 0.2) return BIOME.JUNGLE;
+      if (m > 0.02) return BIOME.SAVANNA;
       return BIOME.DESERT;
     }
-    if (t > 0.1 && m < -0.3) return BIOME.BADLANDS;
+    if (t > 0.08 && m < -0.3) return BIOME.BADLANDS;
     if (m > 0.4) return BIOME.SWAMP;
     if (m > 0.12) {
-      if (t < 0.02) return BIOME.TAIGA;
-      return m > 0.3 ? BIOME.DARK_FOREST : BIOME.FOREST;
+      if (t < -0.1) return BIOME.TAIGA;
+      return flat > 0.5 ? BIOME.MEADOW : m > 0.3 ? BIOME.DARK_FOREST : BIOME.FOREST;
     }
-    if (m > -0.1) return BIOME.BIRCH_FOREST;
-    return BIOME.PLAINS;
+    if (m > -0.1) return flat > 0.5 ? BIOME.MEADOW : BIOME.BIRCH_FOREST;
+    return flat > 0.4 ? BIOME.MEADOW : BIOME.PLAINS;
   }
 }

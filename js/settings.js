@@ -175,7 +175,7 @@ export const SETTINGS_VERSION = 5;
 
 export const DEFAULT_SETTINGS = {
   v: SETTINGS_VERSION,
-  renderDistance: 15,
+  renderDistance: 25,
   // Whether the player set the render distance themselves (then picking a
   // graphics preset keeps it instead of adopting the preset's suggestion).
   renderDistanceCustom: false,

@@ -132,13 +132,13 @@ async function play() {
 
 await play();
 
-await check("defaults: Medium preset, render distance 15 chunks, master volume 30%", async () => {
+await check("defaults: Medium preset, render distance 25 chunks (Round 6), master volume 30%", async () => {
   const r = await v(async () => {
     const { DEFAULT_SETTINGS } = await import("./js/settings.js");
     const { DEFAULT_PRESET } = await import("./js/graphics.js");
     return { preset: DEFAULT_PRESET, graphics: DEFAULT_SETTINGS.graphics, rd: DEFAULT_SETTINGS.renderDistance, vol: DEFAULT_SETTINGS.volume.master };
   });
-  assert(r.preset === "medium" && r.graphics === "medium" && r.rd === 15 && Math.abs(r.vol - 0.3) < 1e-9, JSON.stringify(r));
+  assert(r.preset === "medium" && r.graphics === "medium" && r.rd === 25 && Math.abs(r.vol - 0.3) < 1e-9, JSON.stringify(r));
 });
 
 await check("jet: speed follows the throttle (0-100%), about 1000 km/h at 100%", async () => {
