@@ -1229,6 +1229,7 @@ function flushSave() {
     pendingSave = false;
     world.dirtyEditChunks.clear();
     lastSaveTime = lastPlayerSave = performance.now();
+    stats.save(); // (a guest's own all-worlds totals)
     return;
   }
   if (pendingSave) {
