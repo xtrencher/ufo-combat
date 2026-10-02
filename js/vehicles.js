@@ -590,7 +590,7 @@ export class VehicleManager {
       `<div class="vh-health"><div style="width:${(hp * 100).toFixed(0)}%;background:${hp > 0.5 ? "#4fdc8a" : hp > 0.25 ? "#ffc94a" : "#ff4a3a"}"></div></div>` +
       (h.weapon ? `<div class="vh-weapon">${h.weapon}</div>` : "") +
       (h.warning ? `<div class="vh-warning">${h.warning}</div>` : "") +
-      (h.help ? `<div class="vh-help">${h.help}</div>` : "");
+      (h.help ? `<div class="vh-help">${this.exitLocked?.() ? h.help.replace(/F (EJECT|get out|exit)/i, "F: no getting out") : h.help}</div>` : "");
   }
 
   // The vehicle info panel (I): stats and controls of the vehicle you are in.

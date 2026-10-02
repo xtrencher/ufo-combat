@@ -420,7 +420,7 @@ export class Dogfight {
     const show = this._tab && this.mp.active;
     el.classList.toggle("hidden", !show);
     if (!show) return;
-    const mode = this.on ? `Dogfight · ${this.deathLimit} deaths and you're out` : this.mp.mode === "creative" ? "Creative" : "Survival";
+    const mode = this.on ? `Dogfight · out at ${this.deathLimit} deaths` : this.mp.mode === "creative" ? "Creative" : "Survival";
     el.innerHTML = `<div class="mp-score-title">Room ${this.net.code}<span>${mode}</span></div>${this._table(this._rows())}`;
   }
 
