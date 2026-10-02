@@ -1920,6 +1920,13 @@ function requestLock() {
 function showPause() {
   if (gameState === "start" || gameState === "dead" || gameState === "inventory") return;
   if (document.pointerLockElement === canvas) return;
+  // (The online session just ended: its own screen says what now.)
+  if (mp.ended) {
+    gameState = "paused";
+    player.enabled = false;
+    ui.showHud(false);
+    return;
+  }
   gameState = "paused";
   // (Online the world goes on: the player still falls, swims and can be hurt, just without controls.)
   player.enabled = mp.active;

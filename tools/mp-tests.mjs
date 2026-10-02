@@ -247,6 +247,19 @@ await check("movement sync: each side sees the other walk to where it went (inte
   }
 });
 
+await check("a hidden tab keeps the game going (the worker clock steps the world without drawing)", async () => {
+  const r = await host.evaluate(async () => {
+    const g = window.__ufo;
+    const t0 = g.mp.bg.ticks;
+    const time0 = g.sky.time;
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    await new Promise((res) => setTimeout(res, 1500));
+    delete document.visibilityState;
+    return { ticks: g.mp.bg.ticks - t0, visible: document.visibilityState, clock: g.sky.time !== time0 };
+  });
+  assert(r.ticks >= 10 && r.visible === "visible" && r.clock, JSON.stringify(r));
+});
+
 await check("a block change on either side shows on the other (and a race ends the same on both)", async () => {
   const spot = await v(host, (g) => {
     const x = g.spawn.x + 3;
@@ -461,6 +474,52 @@ await check("Dogfight: everyone in a jet, PvP hits, kills and deaths on the scor
   // The client's scoreboard shows the same numbers.
   const board = await v(client, (g, pid) => ({ host: g.mp.dogfight.scores.get(1), me: g.mp.dogfight.scores.get(pid) }), bob);
   assert(board.host.k === 3 && board.me.d === 3, JSON.stringify(board));
+});
+
+await check("a client leaving: the host drops it; joining again (same nickname) brings its things back", async () => {
+  await v(host, (g) => {
+    g.mp.dogfight.closeResults();
+    g.mp.rules.setMode("survival");
+  });
+  await until(client, (g) => g.mp.mode === "survival" && !g.vehicles.active, 15000);
+  // Something to recognise: a stack of 7 cobblestone in the last hotbar slot.
+  const marker = await v(client, (g) => {
+    if (g.player.dead) g.respawn();
+    g.inventory.slots[8] = { id: 10, count: 7 };
+    g.mp.game.markInventoryChanged();
+    // (The host is sent a guest's things every few seconds; leaving sends nothing more.)
+    g.net.toHost({ t: "pdata", d: g.mp.game.playerData() });
+    return g.inventory.slots[8];
+  });
+  await sleep(1500);
+  // Leaving takes the guest back to its own single-player page.
+  await Promise.all([client.waitForURL((u) => !u.searchParams.has("join"), { timeout: 30000 }), client.evaluate(() => window.__ufo.mp.leave())]);
+  await client.waitForFunction(() => !!window.__ufo, null, { timeout: 90000 });
+  assert(!(await v(client, (g) => g.mp.active)), "the guest's own page is not online");
+  const gone = await until(host, (g) => g.net.playerCount === 1 && g.mp.players.remotes.size === 0, 15000);
+  assert(gone, "the host still has the client");
+  // Back again, from the invite link, with the same nickname.
+  await client.goto(`http://127.0.0.1:${PORT}/index.html?join=${code}&${NET_Q}`, { waitUntil: "load", timeout: 60000 });
+  await client.waitForSelector("#mp-join-boot:not(.hidden)", { timeout: 30000 });
+  assert((await client.inputValue("#mp-boot-nick")) === "Bob", "the nickname is remembered");
+  await client.click("#mp-boot-join");
+  await client.waitForFunction(() => window.__ufo?.graphicsReady && window.__ufo.mp.stateLoaded, null, { timeout: 120000 });
+  const back = await v(client, (g) => g.inventory.slots[8]);
+  assert(back && back.id === marker.id && back.count === 7, `inventory slot 9 after rejoining: ${JSON.stringify(back)}`);
+  const h = await until(host, (g) => g.net.playerCount === 2, 15000);
+  assert(h, "the host does not see the client again");
+});
+
+await check("the host leaving: the client is told, and can go back to its own world", async () => {
+  await play(client);
+  await host.evaluate(() => window.__ufo.mp.leave());
+  await client.waitForSelector("#mp-ended:not(.hidden)", { timeout: 30000 });
+  const title = await client.textContent("#mp-ended-title");
+  assert(/host left/i.test(title), title);
+  const r = await v(client, (g) => ({ active: g.mp.active, remotes: g.mp.players.remotes.size }));
+  assert(!r.active && r.remotes === 0, JSON.stringify(r));
+  const hostAlone = await v(host, (g) => ({ active: g.mp.active, remotes: g.mp.players.remotes.size }));
+  assert(!hostAlone.active && hostAlone.remotes === 0, JSON.stringify(hostAlone));
 });
 
 // ---------- Summary ----------

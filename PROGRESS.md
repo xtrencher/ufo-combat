@@ -1892,12 +1892,12 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - [x] 6.3 Host sets the death limit; match end: winner/loser screen for everyone, rematch
 
 ## Group 7: Multiplayer menu
-- [ ] 7.1 Host / Join screens (room code, nickname), invite link, connection status
-- [ ] 7.2 Lobby with player list, host's mode selector and settings, kick
-- [ ] 7.3 In-game player list / status, leave game
+- [x] 7.1 Host / Join screens (room code, nickname), invite link, connection status
+- [x] 7.2 Lobby with player list, host's mode selector and settings, kick
+- [x] 7.3 In-game player list / status, leave game
 
 ## Group 8: Testing
-- [ ] 8.1 tools/mp-tests.mjs: host + client in two headless pages via a local PeerServer: join by code, nicknames, movement sync, block change, hit, Dogfight scoring
+- [x] 8.1 tools/mp-tests.mjs: host + client in two headless pages via a local PeerServer: join by code, nicknames, movement sync, block change, hit, Dogfight scoring
 - [ ] 8.2 Local two-tab testing documented (and works with the tab in the background)
 
 ## Final polish

@@ -668,6 +668,8 @@ export class NetSession {
   _tick() {
     const t = now();
     this._lastTick = t;
+    // Host: everyone's ping, now and then (the lobby shows them).
+    if (this.role === "host" && (this._pingT = (this._pingT ?? 0) + 1) % 5 === 0 && this.links.size) this.broadcast({ t: "_players", players: [...this.players.values()] });
     for (const [pid, link] of this.links) {
       link.send({ t: "_ping", ts: t });
       if (t - link.lastHeard > 12) {

@@ -191,7 +191,8 @@ export class MpMenus {
       }
       const ping = document.createElement("span");
       ping.className = "ping";
-      ping.textContent = p.pid === net.pid ? "" : p.pid === HOST_PID || net.isHost ? `${p.ping ?? 0} ms` : "";
+      const rtt = net.isClient && p.pid === HOST_PID ? Math.round((net.links.get(HOST_PID)?.rtt ?? 0) * 1000) : p.ping ?? 0;
+      ping.textContent = p.pid === net.pid ? "" : `${rtt} ms`;
       li.appendChild(ping);
       if (net.isHost && p.pid !== HOST_PID) {
         const kick = document.createElement("button");

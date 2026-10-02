@@ -64,7 +64,9 @@ export class Multiplayer {
     });
     net.on("feed", (m) => typeof m.text === "string" && this.feed(m.text.slice(0, 120)));
     window.addEventListener("pagehide", () => {
-      if (net.active) net.leave();
+      if (!net.active) return;
+      if (this.isClient && this.stateLoaded && game.gameState !== "start") net.toHost({ t: "pdata", d: game.playerData() });
+      net.leave();
     });
   }
 
@@ -115,6 +117,8 @@ export class Multiplayer {
   // Leave the game (guest) or close the room (host).
   leave() {
     const wasGuest = this.game.GUEST;
+    // (A guest's things, one last time, for the host to keep.)
+    if (this.isClient && this.stateLoaded && this.game.gameState !== "start") this.net.toHost({ t: "pdata", d: this.game.playerData() });
     this.net.leave();
     this.bg.stop();
     for (const m of this.modules) m.stop?.();

@@ -12,6 +12,7 @@ export class BackgroundClock {
     this.hz = hz;
     this.worker = null;
     this.timer = null;
+    this.ticks = 0; // steps run while hidden (tests)
   }
 
   start() {
@@ -41,6 +42,8 @@ export class BackgroundClock {
   }
 
   _tick() {
-    if (document.visibilityState === "hidden") this.onTick();
+    if (document.visibilityState !== "hidden") return;
+    this.ticks++;
+    this.onTick();
   }
 }
