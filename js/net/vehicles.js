@@ -119,11 +119,23 @@ export class VehicleSync {
       if (this.mp.active) this._entered(v);
       prevEnter?.(v);
     };
+    // (canBoard is a question, asked every frame for the "Press F" hint too:
+    // the claim itself is made when boarding.)
     const prevCan = vm.canBoard;
     vm.canBoard = (v) => {
-      if (this.mp.active && v.puppet) return this._claim(v);
-      if (this.mp.active && v.net && v.netOcc && v.netOcc !== this.net.pid) return `${this.mp.playerName(v.netOcc)} is in it`;
+      if (this.mp.active && v.puppet && v.netOcc) return `${this.mp.playerName(v.netOcc)} is flying it`;
+      if (this.mp.active && v.puppet && (!v.alive || v.wreck)) return "It's a wreck";
       return prevCan ? prevCan(v) : null;
+    };
+    const enter = vm.enter.bind(vm);
+    vm.enter = (v) => {
+      // Someone else's vehicle: ask the host for it first (we climb in when it says yes).
+      if (this.mp.active && v?.puppet) {
+        const why = this._claim(v);
+        vm.onMessage?.(why);
+        return false;
+      }
+      return enter(v);
     };
   }
 

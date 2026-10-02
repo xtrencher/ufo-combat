@@ -263,7 +263,8 @@ export class MpMenus {
     let html = `<div class="mp-chip">${parts.join(" · ")}</div>`;
     const df = mp.dogfight?.hudLine();
     if (df) html += `<div class="mp-chip">${df} · Tab: scores</div>`;
-    if (net.isClient && silent > 3) html += `<div class="mp-chip warn">Connection to ${host?.nick ?? "the host"} is lagging (${Math.floor(silent)} s)...</div>`;
+    const hostNick = String(host?.nick ?? "the host").replace(/[&<>"]/g, "");
+    if (net.isClient && silent > 3) html += `<div class="mp-chip warn">Connection to ${hostNick} is lagging (${Math.floor(silent)} s)...</div>`;
     else if (net.isClient && !mp.stateLoaded) html += `<div class="mp-chip">Receiving the world...</div>`;
     if (hud.innerHTML !== html) hud.innerHTML = html;
   }

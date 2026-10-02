@@ -427,6 +427,70 @@ await check("only the host picks the mode: Creative for everyone, a guest can't 
   assert(back, "the client did not switch back to Survival");
 });
 
+await check("vehicles: the client climbs into the host's empty UFO (a claim), flies it, and the host sees it move", async () => {
+  await v(host, (g) => g.mp.rules.setMode("creative"));
+  await until(client, (g) => g.player.mode === "creative", 10000);
+  const cpos = await v(client, (g) => g.player.position.toArray());
+  const nid = await v(host, (g, cp) => {
+    const top = g.world.surfaceY(Math.floor(cp[0]) + 6, Math.floor(cp[2]));
+    const v = g.vehicles.create("ufo", { design: "saucer", seed: 7, radius: 4, pos: [cp[0] + 6, top + 4, cp[2]], yaw: 0 });
+    return v ? "pending" : null;
+  }, cpos);
+  assert(nid, "the host could not make a UFO");
+  // (Shared on the host's next update.)
+  const id = await until(host, (g) => g.vehicles.vehicles.find((v) => v.type === "ufo" && v.net && !v.puppet && v.radius === 4)?.net.nid, 10000);
+  assert(id, "the host's UFO was not shared");
+  const puppet = await until(client, (g, n) => {
+    const v = g.mp.vehicles.byNid(n);
+    return v && v.puppet && v.pos.toArray();
+  }, 15000, id);
+  assert(puppet, "the client never got the UFO");
+  // Next to it, F.
+  const asked = await v(client, (g, n) => {
+    if (g.player.dead) g.respawn();
+    const v = g.mp.vehicles.byNid(n);
+    g.player.position.set(v.pos.x + 2, v.pos.y - v.bottom, v.pos.z);
+    g.player.flying = true;
+    const near = g.vehicles.nearestEnterable();
+    g.vehicles.toggle();
+    return { asked: !!g.mp.vehicles.pendingClaim, near: near === v, dead: g.player.dead, active: !!g.vehicles.active, unusable: v.unusable, occ: v.netOcc, enabled: g.vehicles.enabled };
+  }, id);
+  if (!asked.asked) {
+    const hs = await v(host, (g, n) => {
+      const v = g.mp.vehicles.byNid(n);
+      return { state: g.mp.vehicles._state(v), active: g.vehicles.active?.net?.nid ?? g.vehicles.active?.type ?? null, puppet: v.puppet };
+    }, id);
+    const cs = await v(client, (g, n) => {
+      const v = g.mp.vehicles.byNid(n);
+      return { last: v.interp.last, buf: v.interp.buf.length };
+    }, id);
+    console.log("DEBUG", JSON.stringify(hs), JSON.stringify(cs));
+  }
+  assert(asked.asked, `boarding did not ask the host: ${JSON.stringify(asked)}`);
+  const inIt = await until(client, (g, n) => g.vehicles.active && g.vehicles.active.net?.nid === n && !g.vehicles.active.puppet, 15000, id);
+  assert(inIt, "the client is not flying the UFO");
+  const hostSide = await until(host, (g, n) => {
+    const v = g.mp.vehicles.byNid(n);
+    return v && v.puppet && v.netOcc && v.netOcc;
+  }, 10000, id);
+  const bob = await v(client, (g) => g.net.pid);
+  assert(hostSide === bob, `on the host the UFO is flown by ${hostSide}`);
+  const target = await v(client, (g) => {
+    const v = g.vehicles.active;
+    v.pos.x += 25;
+    v.pos.y += 6;
+    return v.pos.toArray();
+  });
+  const moved = await until(host, (g, a) => {
+    const v = g.mp.vehicles.byNid(a.n);
+    return v && v.pos.distanceTo(new g.THREE.Vector3(...a.t)) < 1.5;
+  }, 15000, { n: id, t: target });
+  assert(moved, "the host never saw the UFO move");
+  // Out again (it stays the client's, parked).
+  await v(client, (g) => g.vehicles.exit());
+  await v(host, (g) => g.mp.rules.setMode("survival"));
+});
+
 await check("Dogfight: everyone in a jet, PvP hits, kills and deaths on the scoreboard, a winner and a loser", async () => {
   // The host picks Dogfight and a death limit of 3 in the Multiplayer screen (the real controls).
   await host.evaluate(() => {

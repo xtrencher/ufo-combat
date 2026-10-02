@@ -416,7 +416,7 @@ export class NetSession {
       const nick = this._uniqueNick(cleanNick(hello.nick) || `Player ${pid}`);
       const player = { pid, nick, color: playerColor(pid), host: false, ping: 0 };
       this.players.set(pid, player);
-      link.send({ t: "_welcome", pid, token: link.token, code: this.code, players: [...this.players.values()], ...(this.welcomeExtra?.(pid) || {}) });
+      link.send({ t: "_welcome", pid, token: link.token, code: this.code, now: now(), players: [...this.players.values()], ...(this.welcomeExtra?.(pid) || {}) });
       // Not "ready" (no game traffic) until it asks for the state.
       link.ready = false;
       this.broadcast({ t: "_players", players: [...this.players.values()] }, { except: pid });
@@ -542,6 +542,11 @@ export class NetSession {
           if (msg.t === "_refuse") return finish(new NetError(msg.reason === "version" || msg.reason === "full" ? msg.reason : "unknown", `Refused: ${msg.reason}`));
           if (msg.t === "_welcome") {
             this.links.set(HOST_PID, link);
+            // A first guess at the host's clock (the pings refine it within a second).
+            if (Number.isFinite(msg.now)) {
+              this.clockOffset = msg.now - now();
+              this._clockSet = false;
+            }
             link.ready = true;
             // The second, unordered channel for the steady stream of states.
             const fast = this.peer.connect(hostId, { reliable: false, serialization: "raw", metadata: { ch: "fast", pid: msg.pid, token: msg.token } });
