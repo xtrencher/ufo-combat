@@ -795,10 +795,10 @@ export class MissionDirector {
   }
 
   // The nuke went off: on the enemy base?
-  nukeDetonated(center) {
+  nukeDetonated(center, R = 0) {
     if (!this.enabled || this.mission?.event !== "airport" || !this.base) return;
     const d = Math.hypot(center.x - this.base.x, center.z - this.base.z);
-    if (d < 170) {
+    if (d < Math.max(170, R * 1.3)) {
       this.stats.add("airportsNuked");
       this.toast?.("DIRECT HIT: the enemy base is gone!", 5);
     } else this.toast?.(`The nuke missed the base by ${Math.round(d)} blocks.`, 3);

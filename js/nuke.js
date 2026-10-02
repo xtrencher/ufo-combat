@@ -21,8 +21,11 @@ import { LAYER_FX } from "./layers.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
 export const NUKE_MIN_SIZE = 12;
-export const NUKE_MAX_SIZE = 96;
-export const NUKE_DEFAULTS = { size: 44, intensity: "high" };
+export const NUKE_MAX_SIZE = 200; // (Round 6: the default is the old maximum, 96)
+export const NUKE_DEFAULTS = { size: 96, intensity: "high" };
+// Depth of the crater: about what a size-44 nuke used to dig (22 blocks), growing
+// only slowly with the size, so a big nuke makes a very wide, shallow-looking bowl.
+const craterDepth = (R) => 22 * Math.sqrt(R / 44);
 const INTENSITY = { low: 0.4, medium: 0.7, high: 1 };
 const SLICES_MIN = 10;
 
@@ -84,6 +87,7 @@ export class NukeSystem {
       scorched: false,
       cloudT: 0,
       slices: Math.max(SLICES_MIN, Math.ceil(R / 4)), // the crater is carved in this many slices over frames
+      clearR: R * 1.3, // everything standing within this is destroyed (see _scorch)
       height: Math.min(300, 50 + R * 3.8), // mushroom cap height above the ground
     };
     this._buildCloud(d);
@@ -116,7 +120,7 @@ export class NukeSystem {
     const x0 = Math.floor(c.x) - R - 2;
     const width = Math.ceil((2 * R + 5) / d.slices);
     const a = x0 + d.slice * width;
-    const removed = this.effects._carve(c, R, { shape: d.shape, x0: a, x1: a + width - 1 });
+    const removed = this.effects._carve(c, R, { shape: d.shape, x0: a, x1: a + width - 1, maxRadius: NUKE_MAX_SIZE + 20, vScale: R / craterDepth(R) });
     this.effects.floodInto(removed);
     d.slice++;
     // A sample of debris flying out.
@@ -345,17 +349,52 @@ export class NukeSystem {
     }
   }
 
-  // Everything within 2R loses its grass, leaves and plants: a scorched,
-  // flattened blast zone (a bounded number of columns per frame).
+  // The blast zone, a bounded number of columns per frame.
+  // - Within `clearR` (a bit wider than the crater) EVERYTHING above the
+  //   natural ground goes: trunks, leaves, grass, flowers, snow, houses, city
+  //   blocks, hangars, towers, fences, lamps... and a runway, apron, taxiway
+  //   or street surface is turned back into plain scorched earth. (The
+  //   crater itself takes the ground; this takes whatever stood on it, so
+  //   nothing is left floating or standing on the crater's rim.)
+  // - Out to 2R the land is scorched: grass turns to dirt, and the topmost
+  //   leaves, plants and snow of each column burn off (trunks stay as
+  //   charred stumps).
+  // Columns in chunks that are not loaded yet are retried later (when the
+  // player flies closer), for as long as the explosion's effects last.
   _scorch(d, budget) {
     const w = this.world;
     const c = d.center;
     const R2 = d.R * 2;
+    const clearR = d.clearR;
     if (!d.scorchCols) {
-      d.scorchCols = [];
-      for (let x = Math.floor(c.x - R2); x <= Math.ceil(c.x + R2); x++) {
-        for (let z = Math.floor(c.z - R2); z <= Math.ceil(c.z + R2); z++) {
-          if ((x - c.x) ** 2 + (z - c.z) ** 2 <= R2 * R2) d.scorchCols.push(x, z);
+      d.deferred = [];
+      // The columns, nearest first (a counting sort by ring), so the clearing
+      // spreads outward like the shockwave.
+      const RING = 6;
+      const rings = Math.ceil(R2 / RING) + 1;
+      const counts = new Uint32Array(rings + 1);
+      const x0 = Math.floor(c.x - R2);
+      const x1 = Math.ceil(c.x + R2);
+      const z0 = Math.floor(c.z - R2);
+      const z1 = Math.ceil(c.z + R2);
+      let total = 0;
+      for (let x = x0; x <= x1; x++) {
+        for (let z = z0; z <= z1; z++) {
+          const q = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
+          if (q > R2 * R2) continue;
+          counts[Math.floor(Math.sqrt(q) / RING) + 1]++;
+          total++;
+        }
+      }
+      for (let i = 1; i <= rings; i++) counts[i] += counts[i - 1];
+      d.scorchCols = new Int32Array(total * 2);
+      for (let x = x0; x <= x1; x++) {
+        for (let z = z0; z <= z1; z++) {
+          const q = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
+          if (q > R2 * R2) continue;
+          const k = counts[Math.floor(Math.sqrt(q) / RING)]++;
+          d.scorchCols[k * 2] = x;
+          d.scorchCols[k * 2 + 1] = z;
         }
       }
       d.scorchI = 0;
@@ -366,20 +405,72 @@ export class NukeSystem {
       const x = d.scorchCols[d.scorchI++];
       const z = d.scorchCols[d.scorchI++];
       n++;
-      if (!w.getChunk(x >> 4, z >> 4)) continue;
-      for (let y = WORLD_HEIGHT - 1; y > 0; y--) {
-        const id = w.getBlock(x, y, z);
-        if (id === BLOCK.AIR) continue;
-        if (IS_LEAVES[id] || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW || id === BLOCK.SNOW) {
-          edits.push(x, y, z, BLOCK.AIR);
-          continue;
-        }
-        if (id === BLOCK.GRASS) edits.push(x, y, z, BLOCK.DIRT);
-        break;
-      }
+      if (!this._scorchColumn(d, x, z, edits)) d.deferred.push(x, z);
     }
     if (edits.length) w.setBlocks(edits);
     return d.scorchI >= d.scorchCols.length;
+  }
+
+  // Retries the columns whose chunks were not loaded (a few hundred per call).
+  _retryDeferred(d, budget) {
+    if (!d.deferred || d.deferred.length === 0) return;
+    const edits = [];
+    const keep = [];
+    let n = 0;
+    for (let i = 0; i < d.deferred.length; i += 2) {
+      const x = d.deferred[i];
+      const z = d.deferred[i + 1];
+      if (n >= budget) {
+        keep.push(x, z);
+        continue;
+      }
+      if (!this.world.getChunk(x >> 4, z >> 4)) {
+        keep.push(x, z);
+        continue;
+      }
+      n++;
+      this._scorchColumn(d, x, z, edits);
+    }
+    d.deferred = keep;
+    if (edits.length) this.world.setBlocks(edits);
+  }
+
+  // Returns false when the column's chunk is not loaded (nothing done).
+  _scorchColumn(d, x, z, edits) {
+    const w = this.world;
+    const chunk = w.getChunk(x >> 4, z >> 4);
+    if (!chunk) return false;
+    const blocks = chunk.blocks;
+    const col = ((z & 15) << 4) | (x & 15);
+    const c = d.center;
+    const dist2 = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
+    if (dist2 <= d.clearR * d.clearR) {
+      // Everything above the natural ground.
+      const h = w.heightAt(x, z);
+      const top = Math.min(WORLD_HEIGHT - 1, h + 120);
+      for (let y = top; y > h; y--) {
+        const id = blocks[(y << 8) | col];
+        if (id !== BLOCK.AIR && id !== BLOCK.WATER) edits.push(x, y, z, BLOCK.AIR);
+      }
+      // The surface: grass burns to dirt, a runway / apron / street goes back to earth.
+      const id = blocks[(h << 8) | col];
+      if (id !== BLOCK.AIR && id !== BLOCK.WATER && h > 1) {
+        const man = this.world.terrain.sites?.surfaceAt?.(x, z);
+        if (id === BLOCK.GRASS || id === BLOCK.SNOW || man) edits.push(x, h, z, BLOCK.DIRT);
+      }
+      return true;
+    }
+    for (let y = WORLD_HEIGHT - 1; y > 0; y--) {
+      const id = blocks[(y << 8) | col];
+      if (id === BLOCK.AIR) continue;
+      if (IS_LEAVES[id] || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW || id === BLOCK.SNOW) {
+        edits.push(x, y, z, BLOCK.AIR);
+        continue;
+      }
+      if (id === BLOCK.GRASS) edits.push(x, y, z, BLOCK.DIRT);
+      break;
+    }
+    return true;
   }
 
   update(dt, listener, daylight = 1) {
@@ -396,7 +487,11 @@ export class NukeSystem {
       const R = d.R;
       // Crater: one slice per frame.
       if (d.slice < d.slices) this._carveSlice(d);
-      else if (!d.scorched) d.scorched = this._scorch(d, 900);
+      if (!d.scorched) d.scorched = this._scorch(d, 700);
+      else if (d.slice >= d.slices && d.t - (d.retryT ?? 0) > 2) {
+        d.retryT = d.t;
+        this._retryDeferred(d, 1500);
+      }
       // Fireball: swells, then cools and rises.
       const tb = d.t;
       if (tb < 6) {
@@ -426,7 +521,10 @@ export class NukeSystem {
         this.ring.visible = false;
       }
       this._updateCloud(d, dt);
-      if (d.t > 125 && d.slice >= d.slices && d.scorched) this.active.splice(i, 1);
+      if (d.t > 125 && d.slice >= d.slices && d.scorched) {
+        this._retryDeferred(d, 4000);
+        this.active.splice(i, 1);
+      }
     }
     if (!anyBall) this.ball.visible = false;
   }

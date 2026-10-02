@@ -94,7 +94,7 @@ export const SCHEMA = [
   { key: "weapons.airstrike.angle", creativeOnly: true, group: "weapons", type: "range", label: "Fall angle (from vertical)", min: 0, max: 70, step: 1, def: 35, fmt: deg },
   { key: "weapons.airstrike.speed", creativeOnly: true, group: "weapons", type: "range", label: "Fall speed (blocks/s)", min: 30, max: 250, step: 5, def: 95, fmt: int },
   { key: "explosionScale.airstrike", creativeOnly: true, id: "explosion-airstrike", group: "weapons", type: "range", label: "Meteor explosion size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
-  { key: "weapons.nukeSize", creativeOnly: true, group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 96, step: 1, def: 44, fmt: int, sub: "Jet nuke", note: (v) => (v > 60 ? "A crater this size takes a moment to carve and rebuild on slower PCs." : "") },
+  { key: "weapons.nukeSize", creativeOnly: true, group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 200, step: 1, def: 96, fmt: int, sub: "Jet nuke", hint: "The default (96) wipes out everything within about 125 blocks: land, trees, buildings, runways.", note: (v) => (v > 120 ? "A crater this size takes a few seconds to carve and rebuild, even on a fast PC. Chunks beyond your render distance are cleared as they load." : v > 96 ? "Bigger than the default: the blast takes a moment to carve and rebuild on slower PCs." : "") },
   { key: "weapons.nukeIntensity", group: "weapons", type: "select", label: "Nuke effects intensity", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "How much smoke and fire the mushroom cloud uses." },
 
   // ----- Mobs -----

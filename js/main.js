@@ -409,15 +409,18 @@ settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
 nuke.onDetonate = (center, R) => {
   hooks.onNuke?.(center, R);
   stats.add("nukes");
-  mobs.explosion(center, R * 1.4, true);
-  ufos.explosion(center, R * 2.2, true);
-  vehicles.explosion(center, R * 1.6);
+  // Damage reach: the crater grows with the nuke's size, the reach of the blast on creatures,
+  // ships and you only slowly (a size-96 nuke does not kill across 250 blocks).
+  const Rd = 44 * Math.pow(R / 44, 0.45);
+  mobs.explosion(center, Math.max(R * 1.2, Rd * 1.4), true);
+  ufos.explosion(center, Rd * 2.2, true);
+  vehicles.explosion(center, Rd * 1.6);
   // The player: deadly within about twice the crater radius, thrown far.
   if (!player.dead && !player.vehicle) {
     const off = player.position.clone().sub(center);
     const d = off.length();
-    if (d < R * 2.6) {
-      const f = 1 - d / (R * 2.6);
+    if (d < Rd * 2.6) {
+      const f = 1 - d / (Rd * 2.6);
       if (player.damage(Math.ceil(70 * f * f + 2), "nuke", { pierce: true })) {
         lastBlastHitTime = performance.now();
         lastBlastSource = "nuke";
@@ -980,7 +983,7 @@ crates.onMessage = (t) => toast(t, 5);
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast });
 hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
 mobs.onWake = () => missionDirector.crewAwake();
-hooks.onNuke = (center) => missionDirector.nukeDetonated(center);
+hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
   setTimeout(() => toast(`NEW MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}. ${m.text}`, 7), 6500);

@@ -1745,9 +1745,9 @@ Source of truth for this round. Ticked as finished; decisions in "Round 6 decisi
 - [x] 2.7 Survival hides/locks rule-changing settings (Creative only)
 
 ## Part 3: Nuke
-- [ ] 3.1 Default size = old max, setting allows bigger
-- [ ] 3.2 Much wider crater horizontally
-- [ ] 3.3 Destroys trees, grass/plants, buildings (villages, cities, airports), runways
+- [x] 3.1 Default size = old max, setting allows bigger
+- [x] 3.2 Much wider crater horizontally
+- [x] 3.3 Destroys trees, grass/plants, buildings (villages, cities, airports), runways
 
 ## Part 4: Jets
 - [ ] 4.1 Full control during lock-on
@@ -1789,3 +1789,4 @@ Source of truth for this round. Ticked as finished; decisions in "Round 6 decisi
 - Part 2.5: iron ingot and diamond items removed (ids 258/260 reserved, saves skip them), iron/diamond ore no longer generate (stone stays stone), the blocks remain registered so old edits still load and break into cobblestone, removed from the Creative palette. Iron/diamond tools and armor stay (gear, not materials). Gold ore/ingot stay (the one remaining flavour ore; red aliens still drop gold). Alien drops that were iron/diamond became apples with a small golden-apple chance.
 - Part 2.6: skeleton arrow lift used a 0.35 s minimum flight time, i.e. 1.5 blocks of lift even at point blank. Now lift ~ t*min(t,1) (unchanged at long range).
 - Part 2.7: every setting that changes rules/stats (spawn, weapon, zombie, UFO, vehicle performance, nuke size, blast sizes, time of day, time lock, creature spawning) is `creativeOnly`: hidden in Survival, and in Survival the game uses the DEFAULT of those settings (`settingsPanel.effective`), not whatever Creative left behind. Survival keeps graphics, performance, controls, audio, difficulty, stats overlay, blaster color, nuke effects intensity, jet flight assist.
+- Part 3 nuke: default size 96 (the old maximum), setting up to 200. Crater: horizontal radius = size (2.2x wider than the old default), depth = 22 * sqrt(size/44) (the old default's depth, growing slowly: 32 at 96), via `_carve` options `vScale`/`maxRadius`. Blast clear: everything above the natural ground within 1.3x the size (trunks, leaves, plants, houses, skyscrapers, hangars, towers, lamps) is removed in an expanding wave, nearest columns first, together with the carve; grass/snow/runway/apron/street surface turns to earth. Between 1.3R and 2R the old scorch stays (grass burns, topmost leaves and plants go; stumps stay). Columns in chunks not loaded yet are retried every 2 s while the effect lasts. Root cause of the surviving runways: the carve skipped every BEDROCK block, and runways are made of BEDROCK blocks (real bedrock is only y 0-1): now only y<=1 is indestructible (also for the railgun). The damage reach on creatures/ships/the player grows only with size^0.45 (a size-96 nuke does not kill across 250 blocks). The Sunburn mission's "direct hit" radius is max(170, 1.3 R).

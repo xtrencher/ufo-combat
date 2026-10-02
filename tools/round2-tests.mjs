@@ -921,16 +921,16 @@ await check("bazooka lock-on: hold to lock a UFO near the crosshair, the rocket 
   });
 });
 
-await check("nuke: bigger default and size range up to 96, more slices for bigger craters, no long cooldown", async () => {
+await check("nuke: default 96 (the old maximum), size range up to 200, more slices for bigger craters, no long cooldown", async () => {
   const r = await v(async (g) => {
     const { NUKE_DEFAULTS, NUKE_MAX_SIZE } = await import("./js/nuke.js");
     const s = g.settingsPanel.schema?.find?.((x) => x.key === "weapons.nukeSize");
     g.settingsPanel.set("weapons.nukeSize", 96);
     const rad = g.nuke.radius;
-    g.settingsPanel.set("weapons.nukeSize", 44);
+    g.settingsPanel.set("weapons.nukeSize", 96);
     return { def: NUKE_DEFAULTS.size, max: NUKE_MAX_SIZE, rad, schemaMax: s?.max };
   });
-  assert(r.def === 44 && r.max === 96 && r.rad === 96, JSON.stringify(r));
+  assert(r.def === 96 && r.max === 200 && r.rad === 96, JSON.stringify(r));
   // The jet's nuke may be dropped again straight away (no long cooldown).
   const cd = await v(async () => {
     const src = await (await fetch("./js/vehicle-jet.js")).text();

@@ -1008,7 +1008,7 @@ export class WeaponSystem {
             if (removedSet.has(key)) continue;
             removedSet.add(key);
             const id = world.getBlock(x, y, z);
-            if (id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.BEDROCK) continue;
+            if (id === BLOCK.AIR || id === BLOCK.WATER || (id === BLOCK.BEDROCK && y <= 1)) continue;
             removed.push(x, y, z, id);
             edits.push(x, y, z, BLOCK.AIR);
           }
