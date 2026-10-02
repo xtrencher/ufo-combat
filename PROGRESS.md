@@ -1920,3 +1920,48 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - Group 6 (`js/net/dogfight.js`): the host runs the match (countdown, live, over) and the scores; everyone is put in an F-22 (the same jet for everyone: fair) on a ring 380 blocks around the arena (the host's position at the start), 150 blocks up, facing the middle; no getting out (F says so); after a death the player is back in a jet 3 s later without a menu (the mouse stays captured). The kill goes to the last player who hit the jet in the 12 s before it went down (so a crash with someone on your tail is their kill). A player at the death limit is out and watches (free flight, no weapons, not a target); the last one in wins (or the most kills if the last ones go down together). UFOs, enemy fighters, missions and supply drops are off during a Dogfight. Hold Tab for the scoreboard (also in co-op: players and pings).
 - Items handed over (`js/net/items.js`): what a player throws (Q or out of the inventory window) and what a dead player leaves behind land in everyone's world; picking one up is asked of the host, which gives it to the first player who reaches it (no copies when two grab it at once). Loot from kills stays personal (each player's own roll, in their own world).
 - In an online game nothing pauses: Esc only takes your hands off the controls (you can still fall and be hurt), and a hidden tab keeps simulating through a worker clock (20 Hz, without drawing).
+
+## Round 7 summary (for the player)
+- **Multiplayer, free and serverless:** Main menu (or Esc) > **Multiplayer**: host your current world for up to 8 players and get a 5-character room code and an invite link, or join a friend's game with their code. The browsers connect directly (WebRTC through PeerJS; the free public PeerJS server only introduces them). Everything stays on GitHub Pages.
+- **Players:** every player picks a nickname; nicknames float over players and over their aircraft (with health in Survival and the distance when far). Other players are drawn with the player model: walking, sneaking, swimming, swinging, holding their item, under their parachute, flying their jets (throttle, afterburner, gear, control surfaces, air brakes) and their UFOs (tilt, lights, tractor beam).
+- **The host is in charge:** only the host picks the mode and the game settings (difficulty, weapons, creatures, UFOs, vehicles, the clock); a guest's own settings for those are locked while they play and kept for their own worlds. The host can remove a player.
+- **Survival together:** one shared mission chain; everyone's kills count; every player gets each mission's reward; personal loot and supply crates; bigger groups meet more and tougher enemies; the long night only restarts on a team wipe; respawn next to a friend; the host keeps each guest's things for their next visit; items can be thrown to friends (the host decides who picks them up).
+- **Creative together:** everyone builds and flies; a guest's UFO summons ask the host.
+- **Dogfight:** everyone in an F-22, all against all, respawn in a jet 3 s after a death, kills and deaths on the Tab scoreboard, a host-set death limit, VICTORY / DEFEAT for everyone at the end, a new match in one click.
+- **Robust online play:** smooth interpolation of everything remote, a host-authoritative world (it judges hits, deaths, kills and missions), joining at any time with the full game state, clear messages for every way a connection can fail or end, a world that keeps running in a background tab.
+
+## Round 7 decisions (summary; details above)
+- **PeerJS + public signaling, star topology, host-authoritative.** The simplest setup that is free and needs no server of our own, and the one that keeps all the game logic (missions, AI, damage) in one place: the host's existing single-player simulation, extended to several players through stand-ins (`AiProxy`), instead of a second, network-only simulation.
+- **Two data channels** (reliable ordered for events and edits, unordered for the 20 Hz/15 Hz states), our own JSON framing and splitting.
+- **"Favour the shooter" for direct fire, "the victim decides" for what flies at you from the AI** (laser bolts mirrored to the victim), the host for AI melee and missiles. This keeps aiming honest for the shooter and dodging honest for the target, the usual compromise in action games; explosions are judged by every peer for itself (each applies a blast to its own player and vehicle).
+- **Puppets reuse the real classes** (the jet, the UFO, the mob and UFO managers) with their update swapped for "follow the received state", so remote things look exactly like local ones and hit tests (bullets, missiles, lock-on, the tractor beam) work on them unchanged.
+- **Only edits travel**, in the save format; a race on one block is settled by the host; remote edits never start local water/sand simulation (the originator's results arrive as edits).
+- **Instanced loot and personal crates** (everyone gets their own), shared thrown items with host-arbitrated pickup (no duplicates), shared mission rewards: co-op without fighting over drops.
+- **Ambient life stays local** (passive animals, fish, birds, butterflies, villagers): it is decoration and would cost bandwidth for nothing; hostile creatures are the host's.
+- **Joining reloads into a guest page** (`?join=CODE`, which is also the invite link) that connects before the world is built (top-level await), so the client builds the host's seed directly and never touches its own saves.
+- **Nothing pauses online, and a worker clock keeps hidden tabs simulating** (otherwise a host in another tab would freeze everyone, and testing in two tabs would not work).
+- **The host keeps guests' things by nickname** in its world save (like a game server keeps player files), so coming back is seamless.
+
+## Round 7 known issues and limits
+- **No TURN server:** peer-to-peer needs the two networks to let a direct connection through. Most home networks do; some mobile, school, office and hotel networks, some VPNs and two "symmetric NAT" routers together don't, and then "Couldn't connect to the host" is shown (README: try a phone hotspot, turn off the VPN, let the other player host, or add a TURN server in `js/net/config.js`).
+- **The public PeerJS server** is free and shared: it can be slow or briefly unavailable; then "Can't reach the matchmaking server" is shown (try again later). A self-hosted PeerJS server can be used with `?peerServer=`.
+- **The host carries the world:** a slow host computer or connection slows the game for everyone (UFOs, creatures and missions run there). If the host leaves, the game ends for everyone (there is no host migration); guests get a clear message and can rejoin a new room.
+- **Guests keep nothing of the host's world on their own computer** (by design), and the host's world remembers a guest's things by nickname (two people swapping nicknames swap their things).
+- Ambient creatures (animals, fish, birds, villagers) are each player's own: a UFO abducting a cow on the host's screen has no cow on a guest's screen.
+- Airport guards are set out around the host only (a guest alone at another airport finds no guards there).
+- Supply crates and kill loot are personal (by design): a friend can't see your crate.
+- Positions are interpolated ~0.1 s in the past (more on a laggy connection): at jet speeds another player's jet is drawn a few blocks behind where it is; hits are judged on what the shooter sees, so this is fair for the shooter, and a target can occasionally be hit a moment after it thought it got away.
+- A nuke online sends its crater as block edits (several hundred thousand blocks: a second or two of transfer on a normal connection).
+- The guests' death messages for their own explosives read "your own grenade" for everyone in the feed.
+- There is no chat (use voice or messaging alongside).
+
+## How to test multiplayer in 10 minutes
+1. Run `start.sh` (or `start.bat`) and open `http://localhost:5173` in **two windows** side by side (two tabs work too: the hidden one keeps running).
+2. Window 1: **Multiplayer**, nickname "Alice", **Survival**, **Open room**. Note the code; press **Copy invite link**, then **Play**.
+3. Window 2: paste the invite link (or Multiplayer > Join a game > code), nickname "Bob", **Join**, then **Join the game**. Bob starts next to Alice; both see each other's nickname, walk around, dig and build: changes show on both sides.
+4. Both: the same mission in the tracker (top right). Fight the skeleton or the landing party together; the reward goes to both. Bob throws a stack with **Q**; Alice picks it up.
+5. Alice: Esc > **Multiplayer** > Game mode **Creative**: Bob is in Creative too (and his pause-menu mode switch is locked). Spawn a UFO ship from Esc > Mods; Bob walks up and presses **F**: he flies it, Alice sees it fly.
+6. Alice: Game mode **Dogfight**, deaths **3**: both are put in F-22s after a countdown. Shoot each other down (cannon: left button; missiles: hold the right button); hold **Tab** for the scores; after 3 deaths the results show VICTORY / DEFEAT on both sides; **New match** restarts.
+7. Bob: Esc > **Leave game**: Alice sees "Bob left". Bob joins again with the same nickname: his things are back.
+8. Alice: **Close room**: Bob sees "The host left the game" with "Back to my own world".
+9. Automated: `cd tools && npm install && node mp-tests.mjs` (about 3 minutes, real PeerJS and WebRTC between two headless pages through a local signaling server).

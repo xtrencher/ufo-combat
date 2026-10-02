@@ -167,12 +167,14 @@ export class EntitySync {
 
   // Host: every player in the game, as the AI sees them.
   targets() {
-    const out = [this.game.player];
+    const out = [];
     for (const r of this.mp.players.active()) {
       let px = this.proxies.get(r.pid);
       if (!px) this.proxies.set(r.pid, (px = new AiProxy(this, r)));
       out.push(px);
     }
+    // (A host still on the main menu is nobody's target, unless nobody else is in.)
+    if (this.game.gameState !== "start" || !out.length) out.unshift(this.game.player);
     return out;
   }
 
