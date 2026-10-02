@@ -256,8 +256,8 @@ await check("bunkers: a ship hovers in the hall under armed guards; the alarm go
     g.ufos.config.activity = 0;
     g.ufos.clear();
     g.mobs.clear();
-    g.mobs.spawning = false;
-    g.mobs.hostileSpawning = false;
+    g.mobs.spawning = false; // (no random spawns, but the guards)
+    g.mobs.hostileSpawning = true; // (guards are not spawned on Peaceful)
     let best = null;
     const p = g.player.position;
     for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {

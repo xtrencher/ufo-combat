@@ -793,7 +793,7 @@ try {
       }
       return { x: x0, y, z: z0, species: [...kinds].sort() };
     });
-    await page.waitForFunction(() => window.__voxelands.world.isIdle && window.__voxelands.world.remeshQueue.size === 0, null, { timeout: 300000, polling: 250 });
+    await page.waitForFunction(() => window.__voxelands.world.isIdle && window.__voxelands.world.remeshQueue.size === 0, null, { timeout: 600000, polling: 250 });
     await page.waitForFunction(() => window.__voxelands.grass.count > 0, null, { timeout: 60000, polling: 250 });
     const g = await page.evaluate(() => ({ ...window.__voxelands.grass.counts }));
     console.log(`        plants: ${JSON.stringify(g)}; tree species nearby: ${r.species.join(", ")} (1 oak, 2 birch, 3 pine, 4 old oak, 5 willow)`);
@@ -2478,7 +2478,7 @@ try {
     assert(s.fcp > 0, "the page should paint (the loading panel) right away");
     assert(s.readyAtMenu === false && s.playAtMenu.disabled && /Preparing/.test(s.playAtMenu.text), `the start menu should come up before the world is drawn, with Play waiting: ${JSON.stringify(s)}`);
     assert(!s.play.disabled && /^(Play|Continue)$/.test(s.play.text), `Play should be ready once the shaders are: ${JSON.stringify(s.play)}`);
-    assert(s.preset === "ultra" && s.startSelect === "ultra" && s.boot.preset === "ultra", `default start: ${JSON.stringify(s)}`);
+    assert(s.preset === "medium" && s.startSelect === "medium" && s.boot.preset === "medium", `default start (Round 5: Medium): ${JSON.stringify(s)}`);
     // Like picking a preset in the menu, ?graphics= also clears individual options.
     await p.evaluate(() => {
       const saved = JSON.parse(localStorage.getItem("ufocombat_v1_settings"));
@@ -2574,6 +2574,8 @@ try {
     });
     await p.goto(`http://localhost:${PORT}/index.html?seed=${SEED}`, { waitUntil: "load" });
     await waitReady(p);
+    // (The boot record turns ok after three drawn frames: let them pass, as on any real start.)
+    await p.evaluate(() => new Promise((r) => { let n = 0; const f = () => (++n >= 8 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }));
     await p.evaluate(() => document.getElementById("game-canvas").getContext("webgl2").getExtension("WEBGL_lose_context").loseContext());
     await p.waitForFunction(() => !document.getElementById("gpu-lost").classList.contains("hidden"), null, { timeout: 30000, polling: 100 });
     const s = await p.evaluate(() => ({

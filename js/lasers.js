@@ -95,6 +95,7 @@ export class LaserBolts {
     this.world = world;
     this.effects = effects;
     this.decals = decals;
+    this.holes = null; // bullet-hole decals (the pistol's bullets leave these instead of scorch marks)
     this.audio = audio;
     this.bolts = [];
     this.providers = [];
@@ -186,7 +187,7 @@ export class LaserBolts {
   // HDR), speed (blocks/s), damage, owner (string: "player", "ufo", "alien",
   // "playerufo", ...), source (the object that fired it, which it never
   // hits), range (blocks), radius, length, scorch (leave a mark), sound.
-  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0 }) {
+  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false }) {
     if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
     const bolt = {
       pos: from.clone(),
@@ -201,6 +202,7 @@ export class LaserBolts {
       radius,
       length,
       scorch,
+      hole,
       blast,
       dead: false,
     };
@@ -242,7 +244,9 @@ export class LaserBolts {
     fx.glow.spawn({ x: point.x, y: point.y, z: point.z, life: 0.14, size0: 0.9 + b.radius * 6, size1: 0.2, color0: b.color, alpha: 0.9 });
     fx.smoke.spawn({ x: point.x, y: point.y, z: point.z, vx: n.x * 0.6, vy: 0.6, vz: n.z * 0.6, life: 0.9, size0: 0.2, size1: 0.8, color0: SMOKE0, color1: SMOKE1, alpha: 0.4, drag: 1.5 });
     if (hit.block) {
-      if (b.scorch && this.decals && this.world.getChunk(hit.block.block[0] >> 4, hit.block.block[2] >> 4)) this.decals.add(point, hit.block.block, hit.block.normal);
+      const loaded = this.world.getChunk(hit.block.block[0] >> 4, hit.block.block[2] >> 4);
+      if (b.hole && this.holes && loaded) this.holes.add(point, hit.block.block, hit.block.normal); // a bullet: a hole
+      else if (b.scorch && this.decals && loaded) this.decals.add(point, hit.block.block, hit.block.normal);
       const ears = this.listener ? this.listener() : null;
       if (this.audio?.playLaserHit) this.audio.playLaserHit(ears ? point.distanceTo(ears) : 0);
     } else if (hit.target) {

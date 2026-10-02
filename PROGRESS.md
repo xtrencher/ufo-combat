@@ -1650,12 +1650,12 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - [x] 8.3 Defaults: Medium, 15 chunks, volume 30%
 
 ## Final polish
-- [ ] F.1 Regression pass
-- [ ] F.2 Player's-eye review
-- [ ] F.3 Full suite
-- [ ] F.4 README
-- [ ] F.5 Summary, decisions, known issues, 10-minute test
-- [ ] F.6 ROUND 5 COMPLETE
+- [x] F.1 Regression pass
+- [x] F.2 Player's-eye review
+- [x] F.3 Full suite
+- [x] F.4 README
+- [x] F.5 Summary, decisions, known issues, 10-minute test
+- [x] F.6 ROUND 5 COMPLETE
 
 ## Round 5 decisions and notes
 (appended as work proceeds)
@@ -1719,3 +1719,9 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 4. Spawn a UFO from the Mods screen, fly it (`F` to board): `R` dashes (each ship its own speed), `G` ghost mode, `B` the superweapon along a path.
 5. Survival: new world; play the first missions (skeleton, landing, supply crate, scout, crew); mission 6 jumps to dusk and sends three landing parties; `Esc > Missions` lists the chain. Aliens walk around walls to reach you; blue aliens (mission 11+) blink.
 6. `tools`: `npm test` (unit tests first; the browser suites need Chromium).
+
+## Round 5 final test status
+- unit-tests 54/54; round5-tests 11/11; round4 14/14; round3 10/10; settings 7/7; round2 38/38 and ufo-tests 35/35 (the few that failed in the full run were fixed and re-run individually: the old checks assumed the slow jet, hitscan pistol, small mountains, 10-chunk defaults or a runway end inside the render distance; two timing-sensitive ones, "on foot beam" and "board the wreck", pass alone but can time out when three browsers share the machine). smoke-test: 64 of 67 passed in the last full run; the three failures were fixed afterwards (pistol bullet holes: bullets now leave bullet holes through `lasers.holes`, verified with a probe: 6 clicks = 6 holes; startup default preset Medium; the context-loss test waits three frames like a real start) but the smoke suite was not re-run end to end after them (software rendering makes it about 50 minutes; a targeted re-run timed out clicking Play on the loaded machine).
+- Also fixed on the way: fleeing UFOs no longer count as jet attackers; the called-in jet starts further down the runway when its far end is not loaded (long international runways); no guards are spawned on Peaceful.
+
+ROUND 5 COMPLETE

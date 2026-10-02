@@ -332,6 +332,7 @@ const decals = new BulletHoles(scene, world);
 const scorches = new BulletHoles(scene, world, { kind: "scorch" });
 const lasers = new LaserBolts({ scene, world, effects, decals: scorches, audio });
 lasers.listener = () => effects.listener;
+lasers.holes = decals; // (the pistol's bullets leave bullet holes)
 const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
 lasers.addProvider({
   raycast(origin, dir, maxDist, bolt) {

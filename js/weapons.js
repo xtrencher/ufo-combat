@@ -776,7 +776,7 @@ export class WeaponSystem {
     const aim = eye.clone().addScaledVector(dir, near).sub(muzzle);
     if (aim.lengthSq() < 0.25) aim.copy(dir);
     aim.normalize();
-    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.03, length: 2.6, sound: false, scorch: true });
+    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.03, length: 2.6, sound: false, scorch: true, hole: true });
     return { type: "bullet" };
   }
 
