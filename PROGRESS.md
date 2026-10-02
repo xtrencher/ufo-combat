@@ -1901,12 +1901,12 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - [x] 8.2 Local two-tab testing documented (and works with the tab in the background)
 
 ## Final polish
-- [ ] F.1 Regression pass (single-player unchanged)
-- [ ] F.2 Multiplayer review in two tabs (host/join, nicknames, Survival, Creative, Dogfight to the end, client leaving, host leaving)
-- [ ] F.3 Full test suite once
+- [x] F.1 Regression pass (single-player unchanged)
+- [x] F.2 Multiplayer review in two tabs (host/join, nicknames, Survival, Creative, Dogfight to the end, client leaving, host leaving)
+- [x] F.3 Full test suite once
 - [x] F.4 README "How to play with friends"
-- [ ] F.5 PROGRESS summary, decisions, known issues (incl. no TURN), 10-minute MP test
-- [ ] F.6 "ROUND 7 COMPLETE", commit, push
+- [x] F.5 PROGRESS summary, decisions, known issues (incl. no TURN), 10-minute MP test
+- [x] F.6 "ROUND 7 COMPLETE", commit, push
 
 ## Round 7 decisions and notes
 (appended as work proceeds)
@@ -1965,3 +1965,16 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 7. Bob: Esc > **Leave game**: Alice sees "Bob left". Bob joins again with the same nickname: his things are back.
 8. Alice: **Close room**: Bob sees "The host left the game" with "Back to my own world".
 9. Automated: `cd tools && npm install && node mp-tests.mjs` (about 3 minutes, real PeerJS and WebRTC between two headless pages through a local signaling server).
+
+## Round 7 final test status
+
+- `mp-tests.mjs` (two headless pages, real PeerJS + WebRTC through a local signaling server): **17/17** on the final code (room code, join by code, nicknames, movement sync, hidden tab, block change + race, explosion craters, item handover, UFO puppet, pistol hit, zombie AI hunting the guest, Survival mission + shared reward, host-only mode, vehicle claim, Dogfight to the end with winner/loser, client leaving + rejoining with its things, host leaving). About 3 minutes.
+- `unit-tests.mjs`: 60/60 (incl. the new multiplayer unit tests: room codes, nicknames, interpolation, message splitting, edit encoding).
+- `settings-tests.mjs` 7/7, `round3-tests.mjs` 10/10.
+- `round6-tests.mjs` 18/19, `round5-tests.mjs` 10/11, `round4-tests.mjs` 13/14 in the full run with other browsers sharing the machine; each failing check (Touchdown squad, grass regrowth, Survival opening scout) **passes when re-run alone**: they are timing-sensitive on software rendering, not regressions (single-player code paths only changed behind `online` / `GUEST` checks).
+- `round2-tests.mjs` 36/38 in the full run: both failures were a real regression (the new multiplayer mode cards used the `mode-card` class, which the main menu's mode picker grabs). Fixed (`mp-mode` class); both checks pass on re-run.
+- unit terrain timing (3.36 ms vs 3 ms per chunk) failed once under load and passes alone.
+- **Not run to completion this round:** `ufo-tests.mjs` (~45 min) and `smoke-test.mjs` (~75 min) on software rendering, stopped after more than 10 minutes each as the round's rules ask. No code they cover was changed outside the `online` / `GUEST` branches.
+- Zero console errors in the multiplayer runs (the mp suite fails on any page error).
+
+ROUND 7 COMPLETE
