@@ -856,12 +856,14 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     if (!u) return { ...out, fail: "no scout", dead: g.player.dead, en: g.missions.enabled, mid: g.missions.missionId, st: Object.keys(g.missions.state).join(), ufos: g.ufos.ufos.length };
     g.inventory.selected = g.inventory.slots.findIndex((s) => s && s.id === 287);
     let shots = 0;
-    for (let k = 0; k < 90 && !u.falling && u.state !== "gone"; k++) {
+    for (let k = 0; k < 160 && !u.falling && u.state !== "gone"; k++) {
+      // (Round 5: real bullets and bigger hills: keep the scout close and above the player, in the clear.)
+      u.pos.y = Math.min(Math.max(u.pos.y, g.player.position.y + 8), g.player.position.y + 24);
       const d = Math.hypot(u.pos.x - g.player.position.x, u.pos.z - g.player.position.z);
       if (d > 70) {
         // (It wanders within its tether: bring it back within pistol range
         // rather than walking the player over unknown ground.)
-        const q = 60 / d;
+        const q = 45 / d;
         u.pos.x = g.player.position.x + (u.pos.x - g.player.position.x) * q;
         u.pos.z = g.player.position.z + (u.pos.z - g.player.position.z) * q;
       }

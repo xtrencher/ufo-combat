@@ -1010,6 +1010,11 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
   await page.mouse.down({ button: "right" }); // (Round 2: hold the right button to lock on)
   const locked = await until((g) => {
     const j = g.vehicles.active;
+    // (Round 5: the jet is much faster: keep it slow and the UFO well ahead while this check waits on software-rendered frames.)
+    j.throttle = 0.2;
+    j.pos.y = Math.max(j.pos.y, 120);
+    window.__u.pos.copy(j.pos).addScaledVector(j.forward(new g.THREE.Vector3()), 420);
+    window.__u.vel.set(0, 0, 0);
     const d = window.__u.pos.clone().sub(j.pos).normalize();
     j.aimYaw = Math.atan2(-d.x, -d.z);
     j.aimPitch = Math.asin(d.y);
@@ -1067,6 +1072,7 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
   const r0 = await v((g) => {
     const j = g.vehicles.active;
     window.__nukes = g.stats.world.nukes;
+    window.__nukeY = undefined;
     window.__cloud = 0;
     j.nukeT = 0;
     // A low pass, so the drop doesn't take ages of software-rendered frames.
@@ -1077,7 +1083,17 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
   await frames(2);
   const bomb = await v((g) => g.vehicles.active.bombs.length);
   assert(r0 && bomb === 1, "bomb away");
-  const boom = await until((g) => g.nuke.active.length > 0 && g.nuke.active[0].center.toArray(), 240000);
+  // (Round 5: the jet is much faster: hold it over the drop so the world under the bomb stays loaded.)
+  const boom = await until((g) => {
+    const j = g.vehicles.active;
+    if (j) {
+      j.vel.set(0, 0, 0);
+      j.throttle = 0;
+      window.__nukeY = window.__nukeY ?? j.pos.y;
+      j.pos.y = window.__nukeY;
+    }
+    return g.nuke.active.length > 0 && g.nuke.active[0].center.toArray();
+  }, 240000);
   assert(boom, "detonated");
   const after = await until((g) => g.nuke.active[0]?.slice >= 10 && { cloud: g.nuke.cloud.particles.length, air: g.world.getBlock(Math.floor(g.nuke.active[0].center.x), Math.floor(g.nuke.active[0].center.y - 3), Math.floor(g.nuke.active[0].center.z)), nukes: g.stats.world.nukes - window.__nukes }, 120000);
   assert(after && after.cloud > 20 && after.nukes === 1, `nuke aftermath ${JSON.stringify(after)}`);
@@ -1122,7 +1138,7 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     f.y = 0;
     f.normalize();
     const u = g.ufos.spawn({ size: "medium", design: "saucer", pos: j.pos.clone().addScaledVector(f, 320).add(new g.THREE.Vector3(0, 10, 0)), personality: "evader" });
-    u.fleeFactor = 0.85;
+    u.fleeFactor = 0.5; // (Round 5: the jet is much faster; a real evader runs at 0.4-0.9 of its top speed)
     u.crashPlan = { exploded: false, crew: 3 }; // (random in the game)
     u.noLeave = true; // (it may fly away for good in the game)
     u.blinkT = 1e9; // (or blink out of the way of the missile)

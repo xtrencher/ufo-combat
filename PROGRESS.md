@@ -1646,7 +1646,7 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 
 ## Part 8: Missions and defaults
 - [x] 8.1 The Long Night at night, eventful
-- [ ] 8.2 Re-check mission chain and difficulty
+- [x] 8.2 Re-check mission chain and difficulty
 - [x] 8.3 Defaults: Medium, 15 chunks, volume 30%
 
 ## Final polish
