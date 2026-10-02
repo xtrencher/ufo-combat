@@ -308,8 +308,9 @@ export class MobManager {
       yaw: Math.random() * Math.PI * 2,
       headYaw: 0,
       headPitch: 0,
-      health: spec.health * (kind === "zombie" ? this.zombies.health : 1),
-      maxHealth: spec.health * (kind === "zombie" ? this.zombies.health : 1),
+      // (Online the host's hostile creatures are a little tougher for a bigger group.)
+      health: spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile ? this.groupHealth ?? 1 : 1),
+      maxHealth: spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile ? this.groupHealth ?? 1 : 1),
       hurtTime: 99,
       invulnerable: 0,
       dead: false,

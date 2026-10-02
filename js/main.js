@@ -1023,12 +1023,15 @@ function refreshSurvivalSystems() {
   settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   progress.enabled = on && !testFlags.noMissions;
-  missionDirector.enabled = on && !testFlags.noMissions;
+  // (A guest follows the host's mission chain: js/net/coop.js.)
+  missionDirector.enabled = on && !testFlags.noMissions && !GUEST;
   if (!on) crates.clear();
 }
 mods.onChange(refreshSurvivalSystems);
 refreshSurvivalSystems();
-progress.onComplete = (m) => {
+progress.onComplete = (m) => giveMissionReward(m);
+// A finished mission's reward, into the inventory. (Online every player gets it.)
+function giveMissionReward(m) {
   stats.add("missionsDone");
   const owned = ownedItems();
   const names = [];
@@ -1044,7 +1047,7 @@ progress.onComplete = (m) => {
   audio.playMission?.();
   markInventoryChanged();
   playerDirty = true;
-};
+}
 
 // ---------- Mods screen ----------
 const modsCheckbox = document.getElementById("mods-enabled");
@@ -1110,29 +1113,17 @@ function creativeSpawnUfo(design) {
   screens.closeAll();
   requestLock();
 }
-document.getElementById("summon-ufo").addEventListener("click", () => {
-  if (!creativeToolCheck()) return;
-  ufos.spawn({ pos: inFront(60, 30) });
-  screens.closeAll();
-  requestLock();
-});
-document.getElementById("summon-ufo-attack").addEventListener("click", () => {
-  if (!creativeToolCheck()) return;
-  const u = ufos.spawn({ pos: inFront(70, 30), size: "small" });
-  u.state = "react";
-  u.reaction = "counter";
-  u.timer = 6;
-  u.lastSeen = ufos.time;
-  screens.closeAll();
-  requestLock();
-});
-document.getElementById("summon-ufo-crash").addEventListener("click", () => {
-  if (!creativeToolCheck()) return;
-  const u = ufos.spawn({ pos: inFront(30, 25), size: "medium" });
-  ufos.damage(u, 99999, true);
-  screens.closeAll();
-  requestLock();
-});
+// (Online the UFOs are the host's: a guest's summons are asked of the host.)
+for (const [id, kind, dist, up] of [["summon-ufo", "roam", 60, 30], ["summon-ufo-attack", "attack", 70, 30], ["summon-ufo-crash", "crash", 30, 25]]) {
+  document.getElementById(id).addEventListener("click", () => {
+    if (!creativeToolCheck()) return;
+    const at = inFront(dist, up).toArray();
+    if (mp.isClient) mp.coop.summon(kind, at);
+    else game.summonUfo(kind, at);
+    screens.closeAll();
+    requestLock();
+  });
+}
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
@@ -1147,6 +1138,9 @@ if (GUEST) {
   document.getElementById("world-state").textContent = `(${joinWelcome.hostNick || "the host"}'s world, room ${net.code})`;
   document.getElementById("main-menu-btn").textContent = "Leave game";
   document.getElementById("copy-link-btn").textContent = "Copy invite link";
+  // (Until the host's world has arrived.)
+  ui.playBtn.disabled = true;
+  ui.setPlayLabel("Receiving the world...");
 }
 // The main menu's background: a slow flyover with a UFO drifting by.
 const flyover = new MenuFlyover(scene, world, { effects, audio });
@@ -1325,6 +1319,24 @@ const DEATH_MESSAGES = {
   roguemissile: "Caught in a dogfight between a fighter and a UFO",
   enemymissile_fall: "Blown out of the sky by an enemy missile",
 };
+// Online, another player's explosive carries their id ("grenade@3"): the
+// message names them ("Blown up by Bob's grenade"). The host's AI (a UFO
+// crash, an enemy missile) keeps its own message.
+const PLAYER_WEAPONS = { grenade: "grenade", bazooka: "bazooka rocket", airstrike: "airstrike", ufocannon: "UFO cannon", nuke: "nuke", missile: "missile", cannon: "cannon" };
+function deathMessage(cause) {
+  if (typeof cause === "string" && cause.includes("@")) {
+    const m = /^([a-z_]+?)@(\d+)(_fall)?$/.exec(cause);
+    if (m) {
+      const [, src, pid, fall] = m;
+      const name = mp.playerName(Number(pid));
+      if (Number(pid) === net.pid) return DEATH_MESSAGES[src + (fall || "")] || src;
+      if (PLAYER_WEAPONS[src]) return `${fall ? "Sent flying" : src === "nuke" ? "Caught in" : "Blown up"} by ${name}'s ${PLAYER_WEAPONS[src]}`;
+      return DEATH_MESSAGES[src + (fall || "")] || DEATH_MESSAGES[src] || src;
+    }
+  }
+  if (typeof cause === "string" && cause.startsWith("pvp@")) return `Shot down by ${mp.playerName(Number(cause.slice(4)))}`;
+  return DEATH_MESSAGES[cause] || cause || "You died";
+}
 let lastBlastHitTime = -Infinity;
 let lastBlastSource = "grenade";
 let deathCause = null;
@@ -1348,7 +1360,8 @@ player.onDeath = (cause) => {
   interaction.release();
   dropEverything();
   gameState = "dead";
-  hud.showDeath(DEATH_MESSAGES[cause] || cause || "You died");
+  hud.showDeath(deathMessage(cause));
+  mp.playerDied?.(cause, deathMessage(cause));
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   playerDirty = true;
 };
@@ -1394,7 +1407,9 @@ function respawn() {
   player.syncCamera();
   streamAround(player.position.x, player.position.z);
   deathCause = null;
-  ufos.playerRespawned();
+  // (Online the UFOs only give this player a moment: the others are still fighting.)
+  if (mp.active) ufos.graceT = Math.max(ufos.graceT, 8);
+  else ufos.playerRespawned();
   playerDirty = true;
   gameState = "paused";
   audio.ensureStarted();
@@ -2363,6 +2378,66 @@ const game = {
   giveLoot,
   rollLoot,
   lootFor,
+  giveMissionReward,
+  deathMessage,
+  // Online: a player's things (the host keeps a guest's between visits).
+  playerData() {
+    const p = player.position;
+    return { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected, health: player.dead ? MAX_HEALTH : player.health, pos: player.dead ? null : [round3(p.x), round3(p.y), round3(p.z)], loadout: loadoutGiven };
+  },
+  applyPlayerData(d) {
+    if (!d || typeof d !== "object") return;
+    inventory.load(d.inv);
+    inventory.loadArmor(d.armor);
+    if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
+    if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
+    loadoutGiven = d.loadout !== false;
+    markInventoryChanged();
+    if (Array.isArray(d.pos) && d.pos.length === 3 && d.pos.every(Number.isFinite)) game.teleport(d.pos[0], d.pos[1], d.pos[2]);
+  },
+  // Puts this player at (x, z) (on the ground there, or at height y if given and free).
+  teleport(x, y, z) {
+    world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
+    if (y === null || world.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || world.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z))) player.spawnAt(Math.floor(x), Math.floor(z));
+    else {
+      player.position.set(x, y, z);
+      player.velocity.set(0, 0, 0);
+    }
+    player.resetFall?.();
+    streamAround(player.position.x, player.position.z);
+    player.syncCamera();
+  },
+  // Respawn next to (x, z) instead of the world spawn (online: near a friend).
+  respawnNear(x, z) {
+    if (gameState !== "dead") return;
+    respawn();
+    let best = null;
+    for (let r = 2; r <= 6 && !best; r++) {
+      for (let k = 0; k < 8 && !best; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const cx = Math.floor(x + Math.cos(a) * r);
+        const cz = Math.floor(z + Math.sin(a) * r);
+        world.prepareArea(cx, cz, 1);
+        const top = world.surfaceY(cx, cz);
+        if (top > 0 && !IS_WET[world.getBlock(cx, top, cz)] && world.getBlock(cx, top + 1, cz) === BLOCK.AIR && world.getBlock(cx, top + 2, cz) === BLOCK.AIR) best = [cx, cz];
+      }
+    }
+    game.teleport(best ? best[0] + 0.5 : x, null, best ? best[1] + 0.5 : z);
+  },
+  // The creative tools' "summon a UFO" (a guest asks the host: js/net/coop.js).
+  summonUfo(kind, pos) {
+    const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
+    if (kind === "attack") {
+      const u = ufos.spawn({ pos: at, size: "small" });
+      u.state = "react";
+      u.reaction = "counter";
+      u.timer = 6;
+      u.lastSeen = ufos.time;
+    } else if (kind === "crash") {
+      const u = ufos.spawn({ pos: at, size: "medium" });
+      ufos.damage(u, 99999, true);
+    } else ufos.spawn({ pos: at });
+  },
   ufoKilled,
   mobKilled,
   mobLootKind,
@@ -2398,6 +2473,12 @@ const game = {
     return timeSlider;
   },
   grass,
+  // A guest: the host's world and game state are in.
+  onStateLoaded() {
+    ui.playBtn.disabled = false;
+    ui.setPlayLabel("Join the game");
+    refreshPlayLabels();
+  },
   // A step of the game while the tab is hidden (the background clock).
   backgroundStep() {
     const ft = clock.getDelta();
@@ -2700,7 +2781,9 @@ let missionSig = "";
 function updateMissions(dt) {
   const show = gameState === "playing" && crates.enabled && !hudHidden;
   ufos.difficulty = player.creative ? 0.5 : progress.difficulty(stats.world);
-  if (gameState === "playing") missionDirector.update(dt);
+  // (Online the host's missions go on while its pause menu is open.)
+  // (A guest's tracker shows the host's director: js/net/coop.js.)
+  if (!GUEST && (gameState === "playing" || (mp.active && mp.isHost && gameState !== "start"))) missionDirector.update(dt);
   updateMissionMarker(show);
   updateBossBar(show);
   // (Missions complete even with the HUD hidden.)

@@ -366,6 +366,48 @@ await check("the host's AI goes for the client: a zombie near the client hunts a
   }, zid);
 });
 
+await check("Survival together: the client follows the host's mission, and a finished mission rewards both", async () => {
+  await v(host, (g) => {
+    g.testFlags.noMissions = false;
+    g.setMode("survival");
+  });
+  const step = await v(host, (g) => g.progress.step);
+  const seen = await until(client, (g, s) => g.progress.step === s && g.progress.objectives(g.stats.world).length > 0 && g.progress.objectives(g.stats.world)[0].label, 15000, step);
+  assert(seen, `the client never showed mission ${step + 1}`);
+  const rewardId = await v(client, (g) => g.progress.mission.reward[0][0]);
+  const before = await v(client, (g, id) => g.inventory.slots.reduce((n, s) => n + (s && s.id === id ? s.count : 0), 0), rewardId);
+  // The host's group finishes the objective (another player's kill counts for the world).
+  await v(host, (g) => {
+    for (const o of g.progress.mission.objectives) g.stats.addWorld(o.stat, o.goal);
+  });
+  const got = await until(client, (g, a) => {
+    const n = g.inventory.slots.reduce((k, s) => k + (s && s.id === a.id ? s.count : 0), 0);
+    return n > a.before && n;
+  }, 15000, { id: rewardId, before });
+  assert(got, "the client got no reward");
+  const next = await until(client, (g, s) => g.progress.step === s + 1, 10000, step);
+  assert(next, "the client did not move on to the next mission");
+});
+
+await check("only the host picks the mode: Creative for everyone, a guest can't change it", async () => {
+  await v(host, (g) => g.mp.rules.setMode("creative"));
+  const c = await until(client, (g) => g.player.mode === "creative" && g.mp.mode === "creative", 10000);
+  assert(c, "the client did not switch to Creative");
+  // The guest's pause-menu mode switch is locked, and trying it changes nothing.
+  const r = await v(client, (g) => {
+    const sel = document.getElementById("pause-mode-select");
+    sel.value = "survival";
+    sel.dispatchEvent(new Event("change"));
+    return { disabled: sel.disabled, mode: g.player.mode, hostRules: !!g.settingsPanel.hostRules };
+  });
+  assert(r.disabled && r.mode === "creative" && r.hostRules, JSON.stringify(r));
+  const h = await v(host, (g) => g.player.mode);
+  assert(h === "creative", `host mode ${h}`);
+  await v(host, (g) => g.mp.rules.setMode("survival"));
+  const back = await until(client, (g) => g.player.mode === "survival", 10000);
+  assert(back, "the client did not switch back to Survival");
+});
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length}/${results.length} multiplayer checks passed`);

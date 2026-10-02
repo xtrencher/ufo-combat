@@ -317,7 +317,7 @@ export class UfoManager {
     const model = createUfoModel(spec, radius, { castShadow: size !== "mothership" && size !== "giant" });
     this.scene.add(model.root);
     const variation = rand(0.75, 1.3);
-    const maxHealth = Math.max(8, Math.round(S.health * variation * this.config.toughness * (this.rules?.health ?? 1)));
+    const maxHealth = Math.max(8, Math.round(S.health * variation * this.config.toughness * (this.rules?.health ?? 1) * (this.groupHealth ?? 1)));
     // Personality against a jet: most flee a little slower than the jet,
     // some are faster (they can't be caught), fighters attack.
     const pr = Math.random();

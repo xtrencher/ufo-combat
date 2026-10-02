@@ -36,6 +36,17 @@ export class MissionDirector {
     this.checkT = 0;
     this.bossInfo = null; // the boss bar: { name, health, shield, pylons, downT, final } while the Overlord fight is on
     this.base = null; // Operation Sunburn: the enemy-held airport { x, z, y, site }
+    // Online (host; see js/net/coop.js): every player in the game (the
+    // missions' targets, star fragments, landings count for anyone), the
+    // jets the players fly, and the night's "deaths" (a whole team down).
+    this.players = null; // () => [player-like]
+    this.pilotJets = null; // () => [jet]
+    this.nightDeaths = null; // () => number
+  }
+
+  // Is anyone (online: any player) alive and in the game?
+  get anyAlive() {
+    return this.players ? this.players().some((p) => !p.dead) : !this.player.dead;
   }
 
   get mission() {
@@ -71,7 +82,7 @@ export class MissionDirector {
       return;
     }
     this.checkT = 0.5;
-    if (this.player.dead) return;
+    if (!this.anyAlive) return;
     // (In Survival the mission chain decides how many UFOs there are: the UFO
     // activity setting is Creative's, so there is no "Off" to check here.)
     switch (m.event) {
@@ -475,7 +486,7 @@ export class MissionDirector {
     const h = this.sky.hours;
     const dark = h >= 19.5 || h < 5.5;
     const n = this.night;
-    const deaths = this.stats.world.deaths ?? 0;
+    const deaths = this.nightDeaths ? this.nightDeaths() : this.stats.world.deaths ?? 0;
     if (dark && !n.active) {
       n.active = true;
       n.clean = true;
@@ -484,7 +495,7 @@ export class MissionDirector {
     if (n.active && deaths > n.deathsAt) n.clean = false;
     if (!dark && n.active && h >= 5.5 && h < 12) {
       n.active = false;
-      if (n.clean && this.enabled && !this.player.dead) {
+      if (n.clean && this.enabled && this.anyAlive) {
         this.stats.add("nightsSurvived");
         if (this.mission?.event === "night") this.toast?.("Dawn! You survived the night.", 4);
       }
@@ -512,16 +523,16 @@ export class MissionDirector {
       sky.timeScale = 1;
       this.toast?.("Night falls. Stay near light and shelter; things are coming.", 4);
     }
-    if (n.active && !n.clean && st.fastDone && !this.player.dead) {
+    if (n.active && !n.clean && st.fastDone && this.anyAlive) {
       // The player died in the night: start it over from dusk.
       sky.setHours(19.6);
       n.clean = true;
-      n.deathsAt = this.stats.world.deaths ?? 0;
+      n.deathsAt = this.nightDeaths ? this.nightDeaths() : this.stats.world.deaths ?? 0;
       st.nt = 0;
       st.wave = 0;
       this.toast?.("The night starts over.", 3);
     }
-    st.nt = (st.nt ?? 0) + (this.player.dead ? 0 : dt);
+    st.nt = (st.nt ?? 0) + (this.anyAlive ? dt : 0);
   }
 
   // The night's events: three alien landing parties at 35, 105 and 170 s into
@@ -772,19 +783,25 @@ export class MissionDirector {
     const inJet = act?.type === "jet" && !act.isEnemyJet;
     const sites = this.terrain.sites;
     if (!st.landed) {
-      if (inJet && !act.onGround) {
-        st.air = true;
-        st.airJet = act;
+      // (Online, any player's jet: the host's own and the others'.)
+      const jets = this.pilotJets ? this.pilotJets() : inJet ? [act] : [];
+      for (const j of jets) {
+        if (!j.onGround) {
+          st.air = true;
+          st.airJet = j;
+        }
       }
       if (st.airJet && !st.airJet.alive) {
         // It crashed: another take-off is needed.
         st.air = false;
         st.airJet = null;
       }
-      if (inJet && act.onGround && st.air && act.speed < 8 && sites.onRunway(act.pos.x, act.pos.z, 2)) {
+      const landed = st.air && jets.find((j) => j.onGround && j.alive && j.vel.length() < 8 && sites.onRunway(j.pos.x, j.pos.z, 2));
+      if (landed) {
         st.landed = true;
-        st.landPos = act.pos.clone();
-        this.stats.add("landings");
+        st.landPos = landed.pos.clone();
+        if (landed.puppet) this.stats.addWorld("landings");
+        else this.stats.add("landings");
         this.toast?.("SAFE LANDING! ...but the aliens have noticed: a red squad is dropping in. Get out (F) and fight!", 6);
       } else {
         // The marker: a jet to take, or the nearest runway.
@@ -948,9 +965,12 @@ export class MissionDirector {
       // The glow: a bright core and a column of sparks rising from it.
       fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, life: 0.08, size0: 2.6, size1: 2.0, color0: star, alpha: 0.9 });
       if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
-      if (!this.player.dead && Math.hypot(p.x - f.pos.x, p.z - f.pos.z) < 3 && Math.abs(p.y - f.pos.y) < 4) {
+      // (Online, any player picks it up.)
+      const finder = (this.players ? this.players() : [this.player]).find((q) => !q.dead && Math.hypot(q.position.x - f.pos.x, q.position.z - f.pos.z) < 3 && Math.abs(q.position.y - f.pos.y) < 4);
+      if (finder) {
         f.life = -1;
-        this.stats.add("meteorFragments");
+        if (finder === this.player) this.stats.add("meteorFragments");
+        else this.stats.addWorld("meteorFragments");
         this.audio?.playCrate?.();
         for (let k = 0; k < 16; k++) fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, vx: rand(-5, 5), vy: rand(1, 8), vz: rand(-5, 5), life: 0.7, size0: 0.4, size1: 0.05, color0: star, gravity: 0.5, drag: 1.5 });
         const n = this.progress.objectives(this.stats.world)[0]?.value ?? 0;
@@ -985,7 +1005,7 @@ export class MissionDirector {
       u.dodgeMul = 0;
       u.home = p.clone();
       u.tether = 240;
-      u.maxHealth = u.health = 5200;
+      u.maxHealth = u.health = Math.round(5200 * (this.ufos.groupHealth ?? 1)); // (online: tougher for a bigger group)
       u.shield = true;
       u.shieldRound = 0;
       u.shieldAt = [0.7, 0.4, 0.15];

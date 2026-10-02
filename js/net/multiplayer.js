@@ -24,6 +24,7 @@ import { WorldSync } from "./world.js";
 import { FxSync } from "./fx.js";
 import { RulesSync } from "./rules.js";
 import { EntitySync } from "./entities.js";
+import { CoopSync } from "./coop.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -41,6 +42,7 @@ export class Multiplayer {
     this.fx = this.addModule(new FxSync(this));
     this.rules = this.addModule(new RulesSync(this));
     this.entities = this.addModule(new EntitySync(this));
+    this.coop = this.addModule(new CoopSync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);
@@ -55,6 +57,7 @@ export class Multiplayer {
     net.on("_stateLoaded", () => {
       this.stateLoaded = true;
       for (const m of this.modules) m.stateLoaded?.();
+      game.onStateLoaded?.();
       this.ui.refresh();
     });
     net.on("feed", (m) => typeof m.text === "string" && this.feed(m.text.slice(0, 120)));
@@ -134,6 +137,12 @@ export class Multiplayer {
     this.net.pump();
     for (const m of this.modules) m.update?.(dt);
     this.ui.update(dt);
+  }
+
+  // This player died (main.js).
+  playerDied(cause, text) {
+    this.coop?.died(cause, text);
+    this.dogfight?.died?.(cause);
   }
 
   // A line in the corner feed (joins, leaves, kills).
