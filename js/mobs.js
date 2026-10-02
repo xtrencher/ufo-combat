@@ -1090,12 +1090,6 @@ export class MobManager {
     m.attack = 0;
     const dmg = m.kind === "zombie" ? Math.max(1, Math.round(m.spec.damage * this.zombies.damage)) : m.spec.damage;
     const applied = this.player.damage(dmg, m.kind, { from: m.pos });
-    // (Blocked by a raised shield: the attacker is pushed back a little.)
-    if (!applied && this.player.shielded) {
-      m.knock.x -= nx * 5;
-      m.knock.z -= nz * 5;
-      m.stagger = Math.max(m.stagger, 0.3);
-    }
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);

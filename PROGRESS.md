@@ -1608,31 +1608,31 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - [x] 2.6 Enemy jets faster
 
 ## Part 3: UFOs
-- [ ] 3.1 Shapes: remove rounded cube; add triangle, boomerang, cylinder
-- [ ] 3.2 Crash explosion scales with UFO size
-- [ ] 3.3 Water crash: sink, explode on seabed, aliens spawn in water, head to player
-- [ ] 3.4 Persistence: rare retreat
-- [ ] 3.5 Abducted animals vanish inside the UFO
+- [x] 3.1 Shapes: remove rounded cube; add triangle, boomerang, cylinder
+- [x] 3.2 Crash explosion scales with UFO size
+- [x] 3.3 Water crash: sink, explode on seabed, aliens spawn in water, head to player
+- [x] 3.4 Persistence: rare retreat
+- [x] 3.5 Abducted animals vanish inside the UFO
 - [ ] 3.6 Hangar UFOs hidden in bunkers, armed guards, late-mission boarding
 
 ## Part 4: UFO piloting
-- [ ] 4.1 Faster dash, random dash speed per UFO
-- [ ] 4.2 Ghost mode toggle key and HUD state
-- [ ] 4.3 Tic-tac long axis forward
-- [ ] 4.4 Superweapon laser carves continuously
+- [x] 4.1 Faster dash, random dash speed per UFO
+- [x] 4.2 Ghost mode toggle key and HUD state
+- [x] 4.3 Tic-tac long axis forward
+- [x] 4.4 Superweapon laser carves continuously
 
 ## Part 5: Aliens and mobs
-- [ ] 5.1 Pathfinding AI, clear line of fire
-- [ ] 5.2 Blue alien type
-- [ ] 5.3 Spiders neutral in daylight
+- [x] 5.1 Pathfinding AI, clear line of fire
+- [x] 5.2 Blue alien type
+- [x] 5.3 Spiders neutral in daylight
 
 ## Part 6: Weapons and items
-- [ ] 6.1 Bow charge/draw animation
-- [ ] 6.2 Laser pistol: no reload, continuous
-- [ ] 6.3 Pistol real projectiles
-- [ ] 6.4 Remove shield
-- [ ] 6.5 Armor drops, slots, HUD
-- [ ] 6.6 Realistic nuke mushroom cloud
+- [x] 6.1 Bow charge/draw animation
+- [x] 6.2 Laser pistol: no reload, continuous
+- [x] 6.3 Pistol real projectiles
+- [x] 6.4 Remove shield
+- [x] 6.5 Armor drops, slots, HUD
+- [x] 6.6 Realistic nuke mushroom cloud
 
 ## Part 7: World and graphics
 - [ ] 7.1 Craters in LOD terrain
@@ -1669,3 +1669,18 @@ Source of truth for this round. Ticked as finished; decisions in "Round 5 decisi
 - Part 1.8/1.9 model: stabilators, flaperons and rudders are separate hinged parts on both jets (axes: stabilators about X, flaperons about the hinge line, rudders about the fin's own axis; deflection smoothed); the nav lights were placed by hand and several floated beside the airframe (F-22 tail strobes and fin strips 1 block outside the fin, F-16 wingtips beyond the wing, the belly strobe below the belly): they are now computed from the geometry (fin tips, wing tip edge, rail tip, belly) and the formation strips lie on the fuselage and fins. Extra detail: beaver tail, intake splitter plates, refuelling door, a real rudder line.
 - Part 1.10: engine sound master gain 0.55 -> 0.14, roar 0.25+0.6t -> 0.15+0.4t, whine and afterburner roughly halved.
 - Part 8.3 defaults: graphics Medium (medium preset suggests 15 chunks), render distance 15, master volume 30% (the audio class, settings schema and the Reset buttons agree).
+
+- Part 3.1 shapes: the rounded cube and the cube ring are gone (old saved wrecks map to a disc saucer and a torus); new: a flat black triangle (rounded, thin, with a dim light at each corner and a faint red one under the middle), a boomerang (a wide flat chevron with a row of dim lights along its leading edge) and a metal cylinder with raised bands. Designs with a front (tic-tac, triangle, boomerang, cylinder) point where they fly instead of spinning, both as enemies and as the player's ship (the tic-tac's long axis lies along X in its model, so the piloted ship adds a quarter turn: its long axis now points forward).
+- Part 3.2: crash blasts scale with the ship: the crater radius is capped (a mothership/giant crater would not survive more than 36 blocks) but the new `visual` size of `effects.explode` (fireball, shock ring, shake, roar, flash) is uncapped (small scout 12, medium 18, large 22, mothership 51, giant 86 grenade-radius-equivalents, measured). The damage reach is the crater's size (x1.5 at most), so a far-off crashing mothership never kills you across the map.
+- Part 3.3 sea crashes: no more explosion at the water surface: a big splash, the wreck sinks (as before) and goes off on the sea floor (crater capped at 14, visual 0.75x) with a geyser of water over it; the crew now comes up in the water around the wreck (open water cells next to it) and swims or wades toward the player (the old code sent them to the nearest shore).
+- Part 3.4: after a hit a UFO stays angry for 90-150 s (35-70 before), a hurt one (<90% health) keeps fighting for as long as it saw the player in the last 6 s, the 'evade' reaction is rare (weights 0.5-1.2 against counter 4-6), and a UFO with a jet on its tail leaves with 0.08-0.15%/s instead of 0.8-4%/s.
+- Part 3.5: a creature caught in an enemy UFO's beam is its prisoner: it rises to the ship at 4.6 b/s whatever the beam does, drifts to the middle of the beam, and vanishes in a flash inside (or at once if the ship is shot down or leaves). It never falls back.
+- Part 4.1: every piloted ship gets a fixed random dash factor (log scale 1 to 6, from its look and size) on top of the settings' base speed (900-3500 b/s): measured 1390-4390 b/s at the default settings (before 250-2500), labelled fast / very fast / extreme in the info panel. A tap goes sqrt(factor) farther. A dash into ground that has not loaded yet stops (it would end up inside terrain that streams in under the ship).
+- Part 4.2: G toggles ghost mode while piloting (the Settings row follows, and it persists like the setting does); switching off is refused while the hull is inside solid blocks. The HUD shows GHOST ON. (Persistence of settings itself was not touched.)
+- Part 4.4: the superweapon digs every column under the ship each frame (per-column depth bookkeeping), so it carves a trench along its path for the whole 2.6 s.
+- Part 5.1: js/pathfinding.js (A* on feet cells: 8 directions without corner cutting, 1-block jumps, 2-block big jumps for aliens, drops up to the species' maxDrop, swimming, partial path to the closest cell when no path is found within the node budget). Ranged creatures with `pathfind` (aliens, skeletons, guards, blue aliens) check for a clear line of fire from their eyes to the player's chest (a ray every ~0.25 s); without one (or when out of range) they follow a path to the nearest cell within range that has one (goal test with a capped number of rays), and they shoot only with a clear line (measured in a walled arena: 0 shots without line of sight, all three kinds walk around a 40-block wall). Stuck creatures re-plan with a bigger search, then escape to the surface, and an alien stuck for 16 s is called back to a free spot near the player (so no mission can stall on an alien in a sealed hole). 2800 search nodes per frame in total.
+- Part 5.2: the blue alien (own model: slender, blue skin, glowing cyan seams, crest and fins; weapon: a scatter of four fast bolts, strong up close, weak at range; behaviour: quick, blinks to flank (to a spot 7-12 blocks from you with a clear shot) every 6-9 s when far or hurt; appears from mission 11); and the guard (below, Part 3.6).
+- Part 5.3: spiders are neutral when the sky is bright (daylight and light level 12+) unless provoked (a hit: 30 s); in the dark (night, caves) they hunt as before.
+- Part 6: items: the shield is gone entirely (item id 296 reserved, off-hand slot, raising, audio, HUD, README); armor in four materials (leather, gold, iron, diamond) x four pieces (ids 300-315) with classic defense points (leather 1/3/2/1, gold 2/5/3/1, iron 2/6/5/2, diamond 3/8/6/3; 4% less damage per point, up to 80%), wear (they lose durability on hits and break), four armor slots in the inventory (click, shift-click, or right click the piece in hand), an armor bar of ten chestplates above the hearts, auto-equip when the slot is free, an Armor tab in the Creative palette, drops from zombies (4.5%), skeletons (6%), guards (35%), green/gray/blue/red aliens (7/9/9/14%) with the material by mission tier and creature (leather early, diamond only late and rare). Armor does nothing against falls, drowning, void, starvation, crashes, abduction or the nuke.
+- Part 6.1: the bow draws through three pull stages (3 sprites: limbs bend, string and nocked arrow come back), the bow is raised in front of you with the arrow toward the crosshair while nocking, trembles at full draw; a fuller draw gives faster, flatter, harder arrows (as before: 16-58 b/s, 2-9 damage). 6.2: the laser blaster has no magazine and no reload and fires continuously (about 4.5 bolts/s) for 3 damage a bolt (the pistol: 5). 6.3: the pistol fires a real bullet (240 b/s, tracer) from the muzzle, aimed at what is under the crosshair.
+- Part 6.6 nuke: the cloud is planned puff by puff (stem, rolling torus cap with a bright rim, dome, a collar of vapour under the cap, a white condensation ring racing out, glowing fire inside) and driven analytically (smooth, cheap), orange early and grey-brown later, thinning out over the last minute (125 s in all); puff counts follow the intensity setting and the effects quality of the graphics preset (fewer, bigger puffs on Low); the cloud pools do not use distance fog (it is seen from beyond the view distance).

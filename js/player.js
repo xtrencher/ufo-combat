@@ -60,7 +60,7 @@ export class Player {
 
     this.health = MAX_HEALTH;
     this.absorption = 0; // golden half-hearts (golden apples): soaked up before health
-    this.damageFilter = null; // (amount, cause, from) -> amount: the off-hand shield
+    this.damageFilter = null; // (amount, cause, from) -> amount: the armor worn
     this.air = MAX_AIR;
     this.dead = false;
     this.hurtTime = 99; // seconds since the last damage (drives hurt effects)
@@ -221,8 +221,7 @@ export class Player {
 
   // Deals damage in half-hearts. Returns true if it was applied (creative
   // players, the dead and the briefly invulnerable take none).
-  // from: where the hit comes from (a point), if known: a raised shield
-  // only blocks what comes from in front.
+  // from: where the hit comes from (a point), if known.
   damage(amount, cause, { pierce = false, projectile = false, from = null } = {}) {
     // In a vehicle, hits land on the vehicle instead (unless `pierce`: the
     // vehicle itself was destroyed with the pilot inside).
@@ -447,11 +446,6 @@ export class Player {
     else if (this.inWater) speed = this.sprinting ? SWIM_SPEED * 1.4 : SWIM_SPEED;
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
-    // Behind a raised shield you walk slowly (and can't sprint).
-    if (this.shielded && !this.flying) {
-      speed = Math.min(speed, SNEAK_SPEED * 1.2);
-      this.sprinting = false;
-    }
     this.velocity.x = worldX * speed + this.knockback.x;
     this.velocity.z = worldZ * speed + this.knockback.z;
     const knockbackDecay = Math.exp(-(this.onGround ? 7 : 1.2) * dt);

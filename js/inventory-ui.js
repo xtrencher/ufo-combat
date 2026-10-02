@@ -4,7 +4,7 @@
 // moved with the mouse like in classic voxel games: left click picks up /
 // puts down a stack, right click splits or places one, shift-click moves
 // between the hotbar and the main area, number keys swap with the hotbar.
-import { itemInfo, maxStack, CREATIVE_ITEMS, ALL_WEAPONS, itemAllowed } from "./items.js";
+import { itemInfo, maxStack, CREATIVE_ITEMS, ALL_WEAPONS, itemAllowed, ARMOR_SLOTS } from "./items.js";
 import { HOTBAR_SIZE, INVENTORY_SIZE, makeStack, clickSlot, quickMove, addToRange, Inventory } from "./inventory.js";
 import { SlotView, stackLabel } from "./slot-view.js";
 
@@ -21,7 +21,8 @@ const TABS = [
   ["Weapons", (id) => WEAPON_SET.has(id) || !!itemInfo(id)?.weapon],
   ["Blocks", (id) => itemInfo(id)?.block !== undefined && !WEAPON_SET.has(id)],
   ["Tools", (id) => !!itemInfo(id)?.tool && !itemInfo(id)?.weapon],
-  ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !WEAPON_SET.has(id)],
+  ["Armor", (id) => !!itemInfo(id)?.armor],
+  ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !itemInfo(id)?.armor && !WEAPON_SET.has(id)],
 ];
 
 export class InventoryScreen {
@@ -56,12 +57,17 @@ export class InventoryScreen {
     el("div", "inv-label", left).textContent = "Inventory";
     this.mainEl = el("div", "inv-grid", left);
     this.hotbarEl = el("div", "inv-grid inv-hotbar", left);
-    // The off hand (a shield): its own slot under the hotbar.
-    const offRow = el("div", "inv-offhand", left);
-    el("span", "inv-label", offRow).textContent = "Off hand (shield)";
-    this.offView = new SlotView(icons);
-    offRow.appendChild(this.offView.el);
-    this._bindSlot(this.offView.el, { area: "off", index: 0 });
+    // The armor worn: head, chest, legs and feet, in a row under the hotbar.
+    const armorRow = el("div", "inv-armor", left);
+    el("span", "inv-label", armorRow).textContent = "Armor";
+    this.armorViews = ARMOR_SLOTS.map((name, i) => {
+      const v = new SlotView(icons);
+      v.el.title = name[0].toUpperCase() + name.slice(1);
+      armorRow.appendChild(v.el);
+      this._bindSlot(v.el, { area: "armor", index: i });
+      return v;
+    });
+    this.armorPointsEl = el("span", "inv-label inv-armor-points", armorRow);
 
     this.invViews = [];
     for (let i = 0; i < INVENTORY_SIZE; i++) {
@@ -165,7 +171,7 @@ export class InventoryScreen {
 
   _stackAt(ref) {
     if (ref.area === "inv") return this.inventory.slots[ref.index];
-    if (ref.area === "off") return this.inventory.offhand;
+    if (ref.area === "armor") return this.inventory.armor[ref.index];
     if (ref.area === "palette") return makeStack(CREATIVE_ITEMS[ref.index], 1);
     return null;
   }
@@ -190,23 +196,29 @@ export class InventoryScreen {
     let sound = true;
     if (ref.area === "inv") {
       const st = inv.slots[ref.index];
-      if (shift && !this.cursor && st && Inventory.isOffhandItem(st.id)) {
-        // Shift-click a shield: into the off hand (swapping places).
-        inv.slots[ref.index] = inv.offhand;
-        inv.offhand = st;
+      const slot = st && !this.cursor ? Inventory.armorSlotOf(st.id) : -1;
+      if (shift && slot >= 0) {
+        // Shift-click armor: onto the body (swapping places with what is worn).
+        inv.slots[ref.index] = inv.armor[slot];
+        inv.armor[slot] = st;
       } else if (shift && !this.cursor) sound = quickMove(inv, ref.index);
       else this.cursor = clickSlot(inv.slots, ref.index, this.cursor, button);
-    } else if (ref.area === "off") {
-      if (this.cursor && !Inventory.isOffhandItem(this.cursor.id)) {
-        sound = false; // only a shield goes in the off hand
-      } else if (shift && !this.cursor && inv.offhand) {
-        const moving = { ...inv.offhand };
-        if (addToRange(inv.slots, moving, 0, INVENTORY_SIZE)) inv.offhand = null;
-      } else {
-        const arr = [inv.offhand];
-        this.cursor = clickSlot(arr, 0, this.cursor, button);
-        inv.offhand = arr[0];
-      }
+    } else if (ref.area === "armor") {
+      const worn = inv.armor[ref.index];
+      if (this.cursor && Inventory.armorSlotOf(this.cursor.id) !== ref.index) {
+        sound = false; // only the right piece goes in a slot
+      } else if (shift && !this.cursor && worn) {
+        const moving = { ...worn };
+        if (addToRange(inv.slots, moving, 0, INVENTORY_SIZE)) inv.armor[ref.index] = null;
+      } else if (this.cursor) {
+        // Put the piece on (the one worn comes into the hand).
+        const old = worn;
+        inv.armor[ref.index] = { ...this.cursor, count: 1 };
+        this.cursor = old;
+      } else if (worn) {
+        this.cursor = worn;
+        inv.armor[ref.index] = null;
+      } else sound = false;
     } else if (ref.area === "palette") {
       const id = CREATIVE_ITEMS[ref.index];
       if (this.cursor) this.cursor = null; // dropping onto the palette deletes the stack
@@ -270,7 +282,9 @@ export class InventoryScreen {
   refresh() {
     if (!this.isOpen) return;
     for (let i = 0; i < INVENTORY_SIZE; i++) this.invViews[i].set(this.inventory.slots[i]);
-    this.offView.set(this.inventory.offhand);
+    this.armorViews.forEach((v, i) => v.set(this.inventory.armor[i]));
+    const pts = this.inventory.armorPoints();
+    this.armorPointsEl.textContent = pts > 0 ? `${pts} defense (${Math.round(this.inventory.armorReduction() * 100)}% less damage)` : "no armor";
     this.cursorView.set(this.cursor);
     this.cursorView.el.classList.toggle("hidden", !this.cursor);
   }

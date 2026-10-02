@@ -41,8 +41,26 @@ export const ITEM = Object.freeze({
   JET_RADIO: 293,
   RAILGUN: 294,
   MINIGUN: 295,
-  SHIELD: 296,
+  // (296 was the shield, removed in Round 5: never reuse the id; old saves
+  // that still hold one lose it on load.)
   BOW: 297,
+  // Armor, four tiers of four pieces: leather, gold, iron, diamond.
+  LEATHER_HELMET: 300,
+  LEATHER_CHESTPLATE: 301,
+  LEATHER_LEGGINGS: 302,
+  LEATHER_BOOTS: 303,
+  GOLD_HELMET: 304,
+  GOLD_CHESTPLATE: 305,
+  GOLD_LEGGINGS: 306,
+  GOLD_BOOTS: 307,
+  IRON_HELMET: 308,
+  IRON_CHESTPLATE: 309,
+  IRON_LEGGINGS: 310,
+  IRON_BOOTS: 311,
+  DIAMOND_HELMET: 312,
+  DIAMOND_CHESTPLATE: 313,
+  DIAMOND_LEGGINGS: 314,
+  DIAMOND_BOOTS: 315,
 });
 
 // Tool materials: tier (what they can harvest), mining speed multiplier,
@@ -80,13 +98,36 @@ const ITEM_DEFS = {
   [ITEM.JET_RADIO]: { name: "Jet Radio", icon: "jet_radio", stack: 1, weapon: { kind: "jetradio" } },
   [ITEM.RAILGUN]: { name: "Railgun", icon: "railgun", stack: 1, weapon: { kind: "railgun" } },
   [ITEM.MINIGUN]: { name: "Laser Minigun", icon: "minigun", stack: 1, weapon: { kind: "minigun" } },
-  // A shield like in classic block games: it goes in the off hand, and holding
-  // right click raises it (when the item in the main hand has no right-click
-  // use of its own); it wears out as it blocks.
-  [ITEM.SHIELD]: { name: "Shield", icon: "shield", stack: 1, offhand: true, weapon: { kind: "shield" }, tool: { type: "shield", tier: 0, speed: 1, durability: 336, damage: 1 } },
   // The skeletons' bow: hold right click to draw, let go to shoot.
   [ITEM.BOW]: { name: "Bow", icon: "bow", stack: 1, weapon: { kind: "bow" } },
 };
+
+// Armor: four pieces of four materials, worn in the four armor slots (head,
+// chest, legs, feet). Each piece gives defense points (like classic block
+// games: every point turns away 4% of the damage that armor can stop, up to
+// 80% with a full diamond set) and wears out as it takes hits.
+export const ARMOR_SLOTS = ["head", "chest", "legs", "feet"];
+export const ARMOR_REDUCTION_PER_POINT = 0.04;
+export const ARMOR_TIERS = ["leather", "gold", "iron", "diamond"];
+const ARMOR_POINTS = { leather: [1, 3, 2, 1], gold: [2, 5, 3, 1], iron: [2, 6, 5, 2], diamond: [3, 8, 6, 3] };
+const ARMOR_DURABILITY = { leather: [55, 80, 75, 65], gold: [77, 112, 105, 91], iron: [165, 240, 225, 195], diamond: [363, 528, 495, 429] };
+const ARMOR_NAMES = ["Helmet", "Chestplate", "Leggings", "Boots"];
+const ARMOR_KEYS = ["HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS"];
+ARMOR_TIERS.forEach((tier, t) => {
+  ARMOR_KEYS.forEach((key, s) => {
+    const id = ITEM[`${tier.toUpperCase()}_${key}`];
+    ITEM_DEFS[id] = {
+      name: `${tier[0].toUpperCase() + tier.slice(1)} ${ARMOR_NAMES[s]}`,
+      icon: `armor_${tier}_${key.toLowerCase()}`,
+      stack: 1,
+      armor: { slot: s, tier: t, points: ARMOR_POINTS[tier][s], durability: ARMOR_DURABILITY[tier][s] },
+    };
+  });
+});
+// The armor id of a tier (0-3) and slot (0-3).
+export function armorId(tier, slot) {
+  return ITEM[`${ARMOR_TIERS[tier].toUpperCase()}_${ARMOR_KEYS[slot]}`];
+}
 
 const TOOL_KINDS = [
   ["SWORD", "sword", "Sword"],
@@ -207,8 +248,9 @@ export const CREATIVE_ITEMS = [
   ITEM.WOOD_PICKAXE, ITEM.STONE_PICKAXE, ITEM.IRON_PICKAXE, ITEM.DIAMOND_PICKAXE,
   ITEM.WOOD_AXE, ITEM.STONE_AXE, ITEM.IRON_AXE, ITEM.DIAMOND_AXE,
   ITEM.WOOD_SHOVEL, ITEM.STONE_SHOVEL, ITEM.IRON_SHOVEL, ITEM.DIAMOND_SHOVEL,
-  ITEM.BOW, ITEM.SHIELD,
+  ITEM.BOW,
   ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE, ITEM.JET_RADIO,
+  ...ARMOR_TIERS.flatMap((_, t) => [0, 1, 2, 3].map((sl) => armorId(t, sl))),
 ];
 
 // Every mod weapon and gadget, weakest first (the order of the creative
@@ -219,13 +261,13 @@ export const ALL_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHIN
 // pickaxe and some apples. Everything else is found: the bow on the
 // skeletons, guns in supply crates, alien weapons on the aliens (see
 // progression.js). A new Creative game has every weapon (the hotbar first,
-// the rest in the inventory) and a shield in the off hand.
+// the rest in the inventory).
 export const SURVIVAL_LOADOUT = [ITEM.STONE_SWORD, ITEM.STONE_PICKAXE, [ITEM.APPLE, 5]];
 export const CREATIVE_LOADOUT = [...ALL_WEAPONS, ITEM.BOW];
 export const STARTING_WEAPONS = SURVIVAL_LOADOUT; // (older name)
 
 // Items that exist only with mods on (guns, explosives, vehicles): put away
-// while mods are off. Swords, tools, the bow and the shield are vanilla.
+// while mods are off. Swords, tools, armor and the bow are vanilla.
 export const MOD_ITEMS = new Set(ALL_WEAPONS);
 
 // Whether mods are on (set by mods.js): gates mod items in crafting and the

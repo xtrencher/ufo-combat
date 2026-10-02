@@ -6,12 +6,12 @@
 // apples). Weapons come from four places, each in its own lane:
 //   - skeletons: the bow;
 //   - supply crates: standard weapons (pistol, grenades, machine gun,
-//     shield, sniper rifle, bazooka, airstrike designator), by tier;
+//     sniper rifle, bazooka, airstrike designator), by tier;
 //   - aliens: alien weapons, weakest to strongest (laser blaster, laser
 //     minigun, railgun), only once the chain gets that far;
 //   - missions: apples and golden apples only (no weapons).
 // UFO wrecks and patrol fighters drop food, golden apples and tools.
-import { ITEM } from "./items.js";
+import { ITEM, armorId } from "./items.js";
 
 // ---------- Weapons by source and tier ----------
 
@@ -20,7 +20,6 @@ export const CRATE_WEAPONS = [
   [ITEM.PISTOL, 0],
   [ITEM.GRENADE, 1],
   [ITEM.MACHINE_GUN, 1],
-  [ITEM.SHIELD, 1],
   [ITEM.SNIPER_RIFLE, 2],
   [ITEM.BAZOOKA, 3],
   [ITEM.AIRSTRIKE, 4],
@@ -507,6 +506,48 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
       break;
   }
   return out;
+}
+
+// ---------- Armor drops ----------
+// Creatures sometimes drop a piece of armor: how often, and of which
+// material (leather, gold, iron, diamond: tiers 0-3), depends on the creature
+// and on how far the mission chain is (`tier` 0-5), so there is leather at
+// the start and diamond only late (and rarely).
+const ARMOR_CHANCE = { zombie: 0.045, skeleton: 0.06, guard: 0.35, green: 0.07, gray: 0.09, blue: 0.09, red: 0.14 };
+const ARMOR_BY_TIER = [
+  [1, 0, 0, 0],
+  [0.7, 0.3, 0, 0],
+  [0.4, 0.3, 0.3, 0],
+  [0.2, 0.25, 0.45, 0.1],
+  [0.1, 0.2, 0.45, 0.25],
+  [0, 0.15, 0.45, 0.4],
+];
+// Which creature's armor tends toward which material: a shift of the weights toward the better ones.
+const ARMOR_SHIFT = { zombie: -1, skeleton: -1, guard: 1, green: 0, gray: 1, blue: 1, red: 2 };
+
+// What `who` ("zombie", "skeleton", "guard", "green", "gray", "blue", "red")
+// drops on dying: [[itemId, 1]] or []. `worn`: a Set of the armor ids worn
+// (a piece for a free slot is likelier).
+export function rollArmorDrop(who, tier, worn = new Set(), rand = Math.random) {
+  if (rand() >= (ARMOR_CHANCE[who] ?? 0)) return [];
+  const row = ARMOR_BY_TIER[Math.max(0, Math.min(ARMOR_BY_TIER.length - 1, tier))];
+  const shift = ARMOR_SHIFT[who] ?? 0;
+  // (A better creature's weights are moved up to the better materials.)
+  const w = row.map((_, i) => row[Math.max(0, Math.min(3, i - shift))]);
+  const total = w.reduce((a, b) => a + b, 0) || 1;
+  let r = rand() * total;
+  let t = 0;
+  for (let i = 0; i < w.length; i++) {
+    r -= w[i];
+    if (r <= 0) {
+      t = i;
+      break;
+    }
+  }
+  // A piece for a slot not yet covered by this material, if possible.
+  const slots = [0, 1, 2, 3].filter((sl) => !worn.has(armorId(t, sl)));
+  const pool = slots.length ? slots : [0, 1, 2, 3];
+  return [[armorId(t, pool[Math.floor(rand() * pool.length)]), 1]];
 }
 
 // The alien kind's colour: "green" | "gray" | "blue" | "red".

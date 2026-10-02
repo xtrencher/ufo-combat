@@ -42,7 +42,7 @@ import "./vehicle-ufo.js";
 import { JET_TYPES } from "./vehicle-jet.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
-import { Progress, MISSIONS, rollLoot, alienColour } from "./progression.js";
+import { Progress, MISSIONS, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
@@ -506,7 +506,24 @@ weapons.getLockables = () => {
   }
   return list;
 };
-player.damageFilter = (amount, cause, from) => weapons.shieldFilter(amount, cause, from);
+// Armor worn: it turns away 4% of the damage per defense point (up to 80%
+// with a full diamond set) and wears out as it takes hits. It does nothing
+// against the environment (falls, drowning, the void, starving) or crashes
+// and the nuke.
+const ARMOR_PASS = new Set(["fall", "drown", "void", "starve", "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
+player.damageFilter = (amount, cause) => {
+  if (player.creative || ARMOR_PASS.has(cause)) return amount;
+  const red = inventory.armorReduction();
+  if (red <= 0) return amount;
+  const out = Math.max(1, Math.round(amount * (1 - red)));
+  const broken = inventory.damageArmor(Math.max(1, Math.floor(amount / 4)));
+  if (broken.length) {
+    for (const n of broken) toast(`Your ${n} broke!`, 2.5);
+    audio.playClick?.();
+  }
+  markInventoryChanged();
+  return out;
+};
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
   ignores: (b) => (b.owner === "ufo" || b.owner === "enemyjet") && !b.friendlyFire,
@@ -605,6 +622,13 @@ ufos.onEscape = () => {
   stats.add("abductionsSurvived");
   toast("You broke free of the beam!", 2.5);
 };
+// A creature sometimes drops a piece of armor (never in Creative).
+function dropArmor(who, at) {
+  const worn = new Set();
+  for (const a of inventory.armor) if (a) worn.add(a.id);
+  const drop = rollArmorDrop(who, progressTier(), worn);
+  if (drop.length) dropLoot(drop, at);
+}
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
   const at = new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z);
@@ -615,8 +639,15 @@ mobs.onKill = (m, byPlayer) => {
       const owned = ownedItems();
       if (m.leaderDrop && !owned.has(m.leaderDrop)) dropLoot([[m.leaderDrop, 1]], at);
       else dropLoot(rollLoot("alien", alienColour(m.kind), progressTier(), owned), at);
+      dropArmor(alienColour(m.kind), at);
     }
-  } else if (m.kind === "zombie") stats.add("zombiesKilled");
+  } else if (m.kind === "guard") {
+    stats.add("guardsKilled");
+    if (!player.creative) dropArmor("guard", at);
+  } else if (m.kind === "zombie") {
+    stats.add("zombiesKilled");
+    if (!player.creative) dropArmor("zombie", at);
+  }
   else if (m.kind === "skeleton") {
     stats.add("skeletonsKilled");
     // Skeletons drop their bow (if you don't have one yet): a plain
@@ -872,8 +903,6 @@ function fillStartingWeapons(fresh) {
     if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, n);
     else if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, n);
   });
-  // Creative: a shield in the off hand too.
-  if (player.creative && !inventory.offhand) inventory.offhand = makeStack(ITEM.SHIELD, 1);
 }
 
 if (savedPlayer) {
@@ -892,7 +921,7 @@ if (savedPlayer) {
   if (Number.isFinite(savedPlayer.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, savedPlayer.health));
   if (Number.isFinite(savedPlayer.air)) player.air = Math.max(0, Math.min(MAX_AIR, savedPlayer.air));
   inventory.load(savedPlayer.inv);
-  inventory.loadOffhand(savedPlayer.off);
+  inventory.loadArmor(savedPlayer.armor);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
   // Worlds from before the loadout flag existed already had their weapons.
@@ -917,7 +946,7 @@ const progressTier = () => progress.tier(stats.world);
 const ownedItems = () => {
   const set = new Set();
   for (const s of inventory.slots) if (s) set.add(s.id);
-  if (inventory.offhand) set.add(inventory.offhand.id);
+  for (const a of inventory.armor) if (a) set.add(a.id);
   return set;
 };
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
@@ -1135,7 +1164,7 @@ function playerState() {
     health: player.dead ? MAX_HEALTH : player.health,
     air: player.dead ? MAX_AIR : round3(player.air),
     inv: inventory.serialize(),
-    off: inventory.serializeOffhand(),
+    armor: inventory.serializeArmor(),
     sel: inventory.selected,
     time: round3(sky.time),
     modStash: mods.serialize(),
@@ -1281,7 +1310,7 @@ player.onDeath = (cause) => {
 function dropEverything() {
   const at = player.position.clone();
   at.y += 0.8;
-  for (const s of [...inventory.slots, inventory.offhand]) {
+  for (const s of [...inventory.slots, ...inventory.armor]) {
     if (!s) continue;
     const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
     entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
@@ -1355,7 +1384,6 @@ effects.onExplosion = (center, radius, source) => {
   offset.y = Math.max(offset.y, 0) + 0.45;
   offset.normalize().multiplyScalar(strength);
   offset.y = Math.min(offset.y, 13 * Math.min(size, 1.6));
-  offset.multiplyScalar(weapons.shieldPush());
   player.applyImpulse(offset);
   if (!player.creative) {
     lastBlastHitTime = performance.now();
@@ -1378,7 +1406,6 @@ function setMode(mode) {
 function giveCreativeItems() {
   if (inventory.isEmpty()) fillCreativeHotbar();
   if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
-  if (!inventory.offhand) inventory.offhand = makeStack(ITEM.SHIELD, 1);
   markInventoryChanged();
 }
 
@@ -2506,7 +2533,7 @@ function updateHints(dt) {
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
   if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! Their lasers hurt: keep moving, and hit back (bow, sword, or better).", 5);
   if (!v && itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "bow") hint("bow", "The bow: hold right click to draw (a full draw in a second), let go to shoot. Arrows drop with distance.", 5);
-  if (!v && inventory.offhand && itemInfo(inventory.offhand.id)?.weapon?.kind === "shield") hint("shield", "A shield in your off hand: hold right click (with a sword or tool in hand) to raise it. It stops hits from the front.", 6);
+  if (!v && itemInfo(inventory.selectedStack?.id)?.armor) hint("armor", "Armor: right click to put it on (or drag it into an armor slot in the inventory). It turns away a share of the damage.", 6);
   const wk = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
   if (!v && wk && weapons.status(wk)?.mag > 1) hint("reload", "Guns have magazines: they reload by themselves when empty, or press R.", 4);
 }
@@ -2606,7 +2633,7 @@ function animate() {
     vehicles.viewRange = viewRD * 16;
     weapons.viewRange = viewRD * 16;
     ufos.update(dt);
-    nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition());
+    nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition(), sky.daylight);
     effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());
     effects.update(dt);
     effects.shake.apply(camera);

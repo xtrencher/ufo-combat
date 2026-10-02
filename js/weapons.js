@@ -3,9 +3,9 @@
 // damage and knockback on mobs), the bazooka (a fast rocket with a smoke
 // trail that explodes on terrain or mobs with a huge blast), the machine
 // gun, the sniper rifle, the airstrike designator (see airstrike.js), the
-// laser blaster (see lasers.js), the bow (skeletons drop it) and the shield
-// (held in the off hand, raised with right click, like in classic block
-// games). Ammo never runs out, but every weapon reloads, recharges or cools
+// laser blaster (see lasers.js) and the bow (skeletons drop it; hold right
+// click to draw it, let go to shoot: a fuller draw is faster, farther and
+// harder). Ammo never runs out, but every weapon reloads, recharges or cools
 // down (WEAPON_STATS), balanced by its damage: the sniper has one round and
 // then a long bolt-and-reload, the pistol a 12-round magazine, the minigun
 // overheats... Each weapon keeps its own magazine and timer, and reloads go
@@ -32,11 +32,13 @@ const GRENADE_GRAVITY = -20;
 const RESTITUTION = 0.38;
 export const PISTOL_DAMAGE = 5;
 const PISTOL_RANGE = 160;
+const PISTOL_SPEED = 240; // blocks/s: a real bullet, it takes time to arrive
+const BULLET_COLOR = new THREE.Color(5, 3.6, 1.2);
 export const ROCKET_SPEED = 75;
 const ROCKET_DIRECT = 90; // extra damage of a rocket that hits a UFO or vehicle square on
 const ROCKET_GRAVITY = -2.5;
 const ROCKET_LIFE = 12;
-const MIN_INTERVAL = { grenade: 0.12, pistol: 0.2, bazooka: 0.2, airstrike: 0.8, blaster: 0.2, railgun: 0.5 };
+const MIN_INTERVAL = { grenade: 0.12, pistol: 0.2, bazooka: 0.2, airstrike: 0.8, blaster: 0.22, railgun: 0.5 };
 
 // The bow: hold right click to draw (a full draw in a second), let go to shoot.
 export const BOW_DRAW = 1.0;
@@ -70,17 +72,6 @@ export const LOCK_TIME = 1.1;
 const LOCK_CONE = 0.11; // radians around the crosshair
 const ROCKET_TURN = 2.4; // homing turn rate (rad/s)
 
-// The shield (off hand): raised a moment after right click is held (when
-// the main-hand item has no right-click use of its own), it stops every hit
-// that comes from in front (the front half), explosions included, and wears
-// by 1 + the damage it stopped; hits from behind get through. You walk
-// slowly behind it.
-export const SHIELD_MAX = 100; // (kept for older callers)
-const SHIELD_RAISE = 0.15; // seconds to bring it up
-// Damage the shield can't stop: the environment and crashes.
-const SHIELD_PASS = new Set(["fall", "drown", "void", "starve", "cactus", "lava", "fire", "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
-
-
 // Machine gun: automatic while held, tracers, spread and recoil that climb
 // the longer the trigger is held, and settle again once it's released.
 export const MACHINEGUN_DAMAGE = 3;
@@ -97,8 +88,10 @@ const SNIPER_ZOOM_FOV = 15;
 // of meteors falls on the target and on random spots around it.
 const AIRSTRIKE_AIM_RANGE = 500;
 
-// Laser blaster: short glowing bolts, one per click (held: 5 per second).
-export const BLASTER_DAMAGE = 7;
+// Laser blaster (the "laser pistol"): short glowing bolts, one per click (held:
+// about 4.5 per second, for as long as you like: no magazine, no reload). It is
+// weaker than the pistol: 3 a bolt against the pistol's 5.
+export const BLASTER_DAMAGE = 3;
 const BLASTER_SPEED = 130;
 const BLASTER_RANGE = 240;
 
@@ -157,8 +150,6 @@ export class WeaponSystem {
     this.rail = { charging: false, t: 0, beams: [] };
     // Laser minigun.
     this.minigun = { held: false, spin: 0, angle: 0, timer: 0, firing: false };
-    // The shield in the off hand.
-    this.shield = { energy: SHIELD_MAX, held: false, up: false, raiseT: 0, broken: 0, hitFlash: 0, delay: 0 };
     // Magazines and reloads per weapon kind (see WEAPON_STATS).
     this.ammo = {};
     this.reloadT = {};
@@ -359,9 +350,6 @@ export class WeaponSystem {
         if (!this._ready("minigun")) return;
         this.minigun.held = true;
         return;
-      case "shield":
-        this.shield.held = true;
-        return;
       case "bazooka":
         // Hold to lock on; the rocket flies when the button is released
         // (a quick tap fires an unguided one at once).
@@ -393,21 +381,12 @@ export class WeaponSystem {
     }
   }
 
-  // Raises the shield in the off hand (right click held with nothing in the
-  // main hand that uses right click). Lowered by release().
-  raiseShield() {
-    if (!this.inventory?.offhand || itemInfo(this.inventory.offhand.id)?.weapon?.kind !== "shield") return false;
-    this.shield.held = true;
-    return true;
-  }
-
   // Right button released: a drawn grenade is thrown, a drawn bow shoots;
   // automatic fire stops.
   release() {
     this._mgFiring = false;
     this._blasterFiring = false;
     this.minigun.held = false;
-    this.shield.held = false;
     if (this.bow.drawing) {
       this.bow.drawing = false;
       const power = Math.min(1, this.bow.t / BOW_DRAW);
@@ -468,7 +447,6 @@ export class WeaponSystem {
     this._blasterFiring = false;
     this.rail.charging = false;
     this.minigun.held = false;
-    this.shield.held = false;
     this.lock.held = false;
     this.lock.target = null;
     this.lock.progress = 0;
@@ -766,6 +744,11 @@ export class WeaponSystem {
 
   // ---------- Pistol ----------
 
+  // The pistol fires a real bullet (a fast projectile with a visible tracer):
+  // it leaves the muzzle aimed at whatever is under the crosshair and takes
+  // time to get there (240 blocks/s), so a moving target must be led, and
+  // far targets are hit a moment after the click. It hits mobs, UFOs and
+  // vehicles on the way (see main.js and lasers.js) and chips blocks.
   firePistol() {
     const p = this.player;
     const eye = p.getEyePosition();
@@ -777,36 +760,24 @@ export class WeaponSystem {
     dir.normalize();
     this.shots++;
     const range = this._range(PISTOL_RANGE, 0.6);
+    // What is under the crosshair: the nearest block, creature, UFO or vehicle.
     const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
-    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
+    let near = blockHit ? blockHit.distance : range;
+    const mobHit = this.mobs.raycast(eye, dir, near);
+    if (mobHit) near = mobHit.distance;
+    const th = this._targetHit(eye, dir, near);
+    if (th) near = th.distance;
     const muzzle = this._handPoint(0.7, 0.26, 0.17);
+    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
     this.effects.muzzleFlash(muzzle, 1);
     this.held.fire(1);
     p.kick(0.035);
     this.audio.playGunshot();
-    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, PISTOL_DAMAGE, null)) return { type: "target" };
-    if (mobHit) {
-      const hitPoint = eye.clone().addScaledVector(dir, mobHit.distance);
-      this.mobs.shoot(mobHit.mob, PISTOL_DAMAGE, dir, 3.5);
-      this._burst(hitPoint, dir.clone().negate(), this._c.blood, 8, 3);
-      return { type: "mob", mob: mobHit.mob, point: hitPoint };
-    }
-    if (blockHit) {
-      const point = eye.clone().addScaledVector(dir, blockHit.distance);
-      const n = blockHit.normal;
-      const normal = new THREE.Vector3(n[0], n[1], n[2]);
-      this.decals.add(point, blockHit.block, n);
-      // Sparks off the face, plus dust in the block's color.
-      for (let i = 0; i < 9; i++) {
-        const v = normal.clone().multiplyScalar(2 + Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 5, Math.random() * 3, (Math.random() - 0.5) * 5));
-        this.effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.15 + Math.random() * 0.25, size0: 0.07, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
-      }
-      const rgb = this.world.blockColors[blockHit.id] || [0.6, 0.6, 0.6];
-      this._burst(point, normal, this._c.tmp.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace), 6, 2.5);
-      this.audio.playRicochet(blockHit.distance);
-      return { type: "block", block: blockHit.block, point };
-    }
-    return { type: "miss" };
+    const aim = eye.clone().addScaledVector(dir, near).sub(muzzle);
+    if (aim.lengthSq() < 0.25) aim.copy(dir);
+    aim.normalize();
+    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.03, length: 2.6, sound: false, scorch: true });
+    return { type: "bullet" };
   }
 
   _burst(point, normal, color, count, speed) {
@@ -1158,65 +1129,6 @@ export class WeaponSystem {
     this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: MINIGUN_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: MINIGUN_DAMAGE, owner: "player", source: p, range, radius: 0.09, length: 3.2, sound: false });
   }
 
-  // ---------- The shield (off hand) ----------
-
-  get shieldUp() {
-    return this.shield.up;
-  }
-
-  _hasShield() {
-    const o = this.inventory?.offhand;
-    return !!o && itemInfo(o.id)?.weapon?.kind === "shield";
-  }
-
-  _updateShield(dt) {
-    const s = this.shield;
-    s.hitFlash = Math.max(0, s.hitFlash - dt * 3);
-    if (s.held && !this._hasShield()) s.held = false;
-    s.raiseT = s.held ? s.raiseT + dt : 0;
-    const wasUp = s.up;
-    s.up = s.held && s.raiseT >= SHIELD_RAISE && !this.player.dead && !this.player.vehicle;
-    if (s.up && !wasUp) this.audio.playShieldUp?.();
-    this.held.offhandId = this.inventory?.offhand?.id ?? 0;
-    this.held.shieldUp = s.held && this._hasShield();
-    this.player.shielded = s.up;
-  }
-
-  // Player damage filter: a raised shield stops every hit that comes from in
-  // front of the player (`from`: where it came from; unknown counts as in
-  // front), explosions included; the environment (falls, drowning...) and
-  // hits from behind get through. The shield wears by 1 + the damage it
-  // stopped, and breaks when it runs out. Returns the damage that gets through.
-  shieldFilter(amount, cause, from = null) {
-    const s = this.shield;
-    if (!s.up || SHIELD_PASS.has(cause)) return amount;
-    if (from) {
-      const p = this.player;
-      const dx = from.x - p.position.x;
-      const dz = from.z - p.position.z;
-      const len = Math.hypot(dx, dz);
-      // (Facing: -Z rotated by the yaw.)
-      if (len > 0.3 && (-Math.sin(p.yaw) * dx - Math.cos(p.yaw) * dz) / len < 0) return amount; // from behind
-    }
-    s.hitFlash = 1;
-    this.held.shieldHit?.();
-    this.audio.playShieldHit?.(Math.min(1.5, 0.4 + amount / 12));
-    if (!this.player.creative && this.inventory.damageOffhand(1 + Math.floor(amount))) {
-      s.up = false;
-      s.held = false;
-      this.player.shielded = false;
-      this.audio.playShieldBreak?.();
-      this.onMessage?.("Your shield broke!");
-      this.onChange?.();
-    } else this.onChange?.();
-    return 0;
-  }
-
-  // How much an explosion's shove on the player is reduced (1 = full).
-  shieldPush() {
-    return this.shield.up ? 0.3 : 1;
-  }
-
   // ---------- Bow ----------
 
   // Shoots an arrow drawn to `power` (0-1): faster, flatter and harder the
@@ -1478,7 +1390,6 @@ export class WeaponSystem {
 
     this._updateRail(dt, activeKind);
     this._updateMinigun(dt, activeKind);
-    this._updateShield(dt);
     this._updateLock(dt, activeKind);
 
     // Airstrikes on their way, and meteors in the air.

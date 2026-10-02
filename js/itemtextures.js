@@ -24,6 +24,7 @@ const RAMPS = {
   leaf: [0x1f5a17, 0x2f7d22, 0x46a034, 0x6cc24c, 0x9be07a].map(hex),
   olive: [0x2a3316, 0x3d4a20, 0x55662e, 0x71843f, 0x93a65a].map(hex),
   gunmetal: [0x1b1d21, 0x2b2e34, 0x40444c, 0x5b6069, 0x7d838c].map(hex),
+  leather: [0x2e180b, 0x4f2c14, 0x74421f, 0x9b5f2e, 0xc08545].map(hex),
   grip: [0x24160e, 0x3a2416, 0x543420, 0x6f4730, 0x8a5c3f].map(hex),
   plasma: [0x0b2a5e, 0x1858b8, 0x2f8cf0, 0x7cc4ff, 0xe6f6ff].map(hex),
   amber: [0x5a2a05, 0xa04a0a, 0xe07a14, 0xffb04a, 0xfff0c0].map(hex),
@@ -317,21 +318,6 @@ function paintMinigun() {
   return c.render([RAMPS.gunmetal, RAMPS.iron, RAMPS.plasma, RAMPS.grip]);
 }
 
-// The shield: a board of vertical oak planks in an iron frame, with an
-// iron boss in the middle (the classic block-game shield).
-function paintShield() {
-  const c = new Canvas();
-  const RIM = 0;
-  const WOOD = 1;
-  const BOSS = 2;
-  const outline = (x, y) => x >= 7 && x <= 25 && y >= 4 && y <= 28 && !(y > 22 && Math.abs(x - 16) > 9 - (28 - y) * 0.9);
-  c.fill(RIM, outline, (x, y) => (x + y < 30 ? 0.35 : -0.15));
-  c.fill(WOOD, (x, y) => x >= 9 && x <= 23 && y >= 6 && y <= 26 && !(y > 21 && Math.abs(x - 16) > 7 - (26 - y) * 0.9), (x, y) => ((Math.floor((x - 9) / 3.75) % 2 === 0 ? 0.25 : -0.1) + (y < 10 ? 0.2 : 0)));
-  c.fill(RIM, (x, y) => Math.abs(y - 16) < 1 && x >= 9 && x <= 23, () => 0.1); // the cross band
-  c.disc(BOSS, 16, 16, 3.2, 3.2, (x, y) => (x + y < 31 ? 0.7 : -0.2));
-  return c.render([RAMPS.iron, RAMPS.wood, RAMPS.iron]);
-}
-
 // The bow: a curved wooden limb from top right to bottom left, with a
 // taut string.
 function paintBow() {
@@ -359,7 +345,6 @@ const PAINTERS = {
   bow: paintBow,
   railgun: paintRailgun,
   minigun: paintMinigun,
-  shield: paintShield,
   blaster: paintBlaster,
   jet_radio: paintJetRadio,
   grenade: paintGrenade,
@@ -422,6 +407,86 @@ function paintMeat(ramp, cooked) {
     c.line(1, 10, 21, 18, 19, 1.1);
   }
   return c.render([ramp, RAMPS.cloth]);
+}
+
+// Armor: helmet, chestplate, leggings and boots in a material's color ramp
+// (leather, gold, iron, diamond): the classic armor-icon shapes.
+function paintArmor(piece, ramp, outline) {
+  const c = new Canvas();
+  const light = (x, y) => (x + y < 30 ? 0.35 : -0.2);
+  if (piece === "helmet") {
+    const dome = (x, y) => ((x - 16) / 11) ** 2 + ((y - 15) / 10) ** 2 <= 1 && y <= 25;
+    c.fill(0, (x, y) => dome(x, y) && !(x > 10.5 && x < 21.5 && y > 17.5), light);
+    c.fill(0, (x, y) => y >= 15 && y <= 25 && (x < 11 && x > 5 || x > 21 && x < 27) && ((x - 16) / 11.5) ** 2 + ((y - 15) / 10.5) ** 2 <= 1.15, light);
+    c.line(0, 8, 13, 24, 13, 1.4, () => -0.8); // a band across the dome
+    c.line(0, 16, 6, 16, 12, 1.2, () => 0.5); // a crest ridge
+  } else if (piece === "chestplate") {
+    const body = (x, y) => {
+      if (y >= 5 && y <= 14 && (x >= 3 && x <= 11 || x >= 21 && x <= 29)) return true; // the shoulders
+      if (y >= 5 && y <= 27 && x >= 9 && x <= 23) return !(y < 9 && x > 12.5 && x < 19.5); // the torso, with a neck hole
+      return false;
+    };
+    c.fill(0, body, light);
+    c.line(0, 16, 12, 16, 27, 1.0, () => -0.6); // the centre seam
+    c.line(0, 10, 18, 22, 18, 1.0, () => -0.4); // a belt line
+  } else if (piece === "leggings") {
+    c.poly(0, [[7, 5], [25, 5], [25, 11], [7, 11]], light);
+    c.poly(0, [[7, 11], [15.5, 11], [14.5, 28], [6, 28]], light);
+    c.poly(0, [[16.5, 11], [25, 11], [26, 28], [17.5, 28]], light);
+    c.line(0, 8, 8, 24, 8, 1.0, () => -0.7); // the belt
+  } else {
+    for (const ox of [0, 15]) {
+      c.poly(0, [[4 + ox, 5], [13 + ox, 5], [13 + ox, 19], [16 + ox, 21], [16 + ox, 27], [3 + ox, 27]], light);
+      c.line(0, 4 + ox, 22, 15 + ox, 22, 1.2, () => -0.7); // the sole line
+    }
+  }
+  return c.render([ramp], outline);
+}
+const ARMOR_RAMPS = { leather: [RAMPS.leather, [24, 12, 6]], gold: [RAMPS.gold, [40, 24, 4]], iron: [RAMPS.iron, [26, 28, 32]], diamond: [RAMPS.diamond, [6, 40, 46]] };
+for (const [tier, [ramp, outline]] of Object.entries(ARMOR_RAMPS)) {
+  for (const piece of ["helmet", "chestplate", "leggings", "boots"]) PAINTERS[`armor_${tier}_${piece}`] = () => paintArmor(piece, ramp, outline);
+}
+
+// The bow being drawn (stage 1-3): the limbs bend toward the archer and the
+// string is pulled back with an arrow nocked, pointing out of the front.
+const BOW_PULL_CACHE = new Map();
+export function bowPullPixels(stage) {
+  if (BOW_PULL_CACHE.has(stage)) return BOW_PULL_CACHE.get(stage);
+  const c = new Canvas();
+  const WOOD = 0;
+  const STRING = 1;
+  const SHAFT = 2;
+  const TIP = 3;
+  const FEATHER = 4;
+  const k = stage / 3;
+  const dir = [-Math.SQRT1_2, Math.SQRT1_2]; // toward the archer
+  const pts = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16;
+    const a = -Math.PI * 0.25 + t * Math.PI * 1.0 - Math.PI * 0.5;
+    const bend = k * 2.6 * Math.pow(Math.abs(t - 0.5) * 2, 2); // the tips bend toward the archer
+    pts.push([13 + Math.cos(a) * 15 + dir[0] * bend, 17 + Math.sin(a) * 15 + dir[1] * bend]);
+  }
+  for (let i = 0; i < pts.length - 1; i++) {
+    const w = 2.6 - Math.abs(i - 8) * 0.12;
+    c.line(WOOD, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w, () => (i < 8 ? 0.3 : -0.1));
+  }
+  c.line(WOOD, pts[7][0], pts[7][1], pts[9][0], pts[9][1], 3.4, () => -0.45); // the grip wrap
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const pull = [mid[0] + dir[0] * (1.5 + k * 5.5), mid[1] + dir[1] * (1.5 + k * 5.5)];
+  c.line(STRING, a[0], a[1], pull[0], pull[1], 0.9, () => 0.6);
+  c.line(STRING, b[0], b[1], pull[0], pull[1], 0.9, () => 0.6);
+  // The arrow: from the string out through the bow.
+  const fwd = [-dir[0], -dir[1]];
+  const tail = [pull[0] + dir[0] * 1.5, pull[1] + dir[1] * 1.5];
+  const head = [pull[0] + fwd[0] * 22, pull[1] + fwd[1] * 22];
+  c.line(SHAFT, tail[0], tail[1], head[0], head[1], 1.3, () => 0.2);
+  c.poly(TIP, [[head[0] + fwd[0] * 3.2, head[1] + fwd[1] * 3.2], [head[0] - fwd[1] * 1.7, head[1] + fwd[0] * 1.7], [head[0] + fwd[1] * 1.7, head[1] - fwd[0] * 1.7]], () => 0.3);
+  c.line(FEATHER, tail[0] - fwd[0] * 0.5, tail[1] - fwd[1] * 0.5, tail[0] + fwd[0] * 3.6, tail[1] + fwd[1] * 3.6, 2.6, () => 0.4);
+  const px = c.render([RAMPS.wood, RAMPS.cloth, RAMPS.wood, RAMPS.iron, RAMPS.cloth]);
+  BOW_PULL_CACHE.set(stage, px);
+  return px;
 }
 
 export function paintItemIcon(iconName) {

@@ -1,5 +1,7 @@
 // Magazines, reloads and cooldowns of the hand weapons (pure data, shared by
-// weapons.js, the HUD and the tests). Balanced by damage: the harder a
+// weapons.js, the HUD and the tests). The laser blaster has none: it never
+// runs dry and can fire continuously (3 a bolt, weaker than the pistol).
+// Balanced by damage: the harder a
 // weapon hits, the longer the wait. Sustained damage per second in
 // brackets (damage x shots in a magazine / (time to fire it + reload)).
 //   mag: shots before a reload; reload: seconds to reload (or recharge);
@@ -11,7 +13,6 @@ export const WEAPON_STATS = {
   sniper: { mag: 1, reload: 1.8, label: "Reloading" }, // 34, one round (~19/s, at 400 blocks)
   grenade: { mag: 1, reload: 1.4, label: "Next grenade" },
   bazooka: { mag: 1, reload: 3, label: "Reloading" },
-  blaster: { mag: 18, reload: 2, label: "Recharging" }, // 7 x 5/s (~23/s)
   railgun: { mag: 1, reload: 3.5, label: "Recharging" }, // 140 and pierces everything
   airstrike: { mag: 1, reload: 25, label: "Next strike" },
   minigun: { heat: 4, cool: 3, label: "Overheated" }, // 3 x 32/s while it lasts (~48/s)

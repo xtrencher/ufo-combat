@@ -40,6 +40,9 @@ const COLORS = {
   w: "#ffffff",
   b: "#4aa8ff",
   c: "#2c6fc9",
+  A: "#c8ced6",
+  a: "#8c95a1",
+  x: "#444b55",
   G: "#ffd23a",
   g: "#c8890a",
   y: "#fff3a0",
@@ -60,6 +63,27 @@ function drawArt(rows, fill = (x, ch) => ch) {
     }
   });
   return canvas;
+}
+
+// 9x9 chestplate for the armor bar: k outline, A plate, a shade, . empty.
+const ARMOR_ICON = [
+  "kk.....kk",
+  "kAkkkkkAk",
+  "kAAAAAAAk",
+  "kAAAkAAAk",
+  "kAAAkAAAk",
+  ".kAAAAAk.",
+  ".kAAaAAk.",
+  ".kAaaaAk.",
+  "..kkkkk..",
+];
+
+function armorArt(kind) {
+  return drawArt(ARMOR_ICON, (x, ch) => {
+    if (ch === ".") return ".";
+    if (kind === "empty" || (kind === "half" && x > 4)) return ch === "k" ? "k" : "x";
+    return ch;
+  });
 }
 
 function heartArt(kind, flash = false) {
@@ -137,10 +161,19 @@ export class Hud {
       this.gold.push({ el: c, ctx: c.getContext("2d"), shown: -1 });
     }
     this._shownGold = -1;
-    // The off-hand slot (the shield) and the weapon status (rounds, reload).
-    this.offhandEl = document.getElementById("offhand-slot");
-    this.offSlot = new SlotView(icons, "hotbar-slot");
-    this.offhandEl.appendChild(this.offSlot.el);
+    // The armor bar (a row of ten chestplates, above the hearts) and the weapon status (rounds, reload).
+    this.armorEl = document.getElementById("armor-bar");
+    this.armorArt = { full: armorArt("full"), half: armorArt("half"), empty: armorArt("empty") };
+    this.armorIcons = [];
+    for (let i = 0; i < 10; i++) {
+      const c = document.createElement("canvas");
+      c.width = this.armorArt.full.width;
+      c.height = this.armorArt.full.height;
+      c.className = "heart";
+      this.armorEl.appendChild(c);
+      this.armorIcons.push({ el: c, ctx: c.getContext("2d") });
+    }
+    this._shownArmor = -1;
     this.weaponEl = document.getElementById("weapon-status");
     this.weaponLabel = this.weaponEl.querySelector(".ws-label");
     this.weaponAmmo = this.weaponEl.querySelector(".ws-ammo");
@@ -183,15 +216,30 @@ export class Hud {
     this.rootEl.classList.toggle("hidden", !visible);
   }
 
+  // The item name sits above the extra rows (golden hearts, armor).
+  _nameLift() {
+    const rows = (this._hasGold ? 1 : 0) + (this._hasArmor ? 1 : 0);
+    this.itemNameEl.style.bottom = rows === 0 ? "" : `${94 + rows * 24}px`;
+  }
+
   // Refreshes the hotbar slots and selection (cheap when nothing changed).
   refreshHotbar() {
     const inv = this.inventory;
     for (let i = 0; i < HOTBAR_SIZE; i++) this.slots[i].set(inv.slots[i]);
-    this.offSlot.set(inv.offhand);
-    const hasOff = !!inv.offhand;
-    if (hasOff !== this._hasOff) {
-      this._hasOff = hasOff;
-      this.offhandEl.classList.toggle("hidden", !hasOff);
+    // The armor bar: ten chestplates, two defense points each.
+    const pts = inv.armorPoints();
+    const sig = `${pts}:${inv.armor.map((a) => (a ? Math.ceil(a.dur / 8) : 0)).join(",")}`;
+    if (sig !== this._shownArmor) {
+      this._shownArmor = sig;
+      this.armorEl.classList.toggle("hidden", pts <= 0);
+      this._hasArmor = pts > 0;
+      this._nameLift();
+      for (let i = 0; i < this.armorIcons.length; i++) {
+        const v = pts - i * 2;
+        const a = this.armorIcons[i];
+        a.ctx.clearRect(0, 0, a.el.width, a.el.height);
+        a.ctx.drawImage(v >= 2 ? this.armorArt.full : v === 1 ? this.armorArt.half : this.armorArt.empty, 0, 0);
+      }
     }
     if (inv.selected !== this._selected && this.slots[inv.selected]) {
       if (this._selected >= 0) this.slots[this._selected].el.classList.remove("selected");
@@ -270,7 +318,8 @@ export class Hud {
     if (gold !== this._shownGold) {
       this._shownGold = gold;
       this.goldEl.classList.toggle("hidden", gold <= 0);
-      this.itemNameEl.style.bottom = gold > 0 ? "118px" : ""; // (above the golden row)
+      this._hasGold = gold > 0;
+      this._nameLift();
       for (let i = 0; i < this.gold.length; i++) {
         const v = gold - i * 2;
         const g = this.gold[i];

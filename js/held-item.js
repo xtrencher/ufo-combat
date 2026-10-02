@@ -3,7 +3,7 @@
 // clips into walls. Animated with a swing (mining, attacking, placing), an
 // equip dip when switching items, and a little walk bob.
 import * as THREE from "three";
-import { itemModel, MUZZLE, minigunBarrels } from "./models.js";
+import { itemModel, MUZZLE, minigunBarrels, bowPullGeometry } from "./models.js";
 import { itemInfo } from "./items.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 
@@ -83,16 +83,9 @@ export class HeldItem {
     this.flash.visible = false;
     this.railGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash.material.map, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, color: new THREE.Color(1.5, 3.2, 6) }));
     this.railGlow.visible = false;
-    // The shield in the off hand (left): low at the side of the view,
-    // brought up in front of the left half of it while raised. It never
-    // covers the whole screen, and there is no overlay.
-    this.offhandId = 0;
-    this.offMesh = null;
-    this._offShown = 0;
-    this.shieldUp = false;
-    this.shieldLevel = 0; // 0-1 raise animation
-    this._shieldHit = 0;
     this.bowDraw = 0; // 0-1: how far the bow is drawn
+    this._bowStage = 0;
+    this._bowPose = 0; // 0-1: the bow raised to shoot
     this.setItem(0, true);
   }
 
@@ -119,6 +112,8 @@ export class HeldItem {
 
   _apply(id) {
     this.itemId = id;
+    this._bowStage = 0;
+    this._bowPose = 0;
     if (this.mesh) this.pivot.remove(this.mesh);
     const model = id ? itemModel(id) : null;
     if (!model) {
@@ -207,45 +202,6 @@ export class HeldItem {
     if (this._swing >= 0.5) this._swing = 0;
   }
 
-  // The raised shield took a hit: it jolts.
-  shieldHit() {
-    this._shieldHit = 1;
-  }
-
-  // The off-hand model (a shield), rebuilt when the item changes.
-  _updateOffhand(dt) {
-    const id = this.offhandId || 0;
-    if (id !== this._offShown) {
-      this._offShown = id;
-      if (this.offMesh) this.pivot.remove(this.offMesh);
-      this.offMesh = null;
-      const model = id ? itemModel(id) : null;
-      if (model) {
-        this.offMesh = new THREE.Mesh(model.geometry, this.materials[model.kind]);
-        this.offMesh.scale.setScalar(0.56);
-        bindEntityLight(this.offMesh, () => this.light);
-        this.pivot.add(this.offMesh);
-      }
-    }
-    const m = this.offMesh;
-    if (!m) return;
-    const up = this.shieldUp ? 1 : 0;
-    this.shieldLevel += (up - this.shieldLevel) * Math.min(1, dt * 14);
-    this._shieldHit = Math.max(0, this._shieldHit - dt * 5);
-    const k = this.shieldLevel;
-    // Lowered: at the bottom left, turned side-on; raised: in front of the
-    // left half of the view, facing forward.
-    m.position.set(-0.6 + k * 0.28, -0.6 + k * 0.36, -0.74 + k * 0.12);
-    m.rotation.set(-0.2 + k * 0.15, 1.0 - k * 0.85, 0.14 - k * 0.12);
-    if (this._shieldHit > 0) {
-      const h = this._shieldHit * this._shieldHit;
-      m.position.z += h * 0.08;
-      m.position.x += (Math.random() - 0.5) * 0.02 * h;
-      m.rotation.x += h * 0.12;
-    }
-    m.visible = this.visible;
-  }
-
   // Fires the held gun: recoil kick and a muzzle flash.
   fire(power = 1) {
     this._kick = 1;
@@ -312,20 +268,35 @@ export class HeldItem {
       m.position.x += (Math.random() - 0.5) * 0.012 * ch;
       m.position.y += (Math.random() - 0.5) * 0.012 * ch;
     }
-    // The off hand (the shield).
-    this._updateOffhand(dt);
-    // Drawing the bow: it comes toward the middle and tilts; it trembles at
-    // a full draw.
-    if (this.bowDraw > 0 && itemInfo(this.itemId)?.weapon?.kind === "bow") {
-      const d = this.bowDraw;
-      m.position.x -= d * 0.16;
-      m.position.y += d * 0.05;
-      m.position.z += d * 0.1;
-      m.rotation.y += d * 0.35;
-      m.rotation.z -= d * 0.25;
-      if (d >= 1) {
-        m.position.x += (Math.random() - 0.5) * 0.006;
-        m.position.y += (Math.random() - 0.5) * 0.006;
+    // The bow: nocking raises it in front of you, turned so the arrow points
+    // at the crosshair; while the string is drawn it goes through three pull
+    // stages (the limbs bend, the string and arrow come back toward the eye)
+    // and trembles at a full draw. Let go and it drops back at once.
+    if (itemInfo(this.itemId)?.weapon?.kind === "bow") {
+      const want = this.bowDraw > 0 ? 1 : 0;
+      this._bowPose += (want - this._bowPose) * Math.min(1, dt * (want ? 12 : 22));
+      if (this._bowPose < 0.01) this._bowPose = 0;
+      const stage = this.bowDraw <= 0 ? 0 : this.bowDraw < 0.34 ? 1 : this.bowDraw < 0.67 ? 2 : 3;
+      if (stage !== this._bowStage) {
+        this._bowStage = stage;
+        m.geometry = stage ? bowPullGeometry(stage) : itemModel(this.itemId).geometry;
+      }
+      const k = this._bowPose;
+      if (k > 0) {
+        m.position.x += (-0.2 - this.base.pos.x) * k;
+        m.position.y += (-0.17 - this.base.pos.y) * k;
+        m.position.z += (-0.52 - this.base.pos.z) * k;
+        m.rotation.x += (0.0 - this.base.rot.x) * k;
+        m.rotation.y += (0.95 - this.base.rot.y) * k;
+        m.rotation.z += (-0.785 - this.base.rot.z) * k;
+        // Drawing pulls the whole bow a little back and toward the eye.
+        const d = this.bowDraw;
+        m.position.z += d * 0.05;
+        m.position.x += d * 0.03;
+        if (d >= 1) {
+          m.position.x += (Math.random() - 0.5) * 0.007;
+          m.position.y += (Math.random() - 0.5) * 0.007;
+        }
       }
     }
     this._flash += dt;

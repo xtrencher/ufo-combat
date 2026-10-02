@@ -1,7 +1,7 @@
 // Supply crates: now and then, in Survival, a crate drifts down on a parachute
 // a little way from the player, trailing bright orange smoke that can be seen
 // from far away. Walk up to it to open it: a standard weapon you don't have
-// yet (pistol, grenades, machine gun, shield, sniper rifle, bazooka,
+// yet (pistol, grenades, machine gun, sniper rifle, bazooka,
 // airstrike: by tier), golden apples (extra hearts), sometimes a tool, food.
 // Crates are not saved (a reload just starts the wait for the next one).
 import * as THREE from "three";
@@ -158,7 +158,7 @@ export class SupplyCrates {
     c.state = "gone";
     const owned = new Set();
     for (const s of this.inventory.slots) if (s) owned.add(s.id);
-    if (this.inventory.offhand) owned.add(this.inventory.offhand.id);
+    for (const a of this.inventory.armor) if (a) owned.add(a.id);
     const loot = rollLoot("crate", null, this.getTier(), owned);
     // A burst of light and sparks; the items go straight into the inventory
     // (or fall at your feet if it is full).

@@ -115,14 +115,12 @@ export class Interaction {
     } else if (button === 2) {
       this.rightDown = true;
       this._placeTimer = 0;
-      // A weapon or grenade in hand is used instead of placing or opening.
-      // A shield in the main hand goes to the off hand; with nothing in the
-      // main hand that uses right click (a sword, a tool, an empty hand, a
-      // block with nowhere to go), the off-hand shield is raised instead.
+      // A weapon or grenade in hand is used instead of placing or opening;
+      // a piece of armor in hand is put on.
       const weapon = this._weapon();
-      if (weapon?.kind === "shield") this._equipOffhand();
-      else if (weapon && this.weapons) this.weapons.press(weapon.kind);
-      else if (!this._use() && this.weapons) this.shielding = this.weapons.raiseShield();
+      if (this._wearArmor()) return;
+      if (weapon && this.weapons) this.weapons.press(weapon.kind);
+      else this._use();
     } else if (button === 1) {
       this._pickBlock();
     }
@@ -135,24 +133,25 @@ export class Interaction {
     } else if (button === 2) {
       this.rightDown = false;
       this.eating = 0;
-      this.shielding = false;
       if (this.weapons) this.weapons.release();
     }
   }
 
-  // A shield in the main hand goes into the off hand (swapping places with
-  // whatever was there).
-  _equipOffhand() {
-    if (!this.inventory.equipSelectedOffhand()) return;
+  // Right click with a piece of armor in hand puts it on (swapping with the
+  // piece worn in that slot). True if it did.
+  _wearArmor() {
+    const stack = this.inventory.selectedStack;
+    const armor = stack ? itemInfo(stack.id)?.armor : null;
+    if (!armor || !this.inventory.equipSelectedArmor()) return false;
     this.audio.playClick?.();
-    this.onMessage?.("Shield in your off hand: hold right click to raise it");
+    this.onMessage?.(`Wearing the ${itemInfo(stack.id).name}`);
     this._changed();
+    return true;
   }
 
   release() {
     this.leftDown = false;
     this.rightDown = false;
-    this.shielding = false;
     this.eating = 0;
     this._stopMining();
     if (this.weapons) this.weapons.cancel();
@@ -405,7 +404,7 @@ export class Interaction {
   }
 
   _updateUse(dt) {
-    if (!this.rightDown || this._weapon() || this.shielding) return; // weapons fire once per click; behind a raised shield nothing else happens
+    if (!this.rightDown || this._weapon()) return; // weapons fire once per click
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
     if (this.eating > 0) {
