@@ -861,6 +861,16 @@
     border-right: 2px solid rgba(160,255,190,0.9);
     border-radius: 0 0 8px 8px;
   }
+  #jet-aim {
+    position: fixed;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    pointer-events: none;
+    z-index: 10;
+    border: 2px solid rgba(255,235,140,0.9);
+    border-radius: 50%;
+  }
   .vh-lock { color: #ff5a4a; font-weight: 700; }
   .vh-bar-row { display: flex; align-items: center; gap: 8px; }
   .vh-bar-row > span { flex: 0 0 auto; }
@@ -1003,6 +1013,7 @@
     <div id="beam-overlay"></div>
     <div id="lock-box" class="hidden"></div>
     <div id="jet-nose" class="hidden"></div>
+    <div id="jet-aim" class="hidden"></div>
   </div>
 
   <pre id="debug-overlay" class="hidden"></pre>

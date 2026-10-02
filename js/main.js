@@ -10,7 +10,7 @@ import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setSto
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
-import { normalizeSettings, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
+import { normalizeSettings, DEFAULT_SETTINGS, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
@@ -124,7 +124,7 @@ const scene = new THREE.Scene();
 // ---------- Settings ----------
 // Chunks. Beyond each preset's detail distance, terrain is drawn as
 // simplified level-of-detail tiles (see lod.js).
-const DEFAULT_RENDER_DISTANCE = 10;
+const DEFAULT_RENDER_DISTANCE = 15;
 const MIN_RENDER_DISTANCE = 2;
 const MAX_RENDER_DISTANCE = 256; // (Round 3: was 100) beyond the detail area it is all cheap LOD tiles
 // The saved settings are read first, before any default, graphics preset
@@ -369,7 +369,7 @@ settingsPanel.on("vehicles.ufoDash", (v) => (vehicles.config.ufo.dash = v));
 settingsPanel.on("vehicles.ufoDashTime", (v) => (vehicles.config.ufo.dashTime = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
 // The jet: speed, thrust, turn rate, stall speed, flight assist, arrival.
-vehicles.config.jet = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
+vehicles.config.jet = { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 settingsPanel.on("vehicles.jetMaxSpeed", (v) => {
   vehicles.config.jet.maxSpeed = v;
   ufos.jetMaxSpeed = v;
@@ -1611,9 +1611,10 @@ for (const [key, label] of AUDIO_CATEGORIES) {
 }
 settingsPanel.onReset("audio", () => {
   for (const [key] of AUDIO_CATEGORIES) {
-    settings.volume[key] = 1;
-    audio.setVolume(key, 1);
-    volumeSliders[key].set(1);
+    const dv = DEFAULT_SETTINGS.volume[key] ?? 1;
+    settings.volume[key] = dv;
+    audio.setVolume(key, dv);
+    volumeSliders[key].set(dv);
   }
 });
 
@@ -2346,6 +2347,7 @@ function updateBeamFeedback() {
 // The jet's lock box (on the target) and nose marker (where it points).
 const lockBoxEl = document.getElementById("lock-box");
 const jetNoseEl = document.getElementById("jet-nose");
+const jetAimEl = document.getElementById("jet-aim");
 const missileWarnEl = document.getElementById("missile-warn");
 const missileWarnTextEl = missileWarnEl.querySelector(".mw-text");
 const _lockV = new THREE.Vector3();
@@ -2374,6 +2376,8 @@ function updateJetOverlay() {
   }
   jetNoseEl.classList.toggle("hidden", !o?.nose || v.cameraModes[v.cameraMode] === "cockpit");
   if (o?.nose) place(jetNoseEl, o.nose);
+  jetAimEl.classList.toggle("hidden", !o?.aim);
+  if (o?.aim) place(jetAimEl, o.aim);
   // Incoming missile: an arrow pointing where it comes from, blinking faster as it closes.
   const w = o?.warn;
   missileWarnEl.classList.toggle("hidden", !w);

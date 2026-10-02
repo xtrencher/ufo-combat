@@ -1582,3 +1582,90 @@ Source of truth for this round (jet fixes, survival progression, weapons balance
 - Zero console errors in every suite run.
 
 ROUND 4 COMPLETE
+
+# Round 5 (UFO COMBAT) checklist
+
+Source of truth for this round. Ticked as finished; decisions in "Round 5 decisions" at the end.
+
+## Part 1: Jet flight, takeoff and landing
+- [x] 1.1 Throttle 0-100%, ~1000 km/h at 100%, speed scales over the range
+- [x] 1.2 Reliable landing, level on wheels after touchdown, brakes to full stop
+- [x] 1.3 Slow reverse on the ground
+- [x] 1.4 Takeoff tolerant of small angles / imperfect runways
+- [x] 1.5 Both jets more agile
+- [x] 1.6 Full rolls and loops (quaternions), clean roll stop
+- [x] 1.7 Free look (both mouse buttons) freezes controls
+- [x] 1.8 Animated ailerons, elevators, rudders
+- [x] 1.9 Jet models more detail, all lights attached to the model
+- [x] 1.10 Engine sound much quieter
+
+## Part 2: Jet combat
+- [x] 2.1 Lock-on stays on the target
+- [x] 2.2 Locking a UFO does not anger other UFOs
+- [x] 2.3 Fewer UFO attackers when in a jet
+- [x] 2.4 Missile camera follow keeps full jet control
+- [x] 2.5 Jet destroyed in air: big explosion, burning wreck falls, explodes on impact
+- [x] 2.6 Enemy jets faster
+
+## Part 3: UFOs
+- [ ] 3.1 Shapes: remove rounded cube; add triangle, boomerang, cylinder
+- [ ] 3.2 Crash explosion scales with UFO size
+- [ ] 3.3 Water crash: sink, explode on seabed, aliens spawn in water, head to player
+- [ ] 3.4 Persistence: rare retreat
+- [ ] 3.5 Abducted animals vanish inside the UFO
+- [ ] 3.6 Hangar UFOs hidden in bunkers, armed guards, late-mission boarding
+
+## Part 4: UFO piloting
+- [ ] 4.1 Faster dash, random dash speed per UFO
+- [ ] 4.2 Ghost mode toggle key and HUD state
+- [ ] 4.3 Tic-tac long axis forward
+- [ ] 4.4 Superweapon laser carves continuously
+
+## Part 5: Aliens and mobs
+- [ ] 5.1 Pathfinding AI, clear line of fire
+- [ ] 5.2 Blue alien type
+- [ ] 5.3 Spiders neutral in daylight
+
+## Part 6: Weapons and items
+- [ ] 6.1 Bow charge/draw animation
+- [ ] 6.2 Laser pistol: no reload, continuous
+- [ ] 6.3 Pistol real projectiles
+- [ ] 6.4 Remove shield
+- [ ] 6.5 Armor drops, slots, HUD
+- [ ] 6.6 Realistic nuke mushroom cloud
+
+## Part 7: World and graphics
+- [ ] 7.1 Craters in LOD terrain
+- [ ] 7.2 Cities with skyscrapers, bigger mountains
+- [ ] 7.3 Bigger, varied airports
+- [ ] 7.4 Shorter ultra grass
+- [ ] 7.5 Breakable grass, no floating grass after explosions
+- [ ] 7.6 Natural see-through leaves
+- [ ] 7.7 Subtle walking view bob
+- [ ] 7.8 Supply drops on solid ground, new crate and ropes
+
+## Part 8: Missions and defaults
+- [ ] 8.1 The Long Night at night, eventful
+- [ ] 8.2 Re-check mission chain and difficulty
+- [x] 8.3 Defaults: Medium, 15 chunks, volume 30%
+
+## Final polish
+- [ ] F.1 Regression pass
+- [ ] F.2 Player's-eye review
+- [ ] F.3 Full suite
+- [ ] F.4 README
+- [ ] F.5 Summary, decisions, known issues, 10-minute test
+- [ ] F.6 ROUND 5 COMPLETE
+
+## Round 5 decisions and notes
+(appended as work proceeds)
+- Part 1, flight model (js/vehicle-jet.js): thrust grows with the square of the throttle and drag with the square of the speed, so the speed you settle at is proportional to the throttle (measured at 60 FPS in level flight: 0% ~ idle, 30% 285, 50% 474, 70% 663, 100% 947, afterburner 1080 km/h; the top-speed setting default is 300 b/s = 1080 km/h with the afterburner, 88% of it at 100% throttle). Old saves still at the old 160 default move to 300 once (settings version 5). Ground thrust, takeoff rolls and lift-off are unchanged (a takeoff still needs ~5 s / 100 blocks).
+- Part 1, loops and rolls: the aim (crosshair) is now a quaternion (`aimQ`) turned by the mouse about its own axes, so pitch is not clamped and a loop is just pulling the mouse back (measured: a 360 degree loop, alive, no sideways drift). The jet follows the aim with body-frame commands and bank measured against the aim's own up, so it stays on the loop instead of rolling upright at the top. The aim levels its own roll (sin of the bank, so the inverted attitude is the unstable one and the jet rolls out of it by itself once the mouse stops). `aimYaw`/`aimPitch` are still there as accessors (enemy autopilot, tests). A/D roll the jet continuously (a full roll in 1.5 s; -472 degrees in 2 s measured); the roll axis responds 2x faster than pitch/yaw, so letting go stops within ~5 degrees and the damped bank controller then returns to wings-level with no overshoot (measured).
+- Part 1, ground: three contact points (nose wheel and both main wheels) follow the ground's slope and tilt, so the jet sits level on its wheels on runways and follows imperfect ground; the nose only rises for takeoff (throttle above 45%, no brakes, at speed) and settles at once otherwise (leftover air rotation is cancelled); lift is dumped on the ground unless rotating. Landing: a sink rate up to 9 b/s is clean, up to 17 hurts (damage grows with it, "HARD LANDING"), beyond that, 40 degrees of bank, a nose-down slam, a 22 b/s sideways slide or 220 b/s ground speed crash it. Brakes stop 75 b/s in ~3 s. S at 0% throttle reverses at up to 5 b/s.
+- Part 1.7 free look: both mouse buttons for 0.07 s freeze the controls (rates zeroed, no weapons, no lock) and the mouse moves a head-like look offset; letting go re-levels the aim from the nose and the camera comes back smoothly (measured: 0.1 degree camera jump).
+- Part 2.4: the old "looking" flag forced the aim to the nose every frame during a lock hold or a missile follow (mouse ignored). Follow now leaves mouse and keys fully live (the camera is only blended toward the target; a small ring marks where the mouse steers); while the lock button is held the mouse is left alone but the jet keeps flying toward its aim and all keys work.
+- Part 2.1/2.2: a tracked target stays until release, death or 2200 blocks away; only the tracked UFO gets `lockedOn` (after 0.3 s); the old "switch if clearly better" rule made the lock sweep across UFOs and anger each. Part 2.3: against a jet at most 2 UFOs attack (4 otherwise); extra attackers fall back to circling when you take to a jet.
+- Part 2.5: a jet destroyed more than 8 blocks above the ground (not by a crash) explodes (radius 11 + fireball, smoke, debris), then the burning wreck tumbles and falls (gravity 20, drag, fire and smoke trail, secondary flashes) and explodes again where it lands (or after 45 s). Enemy jets use the same code.
+- Part 1.8/1.9 model: stabilators, flaperons and rudders are separate hinged parts on both jets (axes: stabilators about X, flaperons about the hinge line, rudders about the fin's own axis; deflection smoothed); the nav lights were placed by hand and several floated beside the airframe (F-22 tail strobes and fin strips 1 block outside the fin, F-16 wingtips beyond the wing, the belly strobe below the belly): they are now computed from the geometry (fin tips, wing tip edge, rail tip, belly) and the formation strips lie on the fuselage and fins. Extra detail: beaver tail, intake splitter plates, refuelling door, a real rudder line.
+- Part 1.10: engine sound master gain 0.55 -> 0.14, roar 0.25+0.6t -> 0.15+0.4t, whine and afterburner roughly halved.
+- Part 8.3 defaults: graphics Medium (medium preset suggests 15 chunks), render distance 15, master volume 30% (the audio class, settings schema and the Reset buttons agree).

@@ -32,7 +32,7 @@ import { IS_SOLID, IS_WET } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
-export const JET_DEFAULTS = { maxSpeed: 160, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
+export const JET_DEFAULTS = { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 const G = 14; // gravity on the jet (blocks/s^2)
 const CL_SLOPE = 5; // lift coefficient per radian of angle of attack
 const STALL_AOA = 0.3; // radians (~17 degrees)
@@ -42,16 +42,28 @@ const HEAT_RESUME = 0.4; // a jammed cannon works again below this
 const ASSIST_CONE = 0.11; // radians: the cannon pulls toward a target this close to the nose
 const LOCK_TIME = 1.0; // seconds on target: one missile
 const TAP_TIME = 0.25; // seconds: a right click shorter than this fires an unguided missile
+const LOCK_LOSE_RANGE = 2200; // a tracked target is lost only beyond this (blocks)
 const LOCK_PEACEFUL = 0.6; // lock score penalty (radians off the view centre) for targets not attacking you
 const FOLLOW_AFTER = 0.8; // seconds the camera stays on the target after the missile got there
 const MISSILE_TURN = 3.2; // rad/s
 const FLARE_COOLDOWN = 5;
 const FLARE_BURST = 4;
-const RUNWAY_THRUST = 0.8; // share of the thrust that pushes on the wheels (a roll of ~110 blocks to lift off, ~70 with the afterburner)
+const THRUST_AIR = 36; // blocks/s^2 of thrust at 100% throttle in the air (x the thrust setting)
+const THRUST_GROUND = 16; // ... on the wheels (a roll of ~110 blocks to lift off, ~75 with the afterburner)
+const AB_THRUST = 1.3; // the afterburner's thrust (x): the top speed setting is reached with it lit, 100% throttle alone gives 1/sqrt(1.3) of it
 const MAX_BANK = 1.13; // radians (65 degrees): the most flight assist banks in a turn
-const KEY_BANK = 1.4; // radians (80 degrees): the bank while A/D is held (flight assist)
 const ROLL_GAIN = 3; // roll rate (rad/s) per radian of bank error
 const ROLL_DAMP = 0.4; // minus this much per rad/s of roll rate: no overshoot
+const PITCH_RATE = 1.7; // rad/s at full stick (x the turn setting, up to 1.6x more at speed)
+const YAW_RATE = 0.8;
+const ROLL_RATE = 4.2; // a full roll in 1.5 s
+const AIM_LEVEL = 1.3; // 1/s: the aim (the crosshair) levels its own roll out, so the jet comes back to wings level
+const LOOK_DELAY = 0.07; // seconds both mouse buttons are held before free look starts
+const GEAR_LAYOUT = { f22: { noseF: 4.6, mainB: 2.0, track: 1.6 }, f16: { noseF: 2.4, mainB: 1.0, track: 1.05 } };
+const TOUCH_SAFE_SINK = 9; // blocks/s: a landing harder than this damages the jet
+const TOUCH_MAX_SINK = 17; // ... and this much breaks it
+const WRECK_LIFE = 45; // seconds a falling wreck is kept at most
+const REVERSE_SPEED = 5; // blocks/s: backing up on the ground
 const ROTATE_PITCH = 0.24; // radians: the most the nose rises on the wheels (below the stall angle)
 const ROTATE_SPEED = 1.2; // x the stall speed: the assist rotates for takeoff (lift-off with margin to climb away)
 const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
@@ -74,7 +86,10 @@ const Y = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
+const Z = new THREE.Vector3(0, 0, 1);
+const _a = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
 
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v;
@@ -123,11 +138,21 @@ export class Jet extends Vehicle {
     const fwd = this.forward(new THREE.Vector3());
     if (data.airborne || Number.isFinite(data.speed)) this.vel.copy(fwd).multiplyScalar(Number(data.speed) || 0);
     // Where the pilot wants to fly (flight assist): a direction, moved by the mouse.
-    this.aimYaw = Math.atan2(-fwd.x, -fwd.z);
-    this.aimPitch = Math.asin(clamp(fwd.y, -1, 1));
+    this.aimQ = new THREE.Quaternion(); // the aim: where the crosshair points (a quaternion: no gimbal lock, loops and rolls work)
+    this._levelAim();
     this.camYaw = this.aimYaw;
     this.camPitch = this.aimPitch;
     this.camQ = this.q.clone(); // lagging chase camera (manual mode)
+    this.camView = this.q.clone(); // where the camera looks (smoothed)
+    this.camSmooth = 0;
+    this.freeLook = false; // both mouse buttons: the controls are frozen and the mouse looks around
+    this.bothT = 0;
+    this.lookYaw = 0;
+    this.lookPitch = 0;
+    this.fireBlock = false;
+    this.surf = { pitch: 0, roll: 0, yaw: 0 }; // control surface deflections (-1..1), smoothed
+    this.reversing = false;
+    this.wreck = null;
     this.time = 0;
     this.cannonT = 0;
     this.missileT = 0;
@@ -145,6 +170,7 @@ export class Jet extends Vehicle {
     this.warn = null; // the nearest missile/seeker coming at us: { dist, angle, kind }
     this.warnT = 0;
     this.gearT = data.airborne ? 0 : 1;
+    this.stickX = 0;
     this.rolled = 0; // distance rolled on the runway (HUD)
     this.sinceLiftoff = 99; // seconds since the wheels left the ground (takeoff aid)
     this.hostileTo = null;
@@ -174,6 +200,32 @@ export class Jet extends Vehicle {
     return GEAR;
   }
 
+  // The aim as a yaw and a pitch (derived from the aim quaternion; setting one
+  // keeps the other and drops any roll). The autopilots and the tests steer
+  // with these.
+  get aimYaw() {
+    const f = _w.set(0, 0, -1).applyQuaternion(this.aimQ);
+    return Math.atan2(-f.x, -f.z);
+  }
+  set aimYaw(v) {
+    this.aimQ.setFromEuler(_e.set(this.aimPitch, v, 0, "YXZ"));
+  }
+  get aimPitch() {
+    const f = _w.set(0, 0, -1).applyQuaternion(this.aimQ);
+    return Math.asin(clamp(f.y, -1, 1));
+  }
+  set aimPitch(v) {
+    this.aimQ.setFromEuler(_e.set(clamp(v, -1.5, 1.5), this.aimYaw, 0, "YXZ"));
+  }
+
+  // The aim straight along the nose, wings level (kept as it is when the nose
+  // is nearly vertical).
+  _levelAim() {
+    const f = this.forward(_v);
+    if (Math.abs(f.y) < 0.97) this.aimQ.setFromEuler(_e.set(Math.asin(clamp(f.y, -1, 1)), Math.atan2(-f.x, -f.z), 0, "YXZ"));
+    else this.aimQ.copy(this.q);
+  }
+
   forward(out) {
     return out.set(0, 0, -1).applyQuaternion(this.q);
   }
@@ -197,10 +249,13 @@ export class Jet extends Vehicle {
   }
 
   onEnter() {
-    const fwd = this.forward(_v);
-    this.aimYaw = Math.atan2(-fwd.x, -fwd.z);
-    this.aimPitch = Math.asin(clamp(fwd.y, -1, 1));
+    this._levelAim();
     this.camQ.copy(this.q);
+    this.camView.copy(this.aimQ);
+    this.freeLook = false;
+    this.bothT = 0;
+    this.lookYaw = this.lookPitch = 0;
+    this.fireBlock = false;
   }
 
   onExit() {
@@ -215,6 +270,8 @@ export class Jet extends Vehicle {
     this.lock.suppress = false;
     this.queued.length = 0;
     this.afterburner = false;
+    this.freeLook = false;
+    this.lookYaw = this.lookPitch = 0;
     this.manager.audio?.setJetEngine?.(0, false, 0, false);
   }
 
@@ -223,7 +280,6 @@ export class Jet extends Vehicle {
   _aero(dt, stick, input) {
     const cfg = this.cfg;
     const maxSpeed = Math.max(60, cfg.maxSpeed);
-    const accel = 20 * cfg.accel;
     const vStall = Math.max(15, cfg.stallSpeed);
     const fwd = this.forward(new THREE.Vector3());
     const up = this.up(new THREE.Vector3());
@@ -240,22 +296,27 @@ export class Jet extends Vehicle {
       this.stalled = !this.onGround && speed > 3;
     }
     if (!this.onGround && speed < vStall * 0.95) this.stalled = true;
-    // Lift: at the stall speed the best lift just holds the jet up.
+    // Lift: at the stall speed the best lift just holds the jet up. (On the
+    // wheels only while the nose is raised for takeoff: a jet rolling out
+    // after landing, or braking, dumps its lift.)
     const kL = G / (clMax * vStall * vStall);
-    const lift = kL * cl * Math.max(0, vF) * Math.max(0, vF);
+    let lift = kL * cl * Math.max(0, vF) * Math.max(0, vF);
+    if (this.onGround && !this._rot) lift = 0;
     const liftDir = _v.copy(up);
     if (speed > 1) {
       const vd = _w.copy(this.vel).divideScalar(speed);
       liftDir.addScaledVector(vd, -liftDir.dot(vd)).normalize();
     }
     const acc = new THREE.Vector3().addScaledVector(liftDir, lift);
-    // Thrust (the afterburner adds half again).
-    // On the wheels only part of the thrust gets the jet rolling: a real
-    // ground roll of about a hundred blocks (half that with the afterburner).
-    const thrust = accel * this.throttle * (this.afterburner ? 1.55 : 1) * (this.onGround ? RUNWAY_THRUST : 1);
+    // Thrust grows with the square of the throttle, so the speed you settle
+    // at is in proportion to it (50% throttle: half the speed); the
+    // afterburner adds to it. On the wheels only part of the thrust gets the
+    // jet rolling: a real ground roll of about a hundred blocks.
+    const ab = this.afterburner ? (this.onGround ? 1.55 : AB_THRUST) : 1;
+    const thrust = (this.onGround ? THRUST_GROUND : THRUST_AIR) * cfg.accel * this.throttle * this.throttle * ab;
     acc.addScaledVector(fwd, thrust);
     // Drag: top speed with the afterburner lit is the max speed setting.
-    const kD = (accel * 1.55) / (maxSpeed * maxSpeed);
+    const kD = (THRUST_AIR * cfg.accel * AB_THRUST) / (maxSpeed * maxSpeed);
     // (Induced drag from the wings' lift only once airborne: on the takeoff
     // roll a raised nose would otherwise eat the speed it needs to lift off.)
     const induced = this.onGround ? 0 : 1.5 * cl * cl;
@@ -266,57 +327,92 @@ export class Jet extends Vehicle {
     // Sideslip dies out (the fin weathervanes the jet into the airflow).
     const side = this.vel.dot(right);
     this.vel.addScaledVector(right, -side * Math.min(1, dt * 2.5));
-    // Control rates: they need airspeed to work.
+    // Control rates: they need airspeed to work (and bite harder at speed, so
+    // the wide turns at a thousand km/h stay flyable).
     const authority = clamp(speed / (vStall * 1.4), 0.15, 1) * (this.stalled ? 0.5 : 1);
+    const hi = 1 + 0.6 * clamp((speed - 110) / 190, 0, 1);
     const turn = cfg.turnRate;
-    const target = new THREE.Vector3(stick.x * 1.25 * turn, stick.y * 0.55 * turn, stick.z * 3.2 * turn * (this.spec?.roll ?? 1)).multiplyScalar(authority);
+    const target = _w.set(stick.x * PITCH_RATE * turn * hi, stick.y * YAW_RATE * turn * hi, stick.z * ROLL_RATE * turn * (this.spec?.roll ?? 1)).multiplyScalar(authority);
     if (this.onGround) {
       target.z = 0; // no rolling on the runway
       target.y = stick.y * 0.5 * clamp(speed / 10, 0, 1); // nosewheel steering
-      if (speed < vStall * 0.75) target.x = Math.min(target.x, 0) * 0; // can't rotate before takeoff speed
+      // Only the takeoff roll rotates the nose (throttle up, no brakes, at
+      // speed); otherwise the nose stays on the wheels whatever the crosshair says.
+      if (speed < vStall * 0.75 || this.throttle <= 0.45 || this.brake) target.x = 0;
+      else target.x = Math.max(0, target.x);
     }
     // A stalled jet drops its nose.
-    if (this.stalled) target.x -= 0.6;
-    this.angVel.lerp(target, Math.min(1, dt * 5));
-    _e.set(this.angVel.x * dt, -this.angVel.y * dt, -this.angVel.z * dt, "XYZ");
-    this.q.multiply(_q.setFromEuler(_e)).normalize();
+    if (this.stalled && !this.freeLook) target.x -= 0.6;
+    // (The roll axis answers fastest: letting go of A/D stops the roll at once.)
+    const kA = Math.min(1, dt * 7);
+    const kR = Math.min(1, dt * 14);
+    this.angVel.x += (target.x - this.angVel.x) * kA;
+    this.angVel.y += (target.y - this.angVel.y) * kA;
+    this.angVel.z += (target.z - this.angVel.z) * kR;
+    // Turn by the body rates as a rotation about their axis: a quaternion, so
+    // there is no gimbal lock and no limit on pitch or roll (full loops and
+    // barrel rolls).
+    const wx = this.angVel.x;
+    const wy = -this.angVel.y;
+    const wz = -this.angVel.z;
+    const mag = Math.hypot(wx, wy, wz);
+    if (mag > 1e-5) {
+      _axis.set(wx / mag, wy / mag, wz / mag);
+      this.q.multiply(_q.setFromAxisAngle(_axis, mag * dt)).normalize();
+    }
     return { speed, aoa, vF };
   }
 
-  // Flight assist: fly toward the aim direction (after the "mouse flight"
-  // idea): pitch and yaw toward it, and bank into the turn when it's off to
-  // the side, rolling wings-level as the nose comes onto it. The bank is
-  // limited (MAX_BANK) and flown by a damped controller (angle error minus
-  // roll rate), so the jet never rolls past its bank limit in a turn and
-  // comes back to wings-level without tilting over the other way.
-  // rollKey (A/D: -1/1) asks for a steeper bank (KEY_BANK) while held.
+  // Flight assist: fly toward the aim (the crosshair), which is a quaternion
+  // of its own (see update): the jet pitches and yaws toward it, and banks
+  // into the turn when it is off to the side, rolling back to the aim's own
+  // wings-level as the nose comes onto it. The bank is limited (MAX_BANK) and
+  // flown by a damped controller (angle error minus roll rate), so the jet
+  // never rolls past its bank limit in a turn and comes back to level without
+  // tilting over the other way. An aim that has gone over the top (a loop)
+  // pulls the jet through it. rollKey (A/D: -1/1) rolls the jet itself,
+  // continuously.
   _assistStick(out, rollKey = 0) {
-    const aim = _v.set(-Math.sin(this.aimYaw) * Math.cos(this.aimPitch), Math.sin(this.aimPitch), -Math.cos(this.aimYaw) * Math.cos(this.aimPitch));
-    const local = _w.copy(aim).applyQuaternion(_q.copy(this.q).invert());
-    const fwd = this.forward(new THREE.Vector3());
-    const right = this.right(new THREE.Vector3());
-    const up = this.up(new THREE.Vector3());
-    const bank = Math.atan2(-right.y, up.y); // + = right wing down
-    let want;
+    const aq = this.aimQ;
+    const aimF = _a[0].set(0, 0, -1).applyQuaternion(aq);
+    const aimU = _a[1].set(0, 1, 0).applyQuaternion(aq);
+    const local = _w.copy(aimF).applyQuaternion(_q2.copy(this.q).invert());
+    const fwd = this.forward(_a[2]);
+    const right = this.right(_a[3]);
+    const up = this.up(_a[4]);
+    const bank = Math.atan2(-right.dot(aimU), up.dot(aimU)); // + = right wing down, against the aim's own up
+    let want = 0;
     if (local.z > 0.2) {
-      // Aiming behind: bank toward that side and pull hard around.
-      const side = local.x >= 0 ? 1 : -1;
-      want = side * MAX_BANK;
-      out.set(Math.abs(bank) > 0.8 ? 1 : 0.3, side * 0.5, 0);
+      // Aiming behind: bank toward that side and pull hard around; straight
+      // behind and well above (or below) in the vertical plane it is a loop (or a
+      // split-S); behind and level it is a hard banked turn, as ever.
+      if (Math.abs(local.x) > 0.25 || Math.abs(local.y) < 0.5) {
+        const side = local.x >= 0 ? 1 : -1;
+        want = side * MAX_BANK;
+        out.set(Math.abs(bank) > 0.8 ? 1 : 0.3, side * 0.5, 0);
+      } else {
+        out.set(local.y >= -0.05 ? 1 : -1, 0, 0);
+      }
     } else {
       // Bank toward the aim's heading (none when flying straight up or down,
       // where the heading means nothing).
-      let dyaw = this.aimYaw - Math.atan2(-fwd.x, -fwd.z);
-      dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
-      const level = clamp((0.97 - Math.abs(fwd.y)) / 0.25, 0, 1);
-      want = clamp(-dyaw * 3, -MAX_BANK, MAX_BANK) * level;
+      const fH = _v.copy(fwd).addScaledVector(aimU, -fwd.dot(aimU));
+      const level = clamp((0.97 - Math.abs(fwd.dot(aimU))) / 0.25, 0, 1);
+      if (level > 0 && fH.lengthSq() > 1e-6) {
+        fH.normalize();
+        const dyaw = Math.atan2(aimU.dot(_a[5].crossVectors(fH, aimF)), fH.dot(aimF));
+        want = clamp(-dyaw * 3, -MAX_BANK, MAX_BANK) * level;
+      }
       out.set(clamp(local.y * 3.2, -1, 1), clamp(local.x * 1.5, -1, 1), 0);
     }
-    if (rollKey) want = rollKey * KEY_BANK;
+    if (rollKey) {
+      out.z = rollKey;
+      return out;
+    }
     let err = want - bank;
     err = Math.atan2(Math.sin(err), Math.cos(err));
     const rate = ROLL_GAIN * err - ROLL_DAMP * this.angVel.z;
-    out.z = clamp(rate / (3.2 * Math.max(0.3, this.cfg.turnRate) * (this.spec?.roll ?? 1)), -1, 1);
+    out.z = clamp(rate / (ROLL_RATE * Math.max(0.3, this.cfg.turnRate) * (this.spec?.roll ?? 1)), -1, 1);
     return out;
   }
 
@@ -326,54 +422,79 @@ export class Jet extends Vehicle {
     if (!this.alive) {
       this._updateMissiles(dt);
       this._updateFlares(dt);
+      this._updateWreck(dt);
       return;
     }
     const cfg = this.cfg;
     const stick = new THREE.Vector3();
     this.brake = false;
+    this.reversing = false;
     if (input) {
       const k = input.keys;
       const sens = 0.0022 * (this.manager.mouseSensitivity ?? 1);
       const inv = this.manager.invertY ? -1 : 1;
-      if (k.has("KeyW")) this.throttle = Math.min(1, this.throttle + dt * 0.6);
-      if (k.has("KeyS")) this.throttle = Math.max(0, this.throttle - dt * 0.6);
+      const wKey = k.has("KeyW");
+      const sKey = k.has("KeyS");
+      if (wKey) this.throttle = Math.min(1, this.throttle + dt * 0.6);
+      if (sKey) this.throttle = Math.max(0, this.throttle - dt * 0.6);
+      // Parked or taxiing with the throttle at 0%: S backs the jet up, slowly.
+      this.reversing = sKey && !wKey && this.onGround && this.throttle <= 0.001;
       const shift = k.has("ShiftLeft") || k.has("ShiftRight");
       this.afterburner = shift && (!this.onGround || this.throttle > 0.5);
       if (this.afterburner) this.throttle = 1;
       this.brake = k.has("Space");
-      // While a missile lock is held on a target the jet flies straight and
-      // the camera looks at it; the mouse is free again when it is let go.
-      const looking = (this.lock.holding && !!this.lock.target && this.lock.held > TAP_TIME) || !!this.lock.follow;
-      if (looking) {
-        const f = this.forward(_v);
-        this.aimYaw = Math.atan2(-f.x, -f.z);
-        this.aimPitch = Math.asin(clamp(f.y, -1, 1));
-      }
-      if (cfg.assist) {
-        if (!looking) {
-          this.aimYaw -= input.dx * sens;
-          this.aimPitch = clamp(this.aimPitch - input.dy * sens * inv, -1.45, 1.45);
-        }
-        // For the first few seconds after the wheels leave a runway the
-        // assist holds a gentle climb so the jet doesn't settle back. It is a
-        // takeoff aid only: it never acts in normal flight or on landing.
-        if (!this.onGround && this.sinceLiftoff < 3 && this.vel.y > -2 && this.speed < cfg.stallSpeed * 1.7) this.aimPitch = Math.max(this.aimPitch, 0.26);
-        this._assistStick(stick, this.onGround ? 0 : (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0));
-        // Assist also rotates for takeoff once there's flying speed.
-        if (this.onGround && this.throttle > 0.5 && this.vel.length() > cfg.stallSpeed * ROTATE_SPEED) stick.x = Math.max(stick.x, 0.6);
+      // Free look: both mouse buttons freeze the controls (the jet holds its
+      // attitude) and the mouse looks around; letting go flies on from there.
+      const both = !!input.buttons[0] && !!input.buttons[2];
+      this.bothT = both ? this.bothT + dt : 0;
+      const wasFree = this.freeLook;
+      if (this.bothT > LOOK_DELAY) this.freeLook = true;
+      else if (!both) this.freeLook = false;
+      if (this.freeLook && !wasFree) this._startFreeLook();
+      if (!this.freeLook && wasFree) this._endFreeLook();
+      if (this.fireBlock && !input.buttons[0]) this.fireBlock = false;
+      // While a missile lock is being held on a target the camera looks at it
+      // and the mouse is left alone; the jet flies on toward its aim, and all
+      // the keys work. (Following a launched missile, the player has full
+      // control: see _updateLock.)
+      const holdingLock = this.lock.holding && !!this.lock.target && this.lock.held > TAP_TIME;
+      if (this.freeLook) {
+        this.lookYaw -= input.dx * sens;
+        this.lookPitch = clamp(this.lookPitch - input.dy * sens * inv, -1.5, 1.5);
+        this.lookYaw = Math.atan2(Math.sin(this.lookYaw), Math.cos(this.lookYaw));
       } else {
-        // Direct stick: mouse up/down pitches, left/right rolls.
-        this._manualIn.x += (clamp(-input.dy * sens * inv * 12, -1, 1) - this._manualIn.x) * Math.min(1, dt * 12);
-        this._manualIn.y += (clamp(input.dx * sens * 12, -1, 1) - this._manualIn.y) * Math.min(1, dt * 12);
-        stick.set(this._manualIn.x, 0, this._manualIn.y);
+        const rollKey = (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0);
+        if (cfg.assist) {
+          if (!holdingLock) {
+            // The mouse turns the aim about its own axes (so it can go over the top).
+            this.aimQ.multiply(_q.setFromAxisAngle(Y, -input.dx * sens));
+            this.aimQ.multiply(_q.setFromAxisAngle(X, -input.dy * sens * inv));
+          }
+          // For the first few seconds after the wheels leave a runway the
+          // assist holds a gentle climb so the jet doesn't settle back. It is a
+          // takeoff aid only: it never acts in normal flight or on landing.
+          if (!this.onGround && this.sinceLiftoff < 3 && this.vel.y > -2 && this.speed < cfg.stallSpeed * 1.7 && this.aimPitch < 0.26) this.aimPitch = 0.26;
+          // The aim levels its own roll out (the jet follows it back to wings level).
+          const af = _a[0].set(0, 0, -1).applyQuaternion(this.aimQ);
+          if (Math.abs(af.y) < 0.985) {
+            const ar = _a[1].set(1, 0, 0).applyQuaternion(this.aimQ);
+            this.aimQ.multiply(_q.setFromAxisAngle(Z, -AIM_LEVEL * ar.y * dt));
+          }
+          this.aimQ.normalize();
+          this._assistStick(stick, this.onGround ? 0 : rollKey);
+          // Assist also rotates for takeoff once there's flying speed.
+          if (this.onGround && this.throttle > 0.5 && this.vel.length() > cfg.stallSpeed * ROTATE_SPEED) stick.x = Math.max(stick.x, 0.6);
+        } else {
+          // Direct stick: mouse up/down pitches, left/right rolls.
+          this._manualIn.x += (clamp(-input.dy * sens * inv * 12, -1, 1) - this._manualIn.x) * Math.min(1, dt * 12);
+          this._manualIn.y += (clamp(input.dx * sens * 12, -1, 1) - this._manualIn.y) * Math.min(1, dt * 12);
+          stick.set(this._manualIn.x, 0, this._manualIn.y);
+          if (rollKey) stick.z = rollKey;
+        }
+        if (k.has("KeyQ")) stick.y = -1;
+        if (k.has("KeyE")) stick.y = 1;
+        if (this.onGround && !cfg.assist) stick.y += stick.z * 0.5;
       }
-      // A/D: with flight assist a steeper (still limited) bank, above;
-      // without it, the roll itself.
-      if (!cfg.assist && k.has("KeyA")) stick.z = -1;
-      if (!cfg.assist && k.has("KeyD")) stick.z = 1;
-      if (k.has("KeyQ")) stick.y = -1;
-      if (k.has("KeyE")) stick.y = 1;
-      if (this.onGround && !cfg.assist) stick.y += stick.z * 0.5;
       this._weapons(dt, input);
     } else if (this.ai) {
       this._autopilot(dt, stick);
@@ -391,6 +512,7 @@ export class Jet extends Vehicle {
       this.cannonT = Math.max(0, this.cannonT - dt);
       this.missileT = Math.max(0, this.missileT - dt);
     }
+    this.stickX = stick.x;
     // The cannon cools all the time (firing heats it faster than that).
     this.heat = Math.max(0, this.heat - HEAT_COOL * dt);
     if (this.jammed && this.heat < HEAT_RESUME) this.jammed = false;
@@ -413,21 +535,74 @@ export class Jet extends Vehicle {
     this._effects(dt, aero);
     this.model.setThrottle(this.throttle, this.afterburner, this.time);
     this.model.setLights(this.time, this.manager.night ?? 0);
+    // Control surfaces follow the stick (ailerons roll, elevators pitch,
+    // rudders yaw), smoothed like a real hydraulic actuator.
+    const sf = Math.min(1, dt * 10);
+    this.surf.pitch += (clamp(stick.x, -1, 1) - this.surf.pitch) * sf;
+    this.surf.roll += (clamp(stick.z, -1, 1) - this.surf.roll) * sf;
+    this.surf.yaw += (clamp(stick.y, -1, 1) - this.surf.yaw) * sf;
+    this.model.setControls?.(this.surf.pitch, this.surf.roll, this.surf.yaw, this.brake && !this.onGround);
     // The gear: down on the ground and low and slow (landing), folded away otherwise.
     const agl = this.pos.y - GEAR - this.manager.groundBelow(this.pos.x, this.pos.y - GEAR, this.pos.z);
-    const wantGear = this.onGround || (agl < 14 && this.speed < this.cfg.stallSpeed * 1.8) ? 1 : 0;
+    const wantGear = this.onGround || (agl < 30 && this.speed < this.cfg.stallSpeed * 3) ? 1 : 0;
     this.gearT += clamp(wantGear - this.gearT, -dt * 1.1, dt * 1.1);
     this.model.setGear(this.gearT);
     if (input) this.manager.audio?.setJetEngine?.(this.throttle, this.afterburner, this.speed, true);
-    // The lagging chase camera (manual mode) and aim follow the nose.
+    this._updateView(dt);
+  }
+
+  // Free look begins: no weapon fires from the press that started it.
+  _startFreeLook() {
+    const lock = this.lock;
+    lock.holding = false;
+    lock.target = null;
+    lock.progress = 0;
+    lock.locked = false;
+    lock.salvo = false;
+    lock.t = 0;
+    lock.follow = null;
+    lock.suppress = true;
+    this.fireBlock = true;
+    this.angVel.set(0, 0, 0); // the attitude is held from this moment
+  }
+
+  // Free look ends: the aim is where the nose points, wings level, and the
+  // camera comes back smoothly.
+  _endFreeLook() {
+    this._levelAim();
+    this.camSmooth = 0.6;
+  }
+
+  // The camera's orientation: the aim (assist) or the lagging attitude
+  // (manual), turned to the locked target, or looking around freely.
+  _updateView(dt) {
+    const cfg = this.cfg;
     this.camQ.slerp(this.q, Math.min(1, dt * 4));
-    if (!cfg.assist) {
-      const f = this.forward(_v);
-      this.aimYaw = Math.atan2(-f.x, -f.z);
-      this.aimPitch = Math.asin(clamp(f.y, -1, 1));
+    if (!cfg.assist && !this.freeLook) {
+      // (Direct stick: the aim just follows the nose.)
+      this._levelAim();
     }
-    this.camYaw = this.aimYaw;
-    this.camPitch = this.aimPitch;
+    let target;
+    if (this.freeLook || Math.abs(this.lookYaw) + Math.abs(this.lookPitch) > 0.01) {
+      target = _q2.copy(this.q).multiply(_q.setFromEuler(_e.set(this.lookPitch, this.lookYaw, 0, "YXZ")));
+      if (!this.freeLook) {
+        const d = Math.exp(-dt * 7);
+        this.lookYaw *= d;
+        this.lookPitch *= d;
+      }
+    } else {
+      target = _q2.copy(cfg.assist ? this.aimQ : this.camQ);
+    }
+    const look = this.lock.look;
+    if (look > 0.001) {
+      const tq = _q.setFromEuler(_e.set(this.lock.lookPitch, this.lock.lookYaw, 0, "YXZ"));
+      target.slerp(tq, look);
+    }
+    this.camSmooth = Math.max(0, this.camSmooth - dt);
+    this.camView.slerp(target, Math.min(1, dt * (this.freeLook ? 40 : this.camSmooth > 0 ? 7 : 60)));
+    const f = _v.set(0, 0, -1).applyQuaternion(this.camView);
+    this.camYaw = Math.atan2(-f.x, -f.z);
+    this.camPitch = Math.asin(clamp(f.y, -1, 1));
   }
 
   // Touching down: tyre smoke, a chirp.
@@ -478,76 +653,160 @@ export class Jet extends Vehicle {
     }
   }
 
-  // Wheels on the ground, gentle landings, and crashes.
+  // Where the wheels meet the ground: the ground's height under the nose
+  // wheel and each main wheel (measured along the level heading), from which
+  // the ground's slope and tilt follow, and where the jet's centre sits.
+  _contacts(yaw) {
+    const mgr = this.manager;
+    const lay = GEAR_LAYOUT[this.jetType] || GEAR_LAYOUT.f22;
+    const hx = -Math.sin(yaw);
+    const hz = -Math.cos(yaw);
+    const rx = Math.cos(yaw);
+    const rz = -Math.sin(yaw);
+    const ref = this.pos.y + 3;
+    const at = (f, s) => {
+      const x = this.pos.x + hx * f + rx * s;
+      const z = this.pos.z + hz * f + rz * s;
+      const y = mgr.groundBelow(x, ref, z);
+      const wet = IS_WET[mgr.world.getBlock(Math.floor(x), Math.floor(y - 1), Math.floor(z))];
+      return { y, wet: !!wet };
+    };
+    const n = at(lay.noseF, 0);
+    const l = at(-lay.mainB, -lay.track);
+    const r = at(-lay.mainB, lay.track);
+    const gm = (l.y + r.y) / 2;
+    const slope = clamp(Math.atan2(n.y - gm, lay.noseF + lay.mainB), -0.4, 0.4);
+    const tilt = clamp(Math.atan2(l.y - r.y, 2 * lay.track), -0.4, 0.4); // + = right wing down
+    return { slope, tilt, centerY: gm + lay.mainB * Math.tan(slope) + GEAR, gm, wet: n.wet || l.wet || r.wet, mainWet: l.wet || r.wet };
+  }
+
+  // Wheels on the ground, landings, and crashes.
+  //
+  // On the wheels the jet sits level on its three wheels (it follows the
+  // slope and tilt of the ground under them), rolls along its heading with
+  // rolling friction, wheel brakes (Space) and, at 0% throttle, a slow
+  // reverse (S). Takeoff: the nose may rise by up to ROTATE_PITCH above the
+  // ground once there's speed; below that it settles back onto the nose wheel.
+  // A landing is gentle, hard (it damages the jet) or a crash, by the sink
+  // rate and how crooked the jet is to the ground; only extreme cases crash.
   _groundAndCrash(dt, aero) {
     const mgr = this.manager;
     const w = mgr.world;
-    const ground = mgr.groundBelow(this.pos.x, this.pos.y, this.pos.z);
+    const cfg = this.cfg;
     const fwd = this.forward(new THREE.Vector3());
     const up = this.up(new THREE.Vector3());
+    const right = this.right(new THREE.Vector3());
     const pitch = Math.asin(clamp(fwd.y, -1, 1));
-    const roll = Math.asin(clamp(this.right(_v).y, -1, 1));
-    const wheels = this.pos.y - GEAR;
-    const bx = Math.floor(this.pos.x);
-    const bz = Math.floor(this.pos.z);
-    const water = IS_WET[w.getBlock(bx, Math.floor(wheels), bz)];
+    const bank = Math.atan2(-right.y, up.y);
+    const yaw = Math.atan2(-fwd.x, -fwd.z);
+    const center = mgr.groundBelow(this.pos.x, this.pos.y, this.pos.z);
+    const low = this.onGround || this.pos.y - GEAR - center < 16;
+    const c = low ? this._contacts(yaw) : null;
     if (this.onGround) {
-      // Rolling: on the wheels, level, with rolling friction and brakes.
-      if (water) return this._crash("crash");
-      const liftingOff = this.vel.y > 0.5 && aero.speed > this.cfg.stallSpeed * 0.9;
-      // The strip ends in a drop (a cliff, the edge of a pad): the wheels
-      // leave the ground and the jet flies (or falls) on from there.
-      const dropped = wheels - ground > 1.6;
+      // Rolling: on the wheels, with rolling friction and brakes.
+      if (c.wet) {
+        this.crashWhy = "water under the wheels";
+        return this._crash("crash");
+      }
+      const hx = -Math.sin(yaw);
+      const hz = -Math.cos(yaw);
+      const liftingOff = this.vel.y > 0.5 && aero.speed > cfg.stallSpeed * 0.9;
+      const dropped = this.pos.y - c.centerY > 1.6;
       if (!liftingOff && !dropped) {
         const vy = Math.max(0, this.vel.y); // lift building up for the take-off
-        this.pos.y = ground + GEAR;
-        // Roll along the nose's heading on the runway. (The speed is measured
-        // along the level heading: measuring it along the raised nose lost a
-        // few percent of it every frame while rotating, so at a real frame
-        // rate the jet could never reach flying speed.)
-        const yaw = Math.atan2(-fwd.x, -fwd.z);
-        const hx = -Math.sin(yaw);
-        const hz = -Math.cos(yaw);
-        let along = Math.max(0, this.vel.x * hx + this.vel.z * hz);
-        const fr = this.brake ? 12 : 0.6;
-        along = Math.max(0, along - fr * dt);
-        // Keep the wings level and the nose between level and a take-off pitch.
-        // (The rotation stops short of the stall angle of attack, so the jet
-        // leaves the runway flying, not stalled.)
-        const p = clamp(pitch, 0, ROTATE_PITCH);
-        this.q.setFromEuler(_e.set(p, yaw, 0, "YXZ"));
+        // Follow the ground: up at once (a kerb), down at a steady rate.
+        this.pos.y = c.centerY > this.pos.y ? c.centerY : Math.max(c.centerY, this.pos.y - 10 * dt);
+        // Along the nose's heading. (The speed is measured along the level
+        // heading: measuring it along the raised nose lost a few percent of
+        // it every frame while rotating, so at a real frame rate the jet
+        // could never reach flying speed.)
+        let along = this.vel.x * hx + this.vel.z * hz;
+        if (this.reversing) {
+          // Backing up: first stop, then slowly rearward.
+          along = along > 0.05 ? Math.max(0, along - 14 * dt) : Math.max(-REVERSE_SPEED, along - 3.5 * dt);
+        } else {
+          const fr = this.brake ? 26 : 0.7 + 0.03 * Math.abs(along);
+          along = along > 0 ? Math.max(0, along - fr * dt) : Math.min(0, along + fr * dt);
+          if (this.throttle < 0.02 && Math.abs(along) < 0.15) along = 0;
+        }
+        // The nose: level with the ground, raised for takeoff only while
+        // pulling and fast enough; otherwise it settles back onto the nose
+        // wheel (a jet never sits tilted on the runway).
+        let rel = clamp(pitch - c.slope, 0, ROTATE_PITCH);
+        // (Only with the throttle up and no brakes on: a jet rolling out after
+        // landing never holds its nose up, whatever the crosshair does.)
+        const pulling = this.stickX > 0.1 && aero.speed > cfg.stallSpeed * 0.75 && this.throttle > 0.45 && !this.brake;
+        if (!pulling) rel = Math.max(0, rel - (aero.speed < cfg.stallSpeed * 0.75 ? 1.2 : 0.8) * dt);
+        this._rot = rel > 0.04 && this.throttle > 0.45 && !this.brake;
+        // (No leftover rotation from the air: the wheels stop it.)
+        if (!pulling) this.angVel.x = 0;
+        this.angVel.z = 0;
+        _q2.setFromEuler(_e.set(c.slope + rel, yaw, -c.tilt, "YXZ"));
+        this.q.slerp(_q2, Math.min(1, dt * 10));
         this.vel.set(hx * along, vy, hz * along);
       } else {
         this.onGround = false;
+        this._rot = false;
       }
-    } else if (!water && wheels <= ground + 0.05 && this.vel.y > 0.2) {
-      // Just lifted off (or climbing away from a bump): the wheels skim the
-      // ground on the way up; that's not a touchdown.
-      this.pos.y = Math.max(this.pos.y, ground + GEAR);
-    } else if (wheels <= ground + 0.05 || water) {
-      // Touchdown: gentle, level and wheels first, or a crash.
-      const gentle = this.vel.y > -7 && pitch > -0.12 && pitch < 0.4 && Math.abs(roll) < 0.3 && !water && aero.speed < this.cfg.maxSpeed * 0.8;
-      if (!gentle) return this._crash("crash");
-      this.onGround = true;
-      this.pos.y = ground + GEAR;
-      this.vel.y = 0;
-      this.manager.audio?.playLanding?.();
+    } else if (c) {
+      // Any wheel below the ground? (Only checked low down: the three ground
+      // scans aren't needed up in the air.)
+      const lay = GEAR_LAYOUT[this.jetType] || GEAR_LAYOUT.f22;
+      let pen = -Infinity;
+      for (const [lx, lz] of [[0, -lay.noseF], [-lay.track, lay.mainB], [lay.track, lay.mainB]]) {
+        const p = _w.set(lx, -GEAR, lz).applyQuaternion(this.q).add(this.pos);
+        const g = mgr.groundBelow(p.x, p.y + 4, p.z);
+        pen = Math.max(pen, g - p.y);
+      }
+      if (pen > -0.05) {
+        if (this.vel.y > 0.2 && !c.wet) {
+          // Just lifted off (or climbing away from a bump): the wheels skim
+          // the ground on the way up; that's not a touchdown.
+          this.pos.y += Math.max(0, pen);
+        } else {
+          // Touchdown.
+          const sink = Math.max(0, -this.vel.y);
+          let rollRel = bank - c.tilt;
+          rollRel = Math.abs(Math.atan2(Math.sin(rollRel), Math.cos(rollRel)));
+          const pitchRel = pitch - c.slope;
+          const sideways = Math.abs(this.vel.dot(right));
+          const broken = c.wet || sink > TOUCH_MAX_SINK || rollRel > 0.6 || pitchRel < -0.3 || pitchRel > 0.62 || sideways > 22 || aero.speed > 220;
+          if (broken) {
+            this.crashWhy = `touchdown: wet ${c.wet} sink ${sink.toFixed(1)} roll ${rollRel.toFixed(2)} pitchRel ${pitchRel.toFixed(2)} side ${sideways.toFixed(1)} speed ${aero.speed.toFixed(0)}`;
+            return this._crash("crash");
+          }
+          this.onGround = true;
+          this.pos.y = Math.max(this.pos.y, c.centerY);
+          this.vel.y = 0;
+          this._rot = false;
+          this.manager.audio?.playLanding?.();
+          // A hard landing hurts (never kills outright: the limit above does).
+          const hard = Math.max(0, sink - TOUCH_SAFE_SINK) * 7 + Math.max(0, rollRel - 0.35) * 40;
+          if (hard > 0) {
+            this.manager.onMessage?.("HARD LANDING");
+            this.damage(Math.min(hard, this.health - 1), "crash");
+          }
+        }
+      }
     }
     // Any other part of the airframe hitting the terrain: nose, wingtips, tails.
-    const right = this.right(_w);
+    const right2 = this.right(_w);
     const pr = this.spec.probes;
     const probes = [
       [fwd, pr.nose],
       [fwd, 3],
     ];
     const pts = probes.map(([d, l]) => this.pos.clone().addScaledVector(d, l));
-    pts.push(this.pos.clone().addScaledVector(right, pr.wing), this.pos.clone().addScaledVector(right, -pr.wing));
+    pts.push(this.pos.clone().addScaledVector(right2, pr.wing), this.pos.clone().addScaledVector(right2, -pr.wing));
     pts.push(this.pos.clone().addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2));
     pts.push(this.pos.clone().addScaledVector(up, this.onGround ? 1.2 : -0.6));
     for (const p of pts) {
       if (p.y < 0 || p.y >= WORLD_HEIGHT) continue;
       if (IS_SOLID[w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))]) {
-        if (this.speed > 8) return this._crash("crash");
+        if (this.speed > 8) {
+          this.crashWhy = `airframe at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} block ${w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))}`;
+          return this._crash("crash");
+        }
         this.vel.multiplyScalar(0.2);
         return;
       }
@@ -570,7 +829,8 @@ export class Jet extends Vehicle {
     const fwd = this.forward(new THREE.Vector3());
     // Autocannon: rapid fire with tracers; it pulls toward a target near the
     // nose, and jams if it is fired too long (it must cool down).
-    const firing = input.buttons[0] || input.pressed.has("mouse0");
+    const both = !!input.buttons[0] && !!input.buttons[2];
+    const firing = (input.buttons[0] || input.pressed.has("mouse0")) && !this.freeLook && !this.fireBlock && !(both && this.bothT > LOOK_DELAY * 0.5);
     if (firing && this.jammed) {
       if (!this._jamT || this._jamT <= 0) {
         this._jamT = 0.6;
@@ -674,6 +934,12 @@ export class Jet extends Vehicle {
     const held = !!input.buttons[2];
     const lookRate = Math.min(1, dt * 3.2);
     const pressed = input.pressed.has("mouse2");
+    // Free look (both mouse buttons): no lock, no missile.
+    if (this.freeLook) {
+      lock.look += (0 - lock.look) * lookRate;
+      if (lock.look < 0.02) lock.look = 0;
+      return;
+    }
     // Following a launched missile's target: a click returns the camera (and
     // that press doesn't start a new lock).
     if (lock.follow) {
@@ -715,30 +981,31 @@ export class Jet extends Vehicle {
       }
       lock.held += dt;
       // The view direction (where the crosshair points).
-      const view = this.cfg.assist
-        ? _v.set(-Math.sin(this.aimYaw) * Math.cos(this.aimPitch), Math.sin(this.aimPitch), -Math.cos(this.aimYaw) * Math.cos(this.aimPitch))
-        : this.forward(_v);
+      const view = this.cfg.assist ? _v.set(0, 0, -1).applyQuaternion(this.aimQ) : this.forward(_v);
       const tp = _w;
       let best = null;
       let bestScore = Infinity;
-      let keepScore = Infinity;
+      let current = null; // the target already being tracked, if it is still there
       for (const c of this._lockables()) {
         this._targetPos(c, tp);
         const dv = tp.clone().sub(this.pos);
         const dist = dv.length();
+        const isCurrent = !!lock.target && c.ref === lock.target.ref;
+        // (A tracked target is only lost when it is far out of range.)
+        if (isCurrent && dist >= 25 && dist <= LOCK_LOSE_RANGE) current = c;
         if (dist < 25 || dist > 1600) continue;
         // Nearest the view centre, and whatever is attacking you first (a
         // bonus worth about 35 degrees off the centre).
         const ang = dv.divideScalar(dist).angleTo(view);
         const score = ang * c.weight + (c.attacking ? 0 : LOCK_PEACEFUL);
-        if (lock.target && c.ref === lock.target.ref) keepScore = score;
         if (score < bestScore) {
           bestScore = score;
           best = c;
         }
       }
-      // Keep the current target unless something is clearly better.
-      if (lock.target && this._targetAlive(lock.target) && keepScore < bestScore + 0.3) best = lock.target;
+      // Once a target is being tracked it stays the target until the button is
+      // let go, it is destroyed, or it is lost: never a switch to something else.
+      if (current) best = current;
       if (best && lock.target && best.ref === lock.target.ref) {
         lock.t += dt;
       } else if (best) {
@@ -754,7 +1021,8 @@ export class Jet extends Vehicle {
       const wasSalvo = lock.salvo;
       lock.locked = !!lock.target && lock.t >= LOCK_TIME;
       lock.salvo = !!lock.target && lock.t >= this.spec.salvoTime;
-      if (lock.target) lock.target.ref.lockedOn = mgr.ufos.time;
+      // (Only the one being tracked, and only once the lock is really building.)
+      if (lock.target && lock.t > 0.3) lock.target.ref.lockedOn = mgr.ufos.time;
       // Look at it (not for a quick click, which fires straight ahead).
       if (lock.target && lock.held > TAP_TIME) {
         const d = this._targetPos(lock.target, _w).sub(this.pos);
@@ -1206,44 +1474,26 @@ export class Jet extends Vehicle {
   updateCamera(camera, dt) {
     const mode = this.cameraModes[this.cameraMode];
     this.model.canopy.visible = mode !== "cockpit";
-    const look = this.lock.look; // 0-1: turned toward the locked target
     if (mode === "cockpit") {
       camera.position.set(0, 0.95, -3.4).applyQuaternion(this.q).add(this.pos);
+      // The cockpit looks along the nose; free look and a locked target turn the view.
       camera.quaternion.copy(this.q);
+      if (this.freeLook || Math.abs(this.lookYaw) + Math.abs(this.lookPitch) > 0.01) camera.quaternion.multiply(_q.setFromEuler(_e.set(this.lookPitch, this.lookYaw, 0, "YXZ")));
+      const look = this.lock.look; // 0-1: turned toward the locked target
       if (look > 0.001) {
         _e.set(this.lock.lookPitch, this.lock.lookYaw, 0, "YXZ");
         camera.quaternion.slerp(_q.setFromEuler(_e), look * 0.9);
       }
       return;
     }
-    const cfg = this.cfg;
-    camera.rotation.order = "YXZ";
-    if (cfg.assist || look > 0.001) {
-      // Look where you're steering; the jet flies into that view. Locking a
-      // missile turns the view (even to look back) at the target.
-      let yaw = this.aimYaw;
-      let pitch = this.aimPitch;
-      if (!cfg.assist) {
-        const f = this.forward(_v);
-        yaw = Math.atan2(-f.x, -f.z);
-        pitch = Math.asin(clamp(f.y, -1, 1));
-      }
-      if (look > 0.001) {
-        let dy = this.lock.lookYaw - yaw;
-        dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-        yaw += dy * look;
-        pitch += (this.lock.lookPitch - pitch) * look;
-      }
-      const aim = _v.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
-      camera.position.copy(this.pos).addScaledVector(aim, -24).add(_w.set(0, 5.5, 0));
-      camera.rotation.set(pitch - 0.08, yaw, 0);
-    } else {
-      // Behind the jet, following its attitude with a little lag.
-      const back = _v.set(0, 5, 24).applyQuaternion(this.camQ);
-      camera.position.copy(this.pos).add(back);
-      camera.quaternion.copy(this.camQ);
-      camera.rotateX(-0.12);
-    }
+    // Chase: behind the jet along the view direction (the aim, a free look,
+    // or the camera turned to a locked target), a little above it, in the
+    // view's own "up" (so a loop is seen right round).
+    camera.quaternion.copy(this.camView);
+    const back = _v.set(0, 0, 1).applyQuaternion(this.camView);
+    const upv = _w.set(0, 1, 0).applyQuaternion(this.camView);
+    camera.position.copy(this.pos).addScaledVector(back, 24).addScaledVector(upv, 5.5);
+    camera.rotateX(-0.08);
     // Never under the ground.
     const g = this.manager.groundBelow(camera.position.x, camera.position.y + 3, camera.position.z);
     if (camera.position.y < g + 1) camera.position.y = g + 1;
@@ -1282,9 +1532,11 @@ export class Jet extends Vehicle {
     const cfg = this.cfg;
     const vr = cfg.stallSpeed * ROTATE_SPEED;
     const onRunway = this.onGround
-      ? this.throttle < 0.2 && speed < 2
-        ? "parked: W for throttle, Shift for afterburner"
-        : speed < vr
+      ? this.throttle < 0.2 && speed < 2 && !this.reversing
+        ? "parked: W for throttle, Shift for afterburner, S (at 0%) reverses"
+        : this.reversing
+          ? "reversing (release S to stop)"
+          : speed < vr
           ? `rolling ${Math.round(this.rolled)} blocks: rotate at ${Math.round(vr * 3.6)} km/h`
           : "ROTATE: lift off!"
       : "";
@@ -1293,7 +1545,8 @@ export class Jet extends Vehicle {
       rows: [
         ["Speed", `${Math.round(speed * 3.6)} km/h (${Math.round(speed)} b/s)`],
         ["Altitude", `${Math.round(this.pos.y)} (${Math.round(agl)} above ground)`],
-        ["Throttle", `${Math.round(this.throttle * 100)}%${this.afterburner ? " AFTERBURNER" : ""}`],
+        ["Throttle", `${Math.round(this.throttle * 100)}%${this.afterburner ? " AFTERBURNER" : ""}${this.brake && this.onGround ? " · BRAKES" : ""}`],
+        ...(this.freeLook ? [["View", `<span class="vh-lock">FREE LOOK</span> (controls held)`]] : []),
         ["Heading", `${Math.round(heading)}° ${card}`],
         ["Missile", lockText],
         ["Flares", this.flareT > 0 ? `reloading ${Math.ceil(this.flareT)} s` : "READY (C)"],
@@ -1304,7 +1557,7 @@ export class Jet extends Vehicle {
       weapon: "LMB cannon · RMB missile (hold to lock) · C flares · B nuke",
       warning: warnings.join(" · "),
       health: this.health / this.maxHealth,
-      help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle · Shift afterburner · A/D roll · Q/E rudder · Space brake · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
+      help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle · Shift afterburner · A/D roll · Q/E rudder · Space brake · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
     };
   }
 
@@ -1314,7 +1567,7 @@ export class Jet extends Vehicle {
     return {
       title: `${this.name}: ${this.isEnemyJet ? "hostile fighter" : "your fighter jet"}`,
       stats: [
-        ["Top speed (afterburner)", `${Math.round(cfg.maxSpeed * 3.6)} km/h (${Math.round(cfg.maxSpeed)} blocks/s)`],
+        ["Top speed", `${Math.round(cfg.maxSpeed * 3.6)} km/h with the afterburner (${Math.round((cfg.maxSpeed / Math.sqrt(AB_THRUST)) * 3.6)} km/h at 100% throttle); speed follows the throttle, 0% to 100%`],
         ["Stall speed", `${Math.round(cfg.stallSpeed * 3.6)} km/h: the wings stop lifting below it`],
         ["Takeoff run", `${this.spec.takeoff}; the nose rises at 1.2x the stall speed`],
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
@@ -1328,7 +1581,10 @@ export class Jet extends Vehicle {
         ["Mouse", cfg.assist ? "Steer (the jet flies toward the crosshair)" : "Stick: up/down pitch, left/right roll"],
         ["W / S", "Throttle up / down"],
         ["Shift", "Afterburner"],
-        ["A / D", "Roll"],
+        ["A / D", "Roll (hold for a full roll; let go and it stops without overshoot)"],
+        ["Mouse: pull right through", "Loops and barrel rolls: the aim goes over the top, the jet follows"],
+        ["Both mouse buttons", "Free look: the controls freeze (the jet holds its attitude) and the mouse looks around"],
+        ["S at 0% (on the ground)", "Reverse, slowly"],
         ["Q / E", "Rudder (yaw)"],
         ["Space", "Air brake / wheel brakes"],
         ["Left click", "Autocannon (hold; watch the heat bar)"],
@@ -1347,13 +1603,19 @@ export class Jet extends Vehicle {
   // where the nose points (vs. the crosshair, where you steer), and which way
   // the nearest incoming missile is coming from.
   overlay(camera) {
-    const out = { lock: null, nose: null, warn: null };
+    const out = { lock: null, nose: null, warn: null, aim: null };
     if (this.lock.target && this._targetAlive(this.lock.target)) {
       const p = this._targetPos(this.lock.target, new THREE.Vector3()).project(camera);
       if (p.z < 1) out.lock = { x: p.x, y: p.y, locked: this.lock.locked, salvo: this.lock.salvo, progress: this.lock.progress };
     }
     const nose = this.forward(new THREE.Vector3()).multiplyScalar(400).add(this.pos).project(camera);
     if (nose.z < 1) out.nose = { x: nose.x, y: nose.y };
+    // Where the mouse is steering (the aim) while the view is turned away from
+    // it (a locked target, a launched missile being followed).
+    if (this.cfg.assist && !this.freeLook && this.lock.look > 0.05) {
+      const aim = _v.set(0, 0, -1).applyQuaternion(this.aimQ).multiplyScalar(400).add(this.pos).project(camera);
+      if (aim.z < 1) out.aim = { x: aim.x, y: aim.y };
+    }
     if (this.warn) {
       // The threat's direction in the camera's frame, as a bearing.
       const wp = this._warnPos;
@@ -1367,15 +1629,113 @@ export class Jet extends Vehicle {
     return out;
   }
 
+  // Shot down (or broken up) in the air: a big blast, then the burning wreck
+  // keeps its heading, tumbles and falls, trailing fire and smoke, and goes
+  // off again where it hits. Hitting the ground itself is one blast, as before.
   onDestroyed(cause) {
-    const fx = this.manager.effects;
-    fx.explode(this.pos.clone(), { radius: 8, source: "jet_boom" });
-    this.root.visible = false;
-    this.removeAt = 0.2;
-    this.manager.audio?.setJetEngine?.(0, false, 0, false);
-    for (const m of this.missiles) this.manager.scene.remove(m.mesh);
+    const mgr = this.manager;
+    const fx = mgr.effects;
+    mgr.audio?.setJetEngine?.(0, false, 0, false);
+    for (const m of this.missiles) mgr.scene.remove(m.mesh);
     this.missiles.length = 0;
     this.queued.length = 0;
+    this.lock.holding = false;
+    this.lock.follow = null;
+    const ground = mgr.groundBelow(this.pos.x, this.pos.y, this.pos.z);
+    const inAir = !this.onGround && cause !== "crash" && this.pos.y - GEAR - ground > 8;
+    if (!inAir) {
+      fx.explode(this.pos.clone(), { radius: 8, source: "jet_boom" });
+      this.root.visible = false;
+      this.removeAt = 0.2;
+      return;
+    }
+    fx.explode(this.pos.clone(), { radius: 11, source: "jet_boom" });
+    this._airBlast(this.pos);
+    const sgn = () => (Math.random() < 0.5 ? -1 : 1);
+    this.wreck = { age: 0, fxT: 0, boomT: 0.5 + Math.random() * 0.6, spin: new THREE.Vector3((0.4 + Math.random() * 0.8) * sgn(), (Math.random() - 0.5) * 0.6, (1.0 + Math.random() * 1.6) * sgn()) };
+    this.throttle = 0;
+    this.afterburner = false;
+    this.vel.multiplyScalar(0.85);
+    this.vel.y += 4;
+    this.model.setThrottle(0, false, this.time);
+    this.model.setBurnt?.(true);
+    this.removeAt = WRECK_LIFE;
+  }
+
+  // The big mid-air explosion: a fireball, a smoke cloud and pieces of the
+  // airframe thrown out (scaled by the effects setting).
+  _airBlast(at) {
+    const fx = this.manager.effects;
+    const c = this._blastC || (this._blastC = { hot: new THREE.Color(6, 4.2, 1.8), mid: new THREE.Color(3.2, 1.2, 0.4), smoke0: new THREE.Color(0.1, 0.095, 0.09), smoke1: new THREE.Color(0.32, 0.3, 0.28), metal: new THREE.Color(0.34, 0.36, 0.4) });
+    const q = effectsQuality.scale;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const dir = () => new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize();
+    for (let i = 0; i < Math.round(60 * q); i++) {
+      const d = dir().multiplyScalar(rnd(3, 26));
+      fx.glow.spawn({ x: at.x, y: at.y, z: at.z, vx: d.x + this.vel.x * 0.5, vy: d.y + this.vel.y * 0.5, vz: d.z + this.vel.z * 0.5, life: rnd(0.5, 1.3), size0: rnd(5, 9), size1: rnd(10, 18), color0: c.hot, color1: Math.random() < 0.5 ? c.mid : c.hot, alpha: 0.5, drag: 2.2 });
+    }
+    for (let i = 0; i < Math.round(30 * q); i++) {
+      const d = dir().multiplyScalar(rnd(2, 14));
+      fx.smoke.spawn({ x: at.x, y: at.y, z: at.z, vx: d.x, vy: d.y + 2, vz: d.z, life: rnd(3, 5), size0: rnd(4, 7), size1: rnd(14, 24), color0: c.smoke0, color1: c.smoke1, alpha: 0.8, drag: 0.8 });
+    }
+    for (let i = 0; i < Math.round(26 * q); i++) {
+      const d = dir().multiplyScalar(rnd(10, 34));
+      fx.debris.spawn(at.x, at.y, at.z, d.x + this.vel.x * 0.4, d.y + 4, d.z + this.vel.z * 0.4, rnd(0.25, 0.7), c.metal, rnd(2.5, 5));
+    }
+  }
+
+  // The falling wreck: gravity, a tumble, a trail of fire and smoke, small
+  // secondary blasts, and the big one on impact (the ground, or the water).
+  _updateWreck(dt) {
+    const wk = this.wreck;
+    if (!wk) return;
+    const mgr = this.manager;
+    const fx = mgr.effects;
+    wk.age += dt;
+    this.vel.y = Math.max(-110, this.vel.y - 20 * dt);
+    this.vel.multiplyScalar(Math.exp(-0.04 * dt));
+    const tumble = _axis.copy(wk.spin).multiplyScalar(dt);
+    const mag = tumble.length();
+    if (mag > 1e-6) this.q.multiply(_q.setFromAxisAngle(tumble.normalize(), mag)).normalize();
+    const step = this.vel.length() * dt;
+    const dir = _v.copy(this.vel).normalize();
+    const hit = mgr.world.raycast(this.pos, dir, step + 2, { solidOnly: true });
+    const wet = IS_WET[mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y), Math.floor(this.pos.z))];
+    if (hit || wet || this.pos.y < 2 || wk.age > WRECK_LIFE) {
+      const at = hit ? this.pos.clone().addScaledVector(dir, Math.max(0, hit.distance - 0.5)) : this.pos.clone();
+      this.wreck = null;
+      fx.explode(at, { radius: 10, source: "jet_boom" });
+      this._airBlast(at);
+      this.root.visible = false;
+      this.removeAt = 0.05;
+      return;
+    }
+    this.pos.addScaledVector(this.vel, dt);
+    // (Gone far from the player for good.)
+    if (this.pos.distanceTo(mgr.player.position) > 3000) {
+      this.wreck = null;
+      this.root.visible = false;
+      this.removeAt = 0.05;
+      return;
+    }
+    this._place();
+    this.model.setBurnt?.(true, this.time);
+    wk.fxT -= dt;
+    if (wk.fxT <= 0) {
+      wk.fxT = 0.04 / Math.max(0.4, effectsQuality.scale);
+      const c = this._wreckC || (this._wreckC = { fire: new THREE.Color(5, 2.6, 0.9), smoke0: new THREE.Color(0.06, 0.055, 0.05), smoke1: new THREE.Color(0.28, 0.27, 0.26) });
+      const j = () => (Math.random() - 0.5) * 2.5;
+      fx.glow.spawn({ x: this.pos.x + j(), y: this.pos.y + j() * 0.5, z: this.pos.z + j(), vx: j(), vy: 1 + Math.random(), vz: j(), life: 0.45, size0: 3.4, size1: 1, color0: c.fire, alpha: 0.65, drag: 1.5 });
+      fx.smoke.spawn({ x: this.pos.x + j(), y: this.pos.y + j() * 0.5, z: this.pos.z + j(), vx: j() * 0.4, vy: 0.5, vz: j() * 0.4, life: 3.5 + Math.random() * 1.5, size0: 2.2, size1: 10, color0: c.smoke0, color1: c.smoke1, alpha: 0.75, drag: 0.5 });
+    }
+    wk.boomT -= dt;
+    if (wk.boomT <= 0) {
+      // A secondary blast in the wreck (a flash and a smoke ball: no crater).
+      wk.boomT = 0.5 + Math.random() * 0.9;
+      const hot = this._wreckC?.fire || new THREE.Color(5, 2.6, 0.9);
+      for (let i = 0; i < Math.round(8 * effectsQuality.scale) + 2; i++) fx.glow.spawn({ x: this.pos.x, y: this.pos.y, z: this.pos.z, vx: (Math.random() - 0.5) * 14, vy: (Math.random() - 0.5) * 14, vz: (Math.random() - 0.5) * 14, life: 0.5, size0: 4, size1: 8, color0: hot, alpha: 0.5, drag: 2 });
+      mgr.audio?.playExplosion?.(this.pos.distanceTo(fx.listener), 0.5);
+    }
   }
 
   serialize() {

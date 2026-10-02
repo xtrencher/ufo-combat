@@ -114,7 +114,7 @@ export class Audio {
     this._shaperCurve = null;
     // Per-category volume (0-1), set from the settings menu. Each category
     // has its own gain node feeding the master gain.
-    this.volumes = { master: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 };
+    this.volumes = { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 };
     this.buses = {};
     this._out = null; // the bus of the sound being played
   }
@@ -736,7 +736,7 @@ export class Audio {
       whineF.frequency.value = 2400;
       whineF.Q.value = 6;
       const whineG = ctx.createGain();
-      whineG.gain.value = 0.05;
+      whineG.gain.value = 0.02;
       whine.connect(whineF).connect(whineG).connect(out);
       whine.start();
       // Afterburner rumble.
@@ -751,12 +751,12 @@ export class Audio {
     }
     const j = this._jet;
     const t = ctx.currentTime;
-    j.out.gain.setTargetAtTime(active ? 0.55 : 0, t, active ? 0.2 : 0.4);
+    j.out.gain.setTargetAtTime(active ? 0.14 : 0, t, active ? 0.2 : 0.4);
     j.roarF.frequency.setTargetAtTime(350 + throttle * 1400 + speed * 3, t, 0.2);
-    j.roarG.gain.setTargetAtTime(0.25 + throttle * 0.6, t, 0.2);
+    j.roarG.gain.setTargetAtTime(0.15 + throttle * 0.4, t, 0.2);
     j.whine.frequency.setTargetAtTime(600 + throttle * 900, t, 0.3);
     j.whineF.frequency.setTargetAtTime(1800 + throttle * 1800, t, 0.3);
-    j.abG.gain.setTargetAtTime(afterburner ? 1.4 : 0, t, 0.15);
+    j.abG.gain.setTargetAtTime(afterburner ? 0.7 : 0, t, 0.15);
   }
 
   // One autocannon round (a very short, low crack; they come 16 a second).

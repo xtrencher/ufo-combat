@@ -52,6 +52,7 @@ export const UFO_DEFAULTS = {
 };
 
 export const MAX_ATTACKERS = 4; // UFOs attacking the player at the same time
+export const JET_MAX_ATTACKERS = 2; // ... while the player flies a jet (they are fast and you have no cover: two is plenty)
 
 // Per size: radius range (blocks), health, cruise and top speed (blocks/s),
 // laser damage, hover height over a beamed player, alien crew size range.
@@ -199,7 +200,7 @@ export class UfoManager {
     this._spawnT = 3;
     this._id = 1;
     this.viewDistance = 160; // blocks (fog end); set by the game
-    this.jetMaxSpeed = 150; // the jet's top speed (for fleeing UFOs)
+    this.jetMaxSpeed = 280; // the jet's top speed (for fleeing UFOs)
     this.pendingCrews = []; // aliens waiting for their wreck's chunk to load
     this.beams = []; // spare tractor beams
     this.attackers = 0; // UFOs attacking the player right now (at most MAX_ATTACKERS)
@@ -546,7 +547,7 @@ export class UfoManager {
     const pv = this._playerVehicle();
     // A slot among the (at most MAX_ATTACKERS) attackers, decided before
     // its state changes.
-    const slot = u.state === "attack" || u.state === "react" || u.state === "beam" || this.attackers < MAX_ATTACKERS;
+    const slot = u.state === "attack" || u.state === "react" || u.state === "beam" || this.attackers < this.maxAttackers;
     if (pv?.type === "ufo" && !u.hostile) {
       u.hostile = true;
       u.hostileT = 60;
@@ -630,7 +631,12 @@ export class UfoManager {
   // Can this UFO join the attack (fewer than MAX_ATTACKERS at it right now)?
   _wantAttack(u) {
     if (u.state === "attack" || u.state === "react" || u.state === "beam") return true;
-    return this.attackers < MAX_ATTACKERS;
+    return this.attackers < this.maxAttackers;
+  }
+
+  // How many UFOs may attack at once: fewer against a jet.
+  get maxAttackers() {
+    return this._playerVehicle()?.type === "jet" ? JET_MAX_ATTACKERS : MAX_ATTACKERS;
   }
 
   update(dt) {
@@ -646,6 +652,15 @@ export class UfoManager {
     // Count the attackers first, so the cap holds within a frame.
     this.attackers = 0;
     for (const u of this.ufos) if (!u.falling && (u.state === "attack" || u.state === "react" || u.state === "beam")) this.attackers++;
+    // Taking to a jet with a crowd of them on you: the surplus fall back to circling.
+    if (this.attackers > this.maxAttackers) {
+      const extra = this.ufos.filter((u) => !u.falling && u.state === "attack" && !u.missionTarget).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
+      for (const u of extra) {
+        if (this.attackers <= this.maxAttackers) break;
+        u.state = "circle";
+        this.attackers--;
+      }
+    }
     let humD = Infinity;
     let beamOnPlayer = null;
     for (let i = this.ufos.length - 1; i >= 0; i--) {
