@@ -113,6 +113,7 @@ export class TractorBeam {
     scene.add(this.mesh, this.pool);
     this.strength = 0; // eased 0-1
     this.on = false;
+    this.floating = false;
     this.top = new THREE.Vector3();
     this.bottomY = 0;
     this.radius = 4;
@@ -121,8 +122,9 @@ export class TractorBeam {
 
   // Aims the beam: from `top` (the ship's underside) straight down to the
   // ground at `groundY`, `radius` blocks wide at the bottom.
-  set(on, top, groundY, radius) {
+  set(on, top, groundY, radius, floating = false) {
     this.on = on;
+    this.floating = floating; // high in the sky: the beam ends in the air (no pool of light)
     if (top) this.top.copy(top);
     if (groundY !== undefined) this.bottomY = groundY;
     if (radius !== undefined) this.radius = radius;
@@ -142,7 +144,7 @@ export class TractorBeam {
     this.strength += ((this.on ? 1 : 0) - this.strength) * Math.min(1, dt * 5);
     const visible = this.strength > 0.02;
     this.mesh.visible = visible;
-    this.pool.visible = visible;
+    this.pool.visible = visible && !this.floating;
     if (!visible) return;
     const len = Math.max(0.5, this.top.y - this.bottomY);
     this.mesh.position.set(this.top.x, this.bottomY, this.top.z);

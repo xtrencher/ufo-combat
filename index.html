@@ -771,25 +771,6 @@
     line-height: 1.3;
   }
   #hud-toast.show { opacity: 1; }
-  #jet-picker {
-    position: fixed;
-    bottom: 22%;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 10px;
-    pointer-events: none;
-    z-index: 11;
-    font-family: system-ui, sans-serif;
-    color: #fff;
-  }
-  #jet-picker .jp-title { position: absolute; bottom: 100%; left: 0; right: 0; text-align: center; margin-bottom: 6px; font-weight: 700; text-shadow: 0 0 6px #000; }
-  #jet-picker .jp-opt { background: rgba(10,14,20,0.72); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 8px 14px; min-width: 190px; }
-  #jet-picker .jp-opt.last { border-color: #ffd257; }
-  #jet-picker .jp-opt b { display: block; font-size: 15px; }
-  #jet-picker .jp-opt kbd { display: inline-block; min-width: 16px; padding: 0 4px; margin-right: 6px; border: 1px solid #ccc; border-radius: 3px; text-align: center; font: 700 12px ui-monospace, monospace; }
-  #jet-picker .jp-opt span { font-size: 12px; opacity: 0.8; }
-  #jet-picker.hidden { display: none; }
   #stats-overlay {
     position: fixed;
     top: 8px;
@@ -850,7 +831,28 @@
   }
   #lock-box.locked { border-color: #ff3a2a; border-width: 3px; }
   #lock-box.salvo { border-style: double; border-width: 5px; }
-  #lock-box.salvo::after { content: "SALVO x4" !important; }
+  #lock-box.salvo::after { content: "SALVO" !important; color: #ffb02e; text-shadow: 0 0 8px #ff6a1a; }
+  /* The salvo charging: a ring that fills around the box, one pip per missile, an edge glow that builds up. */
+  #lock-box .lb-ring { position: absolute; inset: -14px; border-radius: 50%; opacity: 0; pointer-events: none;
+    background: conic-gradient(from 0deg, #ffb02e calc(var(--c, 0) * 360deg), rgba(255,255,255,0.08) 0);
+    -webkit-mask: radial-gradient(circle, transparent 0 calc(50% - 5px), #000 calc(50% - 4px) 50%, transparent calc(50% + 0.5px));
+    mask: radial-gradient(circle, transparent 0 calc(50% - 5px), #000 calc(50% - 4px) 50%, transparent calc(50% + 0.5px));
+    filter: drop-shadow(0 0 6px #ff7a1a); }
+  #lock-box.charging .lb-ring { opacity: 1; }
+  #lock-box.charging { border-color: #ff7a2a; animation: lb-shake 0.09s linear infinite; }
+  #lock-box.salvo .lb-ring { background: conic-gradient(#ffe08a, #ff5a1a, #ffe08a); animation: lb-spin 0.7s linear infinite; }
+  #lock-box .lb-pips { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 20px; display: flex; gap: 4px; }
+  #lock-box .lb-pips i { width: 9px; height: 16px; border: 1px solid rgba(255,255,255,0.5); border-radius: 2px 2px 5px 5px; background: rgba(0,0,0,0.35); transition: background 0.08s, box-shadow 0.08s; }
+  #lock-box .lb-pips i.on { background: linear-gradient(#ffe08a, #ff6a1a); border-color: #ffd27a; box-shadow: 0 0 8px #ff7a1a; transform: translateY(-2px); }
+  #lock-box.salvo .lb-pips i { animation: lb-pip 0.3s ease-in-out infinite alternate; }
+  #lock-box:not(.charging):not(.salvo) .lb-pips { display: none; }
+  @keyframes lb-shake { 0% { translate: 0 0; } 25% { translate: 1px -1px; } 50% { translate: -1px 1px; } 75% { translate: 1px 1px; } 100% { translate: 0 0; } }
+  @keyframes lb-spin { to { transform: rotate(360deg); } }
+  @keyframes lb-pip { to { box-shadow: 0 0 14px #ffb02e; filter: brightness(1.4); } }
+  #salvo-glow { position: fixed; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(255,90,20,0) 55%, rgba(255,110,30,0.32) 100%); transition: opacity 0.12s; }
+  #salvo-glow.salvo { animation: salvo-pulse 0.4s ease-in-out infinite alternate; }
+  @keyframes salvo-pulse { from { filter: brightness(1); } to { filter: brightness(1.8); } }
   #lock-box.locked::after { content: "LOCK"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font: 700 11px ui-monospace, Consolas, monospace; color: #ff3a2a; letter-spacing: 1px; }
   #jet-nose {
     position: fixed;
@@ -982,6 +984,138 @@
 
   /* F1 hides every HUD element (the held item is hidden by the game). */
   body.hud-off #hud, body.hud-off #debug-overlay, body.hud-off #scope-overlay, body.hud-off #binocular-overlay { visibility: hidden; }
+
+  /* ===== Round 6 theme: one clean, minimal glass style for every screen ===== */
+  :root {
+    --ui-bg: rgba(12,17,26,0.78);
+    --ui-bg-solid: #0e141e;
+    --ui-line: rgba(255,255,255,0.10);
+    --ui-line-strong: rgba(255,255,255,0.22);
+    --ui-text: #e8eef6;
+    --ui-dim: rgba(232,238,246,0.62);
+    --ui-accent: #4fe3b0;
+    --ui-accent-2: #2aa87f;
+    --ui-warn: #ffc94d;
+    --ui-radius: 14px;
+    --ui-font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  }
+  html, body { font-family: var(--ui-font); }
+  .overlay { background: radial-gradient(ellipse at 50% 40%, rgba(8,12,20,0.55), rgba(4,7,12,0.88)); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .menu-overlay { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  #boot { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .panel {
+    background: var(--ui-bg);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+    border: 1px solid var(--ui-line);
+    border-radius: 18px;
+    padding: 28px 34px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+    color: var(--ui-text);
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent;
+  }
+  .panel h1, .panel h2 { font-weight: 700; letter-spacing: 0.3px; }
+  .panel h2 { font-size: 22px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-line); }
+  .panel .subtitle, .hint { color: var(--ui-dim); opacity: 1; }
+  .btn {
+    font-family: var(--ui-font);
+    background: rgba(255,255,255,0.07);
+    color: var(--ui-text);
+    border: 1px solid var(--ui-line-strong);
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    transition: background 0.15s, border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+  }
+  .btn:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
+  .btn:active { transform: translateY(1px); }
+  .btn.secondary { background: rgba(255,255,255,0.04); }
+  .btn.secondary:hover { background: rgba(255,255,255,0.11); }
+  #respawn-btn, #new-world-create { background: linear-gradient(180deg, var(--ui-accent), var(--ui-accent-2)); color: #04251a; border-color: transparent; }
+  #respawn-btn:hover, #new-world-create:hover { background: linear-gradient(180deg, #6df0c2, #35bd90); }
+  .btn.big { background: rgba(255,255,255,0.06); border: 1px solid var(--ui-line); border-radius: 12px; }
+  .btn.big:hover { background: rgba(255,255,255,0.13); border-color: rgba(79,227,176,0.6); box-shadow: 0 6px 22px rgba(0,0,0,0.3), 0 0 0 1px rgba(79,227,176,0.15); }
+  .btn.big.primary { background: linear-gradient(180deg, var(--ui-accent), var(--ui-accent-2)); color: #04251a; border-color: transparent; font-weight: 800; box-shadow: 0 8px 26px rgba(40,200,150,0.30); }
+  .btn.big.primary:hover { background: linear-gradient(180deg, #6df0c2, #35bd90); box-shadow: 0 10px 32px rgba(60,230,170,0.45); }
+  .btn:disabled, .btn:disabled:hover { background: rgba(255,255,255,0.05); color: var(--ui-dim); border-color: var(--ui-line); box-shadow: none; }
+  .menu-card, .menu-footer { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 16px; }
+  .menu-footer { padding: 12px 14px; }
+  .mode-card { background: rgba(255,255,255,0.05); border: 1px solid var(--ui-line); border-radius: 12px; color: var(--ui-text); }
+  .mode-card:hover { background: rgba(255,255,255,0.11); }
+  .mode-card.active { background: rgba(79,227,176,0.16); border-color: var(--ui-accent); box-shadow: inset 0 0 0 1px rgba(79,227,176,0.25); }
+  .mode-card b { font-weight: 700; }
+  .logo-text { font-family: var(--ui-font); font-weight: 900; }
+  .logo-ufo-word { font-size: 84px; letter-spacing: 10px; margin-right: -10px; }
+  .logo-combat { font-size: 40px; letter-spacing: 15px; margin-right: -15px; -webkit-text-stroke: 0; }
+  .logo-tag { color: var(--ui-dim); opacity: 1; letter-spacing: 3.5px; font-size: 11px; }
+  .row select, .row input[type="text"] {
+    font-family: var(--ui-font);
+    background: rgba(255,255,255,0.07); color: var(--ui-text);
+    border: 1px solid var(--ui-line-strong); border-radius: 8px; padding: 6px 9px;
+  }
+  .row select option { background: var(--ui-bg-solid); color: var(--ui-text); }
+  .row input[type="range"] { accent-color: var(--ui-accent); }
+  .row input[type="checkbox"] { accent-color: var(--ui-accent); }
+  .row label { opacity: 1; color: var(--ui-text); }
+  .subhead { color: var(--ui-accent); text-transform: uppercase; letter-spacing: 1.5px; font-size: 11px; opacity: 1; margin-top: 14px; }
+  .badge { background: rgba(255,201,77,0.18); color: var(--ui-warn); border-radius: 6px; }
+  .pill { background: rgba(255,90,70,0.25); color: #ff9c90; border-radius: 9px; }
+  .pill.on { background: rgba(79,227,176,0.22); color: var(--ui-accent); }
+  .settings-tabs { border-bottom: 1px solid var(--ui-line); gap: 2px; }
+  .settings-tab { font-family: var(--ui-font); color: var(--ui-dim); font-weight: 600; font-size: 13px; border-radius: 8px 8px 0 0; }
+  .settings-tab:hover { color: var(--ui-text); background: rgba(255,255,255,0.05); }
+  .settings-tab.active { color: var(--ui-text); border-bottom-color: var(--ui-accent); }
+  .settings-panel > .menu-buttons:last-child { background: linear-gradient(180deg, rgba(12,17,26,0), var(--ui-bg-solid) 40%); }
+  .perf-presets .btn, .spawn-grid .btn { background: rgba(255,255,255,0.06); }
+  .perf-presets .btn.active { background: rgba(79,227,176,0.2); border-color: var(--ui-accent); }
+  .advanced-toggle { color: var(--ui-accent); font-family: var(--ui-font); }
+  .mods-master { background: rgba(79,227,176,0.1); border: 1px solid rgba(79,227,176,0.25); border-radius: 10px; }
+  .controls-list td:first-child, .controls-list b { color: var(--ui-warn); }
+  .controls-list h3 { color: var(--ui-accent); text-transform: uppercase; letter-spacing: 1.5px; font-size: 11px; }
+  #stats-table th, #stats-table td { border-bottom-color: var(--ui-line); }
+  #seed-display span, #start-notice:not(:empty) { color: var(--ui-warn); }
+  .fps-recommend { border-radius: 10px; }
+  .menu-fps { border-radius: 8px; }
+  /* In-game windows: the inventory in the same dark glass, not grey blocks. */
+  #inventory-screen { background: rgba(4,7,12,0.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .inv-panel { background: var(--ui-bg); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border: 1px solid var(--ui-line); border-radius: 18px; color: var(--ui-text); padding: 16px 18px 18px; box-shadow: 0 24px 70px rgba(0,0,0,0.55); }
+  .inv-title, .inv-label { color: var(--ui-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+  .slot { background: rgba(255,255,255,0.07); border: 1px solid var(--ui-line); border-radius: 7px; }
+  .slot:hover { background: rgba(255,255,255,0.16); border-color: rgba(79,227,176,0.6); }
+  .slot.cursor-slot { background: none; border: none; }
+  .inv-tab { font-family: var(--ui-font); background: rgba(255,255,255,0.06); color: var(--ui-dim); border: 1px solid var(--ui-line); border-radius: 8px; font-weight: 600; }
+  .inv-tab:hover { color: var(--ui-text); }
+  .inv-tab.active { background: rgba(79,227,176,0.18); color: var(--ui-text); border-color: var(--ui-accent); }
+  .inv-tooltip { border: 1px solid var(--ui-line-strong); border-radius: 8px; background: rgba(8,12,20,0.96); }
+  .inv-palette { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
+  /* Jet picker, vehicle info and mission tracker share the glass look. */
+  #vehicle-hud, #vehicle-info, #mission-tracker, #stats-overlay { border-radius: 12px; border-color: var(--ui-line); background: rgba(10,15,24,0.66); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  #death-screen .btn, #respawn-btn { border-radius: 10px; }
+
+
+  /* The boss bar (the Overlord) */
+  #boss-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(520px, 56vw); z-index: 11; pointer-events: none; text-align: center; text-shadow: 0 1px 4px #000; }
+  #boss-bar.hidden { display: none; }
+  #boss-bar .bb-name { font: 800 14px var(--ui-font); letter-spacing: 6px; color: #ffd0c0; margin-bottom: 4px; }
+  #boss-bar .bb-track { height: 12px; border-radius: 7px; background: rgba(10,14,22,0.7); border: 1px solid rgba(255,255,255,0.3); overflow: hidden; box-shadow: 0 0 14px rgba(0,0,0,0.5); }
+  #boss-bar .bb-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #d2451f, #ffb23a); transition: width 0.25s; }
+  #boss-bar.shielded .bb-track { border-color: #5ad2ff; box-shadow: 0 0 16px rgba(80,200,255,0.6); }
+  #boss-bar.shielded .bb-fill { background: linear-gradient(90deg, #3a8fc4, #8fe3ff); }
+  #boss-bar.final .bb-fill { background: linear-gradient(90deg, #8a0f0f, #ff3a2a); animation: bb-pulse 0.6s ease-in-out infinite alternate; }
+  #boss-bar .bb-note { font: 700 11px ui-monospace, Consolas, monospace; letter-spacing: 2px; color: #bff6ff; margin-top: 3px; }
+  #boss-bar.final .bb-note { color: #ff9a8a; }
+  @keyframes bb-pulse { to { filter: brightness(1.5); } }
+  /* Fullscreen: a small corner button that fades in when the mouse comes near it */
+  #fs-zone { position: fixed; top: 0; right: 0; width: 84px; height: 84px; z-index: 300; display: flex; align-items: flex-start; justify-content: flex-end; padding: 14px; box-sizing: border-box; }
+  #fs-zone.hidden { display: none; }
+  #fs-btn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--ui-line-strong); background: rgba(10,15,24,0.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: var(--ui-text); cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0; transform: scale(0.9); transition: opacity 0.2s, transform 0.2s, background 0.15s; padding: 0; }
+  #fs-zone:hover #fs-btn, #fs-btn:focus-visible { opacity: 1; transform: scale(1); }
+  #fs-btn:hover { background: rgba(79,227,176,0.25); border-color: var(--ui-accent); }
+  #fs-btn .fs-exit { display: none; }
+  body.is-fullscreen #fs-btn .fs-exit { display: block; }
+  body.is-fullscreen #fs-btn .fs-enter { display: none; }
+  /* While playing with the pointer locked there is no mouse to hover with: stay out of the way. */
+  body.pointer-locked #fs-zone { pointer-events: none; }
+  .fs-hint { margin-top: 8px; font-size: 11px; color: var(--ui-dim); }
 </style>
 </head>
 <body>
@@ -1004,16 +1138,17 @@
     <div id="reload-bar" class="hidden"><div></div></div>
     <div id="vehicle-hud" class="hidden"></div>
     <div id="vehicle-info" class="hidden"></div>
+    <div id="boss-bar" class="hidden"><div class="bb-name">THE OVERLORD</div><div class="bb-track"><div class="bb-fill"></div></div><div class="bb-note"></div></div>
     <div id="mission-tracker" class="hidden"></div>
     <div id="mission-marker" class="hidden"><div class="mm-mark"></div><div class="mm-label"></div></div>
     <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>
     <div id="vehicle-prompt" class="hidden"></div>
     <div id="hud-toast"></div>
-    <div id="jet-picker" class="hidden"></div>
     <div id="stats-overlay" class="hidden"></div>
     <div id="hit-marker"></div>
     <div id="beam-overlay"></div>
-    <div id="lock-box" class="hidden"></div>
+    <div id="lock-box" class="hidden"><div class="lb-ring"></div><div class="lb-pips"></div></div>
+    <div id="salvo-glow"></div>
     <div id="jet-nose" class="hidden"></div>
     <div id="jet-aim" class="hidden"></div>
   </div>
@@ -1247,7 +1382,7 @@
           <label for="mob-spawning">Creatures spawn</label>
           <input type="checkbox" id="mob-spawning" />
         </div>
-        <div class="row">
+        <div class="row creative-only">
           <label>Time of day</label>
           <input type="range" id="time-of-day" min="0" max="23.95" step="0.05" value="12" />
           <span id="time-of-day-value" class="val">12:00</span>
@@ -1284,7 +1419,7 @@
       </div>
 
       <div class="settings-page hidden" data-page="ufos">
-        <div class="hint hidden" id="ufo-survival-note">Survival: the mission chain decides how many UFOs there are and how big (no UFOs at first, then a single one, then more). UFO activity, spawn chance, max UFOs and sizes are Creative settings.</div>
+        <div class="hint hidden" id="ufo-survival-note">Survival: the mission chain decides how many UFOs there are and how big (no UFOs at first, then a single one, then more). Every UFO setting (activity, spawn chance, numbers, sizes, aggression, detection, toughness) is a Creative setting.</div>
         <div class="auto-rows"></div>
         <button class="advanced-toggle">&#9656; Advanced</button>
         <div class="auto-rows-advanced hidden"></div>

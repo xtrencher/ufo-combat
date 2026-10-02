@@ -457,8 +457,8 @@ await test("caves, ores and crystals appear in sensible amounts", () => {
   const per = (id) => ((counts[id] || 0) / n).toFixed(1);
   console.log(`        underground cave air ${((caveAir / underground) * 100).toFixed(1)}%; per chunk: coal ${per(BLOCK.COAL_ORE)}, iron ${per(BLOCK.IRON_ORE)}, gold ${per(BLOCK.GOLD_ORE)}, diamond ${per(BLOCK.DIAMOND_ORE)}, gravel ${per(BLOCK.GRAVEL)}, lumen ${per(BLOCK.LUMEN)}`);
   assert.ok(caveAir / underground > 0.015 && caveAir / underground < 0.2, "cave volume out of range");
-  assert.ok(counts[BLOCK.COAL_ORE] > counts[BLOCK.IRON_ORE] && counts[BLOCK.IRON_ORE] > counts[BLOCK.GOLD_ORE], "ore rarity order");
-  assert.ok((counts[BLOCK.DIAMOND_ORE] || 0) > 0 && counts[BLOCK.DIAMOND_ORE] < counts[BLOCK.GOLD_ORE], "diamonds should exist but be rarer than gold");
+  assert.ok(counts[BLOCK.COAL_ORE] > counts[BLOCK.GOLD_ORE], "ore rarity order");
+  assert.ok(!counts[BLOCK.IRON_ORE] && !counts[BLOCK.DIAMOND_ORE], "no iron or diamond ore generates any more (Round 6)");
   assert.ok((counts[BLOCK.LUMEN] || 0) > 0, "no lumen crystals generated");
 });
 
@@ -990,7 +990,16 @@ console.log("\nDistant terrain (lod-mesher.js)");
   await test("walls exactly cover every height step inside a tile, and skirts close every border", () => {
     const lt = new LodTerrain(seed);
     for (const level of [1, 3]) {
-      const m = buildLodTile(lt, level, 3, -2, pal);
+      // (A tile with tree boxes has extra walls: the first tile without any is the one to check.)
+      let m = null;
+      for (const [tx, tz] of [[3, -2], [0, 0], [5, 5], [-4, 2], [8, -7], [2, 9], [-6, -6], [11, 3], [-9, 7]]) {
+        const cand = buildLodTile(lt, level, tx, tz, pal);
+        if (!facesOf(cand).some((f) => f.kind === LOD_KIND.LEAVES)) {
+          m = cand;
+          break;
+        }
+      }
+      assert.ok(m, "a tile without trees to check");
       const step = 1 << level;
       const N = LOD_CELLS;
       const heights = [];
@@ -1237,6 +1246,54 @@ console.log("\nFlowing water (watersim.js)");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nRound 6 landforms (terrain.js, biomes.js)");
+{
+  const { TerrainGenerator } = await import("../js/terrain.js");
+  const { BIOME } = await import("../js/biomes.js");
+  const { SEA_LEVEL } = await import("../js/constants.js");
+
+  await test("flat country, deep valleys, bigger mountains and the meadow exist (6 seeds, 8000 x 8000 blocks)", () => {
+    let land = 0;
+    let flat = 0;
+    let steep = 0;
+    let high = 0;
+    let desert = 0;
+    let jungle = 0;
+    let meadow = 0;
+    let valley = 0;
+    for (const seed of [1, 42, 777, 2024, 31337, 99]) {
+      const t = new TerrainGenerator(seed * 7919);
+      for (let x = -4000; x < 4000; x += 80) {
+        for (let z = -4000; z < 4000; z += 80) {
+          const info = t._terrainInfo(x, z);
+          if (info.height <= SEA_LEVEL + 1) continue;
+          land++;
+          const b = t.biomes.biomeAt(x, z, info.height, info.mountainT, info.river, info.flat);
+          if (b === BIOME.DESERT) desert++;
+          if (b === BIOME.JUNGLE) jungle++;
+          if (b === BIOME.MEADOW) meadow++;
+          if (info.height > 100) high++;
+          // Flat: the 4 neighbours 8 blocks away differ by at most 2.
+          const hs = [t.heightAt(x + 8, z), t.heightAt(x - 8, z), t.heightAt(x, z + 8), t.heightAt(x, z - 8)];
+          const d = Math.max(...hs.map((h) => Math.abs(h - info.height)));
+          if (info.flat > 0.9 && d <= 2) flat++;
+          if (d >= 8) steep++;
+          // A valley: low ground (below SEA_LEVEL + 8) right beside a ridge (100+ blocks away along an axis).
+          if (info.height < SEA_LEVEL + 8 && info.mountainT > 0.35) valley++;
+        }
+      }
+    }
+    const pc = (n) => ((n / land) * 100).toFixed(1);
+    console.log(`        land ${land}: flat ${pc(flat)}%, over 100 ${pc(high)}%, desert ${pc(desert)}%, jungle ${pc(jungle)}%, meadow ${pc(meadow)}%, valley floors in the mountains ${pc(valley)}%, steep ${pc(steep)}%`);
+    assert.ok(flat / land > 0.06, "wide flat country exists");
+    assert.ok(high / land > 0.05, "tall mountains");
+    assert.ok(desert / land > 0.06 && jungle / land > 0.025, "much larger deserts and jungles than the 3% / 2% of Round 5");
+    assert.ok(meadow / land > 0.02, "meadows");
+    assert.ok(valley / land > 0.003, "valley floors cut into the mountain country");
+  });
+}
+
+// ---------------------------------------------------------------------------
 console.log("\nAirports and cities (sites.js)");
 {
   const { TerrainGenerator } = await import("../js/terrain.js");
@@ -1258,7 +1315,7 @@ console.log("\nAirports and cities (sites.js)");
     const a = findSites(42);
     const b = findSites(42);
     assert.deepEqual(a.list.map((s) => s.id), b.list.map((s) => s.id));
-    assert.ok(a.list.length >= 12, `sites in 81 cells: ${a.list.length}`);
+    assert.ok(a.list.length >= 5, `sites in 81 cells: ${a.list.length}`);
     assert.ok(a.list.some((s) => s.kind === "airport") && a.list.some((s) => s.kind === "city"), "both kinds exist");
     let near = 0;
     let far = 0;
@@ -1268,8 +1325,24 @@ console.log("\nAirports and cities (sites.js)");
       if (t.sites.nearest(sx, sz, 1300)) near++;
       if (t.sites.nearest(sx, sz, 2600)) far++;
     }
-    assert.ok(near >= 4, `sites within 1300 blocks for ${near}/8 seeds`);
+    // Round 6: there is always a home airport (regional or international) close to the start, the others are far away.
+    assert.ok(near >= 8, `sites within 1300 blocks for ${near}/8 seeds`);
     assert.ok(far >= 8, `sites within 2600 blocks for ${far}/8 seeds`);
+    for (const seed of [1, 2, 3, 42, 99]) {
+      const t = new TerrainGenerator(seed * 104729);
+      const [sx, sz] = t.spawnColumn();
+      const h = t.sites.home;
+      assert.ok(h && h.kind === "airport" && h.size !== "field", `home airport exists (seed ${seed})`);
+      assert.ok(Math.hypot(h.x - sx, h.z - sz) < 1300, `the home airport is near the start (seed ${seed}): ${Math.hypot(h.x - sx, h.z - sz)}`);
+      assert.ok(t.sites._outside(h, ...t.sites.toLocal(h, sx, sz)) >= 80, "the start is clear of the airport's pad");
+      let nearestOther = Infinity;
+      for (let cz = -4; cz <= 4; cz++) for (let cx = -4; cx <= 4; cx++) {
+        const s = t.sites._site(cx, cz);
+        if (s && s !== h) nearestOther = Math.min(nearestOther, Math.hypot(s.x - h.x, s.z - h.z));
+      }
+      assert.ok(nearestOther > 1500, `the other sites are far from the home airport: ${nearestOther}`);
+      assert.ok(h.half >= 380, `a long runway (half length ${h.half})`);
+    }
   });
 
   await test("a site is dead flat across its whole footprint (chunks and distant terrain agree), with gentle slopes around it", () => {
@@ -1446,13 +1519,13 @@ console.log("\nProgression (progression.js)");
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (19 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0 };
+  await test("the mission chain (21 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 19);
+    assert.equal(MISSIONS.length, 21);
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1489,6 +1562,22 @@ console.log("\nProgression (progression.js)");
     // Alien ships are boarded late; the jets come before; the alien weapons come weakest first.
     const idx = (id) => MISSIONS.findIndex((m) => m.id === id);
     assert.ok(idx("salvage") >= 12 && idx("wings") < idx("salvage"));
+    // Round 6: the landing follows the first flight, the meteor storm and the boss are in, the boss comes after
+    // the railgun and before the final 25 UFOs, and the old mothership mission is the boss now.
+    assert.equal(idx("touchdown"), idx("wings") + 1);
+    assert.ok(idx("reds") < idx("meteors") && idx("meteors") < idx("salvage"));
+    assert.ok(idx("reds") < idx("overlord") && idx("overlord") === idx("slayer") - 1 && idx("sunburn") < idx("overlord"));
+    assert.equal(idx("mothership"), -1);
+    assert.deepEqual(MISSIONS[idx("touchdown")].objectives.map((o) => o.stat), ["landings", "landingSquad"]);
+    // A v4 (Round 4/5) save carries over by mission id: the old "wings" is still "wings", the old mothership fight continues at the base, the end stays the end.
+    const v4 = (id) => { const q = new Progress(); q.load({ v: 4, step: ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "dogfight", "air_superiority", "village", "reds", "salvage", "big_game", "mothership", "sunburn", "slayer"].indexOf(id), base: {}, done: [] }, stats); return q.mission?.id; };
+    assert.equal(v4("wings"), "wings");
+    assert.equal(v4("dogfight"), "dogfight");
+    assert.equal(v4("mothership"), "sunburn");
+    assert.equal(v4("slayer"), "slayer");
+    const v4end = new Progress();
+    v4end.load({ v: 4, step: 19, base: {}, done: [] }, stats);
+    assert.equal(v4end.mission, null);
     assert.ok(idx("patrol") < idx("grays") && idx("grays") < idx("reds"));
     assert.deepEqual([idx("patrol"), idx("grays"), idx("reds")].map((i) => MISSIONS[i].squad.leaderDrop), [ITEM.LASER_BLASTER, ITEM.MINIGUN, ITEM.RAILGUN]);
     // The patrol leaders' weapons are within reach of their mission's tier.

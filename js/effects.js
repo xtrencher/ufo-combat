@@ -158,10 +158,11 @@ export class EffectsSystem {
   _carve(center, radius, opts = {}) {
     const world = this.world;
     const lumpiness = Math.max(0.75, radius * 0.1);
-    const r = Math.min(radius, MAX_BLAST_RADIUS) - lumpiness;
+    const r = Math.min(radius, opts.maxRadius ?? MAX_BLAST_RADIUS) - lumpiness;
+    const vScale = opts.vScale ?? CRATER_VERTICAL_SCALE;
     const shape = opts.shape || makeCraterShape(lumpiness);
     const reach = Math.ceil(r + lumpiness);
-    const vReach = Math.ceil(reach / CRATER_VERTICAL_SCALE);
+    const vReach = Math.ceil(reach / vScale);
     const bx = Math.floor(center.x);
     const by = Math.floor(center.y);
     const bz = Math.floor(center.z);
@@ -189,12 +190,12 @@ export class EffectsSystem {
           let id;
           if (blocks) {
             id = blocks[(y << 8) | col];
-            if (id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.BEDROCK) continue;
+            if (id === BLOCK.AIR || id === BLOCK.WATER || (id === BLOCK.BEDROCK && y <= 1)) continue; // (runways are 'bedrock' blocks high above the real one at y 0-1)
           } else {
             if (y < 2 || y > surfaceY) continue; // approximate: solid ground below the surface, never bedrock
             id = y >= surfaceY - 3 ? BLOCK.GRASS : BLOCK.STONE;
           }
-          const oy = (y + 0.5 - center.y) * CRATER_VERTICAL_SCALE;
+          const oy = (y + 0.5 - center.y) * vScale;
           const d2 = h2 + oy * oy;
           if (d2 > maxR2) continue;
           const d = Math.sqrt(d2);

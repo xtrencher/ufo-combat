@@ -42,11 +42,12 @@ const MIN_INTERVAL = { grenade: 0.12, pistol: 0.2, bazooka: 0.2, airstrike: 0.8,
 
 // The bow: hold right click to draw (a full draw in a second), let go to shoot.
 export const BOW_DRAW = 1.0;
-const ARROW_SPEED_MIN = 16;
-const ARROW_SPEED_MAX = 58;
+const ARROW_SPEED_MIN = 18;
+const ARROW_SPEED_MAX = 135; // a full draw: ~2.3x the old speed, and a flatter flight
 const ARROW_GRAVITY = -20;
-const ARROW_DAMAGE = [2, 9]; // a quick flick ... a full draw
-const ARROW_LIFE = 8;
+const ARROW_GRAVITY_FULL = -7; // a fully drawn arrow drops far less (gravity scales down with the draw)
+const ARROW_DAMAGE = [2, 10]; // a quick flick ... a full draw
+const ARROW_LIFE = 10;
 
 // Railgun: about a second of charging (glowing coils, a rising whine), then
 // an extremely bright beam that cuts through everything in a straight line:
@@ -91,7 +92,7 @@ const AIRSTRIKE_AIM_RANGE = 500;
 // Laser blaster (the "laser pistol"): short glowing bolts, one per click (held:
 // about 4.5 per second, for as long as you like: no magazine, no reload). It is
 // weaker than the pistol: 3 a bolt against the pistol's 5.
-export const BLASTER_DAMAGE = 3;
+export const BLASTER_DAMAGE = 6;
 const BLASTER_SPEED = 130;
 const BLASTER_RANGE = 240;
 
@@ -336,9 +337,6 @@ export class WeaponSystem {
           this._spend("blaster");
           this.fireBlaster();
         }
-        return;
-      case "jetradio":
-        this.onJetRadio?.();
         return;
       case "railgun":
         if (cd.railgun > 0 || this.rail.charging || !this._ready("railgun")) return;
@@ -1007,7 +1005,7 @@ export class WeaponSystem {
             if (removedSet.has(key)) continue;
             removedSet.add(key);
             const id = world.getBlock(x, y, z);
-            if (id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.BEDROCK) continue;
+            if (id === BLOCK.AIR || id === BLOCK.WATER || (id === BLOCK.BEDROCK && y <= 1)) continue;
             removed.push(x, y, z, id);
             edits.push(x, y, z, BLOCK.AIR);
           }
@@ -1137,7 +1135,7 @@ export class WeaponSystem {
   shootArrow(power) {
     const p = this.player;
     const dir = p.getForwardVector();
-    const speed = ARROW_SPEED_MIN + (ARROW_SPEED_MAX - ARROW_SPEED_MIN) * power;
+    const speed = ARROW_SPEED_MIN + (ARROW_SPEED_MAX - ARROW_SPEED_MIN) * power * power;
     const pos = this._handPoint(0.5, 0.12, 0.08);
     if (IS_SOLID[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]) pos.copy(p.getEyePosition());
     if (!this._arrowGeo) {
@@ -1148,7 +1146,7 @@ export class WeaponSystem {
       this._arrowGeo = mergeColored([[shaft, 0x8a6a3c], [tip, 0x5a5a5e], [fl, 0xe8e2d4], [fl2, 0xe8e2d4]]);
     }
     const mesh = new THREE.Mesh(this._arrowGeo, this.material);
-    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, stuck: false, light: { sky: 15, block: 0 } };
+    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, gravity: ARROW_GRAVITY + (ARROW_GRAVITY_FULL - ARROW_GRAVITY) * power * power, stuck: false, light: { sky: 15, block: 0 } };
     bindEntityLight(mesh, () => a.light);
     mesh.position.copy(pos);
     this.scene.add(mesh);
@@ -1169,7 +1167,7 @@ export class WeaponSystem {
         }
         continue;
       }
-      a.vel.y += ARROW_GRAVITY * dt;
+      a.vel.y += (a.gravity ?? ARROW_GRAVITY) * dt;
       const step = a.vel.clone().multiplyScalar(dt);
       const len = step.length();
       const dir = step.clone().divideScalar(len || 1);

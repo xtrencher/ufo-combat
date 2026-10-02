@@ -53,7 +53,7 @@ export const MAX_TIER = 5;
 
 // ---------- Missions ----------
 //
-// A chain of nineteen missions with a steady difficulty curve. It starts on
+// A chain of twenty-one missions with a steady difficulty curve. It starts on
 // foot with a sword: a skeleton (its bow), a UFO that lands and lets its crew
 // out (they give you a moment before they attack), the first supply crate (a
 // pistol), a first scout to shoot down and its crew, a night; then alien
@@ -162,7 +162,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "hunt",
     tier: 2,
-    rules: R({ small: 4, medium: 3 }, 0.75, 0.7, 0.75, 3, 0.025, GREEN),
+    rules: R({ small: 4, medium: 3 }, 0.75, 0.7, 0.75, 2, 0.025, GREEN),
   },
   {
     id: "grays",
@@ -173,17 +173,30 @@ export const MISSIONS = [
     event: "squad",
     squad: { kind: "alien_gray", n: 5, leaderDrop: ITEM.MINIGUN },
     tier: 3,
-    rules: R({ small: 3, medium: 3, large: 0.3 }, 0.8, 0.75, 0.8, 3, 0.025, GREEN_GRAY),
+    rules: R({ small: 3, medium: 3, large: 0.3 }, 0.8, 0.75, 0.8, 2, 0.025, GREEN_GRAY),
   },
   {
     id: "wings",
     title: "Take to the air",
-    text: "Call in a fighter jet (J, then 1 or 2) near an airport (F3 shows the nearest), get in (F) and take off: full throttle (W), Shift for the afterburner.",
+    text: "Fighter jets wait at airports (F3 shows the nearest, and the marker points the way). Walk up to one, get in (F) and take off: full throttle (W), Shift for the afterburner.",
     objectives: [{ stat: "takeoffs", goal: 1, label: "Takeoffs" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "takeoff",
     tier: 3,
-    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.85, 0.8, 0.8, 3, 0.025, GREEN_GRAY),
+    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.85, 0.8, 0.8, 2, 0.025, GREEN_GRAY),
+  },
+  {
+    id: "touchdown",
+    title: "Touchdown",
+    text: "Bring a jet back down: land it on an airport's runway (F3 shows the nearest airport; line up with the runway, throttle down to about 30%, hold Space for the air brakes and the wheel brakes) and stop. The aliens will not let you rest: a red squad drops in on the ground. Get out (F) and finish them.",
+    objectives: [
+      { stat: "landings", goal: 1, label: "Jet landed on a runway" },
+      { stat: "landingSquad", goal: 3, label: "Red aliens killed" },
+    ],
+    reward: [[ITEM.GOLDEN_APPLE, 2]],
+    event: "landjet",
+    tier: 3,
+    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.87, 0.82, 0.82, 2, 0.026, GREEN_GRAY),
   },
   {
     id: "dogfight",
@@ -193,7 +206,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "dogfight",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.85, 0.85, 4, 0.03, GREEN_GRAY),
+    rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.85, 0.85, 3, 0.03, GREEN_GRAY),
   },
   {
     id: "air_superiority",
@@ -203,7 +216,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 4, 0.03, GREEN_GRAY_BLUE),
+    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 3, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "village",
@@ -213,7 +226,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "village",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 4, 0.03, GREEN_GRAY_BLUE),
+    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 3, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "reds",
@@ -224,7 +237,17 @@ export const MISSIONS = [
     event: "squad",
     squad: { kind: "alien_red", n: 3, leaderDrop: ITEM.RAILGUN },
     tier: 4,
-    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 5, 0.035, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
+  },
+  {
+    id: "meteors",
+    title: "Falling stars",
+    text: "A meteor storm is falling out of the night sky. Every rock is announced by a red ring on the ground: keep out of it. The craters leave glowing star fragments (marked): collect four before the alien salvagers carry them off.",
+    objectives: [{ stat: "meteorFragments", goal: 4, label: "Star fragments collected" }],
+    reward: [[ITEM.GOLDEN_APPLE, 4]],
+    event: "meteors",
+    tier: 4,
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
   },
   {
     id: "salvage",
@@ -234,7 +257,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "intact",
     tier: 4,
-    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 5, 0.035, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 4, 0.035, ALL_CREWS),
   },
   {
     id: "big_game",
@@ -244,17 +267,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 4]],
     event: "large",
     tier: 4,
-    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 5, 0.04, ALL_CREWS),
-  },
-  {
-    id: "mothership",
-    title: "Mothership",
-    text: "A mothership has arrived, with an escort. Destroy it: railgun beams, missile salvos (hold the lock), your own UFO's weapons and the nuke hit hardest.",
-    objectives: [{ stat: "ufosDownBig", goal: 1, label: "Mothership destroyed" }],
-    reward: [[ITEM.GOLDEN_APPLE, 6]],
-    event: "mothership",
-    tier: 5,
-    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.5, giant: 0.08 }, 1.05, 1.05, 1.1, 6, 0.045, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 4, 0.04, ALL_CREWS),
   },
   {
     id: "sunburn",
@@ -264,7 +277,17 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "airport",
     tier: 5,
-    rules: R(LATE, 1.1, 1.1, 1.2, 7, 0.05, ALL_CREWS),
+    rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
+  },
+  {
+    id: "overlord",
+    title: "The Overlord",
+    text: "The invasion's flagship has come for you: the Overlord, a mothership with a shield. Its pylons (marked) hold the shield up: shoot them down, then hit the hull with everything you have (the railgun is made for this) before the shield comes back. Three shields, an escort, and a squad that drops in: you can do it on foot.",
+    objectives: [{ stat: "bossesDown", goal: 1, label: "The Overlord destroyed" }],
+    reward: [[ITEM.GOLDEN_APPLE, 12]],
+    event: "boss",
+    tier: 5,
+    rules: R(LATE, 1.12, 1.12, 1.25, 5, 0.05, ALL_CREWS),
   },
   {
     id: "slayer",
@@ -274,13 +297,22 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "hunt",
     tier: 5,
-    rules: R(LATE, 1.15, 1.15, 1.3, 8, 0.055, ALL_CREWS),
+    rules: R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS),
   },
 ];
 
 // The Round 3 chain (v3 saves, fifteen missions): which new mission a save
 // whose current v3 mission was N continues with (the new opening missions
 // are skipped for them: they already have their weapons).
+// The Round 4/5 chain (v4 saves, nineteen missions): ids by step. Round 6 added the
+// landing, the meteor storm and the boss (and moved the mothership fight to the end).
+const V4_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "dogfight", "air_superiority", "village", "reds", "salvage", "big_game", "mothership", "sunburn", "slayer"];
+function v4StepToV5(step) {
+  if (!(step < V4_IDS.length)) return MISSIONS.length;
+  const idx = MISSIONS.findIndex((m) => m.id === V4_IDS[step]);
+  // (The old mothership mission is the Overlord's forerunner: that player carries on with the base.)
+  return idx >= 0 ? idx : MISSIONS.findIndex((m) => m.id === "sunburn");
+}
 const V3_STEP_TO_V4 = [0, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 18, 19];
 
 // The old seven-mission chain (Round 2 saves): how many new missions a save
@@ -367,16 +399,21 @@ export class Progress {
   }
 
   serialize() {
-    return { v: 4, step: this.step, base: this.base, done: this.done };
+    return { v: 5, step: this.step, base: this.base, done: this.done };
   }
 
   load(data, stats) {
     if (data && Number.isInteger(data.step) && data.step >= 0) {
-      if (data.v !== 4) {
+      if (data.v !== 5) {
         // An older save: carry its progress over to the new chain (Round 2
-        // -> Round 3 -> Round 4).
-        const v3 = data.v === 3 ? data.step : OLD_STEP_TO_NEW[Math.min(data.step, OLD_STEP_TO_NEW.length - 1)];
-        this.step = Math.min(MISSIONS.length, V3_STEP_TO_V4[Math.min(v3, V3_STEP_TO_V4.length - 1)]);
+        // -> Round 3 -> Round 4 -> Round 6).
+        let v4step;
+        if (data.v === 4) v4step = data.step;
+        else {
+          const v3 = data.v === 3 ? data.step : OLD_STEP_TO_NEW[Math.min(data.step, OLD_STEP_TO_NEW.length - 1)];
+          v4step = V3_STEP_TO_V4[Math.min(v3, V3_STEP_TO_V4.length - 1)];
+        }
+        this.step = Math.min(MISSIONS.length, v4StepToV5(v4step));
         this.done = MISSIONS.slice(0, this.step).map((m) => m.id);
         this.base = { ...this._pick(stats) };
         return;
@@ -463,7 +500,7 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
       // Alien weapons, weakest first, once the chain gets there (a mission's
       // patrol leader always drops the new one: see missions.js).
       const w = pickAlienWeapon(detail, tier, have);
-      const wChance = { green: 0.2, gray: 0.25, blue: 0.25, red: 0.35 }[detail] ?? 0.2;
+      const wChance = { green: 0.32, gray: 0.38, blue: 0.38, red: 0.5 }[detail] ?? 0.3;
       if (w != null && rand() < wChance) {
         add(w, 1);
         break;

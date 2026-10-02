@@ -79,7 +79,7 @@ export const SPECIES = {
   zombie: {
     name: "Zombie", hostile: true, glows: true, health: 20, r: 0.3, h: 1.95, eye: 1.7,
     speed: 1.1, chaseSpeed: 2.9, maxDrop: 3, damage: 3, sight: 20,
-    drops: [[ITEM.COAL, 0, 2, 1], [ITEM.IRON_INGOT, 1, 1, 0.08], [ITEM.APPLE, 1, 1, 0.05]],
+    drops: [[ITEM.COAL, 0, 2, 1], [ITEM.APPLE, 1, 1, 0.05]],
   },
   skeleton: {
     name: "Skeleton", hostile: true, health: 14, r: 0.3, h: 1.95, eye: 1.7,
@@ -138,19 +138,19 @@ export const SPECIES = {
     name: "Green alien", alien: true, hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3, glows: true,
     speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 40, ranged: true, laser: true, laserDamage: 3, strafes: true,
     weapon: "pistol", shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true, pathfind: true, bigJump: true,
-    drops: [[ITEM.IRON_INGOT, 1, 2, 0.6], [ITEM.DIAMOND, 1, 1, 0.12]],
+    drops: [[ITEM.APPLE, 1, 1, 0.25]],
   },
   alien_gray: {
     name: "Gray alien", alien: true, hostile: true, special: true, health: 14, r: 0.28, h: 1.78, eye: 1.45, glows: true,
     speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 48, ranged: true, laser: true, laserDamage: 2, strafes: true,
     weapon: "burst", shootMin: 10, shootMax: 46, shootCooldown: 2.1, noBurn: true, pathfind: true, bigJump: true,
-    drops: [[ITEM.IRON_INGOT, 1, 2, 0.5], [ITEM.DIAMOND, 1, 1, 0.18]],
+    drops: [[ITEM.APPLE, 1, 2, 0.3], [ITEM.GOLDEN_APPLE, 1, 1, 0.04]],
   },
   alien_red: {
     name: "Red alien", alien: true, hostile: true, special: true, health: 46, r: 0.42, h: 2.1, eye: 1.7, glows: true,
     speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 6,
     weapon: "plasma", shootMin: 4, shootMax: 24, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true,
-    drops: [[ITEM.IRON_INGOT, 2, 3, 0.8], [ITEM.DIAMOND, 1, 2, 0.3], [ITEM.GOLD_INGOT, 1, 2, 0.4]],
+    drops: [[ITEM.APPLE, 1, 2, 0.4], [ITEM.GOLDEN_APPLE, 1, 1, 0.08], [ITEM.GOLD_INGOT, 1, 2, 0.4]],
   },
   // Blue aliens: quick flankers. They close in and blink to a new spot
   // around the player now and then (flinching when hurt), firing a short
@@ -159,7 +159,7 @@ export const SPECIES = {
     name: "Blue alien", alien: true, hostile: true, special: true, health: 16, r: 0.28, h: 1.7, eye: 1.4, glows: true,
     speed: 1.9, chaseSpeed: 4.2, maxDrop: 4, damage: 0, sight: 44, ranged: true, laser: true, laserDamage: 1.4, strafes: true,
     weapon: "scatter", shootMin: 6, shootMax: 16, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true, blinks: true,
-    drops: [[ITEM.IRON_INGOT, 1, 2, 0.5], [ITEM.DIAMOND, 1, 1, 0.2]],
+    drops: [[ITEM.APPLE, 1, 1, 0.3], [ITEM.GOLDEN_APPLE, 1, 1, 0.04]],
   },
   // The airport's security guards: human soldiers posted at the hangars and
   // bunkers. They stand watch and open fire once the player enters the
@@ -1130,9 +1130,12 @@ export class MobManager {
     const vdz = m.pos.z + dz - start.z;
     const vdy = m.pos.y + dy + 0.9 - start.y;
     const dist = Math.hypot(vdx, vdy, vdz) || 1;
-    const t = Math.max(0.35, dist / ARROW_SPEED);
-    // Aims a little high to help compensate for the drop over the flight.
-    const riseComp = -0.5 * ARROW_GRAVITY * t * 0.55;
+    const t = dist / ARROW_SPEED;
+    // Aims a little high to help compensate for the drop over the flight. The
+    // flight time is not floored: the drop grows with t squared, so at point
+    // blank (t ~ 0.1 s) there is next to no lift (a floor of 0.35 s used to
+    // send the arrow a block and a half over the player's head).
+    const riseComp = -0.5 * ARROW_GRAVITY * t * Math.min(t, 1) * 0.55;
     const dir = new THREE.Vector3(vdx, vdy + riseComp, vdz).normalize();
     // (Inside a wall at point blank: from the archer's eyes instead.)
     if (IS_SOLID[this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))]) start.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(dir, m.spec.r + 0.3);

@@ -40,7 +40,7 @@ export const UFO_ACTIVITY_LEVELS = [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 export const UFO_ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];
 
 export const UFO_DEFAULTS = {
-  activity: 1,
+  activity: 0.5,
   spawnChance: 1,
   maxCount: 0, // 0 = automatic (from the activity)
   aggression: 1,
@@ -51,8 +51,9 @@ export const UFO_DEFAULTS = {
   toughness: 1,
 };
 
-export const MAX_ATTACKERS = 4; // UFOs attacking the player at the same time
-export const JET_MAX_ATTACKERS = 2; // ... while the player flies a jet (they are fast and you have no cover: two is plenty)
+export const MAX_ATTACKERS = 3; // UFOs attacking the player at the same time
+export const JET_MAX_ATTACKERS = 1; // ... while the player flies a jet (they are fast and you have no cover: one at a time, and the hijacked fighter)
+export const JET_COUNT_FACTOR = 0.5; // in a jet the sky holds half as many UFOs and fills up more slowly
 
 // Per size: radius range (blocks), health, cruise and top speed (blocks/s),
 // laser damage, hover height over a beamed player, alien crew size range.
@@ -243,16 +244,18 @@ export class UfoManager {
   get maxCount() {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
-    if (this.missionDriven) return Math.min(MAX_UFOS, Math.round(this.rules.max * nightBoost));
-    const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost * (this.rules?.count ?? 1));
-    return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : Math.max(c.activity > 0 ? 1 : 0, auto));
+    const jet = this._playerVehicle()?.type === "jet" ? JET_COUNT_FACTOR : 1;
+    if (this.missionDriven) return this.rules.max <= 0 ? 0 : Math.min(MAX_UFOS, Math.max(1, Math.round(this.rules.max * nightBoost * jet)));
+    const auto = Math.round((3 * c.activity + (c.activity > 0 ? 1 : 0)) * nightBoost * (this.rules?.count ?? 1) * jet);
+    return Math.min(MAX_UFOS, c.maxCount > 0 ? Math.max(1, Math.round(c.maxCount * jet)) : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
 
   // Expected new UFOs per second.
   get spawnRate() {
     const c = this.config;
-    if (this.missionDriven) return this.rules.rate * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
-    return (c.activity / 50) * c.spawnChance * (1 + (c.nightMultiplier - 1) * this.night);
+    const jet = this._playerVehicle()?.type === "jet" ? JET_COUNT_FACTOR : 1;
+    if (this.missionDriven) return this.rules.rate * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
+    return (c.activity / 50) * c.spawnChance * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * this.night);
   }
 
   // How far UFOs spawn and wander: scales with the view distance.
@@ -516,8 +519,18 @@ export class UfoManager {
       }
       return false;
     }
+    // A shielded ship (the Overlord): nothing gets through until the shield is down.
+    if (u.shield) {
+      if (byPlayer && this.time - (u.shieldMsgT ?? -99) > 5) {
+        u.shieldMsgT = this.time;
+        this.onMessage?.("The shield holds! Shoot down the pylons first.");
+      }
+      if (from && from.isVector3) this.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.25, size0: 3 + u.radius * 0.1, size1: 0.5, color0: this._shieldHit || (this._shieldHit = new THREE.Color(0.4, 1.2, 2.6)), alpha: 0.8 });
+      return false;
+    }
     u.health -= amount;
     u.hurtTime = 0;
+    if (u.bossHook) u.bossHook(u);
     // Attacked by an enemy fighter: it fights back (and dodges).
     if (attacker && !byPlayer) {
       u.foe = attacker;
@@ -686,7 +699,9 @@ export class UfoManager {
         step = Math.min(0.2, u.lazy);
         u.lazy = 0;
       }
-      if (u.falling) this._fall(u, step);
+      if (u.captured && this._updateCaptured(u, step)) {
+        // held in the player's tractor beam: no thinking, no shooting
+      } else if (u.falling) this._fall(u, step);
       else this._think(u, step, tgt, dist);
       if (u.beam) {
         // The beam always hangs from the ship: it follows it, and goes out
@@ -707,6 +722,46 @@ export class UfoManager {
     // One engine hum for the nearest UFO.
     this.lastHum = humD;
     if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
+  }
+
+  // A UFO held by the player's tractor beam: the beam sets its pull velocity
+  // each frame; it tumbles, stops fighting, and is let go (angry) when the
+  // beam lets go or its ship is lost.
+  _updateCaptured(u, dt) {
+    const c = u.captured;
+    if (!c.by.alive || c.by.beam.strength < 0.3 || this.time - c.last > 0.4 || u.falling || u.state === "gone") {
+      u.captured = null;
+      u.pullVel = null;
+      if (!u.falling && u.state !== "gone") this.anger(u, 60);
+      return false;
+    }
+    if (!u.heldFlag) {
+      u.heldFlag = true;
+      this._stopWeapons(u);
+      if (u.beam?.on) u.beam.set(false);
+    }
+    u.vel.copy(u.pullVel);
+    u.pos.addScaledVector(u.vel, dt);
+    u.yaw += dt * 2.2;
+    u.lastSeen = this.time;
+    return true;
+  }
+
+  // Swallowed by the player's ship: gone in a flash, counted as shot down (its
+  // loot goes straight into the hold).
+  absorb(u, ship) {
+    if (u.state === "gone" || u.falling) return;
+    this._stopWeapons(u);
+    const fx = this.effects;
+    const col = u.model?.halo?.material?.color || new THREE.Color(0.5, 1.2, 2);
+    fx.glow.spawn({ x: u.pos.x, y: u.pos.y, z: u.pos.z, life: 0.5, size0: u.radius * 2.2, size1: u.radius * 0.3, color0: col, alpha: 0.9 });
+    for (let i = 0; i < 14; i++) fx.glow.spawn({ x: u.pos.x + rand(-1, 1) * u.radius, y: u.pos.y + rand(-0.5, 0.5) * u.radius, z: u.pos.z + rand(-1, 1) * u.radius, vx: rand(-4, 4), vy: rand(2, 9), vz: rand(-4, 4), life: rand(0.4, 0.9), size0: 0.4, size1: 0.05, color0: col, gravity: -0.2, drag: 1.5 });
+    u.absorbed = true;
+    u.byPlayer = true;
+    u.captured = null;
+    u.state = "gone";
+    this.onMessage?.(`Swallowed a ${u.size} UFO!`);
+    if (this.onShotDown) this.onShotDown(u, true);
   }
 
   _remove(i) {
@@ -773,7 +828,7 @@ export class UfoManager {
     const d = rand(minDist, Math.max(minDist + 1, maxDist));
     const to = new THREE.Vector3(u.pos.x + Math.cos(a) * d, 0, u.pos.z + Math.sin(a) * d);
     const ground = this._groundAt(to.x, to.z) + u.info.bottom * u.radius + 6;
-    to.y = Math.min(320, Math.max(ground, u.pos.y + rand(-30, 40)));
+    to.y = Math.max(ground, u.pos.y + rand(-30, 40));
     const len = to.distanceTo(u.pos);
     u.dash = { from: u.pos.clone(), to, t: 0, dur: THREE.MathUtils.clamp(len / 1100, 0.06, 0.2), last: u.pos.clone() };
     u.blinkT = rand(15, 60);
@@ -1117,7 +1172,7 @@ export class UfoManager {
         if (u.vel.y < 0) u.vel.y = 0;
       }
     }
-    if (u.state !== "leave" && u.pos.y > 320 + u.radius) u.vel.y = Math.min(u.vel.y, 0);
+    // (No ceiling: UFOs fly as high as they like. Round 6)
     const before = u.pos.y - u.info.bottom * u.radius;
     u.pos.addScaledVector(u.vel, dt);
     // Crossing the sea surface: a splash.
@@ -1713,7 +1768,6 @@ export class UfoManager {
       dir.y += Math.sin(t * 1.3) * 0.25;
       const ground = this._minAltitude(u, 8);
       if (u.pos.y < ground + 10) dir.y = Math.abs(dir.y) + 0.3;
-      if (u.pos.y > 260) dir.y = -Math.abs(dir.y);
       dir.normalize().multiplyScalar(topSpeed);
       u.vel.lerp(dir, Math.min(1, dt * 1.6));
       // Parting shots now and then.

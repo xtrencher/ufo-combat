@@ -11,7 +11,7 @@ import { SEA_LEVEL } from "./constants.js";
 import { IS_SOLID, IS_WET } from "./blocks.js";
 
 const FIRST_DELAY = [50, 80]; // seconds after starting a Survival game until the first crate
-const INTERVAL = [170, 300]; // between crates
+const INTERVAL = [95, 165]; // between crates (Round 6: about twice as often, so the standard weapons arrive in time)
 const FALL_SPEED = 5.5;
 const OPEN_REACH = 2.8;
 const LIFETIME = 900;

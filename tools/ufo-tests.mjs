@@ -876,7 +876,7 @@ async function aimJetAt(fn) {
 await check("jet: called in on a flat strip nearby; takes off with throttle and afterburner; flies (and can't hover)", async () => {
   await arena(50);
   await v((g) => {
-    g.settingsPanel.set("vehicles.jetAirborne", false);
+    g.vehicles.config.jet.airborne = false; // (Round 6: the setting is gone; the test hook still honours the config)
     // A long flat stone runway next to the player.
     const a = window.__arena;
     g.world.prepareArea(a.x + 20, a.z - 80, 6);
@@ -891,10 +891,8 @@ await check("jet: called in on a flat strip nearby; takes off with throttle and 
     g.world.setBlocks(edits);
     g.sky.setHours(11);
   });
-  // (Round 4: J opens the jet picker; 1 is the F-22.)
-  await page.keyboard.press("KeyJ");
-  await frames(1);
-  await page.keyboard.press("Digit1");
+  // (Round 6: no calling in a jet by key; the test hook puts one on the strip.)
+  await v((g) => g.callJet(true, "f22"));
   await frames(2);
   const jet = await v((g) => {
     const j = g.vehicles.vehicles.find((x) => x.type === "jet");
@@ -947,7 +945,7 @@ async function ensureJet() {
   await respawnIfDead();
   await v((g) => {
     if (g.vehicles.active) g.vehicles.exit();
-    g.settingsPanel.set("vehicles.jetAirborne", true);
+    g.vehicles.config.jet.airborne = true; // (Round 6: the setting is gone; the test hook still honours the config)
     g.setMode("creative");
   });
   await frames(2);
@@ -956,7 +954,7 @@ async function ensureJet() {
   const st = await v((g) => ({ active: g.vehicles.active?.type, gs: g.gameState, dead: g.player.dead, mods: g.mods?.enabled ?? g.vehicles.enabled }));
   if (st.active !== "jet") console.log(`        ensureJet: no jet after the call: ${JSON.stringify(st)}`);
   await v((g) => {
-    g.settingsPanel.set("vehicles.jetAirborne", false);
+    g.vehicles.config.jet.airborne = false; // (Round 6: the setting is gone; the test hook still honours the config)
     g.setMode("survival");
   });
 }
@@ -1121,12 +1119,10 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   // 1. The jet, already airborne.
   await v((g) => {
     g.sky.setHours(10);
-    g.settingsPanel.set("vehicles.jetAirborne", true);
+    g.vehicles.config.jet.airborne = true; // (Round 6: the setting is gone; the test hook still honours the config)
   });
   await v((g) => { g.ufos.time += 3; }); // (a second call right after the last one is ignored)
-  await page.keyboard.press("KeyJ"); // (the jet picker, then the F-22)
-  await frames(1);
-  await page.keyboard.press("Digit1");
+  await v((g) => g.callJet(true, "f22")); // (Round 6: the test hook, an airborne F-22)
   await frames(2);
   const jdbg = await v((g) => ({ active: g.vehicles.active?.type, gs: g.gameState, dead: g.player.dead, vs: g.vehicles.vehicles.map((x) => `${x.type}:${x.alive}`) }));
   assert(jdbg.active === "jet", `in the jet, airborne ${JSON.stringify(jdbg)}`);

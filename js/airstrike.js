@@ -89,8 +89,9 @@ export class Airstrikes {
   }
 
   // Marks `target` (Vector3): the meteors hit after config.delay seconds.
-  call(target) {
-    const cfg = this.config;
+  call(target, overrides = null) {
+    // (`overrides`: a mission's own count / spread / delay for this strike, not the settings'.)
+    const cfg = overrides ? { ...this.config, ...overrides } : this.config;
     const count = Math.max(1, Math.round(cfg.count));
     // The whole shower comes from one direction (± a little).
     const azimuth = Math.random() * Math.PI * 2;

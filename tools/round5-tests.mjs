@@ -132,13 +132,13 @@ async function play() {
 
 await play();
 
-await check("defaults: Medium preset, render distance 15 chunks, master volume 30%", async () => {
+await check("defaults: Medium preset, render distance 25 chunks (Round 6), master volume 30%", async () => {
   const r = await v(async () => {
     const { DEFAULT_SETTINGS } = await import("./js/settings.js");
     const { DEFAULT_PRESET } = await import("./js/graphics.js");
     return { preset: DEFAULT_PRESET, graphics: DEFAULT_SETTINGS.graphics, rd: DEFAULT_SETTINGS.renderDistance, vol: DEFAULT_SETTINGS.volume.master };
   });
-  assert(r.preset === "medium" && r.graphics === "medium" && r.rd === 15 && Math.abs(r.vol - 0.3) < 1e-9, JSON.stringify(r));
+  assert(r.preset === "medium" && r.graphics === "medium" && r.rd === 25 && Math.abs(r.vol - 0.3) < 1e-9, JSON.stringify(r));
 });
 
 await check("jet: speed follows the throttle (0-100%), about 1000 km/h at 100%", async () => {
@@ -261,7 +261,7 @@ await check("bunkers: a ship hovers in the hall under armed guards; the alarm go
     let best = null;
     const p = g.player.position;
     for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {
-      const s = g.sites._site(Math.floor(p.x / 800) + dx, Math.floor(p.z / 800) + dz);
+      const s = g.sites._site(Math.floor(p.x / 1300) + dx, Math.floor(p.z / 1300) + dz);
       if (s && s.kind === "airport" && s.bunkers.length && (!best || Math.hypot(s.x - p.x, s.z - p.z) < Math.hypot(best.x - p.x, best.z - p.z))) best = s;
     }
     window.__bunker = g.sites.bunkerSpots(best)[0];

@@ -805,6 +805,35 @@ export class Audio {
   }
 
   // The missile salvo is ready: a rising two-note chirp.
+  // A missile screaming past (rolled out of its way): a short, rising-then-falling rush.
+  playFlyBy() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 1800, q: 0.8, d: 0.5, v: 0.22, attack: 0.05, fEnd: 500 });
+    this._tone(900, 0.4, { type: "sawtooth", vol: 0.04, fEnd: 260, attack: 0.05 });
+  }
+
+  // The jet's air brakes: a hydraulic whine, a rush of air as the panels bite
+  // and a dull clunk when they lock open (and a short whine and thud closing).
+  playAirbrake(open) {
+    this._cat("player");
+    if (open) {
+      this._tone(150, 0.4, { type: "sawtooth", vol: 0.035, fEnd: 330, attack: 0.04 });
+      this._hit({ type: "bandpass", f: 900, q: 0.7, d: 0.7, v: 0.16, attack: 0.08 });
+      this._hit({ type: "highpass", f: 2500, q: 0.5, d: 0.5, v: 0.07, attack: 0.1 }, 0.1);
+      this._tone(70, 0.14, { type: "square", vol: 0.1, at: 0.4, fEnd: 40 });
+    } else {
+      this._tone(300, 0.28, { type: "sawtooth", vol: 0.03, fEnd: 140, attack: 0.03 });
+      this._hit({ type: "bandpass", f: 700, q: 0.7, d: 0.35, v: 0.09, attack: 0.04 });
+      this._tone(80, 0.1, { type: "square", vol: 0.08, at: 0.3, fEnd: 45 });
+    }
+  }
+
+  // One missile of the salvo is armed: a click that climbs with each (pip 1..n-1 of n).
+  playSalvoPip(pip, n) {
+    this._cat("weapons");
+    this._tone(900 + (pip / n) * 1500, 0.05, { type: "triangle", vol: 0.09 });
+  }
+
   playSalvoTone() {
     this._cat("weapons");
     this._tone(1400, 0.08, { vol: 0.07 });

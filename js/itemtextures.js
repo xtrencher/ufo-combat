@@ -270,19 +270,6 @@ function paintBlaster() {
   return c.render([RAMPS.cloth, RAMPS.gunmetal, RAMPS.diamond]);
 }
 
-function paintJetRadio() {
-  const c = new Canvas();
-  const BODY = 0;
-  const SCREEN = 1;
-  const METAL = 2;
-  c.poly(BODY, [[8, 9], [21, 8], [22, 28], [9, 29]], (x, y) => (x < 12 ? 0.35 : -0.1)); // handset
-  c.poly(SCREEN, [[10.5, 11], [19.5, 10.5], [19.5, 17], [10.5, 17.5]], () => 0.4); // screen
-  c.line(SCREEN, 12, 14.5, 18, 13, 0.8, () => 1.2); // a jet blip on the screen
-  for (const [x, y] of [[12, 21], [15.5, 21], [19, 21], [12, 24.5], [15.5, 24.5], [19, 24.5]]) c.disc(METAL, x, y, 1.1, 1.1, () => 0.5); // keys
-  c.line(METAL, 18, 8, 22, 1.5, 1.3, () => 0.5); // antenna
-  c.disc(1, 22.5, 1.5, 1.2, 1.2, () => 1.2);
-  return c.render([RAMPS.olive, RAMPS.leaf, RAMPS.iron]);
-}
 
 function paintRailgun() {
   const c = new Canvas();
@@ -346,7 +333,6 @@ const PAINTERS = {
   railgun: paintRailgun,
   minigun: paintMinigun,
   blaster: paintBlaster,
-  jet_radio: paintJetRadio,
   grenade: paintGrenade,
   pistol: paintPistol,
   bazooka: paintBazooka,
@@ -365,13 +351,7 @@ const PAINTERS = {
     c.disc(0, 18, 21, 6, 5);
     return c.render([RAMPS.coal], [6, 6, 8]);
   },
-  iron_ingot: () => paintIngot(RAMPS.iron),
   gold_ingot: () => paintIngot(RAMPS.gold),
-  diamond: () => {
-    const c = new Canvas();
-    c.poly(0, [[16, 5], [26, 12], [16, 28], [6, 12]], (x, y) => (y < 12 ? 0.6 : x < 16 ? 0.1 : -0.4));
-    return c.render([RAMPS.diamond], [8, 40, 48]);
-  },
   apple: () => paintApple(RAMPS.red),
   golden_apple: () => paintApple(RAMPS.gold),
   raw_meat: () => paintMeat(RAMPS.meat, false),

@@ -33,6 +33,17 @@ import { pickUfoStyle } from "./ufos.js";
 export const UFO_SPEED_DEFAULTS = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
 const BEAM_LIFT = 6; // blocks per second
 const MAX_LIFTED_BLOCKS = 12;
+// The tractor beam reaches this far below the ship at any altitude (the ground, if it is nearer).
+const BEAM_REACH = 140;
+const BEAM_REACH_PER_RADIUS = 9;
+// A ship can pull in a UFO when it is this much bigger (by radius), or a jet when it is at least this big.
+const PULL_UFO_RATIO = 1.3;
+const PULL_JET_MIN_RADIUS = 6.5;
+// The lock-on salvo (hold T): a lock after LOCK_TIME, the salvo fires by itself at SALVO_TIME.
+const LOCK_TIME = 1;
+const SALVO_TIME = 3;
+const LOCK_COOLDOWN = 7;
+const LOCK_RANGE = 900;
 const DASH_COOLDOWN = 2.5;
 const DASH_HOLD_COOLDOWN = 1.2; // after a held (continuous) dash
 const DASH_SPEED = [900, 3500]; // blocks/s while R is held (from the dash settings), before the ship's own factor
@@ -97,6 +108,7 @@ export class PilotUfo extends Vehicle {
     // fought with).
     this.style = PILOT_STYLES[data.style] ? data.style : pickUfoStyle(this.design, sizeIndex(radius), seeded((this.spec.seed | 0) + Math.round(radius * 10)));
     this.gun = { t: 0, queue: [], charge: 0, heat: 0, overheated: false, beam: null, tickT: 0 };
+    this.lockOn = { target: null, t: 0, pips: 0, cool: 0, queue: [], beepT: 0, firedT: 0 }; // the lock-on salvo (hold T)
     // A wreck that blew up is burnt out for good: it can't be boarded.
     this.wreck = !!data.wreck;
     this.unusable = this.wreck;
@@ -313,14 +325,14 @@ export class PilotUfo extends Vehicle {
         this.vel.set(0, 7, 0);
       } else if (this.cfg.ghost) {
         this.pos.add(step);
-        this.pos.y = Math.max(2 + this.bottom, Math.min(250, this.pos.y));
+        this.pos.y = Math.max(2 + this.bottom, this.pos.y); // (no ceiling: Round 6)
         if (this._carved === null || this._carved.distanceTo(this.pos) > 0.8) {
           this._burnTunnel(this._carved || before, this.pos);
           this._carved = this.pos.clone();
         }
       } else {
         this._collide(step);
-        this.pos.y = Math.max(1 + this.bottom, Math.min(250, this.pos.y));
+        this.pos.y = Math.max(1 + this.bottom, this.pos.y);
         this._carved = null;
       }
       this._weapons(dt, input);
@@ -440,17 +452,17 @@ export class PilotUfo extends Vehicle {
 
   // What seeker plasma homes in on: the UFO, enemy aircraft or hostile
   // creature nearest the crosshair (within a small cone).
-  _seekTarget() {
+  _seekTarget(cone = 0.3, range = 700) {
     const mgr = this.manager;
     const cam = mgr.cameraRef;
     const eye = cam ? cam.position : this.pos;
     const dir = this._viewDir(_w);
     let best = null;
-    let bestA = 0.3;
+    let bestA = cone;
     const consider = (obj, pos) => {
       const to = _feet.copy(pos).sub(eye);
       const dist = to.length();
-      if (dist < 5 || dist > 700) return;
+      if (dist < 5 || dist > range) return;
       const a = to.divideScalar(dist).angleTo(dir);
       if (a < bestA) {
         bestA = a;
@@ -459,7 +471,7 @@ export class PilotUfo extends Vehicle {
     };
     for (const u of mgr.ufos?.ufos ?? []) if (!u.falling && u.state !== "gone") consider(u, u.pos);
     for (const v of mgr.vehicles) if (v !== this && v.alive && v.isEnemyJet) consider(v, v.pos);
-    for (const m of mgr.mobs.mobs) if (!m.dead && m.spec.hostile) consider({ pos: m.pos, vel: m.vel }, m.pos);
+    for (const m of mgr.mobs.mobs) if (!m.dead && m.spec.hostile) consider(m, m.pos);
     return best;
   }
 
@@ -533,18 +545,194 @@ export class PilotUfo extends Vehicle {
       }
       mgr.audio?.playUfoShot?.(st.sound, 0);
     }
-    // Tractor beam: straight down to the ground below.
+    // Tractor beam: straight down, as far as the ground or the beam's reach.
+    this._tractor(dt, input, st);
+    this._updateLockOn(dt, input);
+  }
+
+  // The tractor beam: hold right click. It hangs straight down from the ship,
+  // to the ground or, up in the sky (there is no altitude limit), as far as
+  // its reach (longer for bigger ships), and works at any height. Creatures
+  // and loose blocks near the ground are lifted into the hold; a smaller UFO
+  // (at least 1.3x smaller by radius) or an enemy jet (for a ship of radius
+  // 6.5+) caught in it is pulled up to the ship and swallowed.
+  _tractor(dt, input, st) {
+    const mgr = this.manager;
     const beaming = input.buttons[2];
     const top = this.pos.clone();
     top.y -= this.bottom;
     const ground = mgr.groundBelow(top.x, top.y - 0.5, top.z);
-    const radius = Math.max(2.5, this.radius * 0.8) + Math.min(6, (top.y - ground) * 0.12);
-    this.beam.set(beaming && top.y - ground < 90, top, ground, radius);
+    const reach = BEAM_REACH + this.radius * BEAM_REACH_PER_RADIUS;
+    const floating = top.y - ground > reach;
+    const bottom = floating ? top.y - reach : ground;
+    const radius = Math.max(2.5, this.radius * 0.8) + Math.min(6, (top.y - bottom) * 0.12);
+    this.beam.set(beaming, top, bottom, radius, floating);
     if (this.beam.on && this.beam.strength > 0.5) {
-      const took = mgr.mobs.beamLift(this.beam, BEAM_LIFT * (st.beamBoost ?? 1), top.y - 0.5);
-      for (const mob of took) this._abducted(mob);
-      if (this.cfg.beamBlocks) this._liftBlocks(dt, top, ground, radius);
+      if (!floating) {
+        const took = mgr.mobs.beamLift(this.beam, BEAM_LIFT * (st.beamBoost ?? 1), top.y - 0.5);
+        for (const mob of took) this._abducted(mob);
+        if (this.cfg.beamBlocks) this._liftBlocks(dt, top, ground, radius);
+      }
+      this._pullShips(dt, top);
     }
+  }
+
+  // Smaller UFOs and enemy jets inside the beam are pulled to the ship.
+  _pullShips(dt, top) {
+    const mgr = this.manager;
+    const beam = this.beam;
+    const speed = THREE.MathUtils.clamp(5 + this.radius * 0.7, 6, 26);
+    const pull = (obj, r, isJet) => {
+      if (!beam.contains(obj.pos, r * 0.6)) return;
+      const ok = isJet ? this.radius >= PULL_JET_MIN_RADIUS : this.radius >= r * PULL_UFO_RATIO;
+      if (!ok) {
+        if (this.time - (this._tooBigT ?? -99) > 5 && obj.pos.distanceTo(top) < beam.top.y - beam.bottomY) {
+          this._tooBigT = this.time;
+          mgr.onMessage?.(isJet ? "Your ship is too small to hold a jet in the beam." : "Too big for the beam: you need a bigger ship.");
+        }
+        return;
+      }
+      const to = _w.copy(top).sub(obj.pos);
+      const dist = to.length();
+      if (dist < this.radius * 0.45 + r * 0.5 + 1) {
+        if (isJet) this._absorbJet(obj);
+        else mgr.ufos.absorb(obj, this);
+        return;
+      }
+      to.divideScalar(dist);
+      // Drawn toward the middle of the beam first, then up it.
+      const v = to.multiplyScalar(speed);
+      if (isJet) {
+        obj.beamHeld = 0.35;
+        obj.vel.copy(v);
+      } else {
+        obj.captured = { by: this, last: mgr.ufos.time };
+        obj.pullVel = v.clone();
+      }
+    };
+    for (const u of mgr.ufos?.ufos ?? []) if (!u.falling && u.state !== "gone") pull(u, u.radius, false);
+    for (const v of mgr.vehicles) if (v !== this && v.type === "jet" && v.alive && v.isEnemyJet && !v.onGround) pull(v, v.radius, true);
+  }
+
+  // A jet swallowed by the beam: gone in a flash (it counts as shot down).
+  _absorbJet(jet) {
+    jet.absorbedBy = this;
+    jet.damage(99999, "beam", true);
+    this.manager.onMessage?.("Swallowed an enemy jet!");
+  }
+
+  // ---------- Lock-on salvo ----------
+  // Hold T on a UFO, enemy jet or hostile creature near the crosshair: the
+  // lock builds (a ring on the HUD), and after three seconds a salvo of homing
+  // laser bolts leaves the ship by itself (let go earlier to cancel). Bigger
+  // ships send more bolts. Then it needs a few seconds to recharge.
+  _updateLockOn(dt, input) {
+    const mgr = this.manager;
+    const L = this.lockOn;
+    L.cool = Math.max(0, L.cool - dt);
+    // Bolts of a salvo on their way out.
+    for (let i = L.queue.length - 1; i >= 0; i--) {
+      const q = L.queue[i];
+      q.t -= dt;
+      if (q.t > 0) continue;
+      L.queue.splice(i, 1);
+      this._salvoBolt(q.target, q.i, q.n);
+    }
+    const held = !!input && input.keys.has("KeyT") && L.cool <= 0 && this.alive;
+    if (!held) {
+      L.target = null;
+      L.t = 0;
+      L.pips = 0;
+      return;
+    }
+    // Track the target (it stays the target until it is gone).
+    if (L.target && (!this._lockAlive(L.target) || L.target.pos.distanceTo(this.pos) > LOCK_RANGE * 1.4)) {
+      L.target = null;
+      L.t = 0;
+    }
+    if (!L.target) {
+      L.target = this._seekTarget(0.3, LOCK_RANGE);
+      L.t = 0;
+      L.pips = 0;
+      return;
+    }
+    L.t += dt;
+    if (L.target.lockedOn !== undefined || L.target.hostile !== undefined) L.target.lockedOn = mgr.ufos?.time ?? 0;
+    const n = this._salvoSize();
+    const pip = L.t >= LOCK_TIME ? Math.min(n, Math.floor(((L.t - LOCK_TIME) / (SALVO_TIME - LOCK_TIME)) * n)) : 0;
+    if (L.t >= LOCK_TIME && L.t - dt < LOCK_TIME) mgr.onMessage?.("LOCKED: keep holding T for the salvo");
+    if (pip > L.pips && pip < n) mgr.audio?.playSalvoPip?.(pip, n);
+    L.pips = pip;
+    L.beepT -= dt;
+    if (L.beepT <= 0) {
+      L.beepT = L.t >= LOCK_TIME ? 0.1 : 0.34 - Math.min(1, L.t / LOCK_TIME) * 0.22;
+      mgr.audio?.playLockTone?.(L.t >= LOCK_TIME);
+    }
+    if (L.t >= SALVO_TIME) {
+      // Fire: the bolts leave 70 ms apart.
+      mgr.audio?.playSalvoTone?.();
+      for (let i = 0; i < n; i++) L.queue.push({ t: i * 0.07, target: L.target, i, n });
+      L.cool = LOCK_COOLDOWN;
+      L.firedT = 1.2;
+      mgr.onMessage?.(`SALVO: ${n} homing bolts`);
+      L.target = null;
+      L.t = 0;
+      L.pips = 0;
+    }
+  }
+
+  _salvoSize() {
+    return THREE.MathUtils.clamp(Math.round(3 + this.radius * 0.35), 4, 14);
+  }
+
+  _lockAlive(t) {
+    if (t.dead || t.state === "gone" || t.falling) return false;
+    if (t.alive === false) return false;
+    return true;
+  }
+
+  // One bolt of the salvo: from a point around the hull, flung out sideways and up, and homing in.
+  _salvoBolt(target, i, n) {
+    if (!this._lockAlive(target)) return;
+    const mgr = this.manager;
+    const st = this.pilotStyle;
+    const a = (i / n) * Math.PI * 2 + this.time;
+    const from = this.pos.clone().add(new THREE.Vector3(Math.cos(a) * this.radius * 0.7, -this.bottom * 0.3, Math.sin(a) * this.radius * 0.7));
+    const toT = _w.copy(target.pos).sub(from).normalize();
+    // Out and around first (a fan), then the homing pulls them in.
+    const dir = toT.clone().addScaledVector(new THREE.Vector3(Math.cos(a), 0.25 + 0.3 * Math.random(), Math.sin(a)), 0.9).normalize();
+    const bolt = mgr.lasers.fire({
+      from,
+      dir,
+      color: LASER_COLORS[st.color] || LASER_COLORS.cyan,
+      speed: 150 + Math.min(120, this.radius * 3),
+      damage: Math.max(8, Math.round(st.damage * this.power * 0.7)),
+      owner: "playerufo",
+      source: this,
+      range: LOCK_RANGE * 1.6,
+      radius: 0.16 + Math.min(0.3, this.radius * 0.006),
+      length: 3 + this.radius * 0.05,
+      blast: 0,
+      sound: false,
+    });
+    bolt.homing = { target, turn: 5, life: 9 };
+    mgr.audio?.playUfoShot?.(st.sound, 0);
+  }
+
+  // The lock box for the HUD (same shape as the jet's).
+  overlay(camera) {
+    const out = { lock: null, nose: null, warn: null, aim: null };
+    const L = this.lockOn;
+    if (L.target && this._lockAlive(L.target)) {
+      const p = _v.copy(L.target.pos).project(camera);
+      if (p.z < 1) {
+        const n = this._salvoSize();
+        const locked = L.t >= LOCK_TIME;
+        const charge = locked ? THREE.MathUtils.clamp((L.t - LOCK_TIME) / (SALVO_TIME - LOCK_TIME), 0, 1) : 0;
+        out.lock = { x: p.x, y: p.y, locked, salvo: false, progress: Math.min(1, L.t / LOCK_TIME), charge, pips: Math.min(8, n) };
+      }
+    }
+    return out;
   }
 
   // The sweeping beam: a continuous red laser from the belly to whatever is
@@ -764,8 +952,8 @@ export class PilotUfo extends Vehicle {
         blocked = true;
       }
       const lo = 1 + this.bottom;
-      if (this.pos.y < lo || this.pos.y > 250) {
-        this.pos.y = THREE.MathUtils.clamp(this.pos.y, lo, 250);
+      if (this.pos.y < lo) {
+        this.pos.y = lo;
         blocked = blocked || step < 1;
       }
       d.traveled += step;
@@ -1008,7 +1196,8 @@ export class PilotUfo extends Vehicle {
         ["Weapon", this._weaponText()],
         ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashDistance)} blocks along the view at ${Math.round(this.dashSpeed)} blocks/s (this ship's dash is ${this.dashClass}); hold R to keep streaking, no distance limit; ${DASH_COOLDOWN} s cooldown; the base distance and speed are in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
         ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
-        ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship"],
+        ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship; works at any altitude; a bigger ship also pulls in smaller UFOs (1.3x smaller) and enemy jets (ship radius 6.5+), swallowing them"],
+        ["Lock-on salvo", "hold T on a UFO, jet or hostile creature near the crosshair: locked after 1 s, a salvo of homing laser bolts (more for bigger ships) fires by itself after 3 s; let go earlier to cancel; 7 s to recharge"],
         ["Ghost mode", cfg.ghost ? "on: burns through terrain (G switches it off)" : "off (G switches it on; also in Settings > Vehicles)"],
       ],
       controls: [
@@ -1019,7 +1208,8 @@ export class PilotUfo extends Vehicle {
         ["Mouse wheel", "Cruising speed"],
         ["Ctrl", "Boost"],
         ["Left click", `${this.pilotStyle.name} (this ship's own weapon)`],
-        ["Right click (hold)", "Tractor beam"],
+        ["Right click (hold)", "Tractor beam (any altitude; a bigger ship pulls in smaller UFOs and enemy jets)"],
+        ["T (hold)", "Lock-on: after 3 s a salvo of homing laser bolts"],
         ["R", (cfg.dash ?? 1) > 0 ? "Teleport dash along the view (hold: keep streaking)" : "Teleport dash (off in Settings)"],
         ["B", "Superweapon: vertical laser (it carves a trench as the ship moves)"],
         ["G", "Ghost mode on / off"],
@@ -1166,6 +1356,7 @@ export class PilotUfo extends Vehicle {
         ["Speed", `${speed.toFixed(speed < 10 ? 1 : 0)} b/s (${Math.round(speed * 3.6)} km/h)`],
         ["Cruise", `${this.cruise.toFixed(this.cruise < 10 ? 1 : 0)} b/s`],
         ["Altitude", `${Math.round(this.pos.y)} (${Math.max(0, Math.round(this.pos.y - this.bottom - ground))} above ground)`],
+        ["Lock-on (T)", this.lockOn.cool > 0 ? `recharging ${Math.ceil(this.lockOn.cool)} s` : this.lockOn.target ? (this.lockOn.t >= LOCK_TIME ? `<span class="vh-on">LOCKED</span> ${this.lockOn.pips}/${this._salvoSize()}` : "locking...") : `hold T: ${this._salvoSize()}-bolt salvo`],
         ["Ghost mode", this.cfg.ghost ? `<span class="vh-on">GHOST ON</span> (G: off)` : "off (G: on)"],
         ...(this.abducted ? [["Abducted", String(this.abducted)]] : []),
       ],
@@ -1174,9 +1365,9 @@ export class PilotUfo extends Vehicle {
         { label: (this.cfg.dash ?? 1) > 0 ? (this.dashing?.cont ? "DASHING (hold R)" : "Dash (R)") : "Dash (off)", value: (this.cfg.dash ?? 1) <= 0 ? 0 : this.dashing ? 1 : this.dashT > 0 ? 1 - this.dashT / (this.dashT > DASH_HOLD_COOLDOWN ? DASH_COOLDOWN : DASH_HOLD_COOLDOWN) : 1, hot: !!this.dashing },
         { label: "Superweapon (B)", value: this.sw.state === "charge" ? this.sw.t / SUPER_CHARGE : this.sw.state === "fire" ? 1 : this.sw.cool > 0 ? 1 - this.sw.cool / SUPER_COOLDOWN : 1, hot: this.sw.state !== "idle" },
       ],
-      weapon: `LMB ${this.pilotStyle.name.toLowerCase()} · RMB tractor beam${beam ? ` · <span class="vh-on">${beam}</span>` : ""}`,
+      weapon: `LMB ${this.pilotStyle.name.toLowerCase()} · RMB tractor beam (any height, pulls in smaller UFOs and jets) · T lock-on salvo${beam ? ` · <span class="vh-on">${beam}</span>` : ""}`,
       health: this.health / this.maxHealth,
-      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · R dash (hold: keep going) · B superweapon · G ghost mode · F5 camera · F leave · I info",
+      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · R dash (hold: keep going) · B superweapon · T hold: lock-on salvo · G ghost mode · F5 camera · F leave · I info",
     };
   }
 
