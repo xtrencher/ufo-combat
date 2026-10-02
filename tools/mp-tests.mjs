@@ -184,9 +184,68 @@ await check("client joins by room code (nickname prompt, world from the host's s
   await play(client);
 });
 
-if (!args.keep) {
-  // (later checks are added here)
-}
+await check("nicknames over remote players, on both sides", async () => {
+  const c = await until(client, (g) => {
+    const r = g.mp.players.get(1);
+    return r && r.seen && { nick: r.nick, plate: r.plate.nick, visible: r.plate.sprite.visible, color: r.color };
+  }, 20000);
+  assert(c && c.nick === "Alice" && c.plate === "Alice" && c.visible, `client sees ${JSON.stringify(c)}`);
+  const h = await until(host, (g) => {
+    const pid = [...g.net.players.values()].find((p) => p.nick === "Bob")?.pid;
+    const r = pid && g.mp.players.get(pid);
+    return r && r.seen && { nick: r.nick, plate: r.plate.nick, visible: r.plate.sprite.visible };
+  }, 20000);
+  assert(h && h.nick === "Bob" && h.plate === "Bob" && h.visible, `host sees ${JSON.stringify(h)}`);
+});
+
+await check("movement sync: each side sees the other walk to where it went (interpolated)", async () => {
+  // The host walks east a few blocks (flying in Creative keeps it simple).
+  const target = await v(host, (g) => {
+    g.setMode("creative");
+    g.player.flying = true;
+    g.player.position.x += 6;
+    g.player.position.y += 3;
+    g.player.velocity.set(0, 0, 0);
+    return g.player.position.toArray();
+  });
+  const seen = await until(client, (g, t) => {
+    const r = g.mp.players.get(1);
+    return r && r.position.distanceTo(new g.THREE.Vector3(...t)) < 0.6 && r.position.toArray();
+  }, 15000, target);
+  assert(seen, `client never saw the host at ${target}`);
+  const ctarget = await v(client, (g) => {
+    g.player.flying = g.player.creative;
+    g.player.position.z += 5;
+    g.player.velocity.set(0, 0, 0);
+    return g.player.position.toArray();
+  });
+  const hseen = await until(host, (g, t) => {
+    const pid = [...g.net.players.values()].find((p) => p.nick === "Bob")?.pid;
+    const r = g.mp.players.get(pid);
+    return r && r.position.distanceTo(new g.THREE.Vector3(...t)) < 0.6 && r.position.toArray();
+  }, 15000, ctarget);
+  assert(hseen, `host never saw the client at ${ctarget}`);
+  // The avatar is drawn where the player is.
+  const av = await v(client, (g) => {
+    const r = g.mp.players.get(1);
+    return { vis: r.avatar.root.visible, d: r.avatar.root.position.distanceTo(r.position) };
+  });
+  assert(av.vis && av.d < 0.01, JSON.stringify(av));
+  if (args.shots) {
+    // A look at the host from the client (for a human to check the avatar and nameplate).
+    await v(client, (g) => {
+      const r = g.mp.players.get(1);
+      const p = g.player.position;
+      const d = r.position.clone().sub(p);
+      g.player.yaw = Math.atan2(-d.x, -d.z);
+      g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    });
+    await v(client, (g) => g.toggleHud());
+    await frames(client, 10);
+    await client.screenshot({ path: `${args.shots}/mp-client-sees-host.png` });
+    await v(client, (g) => g.toggleHud());
+  }
+});
 
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);

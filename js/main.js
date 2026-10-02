@@ -2293,6 +2293,7 @@ const game = {
   ui,
   hud,
   avatar,
+  held,
   falling,
   waterSim,
   toast,

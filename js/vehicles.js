@@ -228,6 +228,10 @@ export class VehicleManager {
     this.onPilotKilled = null; // (cause) => void
     this.onPilotHurt = null; // (amount, cause) => void
     this.onMessage = null; // (text) => void: a short HUD notice
+    // Multiplayer (js/net/vehicles.js): every vehicle added, removed or destroyed.
+    this.onAdded = null; // (vehicle) => void
+    this.onRemoved = null; // (vehicle) => void
+    this.onDestroyedHook = null; // (vehicle, cause) => void
     this.hudEl = document.getElementById("vehicle-hud");
     this.promptEl = document.getElementById("vehicle-prompt");
     this.infoEl = document.getElementById("vehicle-info");
@@ -305,6 +309,7 @@ export class VehicleManager {
       const old = this.vehicles.find((v) => v !== this.active && !v.keep);
       if (old) this.remove(old);
     }
+    this.onAdded?.(vehicle);
     return vehicle;
   }
 
@@ -313,6 +318,7 @@ export class VehicleManager {
     const i = this.vehicles.indexOf(vehicle);
     if (i >= 0) this.vehicles.splice(i, 1);
     vehicle.dispose();
+    this.onRemoved?.(vehicle);
   }
 
   create(type, data) {
@@ -432,6 +438,7 @@ export class VehicleManager {
     if (!v.alive) return;
     v.alive = false;
     const pilot = v === this.active;
+    this.onDestroyedHook?.(v, cause);
     v.onDestroyed(cause);
     if (pilot) {
       this.active = null;
@@ -521,6 +528,7 @@ export class VehicleManager {
         if (v.removeAt <= 0 && !v.keepWreck) {
           this.vehicles.splice(i, 1);
           v.dispose();
+          this.onRemoved?.(v);
         }
       }
     }

@@ -18,6 +18,8 @@ import { HOST_PID } from "./session.js";
 import { BackgroundClock } from "./bgclock.js";
 import { MpMenus } from "./ui.js";
 import { soloUrl, hideBootJoin } from "./boot-join.js";
+import { PlayerSync } from "./players.js";
+import { VehicleSync } from "./vehicles.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -29,6 +31,8 @@ export class Multiplayer {
     this.ended = null; // why the session ended (shown on screen)
     this.bg = new BackgroundClock(() => game.backgroundStep());
     this.ui = new MpMenus(this);
+    this.players = this.addModule(new PlayerSync(this));
+    this.vehicles = this.addModule(new VehicleSync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);
