@@ -771,25 +771,6 @@
     line-height: 1.3;
   }
   #hud-toast.show { opacity: 1; }
-  #jet-picker {
-    position: fixed;
-    bottom: 22%;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 10px;
-    pointer-events: none;
-    z-index: 11;
-    font-family: system-ui, sans-serif;
-    color: #fff;
-  }
-  #jet-picker .jp-title { position: absolute; bottom: 100%; left: 0; right: 0; text-align: center; margin-bottom: 6px; font-weight: 700; text-shadow: 0 0 6px #000; }
-  #jet-picker .jp-opt { background: rgba(10,14,20,0.72); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 8px 14px; min-width: 190px; }
-  #jet-picker .jp-opt.last { border-color: #ffd257; }
-  #jet-picker .jp-opt b { display: block; font-size: 15px; }
-  #jet-picker .jp-opt kbd { display: inline-block; min-width: 16px; padding: 0 4px; margin-right: 6px; border: 1px solid #ccc; border-radius: 3px; text-align: center; font: 700 12px ui-monospace, monospace; }
-  #jet-picker .jp-opt span { font-size: 12px; opacity: 0.8; }
-  #jet-picker.hidden { display: none; }
   #stats-overlay {
     position: fixed;
     top: 8px;
@@ -850,7 +831,28 @@
   }
   #lock-box.locked { border-color: #ff3a2a; border-width: 3px; }
   #lock-box.salvo { border-style: double; border-width: 5px; }
-  #lock-box.salvo::after { content: "SALVO x4" !important; }
+  #lock-box.salvo::after { content: "SALVO" !important; color: #ffb02e; text-shadow: 0 0 8px #ff6a1a; }
+  /* The salvo charging: a ring that fills around the box, one pip per missile, an edge glow that builds up. */
+  #lock-box .lb-ring { position: absolute; inset: -14px; border-radius: 50%; opacity: 0; pointer-events: none;
+    background: conic-gradient(from 0deg, #ffb02e calc(var(--c, 0) * 360deg), rgba(255,255,255,0.08) 0);
+    -webkit-mask: radial-gradient(circle, transparent 0 calc(50% - 5px), #000 calc(50% - 4px) 50%, transparent calc(50% + 0.5px));
+    mask: radial-gradient(circle, transparent 0 calc(50% - 5px), #000 calc(50% - 4px) 50%, transparent calc(50% + 0.5px));
+    filter: drop-shadow(0 0 6px #ff7a1a); }
+  #lock-box.charging .lb-ring { opacity: 1; }
+  #lock-box.charging { border-color: #ff7a2a; animation: lb-shake 0.09s linear infinite; }
+  #lock-box.salvo .lb-ring { background: conic-gradient(#ffe08a, #ff5a1a, #ffe08a); animation: lb-spin 0.7s linear infinite; }
+  #lock-box .lb-pips { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 20px; display: flex; gap: 4px; }
+  #lock-box .lb-pips i { width: 9px; height: 16px; border: 1px solid rgba(255,255,255,0.5); border-radius: 2px 2px 5px 5px; background: rgba(0,0,0,0.35); transition: background 0.08s, box-shadow 0.08s; }
+  #lock-box .lb-pips i.on { background: linear-gradient(#ffe08a, #ff6a1a); border-color: #ffd27a; box-shadow: 0 0 8px #ff7a1a; transform: translateY(-2px); }
+  #lock-box.salvo .lb-pips i { animation: lb-pip 0.3s ease-in-out infinite alternate; }
+  #lock-box:not(.charging):not(.salvo) .lb-pips { display: none; }
+  @keyframes lb-shake { 0% { translate: 0 0; } 25% { translate: 1px -1px; } 50% { translate: -1px 1px; } 75% { translate: 1px 1px; } 100% { translate: 0 0; } }
+  @keyframes lb-spin { to { transform: rotate(360deg); } }
+  @keyframes lb-pip { to { box-shadow: 0 0 14px #ffb02e; filter: brightness(1.4); } }
+  #salvo-glow { position: fixed; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(255,90,20,0) 55%, rgba(255,110,30,0.32) 100%); transition: opacity 0.12s; }
+  #salvo-glow.salvo { animation: salvo-pulse 0.4s ease-in-out infinite alternate; }
+  @keyframes salvo-pulse { from { filter: brightness(1); } to { filter: brightness(1.8); } }
   #lock-box.locked::after { content: "LOCK"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font: 700 11px ui-monospace, Consolas, monospace; color: #ff3a2a; letter-spacing: 1px; }
   #jet-nose {
     position: fixed;
@@ -1086,7 +1088,6 @@
   .inv-tooltip { border: 1px solid var(--ui-line-strong); border-radius: 8px; background: rgba(8,12,20,0.96); }
   .inv-palette { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
   /* Jet picker, vehicle info and mission tracker share the glass look. */
-  #jet-picker .jp-opt { background: var(--ui-bg); border: 1px solid var(--ui-line-strong); border-radius: 10px; }
   #vehicle-hud, #vehicle-info, #mission-tracker, #stats-overlay { border-radius: 12px; border-color: var(--ui-line); background: rgba(10,15,24,0.66); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   #death-screen .btn, #respawn-btn { border-radius: 10px; }
 
@@ -1129,11 +1130,11 @@
     <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>
     <div id="vehicle-prompt" class="hidden"></div>
     <div id="hud-toast"></div>
-    <div id="jet-picker" class="hidden"></div>
     <div id="stats-overlay" class="hidden"></div>
     <div id="hit-marker"></div>
     <div id="beam-overlay"></div>
-    <div id="lock-box" class="hidden"></div>
+    <div id="lock-box" class="hidden"><div class="lb-ring"></div><div class="lb-pips"></div></div>
+    <div id="salvo-glow"></div>
     <div id="jet-nose" class="hidden"></div>
     <div id="jet-aim" class="hidden"></div>
   </div>

@@ -39,7 +39,7 @@ export const CONTROLS = [
   ]],
   ["Vehicles (Mods on)", [
     ["F", "Board a vehicle nearby / get out (in the air: eject with a parachute)"],
-    ["J", "Call in a fighter jet: a picker opens, 1 = F-22 Raptor, 2 = F-16 Fighting Falcon, J again = the last one (or right click with the Jet Radio)"],
+    ["Airports", "Jets are not called in: walk to a jet parked at an airport (F3 shows the nearest) and press F to climb in"],
     ["F5", "Vehicle camera views"],
     ["I", "Stats and controls of the vehicle you are in"],
   ]],
@@ -61,7 +61,7 @@ export const CONTROLS = [
     ["Shift", "Afterburner"],
     ["A / D", "Bank harder (flight assist; without it: roll)"],
     ["Q / E", "Rudder (yaw)"],
-    ["Space", "Air brake / wheel brakes"],
+    ["Space (hold)", "Air brakes: panels (F-16) or control surfaces (F-22) open, the jet sheds speed very fast and turns much tighter; too slow and it stalls. On the ground: wheel brakes"],
     ["Left click", "Autocannon (aims a little for you; overheats: watch the heat bar)"],
     ["Right click", "Unguided missile, straight ahead"],
     ["Right click (hold)", "Missile lock on the UFO or enemy aircraft nearest the view centre (ones attacking you first), even behind you; release after 1 s: one missile, longer: a salvo (4 from the F-22, 2 from the F-16). The view follows the target until the hit; right click brings it back. Let go before LOCKED: nothing fires"],

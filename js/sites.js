@@ -29,10 +29,10 @@ import { hash2, mulberry32 } from "./noise.js";
 import { BLOCK } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 
-export const SITE_CELL = 800; // grid cell a site candidate is picked from
-const CITY_CHANCE = 0.25;
-const AIRPORT_CHANCE = 0.4; // (in addition to the cities, which have an airport too)
-const REACH = 310; // bounding radius of a site incl. its slopes: the site's centre keeps this far from the cell's edges
+export const SITE_CELL = 1300; // grid cell a site candidate is picked from (Round 6: bigger cells and lower chances: airports are rarer)
+const CITY_CHANCE = 0.22;
+const AIRPORT_CHANCE = 0.28; // (in addition to the cities, which have an airport too)
+const REACH = 520; // bounding radius of a site incl. its slopes: the site's centre keeps this far from the cell's edges
 const BLEND = 30; // width of the slope from the pad down to the natural terrain
 const MAX_SPREAD = 20; // the natural terrain under a site may vary this much (10th to 90th percentile)
 const TRIES = 16;
@@ -51,9 +51,9 @@ export const RUNWAY_HALF_WIDTH = 7;
 // hangars, tanks, parking: how many; tower: the control tower's height;
 // terminal / radar: whether there is one; bunker: the chance of a bunker.
 const AIRPORT_SIZES = {
-  field: { half: 150, rw: 7, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
-  regional: { half: 200, rw: 8, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
-  international: { half: 250, rw: 10, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
+  field: { half: 300, rw: 9, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
+  regional: { half: 380, rw: 11, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
+  international: { half: 460, rw: 13, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
 };
 
 const CITY_V_GAP = 6; // between the apron and the first street of the city
@@ -86,6 +86,9 @@ export class SiteGrower {
   // ---------- Where the sites are ----------
 
   _site(cx, cz) {
+    this._ensureHome();
+    // The home airport belongs to the cell its centre is in.
+    if (this.home && Math.floor(this.home.x / SITE_CELL) === cx && Math.floor(this.home.z / SITE_CELL) === cz) return this.home;
     const key = this._key(cx, cz);
     if (this._cells.has(key)) return this._cells.get(key);
     const site = this._make(cx, cz);
@@ -109,36 +112,93 @@ export class SiteGrower {
       const axis = hash2((this.seed ^ ORIENT_SALT) >>> 0, cx * 16 + t, cz) < 0.5 ? 0 : 1;
       const flip = hash2((this.seed ^ ORIENT_SALT ^ 0x77) >>> 0, cx * 16 + t, cz) < 0.5 ? 1 : -1;
       const site = { kind, size: sizeName, x, z, axis, flip, rect: null, y: 0, seed: (this.seed ^ Math.imul(x, 0x9e3779b1) ^ Math.imul(z, 0x85ebca6b)) >>> 0, id: `${kind}:${x},${z}` };
-      this._plan(site);
-      const rect = site.rect;
-      // The natural terrain across the footprint must be mostly dry land, fairly
-      // gentle (a few outliers are levelled or filled) and low enough.
-      const hs = [];
-      let wet = 0;
-      let mountain = 0;
-      for (let u = rect.u0; u <= rect.u1; u += 25) {
-        for (let v = rect.v0; v <= rect.v1; v += 24) {
-          const [wx, wz] = this.toWorld(site, u, v);
-          const info = terrain._baseInfo(wx, wz);
-          if (info.height <= SEA_LEVEL + 1) wet++;
-          if (info.mountainT > 0.5) mountain++;
-          hs.push(info.height);
-        }
-      }
-      hs.sort((a, b) => a - b);
-      const n = hs.length;
-      if (wet / n > 0.3 || mountain / n > 0.3) continue;
-      if (hs[Math.floor(n * 0.9)] - hs[Math.floor(n * 0.1)] > MAX_SPREAD) continue;
-      const median = hs[Math.floor(n / 2)];
-      const limit = kind === "city" ? SEA_LEVEL + 16 : SEA_LEVEL + 22;
-      if (median > limit) continue;
-      site.y = Math.max(SEA_LEVEL + 4, median);
-      if (kind === "city") site.lots = this._lots(site);
-      // (A bunker needs room below the pad: not on the very low ground.)
-      if (site.y < SEA_LEVEL + 14) site.bunkers = [];
+      if (!this._fits(site)) continue;
+      if (this.home && Math.abs(x - this.home.x) < 2 * REACH + 40 && Math.abs(z - this.home.z) < 2 * REACH + 40) return null; // (the home airport has its space)
       return site;
     }
     return null;
+  }
+
+  // Plans the site and checks the natural terrain under it: mostly dry land,
+  // fairly gentle (a few outliers are levelled or filled) and low enough.
+  // On success sets site.y (and the city lots) and returns true.
+  _fits(site, { spread = MAX_SPREAD, coarse = 1 } = {}) {
+    const terrain = this.terrain;
+    this._plan(site);
+    const rect = site.rect;
+    const hs = [];
+    let wet = 0;
+    let mountain = 0;
+    for (let u = rect.u0; u <= rect.u1; u += 25 * coarse) {
+      for (let v = rect.v0; v <= rect.v1; v += 24 * coarse) {
+        const [wx, wz] = this.toWorld(site, u, v);
+        const info = terrain._baseInfo(wx, wz);
+        if (info.height <= SEA_LEVEL + 1) wet++;
+        if (info.mountainT > 0.5) mountain++;
+        hs.push(info.height);
+      }
+    }
+    hs.sort((a, b) => a - b);
+    const n = hs.length;
+    if (wet / n > 0.3 || mountain / n > 0.3) return false;
+    if (hs[Math.floor(n * 0.9)] - hs[Math.floor(n * 0.1)] > spread) return false;
+    const median = hs[Math.floor(n / 2)];
+    const limit = site.kind === "city" ? SEA_LEVEL + 16 : SEA_LEVEL + 22;
+    if (median > limit) return false;
+    site.y = Math.max(SEA_LEVEL + 4, median);
+    if (coarse > 1) return true; // (a quick pre-check: the real one follows)
+    if (site.kind === "city") site.lots = this._lots(site);
+    // (A bunker needs room below the pad: not on the very low ground.)
+    if (site.y < SEA_LEVEL + 14) site.bunkers = [];
+    return true;
+  }
+
+  // The home airport: one airport (regional or international, never a small
+  // field) close to where a new player starts, whatever the seed. The spawn
+  // is the first dry land from the world's origin (terrain.spawnColumn); the
+  // airport is the nearest flat, dry spot to it that leaves the start itself
+  // clear (at least ~80 blocks outside the levelled pad). The grid cells
+  // around it give up their own sites where they would overlap it. Computed
+  // once, on first use, from the natural terrain only.
+  _ensureHome() {
+    if (this._homeDone) return;
+    this._homeDone = true;
+    this.home = null;
+    const terrain = this.terrain;
+    // Where the start is (natural terrain, like spawnColumn without trees).
+    let bx = 0;
+    let bz = 0;
+    for (let i = 0; i < 400 && terrain._baseInfo(bx, bz).height <= SEA_LEVEL + 1; i++) {
+      const a = i * 0.5;
+      const r = 40 + i * 18;
+      bx = Math.round(Math.cos(a) * r);
+      bz = Math.round(Math.sin(a) * r);
+    }
+    this.anchor = { x: bx, z: bz };
+    const sizeName = hash2((this.seed ^ SIZE_SALT ^ 0x4f4d) >>> 0, 7, 11) < 0.5 ? "regional" : "international";
+    for (let r = 260; r <= 2600; r += r < 1100 ? 60 : 100) {
+      // (Rough country: if nothing flat enough lies within ~1100 blocks, the search goes on farther and takes more levelling.)
+      const spread = r < 1100 ? MAX_SPREAD : MAX_SPREAD * 1.7;
+      const n = r < 1100 ? 28 : 40;
+      const a0 = hash2((this.seed ^ PLACE_SALT ^ 0x4f4d) >>> 0, r, 3) * Math.PI * 2;
+      for (let k = 0; k < n; k++) {
+        const a = a0 + (k / n) * Math.PI * 2;
+        const x = Math.round(bx + Math.cos(a) * r);
+        const z = Math.round(bz + Math.sin(a) * r);
+        for (let o = 0; o < 2; o++) {
+          const axis = o === 0 ? (hash2((this.seed ^ ORIENT_SALT) >>> 0, x, z) < 0.5 ? 0 : 1) : 1 - (hash2((this.seed ^ ORIENT_SALT) >>> 0, x, z) < 0.5 ? 0 : 1);
+          const flip = hash2((this.seed ^ ORIENT_SALT ^ 0x77) >>> 0, x, z) < 0.5 ? 1 : -1;
+          const site = { kind: "airport", size: sizeName, home: true, x, z, axis, flip, rect: null, y: 0, seed: (this.seed ^ Math.imul(x, 0x9e3779b1) ^ Math.imul(z, 0x85ebca6b)) >>> 0, id: `airport:${x},${z}` };
+          if (!this._fits(site, { spread, coarse: 2 })) continue;
+          // The start must lie clear of the levelled pad and its slopes.
+          const [u, v] = this.toLocal(site, bx, bz);
+          if (this._outside(site, u, v) < 90) continue;
+          if (!this._fits(site, { spread })) continue;
+          this.home = site;
+          return;
+        }
+      }
+    }
   }
 
   // The layout of a site (everything that depends only on its seed): the
@@ -309,6 +369,9 @@ export class SiteGrower {
 
   // The site whose bounding circle covers world column (wx, wz), or null.
   siteAt(wx, wz) {
+    this._ensureHome();
+    const h = this.home;
+    if (h && Math.abs(wx - h.x) <= REACH && Math.abs(wz - h.z) <= REACH) return h;
     const cx = Math.floor(wx / SITE_CELL);
     const cz = Math.floor(wz / SITE_CELL);
     const s = this._site(cx, cz);

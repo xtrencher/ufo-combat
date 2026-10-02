@@ -617,8 +617,14 @@ export class MissionDirector {
 
   // 8. Take off: points at the nearest airport (or the jet).
   _takeoff() {
-    const jet = this.vehicles.vehicles.find((v) => v.type === "jet" && v.isPlayerJet && v.alive);
-    if (jet && this.vehicles.active !== jet) this._setTarget(jet, "Your jet: get in (F)");
+    // A fighter parked at an airport (the nearest one that is loaded), else the airport itself.
+    const p = this.player.position;
+    let jet = null;
+    for (const v of this.vehicles.vehicles) {
+      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet) continue;
+      if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
+    }
+    if (jet && this.vehicles.active !== jet) this._setTarget(jet, "Parked fighter: get in (F)");
     else this.target = this._airportTarget("Airport") || null;
   }
 

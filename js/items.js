@@ -37,7 +37,7 @@ export const ITEM = Object.freeze({
   SNIPER_RIFLE: 290,
   AIRSTRIKE: 291,
   LASER_BLASTER: 292,
-  JET_RADIO: 293,
+  // 293 (the Jet Radio) was removed in Round 6: jets are taken from airports. Never reuse the id.
   RAILGUN: 294,
   MINIGUN: 295,
   // (296 was the shield, removed in Round 5: never reuse the id; old saves
@@ -92,7 +92,6 @@ const ITEM_DEFS = {
   [ITEM.SNIPER_RIFLE]: { name: "Sniper Rifle", icon: "sniper", stack: 1, weapon: { kind: "sniper" } },
   [ITEM.AIRSTRIKE]: { name: "Airstrike Designator", icon: "airstrike", stack: 1, weapon: { kind: "airstrike" } },
   [ITEM.LASER_BLASTER]: { name: "Laser Blaster", icon: "blaster", stack: 1, weapon: { kind: "blaster" } },
-  [ITEM.JET_RADIO]: { name: "Jet Radio", icon: "jet_radio", stack: 1, weapon: { kind: "jetradio" } },
   [ITEM.RAILGUN]: { name: "Railgun", icon: "railgun", stack: 1, weapon: { kind: "railgun" } },
   [ITEM.MINIGUN]: { name: "Laser Minigun", icon: "minigun", stack: 1, weapon: { kind: "minigun" } },
   // The skeletons' bow: hold right click to draw, let go to shoot.
@@ -247,13 +246,13 @@ export const CREATIVE_ITEMS = [
   ITEM.WOOD_AXE, ITEM.STONE_AXE, ITEM.IRON_AXE, ITEM.DIAMOND_AXE,
   ITEM.WOOD_SHOVEL, ITEM.STONE_SHOVEL, ITEM.IRON_SHOVEL, ITEM.DIAMOND_SHOVEL,
   ITEM.BOW,
-  ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE, ITEM.JET_RADIO,
+  ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE,
   ...ARMOR_TIERS.flatMap((_, t) => [0, 1, 2, 3].map((sl) => armorId(t, sl))),
 ];
 
 // Every mod weapon and gadget, weakest first (the order of the creative
 // palette and of the Creative loadout).
-export const ALL_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE, ITEM.JET_RADIO];
+export const ALL_WEAPONS = [ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE];
 
 // A brand new Survival game starts with basic gear: a stone sword, a stone
 // pickaxe and some apples. Everything else is found: the bow on the

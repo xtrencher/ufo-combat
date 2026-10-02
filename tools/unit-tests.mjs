@@ -1258,7 +1258,7 @@ console.log("\nAirports and cities (sites.js)");
     const a = findSites(42);
     const b = findSites(42);
     assert.deepEqual(a.list.map((s) => s.id), b.list.map((s) => s.id));
-    assert.ok(a.list.length >= 12, `sites in 81 cells: ${a.list.length}`);
+    assert.ok(a.list.length >= 5, `sites in 81 cells: ${a.list.length}`);
     assert.ok(a.list.some((s) => s.kind === "airport") && a.list.some((s) => s.kind === "city"), "both kinds exist");
     let near = 0;
     let far = 0;
@@ -1268,8 +1268,24 @@ console.log("\nAirports and cities (sites.js)");
       if (t.sites.nearest(sx, sz, 1300)) near++;
       if (t.sites.nearest(sx, sz, 2600)) far++;
     }
-    assert.ok(near >= 4, `sites within 1300 blocks for ${near}/8 seeds`);
+    // Round 6: there is always a home airport (regional or international) close to the start, the others are far away.
+    assert.ok(near >= 8, `sites within 1300 blocks for ${near}/8 seeds`);
     assert.ok(far >= 8, `sites within 2600 blocks for ${far}/8 seeds`);
+    for (const seed of [1, 2, 3, 42, 99]) {
+      const t = new TerrainGenerator(seed * 104729);
+      const [sx, sz] = t.spawnColumn();
+      const h = t.sites.home;
+      assert.ok(h && h.kind === "airport" && h.size !== "field", `home airport exists (seed ${seed})`);
+      assert.ok(Math.hypot(h.x - sx, h.z - sz) < 1300, `the home airport is near the start (seed ${seed}): ${Math.hypot(h.x - sx, h.z - sz)}`);
+      assert.ok(t.sites._outside(h, ...t.sites.toLocal(h, sx, sz)) >= 80, "the start is clear of the airport's pad");
+      let nearestOther = Infinity;
+      for (let cz = -4; cz <= 4; cz++) for (let cx = -4; cx <= 4; cx++) {
+        const s = t.sites._site(cx, cz);
+        if (s && s !== h) nearestOther = Math.min(nearestOther, Math.hypot(s.x - h.x, s.z - h.z));
+      }
+      assert.ok(nearestOther > 1500, `the other sites are far from the home airport: ${nearestOther}`);
+      assert.ok(h.half >= 380, `a long runway (half length ${h.half})`);
+    }
   });
 
   await test("a site is dead flat across its whole footprint (chunks and distant terrain agree), with gentle slopes around it", () => {

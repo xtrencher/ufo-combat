@@ -452,8 +452,13 @@ function buildF16Geometry(paint = "falcon") {
     ventral.rotateZ(s * 0.5);
     ventral.translate(s * 0.42, -0.45, 0);
     parts.push(colorize(ventral, GD));
-    // Speed brakes beside the nozzle.
-    parts.push(colorize(new THREE.BoxGeometry(0.5, 0.06, 0.9).translate(s * 0.72, 0.02, 5.75), GD));
+    // The split tail brakes: a panel on each side of the rear fuselage, hinged
+    // at its front edge; they swing open like barn doors (see setControls).
+    // Closed they lie against the fuselage like the real panel lines.
+    {
+      const panel = new THREE.BoxGeometry(0.05, 0.62, 1.2).translate(s * 0.03, 0, 0.6);
+      surfaces.push(movable(colorize(panel, GD), new THREE.Vector3(s * 0.64, 0, 4.95), new THREE.Vector3(0, 1, 0), "brake", s));
+    }
   }
   // The tall single fin, with its rudder, a tail flash and an antenna fairing.
   const fm = new THREE.Matrix4().makeTranslation(0, 0.55, 0).multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
@@ -762,12 +767,16 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
     // together for pitch (trailing edge up to pull the nose up) and a little
     // differentially with the roll, the flaperons move opposite ways for roll
     // (and droop a little with the gear down, as flaps), the rudders for yaw.
-    setControls(pitch, roll, yaw) {
+    // `brake` (0-1) is the air brake: the F-16's split tail panels open
+    // outward; the F-22 has no panels, it brakes with its control surfaces
+    // (the twin rudders toe out, the flaperons droop, the tailplanes tilt).
+    setControls(pitch, roll, yaw, brake = 0) {
       for (const sf of surfaces) {
         let a = 0;
-        if (sf.kind === "stab") a = -0.42 * pitch - 0.2 * roll * sf.side;
-        else if (sf.kind === "ail") a = -0.5 * roll * sf.side + 0.2 * gearT;
-        else a = -0.5 * yaw;
+        if (sf.kind === "stab") a = -0.42 * pitch - 0.2 * roll * sf.side - (type === "f22" ? 0.18 * brake : 0);
+        else if (sf.kind === "ail") a = -0.5 * roll * sf.side + 0.2 * gearT + (type === "f22" ? 0.75 * brake : 0);
+        else if (sf.kind === "brake") a = 0.95 * brake * sf.side;
+        else a = -0.5 * yaw + (sf.side ? 0.6 * brake * sf.side : 0);
         sf.group.quaternion.setFromAxisAngle(sf.axis, a);
       }
     },

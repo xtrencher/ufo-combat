@@ -178,7 +178,7 @@ export const MISSIONS = [
   {
     id: "wings",
     title: "Take to the air",
-    text: "Call in a fighter jet (J, then 1 or 2) near an airport (F3 shows the nearest), get in (F) and take off: full throttle (W), Shift for the afterburner.",
+    text: "Fighter jets wait at airports (F3 shows the nearest, and the marker points the way). Walk up to one, get in (F) and take off: full throttle (W), Shift for the afterburner.",
     objectives: [{ stat: "takeoffs", goal: 1, label: "Takeoffs" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "takeoff",
