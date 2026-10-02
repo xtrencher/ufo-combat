@@ -1663,7 +1663,7 @@ settingsPanel.onReset("audio", () => {
 // Gameplay: difficulty, creature spawning, time of day.
 function applyDifficulty() {
   player.mobDamageScale = DIFFICULTY_DAMAGE[settings.difficulty] ?? 1;
-  mobs.spawning = settings.mobSpawning;
+  mobs.spawning = settingsPanel.effective("mobSpawning");
   mobs.hostileSpawning = settings.difficulty !== "peaceful";
   if (settings.difficulty === "peaceful") mobs.removeHostiles();
 }

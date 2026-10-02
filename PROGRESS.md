@@ -1736,13 +1736,13 @@ Source of truth for this round. Ticked as finished; decisions in "Round 6 decisi
 - [x] 1.3 Keyboard Lock API in fullscreen, preventDefault on combos, graceful fallback, README
 
 ## Part 2: Balance and weapons
-- [ ] 2.1 Fewer UFOs overall, especially in a jet
-- [ ] 2.2 Bow: full draw much farther/faster
-- [ ] 2.3 Laser pistol more damage
-- [ ] 2.4 More frequent weapon drops; crates give standard weapons in progression
-- [ ] 2.5 Remove iron and diamonds (items, drops, ore blocks decision)
-- [ ] 2.6 Skeleton point-blank arrow aim fix
-- [ ] 2.7 Survival hides/locks rule-changing settings (Creative only)
+- [x] 2.1 Fewer UFOs overall, especially in a jet
+- [x] 2.2 Bow: full draw much farther/faster
+- [x] 2.3 Laser pistol more damage
+- [x] 2.4 More frequent weapon drops; crates give standard weapons in progression
+- [x] 2.5 Remove iron and diamonds (items, drops, ore blocks decision)
+- [x] 2.6 Skeleton point-blank arrow aim fix
+- [x] 2.7 Survival hides/locks rule-changing settings (Creative only)
 
 ## Part 3: Nuke
 - [ ] 3.1 Default size = old max, setting allows bigger
@@ -1782,3 +1782,10 @@ Source of truth for this round. Ticked as finished; decisions in "Round 6 decisi
 
 ## Round 6 decisions and notes
 (appended as work proceeds)
+- Part 1: one CSS theme layer (tokens `--ui-*`, glass panels, flat buttons, accent teal) restyles every screen (menus, settings, mods, stats, missions, controls, inventory, death, vehicle HUD, mission tracker). Fullscreen: `js/fullscreen.js`; button top-right, invisible until the mouse is within 84px of the corner (never over the HUD; inert while the pointer is locked), F11 / Alt+Enter toggle. Keyboard Lock (`navigator.keyboard.lock()`, all keys) while fullscreen, `unlock` on leaving; with Esc locked the browser no longer drops the pointer lock itself, so a keydown handler calls `exitPointerLock()` to open the pause menu; Ctrl/Alt/Tab combos are `preventDefault`ed while playing (works without Keyboard Lock for Ctrl+R/S/D/F...; Ctrl+W/T/N cannot be cancelled by a page outside fullscreen: the existing beforeunload prompt covers that, README says to use double-tap W).
+- Part 2.1: MAX_ATTACKERS 4 -> 3, jet 2 -> 1; in a jet the sky holds half as many UFOs (min 1 when the mission allows any) and spawns at 0.7x; mission `max` table lowered (~35%), spawn rates x0.8, auto count 3*activity+1, default Creative activity "Occasional" (0.5).
+- Part 2.2: full-draw arrow 135 b/s (was 58; speed grows with draw^2), gravity -7 at full draw (-20 for a flick), 10 damage. 2.3: laser blaster (the "laser pistol") 3 -> 6 damage per bolt.
+- Part 2.4: crates every 95-165 s (was 170-300 s), alien weapon chances green .32 / gray .38 / blue .38 / red .5. I kept the Round 4 lanes (wrecks and fighters drop no weapons: a unit test guards that): crates give standard weapons by tier, aliens give alien weapons.
+- Part 2.5: iron ingot and diamond items removed (ids 258/260 reserved, saves skip them), iron/diamond ore no longer generate (stone stays stone), the blocks remain registered so old edits still load and break into cobblestone, removed from the Creative palette. Iron/diamond tools and armor stay (gear, not materials). Gold ore/ingot stay (the one remaining flavour ore; red aliens still drop gold). Alien drops that were iron/diamond became apples with a small golden-apple chance.
+- Part 2.6: skeleton arrow lift used a 0.35 s minimum flight time, i.e. 1.5 blocks of lift even at point blank. Now lift ~ t*min(t,1) (unchanged at long range).
+- Part 2.7: every setting that changes rules/stats (spawn, weapon, zombie, UFO, vehicle performance, nuke size, blast sizes, time of day, time lock, creature spawning) is `creativeOnly`: hidden in Survival, and in Survival the game uses the DEFAULT of those settings (`settingsPanel.effective`), not whatever Creative left behind. Survival keeps graphics, performance, controls, audio, difficulty, stats overlay, blaster color, nuke effects intensity, jet flight assist.

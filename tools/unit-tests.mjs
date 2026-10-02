@@ -457,8 +457,8 @@ await test("caves, ores and crystals appear in sensible amounts", () => {
   const per = (id) => ((counts[id] || 0) / n).toFixed(1);
   console.log(`        underground cave air ${((caveAir / underground) * 100).toFixed(1)}%; per chunk: coal ${per(BLOCK.COAL_ORE)}, iron ${per(BLOCK.IRON_ORE)}, gold ${per(BLOCK.GOLD_ORE)}, diamond ${per(BLOCK.DIAMOND_ORE)}, gravel ${per(BLOCK.GRAVEL)}, lumen ${per(BLOCK.LUMEN)}`);
   assert.ok(caveAir / underground > 0.015 && caveAir / underground < 0.2, "cave volume out of range");
-  assert.ok(counts[BLOCK.COAL_ORE] > counts[BLOCK.IRON_ORE] && counts[BLOCK.IRON_ORE] > counts[BLOCK.GOLD_ORE], "ore rarity order");
-  assert.ok((counts[BLOCK.DIAMOND_ORE] || 0) > 0 && counts[BLOCK.DIAMOND_ORE] < counts[BLOCK.GOLD_ORE], "diamonds should exist but be rarer than gold");
+  assert.ok(counts[BLOCK.COAL_ORE] > counts[BLOCK.GOLD_ORE], "ore rarity order");
+  assert.ok(!counts[BLOCK.IRON_ORE] && !counts[BLOCK.DIAMOND_ORE], "no iron or diamond ore generates any more (Round 6)");
   assert.ok((counts[BLOCK.LUMEN] || 0) > 0, "no lumen crystals generated");
 });
 

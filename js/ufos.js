@@ -40,7 +40,7 @@ export const UFO_ACTIVITY_LEVELS = [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 export const UFO_ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];
 
 export const UFO_DEFAULTS = {
-  activity: 1,
+  activity: 0.5,
   spawnChance: 1,
   maxCount: 0, // 0 = automatic (from the activity)
   aggression: 1,
@@ -51,8 +51,9 @@ export const UFO_DEFAULTS = {
   toughness: 1,
 };
 
-export const MAX_ATTACKERS = 4; // UFOs attacking the player at the same time
-export const JET_MAX_ATTACKERS = 2; // ... while the player flies a jet (they are fast and you have no cover: two is plenty)
+export const MAX_ATTACKERS = 3; // UFOs attacking the player at the same time
+export const JET_MAX_ATTACKERS = 1; // ... while the player flies a jet (they are fast and you have no cover: one at a time, and the hijacked fighter)
+export const JET_COUNT_FACTOR = 0.5; // in a jet the sky holds half as many UFOs and fills up more slowly
 
 // Per size: radius range (blocks), health, cruise and top speed (blocks/s),
 // laser damage, hover height over a beamed player, alien crew size range.
@@ -243,16 +244,18 @@ export class UfoManager {
   get maxCount() {
     const c = this.config;
     const nightBoost = 1 + (c.nightMultiplier - 1) * 0.35 * this.night;
-    if (this.missionDriven) return Math.min(MAX_UFOS, Math.round(this.rules.max * nightBoost));
-    const auto = Math.round((4 * c.activity + (c.activity > 0 ? 2 : 0)) * nightBoost * (this.rules?.count ?? 1));
-    return Math.min(MAX_UFOS, c.maxCount > 0 ? c.maxCount : Math.max(c.activity > 0 ? 1 : 0, auto));
+    const jet = this._playerVehicle()?.type === "jet" ? JET_COUNT_FACTOR : 1;
+    if (this.missionDriven) return this.rules.max <= 0 ? 0 : Math.min(MAX_UFOS, Math.max(1, Math.round(this.rules.max * nightBoost * jet)));
+    const auto = Math.round((3 * c.activity + (c.activity > 0 ? 1 : 0)) * nightBoost * (this.rules?.count ?? 1) * jet);
+    return Math.min(MAX_UFOS, c.maxCount > 0 ? Math.max(1, Math.round(c.maxCount * jet)) : Math.max(c.activity > 0 ? 1 : 0, auto));
   }
 
   // Expected new UFOs per second.
   get spawnRate() {
     const c = this.config;
-    if (this.missionDriven) return this.rules.rate * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
-    return (c.activity / 50) * c.spawnChance * (1 + (c.nightMultiplier - 1) * this.night);
+    const jet = this._playerVehicle()?.type === "jet" ? JET_COUNT_FACTOR : 1;
+    if (this.missionDriven) return this.rules.rate * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
+    return (c.activity / 50) * c.spawnChance * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * this.night);
   }
 
   // How far UFOs spawn and wander: scales with the view distance.

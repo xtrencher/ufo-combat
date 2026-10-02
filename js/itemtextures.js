@@ -365,13 +365,7 @@ const PAINTERS = {
     c.disc(0, 18, 21, 6, 5);
     return c.render([RAMPS.coal], [6, 6, 8]);
   },
-  iron_ingot: () => paintIngot(RAMPS.iron),
   gold_ingot: () => paintIngot(RAMPS.gold),
-  diamond: () => {
-    const c = new Canvas();
-    c.poly(0, [[16, 5], [26, 12], [16, 28], [6, 12]], (x, y) => (y < 12 ? 0.6 : x < 16 ? 0.1 : -0.4));
-    return c.render([RAMPS.diamond], [8, 40, 48]);
-  },
   apple: () => paintApple(RAMPS.red),
   golden_apple: () => paintApple(RAMPS.gold),
   raw_meat: () => paintMeat(RAMPS.meat, false),

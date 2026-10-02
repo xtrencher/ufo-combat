@@ -162,7 +162,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "hunt",
     tier: 2,
-    rules: R({ small: 4, medium: 3 }, 0.75, 0.7, 0.75, 3, 0.025, GREEN),
+    rules: R({ small: 4, medium: 3 }, 0.75, 0.7, 0.75, 2, 0.025, GREEN),
   },
   {
     id: "grays",
@@ -173,7 +173,7 @@ export const MISSIONS = [
     event: "squad",
     squad: { kind: "alien_gray", n: 5, leaderDrop: ITEM.MINIGUN },
     tier: 3,
-    rules: R({ small: 3, medium: 3, large: 0.3 }, 0.8, 0.75, 0.8, 3, 0.025, GREEN_GRAY),
+    rules: R({ small: 3, medium: 3, large: 0.3 }, 0.8, 0.75, 0.8, 2, 0.025, GREEN_GRAY),
   },
   {
     id: "wings",
@@ -183,7 +183,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "takeoff",
     tier: 3,
-    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.85, 0.8, 0.8, 3, 0.025, GREEN_GRAY),
+    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.85, 0.8, 0.8, 2, 0.025, GREEN_GRAY),
   },
   {
     id: "dogfight",
@@ -193,7 +193,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "dogfight",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.85, 0.85, 4, 0.03, GREEN_GRAY),
+    rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.85, 0.85, 3, 0.03, GREEN_GRAY),
   },
   {
     id: "air_superiority",
@@ -203,7 +203,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 4, 0.03, GREEN_GRAY_BLUE),
+    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 3, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "village",
@@ -213,7 +213,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "village",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 4, 0.03, GREEN_GRAY_BLUE),
+    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 3, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "reds",
@@ -224,7 +224,7 @@ export const MISSIONS = [
     event: "squad",
     squad: { kind: "alien_red", n: 3, leaderDrop: ITEM.RAILGUN },
     tier: 4,
-    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 5, 0.035, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
   },
   {
     id: "salvage",
@@ -234,7 +234,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "intact",
     tier: 4,
-    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 5, 0.035, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 4, 0.035, ALL_CREWS),
   },
   {
     id: "big_game",
@@ -244,7 +244,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 4]],
     event: "large",
     tier: 4,
-    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 5, 0.04, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 4, 0.04, ALL_CREWS),
   },
   {
     id: "mothership",
@@ -254,7 +254,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 6]],
     event: "mothership",
     tier: 5,
-    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.5, giant: 0.08 }, 1.05, 1.05, 1.1, 6, 0.045, ALL_CREWS),
+    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.5, giant: 0.08 }, 1.05, 1.05, 1.1, 5, 0.045, ALL_CREWS),
   },
   {
     id: "sunburn",
@@ -264,7 +264,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "airport",
     tier: 5,
-    rules: R(LATE, 1.1, 1.1, 1.2, 7, 0.05, ALL_CREWS),
+    rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
   },
   {
     id: "slayer",
@@ -274,7 +274,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "hunt",
     tier: 5,
-    rules: R(LATE, 1.15, 1.15, 1.3, 8, 0.055, ALL_CREWS),
+    rules: R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS),
   },
 ];
 
@@ -463,7 +463,7 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
       // Alien weapons, weakest first, once the chain gets there (a mission's
       // patrol leader always drops the new one: see missions.js).
       const w = pickAlienWeapon(detail, tier, have);
-      const wChance = { green: 0.2, gray: 0.25, blue: 0.25, red: 0.35 }[detail] ?? 0.2;
+      const wChance = { green: 0.32, gray: 0.38, blue: 0.38, red: 0.5 }[detail] ?? 0.3;
       if (w != null && rand() < wChance) {
         add(w, 1);
         break;

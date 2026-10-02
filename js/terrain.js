@@ -72,12 +72,11 @@ const CAVERN_FREQ_XZ = 0.012;
 const CAVERN_FREQ_Y = 0.022;
 const CAVERN_THRESHOLD = 0.56;
 
-// Ore veins: [block, veins per chunk, min size, max size, min y, max y].
+// Ore veins (iron and diamond were removed in Round 6: no use for them; the
+// stone they would have been stays stone). [block, veins per chunk, min size, max size, min y, max y].
 const VEINS = [
   [BLOCK.COAL_ORE, 16, 3, 9, 5, 50],
-  [BLOCK.IRON_ORE, 11, 3, 7, 3, 40],
   [BLOCK.GOLD_ORE, 3, 3, 6, 2, 22],
-  [BLOCK.DIAMOND_ORE, 1.4, 2, 5, 1, 13],
   [BLOCK.GRAVEL, 5, 8, 16, 4, 45],
 ];
 
