@@ -969,7 +969,7 @@ await check("the chain: jets unlock with 'Take to the air', alien ships with 'Sa
     return out;
   });
   const j = JSON.stringify(r);
-  assert(r.n === 19 && r.rewards === "261,262", `19 missions, apples only: ${j}`);
+  assert(r.n === 21 && r.rewards === "261,262", `21 missions, apples only: ${j}`);
   assert(r.jetEarly && !r.jetLate, `jets with mission 10: ${j}`);
 });
 

@@ -428,6 +428,14 @@ export class SiteGrower {
 
   // ---------- Queries for the game ----------
 
+  // The airport whose runway (the dark strip, with a margin) a world column lies on, or null.
+  onRunway(wx, wz, margin = 0) {
+    const s = this.siteAt(wx, wz);
+    if (!s || s.kind === undefined || !s.rect) return null;
+    const [u, v] = this.toLocal(s, wx, wz);
+    return Math.abs(u) <= s.half + 2 + margin && Math.abs(v) <= s.rw + margin ? s : null;
+  }
+
   // The nearest site (optionally of a kind) within maxDist of (wx, wz), or null.
   nearest(wx, wz, maxDist, kind = null) {
     let best = null;

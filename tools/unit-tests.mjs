@@ -1462,13 +1462,13 @@ console.log("\nProgression (progression.js)");
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (19 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0 };
+  await test("the mission chain (21 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 19);
+    assert.equal(MISSIONS.length, 21);
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1505,6 +1505,22 @@ console.log("\nProgression (progression.js)");
     // Alien ships are boarded late; the jets come before; the alien weapons come weakest first.
     const idx = (id) => MISSIONS.findIndex((m) => m.id === id);
     assert.ok(idx("salvage") >= 12 && idx("wings") < idx("salvage"));
+    // Round 6: the landing follows the first flight, the meteor storm and the boss are in, the boss comes after
+    // the railgun and before the final 25 UFOs, and the old mothership mission is the boss now.
+    assert.equal(idx("touchdown"), idx("wings") + 1);
+    assert.ok(idx("reds") < idx("meteors") && idx("meteors") < idx("salvage"));
+    assert.ok(idx("reds") < idx("overlord") && idx("overlord") === idx("slayer") - 1 && idx("sunburn") < idx("overlord"));
+    assert.equal(idx("mothership"), -1);
+    assert.deepEqual(MISSIONS[idx("touchdown")].objectives.map((o) => o.stat), ["landings", "landingSquad"]);
+    // A v4 (Round 4/5) save carries over by mission id: the old "wings" is still "wings", the old mothership fight continues at the base, the end stays the end.
+    const v4 = (id) => { const q = new Progress(); q.load({ v: 4, step: ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "dogfight", "air_superiority", "village", "reds", "salvage", "big_game", "mothership", "sunburn", "slayer"].indexOf(id), base: {}, done: [] }, stats); return q.mission?.id; };
+    assert.equal(v4("wings"), "wings");
+    assert.equal(v4("dogfight"), "dogfight");
+    assert.equal(v4("mothership"), "sunburn");
+    assert.equal(v4("slayer"), "slayer");
+    const v4end = new Progress();
+    v4end.load({ v: 4, step: 19, base: {}, done: [] }, stats);
+    assert.equal(v4end.mission, null);
     assert.ok(idx("patrol") < idx("grays") && idx("grays") < idx("reds"));
     assert.deepEqual([idx("patrol"), idx("grays"), idx("reds")].map((i) => MISSIONS[i].squad.leaderDrop), [ITEM.LASER_BLASTER, ITEM.MINIGUN, ITEM.RAILGUN]);
     // The patrol leaders' weapons are within reach of their mission's tier.

@@ -17,7 +17,7 @@ export const STAT_LABELS = [
   ["abducted", "Times abducted"],
   ["animalsAbducted", "Creatures you abducted"],
   ["ufosBoarded", "UFOs boarded"],
-  ["jetsCalled", "Jets called in"],
+  ["jetsCalled", "Jets flown"],
   ["missilesHit", "Missile hits"],
   ["nukes", "Nukes dropped"],
   ["enemyJetsDown", "Fighters shot down (hijacked or patrol)"],
@@ -30,6 +30,10 @@ export const STAT_LABELS = [
   ["ufosDownLarge", "Large UFOs (or bigger) shot down"],
   ["raidersDown", "Village raiders shot down"],
   ["airportsNuked", "Enemy bases nuked"],
+  ["landings", "Jet landings on a runway (mission)"],
+  ["landingSquad", "Landing squad aliens killed (mission)"],
+  ["meteorFragments", "Star fragments collected"],
+  ["bossesDown", "Bosses destroyed"],
 ];
 
 function blank() {

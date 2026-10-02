@@ -805,7 +805,6 @@ function callJet(force = false, type = lastJetType) {
     toast(cfg.airborne ? "Your jet: you're in the air!" : "No flat ground nearby: your jet arrives in the air, with you in it!", 3.5);
   }
   jetSpawnAirborne = spawnAirborne;
-  stats.add("jetsCalled");
   audio.playNotice();
 }
 // Every jet the player called in that nobody is sitting in goes away.
@@ -831,6 +830,7 @@ function updateJetWatch(dt) {
 
 // Entering and leaving vehicles.
 vehicles.onEnter = (v) => {
+  if (v.type === "jet" && !v.isEnemyJet) stats.add("jetsCalled"); // ("Jets flown")
   airports.boarded(v);
   chord.reset();
   interaction.release();
@@ -959,7 +959,7 @@ const SUPPLY_MISSION = MISSIONS.findIndex((m) => m.id === "supply");
 crates.randomAllowed = () => !progress.enabled || progress.step > SUPPLY_MISSION;
 crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
-const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast });
+const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast, weapons, effects, audio, world });
 hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
 mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
@@ -2449,6 +2449,20 @@ function updateMissionMarker(show) {
   const text = `${t.label} ${d}m`;
   if (missionMarkerLabel.textContent !== text) missionMarkerLabel.textContent = text;
 }
+// The boss bar (the Overlord fight): name, health, the shield state.
+const bossBarEl = document.getElementById("boss-bar");
+const bossFillEl = bossBarEl.querySelector(".bb-fill");
+const bossNoteEl = bossBarEl.querySelector(".bb-note");
+function updateBossBar(show) {
+  const b = show ? missionDirector.bossInfo : null;
+  bossBarEl.classList.toggle("hidden", !b);
+  if (!b) return;
+  bossBarEl.classList.toggle("shielded", b.shield);
+  bossBarEl.classList.toggle("final", b.final);
+  bossFillEl.style.width = `${(b.health * 100).toFixed(1)}%`;
+  const note = b.shield ? `SHIELD UP: ${b.pylons} pylon${b.pylons === 1 ? "" : "s"} left` : b.final ? "NO SHIELD: FINISH IT" : `SHIELD DOWN: ${Math.ceil(b.downT)} s`;
+  if (bossNoteEl.textContent !== note) bossNoteEl.textContent = note;
+}
 // The mission tracker (Survival): the current mission, its objectives, and
 // the way to a supply crate that is on the ground.
 const missionEl = document.getElementById("mission-tracker");
@@ -2459,6 +2473,7 @@ function updateMissions(dt) {
   ufos.difficulty = player.creative ? 0.5 : progress.difficulty(stats.world);
   if (gameState === "playing") missionDirector.update(dt);
   updateMissionMarker(show);
+  updateBossBar(show);
   // (Missions complete even with the HUD hidden.)
   missionT -= dt;
   const tick = missionT <= 0;

@@ -10,7 +10,9 @@ import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
 import { BLOCK, IS_LEAVES, IS_LOG } from "./blocks.js";
 
+
 const _v = new THREE.Vector3();
+const STYLE_COLOR = { sweep: "red", heavy: "orange", charged: "white", seeker: "lime" }; // (the bolt colours of the boss's styles: see STYLES in ufos.js)
 const NEAR = [[2, 0], [-2, 0], [0, 2], [0, -2]];
 const CALM_TIME = 35; // seconds a landed crew looks around before it attacks
 
@@ -32,6 +34,7 @@ export class MissionDirector {
     this.missionId = null;
     this.night = { active: false, clean: false, deathsAt: 0 };
     this.checkT = 0;
+    this.bossInfo = null; // the boss bar: { name, health, shield, pylons, downT, final } while the Overlord fight is on
     this.base = null; // Operation Sunburn: the enemy-held airport { x, z, y, site }
   }
 
@@ -47,8 +50,10 @@ export class MissionDirector {
     this._trackNight();
     if (!m) {
       this.target = null;
+      this.bossInfo = null;
       return;
     }
+    if (m.event !== "boss") this.bossInfo = null;
     if (m.id !== this.missionId) {
       this.missionId = m.id;
       this._cleanup();
@@ -57,6 +62,9 @@ export class MissionDirector {
     const st = this.state;
     st.t += dt;
     if (m.event === "night") this._nightClock(dt);
+    // (Effects that must run every frame.)
+    if (m.event === "meteors") this._fxMeteors(dt);
+    if (m.event === "boss") this._fxBoss(dt);
     this.checkT -= dt;
     if (this.checkT > 0) {
       this._refreshTarget();
@@ -99,9 +107,12 @@ export class MissionDirector {
       case "takeoff":
         this._takeoff();
         break;
+      case "landjet":
+        this._landjet();
+        break;
       case "dogfight":
         if (this.vehicles.active?.type === "jet") this._keepUfos(3, 900);
-        this.target = this.vehicles.active?.type === "jet" ? this._nearestUfo(1400, "UFO") : this._airportTarget("Airport: call your jet (J)");
+        this.target = this.vehicles.active?.type === "jet" ? this._nearestUfo(1400, "UFO") : this._parkedJetTarget() || this._airportTarget("Airport: take a parked jet");
         break;
       case "fighter":
         this._fighter();
@@ -112,8 +123,11 @@ export class MissionDirector {
       case "large":
         this._large();
         break;
-      case "mothership":
-        this._mothership();
+      case "meteors":
+        this._meteors();
+        break;
+      case "boss":
+        this._boss();
         break;
       case "airport":
         this._airport();
@@ -128,6 +142,12 @@ export class MissionDirector {
     if (this.sky) this.sky.timeScale = 1;
     this.ufos.forceIntact = false;
     for (const u of this.ufos.ufos) {
+      if (u.boss || u.pylon) {
+        u.boss = false;
+        u.pylon = false;
+        u.shield = false;
+        u.bossHook = null;
+      }
       if (u.missionTarget || u.raider) {
         u.missionTarget = false;
         u.raider = false;
@@ -618,14 +638,19 @@ export class MissionDirector {
   // 8. Take off: points at the nearest airport (or the jet).
   _takeoff() {
     // A fighter parked at an airport (the nearest one that is loaded), else the airport itself.
+    this.target = this._parkedJetTarget() || this._airportTarget("Airport") || null;
+  }
+
+  // The nearest jet standing at an airport (loaded), as a marker target, or null (also when you are in a jet).
+  _parkedJetTarget() {
+    if (this.vehicles.active?.type === "jet") return null;
     const p = this.player.position;
     let jet = null;
     for (const v of this.vehicles.vehicles) {
       if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet) continue;
       if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
     }
-    if (jet && this.vehicles.active !== jet) this._setTarget(jet, "Parked fighter: get in (F)");
-    else this.target = this._airportTarget("Airport") || null;
+    return jet ? { pos: jet.pos.clone(), label: "Parked fighter: get in (F)", follow: jet } : null;
   }
 
   // 10. An enemy fighter that hunts the player (kept around for the mission).
@@ -738,29 +763,358 @@ export class MissionDirector {
     this.target = t;
   }
 
-  // 13. A mothership with an escort.
-  _mothership() {
+  // 11. Touchdown: fly a jet back onto a runway and stop; then a red squad
+  // drops in on the ground, and the mission is over when it is dead.
+  _landjet() {
     const st = this.state;
-    if (!this._alive(st.ship)) {
-      if (this.progress.objectives(this.stats.world)[0]?.value >= 1) return;
+    const p = this.player.position;
+    const act = this.vehicles.active;
+    const inJet = act?.type === "jet" && !act.isEnemyJet;
+    const sites = this.terrain.sites;
+    if (!st.landed) {
+      if (inJet && !act.onGround) {
+        st.air = true;
+        st.airJet = act;
+      }
+      if (st.airJet && !st.airJet.alive) {
+        // It crashed: another take-off is needed.
+        st.air = false;
+        st.airJet = null;
+      }
+      if (inJet && act.onGround && st.air && act.speed < 8 && sites.onRunway(act.pos.x, act.pos.z, 2)) {
+        st.landed = true;
+        st.landPos = act.pos.clone();
+        this.stats.add("landings");
+        this.toast?.("SAFE LANDING! ...but the aliens have noticed: a red squad is dropping in. Get out (F) and fight!", 6);
+      } else {
+        // The marker: a jet to take, or the nearest runway.
+        const parked = this._parkedJetTarget();
+        const a = this.airports.nearest(3500);
+        if (parked && !inJet) this.target = parked;
+        else if (a) this.target = { pos: new THREE.Vector3(a.site.x, (a.site.y ?? SEA_LEVEL) + 1, a.site.z), label: inJet ? (st.air ? "Land on the runway" : "Take off, then land on the runway") : "Airport", follow: null };
+        else this.target = null;
+        return;
+      }
+    }
+    // The red squad: three red aliens landed close by (more if some were lost far away).
+    const squad = (st.squad || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    st.counted = st.counted || new Set();
+    for (const m of st.squad || []) {
+      if (m.dead && !st.counted.has(m)) {
+        st.counted.add(m);
+        this.stats.add("landingSquad");
+      }
+    }
+    const need = 3 - st.counted.size;
+    if (need <= 0) {
+      this.target = null;
+      return;
+    }
+    if (squad.length < need) {
       st.waitT = (st.waitT ?? 3) - 0.5;
+      this.target = null;
       if (st.waitT > 0) return;
-      st.waitT = 40;
-      const u = this._spawnUfo({ size: "mothership", style: "sweep" }, 550, false);
+      st.waitT = 20;
+      const at = this._groundSpot(75, 0.2) || new THREE.Vector3(p.x + 75, 0, p.z);
+      st.squad = [...squad];
+      for (let i = squad.length; i < need; i++) {
+        const m = this._spawnAlien("alien_red", 6, at);
+        if (m) st.squad.push(m);
+      }
+      this._dropship(at, "alien_red");
+      if (st.squad.length) this.toast?.("Red aliens have landed: follow the marker!", 4);
+      return;
+    }
+    squad.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
+    this._setTarget(squad[0], `Red squad (${squad.length} left)`);
+  }
+
+  // A dropship that hovers over a landing spot for a moment and leaves.
+  _dropship(at, kind) {
+    const ground = Math.max(this.terrain.heightAt(Math.floor(at.x), Math.floor(at.z)), SEA_LEVEL);
+    const ship = this.ufos.spawn({ size: "medium", design: "saucer_disc", crewKind: kind, pos: { x: at.x, y: ground + 30, z: at.z }, hidden: true });
+    ship.state = "trick";
+    ship.trick = "hover";
+    ship.timer = 8;
+    ship.immuneUntil = this.ufos.time + 9; // (a dropship: it isn't the fight)
+    return ship;
+  }
+
+  // ---------- 16. Falling stars: a meteor storm ----------
+  // Meteors (the airstrike's) fall around the player, each announced by a red
+  // ring on the ground 4.5 s before it lands. Every third strike leaves a
+  // glowing star fragment in its crater; fragments are picked up by walking
+  // into them; an unclaimed one is carried off by a salvager UFO after 80 s.
+  _meteors() {
+    const st = this.state;
+    const p = this.player.position;
+    if (!st.init) {
+      st.init = true;
+      st.strikeT = 5;
+      st.frags = [];
+      st.rings = [];
+      st.seed = 0;
+      st.since = 2; // the first strike seeds a fragment
+      const h = this.sky.hours;
+      if (!(h >= 19.5 || h < 5.5)) this.sky.setHours(21);
+      this.sky.timeScale = 1;
+      this.toast?.("A meteor storm! Rocks fall where the red rings are: keep out of them, and grab the glowing star fragments.", 6);
+    }
+    st.frags = st.frags.filter((f) => f.life > 0);
+    // New strikes (not while the player is dead).
+    st.strikeT -= 0.5;
+    const collected = this.progress.objectives(this.stats.world)[0]?.value ?? 0;
+    if (st.strikeT <= 0 && !this.player.dead && this.weapons?.airstrike) {
+      st.strikeT = Math.max(3.2, rand(5.5, 8) - collected * 0.7);
+      const a = Math.random() * Math.PI * 2;
+      const d = rand(20, 65);
+      const x = Math.floor(p.x + Math.cos(a) * d);
+      const z = Math.floor(p.z + Math.sin(a) * d);
+      const wantFrag = st.since >= 2 && st.frags.length + (st.seed || 0) < 2;
+      const y = Math.max(this.world.heightAt(x, z), SEA_LEVEL) + 1;
+      const target = new THREE.Vector3(x + 0.5, y, z + 0.5);
+      const delay = 4.5;
+      this.weapons.airstrike.call(target, { count: wantFrag ? 1 : 3, spread: 12, delay, angle: 28 });
+      st.rings.push({ pos: target, t: delay + 0.2, fx: 0, r: wantFrag ? 5 : 11 });
+      if (wantFrag) {
+        st.seed = (st.seed || 0) + 1;
+        st.pending = (st.pending || []).concat([{ pos: target.clone(), at: delay + 1.2 }]);
+        st.since = 0;
+      } else st.since++;
+    }
+    // Salvagers: a small UFO comes for a fragment that has been lying around.
+    const old = st.frags.find((f) => f.life < 45);
+    if (old && !this._alive(st.salvager)) {
+      st.salvT = (st.salvT ?? 0) - 0.5;
+      if (st.salvT <= 0) {
+        st.salvT = 40;
+        const u = this.ufos.spawn({ size: "small", style: "rapid", pos: { x: old.pos.x + rand(-50, 50), y: old.pos.y + rand(30, 45), z: old.pos.z + rand(-50, 50) }, hidden: true });
+        u.noLeave = true;
+        u.missionTarget = true;
+        u.home = old.pos.clone();
+        u.tether = 50;
+        this.ufos.anger(u, 120);
+        st.salvager = u;
+        this.toast?.("An alien salvager is after the fragments!", 3);
+      }
+    }
+    // The marker: the nearest fragment (or nothing: look up).
+    let best = null;
+    for (const f of st.frags) if (!best || f.pos.distanceTo(p) < best.pos.distanceTo(p)) best = f;
+    this.target = best ? { pos: best.pos.clone(), label: `Star fragment (${Math.ceil(best.life)} s)`, follow: null } : null;
+    this.state.note = collected >= 4 ? "" : `Fragments: ${collected}/4. Rocks fall by the red rings.`;
+  }
+
+  // Every frame: the warning rings, the rocks' craters becoming fragments, the fragments' glow and pickup.
+  _fxMeteors(dt) {
+    const st = this.state;
+    const fx = this.effects;
+    if (!st.init || !fx) return;
+    const p = this.player.position;
+    const red = this._redC || (this._redC = new THREE.Color(3.5, 0.5, 0.25));
+    const star = this._starC || (this._starC = new THREE.Color(1.4, 2.2, 4));
+    for (let i = st.rings.length - 1; i >= 0; i--) {
+      const r = st.rings[i];
+      r.t -= dt;
+      r.fx -= dt;
+      if (r.fx <= 0) {
+        r.fx = 0.1;
+        const n = Math.round(26 * Math.max(0.4, 1));
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2 + (r.t * 0.8);
+          const gy = this.world.surfaceY(Math.floor(r.pos.x + Math.cos(a) * r.r), Math.floor(r.pos.z + Math.sin(a) * r.r));
+          fx.glow.spawn({ x: r.pos.x + Math.cos(a) * r.r, y: gy + 1.2, z: r.pos.z + Math.sin(a) * r.r, life: 0.22, size0: 0.55, size1: 0.35, color0: red, alpha: 0.9 });
+        }
+      }
+      if (r.t <= -1) st.rings.splice(i, 1);
+    }
+    for (let i = (st.pending || []).length - 1; i >= 0; i--) {
+      const q = st.pending[i];
+      q.at -= dt;
+      if (q.at > 0) continue;
+      st.pending.splice(i, 1);
+      st.seed = Math.max(0, (st.seed || 1) - 1);
+      const y = this.world.surfaceY(Math.floor(q.pos.x), Math.floor(q.pos.z)) + 1.4;
+      st.frags.push({ pos: new THREE.Vector3(q.pos.x, y, q.pos.z), life: 80 });
+      this.toast?.("A star fragment!", 2.5);
+    }
+    for (let i = st.frags.length - 1; i >= 0; i--) {
+      const f = st.frags[i];
+      f.life -= dt;
+      if (f.life <= 0) {
+        this.toast?.("A fragment was lost to the aliens.", 2.5);
+        continue;
+      }
+      // The glow: a bright core and a column of sparks rising from it.
+      fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, life: 0.08, size0: 2.6, size1: 2.0, color0: star, alpha: 0.9 });
+      if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
+      if (!this.player.dead && Math.hypot(p.x - f.pos.x, p.z - f.pos.z) < 3 && Math.abs(p.y - f.pos.y) < 4) {
+        f.life = -1;
+        this.stats.add("meteorFragments");
+        this.audio?.playCrate?.();
+        for (let k = 0; k < 16; k++) fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, vx: rand(-5, 5), vy: rand(1, 8), vz: rand(-5, 5), life: 0.7, size0: 0.4, size1: 0.05, color0: star, gravity: 0.5, drag: 1.5 });
+        const n = this.progress.objectives(this.stats.world)[0]?.value ?? 0;
+        this.toast?.(`Star fragment collected (${Math.min(4, n)}/4)`, 2.5);
+      }
+    }
+    st.frags = st.frags.filter((f) => f.life > 0);
+  }
+
+  // ---------- 20. The Overlord: a shielded mothership ----------
+  // Three shield rounds: the shield holds until its pylons (small UFOs,
+  // marked) are shot down; then the hull can be hurt, for a minute at most
+  // before the shield returns; at 70% and 40% health it re-forms with fresh
+  // pylons and reinforcements (a red squad on the ground, more escorts), and
+  // at 15% for the last time: the final stretch has no shield, and it fights
+  // harder. Killing it ends the mission.
+  _boss() {
+    const st = this.state;
+    const p = this.player.position;
+    const boss = st.boss;
+    if (!this._alive(boss)) {
+      this.bossInfo = null;
+      if ((this.progress.objectives(this.stats.world)[0]?.value ?? 0) >= 1) return;
+      st.waitT = (st.waitT ?? 2) - 0.5;
+      this.target = null;
+      if (st.waitT > 0) return;
+      st.waitT = 25;
+      const u = this._spawnUfo({ size: "mothership", style: "sweep", design: "saucer" }, 520, false);
+      u.boss = true;
       u.noLeave = true;
       u.missionTarget = true;
-      u.home = u.pos.clone();
-      u.tether = 150;
-      st.ship = u;
-      for (let i = 0; i < 3; i++) {
-        const e = this.ufos.spawn({ size: "small", pos: { x: u.pos.x + rand(-60, 60), y: u.pos.y - 20, z: u.pos.z + rand(-60, 60) }, hidden: true });
-        e.home = u.pos.clone();
-        e.tether = 120;
-      }
-      this.toast?.("A MOTHERSHIP has arrived, with an escort!", 5);
+      u.dodgeMul = 0;
+      u.home = p.clone();
+      u.tether = 240;
+      u.maxHealth = u.health = 5200;
+      u.shield = true;
+      u.shieldRound = 0;
+      u.shieldAt = [0.7, 0.4, 0.15];
+      u.bossHook = (b) => this._bossHook(b);
+      st.boss = u;
+      st.pylons = [];
+      st.escorts = [];
+      st.phase = 0;
+      st.raise = true;
+      st.shieldDownT = 0;
+      this.toast?.("THE OVERLORD is here! Its shield is up: shoot down the pylons (marked).", 6);
+      return;
     }
-    this._setTarget(st.ship, "Mothership");
+    // The shield, the pylons, the escort.
+    st.pylons = (st.pylons || []).filter((u) => this._alive(u));
+    st.escorts = (st.escorts || []).filter((u) => this._alive(u));
+    if (boss.shield && st.raise && st.pylons.length === 0) {
+      st.raise = false;
+      this._bossPylons(boss, [3, 4, 4, 4][Math.min(3, boss.shieldRound)]);
+      this._bossReinforce(boss, boss.shieldRound);
+    } else if (boss.shield && !st.raise && st.pylons.length === 0) {
+      boss.shield = false;
+      st.shieldDownT = 60;
+      this.toast?.("SHIELD DOWN! Hit the hull with everything: you have about a minute!", 5);
+      this.audio?.playNotice?.();
+    } else if (!boss.shield) {
+      st.shieldDownT -= 0.5;
+      if (st.shieldDownT <= 0 && boss.shieldRound < boss.shieldAt.length) {
+        // The shield comes back early (same round: the hull keeps its damage).
+        boss.shield = true;
+        st.raise = true;
+        this.toast?.("The shield is back! More pylons...", 4);
+      }
+    }
+    // Berserk at the end: it fires faster and heavier.
+    const frac = boss.health / boss.maxHealth;
+    const phase = boss.shieldRound >= 3 ? 3 : boss.shieldRound;
+    if (phase !== st.phase) {
+      st.phase = phase;
+      boss.style = ["sweep", "heavy", "charged", "seeker"][phase] || "sweep";
+      boss.laserKey = STYLE_COLOR[boss.style] || boss.laserKey;
+      if (phase === 3) this.toast?.("The Overlord is wounded and furious: no more shields! Finish it!", 5);
+    }
+    this.bossInfo = { name: "THE OVERLORD", health: Math.max(0, Math.min(1, frac)), shield: !!boss.shield, pylons: st.pylons.length, downT: boss.shield ? 0 : st.shieldDownT, final: phase === 3 };
+    // The marker: a pylon while the shield is up, else the hull.
+    if (boss.shield && st.pylons.length) {
+      st.pylons.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
+      this._setTarget(st.pylons[0], `Shield pylon (${st.pylons.length} left)`);
+    } else this._setTarget(boss, "The Overlord");
+    this.state.note = boss.shield ? `Shield up: ${st.pylons.length} pylons` : phase === 3 ? "Last stand: no shield" : `Shield down for ${Math.ceil(st.shieldDownT)} s`;
   }
+
+  // Called when the boss takes damage: at each threshold the health stops
+  // there, the shield re-forms, and the fight moves to the next round.
+  _bossHook(b) {
+    const next = b.shieldAt[b.shieldRound];
+    if (next === undefined || b.shield) return;
+    if (b.health <= next * b.maxHealth) {
+      b.health = Math.max(1, Math.round(next * b.maxHealth));
+      b.shield = true;
+      b.shieldRound++;
+      this.state.raise = true;
+      this.state.shieldDownT = 0;
+      if (b.shieldRound < b.shieldAt.length) this.toast?.(`SHIELD RESTORED (${b.shieldRound}/${b.shieldAt.length}): shoot down the pylons again!`, 5);
+      else this.toast?.("Its shield flickers back for the last time: pylons!", 5);
+    }
+  }
+
+  _bossPylons(boss, n) {
+    const st = this.state;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random();
+      const d = rand(80, 130);
+      const x = boss.pos.x + Math.cos(a) * d;
+      const z = boss.pos.z + Math.sin(a) * d;
+      const ground = Math.max(this.terrain.heightAt(Math.floor(x), Math.floor(z)), SEA_LEVEL);
+      const u = this.ufos.spawn({ size: "small", style: i % 2 ? "rapid" : "volley", pos: { x, y: ground + rand(35, 60), z }, hidden: true });
+      u.pylon = true;
+      u.noLeave = true;
+      u.missionTarget = true;
+      u.dodgeMul = 0.3;
+      u.home = boss.pos.clone();
+      u.tether = 150;
+      u.maxHealth = u.health = 110;
+      st.pylons.push(u);
+    }
+  }
+
+  // What comes with each shield: round 0 two medium escorts, round 1 a red
+  // squad drops in as well, rounds 2-3 two more escorts (and the last stretch is the boss alone).
+  _bossReinforce(boss, round) {
+    const st = this.state;
+    const p = this.player.position;
+    const escorts = round === 0 ? 2 : round === 2 ? 2 : round === 1 ? 1 : 0;
+    for (let i = 0; i < escorts && st.escorts.length < 4; i++) {
+      const e = this.ufos.spawn({ size: "medium", pos: { x: boss.pos.x + rand(-80, 80), y: boss.pos.y - 25, z: boss.pos.z + rand(-80, 80) }, hidden: true });
+      e.home = boss.pos.clone();
+      e.tether = 160;
+      e.noLeave = true;
+      st.escorts.push(e);
+    }
+    if (round === 1) {
+      const at = this._groundSpot(70, 0.2) || new THREE.Vector3(p.x + 70, 0, p.z);
+      let n = 0;
+      for (let i = 0; i < 3; i++) if (this._spawnAlien("alien_red", 6, at)) n++;
+      if (n) {
+        this._dropship(at, "alien_red");
+        this.toast?.("The Overlord has dropped a red squad on you!", 4);
+      }
+    }
+  }
+
+  // Every frame: a shimmering shell around the boss while its shield is up.
+  _fxBoss(dt) {
+    const st = this.state;
+    const b = st.boss;
+    const fx = this.effects;
+    if (!b || !fx || !this._alive(b) || !b.shield) return;
+    const c = this._shieldC || (this._shieldC = new THREE.Color(0.3, 1.1, 2.4));
+    const n = 5;
+    for (let i = 0; i < n; i++) {
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(rand(-0.3, 1));
+      const R = b.radius * 1.18;
+      fx.glow.spawn({ x: b.pos.x + R * Math.sin(ph) * Math.cos(th), y: b.pos.y + R * 0.5 * Math.cos(ph), z: b.pos.z + R * Math.sin(ph) * Math.sin(th), life: 0.3, size0: b.radius * 0.1, size1: b.radius * 0.04, color0: c, alpha: 0.5 });
+    }
+  }
+
+
 
   // 14. Operation Sunburn: the nearest airport is an enemy base, guarded by
   // UFOs and fighters; a nuke on it completes the mission.
@@ -813,6 +1167,13 @@ export class MissionDirector {
   // A UFO the player shot down: raiders count for the village mission.
   ufoDown(u) {
     if (u.raider) this.stats.add("raidersDown");
+    if (u.boss) {
+      this.stats.add("bossesDown");
+      this.toast?.("THE OVERLORD HAS FALLEN!", 6);
+      this.bossInfo = null;
+      // Its pylons and escorts go down with it.
+      for (const o of [...(this.state.pylons || []), ...(this.state.escorts || [])]) if (this._alive(o)) this.ufos.damage(o, 99999, true);
+    }
   }
 
   // Extra lines for the HUD (below the objectives).

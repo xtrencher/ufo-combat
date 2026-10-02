@@ -519,8 +519,18 @@ export class UfoManager {
       }
       return false;
     }
+    // A shielded ship (the Overlord): nothing gets through until the shield is down.
+    if (u.shield) {
+      if (byPlayer && this.time - (u.shieldMsgT ?? -99) > 5) {
+        u.shieldMsgT = this.time;
+        this.onMessage?.("The shield holds! Shoot down the pylons first.");
+      }
+      if (from && from.isVector3) this.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.25, size0: 3 + u.radius * 0.1, size1: 0.5, color0: this._shieldHit || (this._shieldHit = new THREE.Color(0.4, 1.2, 2.6)), alpha: 0.8 });
+      return false;
+    }
     u.health -= amount;
     u.hurtTime = 0;
+    if (u.bossHook) u.bossHook(u);
     // Attacked by an enemy fighter: it fights back (and dodges).
     if (attacker && !byPlayer) {
       u.foe = attacker;

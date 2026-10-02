@@ -620,6 +620,191 @@ await check("player UFO: holding T locks a UFO and, after 3 s, fires a salvo of 
 });
 
 
+// ================= Part 6: missions =================
+
+// Starts mission `id` of the chain in Survival (the director sets it up on its next updates).
+const startMission = (id) =>
+  v((g, id) => {
+    g.testFlags.noMissions = false;
+    g.setMode("survival");
+    g.progress.enabled = true;
+    g.missions.enabled = true;
+    g.player.health = 20;
+    g.ufos.clear();
+    g.mobs.clear();
+    const idx = g.progress.constructor === undefined ? -1 : null;
+    return true;
+  }, id);
+const stepMission = (id, n = 8) =>
+  v(async (g, [id, n]) => {
+    const { MISSIONS } = await import("./js/progression.js");
+    g.progress.step = MISSIONS.findIndex((m) => m.id === id);
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
+    g.missions.state = { t: 0 };
+    g.missions.missionId = id;
+    g.missions.base = null;
+    for (let i = 0; i < n; i++) {
+      g.missions.checkT = 0;
+      g.missions.update(0.5);
+    }
+    return g.progress.mission?.id;
+  }, [id, n]);
+
+await check("mission chain: 21 missions in the right order (touchdown after wings, meteors, the Overlord before the slayer)", async () => {
+  const r = await v(async () => {
+    const { MISSIONS } = await import("./js/progression.js");
+    const ids = MISSIONS.map((m) => m.id);
+    return { n: ids.length, ids };
+  });
+  const at = (id) => r.ids.indexOf(id);
+  assert(r.n === 21 && at("touchdown") === at("wings") + 1 && at("overlord") === at("slayer") - 1 && at("meteors") > at("reds"), JSON.stringify(r));
+});
+
+await check("mission Touchdown: a jet landing on a runway starts a red squad on the ground; killing it completes the mission", async () => {
+  await startMission("touchdown");
+  const r = await v(async (g) => {
+    const { MISSIONS } = await import("./js/progression.js");
+    const site = g.sites.home;
+    const [ux, uz] = g.sites.dirU(site);
+    // Ground around the runway centre must be loaded.
+    g.player.position.set(site.x, site.y + 3, site.z);
+    g.streamAround(site.x, site.z);
+    return { ok: !!site, x: site.x, y: site.y, z: site.z, size: site.size, half: site.half, idx: MISSIONS.findIndex((m) => m.id === "touchdown") };
+  });
+  assert(r.ok && r.half >= 380, JSON.stringify(r));
+  await until((g) => g.world.getChunk(Math.floor(window.__home?.x ?? g.sites.home.x) >> 4, Math.floor(g.sites.home.z) >> 4), 60000);
+  const out = await v(async (g) => {
+    const site = g.sites.home;
+    await (async () => {})();
+    window.__home = site;
+    const { MISSIONS } = await import("./js/progression.js");
+    g.progress.step = MISSIONS.findIndex((m) => m.id === "touchdown");
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
+    g.missions.state = { t: 0 };
+    g.missions.missionId = "touchdown";
+    for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
+    const jet = g.vehicles.create("jet", { pos: [site.x, site.y + 60, site.z], yaw: 0, airborne: true, speed: 120, throttle: 0.5 });
+    g.vehicles.enter(jet);
+    const tick = () => { g.missions.checkT = 0; g.missions.update(0.5); };
+    tick();
+    const flew = !!g.missions.state.air;
+    const label0 = g.missions.target?.label;
+    // Touch down on the runway and stop.
+    jet.pos.set(site.x, site.y + 2.4, site.z);
+    jet.vel.set(0, 0, 0);
+    jet.onGround = true;
+    tick();
+    const landings = g.stats.world.landings;
+    return { flew, label0, landings, landed: !!g.missions.state.landed };
+  });
+  assert(out.flew && out.landed && out.landings >= 1, JSON.stringify(out));
+  const squad = await until((g) => {
+    g.missions.checkT = 0;
+    g.missions.update(0.5);
+    const reds = g.mobs.mobs.filter((m) => m.kind === "alien_red" && !m.dead);
+    return reds.length >= 3 ? reds.length : 0;
+  }, 60000);
+  assert(squad >= 3, `a red squad of ${squad}`);
+  const done = await v(async (g) => {
+    g.vehicles.exit({ force: true });
+    for (const m of g.mobs.mobs.filter((x) => x.kind === "alien_red")) g.mobs.shoot(m, 9999, new g.THREE.Vector3(1, 0, 0), 1);
+    for (let i = 0; i < 6; i++) { g.missions.checkT = 0; g.missions.update(0.5); g.mobs.update(0.1); g.progress.update(g.stats.world); }
+    return { squadKilled: g.stats.world.landingSquad, next: g.progress.mission?.id };
+  });
+  assert(done.squadKilled >= 3 && done.next === "dogfight", JSON.stringify(done));
+  await v((g) => { g.mobs.clear(); g.ufos.clear(); g.setMode("creative"); });
+});
+
+await check("mission Falling stars: meteors fall by red rings, craters leave star fragments, walking into them collects them", async () => {
+  await startMission("meteors");
+  const r = await v(async (g) => {
+    const { MISSIONS } = await import("./js/progression.js");
+    g.progress.step = MISSIONS.findIndex((m) => m.id === "meteors");
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
+    g.missions.state = { t: 0 };
+    g.missions.missionId = "meteors";
+    g.sky.setHours(12);
+    const out = { strikes: 0, frags: 0, collected: 0, ringsSeen: 0, impacts0: g.weapons.airstrike.impacts };
+    const dt = 0.1;
+    for (let t = 0; t < 70; t += dt) {
+      g.missions.update(dt);
+      g.weapons.airstrike.update(dt, g.effects.listener);
+      g.effects.update?.(dt);
+      const st = g.missions.state;
+      out.ringsSeen = Math.max(out.ringsSeen, (st.rings || []).length);
+      out.frags = Math.max(out.frags, (st.frags || []).length);
+      // Walk to the nearest fragment.
+      const f = (st.frags || [])[0];
+      if (f) g.player.position.set(f.pos.x, f.pos.y, f.pos.z);
+      g.player.health = 20;
+    }
+    out.collected = g.stats.world.meteorFragments;
+    out.night = g.sky.hours >= 19.5 || g.sky.hours < 5.5;
+    out.impacts = g.weapons.airstrike.impacts - out.impacts0;
+    return out;
+  });
+  assert(r.ringsSeen >= 1 && r.impacts >= 1 && r.frags >= 1 && r.collected >= 1 && r.night, JSON.stringify(r));
+  await v((g) => { g.setMode("creative"); g.weapons.airstrike.clear(); });
+});
+
+await check("mission The Overlord: a shielded boss with pylons; no damage until they fall; shield rounds with a red squad; its death completes the mission", async () => {
+  await startMission("overlord");
+  const r = await v(async (g) => {
+    const { MISSIONS } = await import("./js/progression.js");
+    g.progress.step = MISSIONS.findIndex((m) => m.id === "overlord");
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
+    g.missions.state = { t: 0 };
+    g.missions.missionId = "overlord";
+    const tick = (n = 4) => { for (let i = 0; i < n; i++) { g.missions.checkT = 0; g.missions.update(0.5); } };
+    tick(8);
+    const boss = g.ufos.ufos.find((u) => u.boss);
+    if (!boss) return { err: "no boss" };
+    const out = { size: boss.size, hp: boss.maxHealth, shield: boss.shield, pylons: g.ufos.ufos.filter((u) => u.pylon).length };
+    out.blocked = g.ufos.damage(boss, 500, true) === false && boss.health === boss.maxHealth;
+    out.bar = !!g.missions.bossInfo;
+    // Pylons down: the shield drops.
+    for (const p of g.ufos.ufos.filter((u) => u.pylon)) g.ufos.damage(p, 9999, true);
+    for (let i = 0; i < 40; i++) g.ufos.update(0.1);
+    tick(6);
+    out.shieldDown = !boss.shield;
+    // Hit it to the first threshold: the shield comes back with fresh pylons and a squad.
+    const got = g.ufos.damage(boss, boss.maxHealth * 0.4, true);
+    out.hitLanded = got === true;
+    tick(6);
+    out.round = boss.shieldRound;
+    out.shield2 = boss.shield;
+    out.pylons2 = g.ufos.ufos.filter((u) => u.pylon && !u.falling).length;
+    out.reds = g.mobs.mobs.filter((m) => m.kind === "alien_red" && !m.dead).length;
+    out.hpAt = Math.round((boss.health / boss.maxHealth) * 100);
+    // The rest, round by round.
+    for (let k = 0; k < 4 && !boss.falling; k++) {
+      for (const p of g.ufos.ufos.filter((u) => u.pylon && !u.falling)) g.ufos.damage(p, 9999, true);
+      for (let i = 0; i < 30; i++) g.ufos.update(0.1);
+      tick(6);
+      g.ufos.damage(boss, boss.maxHealth * 0.5, true);
+      tick(2);
+    }
+    out.rounds = boss.shieldRound;
+    out.falling = boss.falling;
+    // Bring it down.
+    boss.pos.y = Math.max(g.world.heightAt(Math.floor(boss.pos.x), Math.floor(boss.pos.z)) + 5, 5);
+    for (let i = 0; i < 400 && boss.state !== "gone"; i++) {
+      g.ufos.update(0.1);
+      g.effects.update?.(0.1);
+    }
+    tick(2);
+    out.down = g.stats.world.bossesDown;
+    g.progress.update(g.stats.world);
+    out.next = g.progress.mission?.id;
+    return out;
+  });
+  assert(r.size === "mothership" && r.shield && r.pylons >= 3 && r.blocked && r.bar, JSON.stringify(r));
+  assert(r.shieldDown && r.hitLanded && r.round === 1 && r.shield2 && r.pylons2 >= 4 && r.reds >= 3, JSON.stringify(r));
+  assert(r.falling && r.down >= 1 && r.next === "slayer", JSON.stringify(r));
+  await v((g) => { g.mobs.clear(); g.ufos.clear(); g.setMode("creative"); });
+});
+
+
 // ---------- Summary ----------
 const failed = results.filter(([, ok]) => !ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed${errors.length ? `; console errors: ${errors.length}` : ""}.`);

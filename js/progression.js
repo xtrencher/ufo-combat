@@ -53,7 +53,7 @@ export const MAX_TIER = 5;
 
 // ---------- Missions ----------
 //
-// A chain of nineteen missions with a steady difficulty curve. It starts on
+// A chain of twenty-one missions with a steady difficulty curve. It starts on
 // foot with a sword: a skeleton (its bow), a UFO that lands and lets its crew
 // out (they give you a moment before they attack), the first supply crate (a
 // pistol), a first scout to shoot down and its crew, a night; then alien
@@ -186,6 +186,19 @@ export const MISSIONS = [
     rules: R({ small: 3, medium: 3, large: 0.5 }, 0.85, 0.8, 0.8, 2, 0.025, GREEN_GRAY),
   },
   {
+    id: "touchdown",
+    title: "Touchdown",
+    text: "Bring a jet back down: land it on an airport's runway (F3 shows the nearest airport; line up with the runway, throttle down to about 30%, hold Space for the air brakes and the wheel brakes) and stop. The aliens will not let you rest: a red squad drops in on the ground. Get out (F) and finish them.",
+    objectives: [
+      { stat: "landings", goal: 1, label: "Jet landed on a runway" },
+      { stat: "landingSquad", goal: 3, label: "Red aliens killed" },
+    ],
+    reward: [[ITEM.GOLDEN_APPLE, 2]],
+    event: "landjet",
+    tier: 3,
+    rules: R({ small: 3, medium: 3, large: 0.5 }, 0.87, 0.82, 0.82, 2, 0.026, GREEN_GRAY),
+  },
+  {
     id: "dogfight",
     title: "Dogfight",
     text: "Shoot down two UFOs from your jet: the cannon (left click), a missile (a click fires one straight ahead) or a missile lock (hold right click, release when LOCKED).",
@@ -227,6 +240,16 @@ export const MISSIONS = [
     rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
   },
   {
+    id: "meteors",
+    title: "Falling stars",
+    text: "A meteor storm is falling out of the night sky. Every rock is announced by a red ring on the ground: keep out of it. The craters leave glowing star fragments (marked): collect four before the alien salvagers carry them off.",
+    objectives: [{ stat: "meteorFragments", goal: 4, label: "Star fragments collected" }],
+    reward: [[ITEM.GOLDEN_APPLE, 4]],
+    event: "meteors",
+    tier: 4,
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
+  },
+  {
     id: "salvage",
     title: "Salvage",
     text: "The next UFO you shoot down will come down in one piece. Board it (walk up, press F): alien ships are yours to fly from now on, the ones kept in the guarded bunkers of airports too.",
@@ -247,16 +270,6 @@ export const MISSIONS = [
     rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 4, 0.04, ALL_CREWS),
   },
   {
-    id: "mothership",
-    title: "Mothership",
-    text: "A mothership has arrived, with an escort. Destroy it: railgun beams, missile salvos (hold the lock), your own UFO's weapons and the nuke hit hardest.",
-    objectives: [{ stat: "ufosDownBig", goal: 1, label: "Mothership destroyed" }],
-    reward: [[ITEM.GOLDEN_APPLE, 6]],
-    event: "mothership",
-    tier: 5,
-    rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.5, giant: 0.08 }, 1.05, 1.05, 1.1, 5, 0.045, ALL_CREWS),
-  },
-  {
     id: "sunburn",
     title: "Operation Sunburn",
     text: "The aliens have taken an airport and turned it into a base (marked). Fly there and drop your nuke on it (B in the jet). Fighters and UFOs guard it.",
@@ -265,6 +278,16 @@ export const MISSIONS = [
     event: "airport",
     tier: 5,
     rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
+  },
+  {
+    id: "overlord",
+    title: "The Overlord",
+    text: "The invasion's flagship has come for you: the Overlord, a mothership with a shield. Its pylons (marked) hold the shield up: shoot them down, then hit the hull with everything you have (the railgun is made for this) before the shield comes back. Three shields, an escort, and a squad that drops in: you can do it on foot.",
+    objectives: [{ stat: "bossesDown", goal: 1, label: "The Overlord destroyed" }],
+    reward: [[ITEM.GOLDEN_APPLE, 12]],
+    event: "boss",
+    tier: 5,
+    rules: R(LATE, 1.12, 1.12, 1.25, 5, 0.05, ALL_CREWS),
   },
   {
     id: "slayer",
@@ -281,6 +304,15 @@ export const MISSIONS = [
 // The Round 3 chain (v3 saves, fifteen missions): which new mission a save
 // whose current v3 mission was N continues with (the new opening missions
 // are skipped for them: they already have their weapons).
+// The Round 4/5 chain (v4 saves, nineteen missions): ids by step. Round 6 added the
+// landing, the meteor storm and the boss (and moved the mothership fight to the end).
+const V4_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "dogfight", "air_superiority", "village", "reds", "salvage", "big_game", "mothership", "sunburn", "slayer"];
+function v4StepToV5(step) {
+  if (!(step < V4_IDS.length)) return MISSIONS.length;
+  const idx = MISSIONS.findIndex((m) => m.id === V4_IDS[step]);
+  // (The old mothership mission is the Overlord's forerunner: that player carries on with the base.)
+  return idx >= 0 ? idx : MISSIONS.findIndex((m) => m.id === "sunburn");
+}
 const V3_STEP_TO_V4 = [0, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 18, 19];
 
 // The old seven-mission chain (Round 2 saves): how many new missions a save
@@ -367,16 +399,21 @@ export class Progress {
   }
 
   serialize() {
-    return { v: 4, step: this.step, base: this.base, done: this.done };
+    return { v: 5, step: this.step, base: this.base, done: this.done };
   }
 
   load(data, stats) {
     if (data && Number.isInteger(data.step) && data.step >= 0) {
-      if (data.v !== 4) {
+      if (data.v !== 5) {
         // An older save: carry its progress over to the new chain (Round 2
-        // -> Round 3 -> Round 4).
-        const v3 = data.v === 3 ? data.step : OLD_STEP_TO_NEW[Math.min(data.step, OLD_STEP_TO_NEW.length - 1)];
-        this.step = Math.min(MISSIONS.length, V3_STEP_TO_V4[Math.min(v3, V3_STEP_TO_V4.length - 1)]);
+        // -> Round 3 -> Round 4 -> Round 6).
+        let v4step;
+        if (data.v === 4) v4step = data.step;
+        else {
+          const v3 = data.v === 3 ? data.step : OLD_STEP_TO_NEW[Math.min(data.step, OLD_STEP_TO_NEW.length - 1)];
+          v4step = V3_STEP_TO_V4[Math.min(v3, V3_STEP_TO_V4.length - 1)];
+        }
+        this.step = Math.min(MISSIONS.length, v4StepToV5(v4step));
         this.done = MISSIONS.slice(0, this.step).map((m) => m.id);
         this.base = { ...this._pick(stats) };
         return;

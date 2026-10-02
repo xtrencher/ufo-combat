@@ -1091,6 +1091,19 @@
   #vehicle-hud, #vehicle-info, #mission-tracker, #stats-overlay { border-radius: 12px; border-color: var(--ui-line); background: rgba(10,15,24,0.66); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   #death-screen .btn, #respawn-btn { border-radius: 10px; }
 
+
+  /* The boss bar (the Overlord) */
+  #boss-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(520px, 56vw); z-index: 11; pointer-events: none; text-align: center; text-shadow: 0 1px 4px #000; }
+  #boss-bar.hidden { display: none; }
+  #boss-bar .bb-name { font: 800 14px var(--ui-font); letter-spacing: 6px; color: #ffd0c0; margin-bottom: 4px; }
+  #boss-bar .bb-track { height: 12px; border-radius: 7px; background: rgba(10,14,22,0.7); border: 1px solid rgba(255,255,255,0.3); overflow: hidden; box-shadow: 0 0 14px rgba(0,0,0,0.5); }
+  #boss-bar .bb-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #d2451f, #ffb23a); transition: width 0.25s; }
+  #boss-bar.shielded .bb-track { border-color: #5ad2ff; box-shadow: 0 0 16px rgba(80,200,255,0.6); }
+  #boss-bar.shielded .bb-fill { background: linear-gradient(90deg, #3a8fc4, #8fe3ff); }
+  #boss-bar.final .bb-fill { background: linear-gradient(90deg, #8a0f0f, #ff3a2a); animation: bb-pulse 0.6s ease-in-out infinite alternate; }
+  #boss-bar .bb-note { font: 700 11px ui-monospace, Consolas, monospace; letter-spacing: 2px; color: #bff6ff; margin-top: 3px; }
+  #boss-bar.final .bb-note { color: #ff9a8a; }
+  @keyframes bb-pulse { to { filter: brightness(1.5); } }
   /* Fullscreen: a small corner button that fades in when the mouse comes near it */
   #fs-zone { position: fixed; top: 0; right: 0; width: 84px; height: 84px; z-index: 300; display: flex; align-items: flex-start; justify-content: flex-end; padding: 14px; box-sizing: border-box; }
   #fs-zone.hidden { display: none; }
@@ -1125,6 +1138,7 @@
     <div id="reload-bar" class="hidden"><div></div></div>
     <div id="vehicle-hud" class="hidden"></div>
     <div id="vehicle-info" class="hidden"></div>
+    <div id="boss-bar" class="hidden"><div class="bb-name">THE OVERLORD</div><div class="bb-track"><div class="bb-fill"></div></div><div class="bb-note"></div></div>
     <div id="mission-tracker" class="hidden"></div>
     <div id="mission-marker" class="hidden"><div class="mm-mark"></div><div class="mm-label"></div></div>
     <div id="missile-warn" class="hidden"><div class="mw-arrow"></div><div class="mw-text">MISSILE</div></div>

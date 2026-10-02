@@ -665,7 +665,7 @@ await check("world and graphics: 128-tall world, render distance up to 256 chunk
 
 // ================= Part 6: missions and balance =================
 
-await check("missions: the chain (19 missions in Round 4) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
+await check("missions: the chain (21 missions in Round 6) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
   await v((g) => {
     g.setMode("survival");
     g.ufos.config.activity = 1;
@@ -730,7 +730,7 @@ await check("missions: the chain (19 missions in Round 4) from a pistol scout to
   // Late missions: a village raid, a mothership, the enemy base (set up by the director).
   const late = await v(async (g) => {
     const out = {};
-    for (const [step, key] of [[12, "village"], [16, "mothership"], [17, "airport"]]) {
+    for (const [step, key] of [[13, "village"], [19, "boss"], [18, "airport"]]) {
       g.progress.step = step;
       g.progress.base = { ...g.progress._pick(g.stats.world) };
       g.missions.state = { t: 0 };
@@ -739,7 +739,7 @@ await check("missions: the chain (19 missions in Round 4) from a pistol scout to
         g.missions.checkT = 0;
         g.missions.update(0.5);
       }
-      out[key] = { target: !!g.missions.target, label: g.missions.target?.label, raiders: g.ufos.ufos.filter((u) => u.raider).length, ship: g.ufos.ufos.some((u) => u.size === "mothership" && u.missionTarget) };
+      out[key] = { target: !!g.missions.target, label: g.missions.target?.label, raiders: g.ufos.ufos.filter((u) => u.raider).length, ship: g.ufos.ufos.some((u) => u.size === "mothership" && u.boss) };
     }
     // Nuking the base completes Operation Sunburn.
     const b = g.missions.base;
@@ -752,7 +752,7 @@ await check("missions: the chain (19 missions in Round 4) from a pistol scout to
   });
   const j = JSON.stringify(late);
   assert(late.village.target && late.village.raiders === 3, `the village raid: ${j}`);
-  assert(late.mothership.ship, `the mothership: ${j}`);
+  assert(late.boss.ship, `the boss mothership: ${j}`);
   assert(late.airport.target && /base/i.test(late.airport.label) && late.nuked === 1, `the enemy base: ${j}`);
   // The mission list in the pause menu.
   const list = await v((g) => {
@@ -761,7 +761,7 @@ await check("missions: the chain (19 missions in Round 4) from a pistol scout to
     const l = g.progress.list(g.stats.world);
     return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
   });
-  assert(list.n === 19 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  assert(list.n === 21 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
   await v((g) => {
     g.progress.load(null, g.stats.world);
     g.setMode("creative");
