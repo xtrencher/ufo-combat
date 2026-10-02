@@ -2967,9 +2967,10 @@ function simulate(dt, frameTime) {
   // The world keeps running behind the inventory and death screens; only
   // the pause and start menus freeze it. Online nothing pauses: the pause
   // menu just takes your hands off the controls (a guest who hasn't clicked
-  // into the game yet sees the world go on behind the menu).
+  // into the game yet, or a host still on the main menu, sees the world go on
+  // behind the menu).
   const online = mp.active;
-  const running = gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || (GUEST && gameState === "start")));
+  const running = gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || gameState === "start"));
   if (running) {
     if (gameState !== "start") player.update(dt);
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
