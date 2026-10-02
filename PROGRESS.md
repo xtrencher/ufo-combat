@@ -1838,3 +1838,75 @@ Source of truth for this round. Ticked as finished; decisions in "Round 6 decisi
 - Zero console errors in every suite that ran.
 
 ROUND 6 COMPLETE
+
+# Round 7 (UFO COMBAT) checklist: MULTIPLAYER
+
+Source of truth for this round. Round 6 was complete (all items ticked) before this round started.
+
+## Design plan (written before coding)
+- **Topology:** PeerJS (WebRTC data channels) with its free public signaling server; one host, clients connect only to the host (star). The host relays player states between clients. Room code = 5 characters (no 0/O/1/I), peer id `ufocombat7-<code>`. ICE (STUN, TURN placeholder) and the signaling server live in one file (`js/net/config.js`).
+- **Two channels per client:** a reliable ordered channel (events, block edits, join state, chat-like messages) and an unreliable unordered one (player/vehicle states at 20 Hz, entity snapshots at 15 Hz): a lost movement packet is never retransmitted late (the next one is newer anyway), which is what action games do. Large messages (the join state) are split into chunks.
+- **Authority:** the host simulates everything shared: UFOs, hostile creatures (zombies, skeletons, spiders, aliens, guards), enemy jets, missions, supply logic, time of day and the rules. Clients simulate only their own player, their own vehicle, their own projectiles, and *ambient* life (passive animals, fish, birds, butterflies, villagers: cosmetic, not shared, like ambient wildlife in many online games).
+- **Hits:** "favour the shooter" for direct fire: a client's bullets, bolts, rail beam and melee are tested against the client's own interpolated copies of the host's creatures/UFOs/jets; a hit becomes a *hit claim* to the host, which applies it (the host stays the judge of health, deaths, kills and mission progress). Homing missiles and explosions are judged by the *victim*: each peer applies blasts and enemy missiles/bolts to its own player and vehicle, so dodging, flares and the roll evasion work exactly on what you see. Host AI melee (zombies) and sweeps reach a remote player through a *proxy* player object that forwards the damage.
+- **AI targeting:** UFOs, creatures and enemy jets pick the nearest player (host or remote) through proxy objects that look like the local `Player` (position, velocity, vehicle, damage(), applyImpulse()); the existing AI code runs unchanged per target. The host keeps terrain generated (not drawn) around remote players on foot so creatures there have ground to walk on.
+- **World:** both sides generate the same terrain from the seed; only block edits travel (run-length encoded per chunk, the save format). Every local edit (mining, building, craters, water flow, falling sand) is captured once on the peer that caused it and sent; the host applies, relays, and resolves races (two players changing the same block within ~1.5 s: the host's final value is sent back to the sender). Remote edits do not wake the local water/sand simulation (the originator already simulated it). A joining player gets every edit of the world (chunked) plus the full game state.
+- **Interpolation:** remote players, vehicles, UFOs, creatures and jets are drawn ~100 ms in the past between two received states (extrapolated briefly on a gap, snapped on a teleport), with sender clocks mapped by a running offset estimate. Positions are quantised (cm) to keep packets small; entity snapshots are interest-managed (only what is near each client).
+- **Vehicles:** every vehicle has an owner (the peer that drives it, or last drove it); the owner simulates it and sends its state, others see a *puppet* (the same model, animated from the state: throttle, afterburner, gear, control surfaces, air brakes, beam). Boarding another peer's empty vehicle is a *claim* the host arbitrates (first come, first served), ownership moves. Parked airport jets are generated locally on every peer from the seed; boarding one announces it so others remove their copy.
+- **Joining:** joining opens the game with `?join=CODE` (also an invite link). The page connects *before* it builds the world (top-level await), so the client gets the host's seed without a second reload; a guest session never writes to the guest's own saves.
+- **Lag/background:** the simulation keeps running in multiplayer when a player opens the pause menu (no pausing an online world) and, when the tab is hidden, a Web Worker clock keeps the host simulating at 20 Hz (browsers stop requestAnimationFrame in background tabs, which would freeze everyone). Heartbeats every second; a peer silent for 10 s is dropped.
+- **Disconnects:** a client leaving: its avatar goes, its occupied vehicle is removed, its parked vehicles become the host's. The host leaving: clients see a clear "The host left the game" screen with a button back to single player. Signaling/ICE failures give specific messages (room not found, network blocks peer-to-peer, signaling server unreachable) with what to try.
+- **Modes:** only the host picks Survival / Creative / Dogfight and the rule settings; clients receive them (their rule rows are locked "set by the host"; their own saved settings are never touched). Survival: one shared mission chain run by the host, objectives count everyone's kills, every player gets the reward and their own loot rolls (instanced loot, like most co-op games: no fighting over drops), enemies scale with the group (health and squad sizes). Dogfight: everyone in a jet, respawn in a jet in the air nearby, kills/deaths scoreboard (Tab), host-set death limit, results screen for everyone.
+- **Mods:** sync goes through a small registry (`net.registerSync(name, {...})` / `net.on(type, fn)`), so a new mod can add its own replicated state without touching the core.
+
+## Group 1: Networking core
+- [ ] 1.1 js/net/config.js (signaling, STUN, TURN placeholder, rates), PeerJS loader (lazy, CDN)
+- [ ] 1.2 Session: host/join, room codes, reliable + unreliable channels, handshake (version, nickname), heartbeat, clock offset, chunked bulk messages, relay, sync registry
+- [ ] 1.3 Join boot flow (?join=CODE, connect before the world is built, seed from host), guest sessions never save
+- [ ] 1.4 Disconnect handling and error messages (host left, kicked, room not found, ICE failure, timeouts)
+- [ ] 1.5 Background tab simulation (worker clock) and no pausing of the world in multiplayer
+
+## Group 2: Players
+- [ ] 2.1 Nicknames (everyone, host included), stored locally
+- [ ] 2.2 Player states at 20 Hz, interpolation, remote avatars (walk/sneak/swim/fly/held item/death), nameplates above heads and vehicles
+- [ ] 2.3 Remote vehicles as puppets (jets: throttle, afterburner, gear, surfaces, brakes; UFOs: tilt, lights, beam), ownership, claims, airport jets
+
+## Group 3: World and rules sync
+- [ ] 3.1 Block edits: capture, send, apply, race resolution, full edit transfer on join
+- [ ] 3.2 Explosions, nuke, airstrike meteors and weapon effects mirrored (tracers, bolts, rockets, grenades, arrows, rail beams)
+- [ ] 3.3 Time of day, mode and rule settings from the host (host only can change them; clients locked)
+
+## Group 4: Host-authoritative entities and combat
+- [ ] 4.1 UFOs, hostile creatures, enemy jets: host snapshots, client puppets (spawn, interpolation, death, crash)
+- [ ] 4.2 AI targets every player (proxies), host keeps terrain around remote players
+- [ ] 4.3 Hit claims (bullets, bolts, melee, rail, rockets/grenades on creatures/UFOs/jets), damage to remote players, kill attribution, instanced loot
+- [ ] 4.4 Missiles and flares across peers (victim-side), enemy bolts mirrored
+
+## Group 5: Survival and Creative together
+- [ ] 5.1 Shared mission chain (host runs it; tracker, marker, boss bar, rewards for all; client actions report stats)
+- [ ] 5.2 Group balance (UFO health, squads, night mission rule), deaths/respawns in multiplayer
+- [ ] 5.3 Creative together (flight, spawning tools host-only or synced)
+
+## Group 6: Dogfight mode
+- [ ] 6.1 Everyone in a jet, respawn in a jet nearby, no leaving the jet
+- [ ] 6.2 Player-vs-player damage (cannon, missiles), kills/deaths, scoreboard
+- [ ] 6.3 Host sets the death limit; match end: winner/loser screen for everyone, rematch
+
+## Group 7: Multiplayer menu
+- [ ] 7.1 Host / Join screens (room code, nickname), invite link, connection status
+- [ ] 7.2 Lobby with player list, host's mode selector and settings, kick
+- [ ] 7.3 In-game player list / status, leave game
+
+## Group 8: Testing
+- [ ] 8.1 tools/mp-tests.mjs: host + client in two headless pages via a local PeerServer: join by code, nicknames, movement sync, block change, hit, Dogfight scoring
+- [ ] 8.2 Local two-tab testing documented (and works with the tab in the background)
+
+## Final polish
+- [ ] F.1 Regression pass (single-player unchanged)
+- [ ] F.2 Multiplayer review in two tabs (host/join, nicknames, Survival, Creative, Dogfight to the end, client leaving, host leaving)
+- [ ] F.3 Full test suite once
+- [ ] F.4 README "How to play with friends"
+- [ ] F.5 PROGRESS summary, decisions, known issues (incl. no TURN), 10-minute MP test
+- [ ] F.6 "ROUND 7 COMPLETE", commit, push
+
+## Round 7 decisions and notes
+(appended as work proceeds)
