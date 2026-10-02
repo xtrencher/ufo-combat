@@ -253,13 +253,18 @@ export class EffectsSystem {
 
   // Blows up at `position`. source: "grenade" | "bazooka" | "airstrike" (for
   // death messages and the per-weapon explosion-size setting).
-  explode(position, { radius = GRENADE_RADIUS, source = "grenade" } = {}) {
-    radius *= explosionScale[source] ?? 1;
+  //   radius: how far the blast digs; visual (optional): how big it looks,
+  //   sounds and shakes, if bigger than the crater (a huge crashing ship:
+  //   the crater is capped, the fireball is not).
+  explode(position, { radius = GRENADE_RADIUS, source = "grenade", visual = null } = {}) {
+    const scale = explosionScale[source] ?? 1;
+    radius *= scale;
     const t0 = performance.now();
     const removed = this._carve(position, radius);
     this.floodInto(removed);
     const carveMs = performance.now() - t0;
-    this._spawnExplosionParticles(position, removed, radius);
+    const look = visual ? Math.max(radius, visual * scale) : radius; // the size it looks
+    this._spawnExplosionParticles(position, removed, radius, look);
 
     // Summary of the most recent blast (read by the smoke test and handy
     // when poking at the game from the dev console).
@@ -269,25 +274,26 @@ export class EffectsSystem {
       if (d > maxDist) maxDist = d;
     }
     const distance = position.distanceTo(this.listener);
-    const size = radius / GRENADE_RADIUS;
+    const size = look / GRENADE_RADIUS;
     // Close blasts rattle the camera hard; distant ones barely or not at all.
-    const shake = Math.min(1, shakeFalloff(distance, radius) * (0.9 + 0.2 * size));
+    const shake = Math.min(1, shakeFalloff(distance, look) * (0.9 + 0.2 * size));
     this.shake.add(shake);
     if (this.audio) this.audio.playExplosion(distance, size);
 
     this.flashLight.position.copy(position);
-    this.flashLight.distance = 40 + radius * 3;
+    this.flashLight.distance = 40 + look * 3;
     this._flashPower = 900 * Math.sqrt(size);
     this._flashTime = 0;
-    this.lastExplosion = { x: position.x, y: position.y, z: position.z, radius, source, removed: removed.length / 4, maxDist, carveMs, distance, shake };
+    this.lastExplosion = { x: position.x, y: position.y, z: position.z, radius, look, source, removed: removed.length / 4, maxDist, carveMs, distance, shake };
     this.explosionCount++;
-    if (this.onExplosion) this.onExplosion(position, radius, source);
+    // (What it hurts: the crater's size, a little more for a blast that looks bigger.)
+    if (this.onExplosion) this.onExplosion(position, look > radius ? Math.min(look, radius * 1.5) : radius, source);
   }
 
-  _spawnExplosionParticles(center, removed, radius) {
+  _spawnExplosionParticles(center, removed, radius, look = radius) {
     const c = this._colors;
     const rnd = (a, b) => a + Math.random() * (b - a);
-    const size = radius / GRENADE_RADIUS; // 1 for a grenade, 5 for the bazooka
+    const size = look / GRENADE_RADIUS; // 1 for a grenade, 5 for the bazooka
     const big = Math.sqrt(size);
 
     // Debris: a sample of the destroyed blocks, tinted by block type.
@@ -370,7 +376,7 @@ export class EffectsSystem {
     const ring = this._rings.find((r) => r.userData.age > 0.6) || this._rings[0];
     ring.position.set(center.x, center.y + 0.2, center.z);
     ring.userData.age = 0;
-    ring.userData.radius = radius;
+    ring.userData.radius = look;
     ring.visible = true;
   }
 

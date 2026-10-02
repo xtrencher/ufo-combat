@@ -18,7 +18,7 @@
 // sits low on the screen and the crosshair is always on open view.
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
-import { createUfoModel, designInfo, UFO_DESIGN_NAMES, normalizeUfoSpec } from "./ufo-models.js";
+import { createUfoModel, designInfo, designFacingOffset, UFO_DESIGN_NAMES, normalizeUfoSpec } from "./ufo-models.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { LASER_COLORS } from "./lasers.js";
 import { BLOCK, BLOCK_INFO, IS_SOLID } from "./blocks.js";
@@ -35,7 +35,8 @@ const BEAM_LIFT = 6; // blocks per second
 const MAX_LIFTED_BLOCKS = 12;
 const DASH_COOLDOWN = 2.5;
 const DASH_HOLD_COOLDOWN = 1.2; // after a held (continuous) dash
-const DASH_SPEED = [250, 2500]; // blocks/s while R is held (from the dash settings)
+const DASH_SPEED = [900, 3500]; // blocks/s while R is held (from the dash settings), before the ship's own factor
+const DASH_FACTOR = [1, 6]; // every ship has its own dash factor in this range (log scale): some are fast, some extreme
 const DASH_GHOST_SPEED = 320; // ... and at most this in ghost mode (it burns a tunnel)
 
 // The player's version of each enemy attack style (ufos.js STYLES): the
@@ -61,6 +62,7 @@ const SUPER_DIG_SPEED = 55; // blocks per second the shaft deepens
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _x1 = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 function sizeName(radius) {
@@ -121,6 +123,8 @@ export class PilotUfo extends Vehicle {
     this.lifted = []; // blocks rising in the beam: { mesh, pos, id }
     this.abducted = 0;
     this._aim = new THREE.Vector3();
+    // How fast this ship dashes: a fixed random factor per ship (from its look and size).
+    this.dashMul = DASH_FACTOR[0] * Math.pow(DASH_FACTOR[1] / DASH_FACTOR[0], seeded((this.spec.seed | 0) * 7 + Math.round(radius * 13) + 5)());
     this.dashT = 0;
     this.dashing = null; // a dash under way: { from, to, t, dur }
     this.sw = { state: "idle", t: 0, cool: 0, depth: 0, hitT: 0, mesh: null, glow: null };
@@ -322,6 +326,7 @@ export class PilotUfo extends Vehicle {
       this._weapons(dt, input);
       if (input.pressed.has("KeyR")) this._dash(view);
       if (input.pressed.has("KeyB")) this._startSuper();
+      if (input.pressed.has("KeyG")) this._toggleGhost();
     } else if (this.crashed) {
       // A smoking wreck.
       this._smokeT -= dt;
@@ -359,7 +364,9 @@ export class PilotUfo extends Vehicle {
     this.root.position.copy(this.pos);
     // Parked in a hangar: a slow, gentle bob just above the floor.
     if (this.hangar && !this.occupied) this.root.position.y += Math.sin(this.time * 1.1) * 0.12;
-    this.model.body.rotation.set(this.tilt.x, this.yaw, this.tilt.z, "YXZ");
+    // (A design with a front, like the tic-tac, whose long axis lies sideways in
+    // its model, is turned so that it points the way the ship flies.)
+    this.model.body.rotation.set(this.tilt.x, this.yaw + (designFacingOffset(this.design) ?? 0), this.tilt.z, "YXZ");
     const l = this.manager.world.lightAt(this.pos.x, this.pos.y + 1, this.pos.z);
     this.model.light.sky = Math.max(l.sky, this.crashed ? 0 : 10);
     this.model.light.block = l.block;
@@ -615,6 +622,34 @@ export class PilotUfo extends Vehicle {
     return 1 - g.t / total;
   }
 
+  // ---------- Ghost mode (G) ----------
+
+  // Switches ghost mode (flying through terrain, burning a tunnel) on or off
+  // while piloting. Off is refused while the ship is inside solid ground
+  // (it would be stuck): fly out into the open first.
+  _toggleGhost() {
+    const mgr = this.manager;
+    const on = !this.cfg.ghost;
+    if (!on && this._embedded()) {
+      mgr.onMessage?.("Ghost mode stays on: you are inside the ground. Fly out first (G).");
+      return;
+    }
+    if (mgr.onGhostToggle) mgr.onGhostToggle(on);
+    else mgr.config.ufo.ghost = on;
+    this._carved = null;
+    mgr.onMessage?.(on ? "GHOST MODE ON: the ship burns through terrain (G to switch off)" : "Ghost mode off");
+  }
+
+  // Is any part of the hull inside solid blocks?
+  _embedded() {
+    const w = this.manager.world;
+    const r = Math.max(1, this.radius * 0.6);
+    for (const [dx, dy, dz] of [[0, 0, 0], [r, 0, 0], [-r, 0, 0], [0, 0, r], [0, 0, -r], [0, -this.bottom * 0.8, 0], [0, this.bottom * 0.5, 0]]) {
+      if (IS_SOLID[w.getBlock(Math.floor(this.pos.x + dx), Math.floor(this.pos.y + dy), Math.floor(this.pos.z + dz))]) return true;
+    }
+    return false;
+  }
+
   // ---------- Teleport dash (R) ----------
 
   // A tap of R: the ship dashes a long way along the view at extreme speed
@@ -626,14 +661,33 @@ export class PilotUfo extends Vehicle {
   // (or off) and how long the tap's trip takes; the held speed follows them.
   get dashDistance() {
     const mult = this.cfg.dash ?? 1;
-    return THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700) * mult;
+    // (A ship with a fast dash also goes farther on a tap.)
+    return THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700) * mult * Math.sqrt(this.dashMul);
   }
 
-  // Speed of a held dash (blocks/s).
+  // Speed of a dash (blocks/s): the settings' base, times this ship's own
+  // dash factor (some ships are moderately fast, some extremely fast).
   get dashSpeed() {
     const time = Math.max(0.05, this.cfg.dashTime ?? 0.25);
-    const v = THREE.MathUtils.clamp(this.dashDistance / time, DASH_SPEED[0], DASH_SPEED[1]);
+    const v = THREE.MathUtils.clamp((this.dashDistance / Math.sqrt(this.dashMul) / time), DASH_SPEED[0], DASH_SPEED[1]) * this.dashMul;
     return this.cfg.ghost ? Math.min(v, DASH_GHOST_SPEED) : v;
+  }
+
+  // "Fast", "very fast" or "extreme", by this ship's dash factor.
+  get dashClass() {
+    const k = Math.log(this.dashMul / DASH_FACTOR[0]) / Math.log(DASH_FACTOR[1] / DASH_FACTOR[0]);
+    return k < 0.34 ? "fast" : k < 0.67 ? "very fast" : "extreme";
+  }
+
+  // Is the ship (its underside) below the ground in a chunk that is not
+  // loaded yet? (A long dash can outrun the world; it stops rather than
+  // ending up inside terrain that loads under it.)
+  _outrunsTerrain(pos) {
+    const w = this.manager.world;
+    const bx = Math.floor(pos.x);
+    const bz = Math.floor(pos.z);
+    if (w.getChunk(bx >> 4, bz >> 4)) return false;
+    return pos.y - this.bottom < w.heightAt(bx, bz) + 3;
   }
 
   _dash(view) {
@@ -650,6 +704,8 @@ export class PilotUfo extends Vehicle {
     if (!this.cfg.ghost) {
       const hit = mgr.world.raycast(from, view, dist + this.radius, { solidOnly: true });
       if (hit) d = Math.max(0, hit.distance - this.radius - 1.5);
+      // (Not into ground that has not loaded yet.)
+      for (let k = 0; k < 8 && d > 3 && this._outrunsTerrain(_x1.copy(from).addScaledVector(view, d)); k++) d *= 0.7;
     }
     if (d < 3) {
       mgr.onMessage?.("No room to dash");
@@ -658,8 +714,7 @@ export class PilotUfo extends Vehicle {
     }
     const to = from.clone().addScaledVector(view, d);
     to.y = Math.max(1 + this.bottom, Math.min(250, to.y));
-    const time = this.cfg.dashTime ?? 0.25;
-    this.dashing = { from, to, t: 0, dur: THREE.MathUtils.clamp(time * Math.sqrt(d / 300), 0.06, time * 1.5), last: from.clone(), cont: false, traveled: 0 };
+    this.dashing = { from, to, t: 0, dur: THREE.MathUtils.clamp(d / this.dashSpeed, 0.05, 1.2), last: from.clone(), cont: false, traveled: 0 };
     this._carved = null;
     mgr.audio?.playTeleport?.();
     mgr.effects.shake.add(0.2);
@@ -702,6 +757,12 @@ export class PilotUfo extends Vehicle {
       }
       d.last.copy(this.pos);
       this.pos.addScaledVector(view, step);
+      if (!this.cfg.ghost && this._outrunsTerrain(this.pos)) {
+        // Ahead of the loaded world and heading into the ground: stop here.
+        this.pos.copy(d.last);
+        step = 0;
+        blocked = true;
+      }
       const lo = 1 + this.bottom;
       if (this.pos.y < lo || this.pos.y > 250) {
         this.pos.y = THREE.MathUtils.clamp(this.pos.y, lo, 250);
@@ -821,6 +882,7 @@ export class PilotUfo extends Vehicle {
         sw.state = "fire";
         sw.t = 0;
         sw.depth = 0;
+        sw.cols = new Map(); // column -> the lowest y dug there so far
         sw.lastBottom = undefined;
         sw.hitT = 0;
         sw.floor = mgr.groundBelow(top.x, top.y - 0.5, top.z);
@@ -846,7 +908,7 @@ export class PilotUfo extends Vehicle {
     sw.core.material.opacity = fade;
     sw.halo.material.opacity = 0.55 * fade;
     // Dig: every column in the cylinder loses the blocks between the shaft depth reached.
-    this._digShaft(top, R, groundTop, bottomY);
+    this._digShaft(top, R, bottomY);
     // Everything in the beam takes a beating.
     sw.hitT -= dt;
     if (sw.hitT <= 0) {
@@ -871,13 +933,16 @@ export class PilotUfo extends Vehicle {
     }
   }
 
-  // Clears the cylinder of every solid block between the ship and the shaft
-  // bottom reached so far (only the newly reached depths after the first frame).
-  _digShaft(top, R, groundTop, bottomY) {
+  // Clears the cylinder under the ship: every solid block from the ship down
+  // to the shaft depth reached so far, in every column it covers right now.
+  // The laser keeps digging for its whole duration, so as the ship moves it
+  // carves a trench along its path (a column new to the beam is cleared from
+  // the top, a column it has been over only deeper as the shaft deepens).
+  _digShaft(top, R, bottomY) {
     const w = this.manager.world;
     const sw = this.sw;
-    const yTop = Math.min(WORLD_HEIGHT - 1, Math.floor(top.y), Math.floor(groundTop + 40));
-    const from = Math.min(yTop, (sw.lastBottom ?? yTop + 1) - 1);
+    const cols = sw.cols || (sw.cols = new Map());
+    const yTop = Math.min(WORLD_HEIGHT - 1, Math.floor(top.y));
     const y0 = Math.max(1, Math.floor(bottomY));
     const cx = top.x;
     const cz = top.z;
@@ -890,12 +955,17 @@ export class PilotUfo extends Vehicle {
         const dz = z + 0.5 - cz;
         if (dx * dx + dz * dz > R * R) continue;
         if (!w.getChunk(x >> 4, z >> 4)) continue;
+        const key = x * 131071 + z;
+        const last = cols.get(key);
+        const from = last === undefined ? yTop : Math.min(yTop, last - 1);
+        if (from < y0) continue;
         for (let y = from; y >= y0; y--) {
           const id = w.getBlock(x, y, z);
           if (!IS_SOLID[id] || id === BLOCK.BEDROCK) continue;
           removed.push(x, y, z, id);
           edits.push(x, y, z, BLOCK.AIR);
         }
+        cols.set(key, y0);
       }
     }
     sw.lastBottom = Math.min(sw.lastBottom ?? yTop + 1, y0);
@@ -936,10 +1006,10 @@ export class PilotUfo extends Vehicle {
         ["Hull", `${Math.round(this.health)} / ${this.maxHealth}`],
         ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl boosts 3x`],
         ["Weapon", this._weaponText()],
-        ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashDistance)} blocks along the view in ${(cfg.dashTime ?? 0.25).toFixed(2)} s (grows with the cruise speed); hold R to keep streaking at ${Math.round(this.dashSpeed)} blocks/s, no distance limit; ${DASH_COOLDOWN} s cooldown; distance and travel time in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
+        ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashDistance)} blocks along the view at ${Math.round(this.dashSpeed)} blocks/s (this ship's dash is ${this.dashClass}); hold R to keep streaking, no distance limit; ${DASH_COOLDOWN} s cooldown; the base distance and speed are in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
         ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
         ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship"],
-        ["Ghost mode", cfg.ghost ? "on: burns through terrain" : "off (Mods menu)"],
+        ["Ghost mode", cfg.ghost ? "on: burns through terrain (G switches it off)" : "off (G switches it on; also in Settings > Vehicles)"],
       ],
       controls: [
         ["Mouse", "Look and steer"],
@@ -951,7 +1021,8 @@ export class PilotUfo extends Vehicle {
         ["Left click", `${this.pilotStyle.name} (this ship's own weapon)`],
         ["Right click (hold)", "Tractor beam"],
         ["R", (cfg.dash ?? 1) > 0 ? "Teleport dash along the view (hold: keep streaking)" : "Teleport dash (off in Settings)"],
-        ["B", "Superweapon: vertical laser"],
+        ["B", "Superweapon: vertical laser (it carves a trench as the ship moves)"],
+        ["G", "Ghost mode on / off"],
         ["F", "Get out"],
         ["F5", "Camera: chase / far / belly"],
         ["I", "This panel"],
@@ -1095,7 +1166,7 @@ export class PilotUfo extends Vehicle {
         ["Speed", `${speed.toFixed(speed < 10 ? 1 : 0)} b/s (${Math.round(speed * 3.6)} km/h)`],
         ["Cruise", `${this.cruise.toFixed(this.cruise < 10 ? 1 : 0)} b/s`],
         ["Altitude", `${Math.round(this.pos.y)} (${Math.max(0, Math.round(this.pos.y - this.bottom - ground))} above ground)`],
-        ["Ghost mode", this.cfg.ghost ? "ON: burns through terrain" : "off"],
+        ["Ghost mode", this.cfg.ghost ? `<span class="vh-on">GHOST ON</span> (G: off)` : "off (G: on)"],
         ...(this.abducted ? [["Abducted", String(this.abducted)]] : []),
       ],
       bars: [
@@ -1105,7 +1176,7 @@ export class PilotUfo extends Vehicle {
       ],
       weapon: `LMB ${this.pilotStyle.name.toLowerCase()} · RMB tractor beam${beam ? ` · <span class="vh-on">${beam}</span>` : ""}`,
       health: this.health / this.maxHealth,
-      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · R dash (hold: keep going) · B superweapon · F5 camera · F leave · I info",
+      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · R dash (hold: keep going) · B superweapon · G ghost mode · F5 camera · F leave · I info",
     };
   }
 

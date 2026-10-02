@@ -332,7 +332,7 @@ lasers.listener = () => effects.listener;
 const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
 lasers.addProvider({
   raycast(origin, dir, maxDist, bolt) {
-    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && m.spec.alien));
+    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && (m.spec.alien || m.spec.sentry)));
     if (!hit) return null;
     return {
       distance: hit.distance,
@@ -365,6 +365,8 @@ vehicles.config.ufo = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: tr
 settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = v));
 settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
+// G while piloting switches it (the Settings row follows).
+vehicles.onGhostToggle = (v) => settingsPanel.set("vehicles.ufoGhost", v);
 settingsPanel.on("vehicles.ufoDash", (v) => (vehicles.config.ufo.dash = v));
 settingsPanel.on("vehicles.ufoDashTime", (v) => (vehicles.config.ufo.dashTime = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));

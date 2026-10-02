@@ -7,7 +7,10 @@
 //   - spheres: pure balls, gray to black, with a subtle grainy surface;
 //   - tic-tacs: smooth white or pale gray capsules;
 //   - tori: a pure ring;
-//   - cubes and cube-rings: a rounded cube and a square rounded frame.
+//   - after real sightings: a large flat black triangle with dim lights at
+//     its corners (the "Belgian wave" ships), a boomerang / chevron with a row
+//     of lights along its leading edge (the Phoenix lights), and a long
+//     metallic cylinder with a few raised bands.
 // A few carry a faint glow (a soft underside or all-over sheen and a halo at
 // night); most don't glow at all. A shot-down UFO never glows again.
 //
@@ -22,7 +25,7 @@ import * as THREE from "three";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 
 // Every design; the first ones are the saucer family (the most common).
-export const UFO_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"];
+export const UFO_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle", "boomerang", "cylinder"];
 
 export const UFO_DESIGN_NAMES = {
   saucer: "Lens saucer",
@@ -31,18 +34,27 @@ export const UFO_DESIGN_NAMES = {
   sphere: "Sphere",
   tictac: "Tic-tac",
   torus: "Torus",
-  cube: "Cube",
-  cubering: "Cube ring",
+  triangle: "Black triangle",
+  boomerang: "Boomerang",
+  cylinder: "Cylinder",
 };
 
+// Designs with a front: they point where they fly. `YAW` is how far the
+// model's own forward is turned from -Z (the tic-tac's long axis lies along
+// X, the others are built pointing along -Z).
+export const DIRECTIONAL_DESIGNS = { tictac: Math.PI / 2, triangle: 0, boomerang: 0, cylinder: 0 };
+export function designFacingOffset(design) {
+  return DIRECTIONAL_DESIGNS[family(design)] ?? null;
+}
+
 // How often each design appears (smooth saucers are by far the most common).
-const DESIGN_WEIGHTS = { saucer: 24, saucer_disc: 16, saucer_domed: 16, sphere: 14, tictac: 14, torus: 8, cube: 5, cubering: 4 };
+const DESIGN_WEIGHTS = { saucer: 24, saucer_disc: 16, saucer_domed: 16, sphere: 12, tictac: 12, torus: 6, triangle: 10, boomerang: 5, cylinder: 5 };
 
 // Old designs (saved wrecks and UFOs from earlier versions) map onto the new ones.
-const LEGACY = { saucer_tall: "saucer_domed", saucer_smooth: "saucer", saucer_dark: "saucer_disc", orb: "sphere", ring: "torus", cigar: "tictac", pyramid: "cube", triangle: "saucer_disc", diamond: "cube", cubesphere: "sphere" };
+const LEGACY = { saucer_tall: "saucer_domed", saucer_smooth: "saucer", saucer_dark: "saucer_disc", orb: "sphere", ring: "torus", cigar: "tictac", pyramid: "triangle", diamond: "saucer_disc", cubesphere: "sphere", cube: "saucer_disc", cubering: "torus" };
 
 // How likely each family is to glow faintly (most don't).
-const GLOW_ODDS = { saucer: 0.3, sphere: 0.08, tictac: 0.3, torus: 0.2, cube: 0.12, cubering: 0.25 };
+const GLOW_ODDS = { saucer: 0.3, sphere: 0.08, tictac: 0.3, torus: 0.2, triangle: 0, boomerang: 0, cylinder: 0.25 };
 
 function family(design) {
   if (design.startsWith("saucer")) return "saucer";
@@ -327,33 +339,131 @@ function torus(spec) {
   return { hull, finish: pick(rand, m.f), glow, info: { h: tube * 2, bottom: tube, halo, top: tube } };
 }
 
-// A box with rounded edges and corners (radius `round`), `seg` segments a side.
-function roundedBox(w, h, d, round, seg = 10) {
-  const g = new THREE.BoxGeometry(w, h, d, seg, seg, seg);
-  const pos = g.getAttribute("position");
-  const inner = new THREE.Vector3(w / 2 - round, h / 2 - round, d / 2 - round);
-  const v = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    c.set(THREE.MathUtils.clamp(v.x, -inner.x, inner.x), THREE.MathUtils.clamp(v.y, -inner.y, inner.y), THREE.MathUtils.clamp(v.z, -inner.z, inner.z));
-    v.sub(c);
-    if (v.lengthSq() > 1e-12) v.normalize().multiplyScalar(round);
-    v.add(c);
-    pos.setXYZ(i, v.x, v.y, v.z);
+// A flat shape (x, y) with its corners rounded (radius `rc`), as a THREE.Shape.
+function roundedShape(pts, rc) {
+  const shape = new THREE.Shape();
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    const a = pts[(i + n - 1) % n];
+    const b = pts[(i + 1) % n];
+    const toward = (q) => {
+      const dx = q[0] - p[0];
+      const dy = q[1] - p[1];
+      const l = Math.hypot(dx, dy) || 1;
+      const k = Math.min(rc, l * 0.4) / l;
+      return [p[0] + dx * k, p[1] + dy * k];
+    };
+    const e = toward(a);
+    const x = toward(b);
+    if (i === 0) shape.moveTo(e[0], e[1]);
+    else shape.lineTo(e[0], e[1]);
+    shape.quadraticCurveTo(p[0], p[1], x[0], x[1]);
   }
-  g.computeVertexNormals();
+  shape.closePath();
+  return shape;
+}
+
+// A flat slab from a shape in the XZ plane (shape y = -z: shape +y is the
+// front, toward -Z), `th` thick, centered on y = 0, with bevelled edges.
+function slab(shape, th, bevel) {
+  const g = new THREE.ExtrudeGeometry(shape, { depth: th, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 10 });
+  g.rotateX(-Math.PI / 2); // shape y -> -z, extrusion z -> +y
+  g.translate(0, -th / 2, 0);
   return g;
 }
 
-// A smooth, rounded cube.
-function cube(spec) {
+// A small light: a ball at (x, y, z).
+function lightBalls(points, r) {
+  return merge(points.map(([x, y, z]) => colorize(new THREE.SphereGeometry(r, 10, 8).translate(x, y, z), 0xffffff)));
+}
+
+const LIGHT_TINTS = [[2.4, 2.3, 2.0], [2.6, 1.7, 0.7], [2.0, 2.4, 2.6], [2.5, 0.5, 0.3]];
+
+// The black triangle: a large flat, dark triangle, nose toward -Z, with a dim
+// light at each corner and a faint red one in the middle of the underside.
+function triangle(spec) {
   const rand = rngFrom(spec.seed);
-  const side = 1.1;
-  const round = 0.08 + rand() * 0.14;
-  const dark = rand() < 0.6;
-  const m = dark ? { c: pick(rand, DARKS), f: ["matte", "grain", "satin"] } : pick(rand, METALS);
-  const hull = colorize(roundedBox(side, side, side, round, 12), m.c);
+  const wide = 0.92 + rand() * 0.2;
+  const R = 1;
+  const pts = [
+    [0, R],
+    [0.866 * R * wide, -0.5 * R],
+    [-0.866 * R * wide, -0.5 * R],
+  ].reverse(); // (counter-clockwise seen from above)
+  const th = 0.07 + rand() * 0.04;
+  const bevel = 0.03;
+  const hull = colorize(slab(roundedShape(pts, 0.07), th, bevel), pick(rand, DARKS), (x, y) => (y > 0 ? 1 : 0.8));
+  const tint = pick(rand, LIGHT_TINTS);
+  const under = -(th / 2 + bevel + 0.004);
+  const corners = [
+    [0, under, -R * 0.9],
+    [0.866 * R * wide * 0.9, under, 0.5 * R * 0.9],
+    [-0.866 * R * wide * 0.9, under, 0.5 * R * 0.9],
+  ];
+  const glow = [
+    { geometry: lightBalls(corners, 0.042), color: tint.slice(), pulse: 0.1, shell: true },
+    { geometry: lightBalls([[0, under, 0.04]], 0.07), color: [1.6, 0.3, 0.12], pulse: 0.35, shell: true },
+  ];
+  const halo = [0.13, 0.12, 0.11];
+  return { hull, finish: rand() < 0.5 ? "matte" : "grain", glow, info: { h: th + bevel * 2, bottom: th / 2 + bevel, halo, top: th / 2 + bevel } };
+}
+
+// The boomerang (chevron): a wide, flat V, dark, with a row of dim lights
+// along its leading edge.
+function boomerang(spec) {
+  const rand = rngFrom(spec.seed);
+  const sweep = 0.26 + rand() * 0.12; // how far the wing tips trail behind the nose
+  const arm = 0.2 + rand() * 0.08; // chord of the arms
+  const pts = [
+    [0, 0.5],
+    [1.0, 0.5 - sweep * 2],
+    [0.9, 0.5 - sweep * 2 - arm],
+    [0, 0.5 - arm * 1.45],
+    [-0.9, 0.5 - sweep * 2 - arm],
+    [-1.0, 0.5 - sweep * 2],
+  ].reverse();
+  const th = 0.05 + rand() * 0.03;
+  const bevel = 0.022;
+  const hull = colorize(slab(roundedShape(pts, 0.05), th, bevel), pick(rand, DARKS), (x, y) => (y > 0 ? 1 : 0.8));
+  const tint = pick(rand, LIGHT_TINTS.slice(0, 3));
+  const under = -(th / 2 + bevel + 0.003);
+  const lights = [];
+  for (const sx of [-1, 1]) {
+    for (let i = 1; i <= 5; i++) {
+      const t = i / 5.6;
+      lights.push([sx * 1.0 * t * 0.97, under, -(0.5 + (-sweep * 2 * t) - 0.01)]);
+    }
+  }
+  lights.push([0, under, -0.5 + 0.03]);
+  const glow = [{ geometry: lightBalls(lights, 0.026), color: tint.slice(), pulse: 0.08, shell: true }];
+  const halo = [0.12, 0.1, 0.07];
+  return { hull, finish: rand() < 0.5 ? "matte" : "satin", glow, info: { h: th + bevel * 2, bottom: th / 2 + bevel, halo, top: th / 2 + bevel } };
+}
+
+// The cylinder: a long metallic can along Z, flat ends with rounded edges and
+// a few raised bands.
+function cylinder(spec) {
+  const rand = rngFrom(spec.seed);
+  const r = 0.17 + rand() * 0.07;
+  const m = pick(rand, METALS.slice(0, 6));
+  const half = 1;
+  const edge = r * 0.28;
+  const pts = [[0.0001, -half], [r - edge, -half]];
+  for (let i = 1; i <= 5; i++) {
+    const a = (i / 5) * (Math.PI / 2);
+    pts.push([r - edge + Math.sin(a) * edge, -half + edge - Math.cos(a) * edge]);
+  }
+  const bands = [-0.62, -0.2, 0.2, 0.62].slice(0, 2 + Math.floor(rand() * 3));
+  for (const b of bands) {
+    pts.push([r, b - 0.05], [r + 0.018, b - 0.03], [r + 0.018, b + 0.03], [r, b + 0.05]);
+  }
+  for (let i = 4; i >= 0; i--) {
+    const a = (i / 5) * (Math.PI / 2);
+    pts.push([r - edge + Math.sin(a) * edge, half - edge + Math.cos(a) * edge]);
+  }
+  pts.push([r - edge, half], [0.0001, half]);
+  const hull = colorize(lathe(pts, 48).rotateX(Math.PI / 2), m.c);
   const glow = [];
   let halo = [0, 0, 0];
   if (spec.glow) {
@@ -361,32 +471,7 @@ function cube(spec) {
     glow.push(glowShell(hull, tint, 0.25, 1.03));
     halo = [tint[0] * 0.35, tint[1] * 0.35, tint[2] * 0.35];
   }
-  return { hull, finish: pick(rand, m.f), glow, info: { h: side, bottom: side / 2, halo, top: side / 2 } };
-}
-
-// A square ring: four rounded bars forming a flat frame.
-function cubering(spec) {
-  const rand = rngFrom(spec.seed);
-  const t = 0.12 + rand() * 0.1; // bar thickness
-  const half = 0.7 - t / 2; // center line of the bars
-  const len = half * 2 + t;
-  const round = t * 0.35;
-  const m = pick(rand, METALS);
-  const bars = [
-    roundedBox(len, t, t, round, 6).translate(0, 0, half),
-    roundedBox(len, t, t, round, 6).translate(0, 0, -half),
-    roundedBox(t, t, len, round, 6).translate(half, 0, 0),
-    roundedBox(t, t, len, round, 6).translate(-half, 0, 0),
-  ].map((g) => colorize(g, m.c));
-  const hull = merge(bars);
-  const glow = [];
-  let halo = [0, 0, 0];
-  if (spec.glow) {
-    const tint = pick(rand, GLOW_TINTS);
-    glow.push(glowShell(hull, tint, 0.3, 1.03));
-    halo = [tint[0] * 0.4, tint[1] * 0.4, tint[2] * 0.4];
-  }
-  return { hull, finish: pick(rand, m.f), glow, info: { h: t, bottom: t / 2, halo, top: t / 2 } };
+  return { hull, finish: pick(rand, m.f), glow, info: { h: r * 2.1, bottom: r * 1.05, halo, top: r * 1.05 } };
 }
 
 const BUILDERS = {
@@ -396,8 +481,9 @@ const BUILDERS = {
   sphere: sphereUfo,
   tictac,
   torus,
-  cube,
-  cubering,
+  triangle,
+  boomerang,
+  cylinder,
 };
 
 // Shared per variant: geometries. (A design has a handful of variants; the

@@ -17,6 +17,7 @@ import { createMobModel } from "./mob-models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { BIOME } from "./biomes.js";
 import { Crowd } from "./crowd.js";
+import { Pathfinder } from "./pathfinding.js";
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
@@ -40,8 +41,10 @@ const ARROW_SPEED = 24;
 const ARROW_GRAVITY = -16;
 const ARROW_DAMAGE = 3;
 const ARROW_LIFE = 5;
+const PATH_BUDGET = 2800; // path search nodes per frame, over all creatures
+const STUCK_RECALL = 16; // seconds an alien can be stuck before it is called back (a hole it cannot leave)
 
-const ALIEN_LASER_COLORS = { burst: new THREE.Color(0.5, 3.6, 5), plasma: new THREE.Color(5, 1.6, 0.25) };
+const ALIEN_LASER_COLORS = { burst: new THREE.Color(0.5, 3.6, 5), plasma: new THREE.Color(5, 1.6, 0.25), scatter: new THREE.Color(0.9, 1.9, 6), rifle: new THREE.Color(5, 3.4, 0.9) };
 
 function colorGeometry(geo, colorHex) {
   const c = new THREE.Color().setHex(colorHex, THREE.SRGBColorSpace);
@@ -80,7 +83,7 @@ export const SPECIES = {
   },
   skeleton: {
     name: "Skeleton", hostile: true, health: 14, r: 0.3, h: 1.95, eye: 1.7,
-    speed: 1.0, chaseSpeed: 1.6, maxDrop: 2, damage: 0, sight: 26, ranged: true,
+    speed: 1.0, chaseSpeed: 1.6, maxDrop: 2, damage: 0, sight: 26, ranged: true, pathfind: true,
     shootMin: 7, shootMax: 22, shootCooldown: 1.6,
     drops: [[ITEM.COAL, 0, 1, 0.5], [ITEM.STICK, 0, 2, 0.6]],
   },
@@ -134,20 +137,38 @@ export const SPECIES = {
   alien: {
     name: "Green alien", alien: true, hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3, glows: true,
     speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 40, ranged: true, laser: true, laserDamage: 3, strafes: true,
-    weapon: "pistol", shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true,
+    weapon: "pistol", shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.IRON_INGOT, 1, 2, 0.6], [ITEM.DIAMOND, 1, 1, 0.12]],
   },
   alien_gray: {
     name: "Gray alien", alien: true, hostile: true, special: true, health: 14, r: 0.28, h: 1.78, eye: 1.45, glows: true,
     speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 48, ranged: true, laser: true, laserDamage: 2, strafes: true,
-    weapon: "burst", shootMin: 10, shootMax: 46, shootCooldown: 2.1, noBurn: true,
+    weapon: "burst", shootMin: 10, shootMax: 46, shootCooldown: 2.1, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.IRON_INGOT, 1, 2, 0.5], [ITEM.DIAMOND, 1, 1, 0.18]],
   },
   alien_red: {
     name: "Red alien", alien: true, hostile: true, special: true, health: 46, r: 0.42, h: 2.1, eye: 1.7, glows: true,
     speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 6,
-    weapon: "plasma", shootMin: 4, shootMax: 24, shootCooldown: 2.3, noBurn: true,
+    weapon: "plasma", shootMin: 4, shootMax: 24, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.IRON_INGOT, 2, 3, 0.8], [ITEM.DIAMOND, 1, 2, 0.3], [ITEM.GOLD_INGOT, 1, 2, 0.4]],
+  },
+  // Blue aliens: quick flankers. They close in and blink to a new spot
+  // around the player now and then (flinching when hurt), firing a short
+  // scatter of fast bolts: dangerous up close, weak at range.
+  alien_blue: {
+    name: "Blue alien", alien: true, hostile: true, special: true, health: 16, r: 0.28, h: 1.7, eye: 1.4, glows: true,
+    speed: 1.9, chaseSpeed: 4.2, maxDrop: 4, damage: 0, sight: 44, ranged: true, laser: true, laserDamage: 1.4, strafes: true,
+    weapon: "scatter", shootMin: 6, shootMax: 16, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true, blinks: true,
+    drops: [[ITEM.IRON_INGOT, 1, 2, 0.5], [ITEM.DIAMOND, 1, 1, 0.2]],
+  },
+  // The airport's security guards: human soldiers posted at the hangars and
+  // bunkers. They stand watch and open fire once the player enters the
+  // restricted area around them (a Creative player is left alone).
+  guard: {
+    name: "Guard", hostile: true, special: true, sentry: true, health: 22, r: 0.3, h: 1.85, eye: 1.6,
+    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 60, ranged: true, laser: true, laserDamage: 2, strafes: true,
+    weapon: "rifle", shootMin: 6, shootMax: 38, shootCooldown: 1.9, pathfind: true,
+    drops: [[ITEM.COAL, 0, 0, 0]],
   },
   fish: {
     name: "Fish", hostile: false, health: 3, r: 0.2, h: 0.3, eye: 0.15,
@@ -163,6 +184,8 @@ const MUZZLES = {
   alien: { pivot: [4, 16, 0], reach: 14.5 },
   alien_gray: { pivot: [3.5, 19, 0], reach: 22.5 },
   alien_red: { pivot: [6.5, 19, 0], reach: 17.5 },
+  alien_blue: { pivot: [3.5, 17, 0], reach: 20 },
+  guard: { pivot: [6, 22, 0], reach: 20 },
 };
 const _mz = new THREE.Vector3();
 
@@ -209,6 +232,10 @@ export class MobManager {
     this._arrowTipGeo.rotateX(Math.PI / 2);
     this._arrowTipGeo.translate(0, 0, 0.42);
     this._nextId = 1;
+    this.paths = new Pathfinder(world);
+    this.pathBudget = 0;
+    this._pv = new THREE.Vector3();
+    this._po = new THREE.Vector3();
     this._spawnTimer = 0;
     this._seeded = false;
     this.enabled = true;
@@ -469,13 +496,17 @@ export class MobManager {
   // A tractor beam (tractor-beam.js) lifts every creature inside it at
   // `lift` blocks/s, pulling it to the middle; the ones that reach `topY`
   // (the ship) are taken aboard: removed, and returned.
-  beamLift(beam, lift, topY) {
+  // `by` (the UFO): a creature caught in the beam is its prisoner from then on:
+  // it keeps rising to the ship (whatever the beam does next) and vanishes
+  // inside it. It never falls back down.
+  beamLift(beam, lift, topY, by = null) {
     const took = [];
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
       if (m.dead) continue;
       const c = this._tmp.set(m.pos.x, m.pos.y + m.spec.h * 0.5, m.pos.z);
       if (!beam.contains(c, m.spec.r)) continue;
+      if (by) m.abductedBy = by;
       m.beamLift = lift;
       m.stagger = Math.max(m.stagger, 0.3);
       m.knock.x += (beam.top.x - m.pos.x) * 0.05;
@@ -487,6 +518,36 @@ export class MobManager {
       }
     }
     return took;
+  }
+
+  // One step of a creature held by a UFO: it rises to the ship (drifting to
+  // the middle of its beam) and disappears inside. If the ship is shot down,
+  // or leaves, it disappears at once (never a fall). True while it is held.
+  _abductStep(m, i, dt) {
+    const u = m.abductedBy;
+    const gone = !u || u.falling || u.state === "gone" || u.state === "leave";
+    const under = u ? u.pos.y - (u.info?.bottom ?? 0) * (u.radius ?? 1) : 0;
+    if (!gone) {
+      const k = Math.min(1, dt * 2.5);
+      m.pos.x += (u.pos.x - m.pos.x) * k;
+      m.pos.z += (u.pos.z - m.pos.z) * k;
+      m.pos.y += 4.6 * dt;
+      m.vel.set(0, 0, 0);
+      m.knock.set(0, 0, 0);
+      m.move.set(0, 0);
+      m.onGround = false;
+      m.peakY = null;
+      m.stagger = 1;
+      m.walk = 0.8;
+      m.walkPhase += dt * 9;
+      this._place(m);
+    }
+    if (gone || m.pos.y + m.spec.h >= under - 0.3) {
+      this._abductFx(m);
+      if (u && !gone) u.abductDone = true;
+      this._remove(i);
+    }
+    return true;
   }
 
   _abductFx(m) {
@@ -649,6 +710,8 @@ export class MobManager {
     // Shooters keep their body turned toward the player, even while backing
     // away or standing still, and only fire when they actually face them.
     let faceTarget = false;
+    let usedPath = false; // following a computed path: it is trusted (no local detours)
+    let pathJump = false;
 
     if (m.spec.hostile) {
       const dy = p.y - m.pos.y;
@@ -657,30 +720,82 @@ export class MobManager {
       const sight = m.aggro ? Math.max(m.spec.sight, 160) : m.spec.sight;
       const vertical = m.aggro ? 60 : 10;
       // (A calm crew member looks around and leaves the player be for now.)
-      if (this._canTarget(m) && !(m.calmT > 0) && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
+      let willing = this._canTarget(m) && !(m.calmT > 0);
+      // A posted guard only fights when alerted (the player in his zone, or
+      // someone shot at him or his mates); a spider is neutral in daylight
+      // unless provoked (a hit, or being in the dark: night, caves).
+      if (m.spec.sentry) {
+        const z = m.zone;
+        if (z && !this.player.dead && !this.player.creative && Math.hypot(p.x - z.x, p.z - z.z) < z.r && Math.abs(p.y - m.pos.y) < 40) {
+          if (!m.alerted) this.alarm(m, 60);
+          m.alertT = 25;
+        } else m.alertT = (m.alertT ?? 0) - dt;
+        if (m.alertT <= 0) m.alerted = false;
+        willing = willing && !!m.alerted;
+      } else if (m.kind === "spider") {
+        m.provokedT = Math.max(0, (m.provokedT ?? 0) - dt);
+        const bright = this.sky.daylight > 0.55 && m.light.sky >= 12;
+        willing = willing && (!bright || m.provokedT > 0);
+      }
+      if (willing && distH < (ai.target ? sight * 1.4 : sight) && Math.abs(dy) < vertical) ai.target = true;
       else ai.target = false;
+      if (!ai.target && ai.path) ai.path = null;
       if (ai.target) {
         lookAtPlayer = true;
         faceTarget = !!m.spec.ranged;
+        // Blue aliens blink to flank: now and then when far, or flinching away when hit.
+        if (m.spec.blinks) {
+          ai.blinkT = (ai.blinkT ?? 3 + Math.random() * 3) - dt;
+          const hurtNow = m.hurtTime < 0.4 && m.health < m.maxHealth;
+          if (ai.blinkT <= 0 && (distH > 14 || hurtNow || m.hasLOS === false)) {
+            ai.blinkT = 6 + Math.random() * 3;
+            this._blink(m);
+          } else if (ai.blinkT <= 0) ai.blinkT = 1.5;
+        }
         if (m.spec.ranged) {
-          // Keeps a comfortable shooting distance instead of closing to melee.
-          if (distH < m.spec.shootMin) {
-            goalX = -dx / distH;
-            goalZ = -dz / distH;
-            speed = m.spec.speed;
-          } else if (distH > m.spec.shootMax) {
-            goalX = dx / distH;
-            goalZ = dz / distH;
-            speed = m.spec.chaseSpeed;
-          } else if (m.spec.strafes) {
-            // Circles the player while shooting (aliens don't stand still).
-            const s = (Math.floor(this.time / 2.2 + m.id) % 2 ? 1 : -1) * 0.6;
-            goalX = (-dz / distH) * s;
-            goalZ = (dx / distH) * s;
-            speed = m.spec.speed * 0.8;
+          // Smarter shooters (aliens, skeletons, guards) shoot only with a
+          // clear line of fire: without one (a wall, a hill, a hole between
+          // them and the player) they walk a real path to a spot that has
+          // one, within range; they never keep shooting into blocks.
+          const smart = !!m.spec.pathfind && dist < 110;
+          const los = smart ? this._clearShot(m) : true;
+          m.hasLOS = los;
+          if (smart && (!los || distH > m.spec.shootMax)) {
+            const s = this._followPath(m, dt);
+            if (s) {
+              goalX = s.x;
+              goalZ = s.z;
+              speed = m.spec.chaseSpeed;
+              pathJump = s.jump;
+              usedPath = true;
+            } else if (distH > 0.6) {
+              goalX = dx / distH;
+              goalZ = dz / distH;
+              speed = m.spec.chaseSpeed;
+            }
+          } else {
+            if (smart) {
+              ai.path = null;
+              ai.stuck = 0;
+            }
+            if (distH < m.spec.shootMin) {
+              goalX = -dx / distH;
+              goalZ = -dz / distH;
+              speed = m.spec.speed;
+            } else if (distH > m.spec.shootMax) {
+              goalX = dx / distH;
+              goalZ = dz / distH;
+              speed = m.spec.chaseSpeed;
+            } else if (m.spec.strafes) {
+              // Circles the player while shooting (aliens don't stand still).
+              const s = (Math.floor(this.time / 2.2 + m.id) % 2 ? 1 : -1) * 0.6;
+              goalX = (-dz / distH) * s;
+              goalZ = (dx / distH) * s;
+              speed = m.spec.speed * 0.8;
+            }
           }
           const facing = Math.abs(angleDiff(Math.atan2(dx, dz), m.yaw)) < 0.28;
-          if (m.stagger <= 0 && m.attackCooldown <= 0 && facing && distH >= m.spec.shootMin * 0.6 && distH <= m.spec.shootMax * 1.3 && Math.abs(dy) < vertical) {
+          if (los && m.stagger <= 0 && m.attackCooldown <= 0 && facing && distH >= m.spec.shootMin * 0.6 && distH <= m.spec.shootMax * 1.3 && Math.abs(dy) < vertical) {
             if (m.spec.laser) this._shootLaser(m);
             else this._shootArrow(m, dx, dy, dz);
             m.attackCooldown = m.spec.shootCooldown;
@@ -696,7 +811,23 @@ export class MobManager {
       }
     }
 
-    if (!ai.target) {
+    if (!ai.target && m.spec.sentry && m.post) {
+      // At his post: back to it if he strayed, otherwise standing watch,
+      // turning now and then.
+      const bx = m.post.x - m.pos.x;
+      const bz = m.post.z - m.pos.z;
+      const bd = Math.hypot(bx, bz);
+      if (bd > 1.5) {
+        goalX = bx / bd;
+        goalZ = bz / bd;
+        speed = m.spec.speed;
+      } else if (ai.timer <= 0) {
+        ai.timer = 3 + Math.random() * 4;
+        ai.dirX = Math.sin(Math.random() * Math.PI * 2);
+        ai.dirZ = Math.cos(Math.random() * Math.PI * 2);
+      }
+      lookAtPlayer = distH < 12;
+    } else if (!ai.target) {
       if (ai.state === "flee" && ai.timer > 0) {
         // Run away from the player, with a little zig-zag.
         const away = Math.atan2(-dx, -dz) + Math.sin(this.time * 3 + m.id) * 0.5;
@@ -731,7 +862,9 @@ export class MobManager {
     }
 
     let jump = false;
-    if (speed > 0) {
+    if (speed > 0 && usedPath) {
+      jump = pathJump;
+    } else if (speed > 0) {
       if (dist > FAR_AI_DISTANCE && !m.aggro) {
         // Simplified AI far from the player: skip the per-step obstacle
         // probing (cheap straight-line movement; physics still stops it at
@@ -769,6 +902,187 @@ export class MobManager {
     m.headYaw += (headYaw - m.headYaw) * Math.min(1, dt * 6);
     m.headPitch += (headPitch - m.headPitch) * Math.min(1, dt * 6);
     return { x: goalX, z: goalZ, speed, jump };
+  }
+
+  // ---------- Line of fire and pathfinding (smarter creatures) ----------
+
+  // Is there nothing solid between the points?
+  _rayClear(x0, y0, z0, x1, y1, z1) {
+    const v = this._pv.set(x1 - x0, y1 - y0, z1 - z0);
+    const d = v.length();
+    if (d < 0.5) return true;
+    v.divideScalar(d);
+    return !this.world.raycast(this._po.set(x0, y0, z0), v, d, { solidOnly: true });
+  }
+
+  // A clear line of fire from a creature's eyes to the player's chest (kept
+  // for a fraction of a second: it is a ray per creature).
+  _clearShot(m) {
+    const ai = m.ai;
+    if (this.time < (ai.losT ?? -1)) return !!ai.los;
+    ai.losT = this.time + 0.2 + Math.random() * 0.1;
+    const P = this.player.position;
+    ai.los = this._rayClear(m.pos.x, m.pos.y + m.spec.eye - 0.1, m.pos.z, P.x, P.y + 1.1, P.z);
+    return ai.los;
+  }
+
+  // One step along the path to a firing position (a spot within range of the
+  // player with a clear line of fire to them), planning (or re-planning) it
+  // when needed. Returns { x, z, jump } (a direction and whether to jump) or
+  // null if there is no path to follow (the caller walks straight then).
+  _followPath(m, dt) {
+    const ai = m.ai;
+    const P = this.player.position;
+    const spec = m.spec;
+    const swim = true;
+    // Stuck? Not moving although it wants to (a hole it cannot get out of,
+    // a ledge, a crowd).
+    ai.stuckT = (ai.stuckT ?? 0) + dt;
+    if (ai.stuckT >= 0.6) {
+      const moved = ai.stuckPos ? Math.hypot(m.pos.x - ai.stuckPos.x, m.pos.y - ai.stuckPos.y, m.pos.z - ai.stuckPos.z) : 9;
+      ai.stuckPos = ai.stuckPos || { x: 0, y: 0, z: 0 };
+      ai.stuckPos.x = m.pos.x;
+      ai.stuckPos.y = m.pos.y;
+      ai.stuckPos.z = m.pos.z;
+      if (moved < 0.2) {
+        ai.stuck = (ai.stuck ?? 0) + ai.stuckT;
+        ai.pathT = 0; // plan again, with a bigger search
+      } else ai.stuck = Math.max(0, (ai.stuck ?? 0) - ai.stuckT * 2);
+      ai.stuckT = 0;
+      // A hole it cannot leave: after a long time it is called back to its
+      // ship (and comes down again on the surface, near the player).
+      if ((ai.stuck ?? 0) > STUCK_RECALL && spec.alien) {
+        this._recall(m);
+        return null;
+      }
+    }
+    let p = ai.path;
+    ai.pathT = (ai.pathT ?? 0) - dt;
+    const drift = p ? Math.hypot(P.x - p.tx, P.z - p.tz) : 99;
+    if ((!p || ai.pathT <= 0 || drift > 8 || p.i >= p.cells.length) && this.pathBudget > 0) {
+      const h = Math.ceil(spec.h);
+      const from = this.paths.groundCell(m.pos.x, m.pos.y, m.pos.z, h, swim);
+      if (from) {
+        const minD = (spec.shootMin ?? 3) + 1;
+        const maxD = (spec.shootMax ?? 20) - 2;
+        const eye = spec.eye - 0.1;
+        let checks = 0;
+        const goalFn = (x, y, z) => {
+          const d = Math.hypot(x + 0.5 - P.x, z + 0.5 - P.z);
+          if (d < minD || d > maxD || Math.abs(y - P.y) > 14) return false;
+          if (++checks > 260) return false;
+          return this._rayClear(x + 0.5, y + eye, z + 0.5, P.x, P.y + 1.1, P.z);
+        };
+        const big = (ai.stuck ?? 0) > 1.5 ? 2.2 : 1;
+        const opts = { h, step: spec.bigJump ? 2 : 1, drop: Math.max(2, spec.maxDrop ?? 3), swim, maxNodes: Math.min(this.pathBudget, Math.round(1300 * big)), goalFn };
+        let res = this.paths.find(from, { x: P.x, y: P.y, z: P.z }, opts);
+        this.pathBudget -= res.nodes;
+        // No way found, and not getting anywhere: first get out of the hole
+        // (to the surface), and plan from there.
+        if (!res.reached && res.path.length < 2 && (ai.stuck ?? 0) > 1.2 && this.pathBudget > 300) {
+          const out = this.paths.find(from, null, { ...opts, goalFn: (x, y, z) => y >= this.world.heightAt(x, z) + 1 - 1, heuristic: false, maxNodes: Math.min(this.pathBudget, 3500) });
+          this.pathBudget -= out.nodes;
+          if (out.reached && out.path.length) res = out;
+        }
+        p = ai.path = { cells: res.path, i: 0, tx: P.x, tz: P.z, reached: res.reached };
+        ai.pathT = res.reached ? 2.5 + Math.random() : 1 + Math.random() * 0.5;
+      }
+    }
+    if (!p || !p.cells.length) return null;
+    // Waypoints: the next cell; cells already close are passed.
+    for (let k = 0; k < 3 && p.i < p.cells.length; k++) {
+      const c = p.cells[p.i];
+      const dh = Math.hypot(c[0] + 0.5 - m.pos.x, c[2] + 0.5 - m.pos.z);
+      if (dh < 0.5 && Math.abs(c[1] - m.pos.y) < 1.4) p.i++;
+      else break;
+    }
+    if (p.i >= p.cells.length) return null;
+    const c = p.cells[p.i];
+    const wx = c[0] + 0.5 - m.pos.x;
+    const wz = c[2] + 0.5 - m.pos.z;
+    const dh = Math.hypot(wx, wz) || 1;
+    const rise = c[1] - Math.floor(m.pos.y + 0.05);
+    const jump = rise >= 2 ? 2 : rise >= 1 ? 1 : 0;
+    return { x: wx / dh, z: wz / dh, jump: jump && dh < 1.7 ? jump : 0 };
+  }
+
+  // Raises the alarm among the posted guards around `m`: they fight for a while.
+  alarm(m, radius = 45) {
+    for (const o of this.mobs) {
+      if (o.dead || !o.spec.sentry) continue;
+      if (o !== m && o.pos.distanceTo(m.pos) > radius) continue;
+      if (!o.alerted) this.onAlarm?.(o);
+      o.alerted = true;
+      o.alertT = 25;
+    }
+  }
+
+  // A guard at his post: stands watch, alerted when the player enters the
+  // restricted zone (x, z, r) around it.
+  spawnGuard(x, y, z, zone) {
+    const m = this.spawn("guard", x, y, z);
+    if (!m) return null;
+    m.sentry = true;
+    m.persist = true;
+    m.post = { x, y, z };
+    m.zone = zone;
+    m.alerted = false;
+    m.alertT = 0;
+    m.yaw = Math.random() * Math.PI * 2;
+    return m;
+  }
+
+  // The blue alien's blink: to a spot 7-12 blocks from the player with a clear
+  // line of fire, in a puff of light.
+  _blink(m) {
+    const P = this.player.position;
+    for (let k = 0; k < 12; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 7 + Math.random() * 5;
+      const x = Math.floor(P.x + Math.cos(a) * d);
+      const z = Math.floor(P.z + Math.sin(a) * d);
+      if (!this._chunkReady(x, z)) continue;
+      const cell = this.paths.groundCell(x, P.y, z, Math.ceil(m.spec.h), false);
+      if (!cell) continue;
+      if (!this._rayClear(cell[0] + 0.5, cell[1] + m.spec.eye - 0.1, cell[2] + 0.5, P.x, P.y + 1.1, P.z)) continue;
+      this._abductFx(m);
+      m.pos.set(cell[0] + 0.5, cell[1], cell[2] + 0.5);
+      m.vel.set(0, 0, 0);
+      m.knock.set(0, 0, 0);
+      m.ai.path = null;
+      m.ai.los = true;
+      m.ai.losT = this.time + 0.3;
+      this._abductFx(m);
+      this.audio?.playTeleport?.();
+      return true;
+    }
+    return false;
+  }
+
+  // A creature stuck for good is called back to its ship and comes down
+  // again somewhere open near the player (not too close).
+  _recall(m) {
+    const P = this.player.position;
+    for (let k = 0; k < 24; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 22 + Math.random() * 16;
+      const x = Math.floor(P.x + Math.cos(a) * d);
+      const z = Math.floor(P.z + Math.sin(a) * d);
+      if (!this._chunkReady(x, z)) continue;
+      const top = this.world.surfaceY(x, z);
+      if (top < 0 || IS_WET[this.world.getBlock(x, top + 1, z)]) continue;
+      if (!this._freeAt(x, top + 1, z, Math.ceil(m.spec.h))) continue;
+      this._abductFx(m);
+      m.pos.set(x + 0.5, top + 1, z + 0.5);
+      m.vel.set(0, 0, 0);
+      m.knock.set(0, 0, 0);
+      m.ai.path = null;
+      m.ai.stuck = 0;
+      this._abductFx(m);
+      return true;
+    }
+    m.ai.stuck = STUCK_RECALL * 0.5;
+    return false;
   }
 
   _attackPlayer(m, nx, nz) {
@@ -845,7 +1159,7 @@ export class MobManager {
   _shootLaser(m, follow = false) {
     if (!this.lasers) return;
     const weapon = m.spec.weapon || "pistol";
-    if (weapon === "burst" && !follow) {
+    if ((weapon === "burst" || weapon === "rifle") && !follow) {
       m.burst = 2; // two more follow the first
       m.burstT = 0.12;
     }
@@ -855,14 +1169,14 @@ export class MobManager {
     const from = this._muzzle(m, _mz.copy(target).sub(m.pos).setY(target.y - m.pos.y - m.spec.eye + 0.4).normalize());
     if (IS_SOLID[this.world.getBlock(Math.floor(from.x), Math.floor(from.y), Math.floor(from.z))]) from.set(m.pos.x, m.pos.y + m.spec.eye - 0.4, m.pos.z);
     const aimVel = this.player.vehicle ? this.player.vehicle.vel : this.player.velocity;
-    const speed = weapon === "plasma" ? 38 : weapon === "burst" ? 110 : 62;
+    const speed = weapon === "plasma" ? 38 : weapon === "burst" ? 110 : weapon === "rifle" ? 125 : weapon === "scatter" ? 90 : 62;
     const dist0 = target.distanceTo(from);
     // Leads a moving player a little.
     target.addScaledVector(aimVel, Math.min(1.2, (dist0 / speed) * 0.7));
     const dir = target.sub(from);
     const dist = dir.length() || 1;
     dir.divideScalar(dist);
-    const spread = (weapon === "burst" ? 0.012 : 0.03) + dist * (weapon === "burst" ? 0.0006 : 0.0012);
+    const spread = (weapon === "burst" ? 0.012 : weapon === "rifle" ? 0.02 : 0.03) + dist * (weapon === "burst" ? 0.0006 : weapon === "rifle" ? 0.0009 : 0.0012);
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;
@@ -873,6 +1187,18 @@ export class MobManager {
     const damage = Math.max(1, Math.round(m.spec.laserDamage * (this.alienDamageScale ?? 1)));
     if (weapon === "plasma") {
       this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
+    } else if (weapon === "scatter") {
+      // A short scatter of four fast bolts: some of them up close, hardly any at range.
+      for (let i = 0; i < 4; i++) {
+        const d = dir.clone();
+        d.x += (Math.random() - 0.5) * 0.3;
+        d.y += (Math.random() - 0.5) * 0.2;
+        d.z += (Math.random() - 0.5) * 0.3;
+        d.normalize();
+        this.lasers.fire({ from, dir: d, color: ALIEN_LASER_COLORS.scatter, speed, damage, owner: "alien", source: m, range: Math.min(range, 34), radius: 0.035, length: 1.1 });
+      }
+    } else if (weapon === "rifle") {
+      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.rifle, speed, damage, owner: "alien", source: m, range, radius: 0.04, length: 1.6 });
     } else {
       this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
     }
@@ -1078,7 +1404,8 @@ export class MobManager {
     } else {
       m.vel.y = Math.max(m.vel.y + GRAVITY * dt, -40);
     }
-    if (want.jump && (m.onGround || (m.inWater && !waterBody))) m.vel.y = spec.hop ? 6.4 : 8.2;
+    // (A big jump, for 2-block rises, only for creatures built for it: aliens.)
+    if (want.jump && (m.onGround || (m.inWater && !waterBody))) m.vel.y = spec.hop ? 6.4 : want.jump === 2 && spec.bigJump ? 11.2 : 8.2;
     else if (want.jump && m.inWater) m.vel.y = Math.max(m.vel.y, 5);
 
     const wasOnGround = m.onGround;
@@ -1172,7 +1499,13 @@ export class MobManager {
   // Damages a mob; (nx, nz) is the knockback direction and `kb` its strength.
   _hurt(m, amount, dir, kb, byPlayer = false) {
     if (m.dead || m.invulnerable > 0 || amount <= 0) return false;
-    if (byPlayer) m.lastPlayerHit = this.time;
+    if (byPlayer) {
+      m.lastPlayerHit = this.time;
+      // Hit by the player: a spider is provoked (they are neutral in daylight
+      // otherwise); a guard (and the guards near him) raise the alarm.
+      if (m.kind === "spider") m.provokedT = 30;
+      if (m.spec.sentry) this.alarm(m, 40);
+    }
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
     if (byPlayer && m.calmT > 0) this.wake(m);
@@ -1354,6 +1687,7 @@ export class MobManager {
   update(dt) {
     this.time += dt;
     this._frame++;
+    this.pathBudget = PATH_BUDGET;
     this._updateSpawning(dt);
     this._updateArrows(dt);
     const p = this.player.position;
@@ -1391,12 +1725,13 @@ export class MobManager {
           continue;
         }
       } else {
+        if (m.abductedBy && this._abductStep(m, i, dt)) continue;
         // Despawning: far away, in unloaded terrain, or (zombies) lingering far off.
-        if (dist > DESPAWN_FAR || !this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4) || m.pos.y < -10) {
+        if ((dist > DESPAWN_FAR && !m.persist) || !this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4) || m.pos.y < -10) {
           this._remove(i);
           continue;
         }
-        if (m.spec.hostile && !m.missionTarget && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
+        if (m.spec.hostile && !m.missionTarget && !m.persist && dist > HOSTILE_LINGER && Math.random() < dt / 20) {
           this._remove(i);
           continue;
         }

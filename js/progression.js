@@ -34,7 +34,7 @@ export const ALIEN_WEAPONS = [
   [ITEM.MINIGUN, 3, "gray"],
   [ITEM.RAILGUN, 4, "red"],
 ];
-const KIND_RANK = { green: 0, gray: 1, red: 2 };
+const KIND_RANK = { green: 0, gray: 1, blue: 1, red: 2 };
 
 // (Round 3 name, kept for callers: every weapon that can drop, by tier.)
 export const WEAPON_TIERS = [...CRATE_WEAPONS, ...ALIEN_WEAPONS.map(([id, t]) => [id, t])];
@@ -80,7 +80,8 @@ const EARLY = { small: 1 };
 const LATE = { small: 2.5, medium: 4, large: 3, mothership: 0.7, giant: 0.18 };
 const GREEN = { alien: 1 };
 const GREEN_GRAY = { alien: 2, alien_gray: 1 };
-const ALL_CREWS = { alien: 3, alien_gray: 2, alien_red: 1 };
+const GREEN_GRAY_BLUE = { alien: 2, alien_gray: 1, alien_blue: 1 };
+const ALL_CREWS = { alien: 3, alien_gray: 2, alien_red: 1, alien_blue: 1.5 };
 
 export const MISSIONS = [
   {
@@ -203,7 +204,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 4, 0.03, GREEN_GRAY),
+    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 4, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "village",
@@ -213,7 +214,7 @@ export const MISSIONS = [
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "village",
     tier: 3,
-    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 4, 0.03, GREEN_GRAY),
+    rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 4, 0.03, GREEN_GRAY_BLUE),
   },
   {
     id: "reds",
@@ -463,12 +464,12 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
       // Alien weapons, weakest first, once the chain gets there (a mission's
       // patrol leader always drops the new one: see missions.js).
       const w = pickAlienWeapon(detail, tier, have);
-      const wChance = { green: 0.2, gray: 0.25, red: 0.35 }[detail] ?? 0.2;
+      const wChance = { green: 0.2, gray: 0.25, blue: 0.25, red: 0.35 }[detail] ?? 0.2;
       if (w != null && rand() < wChance) {
         add(w, 1);
         break;
       }
-      const chance = { green: 0.28, gray: 0.42, red: 0.65 }[detail] ?? 0.3;
+      const chance = { green: 0.28, gray: 0.42, blue: 0.42, red: 0.65 }[detail] ?? 0.3;
       if (rand() > chance + tier * 0.03) break;
       const r = rand();
       if (r < 0.55) add(food(), 1 + Math.floor(rand() * 2));
@@ -508,7 +509,7 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
   return out;
 }
 
-// The alien kind's colour: "green" | "gray" | "red".
+// The alien kind's colour: "green" | "gray" | "blue" | "red".
 export function alienColour(kind) {
-  return kind === "alien_red" ? "red" : kind === "alien_gray" ? "gray" : "green";
+  return kind === "alien_red" ? "red" : kind === "alien_gray" ? "gray" : kind === "alien_blue" ? "blue" : "green";
 }
