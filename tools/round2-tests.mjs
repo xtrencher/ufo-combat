@@ -1464,7 +1464,7 @@ await check("UFO designs: smooth saucers are the most common (lens, disc, domed)
     return { counts, saucers, glow, dark, names: Object.keys(UFO_DESIGN_NAMES).length, giantR: SIZES.giant.r, sizes: Object.keys(SIZES) };
   });
   assert(r.saucers / 3000 > 0.5, `saucers are the most common: ${r.saucers / 3000}`);
-  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"]) assert(r.counts[d] > 0, `design ${d} appears`);
+  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle"]) assert(r.counts[d] > 0, `design ${d} appears`);
   assert(r.glow > 200 && r.dark > r.glow * 2, `a few glow faintly, most don't: ${r.glow}/${r.dark}`);
   assert(r.giantR[1] >= 60 && r.sizes.length >= 5, `up to football-field giants: radius ${r.giantR}`);
 });

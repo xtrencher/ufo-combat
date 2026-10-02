@@ -233,8 +233,11 @@ export class Interaction {
       }
       return;
     }
-    if (this.target) this._startMining();
-    else if (this.combat) {
+    if (this.target) {
+      // A swing at the ground cuts the plants around the spot.
+      this.onCut?.(this.target.block[0], this.target.block[1], this.target.block[2], this.target.normal);
+      this._startMining();
+    } else if (this.combat) {
       this.combat.swing();
       this.audio.playSwing();
     }

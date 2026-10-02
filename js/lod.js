@@ -156,6 +156,11 @@ export class LodSystem {
   // Sends changed chunk edits to the builder and marks the tiles over those
   // chunks stale (rebuilt when needed; the old mesh shows until then).
   _flushEdits() {
+    // (Chunks edited while they were not loaded: a blast far out in the LOD terrain.)
+    if (this.world.lodDirty.size) {
+      for (const k of this.world.lodDirty) this._editedChunks.add(k);
+      this.world.lodDirty.clear();
+    }
     if (this._editedChunks.size === 0) return;
     for (const key of this._editedChunks) {
       const map = this.world.edits.get(key);

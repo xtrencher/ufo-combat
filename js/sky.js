@@ -214,7 +214,7 @@ export class Sky {
     const uw = worldUniforms.uWind.value;
     uw.set(Math.cos(wind.angle), Math.sin(wind.angle), wind.strength, uw.w + dt * 0.1 * wind.strength);
     // A locked clock (settings menu) keeps the sun where it is.
-    if (!this.locked) this.time = (this.time + dt) % DAY_LENGTH;
+    if (!this.locked) this.time = (this.time + dt * (this.timeScale ?? 1)) % DAY_LENGTH;
     const angle = this._angleForTime(this.time);
     this.sunAngle = angle;
 

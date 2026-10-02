@@ -7,21 +7,75 @@
 import * as THREE from "three";
 import { rollLoot } from "./progression.js";
 import { itemInfo } from "./items.js";
+import { SEA_LEVEL } from "./constants.js";
+import { IS_SOLID, IS_WET } from "./blocks.js";
 
 const FIRST_DELAY = [50, 80]; // seconds after starting a Survival game until the first crate
 const INTERVAL = [170, 300]; // between crates
 const FALL_SPEED = 5.5;
 const OPEN_REACH = 2.8;
-const LIFETIME = 900; // an unopened crate is taken away after this long
+const LIFETIME = 900;
+const CANOPY_R = 2.4;
+const CANOPY_ARC = Math.PI / 2.4;
+const CANOPY_Y = 4.6; // the canopy's height above the crate's centre
+const RIM_R = CANOPY_R * Math.sin(CANOPY_ARC); // the rim the cords are tied to
+const RIM_Y = CANOPY_Y + CANOPY_R * Math.cos(CANOPY_ARC) * 0.6;
+const LAND_MARGIN = 4; // a drop needs dry land this far around // an unopened crate is taken away after this long
 
+// Adds a box (centre, size, colour) to the arrays of a merged, vertex-coloured geometry.
+function addBox(out, cx, cy, cz, sx, sy, sz, hex) {
+  const g = new THREE.BoxGeometry(sx, sy, sz).toNonIndexed();
+  const pos = g.getAttribute("position");
+  const nor = g.getAttribute("normal");
+  const c = new THREE.Color(hex).convertSRGBToLinear();
+  for (let i = 0; i < pos.count; i++) {
+    out.pos.push(pos.getX(i) + cx, pos.getY(i) + cy, pos.getZ(i) + cz);
+    out.nor.push(nor.getX(i), nor.getY(i), nor.getZ(i));
+    out.col.push(c.r, c.g, c.b);
+  }
+  g.dispose();
+}
+
+// The crate: a wooden box of planks with dark steel corner brackets, steel
+// bands, a lighter lid and a white square with a red cross on every side.
+// Y runs from -0.6 (bottom) to 0.6 (top); the four lifting eyes the cords
+// are tied to stand on the top corners (see EYES).
+const CRATE_W = 1.5;
+const EYES = [[-0.62, -0.62], [0.62, -0.62], [0.62, 0.62], [-0.62, 0.62]];
 function crateGeometry() {
-  const box = new THREE.BoxGeometry(1.5, 1.2, 1.5);
-  const count = box.getAttribute("position").count;
-  const col = new Float32Array(count * 3);
-  const c = new THREE.Color(0xc88a2c).convertSRGBToLinear();
-  for (let i = 0; i < count; i++) col.set([c.r, c.g, c.b], i * 3);
-  box.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  return box;
+  const o = { pos: [], nor: [], col: [] };
+  const H = CRATE_W / 2;
+  addBox(o, 0, 0, 0, CRATE_W, 1.2, CRATE_W, 0xb98232); // the planks
+  // Plank seams: darker thin strips around the sides.
+  for (let k = -2; k <= 2; k++) {
+    const y = k * 0.22;
+    addBox(o, 0, y, 0, CRATE_W + 0.012, 0.018, CRATE_W + 0.012, 0x7a5320);
+  }
+  addBox(o, 0, 0.6, 0, CRATE_W - 0.1, 0.05, CRATE_W - 0.1, 0xd29a40); // the lid, lighter
+  // Steel brackets on every vertical edge and bands around the top and bottom.
+  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) addBox(o, sx * (H - 0.04), 0, sz * (H - 0.04), 0.1, 1.24, 0.1, 0x3a3f46);
+  for (const y of [-0.5, 0.5]) {
+    addBox(o, 0, y, 0, CRATE_W + 0.03, 0.12, CRATE_W + 0.03, 0x4a5058);
+  }
+  // The marking: a white plate with a red cross on each side.
+  for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const px = nx * (H + 0.012);
+    const pz = nz * (H + 0.012);
+    const sx = nx ? 0.02 : 0.5;
+    const sz = nz ? 0.02 : 0.5;
+    addBox(o, px, 0, pz, sx, 0.5, sz, 0xf0ece0);
+    const qx = nx * (H + 0.024);
+    const qz = nz * (H + 0.024);
+    addBox(o, qx, 0, qz, nx ? 0.02 : 0.34, 0.1, nz ? 0.02 : 0.34, 0xc0261c);
+    addBox(o, qx, 0, qz, nx ? 0.02 : 0.1, 0.34, nz ? 0.02 : 0.1, 0xc0261c);
+  }
+  // The lifting eyes on the top corners (where the cords are tied).
+  for (const [ex, ez] of EYES) addBox(o, ex, 0.68, ez, 0.12, 0.12, 0.12, 0x23272c);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(o.pos, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(o.nor, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(o.col, 3));
+  return geo;
 }
 
 export class SupplyCrates {
@@ -47,7 +101,7 @@ export class SupplyCrates {
     this._smoke = [new THREE.Color(2.4, 1.0, 0.25), new THREE.Color(1.6, 0.55, 0.15)];
     this._grey = [new THREE.Color(0.7, 0.35, 0.12), new THREE.Color(0.55, 0.5, 0.48)];
     // A striped canopy (orange and white), like the vehicle parachute.
-    const canopy = new THREE.SphereGeometry(2.4, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2.4).scale(1, 0.6, 1);
+    const canopy = new THREE.SphereGeometry(CANOPY_R, 16, 6, 0, Math.PI * 2, 0, CANOPY_ARC).scale(1, 0.6, 1);
     const pos = canopy.getAttribute("position");
     const colors = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
@@ -67,32 +121,67 @@ export class SupplyCrates {
   // Sends a crate down near the player. opts.dist: how far (blocks).
   drop(opts = {}) {
     const p = this.player.position;
-    const dist = opts.dist ?? 55 + Math.random() * 60;
-    const a = Math.random() * Math.PI * 2;
-    const x = p.x + Math.cos(a) * dist;
-    const z = p.z + Math.sin(a) * dist;
+    const site = this._findLand(p, opts.dist ?? 55 + Math.random() * 60);
+    if (!site) return null; // all water around: no drop
+    const { x, z } = site;
     const g = this.world.heightAt(Math.floor(x), Math.floor(z));
     const y = Math.min(300, Math.max(g, p.y) + 130);
     const group = new THREE.Group();
     const box = new THREE.Mesh(this._geo, this._mat);
     box.castShadow = true;
     const canopy = new THREE.Mesh(this._canopyGeo, this._canopyMat);
-    canopy.position.y = 4.6;
+    canopy.position.y = CANOPY_Y;
     group.add(box, canopy);
-    // Cords from the crate's top corners to the canopy's rim.
+    // Cords: from each lifting eye on the crate up to two points on the
+    // canopy's rim (eight cords), so the crate hangs from the parachute.
     const pts = [];
-    for (const [cx, cz] of [[-0.7, -0.7], [0.7, -0.7], [0.7, 0.7], [-0.7, 0.7]]) pts.push(cx, 0.6, cz, cx * 2.9, 4.4, cz * 2.9);
+    EYES.forEach(([ex, ez], i) => {
+      for (const da of [-1, 1]) {
+        const ang = Math.atan2(ez, ex) + da * 0.4;
+        pts.push(ex, 0.74, ez, Math.cos(ang) * RIM_R, RIM_Y, Math.sin(ang) * RIM_R);
+      }
+    });
     const lg = new THREE.BufferGeometry();
     lg.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    const cords = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x333333 }));
+    const cords = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2a2a2a }));
+    cords.name = "cords";
     group.add(cords);
     group.position.set(x, y, z);
     this.scene.add(group);
-    const crate = { pos: new THREE.Vector3(x, y, z), group, canopy, state: "falling", age: 0, smokeT: 0, x, z, sway: Math.random() * 6 };
+    const crate = { pos: new THREE.Vector3(x, y, z), group, canopy, cords, state: "falling", age: 0, smokeT: 0, x, z, sway: Math.random() * 6 };
     this.crates.push(crate);
     this.onMessage?.("SUPPLY CRATE dropping nearby! Follow the orange smoke.");
     this.audio?.playSupply?.();
     return crate;
+  }
+
+  // Dry land: the ground is above the sea all around the spot (a drop must
+  // never come down in the water or on a shore that floods).
+  _isLand(x, z) {
+    const w = this.world;
+    for (const [dx, dz] of [[0, 0], [LAND_MARGIN, 0], [-LAND_MARGIN, 0], [0, LAND_MARGIN], [0, -LAND_MARGIN], [LAND_MARGIN, LAND_MARGIN], [-LAND_MARGIN, -LAND_MARGIN]]) {
+      const h = w.heightAt(Math.floor(x + dx), Math.floor(z + dz));
+      if (h < SEA_LEVEL + 1) return false;
+    }
+    const top = this._surface(x, z);
+    const id = w.getBlock(Math.floor(x), top - 1, Math.floor(z));
+    return IS_SOLID[id] === 1 && !IS_WET[w.getBlock(Math.floor(x), top, Math.floor(z))];
+  }
+
+  // A drop point near `dist` blocks from p on solid ground: tries a ring of
+  // directions, then wider rings.
+  _findLand(p, dist) {
+    for (let ring = 0; ring < 5; ring++) {
+      const d = dist * (1 + ring * 0.45);
+      const a0 = Math.random() * Math.PI * 2;
+      for (let k = 0; k < 16; k++) {
+        const a = a0 + (k / 16) * Math.PI * 2;
+        const x = p.x + Math.cos(a) * d;
+        const z = p.z + Math.sin(a) * d;
+        if (this._isLand(x, z)) return { x, z };
+      }
+    }
+    return null;
   }
 
   _surface(x, z) {
@@ -123,7 +212,7 @@ export class SupplyCrates {
           c.pos.y = ground + 0.6;
           c.state = "landed";
           c.canopy.visible = false;
-          c.group.children[2].visible = false;
+          c.cords.visible = false;
           // The canopy sinks in a soft puff.
           for (let k = 0; k < 10; k++) fx.smoke.spawn({ x: c.pos.x, y: c.pos.y + 1, z: c.pos.z, vx: (Math.random() - 0.5) * 3, vy: 1, vz: (Math.random() - 0.5) * 3, life: 1.6, size0: 0.8, size1: 3, color0: this._grey[1], color1: this._grey[1], alpha: 0.5, drag: 1.5 });
         }

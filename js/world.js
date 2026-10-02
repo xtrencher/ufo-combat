@@ -90,6 +90,7 @@ export class World {
     // Map<chunkKey string, Map<localBlockIndex, blockId>> (see storage.js).
     this.edits = new Map();
     this.dirtyEditChunks = new Set(); // chunk keys with edits not yet saved
+    this.lodDirty = new Set(); // "cx,cz" of chunks edited while unloaded: the LOD tiles over them need a rebuild (lod.js)
 
     const { texture, reliefTexture, canvases, blockColors, facePalette } = buildBlockTextures();
     this.atlas = texture;
@@ -193,6 +194,9 @@ export class World {
     const lz = z - cz * CHUNK_SIZE;
     setEdit(this.edits, cx, cz, blockIndex(lx, y, lz), id);
     this.dirtyEditChunks.add(chunkKey(cx, cz));
+    // (The distant terrain tiles over it must be rebuilt too: a crater far out
+    // shows in the LOD terrain, see lod.js.)
+    this.lodDirty.add(`${cx},${cz}`);
     if (this.onEdit) this.onEdit();
   }
 

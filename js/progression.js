@@ -229,7 +229,7 @@ export const MISSIONS = [
   {
     id: "salvage",
     title: "Salvage",
-    text: "The next UFO you shoot down will come down in one piece. Board it (walk up, press F): alien ships are yours to fly from now on, the ones hidden in airport hangars too.",
+    text: "The next UFO you shoot down will come down in one piece. Board it (walk up, press F): alien ships are yours to fly from now on, the ones kept in the guarded bunkers of airports too.",
     objectives: [{ stat: "ufosBoarded", goal: 1, label: "UFOs boarded" }],
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "intact",

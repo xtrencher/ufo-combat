@@ -449,13 +449,13 @@ await check("UFO redesign: minimal designs (saucers most common, spheres, tic-ta
   });
   const j = JSON.stringify(r);
   assert(r.saucers > 0.5, `smooth saucers are the most common: ${j}`);
-  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"]) assert(r.counts[d] > 0, `${d} appears: ${j}`);
+  for (const d of ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle", "boomerang", "cylinder"]) assert(r.counts[d] > 0, `${d} appears: ${j}`);
   assert(r.glow < 0.35, `most UFOs don't glow: ${j}`);
   assert(r.noLights.length === 0, `no blinking lights on any design: ${j}`);
   assert(["brushed", "glossy", "satin", "matte", "grain"].every((f) => r.finishes.includes(f)), `varied finishes: ${j}`);
   assert(r.sphereMax < 0.06, `spheres are gray-black: ${j}`);
   assert(r.tictacMin > 0.25, `tic-tacs are white or pale gray: ${j}`);
-  assert(r.legacy.every((d) => ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "cube", "cubering"].includes(d)), `old designs map onto new ones: ${j}`);
+  assert(r.legacy.every((d) => ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle", "boomerang", "cylinder"].includes(d)), `old designs map onto new ones: ${j}`);
   assert(r.glowBefore && !r.glowAfter, `a shot-down UFO never glows: ${j}`);
 });
 

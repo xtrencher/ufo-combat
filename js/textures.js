@@ -487,7 +487,7 @@ function paintLeaves(t) {
   }
   // Gaps between leaves let light (and the sky) through.
   t.forEach((x, y) => {
-    if (t.noise(x, y, 8, 11) * 0.7 + t.rand() * 0.3 < 0.17) t.set(x, y, [0, 0, 0], 0);
+    if (t.noise(x, y, 8, 11) * 0.7 + t.rand() * 0.3 < 0.28) t.set(x, y, [0, 0, 0], 0);
   });
 }
 
@@ -1125,7 +1125,7 @@ const PAINTERS = {
   wool: paintWool,
   birch_side: paintBirchBark,
   birch_top: paintBirchTop,
-  birch_leaves: (t) => paintFoliage(t, P.birchLeaves, 110, 0.2),
+  birch_leaves: (t) => paintFoliage(t, P.birchLeaves, 110, 0.3),
   pine_side: paintPineBark,
   pine_top: paintPineTop,
   pine_leaves: paintPineNeedles,

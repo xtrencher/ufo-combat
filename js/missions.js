@@ -18,6 +18,10 @@ function rand(a, b) {
   return a + Math.random() * (b - a);
 }
 
+function n_note(active, toDawn, toDusk, wave, waves) {
+  return active ? `Dawn in about ${Math.max(1, Math.ceil(toDawn / 60))} min (landing ${Math.min(wave, waves)}/${waves})` : `Night falls in about ${Math.ceil(toDusk / 60)} min`;
+}
+
 export class MissionDirector {
   constructor(game) {
     // game: { progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain, player, sky, toast }
@@ -52,6 +56,7 @@ export class MissionDirector {
     }
     const st = this.state;
     st.t += dt;
+    if (m.event === "night") this._nightClock(dt);
     this.checkT -= dt;
     if (this.checkT > 0) {
       this._refreshTarget();
@@ -78,7 +83,7 @@ export class MissionDirector {
         this._crate();
         break;
       case "night":
-        this._nightInfo();
+        this._night();
         break;
       case "intact":
         this.ufos.forceIntact = true;
@@ -120,6 +125,7 @@ export class MissionDirector {
 
   // Leftovers of the previous mission's set-up go (or stay, if harmless).
   _cleanup() {
+    if (this.sky) this.sky.timeScale = 1;
     this.ufos.forceIntact = false;
     for (const u of this.ufos.ufos) {
       if (u.missionTarget || u.raider) {
@@ -465,12 +471,75 @@ export class MissionDirector {
     }
   }
 
-  _nightInfo() {
-    this.target = null;
-    const h = this.sky.hours;
-    const dayLen = this.sky.dayLength ?? 600;
+  // The long night really is at night: the clock runs fast to dusk when the
+  // mission starts (and goes back to dusk if the player dies, so a retry
+  // needn't wait a whole day), then ticks normally from dusk to dawn.
+  _nightClock(dt) {
+    const st = this.state;
+    const sky = this.sky;
+    if (sky.locked) sky.locked = false; // a frozen clock would never bring dawn
+    const h = sky.hours;
+    const dark = h >= 19.5 || h < 5.5;
+    const n = this.night;
+    if (!dark) {
+      sky.timeScale = h > 5.5 && h < 19.5 && !st.fastDone ? 30 : 1;
+      st.fast = true;
+      return;
+    }
+    if (st.fast) {
+      st.fast = false;
+      st.fastDone = true;
+      sky.timeScale = 1;
+      this.toast?.("Night falls. Stay near light and shelter; things are coming.", 4);
+    }
+    if (n.active && !n.clean && st.fastDone && !this.player.dead) {
+      // The player died in the night: start it over from dusk.
+      sky.setHours(19.6);
+      n.clean = true;
+      n.deathsAt = this.stats.world.deaths ?? 0;
+      st.nt = 0;
+      st.wave = 0;
+      this.toast?.("The night starts over.", 3);
+    }
+    st.nt = (st.nt ?? 0) + (this.player.dead ? 0 : dt);
+  }
+
+  // The night's events: three alien landing parties at 35, 105 and 170 s into
+  // the night (the night is about 250 s), small enough for the first tier.
+  _night() {
+    const st = this.state;
+    const sky = this.sky;
+    const p = this.player.position;
+    const h = sky.hours;
+    const dayLen = sky.dayLength ?? 600;
     const toHours = (target) => ((target - h + 24) % 24) * (dayLen / 24);
-    this.state.note = this.night.active ? `Dawn in about ${Math.ceil(toHours(5.5) / 60)} min` : `Night falls in about ${Math.ceil(toHours(19.5) / 60)} min`;
+    this.target = null;
+    if (!st.fastDone) {
+      this.state.note = "Night is falling...";
+      return;
+    }
+    const waves = [
+      { at: 35, kinds: ["alien_gray", "alien_gray", "alien"], text: "Something landed to the east... they are coming for you!" },
+      { at: 105, kinds: ["alien", "alien", "alien_gray", "alien_gray"], text: "A second ship: more aliens are closing in!" },
+      { at: 170, kinds: ["alien", "alien_gray", "alien", "alien_gray", "alien"], text: "The last landing party! Hold out until dawn." },
+    ];
+    const w = st.wave ?? 0;
+    if (w < waves.length && (st.nt ?? 0) >= waves[w].at) {
+      st.wave = w + 1;
+      st.alive = st.alive || [];
+      const at = this._groundSpot(70, 0.15) || new THREE.Vector3(p.x + 70, 0, p.z);
+      for (const kind of waves[w].kinds) {
+        const m = this._spawnAlien(kind, 5, at);
+        if (m) st.alive.push(m);
+      }
+      this.toast?.(waves[w].text, 4);
+    }
+    st.alive = (st.alive || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    if (st.alive.length) {
+      st.alive.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
+      this._setTarget(st.alive[0], `Landing party (${st.alive.length})`);
+    }
+    this.state.note = n_note(this.night.active, toHours(5.5), toHours(19.5), st.wave ?? 0, waves.length);
   }
 
   // 5. Salvage: points at an intact wreck once there is one.

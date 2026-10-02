@@ -319,6 +319,9 @@ held = new HeldItem(world.atlas);
 held.resize(camera.aspect);
 const interaction = new Interaction({ scene, world, player, inventory, entities, audio, effects, held });
 const invScreen = new InventoryScreen({ icons, inventory, audio });
+interaction.onCut = (x, y, z, n) => {
+  if (n[1] > 0 && grass.density > 0) grass.clear(x, z, 1.2);
+};
 const mobs = new MobManager({ scene, world, player, entities, audio, effects, sky });
 // The player's own body, drawn in the third-person camera modes (F5).
 const avatar = new PlayerAvatar(scene, world.atlas);
@@ -383,7 +386,7 @@ settingsPanel.on("vehicles.jetAssist", (v) => (vehicles.config.jet.assist = v));
 settingsPanel.on("vehicles.jetAirborne", (v) => (vehicles.config.jet.airborne = v));
 settingsPanel.on("vehicles.jetAimAssist", (v) => (vehicles.config.jet.aimAssist = v));
 // Airports and cities (sites.js): aircraft parked on the aprons, runways to call the jet to.
-const airports = new AirportManager({ sites: world.terrain.sites, vehicles, world, player });
+const airports = new AirportManager({ sites: world.terrain.sites, vehicles, world, player, mobs });
 // Enemy jets (patrolling neutral, hostile once provoked).
 const enemyJets = new EnemyJetManager({ vehicles, ufos, player, world });
 enemyJets.onDown = (jet, cause) => {
@@ -600,6 +603,12 @@ function toast(text, seconds = 3) {
   toastTimer = setTimeout(() => toastEl.classList.remove("show"), seconds * 1000);
 }
 vehicles.onMessage = (t) => toast(t);
+let lastAlarmToast = -99;
+mobs.onAlarm = () => {
+  const now = performance.now() / 1000;
+  if (now - lastAlarmToast > 20) toast("Restricted area! Guards are firing!", 3);
+  lastAlarmToast = now;
+};
 ufos.onMessage = (t) => toast(t, 2.5);
 vehicles.onAbduct = () => stats.add("animalsAbducted");
 ufos.onShotDown = (u, byPlayer) => {
@@ -1361,6 +1370,8 @@ hud.respawnBtn.addEventListener("click", respawn);
 effects.onExplosion = (center, radius, source) => {
   const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile" && source !== "roguemissile";
   mobs.explosion(center, radius, byPlayer);
+  // The blast takes the plants with it (the burnt ring too), so none are left floating over the crater.
+  if (grass.density > 0 && center.distanceTo(player.position) < 90) grass.clear(center.x, center.z, Math.min(radius + 2.5, 30));
   ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
   vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
   const size = Math.sqrt(radius / GRENADE_RADIUS);

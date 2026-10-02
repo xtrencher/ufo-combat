@@ -24,6 +24,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
 import { createGrassMaterial } from "./shaders.js";
 import { grassTint } from "./mesher.js";
 
+const REGROW = 150; // seconds a cut or burnt patch stays bare
 const REBUILD_DISTANCE = 1.5; // blocks moved before the plants are refilled
 
 // Spot kinds (bit flags) found by the chunk scan.
@@ -37,8 +38,8 @@ const WATER_TOP = 16; // an open water surface 1-3 blocks deep
 // grow: blade height scale (Round 3: Ultra's dense grass is shorter, about
 // knee-high at most, so it no longer hides the ground ahead).
 const LEVELS = {
-  1: { radius: 20, short: 1.2, tall: 0.7, grow: 1 },
-  2: { radius: 32, short: 2.2, tall: 1.4, grow: 0.68 },
+  1: { radius: 20, short: 1.2, tall: 0.6, grow: 0.72 },
+  2: { radius: 32, short: 2.2, tall: 1.1, grow: 0.46 },
 };
 
 function hash(x, z, k) {
@@ -218,6 +219,7 @@ export class GrassField {
     this._cache = new WeakMap(); // chunk -> { version, spots: Float32Array [x, y, z, sky, block, kind, depth, ...] }
     this._builtAt = new THREE.Vector3(Infinity, 0, 0);
     this._versions = new Map(); // chunk -> mesh count at the last fill
+    this.cleared = new Map(); // "x,z" -> time (s) it grows back
     this.count = 0;
     this.counts = {}; // plants per kind at the last fill (stats / tests)
   }
@@ -230,6 +232,24 @@ export class GrassField {
     this.material.uniforms.uRadius.value = this.radius;
     this.mesh.visible = !!cfg;
     this._builtAt.set(Infinity, 0, 0);
+  }
+
+  // Cuts (or burns) the plants within r blocks of the column (x, z): they stay
+  // gone for a while. Returns how many columns were cleared.
+  clear(x, z, r = 1.5, y = null) {
+    const now = performance.now() / 1000;
+    let n = 0;
+    const ri = Math.ceil(r);
+    for (let dz = -ri; dz <= ri; dz++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        if (dx * dx + dz * dz > r * r + 0.5) continue;
+        this.cleared.set(`${Math.floor(x) + dx},${Math.floor(z) + dz}`, now + REGROW);
+        n++;
+      }
+    }
+    if (this.cleared.size > 30000) for (const k of this.cleared.keys()) { this.cleared.delete(k); if (this.cleared.size < 20000) break; }
+    this._builtAt.set(Infinity, 0, 0); // refill at once
+    return n;
   }
 
   // Plant spots in one chunk: open ground with the light above it, and what
@@ -330,6 +350,9 @@ export class GrassField {
     const { tuft, cross, reed, pad } = this.layers;
     const counts = { tuft: 0, tall: 0, fern: 0, flower: 0, reed: 0, cattail: 0, lily: 0 };
     const r = this.radius;
+    const now = performance.now() / 1000;
+    const cleared = this.cleared;
+    if (cleared.size) for (const [k, t] of cleared) if (t < now) cleared.delete(k);
     for (const chunk of chunks) {
       this._versions.set(chunk, chunk.meshCount || 0);
       const spots = this._spots(chunk);
@@ -341,6 +364,7 @@ export class GrassField {
         const dz = z + 0.5 - playerPos.z;
         const d = Math.sqrt(dx * dx + dz * dz);
         if (d > r) continue;
+        if (cleared.size && cleared.has(`${x},${z}`)) continue;
         // Thinner toward the edge (the shader also shrinks what's left).
         const t = Math.min(1, Math.max(0, (d - r * 0.45) / (r * 0.55)));
         const keep = 1 - t * t * (3 - 2 * t);

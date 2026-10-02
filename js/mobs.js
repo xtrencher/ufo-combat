@@ -166,8 +166,8 @@ export const SPECIES = {
   // restricted area around them (a Creative player is left alone).
   guard: {
     name: "Guard", hostile: true, special: true, sentry: true, health: 22, r: 0.3, h: 1.85, eye: 1.6,
-    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 60, ranged: true, laser: true, laserDamage: 2, strafes: true,
-    weapon: "rifle", shootMin: 6, shootMax: 38, shootCooldown: 1.9, pathfind: true,
+    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 60, ranged: true, laser: true, laserDamage: 1.5, strafes: true,
+    weapon: "rifle", shootMin: 6, shootMax: 38, shootCooldown: 2.3, pathfind: true,
     drops: [[ITEM.COAL, 0, 0, 0]],
   },
   fish: {

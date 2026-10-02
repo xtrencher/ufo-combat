@@ -558,40 +558,25 @@ await check("aliens and skeletons shoot from their weapon's muzzle (the gun's ti
   for (const [k, d] of Object.entries(r)) assert(d !== null && d < 0.9, `${k} fires from its weapon: ${JSON.stringify(r)}`);
 });
 
-await check("airport hangars: now and then a small UFO hovers just above a hangar floor; Survival locks it until the Salvage mission", async () => {
+await check("airport bunkers (Round 5): an alien ship hovers in the hall of a secured bunker under armed guards; Survival locks it until the Salvage mission", async () => {
   await v((g) => {
     g.setMode("creative");
-    const s = g.sites.nearest(g.player.position.x, g.player.position.z, 8000);
-    const h = g.sites.hangarSpots(s);
-    g.player.position.set(h[1].x, s.y + 3, h[1].z + 20);
-  });
-  // Several airports: at least one of the first few has a hangar ship.
-  let found = null;
-  for (let tries = 0; tries < 4 && !found; tries++) {
-    found = await until((g) => {
-      const u = g.vehicles.vehicles.find((x) => x.hangar);
-      if (!u) return null;
-      const floor = g.sites.nearest(u.pos.x, u.pos.z, 400).y + 1;
-      return { gap: +(u.pos.y - u.bottom - floor).toFixed(2), r: u.radius, name: u.name };
-    }, 20000);
-    if (!found) {
-      await v((g, k) => {
-        const p = g.player.position;
-        const list = [];
-        for (let dx = -8; dx <= 8; dx++) for (let dz = -8; dz <= 8; dz++) {
-          const s = g.sites._site?.(Math.floor(p.x / 700) + dx, Math.floor(p.z / 700) + dz);
-          if (s && !g.vehicles.vehicles.some((x) => x.parkedAt === s.id)) list.push(s);
-        }
-        list.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
-        const s = list[k] || list[0];
-        if (s) {
-          const h = g.sites.hangarSpots(s);
-          g.player.position.set(h[1].x, s.y + 3, h[1].z + 20);
-        }
-      }, tries);
+    let best = null;
+    const p = g.player.position;
+    for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {
+      const s = g.sites._site(Math.floor(p.x / 800) + dx, Math.floor(p.z / 800) + dz);
+      if (s && s.kind === "airport" && s.bunkers.length && (!best || Math.hypot(s.x - p.x, s.z - p.z) < Math.hypot(best.x - p.x, best.z - p.z))) best = s;
     }
-  }
-  assert(found && found.gap > 0.3 && found.gap < 1.6 && found.r < 5, `a hangar ship hovering just above the floor: ${JSON.stringify(found)}`);
+    const b = g.sites.bunkerSpots(best)[0];
+    g.player.position.set(b.guards[0].x + 4, best.y + 6, b.guards[0].z + 30);
+  });
+  const found = await until((g) => {
+    const u = g.vehicles.vehicles.find((x) => x.hangar);
+    const guards = g.mobs.mobs.filter((m) => m.sentry).length;
+    if (!u || guards < 4) return null;
+    return { guards, y: +u.pos.y.toFixed(1), r: u.radius };
+  }, 90000);
+  assert(found && found.r < 5, `a bunker ship under guard: ${JSON.stringify(found)}`);
   const lock = await v((g) => {
     const u = g.vehicles.vehicles.find((x) => x.hangar);
     g.setMode("survival");
@@ -615,7 +600,7 @@ await check("UFO piloting: the camera keeps the crosshair clear of the ship for 
   const r = await v((g) => {
     const T = g.THREE;
     const out = { blocked: [], dash: null, weapons: {} };
-    for (const [design, radius] of [["saucer", 4], ["sphere", 8], ["saucer_domed", 16], ["cube", 38], ["sphere", 70]]) {
+    for (const [design, radius] of [["saucer", 4], ["sphere", 8], ["saucer_domed", 16], ["triangle", 38], ["sphere", 70]]) {
       if (g.vehicles.active) g.vehicles.exit({ force: true });
       for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
       const p = g.player.position;

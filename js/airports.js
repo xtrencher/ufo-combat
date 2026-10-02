@@ -3,20 +3,23 @@
 // A parked fighter is a real jet (boardable with F, like the one called in
 // with J); they are set out when the player comes within range and put away
 // when they leave. Parked aircraft are never saved.
-import { RUNWAY_HALF } from "./sites.js";
 
 const NEAR = 420; // blocks: parked aircraft appear inside this range
 const FAR = 900; // and are put away beyond this
 const GEAR = 1.35;
-const HANGAR_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "tictac"]; // flat enough for the hangar doors
+const HANGAR_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "tictac", "triangle"]; // small enough for the bunker hall
 
 export class AirportManager {
-  constructor({ sites, vehicles, world, player }) {
+  constructor({ sites, vehicles, world, player, mobs }) {
+    this.mobs = mobs;
     this.sites = sites;
     this.vehicles = vehicles;
     this.world = world;
     this.player = player;
     this.parked = new Map(); // site id -> [jets]
+    this.guards = new Map(); // site id -> [guards]
+    this.bunkerSet = new Map(); // site id -> Set of bunkers set out
+    this.bunkersDone = new Map();
     this.timer = 0;
     this.enabled = true;
   }
@@ -38,7 +41,7 @@ export class AirportManager {
     const e = ends[0];
     // The chunks under the runway must exist (the jet stands on real blocks).
     if (!this.world.getChunk(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)) return null;
-    return { site: s, ...e, halfLength: RUNWAY_HALF };
+    return { site: s, ...e, halfLength: s.half };
   }
 
   update(dt) {
@@ -58,17 +61,20 @@ export class AirportManager {
       if (d > FAR) {
         for (const j of jets) if (j.alive && !j.occupied && j.parkedAt && veh.vehicles.includes(j)) veh.remove(j);
         this.parked.delete(id);
+        this._dropGuards(id);
       }
     }
     const s = this.sites.nearest(p.x, p.z, NEAR + 200);
-    if (!s || this.parked.has(s.id)) return;
-    if (Math.hypot(s.x - p.x, s.z - p.z) > NEAR + 100) return;
-    const spots = this.sites.parkingSpots(s);
-    const jets = [];
-    for (const spot of spots) {
-      // Only when the apron's chunk is there to stand on.
-      if (!this.world.getChunk(Math.floor(spot.x) >> 4, Math.floor(spot.z) >> 4)) return;
+    if (!s || Math.hypot(s.x - p.x, s.z - p.z) > NEAR + 100) return;
+    if (this.parked.has(s.id)) {
+      // The bunkers wait for their own chunks (they can lie far from the apron).
+      if (this.bunkersDone.get(s.id) !== true) this._setOutBunkers(s, this.parked.get(s.id));
+      return;
     }
+    // Only the spots whose chunk is there to stand on.
+    const spots = this.sites.parkingSpots(s).filter((spot) => this.world.getChunk(Math.floor(spot.x) >> 4, Math.floor(spot.z) >> 4));
+    const jets = [];
+    if (!spots.length && (s.parking || []).length) return;
     // A stable number of aircraft per airport (1-3) from the site's seed.
     const count = 1 + (s.seed % 3);
     for (let i = 0; i < Math.min(count, spots.length); i++) {
@@ -81,24 +87,45 @@ export class AirportManager {
       jet.parkedAt = s.id;
       jets.push(jet);
     }
-    // Now and then an alien ship hovers in a hangar, just above the floor
-    // (seized, or left behind): about one hangar in three, fixed per airport.
-    // It can be boarded once the mission chain gets that far (see
-    // vehicles.canBoard in main.js).
-    for (const h of this.sites.hangarSpots(s)) {
-      if (((s.seed >>> (h.id * 4 + 3)) & 3) !== 0 && !(h.id === 1 && (s.seed & 7) === 0)) continue;
-      const design = HANGAR_DESIGNS[(s.seed >>> (h.id * 3)) % HANGAR_DESIGNS.length];
-      const radius = 4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 10; // 4-4.9: through the doorway with room to spare
-      const ufo = veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
-      if (!ufo) continue;
-      ufo.pos.y = h.y + ufo.bottom + 0.9; // hovering a little above the floor
-      ufo.hangar = true;
-      ufo.transient = true;
-      ufo.keep = true;
-      ufo.parkedAt = s.id;
-      jets.push(ufo);
-    }
     this.parked.set(s.id, jets);
+    this._setOutBunkers(s, jets);
+  }
+
+  // The secured bunkers: an alien ship hovers in the hall (seized, or left
+  // behind) under armed guards who shoot at anyone entering the restricted
+  // zone. The ship can be boarded once the mission chain gets that far (see
+  // vehicles.canBoard in main.js). A bunker whose chunks are not loaded yet
+  // is tried again next time.
+  _setOutBunkers(s, jets) {
+    const veh = this.vehicles;
+    const done = this.bunkerSet.get(s.id) || new Set();
+    this.bunkerSet.set(s.id, done);
+    const guards = this.guards.get(s.id) || [];
+    const spots = this.sites.bunkerSpots(s);
+    for (const h of spots) {
+      if (done.has(h.id)) continue;
+      // The hall and the ramp's top must be there.
+      const ready = [[h.x, h.z], ...h.guards.map((g) => [g.x, g.z]), [h.zone.x, h.zone.z]].every(([x, z]) => this.world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4));
+      if (!ready) continue;
+      done.add(h.id);
+      const design = HANGAR_DESIGNS[(s.seed >>> (h.id * 3)) % HANGAR_DESIGNS.length];
+      const radius = 3.4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 14; // fits the hall and the ramp
+      const ufo = veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
+      if (ufo) {
+        ufo.pos.y = h.y + ufo.bottom + 0.9; // hovering a little above the floor
+        ufo.hangar = true;
+        ufo.transient = true;
+        ufo.keep = true;
+        ufo.parkedAt = s.id;
+        jets.push(ufo);
+      }
+      if (this.mobs) for (const g of h.guards) {
+        const m = this.mobs.spawnGuard(g.x, g.y, g.z, h.zone);
+        if (m) guards.push(m);
+      }
+    }
+    if (guards.length) this.guards.set(s.id, guards);
+    this.bunkersDone.set(s.id, done.size >= spots.length);
   }
 
   // A parked aircraft the player boarded is theirs from now on: a normal
@@ -111,7 +138,21 @@ export class AirportManager {
     if (v.type === "jet") v.keep = false;
   }
 
+  // The guards of an airport that is put away go with it.
+  _dropGuards(id) {
+    const list = this.guards.get(id);
+    this.guards.delete(id);
+    this.bunkerSet.delete(id);
+    this.bunkersDone.delete(id);
+    if (!list || !this.mobs) return;
+    for (const g of list) {
+      const i = this.mobs.mobs.indexOf(g);
+      if (i >= 0 && !g.dead) this.mobs._remove(i);
+    }
+  }
+
   clear() {
+    for (const id of [...this.guards.keys()]) this._dropGuards(id);
     for (const jets of this.parked.values()) for (const j of jets) if (j.alive && !j.occupied && j.parkedAt && this.vehicles.vehicles.includes(j)) this.vehicles.remove(j);
     this.parked.clear();
   }
