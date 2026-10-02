@@ -90,6 +90,11 @@ export class WorldSync {
       n = 0;
     };
     for (const [key, map] of this.out) {
+      // What the blocks are *now* (a race settled meanwhile ends the same
+      // everywhere); a chunk that isn't loaded here keeps the recorded value.
+      const [cx, cz] = key.split(",").map(Number);
+      const chunk = this.world.getChunk(cx, cz);
+      if (chunk) for (const index of map.keys()) map.set(index, chunk.blocks[index]);
       c[key] = encodeChunkEdits(map);
       this.stats.sent += map.size;
       if (++n >= MAX_BATCH_CHUNKS) send();
