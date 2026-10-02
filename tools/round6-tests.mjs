@@ -245,6 +245,60 @@ await check("Survival: rule settings are hidden and fixed at their defaults, Cre
   assert(Object.values(r.hidden).every(Boolean) && r.visibleKept, JSON.stringify(r));
 });
 
+// ================= Part 3: the nuke =================
+
+await check("nuke: default size 96, a very wide crater, and everything above the ground within 1.3x the size is gone (buildings, trees, plants, runways)", async () => {
+  const info = await v(async (g) => {
+    g.setMode("creative");
+    g.testFlags.noMissions = true;
+    g.ufos.config.activity = 0;
+    g.mobs.spawning = false;
+    const { NUKE_DEFAULTS, NUKE_MAX_SIZE } = await import("./js/nuke.js");
+    // The home airport (a runway, an apron, hangars, a tower) is the target.
+    const s = g.sites.home;
+    window.__site = s;
+    g.player.position.set(s.x, s.y + 50, s.z + 60);
+    g.player.flying = true;
+    return { def: NUKE_DEFAULTS.size, max: NUKE_MAX_SIZE, R: g.nuke.radius, x: s.x, z: s.z, y: s.y };
+  });
+  assert(info.def === 96 && info.max === 200 && info.R === 96, JSON.stringify(info));
+  for (let i = 0; i < 40; i++) {
+    await v((g) => g.streamAround(window.__site.x, window.__site.z));
+    await frames(2);
+  }
+  const res = await v((g) => {
+    const s = window.__site;
+    const above = () => {
+      let n = 0;
+      let surf = 0;
+      let tot = 0;
+      for (let x = s.x - 120; x <= s.x + 120; x += 1) for (let z = s.z - 120; z <= s.z + 120; z += 1) {
+        if ((x - s.x) ** 2 + (z - s.z) ** 2 > 120 * 120 || !g.world.getChunk(x >> 4, z >> 4)) continue;
+        tot++;
+        const h = g.world.heightAt(x, z);
+        for (let y = h + 1; y < h + 70; y++) { const id = g.world.getBlock(x, y, z); if (id !== 0 && id !== 5) n++; }
+        const id = g.world.getBlock(x, h, z);
+        if (id === 11 || id === 24 || id === 18) surf++;
+      }
+      return { n, surf, tot };
+    };
+    const before = above();
+    g.nuke.detonate(new g.THREE.Vector3(s.x, s.y + 1, s.z));
+    for (let i = 0; i < 300; i++) g.nuke.update(0.05, null, 1);
+    const after = above();
+    // The crater: depth at the centre, and how far out the ground is lowered.
+    let deepest = 0;
+    for (let y = s.y; y > 0; y--) { if (g.world.getBlock(Math.floor(s.x), y, Math.floor(s.z)) === 0) deepest = s.y - y; else break; }
+    let rim = 0;
+    for (let d = 0; d < 140; d += 4) { const h = g.world.heightAt(Math.floor(s.x + d), Math.floor(s.z)); if (g.world.getBlock(Math.floor(s.x + d), s.y, Math.floor(s.z)) === 0 || g.world.getBlock(Math.floor(s.x + d), s.y - 2, Math.floor(s.z)) === 0) rim = d; void h; }
+    return { before, after, deepest, rim };
+  });
+  assert(res.before.n > 500 && res.before.surf > 100, `something to destroy: ${JSON.stringify(res.before)}`);
+  assert(res.after.n === 0 && res.after.surf === 0, JSON.stringify(res));
+  assert(res.deepest >= 15 && res.deepest <= 45 && res.rim >= 70, `a wide, not too deep crater: ${JSON.stringify(res)}`);
+});
+
+
 // ================= Part 4: jets =================
 
 // A jet in the air that the player flies (stepped by hand).
@@ -626,13 +680,19 @@ await check("player UFO: holding T locks a UFO and, after 3 s, fires a salvo of 
 const startMission = (id) =>
   v((g, id) => {
     g.testFlags.noMissions = false;
+    if (g.player.dead) g.respawn();
     g.setMode("survival");
     g.progress.enabled = true;
     g.missions.enabled = true;
+    // (Earlier checks leave the player anywhere, even high in the air: a fresh start on the ground.)
+    g.world.prepareArea(g.spawn.x, g.spawn.z, 6);
+    g.player.position.set(g.spawn.x + 0.5, g.world.surfaceY(g.spawn.x, g.spawn.z) + 1, g.spawn.z + 0.5);
+    g.player.velocity.set(0, 0, 0);
+    g.player.resetFall();
+    g.player.flying = false;
     g.player.health = 20;
     g.ufos.clear();
     g.mobs.clear();
-    const idx = g.progress.constructor === undefined ? -1 : null;
     return true;
   }, id);
 const stepMission = (id, n = 8) =>

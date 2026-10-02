@@ -1246,6 +1246,54 @@ console.log("\nFlowing water (watersim.js)");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nRound 6 landforms (terrain.js, biomes.js)");
+{
+  const { TerrainGenerator } = await import("../js/terrain.js");
+  const { BIOME } = await import("../js/biomes.js");
+  const { SEA_LEVEL } = await import("../js/constants.js");
+
+  await test("flat country, deep valleys, bigger mountains and the meadow exist (6 seeds, 8000 x 8000 blocks)", () => {
+    let land = 0;
+    let flat = 0;
+    let steep = 0;
+    let high = 0;
+    let desert = 0;
+    let jungle = 0;
+    let meadow = 0;
+    let valley = 0;
+    for (const seed of [1, 42, 777, 2024, 31337, 99]) {
+      const t = new TerrainGenerator(seed * 7919);
+      for (let x = -4000; x < 4000; x += 80) {
+        for (let z = -4000; z < 4000; z += 80) {
+          const info = t._terrainInfo(x, z);
+          if (info.height <= SEA_LEVEL + 1) continue;
+          land++;
+          const b = t.biomes.biomeAt(x, z, info.height, info.mountainT, info.river, info.flat);
+          if (b === BIOME.DESERT) desert++;
+          if (b === BIOME.JUNGLE) jungle++;
+          if (b === BIOME.MEADOW) meadow++;
+          if (info.height > 100) high++;
+          // Flat: the 4 neighbours 8 blocks away differ by at most 2.
+          const hs = [t.heightAt(x + 8, z), t.heightAt(x - 8, z), t.heightAt(x, z + 8), t.heightAt(x, z - 8)];
+          const d = Math.max(...hs.map((h) => Math.abs(h - info.height)));
+          if (info.flat > 0.9 && d <= 2) flat++;
+          if (d >= 8) steep++;
+          // A valley: low ground (below SEA_LEVEL + 8) right beside a ridge (100+ blocks away along an axis).
+          if (info.height < SEA_LEVEL + 8 && info.mountainT > 0.35) valley++;
+        }
+      }
+    }
+    const pc = (n) => ((n / land) * 100).toFixed(1);
+    console.log(`        land ${land}: flat ${pc(flat)}%, over 100 ${pc(high)}%, desert ${pc(desert)}%, jungle ${pc(jungle)}%, meadow ${pc(meadow)}%, valley floors in the mountains ${pc(valley)}%, steep ${pc(steep)}%`);
+    assert.ok(flat / land > 0.06, "wide flat country exists");
+    assert.ok(high / land > 0.05, "tall mountains");
+    assert.ok(desert / land > 0.06 && jungle / land > 0.025, "much larger deserts and jungles than the 3% / 2% of Round 5");
+    assert.ok(meadow / land > 0.02, "meadows");
+    assert.ok(valley / land > 0.003, "valley floors cut into the mountain country");
+  });
+}
+
+// ---------------------------------------------------------------------------
 console.log("\nAirports and cities (sites.js)");
 {
   const { TerrainGenerator } = await import("../js/terrain.js");

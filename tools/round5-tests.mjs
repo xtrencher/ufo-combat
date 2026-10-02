@@ -261,7 +261,7 @@ await check("bunkers: a ship hovers in the hall under armed guards; the alarm go
     let best = null;
     const p = g.player.position;
     for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {
-      const s = g.sites._site(Math.floor(p.x / 800) + dx, Math.floor(p.z / 800) + dz);
+      const s = g.sites._site(Math.floor(p.x / 1300) + dx, Math.floor(p.z / 1300) + dz);
       if (s && s.kind === "airport" && s.bunkers.length && (!best || Math.hypot(s.x - p.x, s.z - p.z) < Math.hypot(best.x - p.x, best.z - p.z))) best = s;
     }
     window.__bunker = g.sites.bunkerSpots(best)[0];

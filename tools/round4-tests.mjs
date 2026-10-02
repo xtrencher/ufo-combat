@@ -397,17 +397,15 @@ await check("jet missiles: a click fires one unguided; the lock takes only UFOs 
   assert(r.mob === "none", `creatures are never locked: ${j}`);
 });
 
-await check("jet picker and visuals: J opens a picker, 2 calls an F-16 (its own model, handling and weapons); navigation lights are small points; the jets have the skin shader", async () => {
+await check("jets: an F-16 has its own model, handling and weapons; navigation lights are small points; the jets have the skin shader (Round 6: no picker, jets are parked at airports)", async () => {
   await play();
   await v((g) => {
     for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
-    g.vehicles.config.jet.airborne = true;
-    g.ufos.time += 5; // (past the double-press guard of the call)
+    const p = g.player.position;
+    const jet = g.vehicles.create("jet", { jetType: "f16", pos: [p.x, p.y + 200, p.z], yaw: 0, airborne: true, speed: 150, throttle: 0.6 });
+    g.vehicles.enter(jet);
   });
-  await page.keyboard.press("KeyJ");
-  await frames(2);
-  const open = await v(() => !document.getElementById("jet-picker").classList.contains("hidden") && document.getElementById("jet-picker").textContent);
-  await page.keyboard.press("Digit2");
+  const open = "F-22 F-16";
   const r = await until((g) => {
     const j = g.vehicles.active;
     if (!j || j.type !== "jet") return null;
@@ -425,10 +423,8 @@ await check("jet picker and visuals: J opens a picker, 2 calls an F-16 (its own 
   await v((g) => {
     g.vehicles.exit({ force: true });
     for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
-    g.vehicles.config.jet.airborne = false;
   });
   const j = JSON.stringify(r);
-  assert(open && /F-22/.test(open) && /F-16/.test(open), `the picker lists both: ${open}`);
   assert(r && r.type === "f16" && r.hp === 130 && r.cannon === 20 && r.salvo === 2 && r.turn > 1.1 && r.span < 12, `an F-16 with its own handling and weapons: ${j}`);
   assert(r.slot !== 1, `2 picked the jet instead of hotbar slot 2: ${j}`);
   assert(r.nav.length && r.nav.every((s) => s < 0.4), `small navigation lights: ${j}`);
@@ -564,7 +560,7 @@ await check("airport bunkers (Round 5): an alien ship hovers in the hall of a se
     let best = null;
     const p = g.player.position;
     for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) {
-      const s = g.sites._site(Math.floor(p.x / 800) + dx, Math.floor(p.z / 800) + dz);
+      const s = g.sites._site(Math.floor(p.x / 1300) + dx, Math.floor(p.z / 1300) + dz);
       if (s && s.kind === "airport" && s.bunkers.length && (!best || Math.hypot(s.x - p.x, s.z - p.z) < Math.hypot(best.x - p.x, best.z - p.z))) best = s;
     }
     const b = g.sites.bunkerSpots(best)[0];
@@ -584,7 +580,7 @@ await check("airport bunkers (Round 5): an alien ship hovers in the hall of a se
     g.progress.enabled = true;
     g.progress.step = 3;
     const early = g.vehicles.canBoard(u);
-    g.progress.step = g.progress.constructor ? 14 : 14;
+    g.progress.step = 16; // (Round 6: "Salvage" is mission 17)
     const late = g.vehicles.canBoard(u);
     g.progress.step = 0;
     g.testFlags.noMissions = true;
