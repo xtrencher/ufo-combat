@@ -182,8 +182,10 @@ export class AirportManager {
       if (this.bunkersDone.get(s.id) !== true) this._setOutBunkers(s, jets);
       return;
     }
-    // (Not until the apron's middle is there to stand on.)
-    if (!this.world.getChunk(Math.floor(s.x) >> 4, Math.floor(s.z) >> 4)) return;
+    // (Each aircraft waits for the chunks under its own slot, and each bunker
+    // for its own: see _fill and _setOutBunkers. Round 8: no longer waiting
+    // for the runway's middle, which can lie beyond a short render distance
+    // when you walk up to a bunker compound behind the apron.)
     const jets = [];
     this._fill(s, jets);
     this.parked.set(s.id, jets);

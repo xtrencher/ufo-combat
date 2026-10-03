@@ -2042,8 +2042,8 @@ Source of truth for this round. Round 7 was complete before this round started. 
 ## Part 9: Missions
 - [x] 9.1 Railgun mission: red aliens carry and reliably drop the railgun
 - [x] 9.2 Airport bombing mission with the B-2 (nuke an enemy airport)
-- [ ] 9.3 "Steal the UFO" mission (guarded hangar/base, armed humans, board, escape with ghost mode)
-- [ ] 9.4 Mission chain and difficulty re-checked for 1, 2, 3 players
+- [x] 9.3 "Steal the UFO" mission (guarded hangar/base, armed humans, board, escape with ghost mode)
+- [x] 9.4 Mission chain and difficulty re-checked for 1, 2, 3 players
 
 ## Final polish
 - [ ] F.1 Regression pass (single-player)
@@ -2127,3 +2127,14 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - The marker leads to the parked B-2 first ("B-2 bomber: get in (F)"), and once someone is in a B-2 to the base ("Enemy base: drop the nuke (B) N m"; online the others see "Enemy base: escort the B-2"). Only the B-2 carries the nuke (Part 6), so the mission is a bomber run, with fighters as escorts online.
 - A lost B-2 (shot down, crashed) frees its parking slot: the airport sets out a new one for another try. Online the other peers free the slot too when the taken aircraft goes (vehicles "took" key kept on the puppet), so every peer sets out the same aircraft again.
 - Fighters' "Parked fighter: get in" marker (Wings / Take off missions) no longer points at the B-2.
+
+### Part 9.3 ("Steal the ship", mission 20 of 22)
+- New late mission between Operation Sunburn and the Overlord (event "steal"). Target: the underground bunker of the nearest airport that has one (within 8 km; very rare fallback: a captured ship in the open 700 blocks off, ringed by soldiers). The bunker's own alien ship is the prize; if it was taken before, the mission brings one in (shared online like any vehicle).
+- On the way in: the bunker's own armed guards (4-6) plus 2 + 2 per player more soldiers in the hall. They shoot anyone in the restricted zone.
+- Board the ship (F): LOCKDOWN. The blast doors at the foot of the ramp are sealed (2 blocks thick, stone/cobblestone, only where there was air), every guard goes on alert and 1 + N reinforcements come up the compound. The marker says "Escape: ghost mode (G), up through the rock (N m to go)"; ghost mode burns a tunnel (the doors and rock burn, bedrock doesn't). Done when the ship is 150 blocks from the hall. A ship lost after boarding opens the doors again and a new one is brought in.
+- Online: host-run; any player can be the pilot (a guest boarding its local copy of the parked ship comes back to the host as a puppet carrying the "took" key, which the mission follows), the others fight the guards. The doors are world edits, synced like any other.
+- Saves: progress format v6; a v5 (Round 6-7) save keeps its mission by id (a save already past Sunburn carries on where it was). New stat "shipsStolen".
+- Bug found on the way: an airport only set out its parked aircraft and bunker (ship + guards) once the runway's middle chunk was loaded; walking up to a bunker compound with a short render distance (it lies 100-150 blocks behind the runway) left the bunker empty. Each slot and bunker now waits only for its own chunks.
+
+### Part 9.4 (chain and difficulty for 1, 2, 3 players)
+Goals per group size (1 / 2 / 3 players): skeleton 1/2/3, landing aliens 2/4/6, crates 1/2/3, scouts 1/2/2, crew 2/4/6, night 1, patrol 4/8/12, scout hunter 3/5/6, grays 5/10/15, take-offs 1/2/3, touchdown 1 landing + 3/6/9 squad, jet kills 2/3/4, enemy fighters 1/2/3, raiders 3/5/6, reds 3/6/9, star fragments 4/8/12, salvage 1, large UFO 1/2/2, Sunburn 1, Steal 1, Overlord 1, slayer 25/38/50. With the group: UFO count x1.3 / x1.6, UFO health x1.25 / x1.5, creature health x1.1 / x1.2, squads and leaders per player, an airport fighter for everyone. The single-player numbers are unchanged; the one-off objectives (Sunburn, Steal, Overlord) get harder online through their guards (1+N guard UFOs at the base, 2+2N soldiers in the bunker, the boss's group health) instead of their goal. The chain stays monotonic (each mission's sky rules no easier than the one before: unit test). Steal uses Sunburn's sky (max 5).

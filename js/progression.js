@@ -286,6 +286,16 @@ export const MISSIONS = [
     rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
   },
   {
+    id: "steal",
+    title: "Steal the ship",
+    text: "Soldiers keep a captured alien ship in the underground bunker of a far-off airport (marked). Fight your way down the ramp past the armed guards and board the ship (F). Once you are aboard they seal the blast doors: switch on ghost mode (G) and burn your way out through the rock, then get clear of the base.",
+    objectives: [{ stat: "shipsStolen", goal: 1, label: "Alien ship stolen" }],
+    reward: [[ITEM.GOLDEN_APPLE, 8]],
+    event: "steal",
+    tier: 5,
+    rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
+  },
+  {
     id: "overlord",
     title: "The Overlord",
     text: "The invasion's flagship has come for you: the Overlord, a mothership with a shield. Its pylons (marked) hold the shield up: shoot them down, then hit the hull with everything you have (the railgun is made for this) before the shield comes back. Three shields, an escort, and a squad that drops in: you can do it on foot.",
@@ -318,6 +328,13 @@ function v4StepToV5(step) {
   const idx = MISSIONS.findIndex((m) => m.id === V4_IDS[step]);
   // (The old mothership mission is the Overlord's forerunner: that player carries on with the base.)
   return idx >= 0 ? idx : MISSIONS.findIndex((m) => m.id === "sunburn");
+}
+// The Round 6-7 chain (v5 saves): ids by step. Round 8 added "Steal the ship" before the Overlord.
+const V5_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "overlord", "slayer"];
+function v5StepToV6(step) {
+  if (!(step < V5_IDS.length)) return MISSIONS.length;
+  const idx = MISSIONS.findIndex((m) => m.id === V5_IDS[step]);
+  return idx >= 0 ? idx : step;
 }
 const V3_STEP_TO_V4 = [0, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 18, 19];
 
@@ -422,12 +439,22 @@ export class Progress {
   }
 
   serialize() {
-    return { v: 5, step: this.step, base: this.base, done: this.done };
+    return { v: 6, step: this.step, base: this.base, done: this.done };
   }
 
   load(data, stats) {
     if (data && Number.isInteger(data.step) && data.step >= 0) {
-      if (data.v !== 5) {
+      if (data.v === 5) {
+        // A Round 6-7 save: the same missions, one new one before the Overlord
+        // (a save already past it carries on where it was).
+        const step = Math.min(MISSIONS.length, v5StepToV6(data.step));
+        this.base = data.base && typeof data.base === "object" ? { ...data.base } : {};
+        this.step = step;
+        this.done = MISSIONS.slice(0, step).map((m) => m.id);
+        for (const [k, v] of Object.entries(this._pick(stats))) if (!Number.isFinite(this.base[k])) this.base[k] = v;
+        return;
+      }
+      if (data.v !== 6) {
         // An older save: carry its progress over to the new chain (Round 2
         // -> Round 3 -> Round 4 -> Round 6).
         let v4step;

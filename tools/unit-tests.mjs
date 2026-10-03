@@ -1522,13 +1522,13 @@ console.log("\nProgression (progression.js)");
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (21 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0 };
+  await test("the mission chain (22 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 21);
+    assert.equal(MISSIONS.length, 22);
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1578,6 +1578,12 @@ console.log("\nProgression (progression.js)");
     assert.equal(v4("dogfight"), "dogfight");
     assert.equal(v4("mothership"), "sunburn");
     assert.equal(v4("slayer"), "slayer");
+    // A v5 (Round 6-7) save: "Steal the ship" (Round 8) comes before the Overlord; a save past the base carries on where it was.
+    const v5 = (id) => { const q = new Progress(); q.load({ v: 5, step: ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "overlord", "slayer"].indexOf(id), base: {}, done: [] }, stats); return q.mission?.id; };
+    assert.equal(v5("sunburn"), "sunburn");
+    assert.equal(v5("overlord"), "overlord");
+    assert.equal(v5("slayer"), "slayer");
+    assert.equal(idx("steal"), idx("sunburn") + 1);
     const v4end = new Progress();
     v4end.load({ v: 4, step: 19, base: {}, done: [] }, stats);
     assert.equal(v4end.mission, null);

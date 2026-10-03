@@ -189,6 +189,9 @@ export class MissionDirector {
       case "airport":
         this._airport();
         break;
+      case "steal":
+        this._steal();
+        break;
       default:
         this.target = null;
     }
@@ -1388,6 +1391,188 @@ export class MissionDirector {
     }
     const mine = this.vehicles.active === b2 && b2;
     this.target = { pos: center, label: mine ? `Enemy base: drop the nuke (B) ${Math.round(d)} m` : "Enemy base: escort the B-2", follow: null };
+  }
+
+  // (Round 8) Steal the ship: an alien ship kept in the underground bunker
+  // of an airport (sites.js / airports.js: a walled compound, a ramp down
+  // into a hall, armed guards who shoot anyone in the restricted zone). The
+  // mission adds soldiers (more for a bigger group), and makes sure a ship is
+  // there (the bunker's own, or one brought in if it was taken before). Once
+  // someone boards it the base locks down: the blast doors at the foot of the
+  // ramp are sealed, every guard is on alert and reinforcements come up the
+  // compound. The way out is ghost mode (G), burning up through the rock;
+  // the mission is done when the ship is 150 blocks from the hall.
+  // (Online: the host runs it; any player can be the pilot, the others fight
+  // the guards. A ship lost after boarding: the doors open again and a new
+  // ship is brought in.)
+  _steal() {
+    const st = this.state;
+    const sites = this.terrain.sites;
+    if (st.site === undefined) {
+      const p = this._anyone().position;
+      let best = null;
+      let bestD = Infinity;
+      for (const s of sites.within(p.x, p.z, 8000)) {
+        if (s.kind !== "airport" || !s.bunkers?.length) continue;
+        const d = Math.hypot(s.x - p.x, s.z - p.z);
+        if (d < bestD) {
+          best = s;
+          bestD = d;
+        }
+      }
+      st.site = best;
+    }
+    const site = st.site;
+    if (!site) {
+      // (No airport with a bunker within 8 km, very rare: a captured ship in
+      // the open, a little way off, under guard.)
+      this._stealOpen();
+      return;
+    }
+    const spot = sites.bunkerSpots(site)[0];
+    const key = `${site.id}#h${spot.id}`;
+    const hall = new THREE.Vector3(spot.x, spot.y, spot.z);
+    let d = Infinity;
+    for (const q of this._people()) d = Math.min(d, hall.distanceTo(q.position));
+    const ready = this.world.getChunk(Math.floor(spot.x) >> 4, Math.floor(spot.z) >> 4) && this.world.getChunk(Math.floor(spot.zone.x) >> 4, Math.floor(spot.zone.z) >> 4);
+    // The ship: the bunker's own (set out by airports.js when someone comes
+    // near; online the copy a guest boarded comes back as its puppet), else one brought in.
+    if (!st.ship || !this.vehicles.vehicles.includes(st.ship) || !st.ship.alive) {
+      const was = st.ship;
+      st.ship = this.vehicles.vehicles.find((v) => v.type === "ufo" && v.alive && (v.parkKey === key || v.tookKey === key || v.missionShip === key)) || null;
+      if (!st.ship && was && st.locked) {
+        // Lost after boarding: the doors open again, another ship comes.
+        this._stealDoors(site, spot, false);
+        st.locked = false;
+        st.newShipT = 6;
+      }
+      if (!st.ship && ready && d < 220) {
+        st.newShipT = (st.newShipT ?? 3) - 0.5;
+        if (st.newShipT <= 0) {
+          const v = this.vehicles.create("ufo", { design: "saucer_domed", seed: (site.seed + 4242) | 0, radius: 3.8, pos: [spot.x, spot.y, spot.z], yaw: spot.yaw });
+          if (v) {
+            v.pos.y = spot.y + v.bottom + 0.9;
+            v.hangar = true;
+            v.missionShip = key;
+            st.ship = v;
+          }
+        }
+      }
+    }
+    // More soldiers in the bunker (once, when its chunks are there): two, plus two for each player.
+    if (!st.guardsSet && ready && d < 260 && this.mobs.hostileSpawning !== false) {
+      st.guardsSet = true;
+      st.guards = [];
+      const n = 2 + 2 * this.groupN;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const g = this.mobs.spawnGuard(spot.x + Math.cos(a) * 8, spot.y, spot.z + Math.sin(a) * 7, spot.zone);
+        if (g) {
+          g.missionTarget = false;
+          st.guards.push(g);
+        }
+      }
+    }
+    const ship = st.ship;
+    const aboard = ship && (ship.occupied || (ship.puppet && ship.netOcc));
+    if (aboard && !st.locked) {
+      st.locked = true;
+      st.everAboard = true;
+      this._stealDoors(site, spot, true);
+      // Every guard on alert, and reinforcements up in the compound.
+      for (const g of this.mobs.mobs) if (!g.dead && g.spec.sentry && g.pos.distanceTo(hall) < 90) this.mobs.alarm(g, 90);
+      if (this.mobs.hostileSpawning !== false) {
+        for (let i = 0; i < 1 + this.groupN; i++) {
+          const g = this.mobs.spawnGuard(spot.zone.x + (Math.random() - 0.5) * 30, site.y + 1, spot.zone.z + (Math.random() - 0.5) * 30, spot.zone);
+          if (g) this.mobs.alarm(g, 10);
+        }
+      }
+      this.toast?.("LOCKDOWN! The blast doors are sealed. Ghost mode (G): burn your way out through the rock!", 6);
+    }
+    if (ship && aboard) {
+      const away = ship.pos.distanceTo(hall);
+      if (away >= 150) {
+        if (!st.escaped) {
+          st.escaped = true;
+          this.stats.add("shipsStolen");
+          this.toast?.("You got the ship out: it's yours!", 5);
+        }
+        this.target = null;
+        return;
+      }
+      this.target = { pos: new THREE.Vector3(hall.x, site.y + 30, hall.z), label: `Escape: ghost mode (G), up through the rock (${Math.round(150 - away)} m to go)`, follow: null };
+      st.note = "Get 150 blocks away from the bunker.";
+      return;
+    }
+    st.note = "";
+    if (ship && d < 90) this._setTarget(ship, "The alien ship: board it (F)");
+    else this.target = { pos: new THREE.Vector3(spot.zone.x, site.y + 1, spot.zone.z), label: "Bunker: the captured ship (armed guards)", follow: null };
+  }
+
+  // The blast doors at the foot of the bunker's ramp: sealed (only where there
+  // is air: nothing built is lost) or opened again.
+  _stealDoors(site, spot, close) {
+    const sites = this.terrain.sites;
+    const b = site.bunkers[spot.id];
+    const list = [];
+    if (close) {
+      for (let u = b.ru0 - 1; u <= b.ru1 + 1; u++) {
+        for (const v of [b.hv0, b.hv0 + 1]) {
+          const [x, z] = sites.toWorld(site, u, v);
+          for (let y = spot.y; y < spot.y + 10; y++) {
+            if (this.world.getBlock(x, y, z) !== BLOCK.AIR) continue;
+            list.push(x, y, z, (y - spot.y) % 3 === 1 ? BLOCK.STONE : BLOCK.COBBLESTONE);
+          }
+        }
+      }
+      this.state.doors = list.slice();
+    } else {
+      const old = this.state.doors || [];
+      for (let i = 0; i < old.length; i += 4) if (this.world.getBlock(old[i], old[i + 1], old[i + 2]) === old[i + 3]) list.push(old[i], old[i + 1], old[i + 2], BLOCK.AIR);
+      this.state.doors = null;
+    }
+    if (list.length) this.world.setBlocks(list);
+  }
+
+  // The fallback: a captured ship standing in the open 700 blocks off, ringed by soldiers.
+  _stealOpen() {
+    const st = this.state;
+    if (!st.open) {
+      const at = this._groundSpot(700, 0.2, this._anyone().position);
+      st.open = at ? { x: at.x, y: at.y, z: at.z } : null;
+      if (!st.open) return;
+    }
+    const o = st.open;
+    const c = new THREE.Vector3(o.x, o.y, o.z);
+    let d = Infinity;
+    for (const q of this._people()) d = Math.min(d, c.distanceTo(q.position));
+    if ((!st.ship || !this.vehicles.vehicles.includes(st.ship) || !st.ship.alive) && d < 260 && this.world.getChunk(Math.floor(o.x) >> 4, Math.floor(o.z) >> 4)) {
+      st.ship = this.vehicles.vehicles.find((v) => v.missionShip === "open" && v.alive) || this.vehicles.create("ufo", { design: "saucer_domed", seed: 4242, radius: 3.8, pos: [o.x, o.y + 4, o.z], yaw: 0 });
+      if (st.ship) st.ship.missionShip = "open";
+      if (!st.guardsSet && this.mobs.hostileSpawning !== false) {
+        st.guardsSet = true;
+        const zone = { x: o.x, z: o.z, r: 40 };
+        for (let i = 0; i < 4 + 2 * this.groupN; i++) {
+          const a = (i / (4 + 2 * this.groupN)) * Math.PI * 2;
+          const x = Math.floor(o.x + Math.cos(a) * 14);
+          const z = Math.floor(o.z + Math.sin(a) * 14);
+          this.mobs.spawnGuard(x + 0.5, this.terrain.heightAt(x, z) + 1, z + 0.5, zone);
+        }
+      }
+    }
+    const ship = st.ship;
+    if (ship && (ship.occupied || (ship.puppet && ship.netOcc))) {
+      const away = ship.pos.distanceTo(c);
+      if (away >= 150 && !st.escaped) {
+        st.escaped = true;
+        this.stats.add("shipsStolen");
+        this.toast?.("You got the ship out: it's yours!", 5);
+      }
+      this.target = away >= 150 ? null : { pos: c.clone(), label: `Escape: get clear (${Math.round(150 - away)} m to go)`, follow: null };
+      return;
+    }
+    if (ship && d < 90) this._setTarget(ship, "The alien ship: board it (F)");
+    else this.target = { pos: c, label: "The captured ship (armed guards)", follow: null };
   }
 
   // The nuke went off: on the enemy base?

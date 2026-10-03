@@ -710,14 +710,14 @@ const stepMission = (id, n = 8) =>
     return g.progress.mission?.id;
   }, [id, n]);
 
-await check("mission chain: 21 missions in the right order (touchdown after wings, meteors, the Overlord before the slayer)", async () => {
+await check("mission chain: 22 missions in the right order (touchdown after wings, meteors, Steal the ship after Sunburn, the Overlord before the slayer)", async () => {
   const r = await v(async () => {
     const { MISSIONS } = await import("./js/progression.js");
     const ids = MISSIONS.map((m) => m.id);
     return { n: ids.length, ids };
   });
   const at = (id) => r.ids.indexOf(id);
-  assert(r.n === 21 && at("touchdown") === at("wings") + 1 && at("overlord") === at("slayer") - 1 && at("meteors") > at("reds"), JSON.stringify(r));
+  assert(r.n === 22 && at("steal") === at("sunburn") + 1 && at("touchdown") === at("wings") + 1 && at("overlord") === at("slayer") - 1 && at("meteors") > at("reds"), JSON.stringify(r));
 });
 
 await check("mission Touchdown: a jet landing on a runway starts a red squad on the ground; killing it completes the mission", async () => {
