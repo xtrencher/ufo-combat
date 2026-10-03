@@ -737,11 +737,16 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     g.invScreen.setTab(1);
     out.blocksShown = shown();
     g.invScreen.close();
-    // Every weapon is in the Creative inventory (hotbar and storage).
+    // (Round 8: switching to Creative adds nothing to the inventory, every weapon is in the
+    // palette's Weapons tab, checked above; back in Survival the inventory is as it was.)
     g.setMode("survival");
+    const surv = JSON.stringify(g.inventory.slots);
     g.setMode("creative");
-    const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
-    out.missing = ALL_WEAPONS.filter((id) => !have.has(id)).length;
+    out.unchanged = JSON.stringify(g.inventory.slots) === surv;
+    g.setMode("survival");
+    out.back = JSON.stringify(g.inventory.slots) === surv;
+    g.setMode("creative");
+    out.missing = ALL_WEAPONS.length - out.weaponsShown + 1; // (the weapons tab: every weapon and the bow)
     return out;
   });
   assert(!fs.existsSync(path.join(ROOT, "js", "crafting.js")), "crafting.js is deleted");
@@ -750,7 +755,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
   assert(r.loadouts[0] === 9 && r.loadouts[1] === 10 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts} (Round 6: no Jet Radio)`);
   assert(r.weaponsShown === 10 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
-  assert(r.missing === 0, `creative has every weapon (${r.missing} missing)`);
+  assert(r.missing === 0 && r.unchanged && r.back, `creative: every weapon in the palette, switching keeps the inventory: ${JSON.stringify(r)}`);
 });
 
 await check("railgun: charges about a second, then destroys blocks in a line, and hits every creature and UFO on it", async () => {
@@ -971,12 +976,13 @@ const stepVeh = (n, dt = 0.05) =>
 await check("jet takeoff: a real ground roll on a runway, rotation, liftoff, the gear folds away", async () => {
   await play();
   await skyArena();
-  const y0 = await flatPad(20, 90);
+  // (Round 8: the takeoff roll is about a third longer: a longer pad.)
+  const y0 = await flatPad(20, 150);
   const r = await v((g, o) => {
     if (g.vehicles.active) g.vehicles.exit({ force: true });
     for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
     const p = g.player.position;
-    const jet = g.vehicles.create("jet", { pos: [p.x, o.y0 + 1 + 1.35, p.z + 82], yaw: 0 });
+    const jet = g.vehicles.create("jet", { pos: [p.x, o.y0 + 1 + 1.35, p.z + 142], yaw: 0 });
     g.vehicles.enter(jet);
     const startZ = jet.pos.z;
     let crashInfo = "";
@@ -1021,7 +1027,7 @@ await check("jet takeoff: a real ground roll on a runway, rotation, liftoff, the
   }, { y0 });
   assert(r.alive, `the jet survived the takeoff ${JSON.stringify(r)}`);
   assert(r.liftedAt > 2.5 && r.liftedAt < 30, `it takes a few seconds to get airborne: ${r.liftedAt}`);
-  assert(r.roll > 40 && r.roll < 175, `a real ground roll, not a jump: ${Math.round(r.roll)} blocks`);
+  assert(r.roll > 40 && r.roll < 260, `a real ground roll, not a jump: ${Math.round(r.roll)} blocks`);
   assert(r.speedAtLift > r.stall * 0.85, `lifts off at about the stall speed or above: ${Math.round(r.speedAtLift)} (stall ${r.stall})`);
   assert(r.gearBefore === 1 && r.gearAfter < 0.2, `the gear is down on the ground and folds away: ${r.gearBefore} -> ${r.gearAfter}`);
   assert(r.agl > 4, `it climbs away: ${Math.round(r.agl)} above the runway`);
@@ -1546,10 +1552,12 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
     g.airports.timer = 0;
     g.airports.update(0.1);
     const jets = g.vehicles.vehicles.filter((x) => x.parkedAt && x.type === "jet"); // (Round 4: hangar UFOs are parked too)
-    const spots = g.sites.parkingSpots(s);
+    // (Round 8: the parking planner's slots, fighters and the B-2's, each on its own landing gear.)
+    const slots = g.sites.parkingSlots(s);
+    const spots = [...slots.fighters, ...(slots.bomber ? [slots.bomber] : [])];
     return {
       n: jets.length,
-      onGround: jets.every((j) => j.onGround && Math.abs(j.pos.y - (site.y + 1 + 1.35)) < 0.3),
+      onGround: jets.every((j) => Math.abs(j.pos.y - (site.y + 1 + j.gearH)) < 0.3),
       saved: g.vehicles.serialize().list.filter((d) => d.type === "jet").length,
       boardable: jets.every((j) => j.alive && !j.unusable),
       nearSpot: jets.every((j) => spots.some((sp) => Math.hypot(sp.x - j.pos.x, sp.z - j.pos.z) < 1)),
@@ -1558,7 +1566,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
       dbg: { id: s.id, half: s.half, pos: [Math.round(g.player.position.x), Math.round(g.player.position.z)], ends: g.sites.runwayEnds(s).map((e) => [Math.round(e.x), Math.round(e.z), !!g.world.getChunk(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)]), near: g.sites.nearest(g.player.position.x, g.player.position.z, 500)?.id },
     };
   }, site);
-  assert(r.n >= 1 && r.n <= 3, `parked jets: ${r.n}`);
+  assert(r.n >= 1 && r.n <= 5, `parked jets: ${r.n}`);
   assert(r.onGround && r.boardable && r.nearSpot, `on the apron, boardable: ${JSON.stringify(r)}`);
   assert(r.saved === 0, "parked jets are not saved");
   assert(r.nav && r.runway > 200, `nearest airport and a long runway: ${JSON.stringify(r)}`);

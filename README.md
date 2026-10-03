@@ -549,7 +549,7 @@ fixed per airport and slot (about half are grey; the same for every player).
 (`B`; in a fighter `B` just says so). A big flying wing with the sawtooth
 trailing edge, moving elevons and drag rudders and tall landing gear: half a
 fighter's top speed, slow to turn and roll, 420 health, no afterburner and
-no cannon, missiles one at a time, and a long takeoff roll (about 300
+no cannon, missiles one at a time, and a long takeoff roll (about 270
 blocks). Lost, it is replaced at its airport.
 
 **Radar** (Round 8): bottom right in any aircraft (jets, the B-2, your own
@@ -569,8 +569,9 @@ airports have terminals and a radar, some have a secured bunker.
 It flies like a jet: the **throttle runs 0-100%** and your speed follows it
 (about 1000 km/h at 100%, a bit more with the afterburner), lift needs
 airspeed, drag, gravity, and a stall below the stall speed (the nose drops).
-It can't hover. **Takeoff is a real ground roll** and forgiving (about 160
-blocks in the F-22, 125 in the F-16, 300 in the B-2): full throttle, a few
+It can't hover. **Takeoff is a real ground roll** and forgiving (about 175
+blocks in the F-22, 130 in the F-16, 270 in the B-2, hands off; less with
+the afterburner or a pull on the stick): full throttle, a few
 seconds on the wheels, the nose rises at flying speed (flight
 assist does it for you), the wheels leave the ground and fold away; small
 angles and imperfect runways are fine. **Landing is reliable**: come in
