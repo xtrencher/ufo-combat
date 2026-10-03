@@ -2365,6 +2365,7 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 15. The boss bar always read "THE OVERLORD" (also during the Armada), and the guests never got the boss's name (F.3).
 16. The victory screen was see-through over the pause menu behind it (F.3).
 17. A flying mission's respawn place was a random player's nearest airport (online it flipped between players), and the steal mission's bunker a random player's nearest (F.2).
+18. No B-2 at about one airport in four (found in testing by the owner): the B-2 stood only in the parking row's own bomber slot, which exists only where the row has a free 54-block stretch, and a few slots were blocked by stonework or a gap in the grass under a wingtip. Now every airport has one: its row slot, else on the runway just past either end of the apron (facing the long way, room for its takeoff roll), else at a runway end; solid ground is required under its middle (the gear), not under the whole wing. Surveyed on three seeds: 42 of 42 airports (it was 29). Operation Sunburn could be stuck without one.
 
 ## Round 9 decisions (and why)
 - **Guests find hits, the host applies them** through the very same damage functions: one code path for every weapon, so a fix applies to host and guests alike, and kill credit, loot and mission credit fall out of it. Players stay the judges of their own health (PvP, as in Round 7).

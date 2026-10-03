@@ -578,9 +578,11 @@ you beam up are "stored": their drops go to your inventory, as do the blocks.
 ### Fighter jet
 
 **There is no calling in a jet:** fighters stand **parked at airports**, in front
-of the hangars (F-22 Raptors and F-16 Fighting Falcons), with a **B-2 Spirit**
-bomber where the apron has room: walk up to one and press **F** (the B-2
-near the middle of its wing). In Survival that works from mission 10, "Take to the air" (the
+of the hangars (F-22 Raptors and F-16 Fighting Falcons), and a **B-2 Spirit**
+bomber at every airport: in its own spot on the apron, or (Round 9) where
+the apron has no room for its wing, on the runway just past the end of the
+apron, lined up for takeoff. Walk up to one and press **F** (the B-2 near
+the middle of its wing). In Survival that works from mission 10, "Take to the air" (the
 marker points at the nearest parked fighter; **F3** shows the nearest airport).
 The **F-22 Raptor** is a heavy stealth fighter (160 health, faster,
 four-missile salvos); the **F-16 Fighting Falcon** is light and agile (130

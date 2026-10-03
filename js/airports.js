@@ -48,19 +48,24 @@ export class AirportManager {
   }
 
   // Whether an aircraft's footprint on its slot is clear and flat: solid pad
-  // under it, nothing in the way up to its height (a player's building, a
-  // crater, a wreck). null: the chunks aren't there yet.
-  _clear(s, slot, span, len) {
+  // under its middle, nothing in the way up to its height (a player's
+  // building, a crater, a wreck). null: the chunks aren't there yet.
+  // (along: the aircraft faces along the runway, its span across it.)
+  _clear(s, slot, span, len, along = false) {
     const w = this.world;
-    const [ux, uz] = this.sites.dirU(s);
-    const [vx, vz] = this.sites.dirV(s);
+    let [ux, uz] = this.sites.dirU(s);
+    let [vx, vz] = this.sites.dirV(s);
+    if (along) [ux, uz, vx, vz] = [vx, vz, ux, uz];
     const y0 = s.y;
     for (let du = -span / 2; du <= span / 2; du += 2) {
       for (let dv = -len / 2; dv <= len / 2; dv += 2) {
         const x = Math.floor(slot.x + ux * du + vx * dv);
         const z = Math.floor(slot.z + uz * du + vz * dv);
         if (!w.getChunk(x >> 4, z >> 4)) return null;
-        if (!IS_SOLID[w.getBlock(x, y0, z)]) return false;
+        // Solid ground where the gear stands (the middle of the span); under
+        // the wings a gap (a cave mouth in the grass) doesn't matter. (Round 9:
+        // the whole wing had to be over solid ground, which kept B-2s away.)
+        if (Math.abs(du) <= span / 4 && !IS_SOLID[w.getBlock(x, y0, z)]) return false;
         for (let y = y0 + 1; y <= y0 + 4; y++) if (IS_SOLID[w.getBlock(x, y, z)]) return false;
       }
     }
@@ -77,9 +82,9 @@ export class AirportManager {
     const slots = this.sites.parkingSlots(s);
     const n = Math.min(this.fighterCount(s), slots.fighters.length);
     const have = new Set(jets.map((j) => j.parkKey));
-    const put = (slot, jetType, span, len) => {
+    const put = (slot, jetType, span, len, checked = false) => {
       if (have.has(slot.key) || this.taken.has(slot.key)) return;
-      const ok = this._clear(s, slot, span, len);
+      const ok = checked || this._clear(s, slot, span, len);
       if (!ok) return;
       const jet = veh.create("jet", { jetType, pos: [slot.x, slot.y + (JET_TYPES[jetType]?.gear ?? GEAR), slot.z], yaw: slot.yaw, paint: this.paintFor(s, slot.key, jetType) });
       if (!jet) return;
@@ -90,9 +95,41 @@ export class AirportManager {
       jets.push(jet);
       have.add(slot.key);
     };
-    // A mix of Raptors and Falcons (fixed per airport and slot), and a B-2 where there is room.
+    // A mix of Raptors and Falcons (fixed per airport and slot), and a B-2.
     for (let i = 0; i < n; i++) put(slots.fighters[i], (s.seed + i) % 2 ? "f16" : "f22", 15, 16);
-    if (slots.bomber && JET_TYPES.b2) put(slots.bomber, "b2", 48, 22);
+    if (JET_TYPES.b2 && !have.has(`${s.id}#b`) && !this.taken.has(`${s.id}#b`)) {
+      const spot = this._bomberSpot(s, slots);
+      if (spot) put(spot, "b2", 48, 22, true);
+    }
+  }
+
+  // (Round 9) Where an airport's B-2 stands: its own slot in the parking row,
+  // or, where the row has no room for it (about one airport in four) or the
+  // slot is blocked, on the runway just past either end of the apron (near
+  // the other aircraft, facing the long way: room for its takeoff roll),
+  // else at either end of the runway, lined up for takeoff. It used to be
+  // left out: no B-2 for Operation Sunburn. One B-2 per airport (one key);
+  // null while the chunks of the spot to try next aren't there (every peer
+  // then waits and picks the same spot).
+  _bomberSpot(s, slots) {
+    const key = `${s.id}#b`;
+    const list = [];
+    if (slots.bomber) list.push({ slot: slots.bomber, along: false });
+    const [ux, uz] = this.sites.dirU(s);
+    const lim = (s.half ?? 300) - 12;
+    for (const u0 of [s.apron.u1 + 36, s.apron.u0 - 36]) {
+      const u = Math.max(-lim, Math.min(lim, u0));
+      const [x, z] = this.sites.toWorld(s, u, 0);
+      const dir = u > 0 ? -1 : 1; // toward the far end of the runway
+      list.push({ slot: { x: x + 0.5, y: s.y + 1, z: z + 0.5, yaw: Math.atan2(-dir * ux, -dir * uz), key }, along: true });
+    }
+    for (const e of this.sites.runwayEnds(s)) list.push({ slot: { x: e.x, y: s.y + 1, z: e.z, yaw: e.yaw, key }, along: true });
+    for (const c of list) {
+      const ok = this._clear(s, c.slot, 48, 22, c.along);
+      if (ok === null) return null;
+      if (ok) return c.slot;
+    }
+    return null;
   }
 
   // An aircraft's colour scheme: fixed per airport and slot (the same for

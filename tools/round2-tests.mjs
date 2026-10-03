@@ -1580,7 +1580,9 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
     const jets = g.vehicles.vehicles.filter((x) => x.parkedAt && x.type === "jet"); // (Round 4: hangar UFOs are parked too)
     // (Round 8: the parking planner's slots, fighters and the B-2's, each on its own landing gear.)
     const slots = g.sites.parkingSlots(s);
-    const spots = [...slots.fighters, ...(slots.bomber ? [slots.bomber] : [])];
+    // (Round 9: the B-2 where there is room for it: its row slot, else on the runway beside the apron.)
+    const b2spot = g.airports._bomberSpot(s, slots);
+    const spots = [...slots.fighters, ...(slots.bomber ? [slots.bomber] : []), ...(b2spot ? [b2spot] : [])];
     return {
       n: jets.length,
       onGround: jets.every((j) => Math.abs(j.pos.y - (site.y + 1 + j.gearH)) < 0.3),
