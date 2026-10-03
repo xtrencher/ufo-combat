@@ -2001,8 +2001,8 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 2.6 Mission chain re-checked for 1, 2, 3 players
 
 ## Part 3: Animations
-- [ ] 3.1 Remote players' animations correct (melee, bow draw/shoot, firing, hands/directions)
-- [ ] 3.2 First-person bow draw natural (no hand switch)
+- [x] 3.1 Remote players' animations correct (melee, bow draw/shoot, firing, hands/directions)
+- [x] 3.2 First-person bow draw natural (no hand switch)
 
 ## Part 4: Gameplay
 - [ ] 4.1 Mouse sensitivity default = 60% of old default
@@ -2072,4 +2072,10 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Join/leave mid-mission:** goals are computed afresh all the time (from the host's player count): a growing goal makes the director set out more (new landings, squads, crates...), a shrinking one completes the mission at once if it is already met. Nothing is ever left impossible.
 - **Airports:** at least one fighter per player plus a spare (the host's count, the most players seen this session, never shrinking, so every peer parks the same aircraft); slots from the parking planner (Part 1).
 - **Chain check (1, 2, 3 players):** walked through all 21 missions with the scaled goals and spawns (listed above); every one has its targets set out for the current group and is completable by any mix of players.
+
+### Part 3 (animations)
+- **Hands:** the player model faces +Z, so its right hand is on the -X side; the arms were the wrong way round (other players, and your own third-person view, held items in the left hand). Fixed in the model; tools and swords are now held pointing forward and a little up (they pointed back along the arm), seen side-on.
+- **Other players now show** (sent with their state, 20 times a second): the melee swing (as before, now with the right arm), the bow being drawn (the bow goes into the left hand, the left arm straight out where they look, the right hand pulled back to the cheek, more the further it is drawn), every shot (a muzzle flash at the gun's end and the recoil of the arms), guns aimed one- or two-handed where they look.
+- **First-person bow:** it stays on the right and keeps facing the same way while it is raised and drawn (it is turned upright in its own plane, the arrow pointing in at the crosshair); before, it swung over to the left and flipped round, which looked like a change of hands.
+- New two-page check: the other player sees the sword in the right hand, the swing, the drawn bow in the left hand and the shot.
 

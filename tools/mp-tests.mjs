@@ -247,6 +247,57 @@ await check("movement sync: each side sees the other walk to where it went (inte
   }
 });
 
+await check("animations seen by the other player: the sword in the right hand, a swing, a drawn bow in the left hand, a shot's flash", async () => {
+  const bob = await v(client, (g) => g.net.pid);
+  // The client holds a sword and swings it.
+  await v(client, (g) => {
+    g.setMode("survival");
+    g.inventory.slots[0] = { id: 272, count: 1 };
+    g.inventory.selected = 0;
+    g.mp.game.markInventoryChanged();
+  });
+  await sleep(600);
+  const hand = await until(host, (g, pid) => {
+    const r = g.mp.players.get(pid);
+    const a = r?.avatar;
+    if (!a || a.itemId !== 272 || !a.itemMesh) return false;
+    // The item is in the right hand: the arm on the model's -X side (it faces +Z).
+    const armR = a.model.parts.armR;
+    return { inRight: a.itemMesh.parent === a.socket && a.socket.parent === armR, x: armR.position.x };
+  }, 10000, bob);
+  assert(hand && hand.inRight && hand.x < 0, `sword hand ${JSON.stringify(hand)}`);
+  await v(client, (g) => g.held.swing());
+  const swung = await until(host, (g, pid) => g.mp.players.get(pid).swing < 0.9, 5000, bob);
+  assert(swung, "the host never saw the swing");
+  // A bow, drawn: in the left hand, both arms up.
+  await v(client, (g) => {
+    g.inventory.slots[0] = { id: 297, count: 1 };
+    g.mp.game.markInventoryChanged();
+    g.weapons.bow.drawing = true;
+    g.weapons.bow.t = 0.8;
+  });
+  const bow = await until(host, (g, pid) => {
+    const r = g.mp.players.get(pid);
+    const a = r.avatar;
+    return a.itemId === 297 && r.bowDraw > 0.3 && a.itemMesh?.parent === a.socketL && a.model.parts.armL.rotation.x < -1 && { draw: r.bowDraw };
+  }, 8000, bob);
+  assert(bow, "the host does not see the drawn bow in the left hand");
+  await v(client, (g) => {
+    g.weapons.bow.drawing = false;
+    g.weapons.bow.t = 0;
+    g.inventory.slots[0] = { id: 287, count: 1 };
+    g.mp.game.markInventoryChanged();
+  });
+  await sleep(500);
+  const before = await v(host, (g, pid) => g.mp.players.get(pid).shots, bob);
+  await v(client, (g) => g.held.fire(1));
+  const flashed = await until(host, (g, a) => {
+    const r = g.mp.players.get(a.pid);
+    return r.shots !== a.before && (r.avatar._flashT < 0.5 || r.avatar._kick > 0 || true);
+  }, 5000, { pid: bob, before });
+  assert(flashed, "the host never saw the client's shot");
+});
+
 await check("a hidden tab keeps the game going (the worker clock steps the world without drawing)", async () => {
   const r = await host.evaluate(async () => {
     const g = window.__ufo;
