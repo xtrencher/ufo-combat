@@ -2231,31 +2231,31 @@ ROUND 8 COMPLETE
 Source of truth for this round. Round 8 was complete (and merged) before this round started; this round's work continues on the same branch name from the merged main. Ticked as finished; decisions in "Round 9 decisions and notes".
 
 ## Part 1: Multiplayer damage overhaul (top priority)
-- [ ] 1.1 Bug: guests sometimes can't damage mobs (a spider) while the host can: root cause found and fixed
-- [ ] 1.2 One host-authoritative damage pipeline for every weapon x every target, host or guest, on foot or in a vehicle; every bypassing path fixed
-- [ ] 1.3 Damage matrix test (host + guest headless pages): every weapon x every target type, guest attacker damages and gets kill credit, same result on both screens; same matrix with the host attacking; results logged here
-- [ ] 1.4 Full multiplayer audit of the other synchronized systems (entities, items, crates, missions, vehicles, deaths and respawns, effects, block changes); fixes listed here
+- [x] 1.1 Bug: guests sometimes can't damage mobs (a spider) while the host can: root cause found and fixed
+- [x] 1.2 One host-authoritative damage pipeline for every weapon x every target, host or guest, on foot or in a vehicle; every bypassing path fixed
+- [x] 1.3 Damage matrix test (host + guest headless pages): every weapon x every target type, guest attacker damages and gets kill credit, same result on both screens; same matrix with the host attacking; results logged here
+- [x] 1.4 Full multiplayer audit of the other synchronized systems (entities, items, crates, missions, vehicles, deaths and respawns, effects, block changes); fixes listed here
 
 ## Part 2: Mission fixes
-- [ ] 2.1 Mission 18: mission targets never despawn, get replaced or lose their damage (every mission checked: despawn rules, culling, respawn logic, desync)
-- [ ] 2.2 Steal the ship: exactly one ship (every mission checked for duplicate spawns, also online)
-- [ ] 2.3 Death messages: every damage source reports the right cause (soldiers, spiders, UFOs, ...)
-- [ ] 2.4 Respawning during a mission: at random safe spots around the mission's location
+- [x] 2.1 Mission 18: mission targets never despawn, get replaced or lose their damage (every mission checked: despawn rules, culling, respawn logic, desync)
+- [x] 2.2 Steal the ship: exactly one ship (every mission checked for duplicate spawns, also online)
+- [x] 2.3 Death messages: every damage source reports the right cause (soldiers, spiders, UFOs, ...)
+- [x] 2.4 Respawning during a mission: at random safe spots around the mission's location
 
 ## Part 3: Missions
-- [ ] 3.1 More missions after mission 22: varied, rising difficulty, a proper finale
-- [ ] 3.2 Full chain re-checked for 1, 2 and 3 players
+- [x] 3.1 More missions after mission 22: varied, rising difficulty, a proper finale
+- [x] 3.2 Full chain re-checked for 1, 2 and 3 players
 
 ## Part 4: Creative mode
-- [ ] 4.1 Call-in buttons (Creative only): in the air in a jet (F-22, F-16, B-2), or in a random flying UFO; works online
-- [ ] 4.2 Switching between Creative and Survival never changes the inventory (Creative items stay; nothing added)
+- [x] 4.1 Call-in buttons (Creative only): in the air in a jet (F-22, F-16, B-2), or in a random flying UFO; works online
+- [x] 4.2 Switching between Creative and Survival never changes the inventory (Creative items stay; nothing added)
 
 ## Part 5: World and visuals
-- [ ] 5.1 Terrain: more flat land, fewer mountains, big ranges kept in places
-- [ ] 5.2 Spawn always on flat ground, never on a mountain
-- [ ] 5.3 Airport lights: a sensible range, fading with distance and fog like the render distance
-- [ ] 5.4 Land mobs never spawn on or in water (fish still do; aliens from a UFO crashed in water are the exception); online too
-- [ ] 5.5 Blue aliens: heads don't glow (normal, non-emissive)
+- [x] 5.1 Terrain: more flat land, fewer mountains, big ranges kept in places
+- [x] 5.2 Spawn always on flat ground, never on a mountain
+- [x] 5.3 Airport lights: a sensible range, fading with distance and fog like the render distance
+- [x] 5.4 Land mobs never spawn on or in water (fish still do; aliens from a UFO crashed in water are the exception); online too
+- [x] 5.5 Blue aliens: heads don't glow (normal, non-emissive)
 
 ## Final polish
 - [ ] F.1 Regression pass (single-player)
@@ -2275,6 +2275,26 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 - **Paths that bypassed it, fixed:** a guest's blasts on enemy fighters (dropped); the AI's blasts mirrored to guests (stopped by the PvP rule and blamed on the host); AI shots counted as player kills (mobs bolt provider); a guest's tractor beam on the host's creatures (lifted only the guest's copy) and on the host's fighters (no pull); far creatures beyond 120 blocks out of the guests' reach (snapshots now carry hostile and mission creatures out to 320/420 blocks, a third as often); creature health not in the snapshots (a guest's view of a wounded creature was wrong); the superweapon missing other players; bolts losing their shooter's cause across the wire; nukes, airstrike meteors and jet booms without a cause; a host snapshot crash with enemy fighters (`_state` read `v.net.nid` of a fighter that has none: every host snapshot after a fighter appeared threw, a Round 7 bug); parked aircraft destroyed on one machine only ("vpgone").
 - **Found by the matrix itself:** the tractor beam never took an enemy fighter, offline or online (`_pullShips` looked for type "jet"; fighters are "enemyjet"); the jet's guns sit off-centre and never converged on the crosshair, so small targets on the ground (a creature, a player) were missed at any range (the guns now converge on what the nose points at: ground, building or creature; the aim assist still leads aircraft and UFOs).
 
+### Part 1: the damage matrix (1.3): results
+`tools/mp-damage-tests.mjs`: a host and a guest in two headless pages (real PeerJS and WebRTC). For every weapon and every target, the attacker (the guest, then the host) fires through the game's own weapon functions (the ones the mouse and keys call), and a cell passes when the target takes the damage and dies on the host (the judge), the attacker's own stats get the kill (aliens, soldiers, zombies, skeletons, creatures, UFOs, enemy fighters, players; an abduction for the tractor beam), and the other screen shows the same (the creature dead, the UFO falling, the fighter down, the player dead with the attacker's name, the block gone). One pistol hit on a zombie, a red alien, a soldier, a UFO and a fighter also reads the same health on both screens.
+
+17 weapons x 14 targets, both ways: **476 cells, 444 that apply, all pass** (the 32 that don't apply: melee on aircraft and blocks, bullets, arrows, bolts, the rail, jet guns, UFO lasers and the beam on blocks, the airstrike on aircraft, the beam on a player).
+
+| weapon | zombie | skeleton | spider | cow | villager | alien | gray | red | blue | soldier | UFO | fighter | player | block |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| melee | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - | - | ok | - |
+| bow | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - |
+| pistol, blaster, machine gun, minigun, sniper, railgun | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - |
+| bazooka, grenade | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| airstrike | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - | - | ok | ok |
+| jet guns | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - |
+| jet missile | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+| UFO laser | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - |
+| tractor beam | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | - | - |
+| superweapon, nuke | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok |
+
+(The same table for the guest attacking and for the host attacking.) Getting there took the root causes above and these, found by the matrix: the jet's guns never converged (small targets missed), the tractor beam never took a fighter, a UFO's bolt dropped its aim direction (a unit vector was taken for "no direction"), and the host's fighters' flares were not mirrored (a guest's missile followed a flare only the host saw: the last failing cell, host missile on a fighter, was the harness's own target firing flares; it now holds them, and the flares themselves are sent to the guests). Harness-only fixes (not game bugs): targets fireproof (zombies burned in daylight), UFO crews off, the arena repaired before every cell, wrecks cleared, drawing off (software rendering ran the game at a fifth of real time).
+
 ### Part 1: the multiplayer audit (1.4): bugs found and fixed
 1. Another player's nuke ignored the PvP rule (it killed players on foot and their aircraft with PvP off): gated like their other blasts; its crater and the mission credit still count.
 2. A vehicle wrecked by another machine's blast never exploded for anyone else (the explosion sent from the replay of a remote effect was dropped): sent now; the remote effect itself is never echoed back.
@@ -2287,11 +2307,12 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 9. Ghost items after joining (the joiner's copies restarted the 5-minute despawn timer and outlived the host's): the age is sent; an item the host no longer has is removed for the one who asked, and the host's despawns are broadcast.
 10. A guest who respawned got no grace from the UFOs (the host's grace timer was global and set only on the host): per player now, a guest's respawn tells the host.
 11. The renamed skeleton melee cause lost its difficulty scaling: kept (player.js).
+12. Creatures hardly ever spawned around a guest away from the host: the host kept only two chunks of ground generated around another player on foot, and creatures spawn 28-118 blocks out, so nearly every try landed on missing ground. The host now keeps four chunks around them, and spawns around another player within that ground (60 blocks).
 - Checked and correct (no change): item pickup races (first asker wins), creature drops and kill loot, crates (open once, mission credit, late joiners), vehicle hand-over and leaving players, death causes from the host's AI, explosion carving and block edits (batching, relay, late joiners, blast zones).
 
 ### Part 2: mission fixes
 - **2.1 Mission targets are never lost.** Root causes: (a) a mission's UFO despawned like any other once it was 1500 blocks from everyone, and the mission spawned a fresh one; (b) any UFO could "leave" at random or after an abduction (Big game's large ship had `noLeave`, but the abduction path ignored it); (c) Big game re-found "the nearest large UFO within 900 blocks" every half second, so a ship that strayed past 900 was forgotten and a fresh, undamaged one came; (d) scouts more than 700 blocks from everyone were dropped from the list and replaced; (e) the village raiders left after 5 minutes and came back as fresh ships; (f) a mission's creatures despawned by distance or in unloaded chunks. Fixes: a mission's ships (`missionTarget`: scouts, raiders, Big game's ship, the titan, the boss, its pylons and escorts, the abductors, the base's guards, the swarm) never despawn by distance and never leave; they don't hide (no burrowing or lake-hovering, short blinks only); the director keeps the same object for the whole mission (`st.big`, `st.scouts`, ...), and one that strays is called back (`_leash`: its home follows its player or the nearest one; the boss's pylons and escorts follow the boss). In hunts any UFO a player has hit is kept and leashed the same way (`_keepHit`), so damage is never lost to a swap. Raiders stay until shot down. A mission's creatures wait, frozen, in unloaded terrain instead of despawning.
-- **2.2 Steal the ship: exactly one ship.** Root causes: the director brought in a ship of its own when it didn't see the bunker's, which happened (i) before the bunker's guards' chunks were loaded (the bunker's own came a moment later: two ships), (ii) on every guest (the director's ship was shared while each guest's airport also set out its own copy of the bunker ship: two on every guest's screen), (iii) after a reload (the director's ship was saved, the bunker's came back too). Fix: the director never makes a ship when there is a bunker; it uses the bunker's (`_bunkerShip`: this peer's copy, or the puppet of the copy another player boarded, standing in the hall); a ship lost after boarding (or gone before the mission) has the bunker set out a new one on every peer (`airports.untake` + the "untake" message), without a second set of guards. The open-ground fallback keeps its one shared ship. Every other mission was checked for duplicate spawns (landing ship, scouts, crates, fighters, squads, the night's parties, the boss, the base's guards, the salvager): all bounded by their own lists; online only the host's director spawns.
+- **2.2 Steal the ship: exactly one ship.** Root causes: the director brought in a ship of its own when it didn't see the bunker's, which happened (i) before the bunker's guards' chunks were loaded (the bunker's own came a moment later: two ships), (ii) on every guest (the director's ship was shared while each guest's airport also set out its own copy of the bunker ship: two on every guest's screen), (iii) after a reload (the director's ship was saved, the bunker's came back too). Fix: the director never makes a ship when there is a bunker; it uses the bunker's (`_bunkerShip`: this peer's copy, or the puppet of the copy another player boarded, standing in the hall); a ship lost after boarding (or gone before the mission) has the bunker set out a new one on every peer (`airports.untake` + the "untake" message), without a second set of guards. The open-ground fallback keeps its one shared ship. Which bunker: the one nearest to the group as a whole (the least distance to everyone; alone, the nearest); it was a random player's nearest. Every other mission was checked for duplicate spawns (landing ship, scouts, crates, fighters, squads, the night's parties, the boss, the base's guards, the salvager): all bounded by their own lists; online only the host's director spawns.
 - **2.3 Death messages.** Every cause is named in js/damage.js: soldiers' shots "Shot by a soldier" (they read "Shot by an alien"), a soldier's blow "Struck down by a soldier", a green alien's blow "Killed by an alien" vs its shot "Shot by an alien", a skeleton's blow vs its arrow, each alien kind's shot, red plasma, UFO lasers and blasts, crashes, exploding jets and UFOs, enemy fighters' guns and missiles, meteors, nukes, falls after a blast, other players' weapons with their name, PvP shoot-downs ("Shot down by Bob", it read "pvp"). Causes cross the wire (bolts carry them), so a guest sees the same.
 - **2.4 Respawning during a mission.** `respawnPlace()` (the director, host and single player) gives the mission's location (the raided village, the bunker's zone, the boss, the fortress, the airport where the jets wait for the flying missions, else the marker) and how far out from it to start; `safeSpotAround()` picks a random spot in that ring: dry, flat, open, no hostile creature near, outside any bunker's restricted zone. Online the host sends the place with the mission state ("rp") and each guest picks its own spot. "Respawn near a friend" still works. Outside a mission: the world spawn, as before.
 

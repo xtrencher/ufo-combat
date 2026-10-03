@@ -362,7 +362,9 @@ keeps running there (it just isn't drawn).
   finished mission **rewards every player**. **One shared world** (Round 8):
   every item lying anywhere (loot, a mined block, a dead player's things)
   and every supply crate is the same for everyone, and only one player can
-  pick each up; every walking creature is the host's and the same for all.
+  pick each up; every walking creature is the host's and the same for all,
+  and creatures come around every player, however far from the host
+  (Round 9: a guest far away used to see hardly any).
   The missions **scale with the group**: kill goals grow per player (2
   aliens each in "Visitors", a squad leader with the new weapon for every
   player, a crate for each player), UFO goals by half a mission per extra

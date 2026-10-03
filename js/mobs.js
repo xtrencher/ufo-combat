@@ -34,6 +34,9 @@ const CROWD_DISTANCE_MANY = 26;
 // Beyond this, mobs think and move every few frames (a big dt) to save CPU.
 const LAZY_AI_DISTANCE = 64;
 const SPAWN_INTERVAL = 0.4;
+// (Round 9) Online, how far out the host spawns around another player: where
+// it keeps their ground generated (net/entities.js KEEP_RADIUS, 4 chunks).
+const REMOTE_REACH = 60;
 const DESPAWN_FAR = 160; // blocks: removed at once beyond this
 const HOSTILE_LINGER = 64; // blocks: hostile mobs this far away despawn over time
 const MOB_INVULNERABLE = 0.4;
@@ -414,11 +417,17 @@ export class MobManager {
     return Math.max(l.block, l.sky * (0.2 + 0.8 * this.sky.daylight));
   }
 
+  // How far out to spawn, at most: around another player (online, the host),
+  // within the ground kept for them.
+  _reach(max) {
+    return this.targets && this.player !== this.localPlayer ? Math.min(max, REMOTE_REACH) : max;
+  }
+
   _trySpawnPassive(minDist, maxDist, room = MAX_PASSIVE - this.countOf(false)) {
     if (room <= 0) return 0;
     const p = this.player.position;
     const a = Math.random() * Math.PI * 2;
-    const d = minDist + Math.random() * (maxDist - minDist);
+    const d = minDist + Math.random() * (this._reach(maxDist) - minDist);
     const x = Math.floor(p.x + Math.cos(a) * d);
     const z = Math.floor(p.z + Math.sin(a) * d);
     if (!this._chunkReady(x, z)) return 0;
@@ -457,7 +466,7 @@ export class MobManager {
   _trySpawnHostile(kind = OTHER_HOSTILE_KINDS[Math.floor(Math.random() * OTHER_HOSTILE_KINDS.length)]) {
     const p = this.player.position;
     const a = Math.random() * Math.PI * 2;
-    const d = 28 + Math.random() * 90;
+    const d = 28 + Math.random() * (this._reach(118) - 28);
     const x = Math.floor(p.x + Math.cos(a) * d);
     const z = Math.floor(p.z + Math.sin(a) * d);
     if (!this._chunkReady(x, z)) return false;

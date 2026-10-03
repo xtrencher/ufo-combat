@@ -227,9 +227,10 @@ await gather(spawn[0] + 0.5, spawn[1] + 0.5);
 await check("three players: the goals grow with the group, and every guest sees the same objectives", async () => {
   await startMission("big_game");
   await tick(2);
-  const h = await v(host, (g) => ({ n: g.progress.groupN, goal: g.progress.objectives(g.stats.world)[0]?.goal }));
+  const h = await v(host, (g) => ({ n: g.progress.groupN, step: g.progress.step, goal: g.progress.objectives(g.stats.world)[0]?.goal }));
+  // (Once the host's state for this mission has reached them.)
   const gs = [];
-  for (const p of [g1, g2]) gs.push(await until(p, (g) => g.progress.objectives(g.stats.world)[0]?.goal ?? 0, 10000));
+  for (const p of [g1, g2]) gs.push(await until(p, (g, step) => g.progress.step === step && (g.progress.objectives(g.stats.world)[0]?.goal ?? 0), 10000, h.step));
   assert(h.n === 3 && h.goal === 2 && gs.every((x) => x === h.goal), JSON.stringify({ h, gs }));
 });
 
@@ -302,18 +303,12 @@ await check("mission 19 (Operation Sunburn) online: the base is marked for the g
 });
 
 await check("mission 20 (Steal the ship) online: one ship on every screen; a guest boards it; lost after boarding, one new ship for everyone", async () => {
+  // (Everyone at the spawn: the director picks the bunker nearest to the group.)
+  await gather(spawn[0] + 0.5, spawn[1] + 0.5);
   await startMission("steal");
+  await tick(1);
   const site = await v(host, (g) => {
-    let best = null;
-    let bd = Infinity;
-    for (const s of g.sites.within(g.spawn.x, g.spawn.z, 8000)) {
-      if (s.kind !== "airport" || !s.bunkers?.length) continue;
-      const d = Math.hypot(s.x - g.spawn.x, s.z - g.spawn.z);
-      if (d < bd) {
-        bd = d;
-        best = s;
-      }
-    }
+    const best = g.missions.state.site;
     if (!best) return null;
     const spot = g.sites.bunkerSpots(best)[0];
     return { hall: [spot.x, spot.y, spot.z], zone: [spot.zone.x, spot.zone.z] };
@@ -375,7 +370,12 @@ await check("respawning during a mission online: a guest who dies comes back aro
   await tick(4);
   const place = await v(host, (g) => g.missions.respawnPlace());
   assert(place, "a place");
-  await until(g1, (g) => !!g.mp.coop.respawnPlace(), 10000);
+  // (Once the host's state for this mission has reached Bob.)
+  const got = await until(g1, (g, pl) => {
+    const r = g.mp.coop.respawnPlace();
+    return r && Math.abs(r.x - pl.x) <= 4 && Math.abs(r.z - pl.z) <= 4;
+  }, 10000, place);
+  assert(got, "Bob has the mission's place");
   const r = await v(g1, (g, pl) => {
     g.player.damage(9999, "fall", { pierce: true });
     g.respawn();
@@ -436,23 +436,66 @@ await check("switching modes online never touches anyone's inventory (Creative's
 });
 
 await check("creature spawning online: creatures come around every player, never a land creature in water", async () => {
-  const r = await v(host, (g) => {
+  // Bob and Cleo each about 300 blocks off, on dry land: the host spawns around each of them.
+  const at = await v(host, (g) => {
+    const T = g.world.terrain;
+    const out = [[g.spawn.x + 0.5, g.spawn.z + 0.5]];
+    for (const R of [300, 240, 360, 200, 420]) {
+      for (let k = 0; k < 72 && out.length < 3; k++) {
+        const a = (k / 72) * Math.PI * 2;
+        const x = Math.floor(g.spawn.x + Math.cos(a) * R);
+        const z = Math.floor(g.spawn.z + Math.sin(a) * R);
+        let dry = true;
+        for (let dx = -24; dx <= 24 && dry; dx += 8) for (let dz = -24; dz <= 24 && dry; dz += 8) if (T.heightAt(x + dx, z + dz) <= 26) dry = false; // (sea level 24)
+        if (dry && out.every(([ox, oz]) => Math.hypot(ox - x, oz - z) > 200)) out.push([x + 0.5, z + 0.5]);
+      }
+    }
+    return out;
+  });
+  assert(at.length === 3, `dry land for everyone: ${JSON.stringify(at)}`);
+  for (const [i, p] of all.entries()) {
+    await v(p, (g, a) => {
+      g.player.flying = false;
+      g.mp.game.teleport(a[0], null, a[1]);
+      return true;
+    }, at[i]);
+  }
+  // (The host keeps the ground around the others generated; their positions reached it.)
+  const ready = await until(host, (g, at) => {
+    const ps = g.mp.entities.targets().map((t) => t.position);
+    const ground = ([x, z]) => {
+      for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) if (!g.world.getChunk((Math.floor(x) >> 4) + dx, (Math.floor(z) >> 4) + dz)) return false;
+      return true;
+    };
+    return at.every(([x, z]) => ground([x, z]) && ps.some((p) => Math.hypot(p.x - x, p.z - z) < 8));
+  }, 45000, at);
+  assert(ready, "the host has the ground around everyone");
+  const r = await v(host, (g, at) => {
+    const w = g.world;
+    const wetAt = (x, y, z) => w.getBlock(Math.floor(x), Math.floor(y + 0.05), Math.floor(z)) === 5;
+    const born = [];
+    const orig = g.mobs.spawn;
+    g.mobs.spawn = function (kind, x, y, z, o) {
+      const m = orig.call(this, kind, x, y, z, o);
+      if (m && !m.spec.flies && !m.spec.swims) born.push({ kind, x: m.pos.x, z: m.pos.z, wet: wetAt(m.pos.x, m.pos.y, m.pos.z) || wetAt(m.pos.x, m.pos.y + m.spec.h * 0.5, m.pos.z) });
+      return m;
+    };
+    g.mobs.clear();
     g.mobs.spawning = true;
     g.mobs.hostileSpawning = true;
     g.sky.setHours(23);
-    for (let i = 0; i < 1500; i++) g.mobs.update(0.05);
-    const w = g.world;
-    const land = g.mobs.mobs.filter((m) => !m.dead && !m.spec.flies);
-    const wet = land.filter((m) => {
-      const id = w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.05), Math.floor(m.pos.z));
-      return id === 5;
-    });
-    const out = { n: land.length, wet: wet.map((m) => m.kind), fish: g.mobs.mobs.filter((m) => m.kind === "fish").length };
-    g.mobs.spawning = false;
-    g.sky.setHours(12);
-    return out;
-  });
-  assert(r.n >= 5 && r.wet.length === 0, JSON.stringify(r));
+    try {
+      for (let i = 0; i < 1500; i++) g.mobs.update(0.05);
+    } finally {
+      g.mobs.spawn = orig;
+      g.mobs.spawning = false;
+      g.sky.setHours(12);
+    }
+    const near = at.map(([x, z]) => born.filter((b) => Math.hypot(b.x - x, b.z - z) < 140).length);
+    return { n: born.length, near, wet: born.filter((b) => b.wet).map((b) => b.kind), fish: g.mobs.mobs.filter((m) => m.kind === "fish").length };
+  }, at);
+  assert(r.n >= 5 && r.near.every((k) => k > 0) && r.wet.length === 0, JSON.stringify(r));
+  await gather(spawn[0] + 0.5, spawn[1] + 0.5);
 });
 
 // ---------- Summary ----------

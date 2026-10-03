@@ -1707,15 +1707,22 @@ export class MissionDirector {
     const st = this.state;
     const sites = this.terrain.sites;
     if (st.site === undefined) {
-      const p = this._anyone().position;
+      // (Round 9) The bunker nearest to the group as a whole (the least
+      // distance to everyone; alone, the nearest), not a random player's.
+      const people = this._people();
+      const seen = new Set();
       let best = null;
       let bestD = Infinity;
-      for (const s of sites.within(p.x, p.z, 8000)) {
-        if (s.kind !== "airport" || !s.bunkers?.length) continue;
-        const d = Math.hypot(s.x - p.x, s.z - p.z);
-        if (d < bestD) {
-          best = s;
-          bestD = d;
+      for (const q of people) {
+        for (const s of sites.within(q.position.x, q.position.z, 8000)) {
+          if (s.kind !== "airport" || !s.bunkers?.length || seen.has(s)) continue;
+          seen.add(s);
+          let d = 0;
+          for (const o of people) d += Math.hypot(s.x - o.position.x, s.z - o.position.z);
+          if (d < bestD) {
+            best = s;
+            bestD = d;
+          }
         }
       }
       st.site = best;

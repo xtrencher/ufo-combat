@@ -37,7 +37,7 @@ const FAR_MOB_MAX = 48;
 const JET_RANGE = 2600;
 const KEEP = 1.2; // hysteresis: already sent ones are kept a little farther
 const EYE = 1.62;
-const KEEP_RADIUS = 3; // chunks of ground the host keeps generated around a player on foot
+const KEEP_RADIUS = 5; // chunks of ground the host keeps generated around a player on foot (Round 9: was 3, too small for creatures to spawn around them; see mobs.js REMOTE_REACH)
 const _v = new THREE.Vector3();
 
 // A remote player as the host's AI sees them.
