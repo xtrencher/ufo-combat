@@ -260,7 +260,24 @@ export class Sky {
     this.exposure = THREE.MathUtils.lerp(1.1, 0.8, smoothstep(-0.15, 0.25, e));
 
     for (let i = 0; i < this.cascades.length; i++) this._placeShadowLight(this.shadowLights[i], this.cascades[i], center, forward);
+    this._scheduleShadows();
     this.dome.position.copy(center);
+  }
+
+  // (Perf) Which shadow maps are redrawn this frame: the finest cascade (the
+  // one round the player, where creatures and vehicles move) every frame;
+  // the larger ones (High, Ultra) every 2nd and 3rd frame, on different
+  // frames. They hold distant, mostly still ground: drawn 20-30 times a
+  // second they look the same, at half the shadow drawing or less. A map
+  // that doesn't exist yet (new settings) is always drawn.
+  _scheduleShadows() {
+    this._shadowFrame = ((this._shadowFrame ?? 0) + 1) % 6;
+    for (let i = 0; i < this.shadowLights.length; i++) {
+      const shadow = this.shadowLights[i].shadow;
+      shadow.autoUpdate = false;
+      const period = i === 0 ? 1 : i === 1 ? 2 : 3;
+      shadow.needsUpdate = !shadow.map || period === 1 || this._shadowFrame % period === (i === 1 ? 0 : 1);
+    }
   }
 
   // Centers a shadow camera a little ahead of the player and snaps it to

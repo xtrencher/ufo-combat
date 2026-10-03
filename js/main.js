@@ -262,6 +262,14 @@ window.addEventListener("resize", onResize);
 // ---------- World ----------
 const world = new World(scene, SEED);
 if (!GUEST) world.loadEdits(loadEdits(SEED));
+// (Perf) Terrain generation off the main thread, in a worker or two (the
+// streaming's heaviest part; world.js). ?genWorkers=0 keeps it on the main thread.
+{
+  const want = new URLSearchParams(window.location.search).get("genWorkers");
+  const cores = navigator.hardwareConcurrency || 4;
+  const n = want !== null ? Math.max(0, Math.min(4, Math.floor(Number(want)) || 0)) : Math.max(1, Math.min(2, cores - 2));
+  if (n > 0) world.enableGenWorkers(n);
+}
 postfx.setWaterMaterial(world.materials.water);
 world.meshOptions.fancyLeaves = activePreset.fancyLeaves; // before the first chunks are meshed
 // Decides which chunks are meshed and shown, and draws the land beyond them.
@@ -308,6 +316,7 @@ streamAround(startX, startZ);
 // Main-thread milliseconds per frame spent generating/meshing chunks. Larger
 // while a menu is open (nothing to keep smooth), smaller while playing.
 const STREAM_BUDGET_PLAYING_MS = 5;
+const STREAM_BUDGET_WORKERS_MS = 3.5;
 const STREAM_BUDGET_MENU_MS = 14;
 
 // ---------- Player, inventory, HUD ----------
@@ -2455,9 +2464,37 @@ function updateEnvironment(dt) {
   scene.fog.color.copy(sky.horizonColor);
 }
 
+// (Perf) A creature well out of view casts no shadow this frame: its shadow
+// can't reach the screen (the margin covers long dawn and dusk shadows), and
+// each creature is 6-9 shadow draws, one per moving part. Every creature in
+// view keeps its shadow, so nothing on screen changes.
+const _castFrustum = new THREE.Frustum();
+const _castMatrix = new THREE.Matrix4();
+const _castSphere = new THREE.Sphere();
+function cullCreatureShadows() {
+  if (!renderer.shadowMap.enabled || !activePreset.cascades?.length) return;
+  camera.updateMatrixWorld();
+  _castMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _castFrustum.setFromProjectionMatrix(_castMatrix);
+  const sunY = Math.max(0.1, worldUniforms.uLightDir.value.y);
+  for (const m of mobs.mobs) {
+    const meshes = m.model?.meshes;
+    if (!meshes) continue;
+    const h = m.spec?.h || 1;
+    _castSphere.center.set(m.pos.x, m.pos.y + h * 0.5, m.pos.z);
+    _castSphere.radius = h + Math.min(24, h / sunY) + 2;
+    const cast = _castFrustum.intersectsSphere(_castSphere);
+    if (m.castsShadow === cast) continue;
+    m.castsShadow = cast;
+    for (const mesh of meshes) mesh.castShadow = cast;
+    m.carryMesh?.traverse((o) => o.isMesh && (o.castShadow = cast));
+  }
+}
+
 function renderFrame() {
   const exposure = sky.exposure * eyeAdaptation;
   const preset = activePreset;
+  cullCreatureShadows();
   sky.material.uniforms.uWriteSkyMask.value = preset.post ? 1 : 0;
   // The item in hand is drawn on top of the world (fresh depth buffer).
   const showHeld = (gameState === "playing" || gameState === "inventory") && !player.thirdPerson && !hudHidden && !binoculars.active && !vehicles.active;
@@ -3256,7 +3293,9 @@ function simulate(dt, frameTime) {
     player.syncCamera(); // keep the view behind the menus sensible
   }
   streamAround(player.position.x, player.position.z);
-  world.processQueues(gameState === "playing" ? STREAM_BUDGET_PLAYING_MS : STREAM_BUDGET_MENU_MS);
+  // (Perf: with the terrain generated in workers the main thread only lights
+  // and meshes, so a smaller share of the frame still streams faster than before.)
+  world.processQueues(gameState === "playing" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
   lod.update();
   grass.update(player.position);
   distant.viewRange = viewRD * 16;

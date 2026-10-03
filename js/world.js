@@ -111,6 +111,12 @@ export class World {
     this.editRemeshQueue = new Set(); // rebuilds from block edits (next frame, unbudgeted)
     this.stats = { lastEditRemeshCount: 0, lastEditRemeshMs: 0, meshes: 0, generated: 0 };
     this._nb = new Array(9).fill(null);
+    // (Perf) Chunk generation in workers (enableGenWorkers): the chunks being
+    // generated there, and the finished ones waiting to be taken in.
+    this._genWorkers = null;
+    this._genInflight = new Map(); // numKey -> { cx, cz }
+    this._genDone = []; // { cx, cz, blocks }
+    this._genWanted = null; // (cx, cz) => bool: still in the current plan's generated area
     this._planCx = null;
     this._planCz = null;
     this._planId = null;
@@ -308,6 +314,7 @@ export class World {
     this._keep = { grid: keep, flag };
     const dist2 = (cx, cz) => (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz);
 
+    this._genWanted = (cx, cz) => flag(data, cx, cz);
     this.genQueue = this.genQueue.filter((e) => {
       e.dist = dist2(e.cx, e.cz);
       if (!flag(data, e.cx, e.cz)) {
@@ -320,7 +327,7 @@ export class World {
       for (let dx = -R; dx <= R; dx++) {
         if (data[(dz + R) * W + (dx + R)] !== 1) continue;
         const k = numKey(pcx + dx, pcz + dz);
-        if (!this.chunks.has(k) && !this.genQueued.has(k)) {
+        if (!this.chunks.has(k) && !this.genQueued.has(k) && !this._genInflight.has(k)) {
           this.genQueue.push({ cx: pcx + dx, cz: pcz + dz, dist: dx * dx + dz * dz });
           this.genQueued.add(k);
         }
@@ -418,6 +425,9 @@ export class World {
       if (this.editRemeshQueue.size > 0) this.stats.spreadRemeshFrames = (this.stats.spreadRemeshFrames || 0) + 1;
     }
 
+    // (Perf) With workers, generation runs there: keep them fed (nearest
+    // first) and take the finished chunks in below, within the budget.
+    const workers = this._genWorkers && this._genWorkers.length ? this._dispatchGen() : false;
     let didWork = false;
     while (!didWork || performance.now() - start < budgetMs) {
       // Drop stale mesh-queue entries (already meshed or unloaded).
@@ -426,12 +436,24 @@ export class World {
         if (!c.meshed && this.chunks.get(numKey(c.cx, c.cz)) === c) break;
         this.meshQueued.delete(this.meshQueue.shift());
       }
+      // Finished chunks no longer wanted (the player moved on) or made
+      // meanwhile on the main thread (prepareArea) are dropped.
+      while (this._genDone.length > 0) {
+        const r = this._genDone[0];
+        if (!this.chunks.has(numKey(r.cx, r.cz)) && (!this._genWanted || this._genWanted(r.cx, r.cz))) break;
+        this._genDone.shift();
+      }
       const nextMesh = this.meshQueue[0];
-      const nextGen = this.genQueue[0];
+      const done = this._genDone[0];
+      const nextGen = workers ? null : this.genQueue[0];
+      const genDist = done ? this._dist2(done) : nextGen ? nextGen.dist : Infinity;
       // Prefer meshing nearby ready chunks over generating farther ones.
-      if (nextMesh && (!nextGen || this._dist2(nextMesh) <= nextGen.dist + 2)) {
+      if (nextMesh && this._dist2(nextMesh) <= genDist + 2) {
         this.meshQueue.shift();
         this._buildMesh(nextMesh);
+      } else if (done) {
+        this._genDone.shift();
+        this._generate(done.cx, done.cz, done.blocks);
       } else if (nextGen) {
         this.genQueue.shift();
         this.genQueued.delete(numKey(nextGen.cx, nextGen.cz));
@@ -445,6 +467,76 @@ export class World {
       }
       didWork = true;
     }
+  }
+
+  // (Perf) Moves chunk generation (about half of the streaming work) into
+  // `n` workers running the same generator (chunk-worker.js). Main-thread
+  // generation stays for prepareArea and as the fallback: if a worker can't
+  // start or fails, everything goes back to the main thread as before.
+  enableGenWorkers(n) {
+    if (typeof Worker === "undefined" || n < 1) return false;
+    try {
+      this._genWorkers = [];
+      for (let i = 0; i < n; i++) {
+        const w = new Worker(new URL("./chunk-worker.js", import.meta.url), { type: "module" });
+        w.busy = 0;
+        w.onmessage = (e) => {
+          const m = e.data;
+          if (!m || m.type !== "chunk") return;
+          w.busy = Math.max(0, w.busy - 1);
+          this._genInflight.delete(numKey(m.cx, m.cz));
+          this._genDone.push(m);
+        };
+        w.onerror = (e) => {
+          if (e && e.preventDefault) e.preventDefault();
+          this._stopGenWorkers();
+        };
+        w.postMessage({ type: "init", seed: this.seed });
+        this._genWorkers.push(w);
+      }
+      return true;
+    } catch (err) {
+      this._stopGenWorkers();
+      return false;
+    }
+  }
+
+  // True while workers do the generating.
+  get genInWorkers() {
+    return !!(this._genWorkers && this._genWorkers.length);
+  }
+
+  // Back to main-thread generation: the chunks that were in a worker are queued again.
+  _stopGenWorkers() {
+    for (const w of this._genWorkers || []) w.terminate();
+    this._genWorkers = null;
+    for (const [k, { cx, cz }] of this._genInflight) {
+      if (this.chunks.has(k) || this.genQueued.has(k)) continue;
+      this.genQueue.push({ cx, cz, dist: this._planCx === null ? 0 : (cx - this._planCx) ** 2 + (cz - this._planCz) ** 2 });
+      this.genQueued.add(k);
+    }
+    this._genInflight.clear();
+    this.genQueue.sort((a, b) => a.dist - b.dist);
+  }
+
+  // Hands the nearest queued chunks to the workers (a few each, so they never
+  // wait on a slow frame). True while workers do the generating.
+  _dispatchGen() {
+    const ws = this._genWorkers;
+    const perWorker = 3;
+    while (this.genQueue.length > 0) {
+      let w = ws[0];
+      for (const x of ws) if (x.busy < w.busy) w = x;
+      if (w.busy >= perWorker) break;
+      const e = this.genQueue.shift();
+      const k = numKey(e.cx, e.cz);
+      this.genQueued.delete(k);
+      if (this.chunks.has(k) || this._genInflight.has(k)) continue;
+      this._genInflight.set(k, { cx: e.cx, cz: e.cz });
+      w.busy++;
+      w.postMessage({ type: "gen", cx: e.cx, cz: e.cz });
+    }
+    return true;
   }
 
   // Synchronously generates (radius r + 1) and meshes (radius r) the chunks
@@ -469,11 +561,12 @@ export class World {
     return this.genQueue.length === 0 && this.meshQueue.length === 0 && this.editRemeshQueue.size === 0;
   }
 
-  _generate(cx, cz) {
+  // (blocks: generated by a worker; else generated here.)
+  _generate(cx, cz, blocks = null) {
     const k = numKey(cx, cz);
     if (this.chunks.has(k)) return;
-    const chunk = new Chunk(cx, cz);
-    this.terrain.generate(chunk);
+    const chunk = new Chunk(cx, cz, blocks);
+    if (!blocks) this.terrain.generate(chunk);
     this.applyStoredEdits(chunk);
     this.chunks.set(k, chunk);
     chunk.generated = true;
