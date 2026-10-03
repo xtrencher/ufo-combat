@@ -104,17 +104,29 @@ await page.evaluate(() => window.__ufo.setGraphics("low"));
 await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
 
 async function play() {
-  if ((await v((g) => g.gameState)) === "dead") await v((g) => g.respawn());
-  if ((await v((g) => g.gameState)) === "playing") return;
-  for (let k = 0; k < 3 && !(await page.isVisible("#resume-btn")) && (await v((g) => g.gameState)) === "paused"; k++) {
-    await page.mouse.click(480, 270);
-    await frames(5);
-    if ((await v((g) => g.gameState)) === "playing") return;
+  // (Retried until the game runs: the pointer lock a click asks for can come
+  // a moment later and hide the pause menu just as Resume is clicked.)
+  const t0 = Date.now();
+  while (Date.now() - t0 < 90000) {
+    const st = await v((g) => g.gameState);
+    if (st === "playing") return;
+    if (st === "dead") {
+      await v((g) => g.respawn());
+      continue;
+    }
+    if (st === "start") {
+      await page.click("#play-btn", { timeout: 5000 }).catch(() => {});
+    } else if (await page.isVisible("#resume-btn")) {
+      await page.click("#resume-btn", { timeout: 3000 }).catch(() => {});
+    } else {
+      // (After a respawn the game waits for the mouse, with no menu showing.)
+      await page.mouse.click(480, 270);
+      await frames(5);
+      if ((await v((g) => g.gameState)) === "paused" && !(await page.isVisible("#resume-btn"))) await page.evaluate(() => document.getElementById("pause-menu").classList.remove("hidden"));
+    }
+    await frames(3);
   }
-  if ((await v((g) => g.gameState)) === "paused" && !(await page.isVisible("#resume-btn"))) await page.evaluate(() => document.getElementById("pause-menu").classList.remove("hidden"));
-  const btn = (await v((g) => g.gameState)) === "start" ? "#play-btn" : "#resume-btn";
-  await page.click(btn, { timeout: 60000 });
-  await page.waitForFunction(() => window.__ufo.gameState === "playing", null, { timeout: 30000 });
+  throw new Error(`the game didn't start playing (state ${await v((g) => g.gameState)})`);
 }
 await play();
 

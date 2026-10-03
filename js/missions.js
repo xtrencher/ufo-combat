@@ -1922,6 +1922,14 @@ export class MissionDirector {
       const s = pos && sites.nearest(pos.x, pos.z, 3000);
       return s ? { x: s.x, z: s.z, r: 45 } : null;
     };
+    // (Where the group is: its middle, so online every respawn is around the
+    // same airport, not a random player's.)
+    const people = this._people();
+    const mid = { x: 0, z: 0 };
+    for (const q of people) {
+      mid.x += q.position.x / people.length;
+      mid.z += q.position.z / people.length;
+    }
     switch (m.event) {
       case "village":
       case "abduct":
@@ -1941,14 +1949,14 @@ export class MissionDirector {
         break;
       case "airport":
         if (this.base?.home) return { x: this.base.home.x, z: this.base.home.z, r: 45 };
-        return airport(this._anyone().position);
+        return airport(mid);
       case "takeoff":
       case "dogfight":
       case "fighter":
       case "airraid":
-        return airport(this._anyone().position) || (t && airport(t.pos));
+        return airport(mid) || (t && airport(t.pos));
       case "landjet":
-        if (!st.landed) return airport(this._anyone().position) || (t && airport(t.pos));
+        if (!st.landed) return airport(mid) || (t && airport(t.pos));
         break;
     }
     if (t) return { x: t.pos.x, z: t.pos.z, r: t.follow?.S ? 55 + (t.follow.radius || 10) : 45 };

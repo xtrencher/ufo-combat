@@ -414,7 +414,9 @@ keeps running there (it just isn't drawn).
 - **PvP** is the host's choice (a checkbox in the lobby, **on** by
   default): on, players' shots, swords and explosions hurt each other
   ("Killed by NAME", counted in Stats); off, nothing another player does
-  hurts you (except a nuke's blast). In a Dogfight it is always on.
+  hurts you, not even their nuke (Round 9: it used to). The aliens, UFOs,
+  enemy fighters, crashes and meteors always hurt. In a Dogfight it is
+  always on.
 - At the end of a **Dogfight** the results screen frees the mouse and its
   buttons work (new match, close).
 - To try it alone, open the game in **two browser tabs or windows** on one
@@ -916,7 +918,7 @@ environment variable):
   on the host, the attacker gets the kill, and the other screen shows the
   same (and the health reads the same on both). The pages don't draw (the
   game runs at full speed). A table of results is printed and saved to
-  `probe-out/damage-matrix.json`. About 25 minutes;
+  `probe-out/damage-matrix.json`. About 10 minutes;
   `--only=guest|host`, `--weapon=a,b`, `--target=a,b` narrow it.
 - `mp-round9-tests.mjs` (Round 9): a host and **two guests** (three pages):
   the goals for three players, missions 18-20 with guests (Big game's ship
@@ -924,13 +926,15 @@ environment variable):
   host; Operation Sunburn completed by a guest's nuke; Steal the ship with
   one ship on every screen, boarded by a guest, lost and replaced once),
   respawning around a mission as a guest, call-ins seen by everyone, mode
-  switches that leave inventories alone, and creature spawning around every
-  player with none in water. About 4 minutes.
+  switches that leave inventories alone, and creatures spawning around all
+  three players 300 blocks apart, none of them born in water. About 3
+  minutes.
 - `round9-tests.mjs` (Round 9): mission targets kept (Big game, the village
   raid, scouts), Steal the ship's single ship, death messages, respawning
   around a mission, missions 23-28 and the victory screen, the call-ins,
   mode switching, the flatter terrain and flat spawn, the airport lights'
-  fade, no land creatures in water and the blue alien's matte head.
+  fade, no land creatures in water and the blue alien's matte head. About a
+  minute.
 
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client

@@ -1605,14 +1605,12 @@ function hurtByBlast(center, radius, source) {
 
 // ---------- Game mode ----------
 function setMode(mode) {
-  const before = player.mode;
   player.setMode(mode);
   refreshSurvivalSystems();
   ui.setModeShown(player.mode);
   // (Round 9) The inventory is never touched by a switch, either way: what
   // you have stays (things taken in Creative included), nothing is added or
   // taken away, online too (the host's switch is everyone's: net/rules.js).
-  void before;
   playerDirty = true;
   refreshCallIns();
 }
