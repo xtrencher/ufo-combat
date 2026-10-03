@@ -176,6 +176,9 @@ await check("jet: a full 360 degree loop, a full roll that stops cleanly", async
       return jet;
     };
     const dt = 1 / 60;
+    // (Round 8: the default mouse sensitivity is 0.6; this pull was timed at the old 1.0.)
+    const sens = g.vehicles.mouseSensitivity;
+    g.vehicles.mouseSensitivity = 1;
     let jet = mk();
     let ang = 0;
     let prev = 0;
@@ -190,6 +193,7 @@ await check("jet: a full 360 degree loop, a full roll that stops cleanly", async
       ang += d;
       prev = a;
     }
+    g.vehicles.mouseSensitivity = sens;
     const out = { loop: Math.round((Math.abs(ang) * 180) / Math.PI), alive: jet.alive };
     jet = mk();
     const bank = () => Math.atan2(-jet.right(new T.Vector3()).y, jet.up(new T.Vector3()).y);

@@ -631,7 +631,8 @@ await check("jet visuals: a lit paint finish (specular, panel lines, livery) bri
   const j = JSON.stringify(r);
   assert(r.avg > 0.08, `the paint isn't near-black: ${j}`);
   assert(r.lit, `a specular finish with panel lines and a livery: ${j}`);
-  assert(!r.dayLights && r.nightLights, `navigation lights only at night: ${j}`);
+  // (Round 8: an aircraft in use runs its navigation lights day and night, like a real one; parked, they are off.)
+  assert(r.dayLights && r.nightLights, `navigation lights while flying, day and night: ${j}`);
   assert(r.nightFill > r.dayFill, `more ambient fill at night: ${j}`);
   assert(r.verts > 3000, `a detailed model: ${j}`);
 });
@@ -762,7 +763,7 @@ await check("missions: the chain (22 missions in Round 8) from a pistol scout to
     const l = g.progress.list(g.stats.world);
     return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
   });
-  assert(list.n === 21 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  assert(list.n === 22 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
   await v((g) => {
     g.progress.load(null, g.stats.world);
     g.setMode("creative");

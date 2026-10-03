@@ -356,6 +356,9 @@ await check("jet: air brakes shed speed very fast, open smoothly, tighten the tu
   // Turn radius: a hard pull with and without brakes (same start): the braking jet turns through more heading.
   const turn = await v((g) => {
     const out = {};
+    // (Round 8: the default mouse sensitivity is 0.6; the old 1.0 pulls as hard as this check needs.)
+    const sens = g.vehicles.mouseSensitivity;
+    g.vehicles.mouseSensitivity = 1;
     for (const brake of [false, true]) {
       for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
       const p = g.player.position;
@@ -375,6 +378,7 @@ await check("jet: air brakes shed speed very fast, open smoothly, tighten the tu
       out[brake ? "brakeSpeed" : "freeSpeed"] = Math.round(jet.speed);
       g.vehicles.exit({ force: true });
     }
+    g.vehicles.mouseSensitivity = sens;
     return out;
   });
   assert(turn.brake > turn.free + 20, `heading change in 2.5 s: ${JSON.stringify(turn)}`);
@@ -526,13 +530,14 @@ await check("jet: the salvo charges over the lock (pips and charge reported), th
     g.camera.lookAt(jet.pos.x, jet.pos.y, jet.pos.z - 100);
     g.camera.updateMatrixWorld(true);
     const ov = jet.overlay(g.camera).lock;
-    const out = { samples, salvo: jet.lock.salvo, pips: ov?.pips, charge: ov?.charge };
+    const out = { samples, salvo: jet.lock.salvo, spiral: ov?.spiral, charge: ov?.charge };
     // HUD: the lock box shows the charge ring and pips.
     g.vehicles.input.buttons[2] = false;
     g.vehicles.exit({ force: true });
     return out;
   });
-  assert(r.salvo && r.pips === 4 && r.charge === 1 && [1, 2, 3].every((k) => r.samples.includes(k)), JSON.stringify(r));
+  // (Round 8: the HUD shows the charge as a spiral closing in on the target; the pips are the clicks.)
+  assert(r.salvo && r.spiral && r.charge === 1 && [1, 2, 3].every((k) => r.samples.includes(k)), JSON.stringify(r));
 });
 
 

@@ -16,6 +16,7 @@ import * as THREE from "three";
 import { BLOCK } from "./blocks.js";
 import { LAYER_FX } from "./layers.js";
 import { createLodMaterial } from "./shaders.js";
+import { NUKE_CLEAR } from "./nuke.js";
 
 const REFRESH = 1; // seconds between checks of what is near
 const LIGHTS_RANGE = 4500; // blocks: airport lights are drawn this far
@@ -48,6 +49,10 @@ export class DistantStructures {
     this.enabled = true;
     this.viewRange = 400;
     this.night = 0;
+    // The nukes' blast zones ({ x, z, R }): nothing is left standing in them,
+    // so no shapes or lights are drawn there (main.js: nuke.zones).
+    this.zones = () => [];
+    this._zoneSig = "";
     this._t = 0;
     this._lightTex = lightTexture();
   }
@@ -93,8 +98,15 @@ export class DistantStructures {
     this._add(acc, x0, base + y0, z0, x1, base + y1, z1, wall, roof);
   }
 
+  // Whether (x, z) lies where a nuke swept everything away.
+  _blasted(x, z) {
+    for (const zn of this._zoneList || []) if (Math.hypot(x - zn.x, z - zn.z) < zn.R * NUKE_CLEAR) return true;
+    return false;
+  }
+
   // Into the accumulator of the chunk the box's middle stands in.
   _add(acc, x0, y0, z0, x1, y1, z1, wall, roof) {
+    if (this._blasted((x0 + x1) / 2, (z0 + z1) / 2)) return;
     const cx = Math.floor((x0 + x1) / 2) >> 4;
     const cz = Math.floor((z0 + z1) / 2) >> 4;
     const key = `${cx},${cz}`;
@@ -170,6 +182,7 @@ export class DistantStructures {
     const col = [];
     const add = (u, v, y, r, g, b) => {
       const [x, z] = this.sites.toWorld(s, u, v);
+      if (this._blasted(x, z)) return;
       pos.push(x + 0.5, s.y + y, z + 0.5);
       col.push(r, g, b);
     };
@@ -253,6 +266,24 @@ export class DistantStructures {
 
   _refresh(px, pz) {
     const range = Math.max(300, this.viewRange);
+    // A new nuke: everything is built again (without what it swept away).
+    this._zoneList = this.zones() || [];
+    const sig = this._zoneList.map((zn) => `${Math.round(zn.x)},${Math.round(zn.z)},${zn.R}`).join(";");
+    if (sig !== this._zoneSig) {
+      this._zoneSig = sig;
+      for (const e of this.entries.values()) {
+        for (const m of e.meshes) {
+          this.group.remove(m.mesh);
+          m.mesh.geometry.dispose();
+        }
+        if (e.lights) {
+          this.group.remove(e.lights);
+          e.lights.geometry.dispose();
+          e.lights.material.dispose();
+        }
+      }
+      this.entries.clear();
+    }
     const want = new Map();
     for (const s of this.sites.within(px, pz, Math.max(range, LIGHTS_RANGE) + 600)) {
       const d = Math.hypot(s.x - px, s.z - pz);

@@ -270,6 +270,7 @@ lod.configure({ renderDistance, detailDistance: activePreset.detailDistance });
 const grass = new GrassField(scene, world);
 // Airports, cities and villages seen from far away, and airport lights at night (Round 8).
 const distant = new DistantStructures({ scene, world, material: lod.material });
+distant.zones = () => nuke.zones;
 
 // Plans chunk streaming and LOD tiles around a position (cheap when nothing changed).
 function streamAround(x, z) {

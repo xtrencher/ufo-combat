@@ -32,6 +32,7 @@ const craterDepth = (R) => 22 * Math.sqrt(R / 44);
 // (leaves and plants gone, trunks left as stumps) out to BURN.
 const CRATER_W = 1.6;
 const CLEAR = 1.85;
+export const NUKE_CLEAR = CLEAR; // (distant.js: no far-off building shapes where a nuke swept everything away)
 const KNOCK = 2.6;
 const BURN = 3.3;
 const isPlant = (id) => IS_LEAVES[id] || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW || id === BLOCK.SNOW;

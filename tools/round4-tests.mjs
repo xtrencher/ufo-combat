@@ -847,7 +847,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     for (let i = 0; i < 40 && !u; i++) {
       window.__step(0.5);
       g.player.health = Math.max(g.player.health, 10);
-      u = g.missions.state.scout;
+      u = g.missions.state.scout || g.missions.state.scouts?.[0]; // (Round 8: a scout per player)
     }
     if (!u) return { ...out, fail: "no scout", dead: g.player.dead, en: g.missions.enabled, mid: g.missions.missionId, st: Object.keys(g.missions.state).join(), ufos: g.ufos.ufos.length };
     g.inventory.selected = g.inventory.slots.findIndex((s) => s && s.id === 287);
