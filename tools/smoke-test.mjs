@@ -470,6 +470,9 @@ try {
         el.dispatchEvent(new Event("change", { bubbles: true }));
       }, v);
     let lockedStill = false;
+    // (The clock and creature spawning are Creative rules since Round 6: Survival hides them.)
+    const modeBefore = await page.evaluate(() => window.__voxelands.player.mode);
+    await page.evaluate(() => window.__voxelands.setMode("creative"));
     try {
       // Tabs switch pages (in the settings screen, opened from the pause menu).
       await page.click("#pause-settings-btn");
@@ -521,6 +524,7 @@ try {
         v.setGraphics("low");
         v.sky.setHours(10);
       });
+      await page.evaluate((m) => window.__voxelands.setMode(m), modeBefore);
     }
     assert(lockedStill, "a locked clock stays put");
   });
