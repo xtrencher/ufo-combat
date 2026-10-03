@@ -21,6 +21,7 @@ import { Airstrikes } from "./airstrike.js";
 import { LASER_COLORS } from "./lasers.js";
 import { LAYER_FX } from "./layers.js";
 import { WEAPON_STATS } from "./weapon-stats.js";
+import { WORLD_HEIGHT } from "./constants.js";
 export { WEAPON_STATS };
 
 export const THROW_CHARGE_TIME = 1.5; // seconds to a full-strength throw
@@ -33,7 +34,9 @@ const RESTITUTION = 0.38;
 export const PISTOL_DAMAGE = 5;
 const PISTOL_RANGE = 160;
 const PISTOL_SPEED = 240; // blocks/s: a real bullet, it takes time to arrive
-const BULLET_COLOR = new THREE.Color(5, 3.6, 1.2);
+// The pistol's bullet: a pale tracer like the machine gun's (Round 8: it was
+// a big glowing yellow bolt that looked like a laser).
+const BULLET_COLOR = new THREE.Color(1.15, 1.05, 0.8);
 export const ROCKET_SPEED = 75;
 const ROCKET_DIRECT = 90; // extra damage of a rocket that hits a UFO or vehicle square on
 const ROCKET_GRAVITY = -2.5;
@@ -774,7 +777,7 @@ export class WeaponSystem {
     const aim = eye.clone().addScaledVector(dir, near).sub(muzzle);
     if (aim.lengthSq() < 0.25) aim.copy(dir);
     aim.normalize();
-    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.03, length: 2.6, sound: false, scorch: true, hole: true });
+    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.014, length: 3.2, sound: false, scorch: true, hole: true, tracer: true });
     return { type: "bullet" };
   }
 
@@ -988,7 +991,10 @@ export class WeaponSystem {
       const cx = eye.x + dir.x * d;
       const cy = eye.y + dir.y * d;
       const cz = eye.z + dir.z * d;
-      if (cy < -4 || cy > 200) break;
+      // (Round 8: past the top of the world it stops cutting; it used to stop
+      // at y 64, so anything higher, a mountain, a tower, a tree on a hill, an
+      // airport on high ground, came through untouched.)
+      if (cy < -4 || cy > WORLD_HEIGHT + 4) break;
       const bx = Math.floor(cx);
       const by = Math.floor(cy);
       const bz = Math.floor(cz);
@@ -1000,7 +1006,7 @@ export class WeaponSystem {
             const dy = y + 0.5 - cy;
             const dz = z + 0.5 - cz;
             if (dx * dx + dy * dy + dz * dz > R2) continue;
-            if (y < 1 || y >= 64) continue;
+            if (y < 1 || y >= WORLD_HEIGHT) continue;
             const key = (x + 1048576) * 4294967296 + (y * 2097152 + (z + 1048576));
             if (removedSet.has(key)) continue;
             removedSet.add(key);

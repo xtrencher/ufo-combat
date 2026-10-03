@@ -599,8 +599,54 @@ export class UfoManager {
       this._provoked(u);
     }
     if (u.health <= 0) this._shotDown(u);
+    else if (u.state === "beam" && u.dashAbduct) this._breakOff(u);
     else if (byPlayer) this._dodge(u, 1);
     return true;
+  }
+
+  // ---------- The dash abduction (Round 8) ----------
+  // Now and then a UFO fighting a player on foot dashes in to appear right
+  // over a player (online: a random one of those on foot) and beams them up.
+  // Hit it and it breaks off: the beam goes out, it dashes back out to a
+  // distance and goes on with its guns.
+
+  _dashAbduct(u) {
+    if (u.dash || u.falling || u.S.idx >= 3 || (u.dashCool ?? 0) > 0) return false;
+    const list = (this.targets ? this.targets() : [this.localPlayer]).filter((t) => !t.dead && !t.vehicle && !t.creative);
+    if (!list.length) return false;
+    const victim = list[Math.floor(Math.random() * list.length)];
+    const p = victim.position;
+    const hover = u.info.bottom * u.radius + u.S.hover;
+    const to = new THREE.Vector3(p.x, Math.max(this._groundAt(p.x, p.z) + hover, p.y + hover), p.z);
+    const len = to.distanceTo(u.pos);
+    if (len > 700) return false;
+    u.dash = { from: u.pos.clone(), to, t: 0, dur: THREE.MathUtils.clamp(len / 1100, 0.08, 0.25), last: u.pos.clone() };
+    u.dashCool = 1;
+    u.state = "beam";
+    u.timer = rand(10, 15);
+    u.dashAbduct = true;
+    u.beamVictim = victim;
+    u.lastSeen = this.time;
+    u.hostile = true;
+    u.hostileT = Math.max(u.hostileT || 0, 30);
+    u.tgtPlayer = victim;
+    if (this.audio?.playUfoDash) this.audio.playUfoDash(u.pos.distanceTo(this._ears()));
+    this.onMessage?.(victim === this.localPlayer ? "A UFO is right above you! Shoot it to break the beam!" : "A UFO dashed in to beam someone up!");
+    return true;
+  }
+
+  // Hit while beaming: off with the beam, back out to a distance, guns.
+  _breakOff(u) {
+    u.dashAbduct = false;
+    u.beamVictim = null;
+    if (u.beam) u.beam.set(false);
+    if (this.beamingPlayer === u) this.beamingPlayer = null;
+    u.state = "attack";
+    u.timer = 0;
+    u.abductT = rand(35, 60);
+    u.dashCool = 0;
+    u.dash = null;
+    this._blink(u, 130, 70);
   }
 
   // Makes a UFO angry at the player for a while.
@@ -752,6 +798,11 @@ export class UfoManager {
         // This UFO thinks about the nearest player (sticking with the one it
         // is after unless another is much nearer).
         let [t, d] = this._nearestPlayer(u.pos, targets);
+        // (A dash abduction stays on its victim.)
+        if (u.beamVictim && u.state === "beam" && targets.includes(u.beamVictim) && !u.beamVictim.dead && !u.beamVictim.vehicle) {
+          t = u.beamVictim;
+          d = u.pos.distanceTo(t.position);
+        }
         const cur = u.tgtPlayer && targets.includes(u.tgtPlayer) && !u.tgtPlayer.dead ? u.tgtPlayer : null;
         if (cur && cur !== t) {
           const dc = u.pos.distanceTo(cur.vehicle ? cur.vehicle.pos : cur.position);
@@ -848,10 +899,19 @@ export class UfoManager {
       const dist = u.pos.distanceTo(p);
       this._place(u, dt, dist, this.night);
       if (dist < humD) humD = dist;
+      // (A beam of the host's that has this player in it lifts them here.)
+      if (!this.beamingPlayer && u.beam?.on && u.beam.strength > 0.5 && !this.player.dead && !this.player.vehicle && !this.player.creative && u.beam.contains(this.player.position.clone().setY(this.player.position.y + 0.9))) {
+        this.beamingPlayer = u;
+        this._beamTime = 0;
+        this._beamStartY = this.player.position.y;
+        this._beamPeak = 0;
+      }
     }
+    if (this.beamingPlayer && !this.ufos.includes(this.beamingPlayer)) this.beamingPlayer = null;
+    this._updatePlayerBeam(dt, this.beamingPlayer);
     this.trail.update(dt);
     this.lastHum = humD;
-    if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, 0);
+    if (this.audio?.setUfoHum) this.audio.setUfoHum(humD < 140 ? (1 - humD / 140) * 0.5 : 0, this.beamingPlayer ? 1 : 0);
   }
 
   // A UFO held by the player's tractor beam: the beam sets its pull velocity
@@ -993,7 +1053,9 @@ export class UfoManager {
     d.last.copy(u.pos);
     if (k >= 1) {
       u.dash = null;
-      u.vel.multiplyScalar(0.05);
+      // (A dash abduction stops dead over its victim.)
+      if (u.dashAbduct) u.vel.set(0, 0, 0);
+      else u.vel.multiplyScalar(0.05);
       u.waypoint = null;
     }
   }
@@ -1749,6 +1811,12 @@ export class UfoManager {
   }
 
   _attackOnFoot(u, dt, tgt, dist) {
+    // Now and then: the dash abduction (not the giants, not on Peaceful-ish aggression).
+    u.abductT = (u.abductT ?? rand(18, 40)) - dt;
+    if (u.abductT <= 0 && !u.missionTarget && u.style !== "abductor" && this._agg() > 0.25) {
+      u.abductT = rand(40, 75);
+      if (Math.random() < 0.55 && this._dashAbduct(u)) return;
+    }
     const p = this.player.position;
     const hover = u.info.bottom * u.radius + u.S.hover;
     const horiz = Math.hypot(u.pos.x - p.x, u.pos.z - p.z);
@@ -1798,7 +1866,8 @@ export class UfoManager {
     beam.set(true, top, ground, 3 + u.radius * 0.35);
     // Beaming also lifts animals that happen to be under it.
     this.mobs.beamLift(beam, 3, top.y - 0.3, u);
-    if (!this.beamingPlayer && beam.strength > 0.5 && beam.contains(this.player.position.clone().setY(p.y + 0.9))) {
+    // (Online, another player in the beam is lifted on their own machine: see _updatePuppets.)
+    if (!this.player.isRemote && !this.beamingPlayer && beam.strength > 0.5 && beam.contains(this.player.position.clone().setY(p.y + 0.9))) {
       this.beamingPlayer = u;
       this._beamTime = 0;
       this._beamStartY = p.y;
@@ -1812,6 +1881,8 @@ export class UfoManager {
       beam.set(false);
       u.state = "attack";
       u.timer = 0;
+      u.dashAbduct = false;
+      u.beamVictim = null;
     }
   }
 
@@ -1832,10 +1903,14 @@ export class UfoManager {
       if (pl.position.y + 1.8 >= beam.top.y - 0.4) {
         // Reached the ship: abducted.
         this.beamingPlayer = null;
-        held.state = "roam";
-        if (held.beam) held.beam.set(false);
+        if (!held.net) {
+          held.state = "roam";
+          held.dashAbduct = false;
+          held.beamVictim = null;
+          if (held.beam) held.beam.set(false);
+        }
         if (this.onAbductPlayer) this.onAbductPlayer(held);
-        if (Math.random() < 0.5) this._leave(held);
+        if (!held.net && Math.random() < 0.5) this._leave(held);
       }
       return;
     }
@@ -1949,6 +2024,7 @@ export class UfoManager {
     if (u.target) u.target.beamedBy = null;
     u.fallSpin = rand(1.5, 3.5) * (Math.random() < 0.5 ? -1 : 1);
     u.vel.y = Math.min(u.vel.y, 2);
+    u.fallFrom = u.pos.y; // (the crash's blast grows with the height it fell from)
     u.fireT = 0;
     u.model.setDead?.(true); // every light off, for good
     // A burst of flame where it was hit.
@@ -2038,12 +2114,16 @@ export class UfoManager {
       exploded = false;
       this.forceIntact = false;
     }
-    // The blast grows with the ship: the crater is capped (the terrain would
-    // not survive more), but the fireball, the shock ring, the shake and the
-    // roar follow its size all the way: a scout makes a bang, a mothership a
-    // mushroom of fire.
-    const radius = exploded ? Math.min(36, 6 + u.radius * 0.9) : Math.min(16, 3 + u.radius * 0.5);
-    const visual = exploded ? 8 + u.radius * 1.15 : 5 + u.radius * 0.8;
+    // The blast grows with the ship and (Round 8) with the height it fell
+    // from: a ship shot down high up hits the ground hard and blows a big
+    // crater, one that only dropped a few blocks makes a small bang. The
+    // crater is capped (the terrain would not survive more), but the
+    // fireball, the shock ring, the shake and the roar follow it all the way:
+    // a scout makes a bang, a mothership from high up a mushroom of fire.
+    const fallH = Math.max(0, (u.fallFrom ?? u.pos.y) - floor);
+    const hf = THREE.MathUtils.clamp(0.25 + fallH / 60, 0.25, 1.8);
+    const radius = exploded ? Math.min(48, (6 + u.radius * 0.9) * hf) : Math.min(16, (3 + u.radius * 0.5) * Math.min(1.2, hf));
+    const visual = (exploded ? 8 + u.radius * 1.15 : 5 + u.radius * 0.8) * (0.5 + 0.5 * hf);
     const at = new THREE.Vector3(u.pos.x, Math.max(floor + 0.5, u.pos.y - bottom * 0.5), u.pos.z);
     // (In the sea it goes off on the sea floor, under the water; the water
     // above comes up as a geyser.)

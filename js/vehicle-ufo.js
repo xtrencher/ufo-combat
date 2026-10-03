@@ -292,7 +292,7 @@ export class PilotUfo extends Vehicle {
     }
     if (input) {
       // Look around.
-      const sens = 0.0022 * (this.manager.mouseSensitivity ?? 1);
+      const sens = 0.0022 * (this.manager.mouseSensitivity ?? 0.6);
       this.camYaw -= input.dx * sens;
       this.camPitch -= input.dy * sens * (this.manager.invertY ? -1 : 1);
       this.camPitch = Math.max(-1.5, Math.min(1.2, this.camPitch));

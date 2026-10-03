@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
 import { UI, isMobileDevice } from "./ui.js";
-import { BLOCK, BLOCK_INFO, HOTBAR, IS_WET } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
 import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
@@ -501,13 +501,13 @@ weapons.pierce.push({
         },
       });
     }
-    const vseen = new Set();
-    for (let i = 0; i < 8; i++) {
-      const h = vehicles.raycast(origin, dir, range, vehicles.active);
-      if (!h || vseen.has(h.vehicle)) break;
-      vseen.add(h.vehicle);
-      out.push({ distance: h.distance, hit: (damage) => h.vehicle.damage(damage, "player") });
-      break; // (one vehicle: the raycast has no exclusion list)
+    // Every vehicle on the line (Round 8: it used to stop at the first).
+    if (vehicles.enabled) {
+      for (const v of vehicles.vehicles) {
+        if (!v.alive || v === vehicles.active) continue;
+        const t = v.raycast(origin, dir, range);
+        if (t !== null) out.push({ distance: t, hit: (damage) => v.damage(damage, "player") });
+      }
     }
     return out;
   },
@@ -919,21 +919,19 @@ vehicles.onPilotHurt = () => {
 interaction.weapons = weapons;
 interaction.combat = mobs;
 
-// The creative starter hotbar (the classic building blocks).
-function fillCreativeHotbar() {
-  HOTBAR.forEach((id, i) => {
-    if (i < HOTBAR_SIZE && !inventory.slots[i]) inventory.slots[i] = makeStack(id, 64);
-  });
-}
-
 // A brand new game (mods on) starts with its loadout: Survival only a
 // pistol (everything else is loot), Creative every weapon, filling the hotbar
 // first. It always wins those slots in a new world; a world that started with
 // mods off gets it (in free slots) the first time it's played with mods on.
 let loadoutGiven = false;
+// What the inventory was before Creative (see setMode); { fresh: true }: a
+// world begun in Creative, whose Survival starts with the Survival loadout.
+let survivalStash = null;
 function fillStartingWeapons(fresh) {
   if (loadoutGiven || !mods.enabled) return;
   loadoutGiven = true;
+  // (A world begun in Creative: its Survival will start with the Survival loadout.)
+  if (player.creative && fresh) survivalStash = { fresh: true };
   (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((entry, i) => {
     const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
     if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, n);
@@ -962,6 +960,7 @@ if (savedPlayer) {
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
   // Worlds from before the loadout flag existed already had their weapons.
   loadoutGiven = savedPlayer.loadout !== false;
+  survivalStash = savedPlayer.survivalStash && typeof savedPlayer.survivalStash === "object" ? savedPlayer.survivalStash : null;
 } else {
   player.spawnAt(spawnX, spawnZ);
 }
@@ -1218,6 +1217,7 @@ function playerState() {
     missions: progress.serialize(),
     vehicles: vehicles.serialize(),
     stats: stats.world,
+    survivalStash,
   };
 }
 
@@ -1498,17 +1498,35 @@ function setMode(mode) {
   player.setMode(mode);
   refreshSurvivalSystems();
   ui.setModeShown(player.mode);
-  // (On the start menu the items are only handed out when Play is pressed.)
-  if (player.creative && before !== "creative" && gameState !== "start") giveCreativeItems();
+  // (Round 8) Switching to Creative adds nothing: the inventory stays as it
+  // is (anything else comes from the creative palette, by hand), and what it
+  // was is kept aside; back in Survival the inventory is exactly that again,
+  // so nothing taken in Creative is left over.
+  if (before !== "creative" && player.creative) {
+    survivalStash = { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected };
+  } else if (before === "creative" && !player.creative && survivalStash) {
+    restoreSurvivalStash();
+  }
   playerDirty = true;
 }
 
-// Creative: the starter blocks if the inventory is empty, and every weapon.
-function giveCreativeItems() {
-  if (inventory.isEmpty()) fillCreativeHotbar();
-  if (mods.enabled) for (const id of CREATIVE_LOADOUT) if (!inventory.slots.some((s) => s && s.id === id)) inventory.add(id, 1);
+function restoreSurvivalStash() {
+  const s = survivalStash;
+  survivalStash = null;
+  if (s.fresh) {
+    inventory.clear();
+    for (const entry of SURVIVAL_LOADOUT) {
+      const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
+      inventory.add(id, n);
+    }
+  } else {
+    inventory.load(s.inv);
+    inventory.loadArmor(s.armor);
+    if (Number.isInteger(s.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, s.sel));
+  }
   markInventoryChanged();
 }
+
 
 ui.modeSelect.addEventListener("change", () => setMode(ui.modeSelect.value));
 ui.pauseModeSelect.addEventListener("change", () => {
@@ -2456,7 +2474,7 @@ const game = {
   // Online: a player's things (the host keeps a guest's between visits).
   playerData() {
     const p = player.position;
-    return { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected, health: player.dead ? MAX_HEALTH : player.health, pos: player.dead ? null : [round3(p.x), round3(p.y), round3(p.z)], loadout: loadoutGiven };
+    return { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected, health: player.dead ? MAX_HEALTH : player.health, pos: player.dead ? null : [round3(p.x), round3(p.y), round3(p.z)], loadout: loadoutGiven, stash: survivalStash };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
@@ -2465,6 +2483,7 @@ const game = {
     if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
     if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
     loadoutGiven = d.loadout !== false;
+    survivalStash = d.stash && typeof d.stash === "object" ? d.stash : null;
     markInventoryChanged();
     if (Array.isArray(d.pos) && d.pos.length === 3 && d.pos.every(Number.isFinite)) game.teleport(d.pos[0], d.pos[1], d.pos[2]);
   },

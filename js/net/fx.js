@@ -132,7 +132,7 @@ export class FxSync {
     for (const b of this.bolts) {
       const c = colorKeys.get(b.color) ?? this._colorKey(b.color);
       const h = b.homing?.target ? this.mp.refOf?.(b.homing.target) || 0 : 0;
-      this.out.push(["b", r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), Math.round(b.dir.x * 1e4) / 1e4, Math.round(b.dir.y * 1e4) / 1e4, Math.round(b.dir.z * 1e4) / 1e4, c, r1(b.speed), r1(b.damage), b.owner, r1(b.range), Math.round(b.radius * 1000) / 1000, r2(b.length), r2(b.blast || 0), (b.hole ? 1 : 0) | (b.scorch ? 2 : 0) | (b.sound ? 4 : 0), h, b.homing ? r2(b.homing.turn) : 0, b.homing ? r1(b.homing.life) : 0]);
+      this.out.push(["b", r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), Math.round(b.dir.x * 1e4) / 1e4, Math.round(b.dir.y * 1e4) / 1e4, Math.round(b.dir.z * 1e4) / 1e4, c, r1(b.speed), r1(b.damage), b.owner, r1(b.range), Math.round(b.radius * 1000) / 1000, r2(b.length), r2(b.blast || 0), (b.hole ? 1 : 0) | (b.scorch ? 2 : 0) | (b.sound ? 4 : 0) | (b.tracer ? 8 : 0), h, b.homing ? r2(b.homing.turn) : 0, b.homing ? r1(b.homing.life) : 0]);
     }
     this.bolts.length = 0;
     if (this.out.length && this.mp.stateLoaded) this.net.toAll({ t: "fx", l: this.out });
@@ -207,7 +207,7 @@ export class FxSync {
       case "b": {
         const color = Array.isArray(e[7]) ? new THREE.Color(e[7][0], e[7][1], e[7][2]) : LASER_COLORS[e[7]] || LASER_COLORS.red;
         const from3 = new THREE.Vector3(e[1], e[2], e[3]);
-        const b = g.lasers.fire({ from: from3, dir: new THREE.Vector3(e[4], e[5], e[6]), color, speed: e[8], damage: e[9], owner: e[10], source: null, range: e[11], radius: e[12], length: e[13], blast: e[14], hole: !!(e[15] & 1), scorch: !!(e[15] & 2), sound: false, mirror: true });
+        const b = g.lasers.fire({ from: from3, dir: new THREE.Vector3(e[4], e[5], e[6]), color, speed: e[8], damage: e[9], owner: e[10], source: null, range: e[11], radius: e[12], length: e[13], blast: e[14], hole: !!(e[15] & 1), scorch: !!(e[15] & 2), sound: false, mirror: true, tracer: !!(e[15] & 8) });
         b.by = from;
         if (e[16]) {
           const t = this.mp.resolveRef?.(e[16]);

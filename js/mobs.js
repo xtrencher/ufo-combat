@@ -136,20 +136,23 @@ export const SPECIES = {
   // Red: a slow armoured brute lobbing plasma that blasts the ground.
   alien: {
     name: "Green alien", alien: true, hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3, glows: true,
-    speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 40, ranged: true, laser: true, laserDamage: 3, strafes: true,
-    weapon: "pistol", shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true, pathfind: true, bigJump: true,
+    // (Round 8: aliens fight back from about as far as the player's guns
+    // reach: they spot you from far off and shoot from long range, with an
+    // aim that is decent but not deadly at that distance.)
+    speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 95, ranged: true, laser: true, laserDamage: 3, strafes: true,
+    weapon: "pistol", shootMin: 5, shootMax: 70, shootCooldown: 1.25, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.APPLE, 1, 1, 0.25]],
   },
   alien_gray: {
     name: "Gray alien", alien: true, hostile: true, special: true, health: 14, r: 0.28, h: 1.78, eye: 1.45, glows: true,
-    speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 48, ranged: true, laser: true, laserDamage: 2, strafes: true,
-    weapon: "burst", shootMin: 10, shootMax: 46, shootCooldown: 2.1, noBurn: true, pathfind: true, bigJump: true,
+    speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 130, ranged: true, laser: true, laserDamage: 2, strafes: true,
+    weapon: "burst", shootMin: 10, shootMax: 110, shootCooldown: 2.1, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.APPLE, 1, 2, 0.3], [ITEM.GOLDEN_APPLE, 1, 1, 0.04]],
   },
   alien_red: {
     name: "Red alien", alien: true, hostile: true, special: true, health: 46, r: 0.42, h: 2.1, eye: 1.7, glows: true,
-    speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 6,
-    weapon: "plasma", shootMin: 4, shootMax: 24, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true,
+    speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 85, ranged: true, laser: true, laserDamage: 6,
+    weapon: "plasma", shootMin: 4, shootMax: 60, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.APPLE, 1, 2, 0.4], [ITEM.GOLDEN_APPLE, 1, 1, 0.08], [ITEM.GOLD_INGOT, 1, 2, 0.4]],
   },
   // Blue aliens: quick flankers. They close in and blink to a new spot
@@ -157,7 +160,7 @@ export const SPECIES = {
   // scatter of fast bolts: dangerous up close, weak at range.
   alien_blue: {
     name: "Blue alien", alien: true, hostile: true, special: true, health: 16, r: 0.28, h: 1.7, eye: 1.4, glows: true,
-    speed: 1.9, chaseSpeed: 4.2, maxDrop: 4, damage: 0, sight: 44, ranged: true, laser: true, laserDamage: 1.4, strafes: true,
+    speed: 1.9, chaseSpeed: 4.2, maxDrop: 4, damage: 0, sight: 75, ranged: true, laser: true, laserDamage: 1.4, strafes: true,
     weapon: "scatter", shootMin: 6, shootMax: 16, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true, blinks: true,
     drops: [[ITEM.APPLE, 1, 1, 0.3], [ITEM.GOLDEN_APPLE, 1, 1, 0.04]],
   },
@@ -166,8 +169,8 @@ export const SPECIES = {
   // restricted area around them (a Creative player is left alone).
   guard: {
     name: "Guard", hostile: true, special: true, sentry: true, health: 22, r: 0.3, h: 1.85, eye: 1.6,
-    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 60, ranged: true, laser: true, laserDamage: 1.5, strafes: true,
-    weapon: "rifle", shootMin: 6, shootMax: 38, shootCooldown: 2.3, pathfind: true,
+    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 80, ranged: true, laser: true, laserDamage: 1.5, strafes: true,
+    weapon: "rifle", shootMin: 6, shootMax: 75, shootCooldown: 2.3, pathfind: true,
     drops: [[ITEM.COAL, 0, 0, 0]],
   },
   fish: {
@@ -771,7 +774,7 @@ export class MobManager {
       // A crew that has just climbed out of a wreck (m.aggro) hunts the
       // player from wherever they are, at any height.
       const sight = m.aggro ? Math.max(m.spec.sight, 160) : m.spec.sight;
-      const vertical = m.aggro ? 60 : 10;
+      const vertical = m.aggro ? 60 : m.spec.alien || m.spec.sentry ? 30 : 10;
       // (A calm crew member looks around and leaves the player be for now.)
       let willing = this._canTarget(m) && !(m.calmT > 0);
       // A posted guard only fights when alerted (the player in his zone, or
@@ -1226,7 +1229,9 @@ export class MobManager {
     const dir = target.sub(from);
     const dist = dir.length() || 1;
     dir.divideScalar(dist);
-    const spread = (weapon === "burst" ? 0.012 : weapon === "rifle" ? 0.02 : 0.03) + dist * (weapon === "burst" ? 0.0006 : weapon === "rifle" ? 0.0009 : 0.0012);
+    // (Round 8: the aim spreads far less with distance, so a long shot can hit:
+    // about +-4 blocks at 90 blocks for a pistol, a little tighter for a rifle or a burst.)
+    const spread = (weapon === "burst" ? 0.009 : weapon === "rifle" ? 0.014 : 0.021) + dist * (weapon === "burst" ? 0.00018 : weapon === "rifle" ? 0.0002 : 0.00025);
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;

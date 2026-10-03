@@ -495,7 +495,7 @@ export class Jet extends Vehicle {
     this.reversing = false;
     if (input) {
       const k = input.keys;
-      const sens = 0.0022 * (this.manager.mouseSensitivity ?? 1);
+      const sens = 0.0022 * (this.manager.mouseSensitivity ?? 0.6);
       const inv = this.manager.invertY ? -1 : 1;
       const wKey = k.has("KeyW");
       const sKey = k.has("KeyS");

@@ -2005,13 +2005,13 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 3.2 First-person bow draw natural (no hand switch)
 
 ## Part 4: Gameplay
-- [ ] 4.1 Mouse sensitivity default = 60% of old default
-- [ ] 4.2 Aliens shoot from long range with sensible accuracy
-- [ ] 4.3 Creative switching never adds/leaves inventory items
-- [ ] 4.4 Pistol bullets look like machine-gun tracers
-- [ ] 4.5 UFO dash-abduction attack pattern
-- [ ] 4.6 UFO crash explosion scales with size and fall height
-- [ ] 4.7 Railgun always cuts through everything in its line
+- [x] 4.1 Mouse sensitivity default = 60% of old default
+- [x] 4.2 Aliens shoot from long range with sensible accuracy
+- [x] 4.3 Creative switching never adds/leaves inventory items
+- [x] 4.4 Pistol bullets look like machine-gun tracers
+- [x] 4.5 UFO dash-abduction attack pattern
+- [x] 4.6 UFO crash explosion scales with size and fall height
+- [x] 4.7 Railgun always cuts through everything in its line
 
 ## Part 5: Main menu redesign
 - [ ] 5.1 Remove UFO graphic, title, subtitle
@@ -2078,4 +2078,13 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Other players now show** (sent with their state, 20 times a second): the melee swing (as before, now with the right arm), the bow being drawn (the bow goes into the left hand, the left arm straight out where they look, the right hand pulled back to the cheek, more the further it is drawn), every shot (a muzzle flash at the gun's end and the recoil of the arms), guns aimed one- or two-handed where they look.
 - **First-person bow:** it stays on the right and keeps facing the same way while it is raised and drawn (it is turned upright in its own plane, the arrow pointing in at the crosshair); before, it swung over to the left and flipped round, which looked like a change of hands.
 - New two-page check: the other player sees the sword in the right hand, the swing, the drawn bow in the left hand and the shot.
+
+### Part 4 (gameplay)
+- **Mouse sensitivity:** the default is now 0.60x (60% of the old 1.00x default), for walking, jets and UFOs alike (one setting). Defaults only (no persistence work, as asked).
+- **Aliens' range:** they spot you from 75-130 blocks (was 36-48) and shoot from up to 60 (red plasma), 70 (green pistol), 110 (gray burst rifle) blocks; guards up to 75. Their aim spreads far less with distance (about +-4 blocks at 90 blocks for a pistol, tighter for the rifles), so a long shot can hit without being a sniper; blue flankers stay close-range by design (they blink in). They also engage across bigger height differences (30 blocks).
+- **Creative switching:** switching to Creative adds nothing (the inventory stays as it was); what it was is kept aside, and switching back to Survival restores exactly that, so nothing taken from the creative palette is left over (saved with the world, and with a guest's things online). A world begun in Creative gets the Survival starting loadout when it first switches to Survival. (New Creative worlds still start with the Creative weapons, like before: that is a start, not a switch.)
+- **Pistol bullets** are thin pale tracers like the machine gun's (no muzzle glow, small sparks); still real bullets with travel time; the same look online.
+- **Dash abduction:** now and then (every 40-75 s or so, more likely with higher aggression; not giants, not mission ships, not on the gentlest settings) a UFO fighting a player on foot dashes in to stop dead right over a player (online: a random player on foot) and beams them up. A hit breaks it off: the beam goes out, it dashes back out to 70-130 blocks and fights on with its guns. Online the beam lifts a guest on their own machine (victim-side, like everything aimed at a player), so any player can be the victim.
+- **UFO crash blast** grows with the ship's size and the height it fell from (x0.25 for a drop of a few blocks up to x1.8 from 90+ blocks; crater capped at 48): a low fall is a small bang, a high one blows a big crater.
+- **Railgun:** it stopped cutting at y 64 (anything higher, a hill, a tower, an airport on high ground, came through), and it only hit the first vehicle on its line. Now it cuts up to the top of the world and hits every UFO, vehicle and creature on the line.
 
