@@ -189,7 +189,8 @@ await check("settings: every group has a reset button, stepped sliders, perf pre
   await page.click('#perf-presets .btn[data-preset="balanced"]');
   const bal = await v((g) => ({ preset: g.graphics, rd: g.renderDistance, res: g.settings.perf.resolution }));
   assert(bal.preset === "medium" && bal.rd === 12 && bal.res === 1, `balanced ${JSON.stringify(bal)}`);
-  // Stepped slider: zombie spawn rate.
+  // Stepped slider: zombie spawn rate. (A Creative setting since Round 6: Survival's rules are fixed.)
+  await v((g) => g.setMode("creative"));
   await page.click('.settings-tab[data-page="mobs"]');
   await page.$eval("#zombies-spawnRate", (el) => {
     el.value = String(Number(el.max));
@@ -199,24 +200,26 @@ await check("settings: every group has a reset button, stepped sliders, perf pre
   assert(z.rate === 50 && z.label === "APOCALYPSE" && z.saved === 50, `apocalypse ${JSON.stringify(z)}`);
   await page.click('.reset-group-btn[data-page="mobs"]');
   const r = await v((g) => g.mobs.zombies.spawnRate);
+  await v((g) => g.setMode("survival"));
   assert(r === 1, "reset to defaults");
   // Back to Low for speed.
   await v((g) => g.setGraphics("low"));
   await page.keyboard.press("Escape");
 });
 
-await check("new game: Survival starts with basic gear (Round 4); Creative has every weapon (the suite then uses the classic 8-slot layout)", async () => {
+await check("new game: Survival starts with basic gear (Round 4); switching to Creative keeps the inventory (Round 8) (the suite then uses the classic 8-slot layout)", async () => {
   await play();
   const hotbar = await v((g) => g.inventory.slots.slice(0, 9).map((s) => s?.id ?? 0));
   assert(hotbar[0] === 271 && hotbar[1] === 275 && hotbar[2] === 261 && hotbar.slice(3).every((id) => id === 0), `hotbar ${hotbar}`);
   await v((g) => {
+    const before = JSON.stringify(g.inventory.slots);
     g.setMode("creative");
-    const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
-    // Every weapon is there (10 of them and the bow)...
-    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id))) throw new Error("creative is missing weapons");
-    // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster, radio.
+    // (Round 8: switching to Creative adds nothing: every weapon is in the palette instead.)
+    if (JSON.stringify(g.inventory.slots) !== before) throw new Error("switching to Creative changed the inventory");
+    // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster,
+    // and the railgun in the old Jet Radio's slot (293 is gone since Round 6).
     g.inventory.clear();
-    [287, 286, 288, 289, 291, 290, 292, 293].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
+    [287, 286, 288, 289, 291, 290, 292, 294].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
     g.inventory.selected = 0;
     g.player.flying = true;
     g.player.position.y += 12;
@@ -321,7 +324,7 @@ await check("mods off: vanilla (mod items stashed, recipes and palette hidden); 
       bolts: g.lasers.bolts.length,
     };
   });
-  assert(off.slots.every((id) => id < 286 || id > 293) && !off.weapons && off.bolts === 0, `vanilla ${JSON.stringify(off)}`);
+  assert(off.slots.every((id) => id < 286 || id > 295) && !off.weapons && off.bolts === 0, `vanilla ${JSON.stringify(off)}`);
   const on = await v((g) => {
     g.setModsEnabled(true);
     return g.inventory.slots.slice(0, 9).map((s) => s && s.id);
@@ -1078,6 +1081,15 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
 
 await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom cloud, and it counts", async () => {
   await ensureJet();
+  // (Round 8: only the B-2 carries the nuke: swap the fighter for one, in the air where it is.)
+  await v((g) => {
+    const f = g.vehicles.active;
+    const yaw = Math.atan2(-f.forward(new g.THREE.Vector3()).x, -f.forward(new g.THREE.Vector3()).z);
+    const b2 = g.vehicles.create("jet", { jetType: "b2", pos: [f.pos.x, f.pos.y, f.pos.z], yaw, airborne: true, speed: 110, throttle: 0.6 });
+    g.vehicles.exit({ force: true });
+    g.vehicles.remove(f);
+    g.vehicles.enter(b2);
+  });
   const r0 = await v((g) => {
     const j = g.vehicles.active;
     window.__nukes = g.stats.world.nukes;
@@ -1106,6 +1118,14 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
   assert(boom, "detonated");
   const after = await until((g) => g.nuke.active[0]?.slice >= 10 && { cloud: g.nuke.cloud.particles.length, air: g.world.getBlock(Math.floor(g.nuke.active[0].center.x), Math.floor(g.nuke.active[0].center.y - 3), Math.floor(g.nuke.active[0].center.z)), nukes: g.stats.world.nukes - window.__nukes }, 120000);
   assert(after && after.cloud > 20 && after.nukes === 1, `nuke aftermath ${JSON.stringify(after)}`);
+  // (Back to a fighter for the checks after this one.)
+  await v((g) => {
+    const b = g.vehicles.active;
+    if (b?.jetType === "b2") {
+      g.vehicles.exit({ force: true });
+      g.vehicles.remove(b);
+    }
+  });
 });
 
 await check("crashing the jet into the ground destroys it: 'Crashed your jet'", async () => {
