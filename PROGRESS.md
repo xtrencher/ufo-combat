@@ -2331,5 +2331,77 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 - **5.1 Terrain:** mountains only where the range mask is high (-0.03..0.2 became 0.1..0.3), gentler hills (amplitude 14 to 11), more flat country (relief threshold -0.02 to 0.08). Measured on four seeds: flat land 55% to 66-71%, land over 35 blocks above the sea 28% to 12-17%, over 60 blocks 15% to 6-8%, peaks still 123 (the big ranges are as tall as ever).
 - **5.2 Spawn:** the nearest spot to the old spawn whose 9x9 surroundings are level within a block, dry and open (no tree); respawns at the world spawn search around it.
 - **5.3 Airport lights:** created only within the view distance (x1.1, capped at 3 km), each point fading in its own shader with the world's fog (`scene.fog` near/far, the render distance) and a little with distance; the far-plane "pull-in" that drew them over the fog (the lights floating in the sky) is gone.
-- **5.4 No land creatures in water:** one guard in `MobManager.spawn` (land species never come into being with their feet in water; fish swim; `{ wet: true }` for a crew from a wreck in the sea); the one spawner that didn't check (the open-ground steal mission's soldiers) now finds dry ground. Online only the host spawns (guests' copies are exempt).
+- **5.4 No land creatures in water:** one guard in `MobManager.spawn` (land species never come into being with their feet in water; fish swim; `{ wet: true }` for a crew from a wreck in the sea); the one spawner that didn't check (the open-ground steal mission's soldiers) now finds dry ground. Online only the host spawns (guests' copies are exempt). A creature can still end up in water by moving (a zombie stepping off a bank mid-wander, a spider climbing up out of a flooded cave) and swims out as before; the checks (round9 and mp-round9) look at where each creature is born, around three players on dry land online.
 - **5.5 Blue alien:** its skin's blue channel is near full, and the creature shader makes every bright texel glow, so the whole head glowed. The skin now marks matte texels (alpha just under 1) and the shader's glow skips them: the head, crest and fins are matte; the suit's seams, its arm bands and the gun still glow. Other creatures unchanged.
+
+### Final polish notes
+- **F.2** The three-player suite found two test races (the guests read the previous mission's goals and respawn place before the host's new state reached them) and two real gaps: the steal mission's bunker was a random player's nearest (now the nearest to the group), and creatures hardly ever spawned around a guest away from the host (audit 12). `mp-round9-tests.mjs` 8/8, `mp-tests.mjs` 23/23.
+- **F.3** Player's-eye screenshots (probe, Medium preset): the spawn on level grass, the land from 150 blocks up (broad flats, a huge desert, the sea), the airport at 23:00 from 350 / 1100 / 2200 blocks (the runway lights show inside the render distance and fade into the fog toward the far end; beyond the fog, nothing: no lights floating over the fog any more), the blue alien next to a green one at night and by day (its head is plain shaded skin; eyes, seams and gun glow), the six new missions, the victory screen and the call-in buttons.
+
+## Round 9 summary (for the player)
+- **Damage online is one system:** all 17 weapons against all 14 kinds of target, as the host or a guest, on foot or in a vehicle, do the same damage, give the kill to whoever fired and show the same on every screen. A guest's sword works on every swing (it stopped after the first), the jet's guns hit what the crosshair is on, the tractor beam takes enemy fighters, a guest's blasts and nukes follow the PvP rule, and the AI's shots and blasts always hurt.
+- **Missions keep their targets:** a mission's UFOs and creatures never despawn, leave, hide or get swapped for a fresh undamaged one; a target that strays is called back to the players. **Steal the ship** has exactly one ship (also online, also after losing it). Every death names its real cause ("Shot by a soldier", "Killed by a spider", "Shot down by Bob"). Dying during a mission brings you back at a safe spot around the mission.
+- **Six new missions (23-28):** Scramble!, Abductions, Titan, Night of the swarm, The fortress, and the finale, **The Armada** (the Dreadnought behind four shields, with pylons, escorts, fighters and squads), then a victory screen and free play.
+- **Creative call-ins** in the pause menu: straight into the air in an F-22, F-16, B-2 or a random UFO (online too). Switching between Creative and Survival never changes the inventory.
+- **The world:** much more flat land with the big ranges kept, the spawn always on level ground, airport lights that fade with distance and the fog like everything else, no land creatures spawning in water, and a blue alien whose head no longer glows.
+- **Online:** creatures come around every player, however far from the host.
+
+## Round 9 bugs found (all fixed)
+1. A guest's copy of a creature kept its "just hit" guard for good: after the first melee hit, a guest's swings did nothing (1.1).
+2. The jet's off-centre guns never converged on the crosshair: small targets on the ground were missed at any range.
+3. The tractor beam never took an enemy fighter (it looked for the wrong vehicle type).
+4. A UFO's bolt fired with an explicit aim direction dropped it (a unit vector was read as "no direction").
+5. The host's fighters' flares were not shown to the guests (their missiles chased what they could not see).
+6. Every host snapshot threw once an enemy fighter existed (a Round 7 bug).
+7. A guest's blasts on enemy fighters were dropped; the AI's blasts mirrored to guests were stopped by the PvP rule and blamed on the host; AI shots counted as player kills; nukes, meteors and jet booms had no cause; far creatures were out of the guests' reach; creature health was missing from snapshots; bolts lost their shooter's cause across the wire; parked aircraft were destroyed on one machine only.
+8. The multiplayer audit, items 1-12 above (nukes and PvP, unexploded remote wrecks, world blasts on empty aircraft and on the host's creatures, "pvp" in death messages, two players boarding one aircraft, late joiners' duplicate aircraft, boarded aircraft still "parked", item churn on a full inventory, ghost items, guests' respawn grace, skeleton melee scaling, creatures around far-off guests).
+9. Mission targets were lost six ways: despawn by distance, random leaving and leaving after an abduction, Big game re-finding "the nearest large UFO" (a fresh one), scouts dropped beyond 700 blocks, raiders leaving after 5 minutes, mission creatures despawning (2.1).
+10. Steal the ship made two ships three ways (before the bunker's chunks loaded, on every guest, after a reload) (2.2).
+11. Soldiers' shots read "Shot by an alien", a PvP shoot-down read "pvp", and several blows and blasts had generic causes (2.3).
+12. The fighter missions' second fighter came 20-30 s after the first (wave timing); a night mission started in the evening waited for the next night.
+13. The open-ground steal mission's soldiers could spawn in water.
+14. The blue alien's whole head glowed (5.5).
+
+## Round 9 decisions (and why)
+- **Guests find hits, the host applies them** through the very same damage functions: one code path for every weapon, so a fix applies to host and guests alike, and kill credit, loot and mission credit fall out of it. Players stay the judges of their own health (PvP, as in Round 7).
+- **Player weapons follow the PvP rule, the world never does:** an alien's shot, a UFO's blast, a crash or a meteor always hurts, and never credits anyone.
+- **Mission targets are kept and leashed, not respawned:** damage is never lost, and a target can't be escaped by flying away (it follows the group).
+- **Steal the ship uses only the bunker's own ship;** losing it has the bunker set out one new ship everywhere (no second set of guards).
+- **Respawns** go to a random dry, flat, open spot in a ring around the mission's place, never inside a bunker's zone or next to a hostile creature; online each guest picks its own spot around the host's place.
+- **Missions 23-28 are built from the systems already balanced** (fighters, abductions, the night, garrisons, the boss fight), with health, damage and aggression never going down along the chain; the finale generalises the Overlord fight. After the finale: a victory screen, then free play with a calmer sky.
+- **Call-ins are Creative only;** the last called-in aircraft nobody sits in goes, so they don't pile up.
+- **No inventory stash at all** when switching modes (the request: switching never changes the inventory).
+- **Terrain by moving the existing masks' thresholds:** seeds keep their big ranges and their character; only the share of flat land changes.
+- **Airport lights fade with the world's fog:** consistent with the render distance, as asked (Round 8's "visible for kilometres" is gone on purpose).
+- **Matte skin texels marked in the texture's alpha:** no new texture or shader input, and every other creature looks the same.
+- **Creature spawns are checked at birth;** walking or climbing into water afterwards is still possible (they swim out).
+- **The host keeps four chunks of ground around a guest on foot** (it was two): enough for creatures to spawn around them, at a modest cost (ground generated, never drawn).
+
+## Round 9 known issues and limits
+- A creature can still walk or climb into water after it spawned (it swims out).
+- Airport lights beyond the render distance are not drawn (by request): with a short render distance they appear only when near.
+- The damage matrix runs one host and one guest; three players are covered by the three-player suite (a guest's hits on the Big game ship, the same health on all three screens).
+- A mission target follows the players (leash): there is no outrunning Big game's ship or the Dreadnought.
+- The old chain's saves carry on: a save that finished the 22 missions continues with mission 23.
+- Headless checks run on software rendering: the screenshots were taken at the Medium preset.
+
+## How to test Round 9 in 10 minutes
+Serve the folder (`npx serve .` or `python3 -m http.server`) and open it in Chrome.
+
+**Single player (about 6 minutes)**
+1. Play > + New world (Survival): you start on level ground; look around: wide flat country, mountains in ranges.
+2. Esc, switch to **Creative**: the pause menu shows **Call-ins**: F-22, F-16, B-2, UFO. Click one: you are in the air at the controls. Take a few items from the inventory, switch to Survival and back: the inventory is exactly the same each time.
+3. Creative, time of day 23:00, fly toward an airport (F3 shows the nearest): the runway lights appear inside the render distance and fade with the fog; nothing floats over the fog from far away.
+4. At night, a blue alien (console: `const g = window.__ufo; const p = g.player.position; g.mobs.spawn("alien_blue", p.x, p.y, p.z - 5)`): the head is plain matte blue; eyes, seams and gun glow.
+5. Missions from the console, in Survival: `g.progress.step = g.MISSIONS.findIndex(m => m.id === "big_game"); g.progress.start(g.stats.world)`: one large UFO; damage it, fly 1-2 km away: it comes after you with the same damage. `"steal"`: one ship in the bunker. `"titan"`, `"swarm"`, `"fortress"`, `"armada"`: the new missions (bringing the Dreadnought down shows the victory screen).
+6. Get shot by a bunker's soldier: "Shot by a soldier". Respawn during a mission: you come back around the mission, not at the world spawn.
+
+**Multiplayer (about 4 minutes, two or three tabs)**
+1. Tab A hosts (Multiplayer > Host a game > Open room > Play), tabs B and C join with the code.
+2. B hits a spider with the sword again and again: every swing lands, the kill is B's. B shoots a UFO: the same health on every screen.
+3. Host switches to Creative: B calls in an F-16 from the pause menu; A and C see it flying, B at the controls.
+4. On the host, start `"steal"` (console as above): one ship in the bunker on every screen; if it's lost after boarding, one new ship for everyone.
+5. B walks 300 blocks away at night: creatures come around B too.
+
+Automated: `cd tools && npm install && node mp-round9-tests.mjs && node round9-tests.mjs` (about 6 minutes); the full damage matrix is `node mp-damage-tests.mjs` (about 10 minutes).
+

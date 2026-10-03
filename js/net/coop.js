@@ -193,7 +193,7 @@ export class CoopSync {
       tgt: t ? [Math.round(t.pos.x * 10) / 10, Math.round(t.pos.y * 10) / 10, Math.round(t.pos.z * 10) / 10, t.label] : null,
       // What the marker follows (a guest points it at the nearest one of those to them).
       tk: t?.follow ? (t.follow.canopy ? "c" : t.follow.S ? (t.follow.missionTarget ? "u" : "U") : t.follow.spec && t.follow.kind ? "m" : null) : null,
-      boss: b ? { health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
+      boss: b ? { name: b.name || null, health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
       note: g.missions.note?.() || "",
       ev: p.mission?.event || null,
       mo: g.missions.netObjects?.() || null,

@@ -474,6 +474,10 @@ await check("The fortress: a garrison of mixed aliens with two leaders and guard
 await check("The Armada (finale): the Dreadnought, a titan behind four shields with pylons; its fall wins the war (victory screen)", async () => {
   await startMission("armada");
   await tick(8);
+  // The boss bar shows the boss's own name (it always read "THE OVERLORD").
+  await frames(6);
+  const bar = await page.evaluate(() => document.querySelector("#boss-bar .bb-name").textContent);
+  assert(bar === "THE DREADNOUGHT", `boss bar: ${bar}`);
   const r = await v((g) => {
     const boss = g.ufos.ufos.find((u) => u.boss);
     if (!boss) return { err: "no boss" };

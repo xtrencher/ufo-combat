@@ -3033,14 +3033,18 @@ function updateMissionMarker(show) {
   const text = `${t.label} ${d}m`;
   if (missionMarkerLabel.textContent !== text) missionMarkerLabel.textContent = text;
 }
-// The boss bar (the Overlord fight): name, health, the shield state.
+// The boss bar (the Overlord and the Dreadnought): name, health, the shield state.
 const bossBarEl = document.getElementById("boss-bar");
+const bossNameEl = bossBarEl.querySelector(".bb-name");
 const bossFillEl = bossBarEl.querySelector(".bb-fill");
 const bossNoteEl = bossBarEl.querySelector(".bb-note");
 function updateBossBar(show) {
   const b = show ? missionDirector.bossInfo : null;
   bossBarEl.classList.toggle("hidden", !b);
   if (!b) return;
+  // (Round 9: the boss's own name; the bar always read "THE OVERLORD".)
+  const name = b.name || "THE OVERLORD";
+  if (bossNameEl.textContent !== name) bossNameEl.textContent = name;
   bossBarEl.classList.toggle("shielded", b.shield);
   bossBarEl.classList.toggle("final", b.final);
   bossFillEl.style.width = `${(b.health * 100).toFixed(1)}%`;
