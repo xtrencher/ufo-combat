@@ -264,7 +264,7 @@ export class VehicleSync {
       v._place();
       if (v.alive) {
         v.model.setThrottle(v.throttle, v.afterburner, v.time);
-        v.model.setLights(v.time, night);
+        v.model.setLights(v.time, night, !v.onGround || v.throttle > 0.02);
         v.model.setControls?.(v.surf.pitch, v.surf.roll, v.surf.yaw, v.airbrake);
         v.model.setGear(v.gearT);
         v._effects(dt, null);

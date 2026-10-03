@@ -711,6 +711,8 @@
   #binocular-overlay .reading { position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%); font: 12px ui-monospace, Consolas, monospace; color: rgba(200,255,230,0.8); letter-spacing: 2px; text-shadow: 0 0 4px #000; }
 
   /* --- Vehicles --- */
+  /* (Round 8) The aircraft radar, bottom right. */
+  #radar { position: fixed; right: 16px; bottom: 16px; width: min(190px, 26vh); height: min(190px, 26vh); z-index: 10; pointer-events: none; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.5)); }
   #vehicle-hud {
     position: fixed;
     left: 14px;
@@ -838,9 +840,19 @@
     -webkit-mask: radial-gradient(circle, transparent 0 calc(50% - 5px), #000 calc(50% - 4px) 50%, transparent calc(50% + 0.5px));
     mask: radial-gradient(circle, transparent 0 calc(50% - 5px), #000 calc(50% - 4px) 50%, transparent calc(50% + 0.5px));
     filter: drop-shadow(0 0 6px #ff7a1a); }
-  #lock-box.charging .lb-ring { opacity: 1; }
+  #lock-box.charging .lb-ring { opacity: 0; }
   #lock-box.charging { border-color: #ff7a2a; animation: lb-shake 0.09s linear infinite; }
   #lock-box.salvo .lb-ring { background: conic-gradient(#ffe08a, #ff5a1a, #ffe08a); animation: lb-spin 0.7s linear infinite; }
+  /* (Round 8) The salvo's charge: a spiral that closes in around the target
+     as it charges; when it is complete it becomes a solid, pulsing circle
+     (only then does releasing fire the salvo). */
+  #lock-box .lb-spiral { position: absolute; left: 50%; top: 50%; width: 110px; height: 110px; margin: -55px 0 0 -55px; pointer-events: none; overflow: visible; opacity: 0; transform: scale(var(--s, 2)) rotate(var(--r, 0deg)); transition: opacity 0.15s; }
+  #lock-box .lb-spiral path { fill: none; stroke: #ffb02e; stroke-width: 2.4; stroke-linecap: round; filter: drop-shadow(0 0 3px rgba(255,120,30,0.9)); vector-effect: non-scaling-stroke; }
+  #lock-box .lb-spiral circle { fill: none; stroke: #ffd27a; stroke-width: 3; opacity: 0; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px #ff7a1a); }
+  #lock-box.charging .lb-spiral, #lock-box.salvo .lb-spiral { opacity: 1; }
+  #lock-box.salvo .lb-spiral path { opacity: 0; }
+  #lock-box.salvo .lb-spiral circle { opacity: 1; animation: lb-pip 0.3s ease-in-out infinite alternate; }
+  #lock-box .lb-pips { display: none !important; }
   #lock-box .lb-pips { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 20px; display: flex; gap: 4px; }
   #lock-box .lb-pips i { width: 9px; height: 16px; border: 1px solid rgba(255,255,255,0.5); border-radius: 2px 2px 5px 5px; background: rgba(0,0,0,0.35); transition: background 0.08s, box-shadow 0.08s; }
   #lock-box .lb-pips i.on { background: linear-gradient(#ffe08a, #ff6a1a); border-color: #ffd27a; box-shadow: 0 0 8px #ff7a1a; transform: translateY(-2px); }
@@ -924,7 +936,7 @@
   #mission-tracker .mt-text { opacity: 0.85; font-size: 11px; margin: 2px 0 4px; }
   #mission-tracker .mt-obj.done { color: #7fe39a; }
   #mission-tracker .mt-crate { margin-top: 5px; color: #ff9a4a; font-weight: 700; }
-  body.in-vehicle #mission-tracker { top: auto; bottom: 14px; right: 14px; }
+  body.in-vehicle #mission-tracker { top: auto; bottom: calc(min(190px, 26vh) + 28px); right: 14px; }
   #mission-tracker .mt-head { display: flex; justify-content: space-between; gap: 8px; }
   #mission-tracker .mt-step { color: #ffd45a; opacity: 0.8; white-space: nowrap; }
   #mission-tracker .mt-bar { height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; margin: 1px 0 3px; overflow: hidden; }
@@ -1294,6 +1306,7 @@
     <div id="weapon-status" class="hidden"><div class="ws-label"></div><div class="ws-ammo"></div><div class="ws-bar"><div></div></div></div>
     <div id="reload-bar" class="hidden"><div></div></div>
     <div id="vehicle-hud" class="hidden"></div>
+    <canvas id="radar" class="hidden" aria-label="Radar"></canvas>
     <div id="vehicle-info" class="hidden"></div>
     <div id="boss-bar" class="hidden"><div class="bb-name">THE OVERLORD</div><div class="bb-track"><div class="bb-fill"></div></div><div class="bb-note"></div></div>
     <div id="mission-tracker" class="hidden"></div>
@@ -1304,7 +1317,7 @@
     <div id="stats-overlay" class="hidden"></div>
     <div id="hit-marker"></div>
     <div id="beam-overlay"></div>
-    <div id="lock-box" class="hidden"><div class="lb-ring"></div><div class="lb-pips"></div></div>
+    <div id="lock-box" class="hidden"><div class="lb-ring"></div><svg class="lb-spiral" viewBox="-50 -50 100 100" aria-hidden="true"><path class="lb-spiral-path" d="" /><circle class="lb-circle" r="40" /></svg></div>
     <div id="salvo-glow"></div>
     <div id="jet-nose" class="hidden"></div>
     <div id="jet-aim" class="hidden"></div>

@@ -51,9 +51,10 @@ export const RUNWAY_HALF_WIDTH = 7;
 // hangars, tanks, parking: how many; tower: the control tower's height;
 // terminal / radar: whether there is one; bunker: the chance of a bunker.
 const AIRPORT_SIZES = {
-  field: { half: 300, rw: 9, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
-  regional: { half: 380, rw: 11, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
-  international: { half: 460, rw: 13, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
+  // (Round 8: wider runways, for the B-2's 44-block wing.)
+  field: { half: 300, rw: 14, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
+  regional: { half: 380, rw: 16, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
+  international: { half: 460, rw: 18, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
 };
 
 const CITY_V_GAP = 6; // between the apron and the first street of the city
@@ -434,6 +435,22 @@ export class SiteGrower {
     if (!s || s.kind === undefined || !s.rect) return null;
     const [u, v] = this.toLocal(s, wx, wz);
     return Math.abs(u) <= s.half + 2 + margin && Math.abs(v) <= s.rw + margin ? s : null;
+  }
+
+  // Every site within maxDist of (wx, wz) (the radar).
+  within(wx, wz, maxDist) {
+    const out = [];
+    const c0x = Math.floor((wx - maxDist) / SITE_CELL);
+    const c1x = Math.floor((wx + maxDist) / SITE_CELL);
+    const c0z = Math.floor((wz - maxDist) / SITE_CELL);
+    const c1z = Math.floor((wz + maxDist) / SITE_CELL);
+    for (let cz = c0z; cz <= c1z; cz++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const s = this._site(cx, cz);
+        if (s && Math.hypot(s.x - wx, s.z - wz) < maxDist) out.push(s);
+      }
+    }
+    return out;
   }
 
   // The nearest site (optionally of a kind) within maxDist of (wx, wz), or null.

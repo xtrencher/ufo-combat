@@ -40,6 +40,7 @@ import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
 import "./vehicle-ufo.js";
 import { JET_TYPES } from "./vehicle-jet.js";
+import { Radar } from "./radar.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
@@ -2779,7 +2780,18 @@ function updateBeamFeedback() {
 }
 // The jet's lock box (on the target) and nose marker (where it points).
 const lockBoxEl = document.getElementById("lock-box");
-const pipsEl = lockBoxEl.querySelector(".lb-pips");
+// The salvo spiral: an Archimedean spiral, 2.75 turns from the middle out.
+const spiralEl = lockBoxEl.querySelector(".lb-spiral");
+{
+  let d = "";
+  for (let i = 0; i <= 160; i++) {
+    const t = i / 160;
+    const a = t * Math.PI * 2 * 2.75;
+    const r = 8 + t * 40;
+    d += `${i ? "L" : "M"}${(Math.cos(a) * r).toFixed(2)} ${(Math.sin(a) * r).toFixed(2)}`;
+  }
+  spiralEl.querySelector("path").setAttribute("d", d);
+}
 const salvoGlowEl = document.getElementById("salvo-glow");
 const jetNoseEl = document.getElementById("jet-nose");
 const jetAimEl = document.getElementById("jet-aim");
@@ -2808,12 +2820,11 @@ function updateJetOverlay() {
     lockBoxEl.classList.toggle("salvo", !!lock.salvo);
     // The salvo charging (jet): a ring around the box, one pip per missile, a glow at the screen's edge.
     const charge = lock.charge || 0;
-    lockBoxEl.classList.toggle("charging", charge > 0 && !lock.salvo);
+    lockBoxEl.classList.toggle("charging", !!lock.spiral && !lock.salvo);
     lockBoxEl.style.setProperty("--c", charge.toFixed(3));
-    const n = lock.pips || 0;
-    if (pipsEl.childElementCount !== n) pipsEl.replaceChildren(...Array.from({ length: n }, () => document.createElement("i")));
-    const lit = lock.salvo ? n : Math.floor(charge * n);
-    for (let i = 0; i < n; i++) pipsEl.children[i].classList.toggle("on", i < lit);
+    // The spiral: wide and loose at first, it turns and closes in to the target as the salvo charges.
+    spiralEl.style.setProperty("--s", lock.salvo ? "0.82" : (2.3 - 1.48 * charge).toFixed(3));
+    spiralEl.style.setProperty("--r", `${Math.round(charge * 600)}deg`);
     salvoGlowEl.style.opacity = charge > 0 ? (lock.salvo ? 1 : 0.15 + charge * 0.6).toFixed(2) : "0";
     salvoGlowEl.classList.toggle("salvo", !!lock.salvo);
     const size = lock.locked ? 40 : 80 - lock.progress * 40;
@@ -2834,6 +2845,64 @@ function updateJetOverlay() {
     missileWarnTextEl.textContent = w.kind === "missile" ? `MISSILE ${Math.round(w.dist)}` : "INCOMING";
   }
 }
+// The aircraft radar (Round 8, js/radar.js): bottom right while flying.
+const radar = new Radar(document.getElementById("radar"));
+let radarT = 0;
+let radarDt = 0;
+function updateRadar(dt) {
+  const v = vehicles.active;
+  const on = !!v && (v.type === "jet" || v.type === "ufo") && gameState === "playing" && !hudHidden;
+  radar.show(on);
+  if (!on) return;
+  radarT -= dt;
+  radarDt += dt;
+  if (radarT > 0) return;
+  radarT = 1 / 30;
+  const pos = v.pos;
+  const fwd = v.forward ? v.forward(_lockV) : _lockV.set(-Math.sin(v.yaw ?? 0), 0, -Math.cos(v.yaw ?? 0));
+  const heading = Math.atan2(-fwd.x, -fwd.z);
+  const R = radar.range * 1.05;
+  const contacts = [];
+  const headingOf = (o) => {
+    if (o.forward) {
+      const f = o.forward(_radarV);
+      return Math.atan2(-f.x, -f.z);
+    }
+    return o.vel && o.vel.lengthSq() > 1 ? Math.atan2(-o.vel.x, -o.vel.z) : 0;
+  };
+  for (const u of ufos.ufos) {
+    if (u.state === "gone" || u.falling || Math.hypot(u.pos.x - pos.x, u.pos.z - pos.z) > R) continue;
+    contacts.push({ kind: "ufo", x: u.pos.x, z: u.pos.z, size: u.S?.idx ?? 1, boss: !!u.boss });
+  }
+  for (const o of vehicles.vehicles) {
+    if (o === v || !o.alive) continue;
+    if (Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) > R) continue;
+    if (o.isEnemyJet) contacts.push({ kind: "jet", x: o.pos.x, z: o.pos.z, heading: headingOf(o) });
+    // Enemy missiles coming at us.
+    for (const m of o.missiles || []) if ((m.target?.ref === v || m.target?.ref === player) && m.pos) contacts.push({ kind: "missile", x: m.pos.x, z: m.pos.z });
+  }
+  for (const p of vehicles.remoteMissiles?.(v) || []) contacts.push({ kind: "missile", x: p.x, z: p.z });
+  if (mp.active) {
+    for (const r of mp.players.active()) {
+      if (r.dead) continue;
+      const rv = r.vehicle;
+      const at = rv ? rv.pos : r.position;
+      if (Math.hypot(at.x - pos.x, at.z - pos.z) > R) continue;
+      contacts.push({ kind: "player", x: at.x, z: at.z, air: !!rv, heading: rv ? headingOf(rv) : 0, color: r.color });
+    }
+  }
+  for (const s of world.terrain.sites.within(pos.x, pos.z, radar.range * 2.5)) {
+    if (s.kind !== "airport" && s.kind !== "city") continue;
+    const [ux, uz] = world.terrain.sites.dirU(s);
+    contacts.push({ kind: "airport", x: s.x, z: s.z, heading: Math.atan2(-ux, -uz), size: (s.half ?? 300) * 2 });
+  }
+  const t = missionDirector.target;
+  if (t && progress.mission && !player.creative) contacts.push({ kind: "mission", x: t.pos.x, z: t.pos.z });
+  radar.draw(radarDt, { pos, heading, contacts });
+  radarDt = 0;
+}
+const _radarV = new THREE.Vector3();
+
 // The mission marker: a diamond over the current mission's target (with its
 // name and distance), or an arrow at the edge of the screen pointing to it.
 const missionMarkerEl = document.getElementById("mission-marker");
@@ -3105,6 +3174,7 @@ function simulate(dt, frameTime) {
   stats.tick(dt, gameState === "playing");
   updateBeamFeedback();
   updateJetOverlay();
+  updateRadar(dt);
   updateHints(dt);
   updateMissions(dt);
   updateStatsOverlay(dt);

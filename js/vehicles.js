@@ -335,9 +335,10 @@ export class VehicleManager {
     let bestD = Infinity;
     for (const v of this.vehicles) {
       if (!v.alive || v.unusable) continue;
-      const d = v.pos.distanceTo(p) - v.radius;
+      const er = v.enterRadius ?? v.radius;
+      const d = v.pos.distanceTo(p) - er;
       const dCenter = Math.hypot(v.pos.x - p.x, v.pos.z - p.z);
-      if ((d < ENTER_REACH || dCenter < v.radius + 1.5) && d < bestD) {
+      if ((d < ENTER_REACH || dCenter < er + 1.5) && d < bestD) {
         best = v;
         bestD = d;
       }

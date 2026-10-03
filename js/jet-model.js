@@ -26,7 +26,15 @@ const PAINTS = {
   patrol: { grey: 0x56606c, dark: 0x3d4550, light: 0x6c7784, accent: 0xa8842a, canopy: 0x6f7c88 },
   // The Falcon's two-tone air-superiority grey, a darker radome and a smoky gold canopy.
   falcon: { grey: 0x87909a, dark: 0x656d76, light: 0xa3abb3, accent: 0x4a5058, canopy: 0x9c8a4c },
+  // (Round 8) More colour schemes for the aircraft at the airports.
+  green: { grey: 0x5d6b4a, dark: 0x45503a, light: 0x76855f, accent: 0x353d2c, canopy: 0xa8933f },
+  lightblue: { grey: 0x8eadc4, dark: 0x6d8ba3, light: 0xadc8db, accent: 0x55708a, canopy: 0x9c8a4c },
+  desert: { grey: 0xb39a74, dark: 0x8f7a5a, light: 0xcbb592, accent: 0x6f5e44, canopy: 0x8f7d45 },
+  navy: { grey: 0x4a5a72, dark: 0x36435a, light: 0x637590, accent: 0x283246, canopy: 0xb89a3c },
+  arctic: { grey: 0xc4cbd2, dark: 0x9aa3ac, light: 0xdde2e7, accent: 0x7d8792, canopy: 0x8c7c48 },
 };
+// The schemes an aircraft can come in ("gray": the type's own grey).
+export const PAINT_SCHEMES = ["gray", "green", "lightblue", "desert", "navy", "arctic"];
 // The paint's surface: satin with a soft sheen (the sun and the moon glint
 // on it), panel lines in a staggered grid, and a subtle two-tone livery.
 // The skin: coating patches of slightly different shades, exhaust soot at
@@ -598,6 +606,7 @@ function softGlowTexture() {
 // setGear(0-1, 1 = down), setLights(t, night) }.
 export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {}) {
   const L = LAYOUTS[type] || LAYOUTS.f22;
+  if (paint === "gray" || !PAINTS[paint]) paint = "raptor";
   if (type === "f16" && paint === "raptor") paint = "falcon";
   const { hull, canopy, pal, surfaces: surfDefs, navTail, stripPts } = type === "f16" ? buildF16Geometry(paint) : buildGeometry(paint);
   const root = new THREE.Group();
@@ -605,7 +614,7 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
   body.scale.setScalar(scale);
   root.add(body);
   const light = { sky: 15, block: 0, flash: new THREE.Color(0, 0, 0) };
-  const hullMat = createEntityMaterial("color", null, { finish: FINISH[paint] || FINISH.raptor });
+  const hullMat = createEntityMaterial("color", null, { finish: FINISH[paint] || (type === "f16" ? FINISH.falcon : FINISH.raptor) });
   // (A little ambient fill so it reads as a shape, not a hole, in the shade and at night.)
   hullMat.uniforms.uFill.value = 0.45;
   const hullMesh = new THREE.Mesh(hull, hullMat);
@@ -807,18 +816,23 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
       return gearT;
     },
     // Wingtip navigation lights, tail strobes, formation lights and the
-    // cockpit glow: switched on only at night (t: time; dark: 0-1 night).
-    setLights(t, dark = 0) {
-      const on = dark > 0.3;
-      const k = Math.min(1, (dark - 0.3) / 0.25);
+    // cockpit glow (t: time; dark: 0-1 night). Round 8: the navigation lights
+    // and strobes are on whenever the aircraft is in use (`active`: from the
+    // takeoff roll on, all through the flight, day or night, brighter at
+    // night) and off while it stands parked; the formation strips and the
+    // cockpit glow are a night thing, as before.
+    setLights(t, dark = 0, active = dark > 0.3) {
+      const on = active;
+      const night = dark > 0.3;
+      const k = night ? 0.5 + 0.5 * Math.min(1, (dark - 0.3) / 0.25) : 0.45;
       const strobe = (t % 1.2) < 0.08 || ((t % 1.2) > 0.4 && (t % 1.2) < 0.47);
       nav[0].visible = nav[1].visible = on;
       nav[0].material.color.setRGB(2.4 * k, 0.15 * k, 0.15 * k);
       nav[1].material.color.setRGB(0.15 * k, 2.4 * k, 0.2 * k);
       nav[2].visible = nav[3].visible = on && strobe;
-      for (const m of strips) m.visible = on;
+      for (const m of strips) m.visible = on && night;
       stripMat.color.setRGB(0.2 * k, 1.0 * k, 0.35 * k);
-      cockpitGlow.visible = on;
+      cockpitGlow.visible = on && night;
       // The ambient fill (so the jet reads as a shape in the dark) is a night thing.
       hullMat.uniforms.uFill.value = 0.08 + 0.5 * dark;
       cockpitGlow.material.color.setRGB(0.1 * k, 0.35 * k, 0.18 * k);

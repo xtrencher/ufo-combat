@@ -2019,14 +2019,14 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 5.3 Modern minimalist style (square corners, blue accents) across all menus
 
 ## Part 6: Aircraft
-- [ ] 6.1 B-2 Spirit bomber (accurate shape; big, slow, sluggish), at airports (wider runways)
-- [ ] 6.2 Nuke only on the B-2; B-2 missiles one at a time
-- [ ] 6.3 Radar display (bottom right) in any aircraft
-- [ ] 6.4 Missile lock: no target switching, shrinking spiral reticle, LMB cancels
-- [ ] 6.5 Longer takeoff roll
-- [ ] 6.6 Free look starts from current orientation; jet holds attitude
-- [ ] 6.7 Lights off when parked, on at takeoff (reconciled with night rule)
-- [ ] 6.8 Aircraft color schemes
+- [x] 6.1 B-2 Spirit bomber (accurate shape; big, slow, sluggish), at airports (wider runways)
+- [x] 6.2 Nuke only on the B-2; B-2 missiles one at a time
+- [x] 6.3 Radar display (bottom right) in any aircraft
+- [x] 6.4 Missile lock: no target switching, shrinking spiral reticle, LMB cancels
+- [x] 6.5 Longer takeoff roll
+- [x] 6.6 Free look starts from current orientation; jet holds attitude
+- [x] 6.7 Lights off when parked, on at takeoff (reconciled with night rule)
+- [x] 6.8 Aircraft color schemes
 
 ## Part 7: Nuke and destruction
 - [ ] 7.1 Nuke removes all trees/leaves/grass/plants in radius (no floating remains)
@@ -2092,4 +2092,14 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Removed** the UFO graphic, the "UFO COMBAT" title and the subtitle from the main menu (the world's flyover behind it stays, with the saucer you can shoot).
 - **Buttons (decision):** **Play** (continues this world, or starts it, in the mode picked right under it: a Survival / Creative switch), with the world's seed and a small **+ New world** link in the same card (so playing and starting a new world are one flow), then **Multiplayer** and **Settings**. That is all: the graphics preset and the FPS advice moved to Settings (the live FPS chip and a "try lower settings" note stay in a corner when it runs slowly), and **Mods** and the **key list** are buttons at the top of Settings (from the main menu and the pause menu). The pause menu lost its Mods and Controls buttons for the same reason.
 - **Style:** square corners everywhere, a blue accent (#3d9bff), uppercase letter-spaced labels, a thin accent line on panels, quiet hover motion (buttons slide a little, an accent bar and a chevron appear). The same look for the main menu, pause, settings, multiplayer screens and lobby, the death screen, the Dogfight results and "Click to play".
+
+### Part 6 (aircraft)
+- **B-2 Spirit** (`js/b2-model.js`): a flying wing, 44.5 blocks of span and 17.6 long (the fighters' scale): a straight 33-degree leading edge, the double-W sawtooth trailing edge (tip, outer notch, the "W" point behind the engines, inner notch, pointed centre), a blended section humped in the middle (the four-pane windscreen at its front) thinning to knife-thin tips, two raised intakes with jagged lips beside the hump, recessed exhaust slots with a light heat deck behind them, elevons and split drag rudders that move, tall tricycle gear with four-wheel main bogies, lights. Flight: top speed about half a fighter's, turns at ~40%, rolls at ~40%, a ~300-block takeoff roll, 420 hit points, no afterburner, no cannon. One B-2 per airport where the apron has room (a 54-block stretch of the parking row), boarded near its middle; runways are wider (half widths 14/16/18, were 9/11/13) for its wing.
+- **Nuke only on the B-2** (B in a fighter says so). Its missiles go one at a time (no salvo): lock (1 s), release, fire.
+- **Radar** (`js/radar.js`): bottom right in any aircraft (jets, the B-2, a UFO of your own): heading-up, 2.4 km to the rim, rings every 800 blocks, a slow sweep, "N" on the rim; UFOs as red diamonds (bigger for bigger ships, the boss in pink-red), enemy aircraft as orange arrowheads pointing their way, other players in their own colour (dot on foot, arrowhead in the air), airports as white runway bars along their real heading (pinned to the rim when beyond range), missiles coming at you as blinking red dots with a line to the middle, the mission target as a yellow star. (The mission tracker moves up above it while flying.)
+- **Missile lock:** once a lock starts on a target it never switches (if the target is lost, the lock is gone until the button is pressed again), and a salvo goes entirely at that target (it used to spread to others nearby). The salvo charge is now a spiral that turns and closes in around the target, becoming a solid pulsing circle when complete (only then does a release fire the salvo; before, a release fires one missile). A left click while locking or locked cancels: nothing fires, no cannon burst, no free look from that press, the camera comes back.
+- **Takeoff roll:** about a third longer (ground thrust 16 -> 12.5, rotation at 1.3x the stall speed): ~160 blocks in the F-22, ~125 in the F-16, ~300 in the B-2.
+- **Free look:** starts from where the camera looks at that moment (the crosshair's direction or a locked target, relative to the aircraft), with no snap to straight ahead; the aircraft holds its attitude from that moment (as before).
+- **Lights (decision):** the navigation lights and strobes are off while an aircraft stands parked and come on when it starts its takeoff roll (throttle up), staying on through the flight, day and night (dimmer by day, as real aircraft run them whenever they operate). The formation strips and the cockpit glow stay night-only (the earlier night rule now applies only to those). Same on every player's screen (puppets light up from the owner's throttle and ground state).
+- **Colour schemes:** gray (each type's own), green, light blue, desert, navy and arctic; about half the parked aircraft are in their type's grey, the rest in one of the others, fixed per airport and slot (the same for every player); the B-2 has darker versions of each. Saved and sent with the aircraft.
 

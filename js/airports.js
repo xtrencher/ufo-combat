@@ -6,6 +6,7 @@
 
 import { IS_SOLID } from "./blocks.js";
 import { JET_TYPES } from "./vehicle-jet.js";
+import { PAINT_SCHEMES } from "./jet-model.js";
 
 const NEAR = 420; // blocks: parked aircraft appear inside this range
 const FAR = 900; // and are put away beyond this
@@ -87,11 +88,13 @@ export class AirportManager {
     if (slots.bomber && JET_TYPES.b2) put(slots.bomber, "b2", 48, 22);
   }
 
-  // An aircraft's colour scheme: fixed per airport and slot (the same for every player).
+  // An aircraft's colour scheme: fixed per airport and slot (the same for
+  // every player). About half of them in their type's own grey.
   paintFor(s, key, jetType) {
     let h = s.seed >>> 0;
     for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619) >>> 0;
-    return h;
+    h ^= h >>> 13;
+    return h % 10 < 5 ? "gray" : PAINT_SCHEMES[1 + (h % (PAINT_SCHEMES.length - 1))];
   }
 
   // Multiplayer: someone else boarded the aircraft parked at `key`: our copy goes.
