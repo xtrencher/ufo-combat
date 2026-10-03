@@ -842,7 +842,9 @@ export class UfoManager {
   _stepUfo(u, i, dt, tgt, dist, near, localDist, night) {
     let beamOnPlayer = false;
     {
-      if (u.state === "gone" || (near > DESPAWN_DISTANCE && !u.falling && u.state !== "attack")) {
+      // (Round 9: a mission's target never goes by distance: the mission
+      // brings it back toward the players instead, see missions.js _leash.)
+      if (u.state === "gone" || (near > DESPAWN_DISTANCE && !u.falling && u.state !== "attack" && !u.missionTarget)) {
         this._remove(i);
         return false;
       }
@@ -1019,6 +1021,11 @@ export class UfoManager {
   // Starts a dash to a random spot nearby (maxDist blocks at most).
   _blink(u, maxDist = 200, minDist = 40) {
     if (u.dash || u.falling || u.S.idx >= 4) return false;
+    // (Round 9: a mission's target, or one in a fight, stays in sight: short hops only.)
+    if (u.missionTarget || u.byPlayer) {
+      maxDist = Math.min(maxDist, 70);
+      minDist = Math.min(minDist, 25);
+    }
     const a = Math.random() * Math.PI * 2;
     const d = rand(minDist, Math.max(minDist + 1, maxDist));
     const to = new THREE.Vector3(u.pos.x + Math.cos(a) * d, 0, u.pos.z + Math.sin(a) * d);
@@ -1071,6 +1078,9 @@ export class UfoManager {
 
   _startTrick(u) {
     let trick = TRICKS[Math.floor(Math.random() * TRICKS.length)];
+    // (Round 9: no hiding in a lake or a mountain, no long hops, for a
+    // mission's target or a ship in a fight.)
+    if ((u.missionTarget || u.byPlayer) && (trick === "burrow" || trick === "hover_lake" || trick === "blink_hop")) trick = ["hover", "zigzag", "follow"][Math.floor(Math.random() * 3)];
     if (trick === "blink_hop") {
       this._blink(u, 240);
       u.state = "roam";
@@ -1175,7 +1185,7 @@ export class UfoManager {
       // One that has been hurt keeps fighting for as long as it can see you.
       if (u.hostileT <= 0 && u.health < u.maxHealth * 0.9 && this.time - u.lastSeen < 6) u.hostileT = 10;
       const lost = this.time - u.lastSeen > 25 || dist > this.range * 1.4;
-      if (u.hostileT <= 0 || lost || this.player.dead || (this.graceT > 0 && !tgt.vehicle)) {
+      if (u.hostileT <= 0 || lost || this.player.dead || (this._inGrace() && !tgt.vehicle)) {
         u.hostile = false;
         u.hostileT = 0;
         if (u.state === "attack" || u.state === "react" || u.state === "beam" || u.state === "circle") {
@@ -1186,7 +1196,7 @@ export class UfoManager {
       }
       return;
     }
-    if (agg <= 0 || this.graceT > 0 || this.player.dead || u.peaceful) return;
+    if (agg <= 0 || this._inGrace() || this.player.dead || u.peaceful) return;
     const pv = tgt.vehicle;
     const disguised = pv?.type === "ufo";
     if (disguised) return;
@@ -1246,7 +1256,9 @@ export class UfoManager {
     if (u.state !== "leave" && u.state !== "emerge") {
       let leaveChance = 0.0004; // per second
       if (pv?.type === "jet" && dist < 350 && u.personality !== "fighter" && u.hostile) leaveChance = u.personality === "fast" ? 0.0015 : 0.0008; // (rarely)
-      if (!u.noLeave && Math.random() < leaveChance * dt) this._leave(u); // (noLeave: for tests)
+      // (Round 9: never a mission's target, nor one a player has hit: a fight
+      // never ends with the damaged ship vanishing and a fresh one coming.)
+      if (!u.noLeave && !u.missionTarget && !u.byPlayer && Math.random() < leaveChance * dt) this._leave(u);
     }
 
     // A sudden blink to a spot nearby, when it's calm, or to dodge when angry.
@@ -1262,7 +1274,7 @@ export class UfoManager {
     if (u.checkT <= 0 && u.state !== "leave") {
       u.checkT = 0.5;
       const range = Math.max(this.config.detection, this.engageRange) * (pv?.type === "jet" ? 1.6 : 1);
-      const eligible = !this.player.dead && !disguised && (pv || (this.graceT <= 0 && !this.player.creative));
+      const eligible = !this.player.dead && !disguised && (pv || (!this._inGrace() && !this.player.creative));
       if (u.hostile && eligible && dist < range * 1.8 && this._canSee(u, tgt.pos)) {
         u.lastSeen = this.time;
         if (u.state === "roam" || u.state === "trick" || u.state === "circle" || u.state === "emerge") {
@@ -1492,7 +1504,7 @@ export class UfoManager {
             beam.set(false);
             u.target = null;
             // Satisfied: often it leaves for good right away.
-            if (Math.random() < 0.4) this._leave(u);
+            if (Math.random() < 0.4 && !u.noLeave && !u.missionTarget && !u.byPlayer) this._leave(u);
             else u.timer = 0;
           }
         }
@@ -1910,7 +1922,7 @@ export class UfoManager {
           if (held.beam) held.beam.set(false);
         }
         if (this.onAbductPlayer) this.onAbductPlayer(held);
-        if (!held.net && Math.random() < 0.5) this._leave(held);
+        if (!held.net && !held.noLeave && !held.missionTarget && !held.byPlayer && Math.random() < 0.5) this._leave(held);
       }
       return;
     }
@@ -2200,7 +2212,7 @@ export class UfoManager {
           // Open water: the sea floor below the surface and water at the surface.
           if (top >= SEA_LEVEL - 1 || !IS_WET[this.world.getBlock(x, SEA_LEVEL, z)] || this.world.getBlock(x, SEA_LEVEL + 1, z) !== BLOCK.AIR) continue;
           const kind = c.kind || (c.kind = this._crewKind(c.sizeIdx));
-          const m = this.mobs.spawn(kind, x + 0.5, SEA_LEVEL + 0.3, z + 0.5);
+          const m = this.mobs.spawn(kind, x + 0.5, SEA_LEVEL + 0.3, z + 0.5, { wet: true });
           if (m) {
             m.ai.target = true;
             m.aggro = true;
@@ -2309,6 +2321,13 @@ export class UfoManager {
   clear() {
     while (this.ufos.length) this._remove(this.ufos.length - 1);
     this.trail.clear();
+  }
+
+  // A moment's peace after a respawn: for everyone offline (graceT), online
+  // only for the player who came back (their graceUntil; Round 9: a guest's
+  // too, the host is told: net/coop.js).
+  _inGrace() {
+    return this.graceT > 0 || (this.player?.graceUntil ?? -1) > this.time;
   }
 
   // After a respawn: every UFO loses interest, and none notices the player

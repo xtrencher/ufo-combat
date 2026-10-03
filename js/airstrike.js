@@ -92,6 +92,9 @@ export class Airstrikes {
   call(target, overrides = null) {
     // (`overrides`: a mission's own count / spread / delay for this strike, not the settings'.)
     const cfg = overrides ? { ...this.config, ...overrides } : this.config;
+    // (Round 9) Whose meteors: a player's strike ("airstrike"), or a mission's
+    // meteor storm ("meteor": nobody's kill, its own death message).
+    const src = overrides?.source || "airstrike";
     const count = Math.max(1, Math.round(cfg.count));
     // The whole shower comes from one direction (± a little).
     const azimuth = Math.random() * Math.PI * 2;
@@ -114,7 +117,7 @@ export class Airstrikes {
       const start = end.clone().addScaledVector(dir, -len);
       // Staggered so they land as a rain over about a second or two.
       const land = cfg.delay + (i === 0 ? 0 : Math.random() * Math.min(2.5, 0.25 * count));
-      meteors.push({ start, dir, speed, launch: land - len / speed, len });
+      meteors.push({ start, dir, speed, launch: land - len / speed, len, src });
     }
     const strike = { at: target.clone(), t: 0, meteors };
     this.pending.push(strike);
@@ -137,7 +140,7 @@ export class Airstrikes {
     root.lookAt(m.start.clone().add(m.dir));
     root.rotateY(Math.PI); // the rock's hot face (-Z) leads
     this.scene.add(root);
-    const meteor = { pos: m.start.clone(), dir: m.dir, speed: m.speed, root, rock, glow, age: 0, trail: 0, spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(3) };
+    const meteor = { pos: m.start.clone(), dir: m.dir, speed: m.speed, root, rock, glow, age: 0, trail: 0, src: m.src || "airstrike", spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(3) };
     this.meteors.push(meteor);
     if (this.audio?.playMeteorIncoming) this.audio.playMeteorIncoming(m.len / m.speed, m.start.distanceTo(this.listener));
     return meteor;
@@ -190,13 +193,13 @@ export class Airstrikes {
     return m.age > 15 || m.pos.y < -20;
   }
 
-  _impact(pos) {
+  _impact(pos, source = "airstrike") {
     const fx = this.effects;
     this.impacts++;
     // A blinding flash and a hot ring racing out along the ground.
     fx.glow.spawn({ x: pos.x, y: pos.y + 1.5, z: pos.z, life: 0.22, size0: 26, size1: 12, color0: this._c.flash, alpha: 1 });
     fx.glow.spawn({ x: pos.x, y: pos.y + 1, z: pos.z, life: 0.5, size0: 10, size1: 30, color0: this._c.ring, alpha: 0.5 });
-    fx.explode(pos.clone(), { radius: AIRSTRIKE_METEOR_RADIUS, source: "airstrike" });
+    fx.explode(pos.clone(), { radius: AIRSTRIKE_METEOR_RADIUS, source });
   }
 
   update(dt, listener) {
@@ -218,7 +221,7 @@ export class Airstrikes {
         this.scene.remove(m.root);
         this.meteors.splice(i, 1);
         // (Another player's meteor online: its own explosion comes from them.)
-        if (!m.mirror && m.pos.y > -20 && m.age <= 15) this._impact(m.pos);
+        if (!m.mirror && m.pos.y > -20 && m.age <= 15) this._impact(m.pos, m.src);
       }
     }
   }

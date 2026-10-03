@@ -666,7 +666,7 @@ await check("world and graphics: 128-tall world, render distance up to 256 chunk
 
 // ================= Part 6: missions and balance =================
 
-await check("missions: the chain (22 missions in Round 8) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
+await check("missions: the chain (28 missions in Round 9) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
   await v((g) => {
     g.setMode("survival");
     g.ufos.config.activity = 1;
@@ -763,7 +763,7 @@ await check("missions: the chain (22 missions in Round 8) from a pistol scout to
     const l = g.progress.list(g.stats.world);
     return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
   });
-  assert(list.n === 22 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  assert(list.n === 28 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
   await v((g) => {
     g.progress.load(null, g.stats.world);
     g.setMode("creative");

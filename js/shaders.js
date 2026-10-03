@@ -1422,7 +1422,8 @@ void main() {
   #endif
   if (uGlow > 0.0) {
     float lum = max(albedo.r, max(albedo.g, albedo.b));
-    color = mix(color, albedo.rgb * 5.0, uGlow * smoothstep(0.55, 0.9, lum));
+    // (Round 9: a matte texel, alpha just below 1, never glows: see mob-models.js MATTE.)
+    color = mix(color, albedo.rgb * 5.0, uGlow * smoothstep(0.55, 0.9, lum) * step(0.985, albedo.a));
   }
   color = applyFog(color, vWorldPos);
   gl_FragColor = vec4(color, uOpacity);

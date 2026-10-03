@@ -53,13 +53,18 @@ export const MAX_TIER = 5;
 
 // ---------- Missions ----------
 //
-// A chain of twenty-one missions with a steady difficulty curve. It starts on
-// foot with a sword: a skeleton (its bow), a UFO that lands and lets its crew
-// out (they give you a moment before they attack), the first supply crate (a
-// pistol), a first scout to shoot down and its crew, a night; then alien
-// patrols whose leaders carry the alien weapons (blaster, minigun, railgun),
-// the jets, dogfights, a village raid, and only late in the chain the alien
-// ships themselves (Salvage), big ships, a mothership and nuking the base.
+// A chain of twenty-eight missions with a steady difficulty curve. It starts
+// on foot with a sword: a skeleton (its bow), a UFO that lands and lets its
+// crew out (they give you a moment before they attack), the first supply
+// crate (a pistol), a first scout to shoot down and its crew, a night; then
+// alien patrols whose leaders carry the alien weapons (blaster, minigun,
+// railgun), the jets, dogfights, a village raid, and only late in the chain
+// the alien ships themselves (Salvage), big ships, nuking the base, stealing
+// a ship and the Overlord. (Round 9) Then the aliens' counterattack: a wing
+// of hijacked fighters, abductors over a village, a titan, a night of
+// swarms, a fortress on the ground, and the finale: the Armada and its
+// flagship, after which the war is won (a victory screen) and the sky stays
+// busy for free play.
 //
 // Each mission sets the rules for the sky while it is the current one
 // (`rules`): which UFO sizes appear and how often, multipliers for their
@@ -308,14 +313,83 @@ export const MISSIONS = [
   {
     id: "slayer",
     title: "UFO slayer",
-    text: "The invasion is broken, but they keep coming. Shoot down twenty-five more.",
+    text: "The Overlord is down, but they keep coming while their fleet regroups. Shoot down twenty-five more.",
     objectives: [{ stat: "ufosDown", goal: 25, label: "UFOs shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "hunt",
     tier: 5,
     rules: R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS),
   },
+  // ---------- (Round 9) The counterattack ----------
+  {
+    id: "scramble",
+    title: "Scramble!",
+    text: "The aliens are throwing hijacked fighters at you in force: a whole wing is inbound (marked). Shoot down three of them: take a fighter from the airport, or lock on with the bazooka from the ground.",
+    objectives: [{ stat: "enemyJetsDown", goal: 3, label: "Hijacked fighters shot down", scale: "group" }],
+    reward: [[ITEM.GOLDEN_APPLE, 6]],
+    event: "airraid",
+    tier: 5,
+    rules: R(LATE, 1.15, 1.15, 1.3, 6, 0.05, ALL_CREWS),
+  },
+  {
+    id: "abductors",
+    title: "Abductions",
+    text: "Abductor UFOs are beaming up the villagers and animals of a village (marked). Get there and shoot down three abductors before they empty the place.",
+    objectives: [{ stat: "abductorsDown", goal: 3, label: "Abductors shot down", scale: "group" }],
+    reward: [[ITEM.GOLDEN_APPLE, 6]],
+    event: "abduct",
+    tier: 5,
+    rules: R(LATE, 1.16, 1.16, 1.3, 6, 0.05, ALL_CREWS),
+  },
+  {
+    id: "titan",
+    title: "Titan",
+    text: "A titan, the biggest alien ship of all (well over a hundred blocks across), is on its way (marked). Bring it down with everything you have: the railgun, missile salvos, the airstrike, the B-2's nuke. Its crew comes out fighting.",
+    objectives: [{ stat: "ufosDownBig", goal: 1, label: "Titans shot down" }],
+    reward: [[ITEM.GOLDEN_APPLE, 10]],
+    event: "giant",
+    tier: 5,
+    rules: R({ small: 2.5, medium: 3.5, large: 2, mothership: 0.25 }, 1.17, 1.17, 1.32, 6, 0.05, ALL_CREWS),
+  },
+  {
+    id: "swarm",
+    title: "Night of the swarm",
+    text: "Tonight they come in swarms: small, fast UFOs fill the sky while landing parties hunt you on the ground. Survive until dawn (online: the night starts over only if the whole group falls) and shoot down eight of them.",
+    objectives: [
+      { stat: "nightsSurvived", goal: 1, label: "Nights survived" },
+      { stat: "ufosDown", goal: 8, label: "UFOs shot down", scale: "group" },
+    ],
+    reward: [[ITEM.GOLDEN_APPLE, 8]],
+    event: "swarm",
+    tier: 5,
+    rules: R({ small: 7, medium: 2.5, large: 0.6 }, 1.18, 1.18, 1.35, 6, 0.07, ALL_CREWS),
+  },
+  {
+    id: "fortress",
+    title: "The fortress",
+    text: "The aliens have dug in on the ground: a fortress of red brutes, blue and gray aliens (marked), with heavy UFOs overhead. Storm it and kill ten aliens.",
+    objectives: [{ stat: "aliensKilled", goal: 10, label: "Aliens killed", scale: "group" }],
+    reward: [[ITEM.GOLDEN_APPLE, 8]],
+    event: "fortress",
+    tier: 5,
+    rules: R(LATE, 1.19, 1.19, 1.38, 6, 0.055, ALL_CREWS),
+  },
+  {
+    id: "armada",
+    title: "The Armada",
+    text: "The final battle. The invasion's last fleet has arrived with its flagship, the Dreadnought: a titan behind four shields, each held up by pylons (marked), with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won.",
+    objectives: [{ stat: "flagshipDown", goal: 1, label: "The Dreadnought destroyed" }],
+    reward: [[ITEM.GOLDEN_APPLE, 20]],
+    event: "boss",
+    // (The boss fight's settings: see missions.js _boss; the Overlord's are the defaults.)
+    boss: { name: "THE DREADNOUGHT", short: "The Dreadnought", size: "giant", design: "saucer_domed", health: 8000, shieldAt: [0.75, 0.5, 0.3, 0.12], pylons: [4, 4, 5, 5, 5], escorts: [3, 2, 3, 2, 0], squads: { 1: "alien_red", 3: "alien_blue" }, jets: { 2: 1 }, stat: "flagshipDown", final: true },
+    tier: 5,
+    rules: R(LATE, 1.2, 1.2, 1.4, 6, 0.05, ALL_CREWS),
+  },
 ];
+
+// After the last mission (free play): a busy sky, a little calmer than the finale's.
+const POSTGAME_RULES = R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS);
 
 // The Round 3 chain (v3 saves, fifteen missions): which new mission a save
 // whose current v3 mission was N continues with (the new opening missions
@@ -323,8 +397,10 @@ export const MISSIONS = [
 // The Round 4/5 chain (v4 saves, nineteen missions): ids by step. Round 6 added the
 // landing, the meteor storm and the boss (and moved the mothership fight to the end).
 const V4_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "dogfight", "air_superiority", "village", "reds", "salvage", "big_game", "mothership", "sunburn", "slayer"];
+// (Round 9: a save that had finished the chain carries on with the missions added since.)
+const AFTER_SLAYER = () => MISSIONS.findIndex((m) => m.id === "slayer") + 1;
 function v4StepToV5(step) {
-  if (!(step < V4_IDS.length)) return MISSIONS.length;
+  if (!(step < V4_IDS.length)) return AFTER_SLAYER();
   const idx = MISSIONS.findIndex((m) => m.id === V4_IDS[step]);
   // (The old mothership mission is the Overlord's forerunner: that player carries on with the base.)
   return idx >= 0 ? idx : MISSIONS.findIndex((m) => m.id === "sunburn");
@@ -332,7 +408,7 @@ function v4StepToV5(step) {
 // The Round 6-7 chain (v5 saves): ids by step. Round 8 added "Steal the ship" before the Overlord.
 const V5_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "overlord", "slayer"];
 function v5StepToV6(step) {
-  if (!(step < V5_IDS.length)) return MISSIONS.length;
+  if (!(step < V5_IDS.length)) return AFTER_SLAYER();
   const idx = MISSIONS.findIndex((m) => m.id === V5_IDS[step]);
   return idx >= 0 ? idx : step;
 }
@@ -372,10 +448,10 @@ export class Progress {
     return Math.min(this.step, MISSIONS.length);
   }
 
-  // The rules for the sky right now (see MISSIONS), the last mission's once
-  // the chain is done.
+  // The rules for the sky right now (see MISSIONS); once the chain is done,
+  // free play's (POSTGAME_RULES).
   get rules() {
-    return (this.mission || MISSIONS[MISSIONS.length - 1]).rules;
+    return this.mission ? this.mission.rules : POSTGAME_RULES;
   }
 
   // How far along the player is (weapon and loot quality): the current

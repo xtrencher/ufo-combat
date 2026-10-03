@@ -10,8 +10,11 @@
 //
 // Airport lights: the runway edge lights, the green thresholds, the
 // approach light rows and a red beacon on the tower are drawn as glowing
-// points, visible from far away at night (fading in at dusk), so an airport
-// and its runway can be found in the dark from kilometres off.
+// points at night (fading in at dusk), so an airport and its runway can be
+// found in the dark. (Round 9: within the view distance, like everything
+// else: each light dims with distance and fades into the fog where the land
+// does, instead of being drawn kilometres off, pulled in over the fog, where
+// they looked like lights floating in the sky.)
 import * as THREE from "three";
 import { BLOCK } from "./blocks.js";
 import { LAYER_FX } from "./layers.js";
@@ -19,7 +22,7 @@ import { createLodMaterial } from "./shaders.js";
 import { NUKE_CLEAR } from "./nuke.js";
 
 const REFRESH = 1; // seconds between checks of what is near
-const LIGHTS_RANGE = 4500; // blocks: airport lights are drawn this far
+const LIGHTS_RANGE_MAX = 3000; // blocks: airport lights never further than this (the fog hides them before, see update)
 
 function lightTexture() {
   const c = document.createElement("canvas");
@@ -55,6 +58,8 @@ export class DistantStructures {
     this._zoneSig = "";
     this._t = 0;
     this._lightTex = lightTexture();
+    // The lights' fade (shared by every airport): where the fog starts and ends.
+    this._fade = { uFadeNear: { value: 200 }, uFadeFar: { value: 400 } };
   }
 
   // ---------- Geometry ----------
@@ -213,6 +218,18 @@ export class DistantStructures {
     geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
     geo.computeBoundingSphere();
     const mat = new THREE.PointsMaterial({ size: 5, sizeAttenuation: false, map: this._lightTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 });
+    // Each light dims with its own distance and is gone where the fog wall is
+    // (the same distances as the world's fog: the view distance).
+    const fade = this._fade;
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uFadeNear = fade.uFadeNear;
+      sh.uniforms.uFadeFar = fade.uFadeFar;
+      sh.vertexShader = sh.vertexShader.replace("void main() {", "varying float vLightDist;\nvoid main() {").replace("#include <project_vertex>", "#include <project_vertex>\n  vLightDist = length(mvPosition.xyz);");
+      sh.fragmentShader = sh.fragmentShader
+        .replace("void main() {", "uniform float uFadeNear;\nuniform float uFadeFar;\nvarying float vLightDist;\nvoid main() {")
+        .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.a *= (1.0 - smoothstep(uFadeNear, uFadeFar, vLightDist)) * (0.45 + 0.55 * exp(-vLightDist / 700.0));");
+    };
+    mat.customProgramCacheKey = () => "airport-lights-fade";
     const pts = new THREE.Points(geo, mat);
     pts.frustumCulled = false;
     pts.matrixAutoUpdate = false;
@@ -245,22 +262,20 @@ export class DistantStructures {
         m.mesh.visible = !(chunk && chunk.meshed && chunk.group.visible);
       }
       if (e.lights) {
-        // Fading in at dusk, a little brighter with the dark; a gentle shimmer far off.
+        // Fading in at dusk, a little brighter with the dark; each light then
+        // fades with its distance and the fog (the shader, see _buildLights).
         const k = Math.max(0, Math.min(1, (this.night - 0.15) / 0.45));
-        e.lights.visible = k > 0.01;
-        e.lights.material.opacity = k;
         const d = Math.hypot(e.x - px, e.z - pz);
+        e.lights.visible = k > 0.01 && d - e.reach < this._fade.uFadeFar.value;
+        e.lights.material.opacity = k;
         e.lights.material.size = d > 1500 ? 4 : d > 600 ? 5 : 6;
-        // Beyond the far plane the lights are drawn pulled in toward the eye
-        // (the same direction, the same size on screen: the points don't
-        // shrink with distance), so they show from kilometres off.
-        const near = camera.far * 0.8;
-        const far = d + Math.max(e.reach, 1);
-        const pull = far > near ? near / far : 1;
-        e.lights.scale.setScalar(pull);
-        e.lights.position.copy(camera.position).multiplyScalar(1 - pull);
-        e.lights.updateMatrix();
       }
+    }
+    // The fog's distances (main.js keeps scene.fog at the view distance).
+    const fog = this.scene.fog;
+    if (fog && fog.far > 0) {
+      this._fade.uFadeNear.value = fog.near;
+      this._fade.uFadeFar.value = fog.far;
     }
   }
 
@@ -285,9 +300,11 @@ export class DistantStructures {
       this.entries.clear();
     }
     const want = new Map();
-    for (const s of this.sites.within(px, pz, Math.max(range, LIGHTS_RANGE) + 600)) {
+    // (Lights only as far as they can be seen: past the fog they're gone anyway.)
+    const lightRange = Math.min(LIGHTS_RANGE_MAX, range * 1.1);
+    for (const s of this.sites.within(px, pz, Math.max(range, lightRange) + 600)) {
       const d = Math.hypot(s.x - px, s.z - pz);
-      want.set(s.id, { kind: "site", o: s, shapes: d < range + 600, lights: s.kind === "airport" && d < LIGHTS_RANGE + 600 });
+      want.set(s.id, { kind: "site", o: s, shapes: d < range + 600, lights: s.kind === "airport" && d < lightRange + (s.half || 0) + 150 });
     }
     if (this.villages) {
       for (const v of this.villages._villagesNear(px - range, pz - range, px + range, pz + range)) {
@@ -297,6 +314,13 @@ export class DistantStructures {
     }
     for (const [id, e] of this.entries) {
       const w = want.get(id);
+      // (Its lights out of range: they go, the shapes may stay.)
+      if (w && !w.lights && e.lights) {
+        this.group.remove(e.lights);
+        e.lights.geometry.dispose();
+        e.lights.material.dispose();
+        e.lights = null;
+      }
       if (w && (w.shapes || !e.meshes.length)) continue;
       // Gone out of range (or only the lights are still wanted): its shapes go.
       for (const m of e.meshes) {

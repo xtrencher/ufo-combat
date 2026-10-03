@@ -87,13 +87,15 @@ class Skin {
     }
   }
 
+  // (Round 9) A fourth component marks a matte texel: one that never glows
+  // however bright it is (MATTE, see matte(); the shader's glow skips it).
   set(x, y, c) {
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
     const i = (y * this.W + x) * 4;
     this.data[i] = c[0];
     this.data[i + 1] = c[1];
     this.data[i + 2] = c[2];
-    this.data[i + 3] = 255;
+    this.data[i + 3] = c[3] ?? 255;
   }
 
   // fn(fx, fy, fw, fh) returns a color or null (leave as is). Conventions:
@@ -1280,6 +1282,11 @@ const ALIEN_RED = {
 // The blue alien: a slender, quick flanker in a dark suit with glowing cyan
 // seams, a crested head and big pale eyes, carrying a stubby scatter
 // emitter. Shared animations with the other aliens.
+// (Round 9) A bright colour that must not glow (the glow lights up every
+// texel whose brightest channel is high, see shaders.js uGlow): a blue skin.
+const MATTE = 248;
+const matte = (c) => [c[0], c[1], c[2], MATTE];
+
 const ALIEN_BLUE = {
   parts: [
     { name: "legL", size: [2, 10, 2], pivot: [-1.5, 10, 0], from: [-1, -10, -1] },
@@ -1300,7 +1307,10 @@ const ALIEN_BLUE = {
     const suitLight = hex(0x2c3b5e);
     const glow = [90, 230, 255];
     const blue = (x, y, seed) => grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * 0.8), x, y, seed + 1, 0.07);
-    s.part("head", (f, x, y, w, h) => {
+    // (Round 9: the head, its crest and fins are matte: the bright blue skin
+    // used to glow like a lamp at night. The suit's seams and the gun still glow.)
+    s.part("head", (f, x, y, w, h) => matte(paintHead(f, x, y, w, h)));
+    function paintHead(f, x, y, w, h) {
       let c = blue(x, y, 601);
       if (f === "top") c = shade(c, 1.08);
       if (f === "bottom") c = shade(c, 0.8);
@@ -1315,8 +1325,8 @@ const ALIEN_BLUE = {
         if (y === h - 3 && x >= w * 0.4 && x < w * 0.6) c = shade(c, 0.6);
       }
       return c;
-    });
-    for (const part of ["crest", "finL", "finR"]) s.part(part, (f, x, y, w, h) => (y < 2 ? glow : shade(blue(x, y, 611), 0.85)));
+    }
+    for (const part of ["crest", "finL", "finR"]) s.part(part, (f, x, y, w, h) => matte(y < 2 ? shade(glow, 0.8) : shade(blue(x, y, 611), 0.85)));
     s.part("body", (f, x, y, w, h) => {
       let c = grain(mix(suit, suitLight, hash(x >> 1, y >> 1, 621) * 0.6), x, y, 622, 0.08);
       // Glowing seams down the chest and across the belt.
@@ -1324,7 +1334,7 @@ const ALIEN_BLUE = {
       if (y >= h - 6 && y < h - 5) c = glow;
       return c;
     });
-    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y >= h - 4 ? blue(x, y, 631) : y === 4 ? glow : grain(suit, x, y, 632, 0.08)));
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y >= h - 4 ? matte(blue(x, y, 631)) : y === 4 ? glow : grain(suit, x, y, 632, 0.08)));
     for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? grain(suitLight, x, y, 641, 0.1) : y === 3 ? glow : grain(suit, x, y, 642, 0.08)));
     s.part("gun", (f, x, y, w, h) => {
       let c = grain(hex(0x20263a), x, y, 651, 0.12);

@@ -46,13 +46,17 @@ flyover) has three things:
   buttons at its top, and the graphics preset lives in its Graphics tab.
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
-Settings, Missions, Stats, Multiplayer, Copy world link, Save & main menu).
+Settings, Missions, Stats, Multiplayer, Copy world link, Save & main menu;
+in Creative also the **call-ins**: F-22, F-16, B-2 or a random UFO, and you
+are straight in the air at the controls of it).
 
 - **Survival:** you start with basic gear only (a stone sword, a stone
   pickaxe and five apples) at 17:50 (the golden hour before sunset), and a
-  chain of twenty-two **missions** (see below) that starts with a skeleton and
-  its bow, goes through jets, a meteor storm and a mothership boss, and
-  ends with the slayer's last stand. There is no crafting, and
+  chain of twenty-eight **missions** (see below) that starts with a skeleton and
+  its bow, goes through jets, a meteor storm and a mothership boss, then the
+  aliens' counterattack (fighter wings, abductors, a titan, a night of
+  swarms, a fortress), and ends with the Armada and its flagship: win that
+  and the war is won (a victory screen; the game goes on). There is no crafting, and
   missions pay in apples and golden apples only: weapons come from the
   places that make sense (the skeleton's bow, standard weapons in **supply
   crates** that drop by parachute with orange smoke, alien weapons from
@@ -62,8 +66,11 @@ Settings, Missions, Stats, Multiplayer, Copy world link, Save & main menu).
 - **Creative:** every weapon in your hotbar and inventory, every block and
   item in the tabbed **E** palette, instant mining, flight, and no damage.
 
-You can switch modes at any time in the pause menu. Each world remembers its
-mode, your position, inventory and health.
+You can switch modes at any time in the pause menu: the switch never
+changes your inventory (what you took from the Creative palette stays, and
+nothing is added or taken away). Each world remembers its mode, your
+position, inventory and health. A new world starts on flat, open, dry
+ground.
 
 ### Controls
 
@@ -125,7 +132,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 
 ### Missions, loot and supply crates (Survival)
 
-- **Missions:** twenty-two of them, one after another, shown top right with a
+- **Missions:** twenty-eight of them, one after another, shown top right with a
   progress bar per objective, the target's distance and direction, and a
   yellow **marker** over the target (an arrow at the screen's edge when it is
   behind you). **Esc > Missions** lists them all with their rewards, which
@@ -146,7 +153,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   | 11 | Touchdown | Land a jet on an airport's runway and stop; a red squad then drops in on the ground: finish it (get out with `F`) | 2 golden apples |
   | 12 | Dogfight | Shoot down two UFOs from the jet | 2 golden apples |
   | 13 | Air superiority | Shoot down the hijacked fighter hunting you | 2 golden apples |
-  | 14 | Village under attack | Shoot down three raiders burning a village (5 minutes) | 3 golden apples |
+  | 14 | Village under attack | Shoot down three raiders burning a village (they stay until shot down) | 3 golden apples |
   | 15 | Red brutes | Wipe out a red squad; its leader carries the **railgun** (on its back, plain to see) and always drops it, however it dies: the marker then points at it until someone picks it up | 3 golden apples |
   | 16 | Falling stars | A meteor storm at night: dodge the rocks (a red ring marks each landing 4.5 s ahead) and collect four glowing star fragments from the craters before alien salvagers take them | 4 golden apples |
   | 17 | Salvage | The next UFO you down lands intact: board it (alien ships, hangar ones too, are yours from now on) | 3 golden apples |
@@ -155,6 +162,12 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   | 20 | Steal the ship | Soldiers keep a captured alien ship in the underground bunker of an airport: fight your way past the armed guards, board it (`F`), and when they seal the blast doors switch on **ghost mode** (`G`) and burn your way out through the rock; get 150 blocks clear | 8 golden apples |
   | 21 | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: three shield rounds, an escort, and a red squad dropped on you. Doable on foot | 12 golden apples |
   | 22 | UFO slayer | Shoot down twenty-five more | 10 golden apples |
+  | 23 | Scramble! | A wing of hijacked fighters comes at you all at once: shoot down three (take a fighter from the airport, or lock on with the bazooka) | 6 golden apples |
+  | 24 | Abductions | Abductor UFOs beam up a village's people and animals: shoot down three of them | 6 golden apples |
+  | 25 | Titan | Bring down a **titan**, the biggest alien ship (well over a hundred blocks across); its crew comes out fighting | 10 golden apples |
+  | 26 | Night of the swarm | A night of swarms: small, fast UFOs fill the sky while red and blue landing parties hunt you. Survive until dawn and shoot down eight | 8 golden apples |
+  | 27 | The fortress | A garrison of red brutes, blue and gray aliens (two leaders) dug in on open ground, heavy UFOs over it: kill ten | 8 golden apples |
+  | 28 | The Armada | **The finale:** the Dreadnought, a titan behind four shields held up by pylons, with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won: a victory screen, and the sky stays busy for free play | 20 golden apples |
 
   Each mission also sets the sky, and in Survival **only the missions do**
   (the UFO activity, spawn chance, max count and size settings are
@@ -163,6 +176,22 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   large, motherships and, at the very end, giants), with health, damage,
   aggression and numbers growing along the chain. Every UFO carries one kind
   of alien (green early, grays and reds later).
+
+  **A mission's own targets are kept** (Round 9): the scout, the raiders,
+  the large UFO of Big game, the titan, the boss and its pylons, the
+  abductors, the base's guards, and any UFO you have hit during a hunt never
+  fly off, despawn or get swapped for a fresh one: one that strays far is
+  called back toward the nearest player, and its damage stays. Steal the
+  ship always has exactly one ship: the bunker's own (if it is lost after
+  boarding, the bunker sets out a new one, for everyone online).
+- **Dying during a mission:** you come back at a random safe spot around the
+  mission's location (dry, flat ground, out of the fight, outside any
+  airport bunker's restricted zone; around the airport where the jets wait
+  for the flying missions), not at the world spawn. Online too, for every
+  player. **Death messages** name what did it: "Shot by a soldier",
+  "Struck down by a soldier", "Killed by an alien" (a blow) or "Shot by an
+  alien", "Killed by a spider", "Blown up by a UFO", "Hit by a falling
+  meteor", "Shot down by Bob", and so on.
 - **Where weapons come from** (each lane has its own weapons, so nothing
   arrives twice or out of order):
   - **The skeleton** (mission 1): the bow.
@@ -199,6 +228,11 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   critical hit.
 - **Skeletons** shoot real arrows from their bows (and drop them);
   **spiders** climb walls.
+- (Round 9) Land creatures never appear in water or on it, wherever they
+  come from (the spawners, the missions, online around every player): fish
+  swim, and the crew of a UFO that crashed in the sea comes up in the water
+  around the wreck. The **blue alien**'s head is plain, matte skin (it used
+  to glow like a lamp at night); its suit's cyan seams and its gun still glow.
 
 **Zombie settings** (Settings > Mobs): spawn rate (off to 50x, the
 "APOCALYPSE"), maximum count (up to 400), health and damage multipliers,
@@ -337,11 +371,24 @@ keeps running there (it just isn't drawn).
   health per extra player), a little tougher creatures, more guards, and a
   fighter for everyone at each airport. In Operation Sunburn one player
   flies the B-2 and the others escort it. The long night only starts over when the
-  whole group is down at the same time. A dead player can respawn at the
-  world spawn or **next to a friend**.
+  whole group is down at the same time. A dead player respawns around the
+  current mission's location (see Missions above; outside a mission, at the
+  world spawn) or **next to a friend**.
+- **Damage online (Round 9):** every weapon works the same for the host and
+  the guests, on foot or in a vehicle, against every kind of target:
+  creatures, aliens, soldiers, UFOs, enemy fighters, other players (with
+  the PvP rule) and blocks. A guest's hit on the host's things is sent to
+  the host, which applies it through the very same code with that guest as
+  the attacker: the damage, the kill, the loot and the mission credit are
+  the guest's, and every screen shows the same result. Checked by a test
+  that fires all 17 weapons at all 14 kinds of target, as a guest and as the
+  host (`tools/mp-damage-tests.mjs`).
 - **Creative together:** everyone flies, builds and blasts; the host's
   Creative settings (UFO activity and the rest) apply. A guest's "summon a
-  UFO" (Mods screen) asks the host's game for it.
+  UFO" (Mods screen) asks the host's game for it. Everyone can use the
+  pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
+  air): the others see the aircraft and who flies it. Switching between
+  Creative and Survival never changes anyone's inventory.
 - **Dogfight:** everyone flies an F-22, all against all. After a countdown
   everyone is put in a jet high over the arena; shoot the others down with
   the cannon and missiles (flares and rolling away still work). A
@@ -734,11 +781,13 @@ hundreds of zombies, or a long full-detail distance).
 ## The world
 
 A world at the scale of classic block games, 128 blocks tall, now with very
-different landforms: continents and big oceans; **mountain ranges** that are
-broader and bigger, with bare rock, snowy peaks and **deep, wide valleys**
-between their massifs; **very flat country** (about a seventh of the land is
-nearly level: wide plains, flowery **meadows** with a lone tree here and there,
-deserts as flat as a table); rivers; and big biomes (forests, plains, taigas,
+different landforms: continents and big oceans; **mountain ranges** with bare
+rock, snowy peaks and **deep, wide valleys** between their massifs (Round 9:
+on about a seventh of the land, half as much as before, but where a range
+rises it is as big as ever, up to the top of the world); **lots of flat
+land** (about two thirds of the land is level or nearly so: wide plains,
+flowery **meadows** with a lone tree here and there, deserts as flat as a
+table, room for the jets and the fights); rivers; and big biomes (forests, plains, taigas,
 snowy lands, **much larger deserts and jungles** (the jungle has giant old
 oaks), savannas, swamps, badlands, meadows), with caves, coal and gold, and
 glowing crystals underground. (Iron and diamonds are gone.) Forests and meadows alternate: oaks with irregular crowns and
@@ -758,8 +807,9 @@ fighters; many hide a **secured underground bunker** (a ramp down from the
 apron to a lit hall) with an alien ship inside and armed human guards who
 open fire when you enter the restricted zone. **Cities** have streets,
 parks, houses, mid-rise blocks and **skyscrapers** up to about 80 blocks with
-setbacks, glass walls and rooftop antennas. Mountains are bigger, with snow
-on the peaks. Supply crates are redesigned (planks, steel brackets, a red
+setbacks, glass walls and rooftop antennas. At night an airport's runway
+lights show the way within the view distance, dimming with distance and
+fading into the fog like the land around them. Supply crates are redesigned (planks, steel brackets, a red
 cross; cords tied from the crate to the parachute's rim) and only ever land
 on dry ground. Grass is shorter and **breakable** (a swing at the ground cuts
 it; explosions burn it away), the leaves are more see-through and the view
@@ -848,9 +898,37 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has ten test suites (`cd tools && npm install && npm test`; the
+`/tools` has thirteen test suites (`cd tools && npm install && npm test`; the
 browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
 environment variable):
+
+- `mp-damage-tests.mjs` (Round 9): the multiplayer **damage matrix**. A
+  host and a guest in two headless pages (real PeerJS + WebRTC, a local
+  signaling server); for every weapon (melee, bow, pistol, laser pistol,
+  machine gun, laser minigun, sniper rifle, railgun, bazooka, grenade,
+  airstrike, the jet's cannon and missiles, the B-2's nuke, the UFO's laser,
+  tractor beam and superweapon) and every kind of target (zombie, skeleton,
+  spider, cow, villager, the four aliens, a soldier, a UFO, an enemy
+  fighter, the other player, a block), first the guest then the host fires
+  through the game's own weapon code, and the test checks the target dies
+  on the host, the attacker gets the kill, and the other screen shows the
+  same (and the health reads the same on both). The pages don't draw (the
+  game runs at full speed). A table of results is printed and saved to
+  `probe-out/damage-matrix.json`. About 25 minutes;
+  `--only=guest|host`, `--weapon=a,b`, `--target=a,b` narrow it.
+- `mp-round9-tests.mjs` (Round 9): a host and **two guests** (three pages):
+  the goals for three players, missions 18-20 with guests (Big game's ship
+  the same on every screen, hit by a guest, kept near a guest far from the
+  host; Operation Sunburn completed by a guest's nuke; Steal the ship with
+  one ship on every screen, boarded by a guest, lost and replaced once),
+  respawning around a mission as a guest, call-ins seen by everyone, mode
+  switches that leave inventories alone, and creature spawning around every
+  player with none in water. About 4 minutes.
+- `round9-tests.mjs` (Round 9): mission targets kept (Big game, the village
+  raid, scouts), Steal the ship's single ship, death messages, respawning
+  around a mission, missions 23-28 and the victory screen, the call-ins,
+  mode switching, the flatter terrain and flat spawn, the airport lights'
+  fade, no land creatures in water and the blue alien's matte head.
 
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client
@@ -881,7 +959,7 @@ environment variable):
   missile, full control during a lock and the salvo charge, UFOs with no
   ceiling, the tractor beam pulling in UFOs and jets, the lock-on salvo, the
   Touchdown, Falling stars and Overlord missions, and the mission chain
-  (22 missions since Round 8).
+  (28 missions since Round 9).
 - `round5-tests.mjs`: the Round 5 features in the real game: the defaults,
   jet throttle and speed, loops and rolls, free look (both mouse buttons),
   armor, bunkers with guards, supply drops on dry land, breakable grass, the

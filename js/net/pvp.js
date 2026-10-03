@@ -109,6 +109,8 @@ export class PvpSync {
       }
       return best;
     };
+    // (Round 9) The stand-ins for area weapons (the UFO superweapon's beam).
+    mobs.standIns = () => (this.mp.active ? [...this._targets()] : []);
     // A hit on a stand-in: the damage goes to that player.
     const hurt = mobs._hurt.bind(mobs);
     mobs._hurt = (m, amount, dir, kb, byPlayer = false) => {

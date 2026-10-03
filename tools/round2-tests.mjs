@@ -745,6 +745,14 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     out.unchanged = JSON.stringify(g.inventory.slots) === surv;
     g.setMode("survival");
     out.back = JSON.stringify(g.inventory.slots) === surv;
+    // (Round 9: a switch never touches the inventory: what was taken in Creative stays in Survival.)
+    g.setMode("creative");
+    const free = g.inventory.slots.findIndex((x, i) => i >= 9 && !x);
+    g.inventory.slots[free] = { id: ITEM.RAILGUN, count: 1 };
+    const withRail = JSON.stringify(g.inventory.slots);
+    g.setMode("survival");
+    out.keeps = JSON.stringify(g.inventory.slots) === withRail;
+    g.inventory.slots[free] = null;
     g.setMode("creative");
     out.missing = ALL_WEAPONS.length - out.weaponsShown + 1; // (the weapons tab: every weapon and the bow)
     return out;
@@ -755,7 +763,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
   assert(r.loadouts[0] === 9 && r.loadouts[1] === 10 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts} (Round 6: no Jet Radio)`);
   assert(r.weaponsShown === 10 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
-  assert(r.missing === 0 && r.unchanged && r.back, `creative: every weapon in the palette, switching keeps the inventory: ${JSON.stringify(r)}`);
+  assert(r.missing === 0 && r.unchanged && r.back && r.keeps, `creative: every weapon in the palette, switching keeps the inventory (Creative's things stay): ${JSON.stringify(r)}`);
 });
 
 await check("railgun: charges about a second, then destroys blocks in a line, and hits every creature and UFO on it", async () => {

@@ -11,7 +11,7 @@ import { VillageGrower } from "./village.js";
 import { SiteGrower } from "./sites.js";
 
 const BASE_HEIGHT = 26;
-const AMPLITUDE = 14;
+const AMPLITUDE = 11; // (Round 9: was 14, gentler hills)
 const PLANT_SALT = 0x5bd1e995;
 const SWAMP_SALT = 0x7a2f19c3;
 const DESERT_SALT = 0x1e5f9b4a;
@@ -24,12 +24,15 @@ const REEF_SALT = 0x3c8de061;
 // thin band where a low-frequency noise field crosses near zero). Round 5:
 // the ranges are bigger: more of the land is mountainous, the massifs are
 // lifted as a whole, the ridges are broader and the crests reach the top of
-// the world (~120 blocks, snow-capped) far more often.
+// the world (~120 blocks, snow-capped) far more often. Round 9: the other
+// way again, for the jets, the vehicles and the fights: about two thirds of
+// the land is flat, gentler hills, and mountains on roughly a seventh of it
+// (half as much as before), but where a range rises it is as big as ever.
 const CONTINENT_FREQ = 1 / 2600;
 const CONTINENT_AMP = 36;
 const MOUNTAIN_MASK_FREQ = 1 / 1400; // Round 6: bigger ranges...
-const MOUNTAIN_MASK_LO = -0.03;
-const MOUNTAIN_MASK_HI = 0.2;
+const MOUNTAIN_MASK_LO = 0.1; // (Round 9: was -0.03 / 0.2: ranges only where the mask is high...)
+const MOUNTAIN_MASK_HI = 0.3; // (...full strength in their cores)
 const MOUNTAIN_RIDGE_FREQ = 1 / 430; // ...with broader massifs and ridges...
 const MOUNTAIN_PEAK_FREQ = 1 / 75;
 const MOUNTAIN_AMP = 135; // ...and taller crests (the soft cap below still keeps them inside the world)
@@ -39,7 +42,7 @@ const RIVER_FREQ = 1 / 420;
 // is rugged; a second, ridged field cuts long, wide valleys that sink toward the
 // sea level, so a mountain range gets deep valleys between its massifs.
 const RELIEF_FREQ = 1 / 1900;
-const FLAT_LO = -0.02; // relief below this: flat country (fully flat at FLAT_LO - FLAT_SPAN)
+const FLAT_LO = 0.08; // relief below this: flat country (fully flat at FLAT_LO - FLAT_SPAN). (Round 9: was -0.02)
 const FLAT_SPAN = 0.2;
 const VALLEY_FREQ = 1 / 820;
 const VALLEY_FLOOR = SEA_LEVEL + 4; // the valley floor (a little above the sea)
@@ -185,7 +188,9 @@ export class TerrainGenerator {
 
   // Where new players start: the first land column along a diagonal from the
   // origin, moved to the nearest land column that no tree stands in (so
-  // nobody starts on top of a canopy). Returns [wx, wz].
+  // nobody starts on top of a canopy). (Round 9) On flat ground: the nearest
+  // spot whose surroundings (9x9) are level within a block, dry and open.
+  // Returns [wx, wz].
   spawnColumn() {
     let bx = 0;
     let bz = 0;
@@ -197,6 +202,25 @@ export class TerrainGenerator {
       const r = 40 + i * 18;
       bx = Math.round(Math.cos(a) * r);
       bz = Math.round(Math.sin(a) * r);
+    }
+    const flatAt = (x, z) => {
+      const h = this.heightAt(x, z);
+      if (h <= SEA_LEVEL + 1) return false;
+      for (let dx = -4; dx <= 4; dx += 2) {
+        for (let dz = -4; dz <= 4; dz += 2) {
+          const hh = this.heightAt(x + dx, z + dz);
+          if (hh <= SEA_LEVEL + 1 || Math.abs(hh - h) > 1) return false;
+        }
+      }
+      return !this.trees.coversColumn(x, z);
+    };
+    for (let r = 0; r <= 240; r += 3) {
+      for (let dz = -r; dz <= r; dz += 3) {
+        for (let dx = -r; dx <= r; dx += 3) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (flatAt(bx + dx, bz + dz)) return [bx + dx, bz + dz];
+        }
+      }
     }
     for (let r = 0; r <= 16; r++) {
       for (let dz = -r; dz <= r; dz++) {

@@ -191,7 +191,8 @@ export class LaserBolts {
   // here: it only hits this player and this player's own vehicle (see main.js).
   // tracer: a bullet (the pistol), drawn like the machine gun's tracers: a
   // thin pale streak with a faint halo, no muzzle glow, small sparks.
-  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false }) {
+  // cause: what a hit by it is called (damage.js; an AI shooter's own, e.g. "soldier").
+  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false, cause = null }) {
     if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
     const bolt = {
       pos: from.clone(),
@@ -211,6 +212,7 @@ export class LaserBolts {
       mirror,
       sound,
       tracer,
+      cause,
       dead: false,
     };
     this.bolts.push(bolt);

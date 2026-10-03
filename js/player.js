@@ -32,7 +32,7 @@ export const BASE_FOV = 75;
 export const CAMERA_MODES = ["first", "behind", "front"];
 const THIRD_PERSON_DISTANCE = 4;
 // Creature attacks scaled by difficulty (settings menu).
-const MOB_CAUSES = new Set(["zombie", "skeleton", "spider"]);
+const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider"]); // (Round 9: a skeleton's blow up close has its own death message)
 
 const CAMERA_PROBE = [[0, 0, 0], [0.12, 0.12, 0.12], [-0.12, 0.12, -0.12], [0.12, -0.12, -0.12], [-0.12, -0.12, 0.12]];
 

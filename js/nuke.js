@@ -95,7 +95,8 @@ export class NukeSystem {
   // opts.mirror (multiplayer): another player's nuke seen here: the flash,
   // fireball, shockwave and cloud, and what it does to this player, but not
   // the crater (its blocks arrive as edits). opts.R: its size.
-  detonate(center, { mirror = false, R: size = null } = {}) {
+  // by: online, the player whose nuke it is (a mirror of another player's).
+  detonate(center, { mirror = false, R: size = null, by = 0 } = {}) {
     const R = size ?? this.radius;
     const d = {
       center: center.clone(),
@@ -148,7 +149,7 @@ export class NukeSystem {
     this.effects._flashPower = 60000;
     this.effects._flashTime = 0;
     if (this.audio?.playNuke) this.audio.playNuke(dist, R);
-    if (this.onDetonate) this.onDetonate(center, R, { mirror });
+    if (this.onDetonate) this.onDetonate(center, R, { mirror, by });
     return d;
   }
 

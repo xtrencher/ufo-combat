@@ -19,6 +19,7 @@ import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { RATES } from "./config.js";
 import { HOST_PID } from "./session.js";
+import { isPlayerCause } from "../damage.js";
 
 const IDLE_SEND = 1.0; // seconds between states of a vehicle that stands still
 const _q = new THREE.Quaternion();
@@ -40,6 +41,7 @@ export class VehicleSync {
     net.on("vadd", (m, from) => this._onAdd(m, from));
     net.on("vs", (m, from) => this._onStates(m, from));
     net.on("vdead", (m, from) => this._onDead(m, from));
+    net.on("vpgone", (m) => this._onParkedGone(m));
     net.on("vrem", (m, from) => this._onRemove(m, from));
     net.on("vclaim", (m, from) => this._onClaim(m, from));
     net.on("vown", (m) => this._onOwn(m));
@@ -115,6 +117,10 @@ export class VehicleSync {
     vm.onDestroyedHook = (v, cause) => {
       prevDestroyed?.(v, cause);
       if (this.mp.active && v.net && !v.puppet) this.net.toAll({ t: "vdead", nid: v.net.nid, cause });
+      // (Round 9) An aircraft still parked at an airport is every peer's own
+      // copy: blown up here, the others' copies go too (the blast itself
+      // reaches them as an explosion), so the airport is the same for all.
+      else if (this.mp.active && !v.net && v.parkedAt && v.parkKey && !this._parkGone) this.net.toAll({ t: "vpgone", k: v.parkKey });
     };
     const prevEnter = vm.onEnter;
     vm.onEnter = (v) => {
@@ -156,7 +162,10 @@ export class VehicleSync {
     if (v.puppet) return;
     if (!v.net && v.parkedAt) {
       const key = v.parkKey;
-      v.parkedAt = null; // (airports.boarded() runs next)
+      // (Round 9 fix: a normal vehicle from now on, saved with the world and
+      // no longer the airport's; this used to leave it "parked" in all but name.)
+      this.game.airports.boarded(v);
+      v.tookAt = performance.now();
       this._adopt(v, false);
       this.net.toAll({ t: "vadd", nid: v.net.nid, owner: this.net.pid, type: v.type, data: v.serialize(), took: key || null });
     }
@@ -321,9 +330,13 @@ export class VehicleSync {
   // missiles, sweeping lasers and the like (the host's call).
   _puppetDamage(v, amount, cause, byPlayer) {
     if (!v.alive || amount <= 0) return false;
-    if (cause === "explosion" || cause === "explosion_other") return false;
-    const mine = cause === "player" || cause === "cannon" || cause === "beam" || cause === "missile" || cause === "pvp";
-    if (!mine && !this.net.isHost) return false;
+    // Blasts on an occupied aircraft are judged by its pilot (the blast is
+    // mirrored there); an empty one of someone else's takes ours like a shot,
+    // a world's blast too (Round 9: a crash, a meteor, an exploding jet: its
+    // owner's mirror of the blast only reaches the aircraft they are in).
+    if ((cause === "explosion_other" || cause === "explosion") && v.netOcc) return false;
+    const mine = isPlayerCause(cause);
+    if (!mine && cause !== "explosion_other" && !this.net.isHost) return false;
     // Players hurt each other's aircraft only with the host's PvP rule on (always in a
     // Dogfight, and not someone who is out of the match, watching).
     if (mine && v.netOcc && !this.mp.pvpAllowed()) return false;
@@ -337,9 +350,15 @@ export class VehicleSync {
     const v = this.byId.get(m.nid);
     if (!v || v.puppet || !v.alive) return;
     const by = m.by || from;
-    v.lastHitByPid = by;
-    v.lastHitByT = performance.now();
-    (v._realDamage || v.damage).call(v, m.dmg, m.cause === "beam" ? "beam" : "pvp", true);
+    // A player's weapon: theirs (the death message, the PvP rule). The host's
+    // AI hitting an empty aircraft of ours keeps its own cause (Round 9).
+    const player = isPlayerCause(m.cause);
+    if (player && v === this.vehicles.active && !this.mp.pvpAllowed()) return;
+    if (player) {
+      v.lastHitByPid = by;
+      v.lastHitByT = performance.now();
+    }
+    (v._realDamage || v.damage).call(v, m.dmg, m.cause === "beam" ? "beam" : player ? "pvp" : m.cause || "explosion_other", player);
   }
 
   // ---------- Claims ----------
@@ -363,12 +382,18 @@ export class VehicleSync {
 
   _grant(nid, pid) {
     const v = this.byId.get(nid);
-    const busy = !v || !v.alive || (v.puppet ? v.netOcc && v.netOcc !== pid : v === this.vehicles.active);
+    // (Round 9) A grant holds for a moment: a second claim that arrives before
+    // the first player's states say they are in it is refused, instead of
+    // granted too (the first player used to be thrown out again).
+    const g = this._granted?.get(nid);
+    const recent = g && g.pid !== pid && performance.now() - g.t < 2500;
+    const busy = !v || !v.alive || recent || (v.puppet ? v.netOcc && v.netOcc !== pid : v === this.vehicles.active);
     if (busy) {
       if (pid !== HOST_PID) this.net.send(pid, { t: "vdeny", nid });
       else this._onDeny({ nid });
       return;
     }
+    (this._granted || (this._granted = new Map())).set(nid, { pid, t: performance.now() });
     this._broadcastOwn(nid, pid);
     this._onOwn({ nid, owner: pid });
   }
@@ -405,7 +430,19 @@ export class VehicleSync {
 
   _onAdd(m, from) {
     if (m.owner === this.net.pid) return;
-    if (m.took) this.game.airports.takeParked(m.took);
+    if (m.took) {
+      // (Round 9) Two players boarded the same parked aircraft at once (each
+      // their own copy of it): the lower player number keeps it; the other
+      // climbs out, and their copy goes for everyone.
+      const mine = this.vehicles.vehicles.find((v) => !v.puppet && v.net?.owner === this.net.pid && v.parkKey === m.took && performance.now() - (v.tookAt ?? -1e9) < 5000);
+      if (mine) {
+        if (this.net.pid < m.owner) return; // (ours: theirs goes on their side)
+        if (mine === this.vehicles.active) this.vehicles.exit({ force: true });
+        this.vehicles.remove(mine);
+        this.game.toast?.(`${this.mp.playerName(m.owner)} got in first.`, 2.5);
+      }
+      this.game.airports.takeParked(m.took);
+    }
     if (this.byId.has(m.nid)) return;
     const v = this._createPuppet(m.nid, m.owner, m.type, m.data);
     if (v && m.took) v.tookKey = m.took;
@@ -436,6 +473,21 @@ export class VehicleSync {
     } else if (v.type === "jet") v.model.setBurnt?.(true, v.time || 0);
   }
 
+  // Another peer blew up a parked aircraft: ours goes (quietly: its blast
+  // comes from there). The airport sets out a new one in time, like theirs.
+  _onParkedGone(m) {
+    if (typeof m.k !== "string") return;
+    for (const v of [...this.vehicles.vehicles]) {
+      if (v.parkKey !== m.k || !v.parkedAt || v.net) continue;
+      this._parkGone = true;
+      try {
+        this._removeLocal(v);
+      } finally {
+        this._parkGone = false;
+      }
+    }
+  }
+
   _onRemove(m) {
     const v = this.byId.get(m.nid);
     if (!v || !v.puppet) return;
@@ -446,7 +498,10 @@ export class VehicleSync {
   // ---------- Sending ----------
 
   _state(v) {
-    const s = { n: v.net.nid, p: vec2(v.pos), v: vec1(v.vel), hp: Math.round(v.health), o: v === this.vehicles.active ? this.net.pid : 0 };
+    // (Round 9 fix: an enemy fighter has no shared id of its own (the host's
+    // snapshots name it); this used to throw for every fighter, which stopped
+    // all of the host's snapshots while one flew near a guest.)
+    const s = { n: v.net ? v.net.nid : 0, p: vec2(v.pos), v: vec1(v.vel), hp: Math.round(v.health), o: v === this.vehicles.active ? this.net.pid : 0 };
     if (v.type === "jet" || v.isEnemyJet) {
       s.q = v.q.toArray().map(r3);
       s.th = r2(v.throttle);
@@ -500,7 +555,10 @@ export class VehicleSync {
       if (!v.alive || !this.vehicles.vehicles.includes(v)) continue;
       const data = v.serialize();
       // (A puppet's data is where it is drawn now.)
-      out.push({ nid: v.net.nid, owner: v.net.owner, type: v.type, data, occ: v.puppet ? v.netOcc : v === this.vehicles.active ? HOST_PID : 0 });
+      // (Round 9: which parking spot it was taken from, the host's own boarded
+      // aircraft too: the joiner's airport doesn't set out a second copy.)
+      const took = v.tookKey || (v.parkKey && !v.parkedAt ? v.parkKey : null);
+      out.push({ nid: v.net.nid, owner: v.net.owner, type: v.type, data, occ: v.puppet ? v.netOcc : v === this.vehicles.active ? HOST_PID : 0, took });
     }
     return { list: out, taken: [...this.game.airports.taken] };
   }
@@ -510,8 +568,12 @@ export class VehicleSync {
     for (const key of snap.taken || []) this.game.airports.takeParked(key);
     for (const e of snap.list || []) {
       if (e.owner === this.net.pid) continue;
+      if (typeof e.took === "string") this.game.airports.takeParked(e.took);
       const v = this._createPuppet(e.nid, e.owner, e.type, e.data);
-      if (v) v.netOcc = e.occ || 0;
+      if (v) {
+        v.netOcc = e.occ || 0;
+        if (typeof e.took === "string") v.tookKey = e.took;
+      }
     }
   }
 }

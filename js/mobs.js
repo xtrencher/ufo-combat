@@ -19,6 +19,7 @@ import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { BIOME } from "./biomes.js";
 import { Crowd } from "./crowd.js";
 import { Pathfinder } from "./pathfinding.js";
+import { meleeCause, shooterCause } from "./damage.js";
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
@@ -266,6 +267,8 @@ export class MobManager {
     this.targets = null; // () => [player-like]
     this.puppets = false;
     this.onPuppetHit = null; // (mob, amount, dir, knockback, byPlayer) => void
+    this.onPuppetBeam = null; // (mob, lift, topY, beamTop) => void: a guest's beam on a host creature
+    this.onRemoteAbduct = null; // (mob, pid) => void: host: a creature pulled aboard another player's ship
     this.onPuppetUpdate = null; // (mob, dt) => void
     this.keepDrops = null; // (mob) => bool: drops for this player (host: not for another player's kill)
     this._tmp = new THREE.Vector3();
@@ -293,9 +296,14 @@ export class MobManager {
 
   // ---------- Spawning ----------
 
-  spawn(kind, x, y, z) {
+  spawn(kind, x, y, z, { wet = false } = {}) {
     const spec = SPECIES[kind];
     if (!spec) return null;
+    // (Round 9) A land creature never comes into being in water, whoever asks
+    // (the spawners, the missions, single player or the host online; a
+    // guest's copies follow the host's). Fish swim; a crew climbing out of a
+    // wreck in the sea is the one exception (wet).
+    if (!wet && !spec.flies && !this.puppets && IS_WET[this.world.getBlock(Math.floor(x), Math.floor(y + 0.05), Math.floor(z))]) return null;
     const model = createMobModel(kind);
     const m = {
       id: this._nextId++,
@@ -553,6 +561,12 @@ export class MobManager {
       if (m.dead) continue;
       const c = this._tmp.set(m.pos.x, m.pos.y + m.spec.h * 0.5, m.pos.z);
       if (!beam.contains(c, m.spec.r)) continue;
+      // (Online, a guest's beam on one of the host's creatures: the host lifts
+      // it, and tells this player when it is aboard. Round 9.)
+      if (m.net) {
+        if (!by) this.onPuppetBeam?.(m, lift, topY, beam.top);
+        continue;
+      }
       if (by) m.abductedBy = by;
       m.beamLift = lift;
       m.stagger = Math.max(m.stagger, 0.3);
@@ -1175,7 +1189,7 @@ export class MobManager {
     m.attackCooldown = 1.0;
     m.attack = 0;
     const dmg = m.kind === "zombie" ? Math.max(1, Math.round(m.spec.damage * this.zombies.damage)) : m.spec.damage;
-    const applied = this.player.damage(dmg, m.kind, { from: m.pos });
+    const applied = this.player.damage(dmg, meleeCause(m.kind), { from: m.pos });
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
@@ -1271,7 +1285,7 @@ export class MobManager {
     // (Survival: alien guns follow the mission curve, like the UFOs' do.)
     const damage = Math.max(1, Math.round(m.spec.laserDamage * (this.alienDamageScale ?? 1)));
     if (weapon === "plasma") {
-      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage, owner: "alien", source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
+      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.plasma, speed, damage, owner: "alien", cause: shooterCause(m.kind), source: m, range, radius: 0.2, length: 0.9, blast: 1.6 });
     } else if (weapon === "scatter") {
       // A short scatter of four fast bolts: some of them up close, hardly any at range.
       for (let i = 0; i < 4; i++) {
@@ -1280,12 +1294,12 @@ export class MobManager {
         d.y += (Math.random() - 0.5) * 0.2;
         d.z += (Math.random() - 0.5) * 0.3;
         d.normalize();
-        this.lasers.fire({ from, dir: d, color: ALIEN_LASER_COLORS.scatter, speed, damage, owner: "alien", source: m, range: Math.min(range, 34), radius: 0.035, length: 1.1 });
+        this.lasers.fire({ from, dir: d, color: ALIEN_LASER_COLORS.scatter, speed, damage, owner: "alien", cause: shooterCause(m.kind), source: m, range: Math.min(range, 34), radius: 0.035, length: 1.1 });
       }
     } else if (weapon === "rifle") {
-      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.rifle, speed, damage, owner: "alien", source: m, range, radius: 0.04, length: 1.6 });
+      this.lasers.fire({ from, dir, color: ALIEN_LASER_COLORS.rifle, speed, damage, owner: "alien", cause: shooterCause(m.kind), source: m, range, radius: 0.04, length: 1.6 });
     } else {
-      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage, owner: "alien", source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
+      this.lasers.fire({ from, dir, color: weapon === "burst" ? ALIEN_LASER_COLORS.burst : this.alienLaserColor, speed, damage, owner: "alien", cause: shooterCause(m.kind), source: m, range, radius: weapon === "burst" ? 0.04 : 0.05, length: weapon === "burst" ? 1.8 : 1.3 });
     }
   }
 
@@ -1810,6 +1824,10 @@ export class MobManager {
       // A guest's copy of the host's creature: placed from the host's states.
       if (m.net) {
         m.hurtTime += dt;
+        // (Round 9 fix: the guard against one swing landing twice wears off
+        // here too. It never did on a guest's copy, so after a guest's first
+        // melee hit on a creature every later swing was ignored.)
+        m.invulnerable = Math.max(0, m.invulnerable - dt);
         if (m.dead) m.deathTime += dt;
         this.onPuppetUpdate?.(m, dt);
         this._afterMove(m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z), crowdDist);
@@ -1861,8 +1879,34 @@ export class MobManager {
         }
       } else {
         if (m.abductedBy && this._abductStep(m, i, dt)) return;
+        // Held in another player's tractor beam (online, Round 9): it rises to
+        // their ship like under this player's own beam; aboard, it is theirs.
+        if (m.remoteBeam) {
+          const rb = m.remoteBeam;
+          if (this.time > rb.until) m.remoteBeam = null;
+          else {
+            m.beamLift = rb.lift;
+            m.stagger = Math.max(m.stagger, 0.3);
+            m.knock.x += (rb.tx - m.pos.x) * 0.05;
+            m.knock.z += (rb.tz - m.pos.z) * 0.05;
+            if (m.pos.y + m.spec.h >= rb.topY) {
+              this._abductFx(m);
+              this.onRemoteAbduct?.(m, rb.by);
+              this._remove(i);
+              return;
+            }
+          }
+        }
         // Despawning: far away, in unloaded terrain, or (zombies) lingering far off.
-        if ((dist > DESPAWN_FAR && !m.persist) || !this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4) || m.pos.y < -10) {
+        // (Round 9: a mission's creature never goes: in unloaded terrain it
+        // just waits, frozen, until someone comes back.)
+        const keep = m.persist || m.missionTarget;
+        const loaded = !!this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4);
+        if (keep && !loaded && m.pos.y >= -10) {
+          this._place(m);
+          return;
+        }
+        if ((dist > DESPAWN_FAR && !keep) || !loaded || m.pos.y < -10) {
           this._remove(i);
           return;
         }

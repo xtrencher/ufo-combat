@@ -54,7 +54,10 @@ export class FxSync {
     const explode = fx.explode.bind(fx);
     fx.explode = (pos, opts = {}) => {
       const r = explode(pos, opts);
-      if (this.mp.active && !opts.mirror && !this.mirroring) this.out.push(["x", r2(pos.x), r2(pos.y), r2(pos.z), r2(opts.radius ?? 7), opts.source || "grenade", opts.visual ? r2(opts.visual) : 0]);
+      // (Round 9: also while another machine's effect is being played here:
+      // this vehicle blown up by their blast explodes for everyone. Their own
+      // explosion carries opts.mirror and is never sent back.)
+      if (this.mp.active && !opts.mirror) this.out.push(["x", r2(pos.x), r2(pos.y), r2(pos.z), r2(opts.radius ?? 7), opts.source || "grenade", opts.visual ? r2(opts.visual) : 0]);
       return r;
     };
     const lasers = g.lasers;
@@ -99,7 +102,9 @@ export class FxSync {
     const launchFlares = Jet.prototype._launchFlares;
     Jet.prototype._launchFlares = function () {
       launchFlares.call(this);
-      if (!this.puppet && this.net) self.flares(this);
+      // (Round 9: the host's enemy fighters too: a guest's missile used to
+      // ignore their flares, and the guest never saw them go.)
+      if (!this.puppet && (this.net || (this.isEnemyJet && self.net.isHost))) self.flares(this);
     };
     // Sounds of firing that have no tracer or bolt of their own.
     const audio = g.audio;
@@ -118,7 +123,9 @@ export class FxSync {
 
   // A jet of ours let its flares go (the other players' missiles must see them too).
   flares(v) {
-    if (this.mp.active && v?.net) this.out.push(["f", v.net.nid]);
+    if (!this.mp.active || !v) return;
+    if (v.net) this.out.push(["f", v.net.nid]);
+    else if (v.isEnemyJet) this.out.push(["f", `ej:${v.id}`]);
   }
 
   // ---------- Sending ----------
@@ -132,7 +139,7 @@ export class FxSync {
     for (const b of this.bolts) {
       const c = colorKeys.get(b.color) ?? this._colorKey(b.color);
       const h = b.homing?.target ? this.mp.refOf?.(b.homing.target) || 0 : 0;
-      this.out.push(["b", r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), Math.round(b.dir.x * 1e4) / 1e4, Math.round(b.dir.y * 1e4) / 1e4, Math.round(b.dir.z * 1e4) / 1e4, c, r1(b.speed), r1(b.damage), b.owner, r1(b.range), Math.round(b.radius * 1000) / 1000, r2(b.length), r2(b.blast || 0), (b.hole ? 1 : 0) | (b.scorch ? 2 : 0) | (b.sound ? 4 : 0) | (b.tracer ? 8 : 0), h, b.homing ? r2(b.homing.turn) : 0, b.homing ? r1(b.homing.life) : 0]);
+      this.out.push(["b", r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), Math.round(b.dir.x * 1e4) / 1e4, Math.round(b.dir.y * 1e4) / 1e4, Math.round(b.dir.z * 1e4) / 1e4, c, r1(b.speed), r1(b.damage), b.owner, r1(b.range), Math.round(b.radius * 1000) / 1000, r2(b.length), r2(b.blast || 0), (b.hole ? 1 : 0) | (b.scorch ? 2 : 0) | (b.sound ? 4 : 0) | (b.tracer ? 8 : 0), h, b.homing ? r2(b.homing.turn) : 0, b.homing ? r1(b.homing.life) : 0, b.cause || 0]);
     }
     this.bolts.length = 0;
     if (this.out.length && this.mp.stateLoaded) this.net.toAll({ t: "fx", l: this.out });
@@ -207,7 +214,7 @@ export class FxSync {
       case "b": {
         const color = Array.isArray(e[7]) ? new THREE.Color(e[7][0], e[7][1], e[7][2]) : LASER_COLORS[e[7]] || LASER_COLORS.red;
         const from3 = new THREE.Vector3(e[1], e[2], e[3]);
-        const b = g.lasers.fire({ from: from3, dir: new THREE.Vector3(e[4], e[5], e[6]), color, speed: e[8], damage: e[9], owner: e[10], source: null, range: e[11], radius: e[12], length: e[13], blast: e[14], hole: !!(e[15] & 1), scorch: !!(e[15] & 2), sound: false, mirror: true, tracer: !!(e[15] & 8) });
+        const b = g.lasers.fire({ from: from3, dir: new THREE.Vector3(e[4], e[5], e[6]), color, speed: e[8], damage: e[9], owner: e[10], source: null, range: e[11], radius: e[12], length: e[13], blast: e[14], hole: !!(e[15] & 1), scorch: !!(e[15] & 2), sound: false, mirror: true, tracer: !!(e[15] & 8), cause: typeof e[19] === "string" ? e[19] : null });
         b.by = from;
         if (e[16]) {
           const t = this.mp.resolveRef?.(e[16]);
@@ -237,13 +244,15 @@ export class FxSync {
         g.weapons._beam(new THREE.Vector3(e[1], e[2], e[3]), new THREE.Vector3(e[4], e[5], e[6]), e[7], e[8]);
         break;
       case "n":
-        g.nuke.detonate(new THREE.Vector3(e[1], e[2], e[3]), { mirror: true, R: e[4] });
+        g.nuke.detonate(new THREE.Vector3(e[1], e[2], e[3]), { mirror: true, R: e[4], by: from });
         break;
       case "m":
         g.weapons.airstrike._launch({ start: new THREE.Vector3(e[1], e[2], e[3]), dir: new THREE.Vector3(e[4], e[5], e[6]).normalize(), speed: e[7], len: e[8], mirror: true });
         break;
       case "f": {
-        const v = this.mp.vehicles.byNid(e[1]);
+        // (A player's aircraft by its shared id; the host's enemy fighter, "ej:<id>", by its puppet.)
+        const ej = typeof e[1] === "string" && e[1].startsWith("ej:") ? Number(e[1].slice(3)) : null;
+        const v = ej !== null ? this.mp.entities.jetById.get(ej) : this.mp.vehicles.byNid(e[1]);
         if (v?.puppet && v._launchFlares) {
           this._soundSkip = true;
           const msg = v.manager.onMessage;
