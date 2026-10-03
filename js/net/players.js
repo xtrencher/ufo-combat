@@ -96,6 +96,8 @@ export class RemotePlayer {
     this.parachute = !!(f & PF.chute);
     this.heldId = st.h | 0;
     this.swing = Number.isFinite(st.sw) ? st.sw : 1;
+    this.bowDraw = Number.isFinite(st.bw) ? st.bw : 0;
+    this.shots = Number.isFinite(st.fx) ? st.fx : null;
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.onGround && speed > 0.5) this.walkPhase += speed * dt * 1.6;
     // The live position: the newest state, carried forward a little.
@@ -108,7 +110,7 @@ export class RemotePlayer {
     const veh = this.vehicle;
     const inVehicle = !!veh || !!this.vehicleNid;
     const light = g.world.lightAt(this.position.x, this.position.y + 1, this.position.z);
-    this.avatar.update(dt, this, light, { visible: !inVehicle && !this.dead, swing: this.swing, heldId: this.heldId });
+    this.avatar.update(dt, this, light, { visible: !inVehicle && !this.dead, swing: this.swing, heldId: this.heldId, bowDraw: this.bowDraw, shots: this.shots });
     // The parachute.
     if (this.parachute && !inVehicle && !this.dead) {
       if (!this.chute) this.chute = new Parachute(g.scene);
@@ -234,6 +236,8 @@ export class PlayerSync {
       f,
       h: g.inventory.selectedStack?.id ?? 0,
       sw: swing < 1 ? r2(swing) : 1,
+      bw: g.held?.bowDraw > 0 ? r2(g.held.bowDraw) : 0,
+      fx: g.held?.shots ?? 0,
       hp: Math.round(p.health + (p.absorption || 0)),
       veh: veh?.net?.nid || 0,
     };

@@ -164,7 +164,11 @@ export class Dogfight {
 
   // A new match here: the results go, a watcher flies again, a fresh jet.
   _newMatch() {
-    document.getElementById("mp-results").classList.add("hidden");
+    const res = document.getElementById("mp-results");
+    const wasShown = !res.classList.contains("hidden");
+    res.classList.add("hidden");
+    // (A guest whose results were up: one click back into the jet.)
+    if (wasShown) this.game.showClickToPlay?.();
     this._resultsShown = 0;
     if (this.watching) this._unwatch();
     this._putInJet(true);
@@ -427,6 +431,10 @@ export class Dogfight {
 
   _showResults() {
     const g = this.game;
+    // (Down when the match ended: no death screen and no countdown under the results.)
+    this._respawnAt = null;
+    this._deathScreen(false);
+    if (g.player.dead && g.gameState === "dead") g.respawn();
     const won = this.winner === this.net.pid;
     const big = document.getElementById("mp-result-big");
     big.textContent = won ? "VICTORY" : "DEFEAT";
@@ -437,7 +445,10 @@ export class Dogfight {
     document.getElementById("mp-result-again").classList.toggle("hidden", !this.net.isHost);
     document.getElementById("mp-results").classList.remove("hidden");
     g.audio?.playMission?.();
-    if (g.gameState === "playing" && document.pointerLockElement) document.exitPointerLock();
+    // The mouse is for the buttons now: no more flying, no pause menu over the results.
+    g.vehicles.releaseAll?.();
+    if (document.pointerLockElement) document.exitPointerLock();
+    else g.ui?.hidePauseMenu?.();
   }
 
   closeResults() {

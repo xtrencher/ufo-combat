@@ -592,6 +592,16 @@ export class MobManager {
     // `spawning` and `hostileSpawning` are settings (creature spawning,
     // Peaceful difficulty); `enabled` is used by tests.
     if (!this.enabled || this.spawning === false) return;
+    // Online, a guest's creatures are the host's (Round 8: animals and
+    // villagers too); only the little ambient flyers (butterflies, parrots,
+    // fish) are each player's own.
+    if (this.puppets) {
+      this._spawnTimer -= dt;
+      if (this._spawnTimer > 0) return;
+      this._spawnTimer = SPAWN_INTERVAL;
+      if (Math.random() < 0.4) this._trySpawnFlyers();
+      return;
+    }
     if (!this._seeded && this._chunkReady(this.player.position.x, this.player.position.z)) {
       // Start the world with some animals around.
       this._seeded = true;
@@ -617,9 +627,10 @@ export class MobManager {
     this._spawnTimer = SPAWN_INTERVAL;
     const zombieCount = this.countKind("zombie");
     if (this.mobs.length - zombieCount >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
-    if (this.countOf(false) < MAX_PASSIVE && Math.random() < 0.3) this._trySpawnPassive(30, 80);
+    const passiveCap = MAX_PASSIVE * (this.targets ? Math.min(3, this.targets().length) : 1);
+    if (this.countOf(false) < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countOf(false)));
     if (this.countOf(true) < MAX_HOSTILE * (this.targets ? Math.min(3, this.targets().length) : 1) && this.hostileSpawning !== false && !this.puppets && Math.random() < 0.67) this._aroundAnyone(() => this._trySpawnHostile());
-    this._trySpawnVillagers();
+    this._aroundAnyone(() => this._trySpawnVillagers());
     if (Math.random() < 0.4) this._trySpawnFlyers();
   }
 
@@ -1767,8 +1778,9 @@ export class MobManager {
         this._afterMove(m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z), crowdDist);
         continue;
       }
-      // Online (host): a hostile creature thinks about the nearest player.
-      if (targets && m.spec.hostile) this.player = this._nearestTarget(m, targets);
+      // Online (host): a creature thinks about the nearest player (and stays
+      // while anyone is near: animals and villagers are everyone's too).
+      if (targets && !m.spec.flies) this.player = this._nearestTarget(m, targets);
       try {
         this._updateMob(m, i, dt, crowdDist, daylight, targets ? Math.hypot(m.pos.x - p.x, m.pos.z - p.z) : null);
       } finally {

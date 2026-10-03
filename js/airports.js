@@ -4,6 +4,9 @@
 // with J); they are set out when the player comes within range and put away
 // when they leave. Parked aircraft are never saved.
 
+import { IS_SOLID } from "./blocks.js";
+import { JET_TYPES } from "./vehicle-jet.js";
+
 const NEAR = 420; // blocks: parked aircraft appear inside this range
 const FAR = 900; // and are put away beyond this
 const GEAR = 1.35;
@@ -26,6 +29,69 @@ export class AirportManager {
     // took (it flies elsewhere now), and whether guards are set out here.
     this.taken = new Set();
     this.guardsEnabled = true;
+    // Online (host): every player's position (airports near any of them are
+    // set out here, with their guards: the guards are the host's creatures).
+    this.positions = null; // () => [Vector3]
+    // How many players the airports are stocked for (online: the host's
+    // count, the most players in the game so far; every peer sets out the
+    // same aircraft from it): at least one fighter each, plus a spare.
+    this.groupSize = 1;
+  }
+
+  // The number of fighters parked at an airport.
+  fighterCount(s) {
+    return Math.max(1 + (s.seed % 3), this.groupSize + 1);
+  }
+
+  // Whether an aircraft's footprint on its slot is clear and flat: solid pad
+  // under it, nothing in the way up to its height (a player's building, a
+  // crater, a wreck). null: the chunks aren't there yet.
+  _clear(s, slot, span, len) {
+    const w = this.world;
+    const [ux, uz] = this.sites.dirU(s);
+    const [vx, vz] = this.sites.dirV(s);
+    const y0 = s.y;
+    for (let du = -span / 2; du <= span / 2; du += 2) {
+      for (let dv = -len / 2; dv <= len / 2; dv += 2) {
+        const x = Math.floor(slot.x + ux * du + vx * dv);
+        const z = Math.floor(slot.z + uz * du + vz * dv);
+        if (!w.getChunk(x >> 4, z >> 4)) return null;
+        if (!IS_SOLID[w.getBlock(x, y0, z)]) return false;
+        for (let y = y0 + 1; y <= y0 + 4; y++) if (IS_SOLID[w.getBlock(x, y, z)]) return false;
+      }
+    }
+    return true;
+  }
+
+  // Sets out the aircraft of airport s that aren't there yet (more when the group grows).
+  _fill(s, jets) {
+    const veh = this.vehicles;
+    const slots = this.sites.parkingSlots(s);
+    const n = Math.min(this.fighterCount(s), slots.fighters.length);
+    const have = new Set(jets.map((j) => j.parkKey));
+    const put = (slot, jetType, span, len) => {
+      if (have.has(slot.key) || this.taken.has(slot.key)) return;
+      const ok = this._clear(s, slot, span, len);
+      if (!ok) return;
+      const jet = veh.create("jet", { jetType, pos: [slot.x, slot.y + (JET_TYPES[jetType]?.gear ?? GEAR), slot.z], yaw: slot.yaw, paint: this.paintFor(s, slot.key, jetType) });
+      if (!jet) return;
+      jet.transient = true; // never saved: the airport puts it out again next time
+      jet.keep = true; // not evicted by the vehicle cap while the airport is near
+      jet.parkedAt = s.id;
+      jet.parkKey = slot.key;
+      jets.push(jet);
+      have.add(slot.key);
+    };
+    // A mix of Raptors and Falcons (fixed per airport and slot), and a B-2 where there is room.
+    for (let i = 0; i < n; i++) put(slots.fighters[i], (s.seed + i) % 2 ? "f16" : "f22", 15, 16);
+    if (slots.bomber && JET_TYPES.b2) put(slots.bomber, "b2", 48, 22);
+  }
+
+  // An aircraft's colour scheme: fixed per airport and slot (the same for every player).
+  paintFor(s, key, jetType) {
+    let h = s.seed >>> 0;
+    for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619) >>> 0;
+    return h;
   }
 
   // Multiplayer: someone else boarded the aircraft parked at `key`: our copy goes.
@@ -76,48 +142,43 @@ export class AirportManager {
     if (this.timer > 0) return;
     this.timer = 1;
     const veh = this.vehicles;
-    const p = this.player.position;
     if (!this.enabled || !veh.enabled) {
       this.clear();
       return;
     }
-    // Put away the ones that are far (unless someone is in them or they flew off).
+    const people = this.positions ? this.positions() : [this.player.position];
+    if (!people.length) people.push(this.player.position);
+    // Put away the ones that are far from everyone (unless someone is in them or they flew off).
     for (const [id, jets] of this.parked) {
       const [, xs, zs] = /^(?:\w+):(-?\d+),(-?\d+)$/.exec(id) || [];
-      const d = Math.hypot(Number(xs) - p.x, Number(zs) - p.z);
+      let d = Infinity;
+      for (const q of people) d = Math.min(d, Math.hypot(Number(xs) - q.x, Number(zs) - q.z));
       if (d > FAR) {
         for (const j of jets) if (j.alive && !j.occupied && j.parkedAt && veh.vehicles.includes(j)) veh.remove(j);
         this.parked.delete(id);
         this._dropGuards(id);
       }
     }
+    for (const p of people) this._near(p);
+  }
+
+  // The airport near p: its aircraft (and guards) set out.
+  _near(p) {
+    const veh = this.vehicles;
     const s = this.sites.nearest(p.x, p.z, NEAR + 200);
     if (!s || Math.hypot(s.x - p.x, s.z - p.z) > NEAR + 100) return;
     if (this.parked.has(s.id)) {
+      const jets = this.parked.get(s.id);
+      // Slots whose chunks weren't there yet, or more aircraft for a bigger group.
+      this._fill(s, jets);
       // The bunkers wait for their own chunks (they can lie far from the apron).
-      if (this.bunkersDone.get(s.id) !== true) this._setOutBunkers(s, this.parked.get(s.id));
+      if (this.bunkersDone.get(s.id) !== true) this._setOutBunkers(s, jets);
       return;
     }
-    // Only the spots whose chunk is there to stand on.
-    const spots = this.sites.parkingSpots(s).filter((spot) => this.world.getChunk(Math.floor(spot.x) >> 4, Math.floor(spot.z) >> 4));
+    // (Not until the apron's middle is there to stand on.)
+    if (!this.world.getChunk(Math.floor(s.x) >> 4, Math.floor(s.z) >> 4)) return;
     const jets = [];
-    if (!spots.length && (s.parking || []).length) return;
-    // A stable number of aircraft per airport (1-3) from the site's seed.
-    const count = 1 + (s.seed % 3);
-    for (let i = 0; i < Math.min(count, spots.length); i++) {
-      const spot = spots[i];
-      // (Multiplayer: a jet another player took is not put out again.)
-      const key = `${s.id}#${i}`;
-      if (this.taken.has(key)) continue;
-      // A mix of Raptors and Falcons (fixed per airport and spot).
-      const jet = veh.create("jet", { jetType: (s.seed + i) % 2 ? "f16" : "f22", pos: [spot.x, spot.y + GEAR, spot.z], yaw: spot.yaw });
-      if (!jet) continue;
-      jet.transient = true; // never saved: the airport puts it out again next time
-      jet.keep = true; // not evicted by the vehicle cap while the airport is near
-      jet.parkedAt = s.id;
-      jet.parkKey = key;
-      jets.push(jet);
-    }
+    this._fill(s, jets);
     this.parked.set(s.id, jets);
     this._setOutBunkers(s, jets);
   }

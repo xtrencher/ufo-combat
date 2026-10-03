@@ -1978,3 +1978,90 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 - Zero console errors in the multiplayer runs (the mp suite fails on any page error).
 
 ROUND 7 COMPLETE
+
+# Round 8 (UFO COMBAT) checklist
+
+Source of truth for this round. Round 7 was complete before this round started. Ticked as finished; decisions in "Round 8 decisions and notes".
+
+## Part 1: Multiplayer bug fixes
+- [x] 1.1 Join flow: nickname once + room code, Play, straight into the world
+- [x] 1.2 PvP with all weapons and melee; host setting "PvP / friendly fire" (default ON, also co-op); kills credited
+- [x] 1.3 Everything synchronized (crates, dropped items, mobs, aliens, UFOs, jets, projectiles, explosions, blocks, parked jets, mission objects)
+- [x] 1.4 Mob state/animation desync (dead pose while alive) fixed
+- [x] 1.5 Dogfight end screen releases pointer lock, stops jet controls, buttons clickable
+- [x] 1.6 Jets spawn on a clear, flat parking spot (never intersecting or tilted)
+- [x] 1.7 Full multiplayer audit; every bug found fixed and listed
+
+## Part 2: Co-op missions and scaling
+- [ ] 2.1 Shared missions scale with player count (kills, one crate per player), anyone contributes
+- [ ] 2.2 Enemies attack all players; numbers scale in a balanced way
+- [ ] 2.3 Targets recalculated when a player joins/leaves mid-mission
+- [ ] 2.4 More supply crates with more players
+- [ ] 2.5 Airport parked aircraft scale with players (>= one fighter per player + spare)
+- [ ] 2.6 Mission chain re-checked for 1, 2, 3 players
+
+## Part 3: Animations
+- [ ] 3.1 Remote players' animations correct (melee, bow draw/shoot, firing, hands/directions)
+- [ ] 3.2 First-person bow draw natural (no hand switch)
+
+## Part 4: Gameplay
+- [ ] 4.1 Mouse sensitivity default = 60% of old default
+- [ ] 4.2 Aliens shoot from long range with sensible accuracy
+- [ ] 4.3 Creative switching never adds/leaves inventory items
+- [ ] 4.4 Pistol bullets look like machine-gun tracers
+- [ ] 4.5 UFO dash-abduction attack pattern
+- [ ] 4.6 UFO crash explosion scales with size and fall height
+- [ ] 4.7 Railgun always cuts through everything in its line
+
+## Part 5: Main menu redesign
+- [ ] 5.1 Remove UFO graphic, title, subtitle
+- [ ] 5.2 Essential buttons only (Play merged with New World; Mods and Graphics into Settings)
+- [ ] 5.3 Modern minimalist style (square corners, blue accents) across all menus
+
+## Part 6: Aircraft
+- [ ] 6.1 B-2 Spirit bomber (accurate shape; big, slow, sluggish), at airports (wider runways)
+- [ ] 6.2 Nuke only on the B-2; B-2 missiles one at a time
+- [ ] 6.3 Radar display (bottom right) in any aircraft
+- [ ] 6.4 Missile lock: no target switching, shrinking spiral reticle, LMB cancels
+- [ ] 6.5 Longer takeoff roll
+- [ ] 6.6 Free look starts from current orientation; jet holds attitude
+- [ ] 6.7 Lights off when parked, on at takeoff (reconciled with night rule)
+- [ ] 6.8 Aircraft color schemes
+
+## Part 7: Nuke and destruction
+- [ ] 7.1 Nuke removes all trees/leaves/grass/plants in radius (no floating remains)
+- [ ] 7.2 Wider crater matching the smoke cloud
+- [ ] 7.3 Blast zone knocks down/burns trees outside the crater
+
+## Part 8: World
+- [ ] 8.1 Distant buildings in LOD (airports, cities, villages)
+- [ ] 8.2 Airport/runway lights visible from far at night
+- [ ] 8.3 Bigger villages
+- [ ] 8.4 Bigger deserts, sometimes very large
+
+## Part 9: Missions
+- [ ] 9.1 Railgun mission: red aliens carry and reliably drop the railgun
+- [ ] 9.2 Airport bombing mission with the B-2 (nuke an enemy airport)
+- [ ] 9.3 "Steal the UFO" mission (guarded hangar/base, armed humans, board, escape with ghost mode)
+- [ ] 9.4 Mission chain and difficulty re-checked for 1, 2, 3 players
+
+## Final polish
+- [ ] F.1 Regression pass (single-player)
+- [ ] F.2 Multiplayer review with 2 and 3 headless pages; mp tests extended
+- [ ] F.3 Player's-eye review
+- [ ] F.4 Full test suites once
+- [ ] F.5 README
+- [ ] F.6 PROGRESS summary, audit bugs, decisions, known issues, 10-minute test
+- [ ] F.7 "ROUND 8 COMPLETE", commit, push
+
+## Round 8 decisions and notes
+(appended as work proceeds)
+
+### Part 1 (multiplayer fixes)
+- **Join flow:** Multiplayer > nickname > Join tab > code > **Play**. The page reloads into the host's world (the world is built from the host's seed, so a reload stays) but the boot screen only says "Joining room ABCDE as Bob..." (no second form; the form comes back only if joining fails), and once the host's world is in the guest is put straight into the game, without the main menu. Browsers only capture the mouse after a click, so the world shows with a light "Click to play" box (one click, anywhere). Invite links still show the form once (nickname + code + Play).
+- **PvP:** a host rule "PvP / friendly fire" in the Multiplayer screen (on by default), for Survival and Creative; Dogfight is always PvP. Players on foot are hit-testable for everything: the other players are handed to the creature system as stand-ins, so the sniper, machine gun, arrows, the rail and melee hit them through the same code paths, and bolts (pistol, blaster, minigun, UFO cannon) get a provider of their own. A hit is the shooter's call (like all direct fire online) and goes to the victim, whose armour and difficulty apply ("Killed by Bob"; the killer gets a toast and a "Players taken down" stat). With the rule off, other players' bullets, blades and explosives don't hurt you. Decision: a nuke still hurts everyone (it is a nuke).
+- **One shared world (host is the truth):** supply crates are the host's (one per player when they come, each near its player; every peer computes the same fall from the drop point; the first player to reach a crate opens it, the host decides). Every item that drops anywhere (mined blocks, creature drops, loot, thrown stacks, a dead player's things) is one shared item with host-arbitrated pickup (shared items no longer fly toward each player's own position). Kill loot is rolled once, by the killer, and dropped for everyone; the roll counts a weapon as "owned" only when *every* player has it (so drops fill the group's gaps). Animals and villagers are the host's too (only butterflies, parrots and fish stay each player's own decoration). Airport guards are set out around every player. Meteor-storm rings, star fragments and the Overlord's shield shimmer are drawn for everyone. Each guest's mission marker points at the nearest target of the mission to *them*.
+- **Mob dead-pose bug (root cause):** snapshot interpolation blended *bit-flag words*: a zombie going from "on the ground" (4) to "on the ground + has a target" (12) read 5..11 in between, and every odd value meant "dead" (so it lay down for good while it still walked and hit). The same blend made UFOs look shot down, flickered jets' gear/afterburner flags and the held item id of other players. Interp now has discrete keys (flags, ids, owners) that are never blended (unit test added).
+- **Dogfight end:** the results take the mouse: pointer lock released, jet controls released, no pause menu over them, and a player who went down on the last kill is revived first (their death screen used to cover the buttons: the new multiplayer test clicks the real button). "Close" / "New match" go back into the game with that click.
+- **Jets parked:** parking slots are planned from the airport layout (a row along the front of the apron, clear of the tower, terminal, radar and hangars, 19 blocks apart; a 54-block stretch for the B-2) and each footprint is checked against the real blocks (solid flat pad, nothing in the way) before an aircraft is set out, level on its wheels.
+- **Audit: bugs found and fixed** (besides the above): flags/ids blended by interpolation (mobs, UFOs, jets, players, vehicle owners); crates seen by one player only; personal loot and personal creature drops; animals and villagers different for every player; guards around the host only; meteor rings/fragments and the boss shield host-only; the marker following the host's target for everyone; the Dogfight results covered by the death screen; "your own grenade" in other players' feeds (now "their own"); a client could not send a message to one other client (added `net.toPlayer`, relayed by the host); the joining guest saw the nickname form twice and then a main menu.

@@ -204,6 +204,7 @@ export class HeldItem {
 
   // Fires the held gun: recoil kick and a muzzle flash.
   fire(power = 1) {
+    this.shots = ((this.shots || 0) + 1) % 1000; // (online: other players see the shot)
     this._kick = 1;
     this._kickPower = power;
     this._flash = 0;
@@ -283,16 +284,20 @@ export class HeldItem {
       }
       const k = this._bowPose;
       if (k > 0) {
-        m.position.x += (-0.2 - this.base.pos.x) * k;
-        m.position.y += (-0.17 - this.base.pos.y) * k;
-        m.position.z += (-0.52 - this.base.pos.z) * k;
+        // (Round 8) The bow stays on the same side and keeps facing the same
+        // way: it is raised toward the middle and turned upright in its own
+        // plane, the arrow pointing in at the crosshair. (It used to swing over
+        // to the left and flip round, which looked like a change of hands.)
+        m.position.x += (0.15 - this.base.pos.x) * k;
+        m.position.y += (-0.16 - this.base.pos.y) * k;
+        m.position.z += (-0.5 - this.base.pos.z) * k;
         m.rotation.x += (0.0 - this.base.rot.x) * k;
-        m.rotation.y += (0.95 - this.base.rot.y) * k;
-        m.rotation.z += (-0.785 - this.base.rot.z) * k;
+        m.rotation.y += (-0.95 - this.base.rot.y) * k;
+        m.rotation.z += ((3 * Math.PI) / 4 - this.base.rot.z) * k;
         // Drawing pulls the whole bow a little back and toward the eye.
         const d = this.bowDraw;
         m.position.z += d * 0.05;
-        m.position.x += d * 0.03;
+        m.position.x -= d * 0.02;
         if (d >= 1) {
           m.position.x += (Math.random() - 0.5) * 0.007;
           m.position.y += (Math.random() - 0.5) * 0.007;

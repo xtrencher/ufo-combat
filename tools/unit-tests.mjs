@@ -1704,6 +1704,17 @@ console.log("Multiplayer (js/net)");
     assert.ok(tp.p[0] === 0 || tp.p[0] === 500, `teleport drawn at ${tp.p[0]}`);
   });
 
+  await test("interpolation never blends flags or ids (Round 8: a walking zombie never reads as dead)", () => {
+    const ip = new Interp({ angles: ["y"] });
+    // On the ground (4), then on the ground with a target (12): halfway, a blend would be 8 or an odd 5..11.
+    for (let i = 0; i <= 10; i++) ip.push({ ts: i * 0.05, p: [i * 0.2, 0, 0], v: [4, 0, 0], f: i % 2 ? 12 : 4, h: i % 2 ? 300 : 7 }, i * 0.05);
+    for (let t = 0.12; t < 0.6; t += 0.007) {
+      const s = ip.sample(t);
+      assert.ok(s.f === 4 || s.f === 12, `flags ${s.f} at ${t}`);
+      assert.ok(s.h === 7 || s.h === 300, `held item ${s.h} at ${t}`);
+    }
+  });
+
   await test("a block-edit batch survives the wire (the run-length format, per chunk)", () => {
     const map = new Map();
     for (let i = 0; i < 400; i++) map.set(blockIndex(i % 16, 30 + (i >> 8), (i >> 4) % 16), i % 3 === 0 ? 0 : 5);

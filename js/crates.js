@@ -92,7 +92,14 @@ export class SupplyCrates {
     this.progress = progress;
     this.stats = stats;
     this.crates = [];
+    this._id = 1;
     this.enabled = false; // Survival with mods on
+    // Online (js/net/crates.js): the host drops the crates (one per player)
+    // and everyone sees them; the first player to reach one opens it.
+    this.targets = null; // () => [player-like]: who crates come down near (host)
+    this.onDropped = null; // (crate) => void (host: tell the others)
+    this.canOpen = null; // (crate) => bool: false while the host decides who gets it
+    this.onExpired = null; // (crate) => void
     this.timer = FIRST_DELAY[0] + Math.random() * (FIRST_DELAY[1] - FIRST_DELAY[0]);
     this.onMessage = null; // (text) => void
     this.onOpen = null; // (items) => void
@@ -118,14 +125,23 @@ export class SupplyCrates {
     return this.crates.filter((c) => c.state !== "gone");
   }
 
-  // Sends a crate down near the player. opts.dist: how far (blocks).
+  // Sends a crate down near the player (opts.center: near that point
+  // instead). opts.dist: how far (blocks). opts.net: a crate another peer
+  // dropped ({ id, x, z, y, sway, age }): made exactly like theirs.
   drop(opts = {}) {
-    const p = this.player.position;
-    const site = this._findLand(p, opts.dist ?? 55 + Math.random() * 60);
-    if (!site) return null; // all water around: no drop
-    const { x, z } = site;
-    const g = this.world.heightAt(Math.floor(x), Math.floor(z));
-    const y = Math.min(300, Math.max(g, p.y) + 130);
+    const p = opts.center || this.player.position;
+    let x;
+    let z;
+    let y;
+    if (opts.net) {
+      ({ x, z, y } = opts.net);
+    } else {
+      const site = this._findLand(p, opts.dist ?? 55 + Math.random() * 60);
+      if (!site) return null; // all water around: no drop
+      ({ x, z } = site);
+      const g = this.world.heightAt(Math.floor(x), Math.floor(z));
+      y = Math.min(300, Math.max(g, p.y) + 130);
+    }
     const group = new THREE.Group();
     const box = new THREE.Mesh(this._geo, this._mat);
     box.castShadow = true;
@@ -148,10 +164,16 @@ export class SupplyCrates {
     group.add(cords);
     group.position.set(x, y, z);
     this.scene.add(group);
-    const crate = { pos: new THREE.Vector3(x, y, z), group, canopy, cords, state: "falling", age: 0, smokeT: 0, x, z, sway: Math.random() * 6 };
+    const crate = { id: opts.net?.id ?? this._id++, pos: new THREE.Vector3(x, y, z), group, canopy, cords, state: "falling", age: 0, smokeT: 0, x, z, y0: y, sway: opts.net?.sway ?? Math.random() * 6 };
     this.crates.push(crate);
-    this.onMessage?.("SUPPLY CRATE dropping nearby! Follow the orange smoke.");
-    this.audio?.playSupply?.();
+    // (A crate that has been on its way a while when it reaches us: where it is by now.)
+    if (opts.net?.age > 0) this._advance(crate, opts.net.age);
+    const me = this.player.position;
+    if (Math.hypot(me.x - x, me.z - z) < 260) {
+      this.onMessage?.("SUPPLY CRATE dropping nearby! Follow the orange smoke.");
+      this.audio?.playSupply?.();
+    }
+    if (!opts.net) this.onDropped?.(crate);
     return crate;
   }
 
@@ -189,36 +211,53 @@ export class SupplyCrates {
     return s >= 0 ? s + 1 : this.world.heightAt(Math.floor(x), Math.floor(z)) + 1;
   }
 
+  // The players crates come down near (online: everyone in the game, one crate each).
+  _people() {
+    const list = this.targets ? this.targets().filter((t) => !t.dead && !t.creative) : null;
+    if (list) return list;
+    return this.player.dead || this.player.creative ? [] : [this.player];
+  }
+
+  // The fall, `dt` seconds of it (deterministic: every peer sees the same path).
+  _advance(c, dt) {
+    if (c.state !== "falling") return;
+    c.age += dt;
+    const t = c.age;
+    c.pos.y = c.y0 - FALL_SPEED * t;
+    c.pos.x = c.x + Math.sin(t * 0.7 + c.sway) * 1.5;
+    c.pos.z = c.z + Math.cos(t * 0.6 + c.sway) * 1.5;
+    const ground = this._surface(c.pos.x, c.pos.z);
+    if (c.pos.y <= ground + 0.6) {
+      c.pos.y = ground + 0.6;
+      c.state = "landed";
+      c.canopy.visible = false;
+      c.cords.visible = false;
+      return true;
+    }
+    c.group.rotation.z = Math.sin(t * 0.8) * 0.06;
+    c.canopy.rotation.x = Math.sin(t * 0.9) * 0.05;
+    return false;
+  }
+
   update(dt) {
-    const pl = this.player;
     const fx = this.effects;
-    if (this.enabled && !pl.dead && !pl.creative && this.randomAllowed()) {
-      this.timer -= dt;
+    if (this.enabled && this.spawning !== false && this.randomAllowed()) {
+      const people = this._people();
+      if (people.length) this.timer -= dt;
       if (this.timer <= 0 && this.active.length === 0) {
         this.timer = INTERVAL[0] + Math.random() * (INTERVAL[1] - INTERVAL[0]);
-        this.drop();
+        // One crate per player (online), each near its player.
+        for (const t of people) this.drop({ center: t.position });
       }
     }
     for (let i = this.crates.length - 1; i >= 0; i--) {
       const c = this.crates[i];
-      c.age += dt;
-      const t = c.age;
       if (c.state === "falling") {
-        c.pos.y -= FALL_SPEED * dt;
-        c.pos.x = c.x + Math.sin(t * 0.7 + c.sway) * 1.5;
-        c.pos.z = c.z + Math.cos(t * 0.6 + c.sway) * 1.5;
-        const ground = this._surface(c.pos.x, c.pos.z);
-        if (c.pos.y <= ground + 0.6) {
-          c.pos.y = ground + 0.6;
-          c.state = "landed";
-          c.canopy.visible = false;
-          c.cords.visible = false;
+        if (this._advance(c, dt)) {
           // The canopy sinks in a soft puff.
           for (let k = 0; k < 10; k++) fx.smoke.spawn({ x: c.pos.x, y: c.pos.y + 1, z: c.pos.z, vx: (Math.random() - 0.5) * 3, vy: 1, vz: (Math.random() - 0.5) * 3, life: 1.6, size0: 0.8, size1: 3, color0: this._grey[1], color1: this._grey[1], alpha: 0.5, drag: 1.5 });
         }
-        c.group.rotation.z = Math.sin(t * 0.8) * 0.06;
-        c.canopy.rotation.x = Math.sin(t * 0.9) * 0.05;
-      }
+      } else c.age += dt;
       c.group.position.copy(c.pos);
       // Orange smoke, a column that lasts until the crate is opened.
       c.smokeT -= dt;
@@ -228,13 +267,15 @@ export class SupplyCrates {
         fx.smoke.spawn({ x: c.pos.x, y: top, z: c.pos.z, vx: (Math.random() - 0.5) * 0.6, vy: 5 + Math.random() * 3, vz: (Math.random() - 0.5) * 0.6, life: 7 + Math.random() * 3, size0: 0.9, size1: 5.5, color0: this._smoke[0], color1: this._grey[1], alpha: 0.85, drag: 0.15 });
         if (Math.random() < 0.5) fx.glow.spawn({ x: c.pos.x, y: c.pos.y + 1.2, z: c.pos.z, life: 0.2, size0: 1.6, size1: 0.6, color0: this._smoke[0], alpha: 0.8 });
       }
-      // Opening: walk up to it (or stand on it).
+      // Opening: walk up to it (or stand on it). (Online the host decides who gets it.)
+      const pl = this.player;
       if (c.state === "landed" && !pl.dead) {
         const d = Math.hypot(pl.position.x - c.pos.x, pl.position.z - c.pos.z);
-        if (d < OPEN_REACH && Math.abs(pl.position.y - c.pos.y) < 4) this._open(c);
+        if (d < OPEN_REACH && Math.abs(pl.position.y - c.pos.y) < 4 && (!this.canOpen || this.canOpen(c))) this.open(c);
       }
-      if (c.state === "landed" && c.age > LIFETIME) {
+      if (c.state === "landed" && c.age > LIFETIME * (c.remote ? 1.5 : 1)) {
         c.state = "gone";
+        this.onExpired?.(c);
       }
       if (c.state === "gone") {
         this.scene.remove(c.group);
@@ -243,7 +284,8 @@ export class SupplyCrates {
     }
   }
 
-  _open(c) {
+  // This player opens crate c (online: the host said it is theirs).
+  open(c) {
     c.state = "gone";
     const owned = new Set();
     for (const s of this.inventory.slots) if (s) owned.add(s.id);
@@ -267,6 +309,16 @@ export class SupplyCrates {
   clear() {
     for (const c of this.crates) this.scene.remove(c.group);
     this.crates.length = 0;
+  }
+
+  byId(id) {
+    return this.crates.find((c) => c.id === id) || null;
+  }
+
+  // A crate goes without being opened here (someone else opened it, or it expired).
+  remove(id) {
+    const c = this.byId(id);
+    if (c) c.state = "gone";
   }
 
   // The nearest crate to a point: { crate, dist, dx, dz } or null (for the HUD).

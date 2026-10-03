@@ -12,6 +12,8 @@
 import { INTERP_DELAY, MAX_EXTRAPOLATE } from "./config.js";
 
 const TAU = Math.PI * 2;
+// Keys that are never blended (see Interp).
+export const DISCRETE = ["f", "h", "o", "al", "n", "veh", "fx", "id"];
 
 function lerpAngle(a, b, k) {
   let d = (b - a) % TAU;
@@ -56,8 +58,13 @@ function slerpQuat(a, b, k, out) {
 // taken from the older state. `p` is the position, `v` the velocity (for
 // extrapolation and the snap test).
 export class Interp {
-  constructor({ angles = ["y", "pi"], quats = ["q"], snap = 40 } = {}) {
+  // `discrete`: values that must never be blended (bit flags, item ids,
+  // owners, states): a blend of two flag words reads as flags neither state
+  // had (Round 8: a walking zombie between "on the ground" (4) and "on the
+  // ground + has a target" (12) read 5..11, and the odd ones meant "dead").
+  constructor({ angles = ["y", "pi"], quats = ["q"], snap = 40, discrete = DISCRETE } = {}) {
     this.buf = [];
+    this.discrete = new Set(discrete);
     this.angles = new Set(angles);
     this.quats = new Set(quats);
     this.snap = snap; // blocks: a jump this much beyond what the speed explains snaps
@@ -116,7 +123,8 @@ export class Interp {
     for (const key in b) {
       const va = a[key];
       const vb = b[key];
-      if (typeof vb === "number" && typeof va === "number") out[key] = this.angles.has(key) ? lerpAngle(va, vb, k) : va + (vb - va) * k;
+      if (this.discrete.has(key)) out[key] = k < 0.5 ? va ?? vb : vb;
+      else if (typeof vb === "number" && typeof va === "number") out[key] = this.angles.has(key) ? lerpAngle(va, vb, k) : va + (vb - va) * k;
       else if (Array.isArray(vb) && Array.isArray(va) && va.length === vb.length) {
         if (this.quats.has(key) && vb.length === 4) out[key] = slerpQuat(va, vb, k, out[key] && out[key].length === 4 ? out[key] : [0, 0, 0, 1]);
         else {

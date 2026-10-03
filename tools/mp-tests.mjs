@@ -406,12 +406,136 @@ await check("the host's AI goes for the client: a zombie near the client hunts a
   }, cpos);
   const shown = await until(client, (g, id) => !!g.mp.entities.mobById.get(id), 15000, zid);
   assert(shown, "the zombie never appeared on the client");
+  // (Round 8: its state is never shown wrong: no "dead" pose while it walks and attacks.)
+  await client.evaluate((id) => {
+    const g = window.__ufo;
+    window.__deadSeen = 0;
+    const f = () => {
+      const m = g.mp.entities.mobById.get(id);
+      if (m && m.dead) window.__deadSeen++;
+      if (!window.__stopDeadWatch) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  }, zid);
   const hurt = await until(client, (g) => g.player.health < 20 && g.player.health, 25000);
   assert(hurt, "the client was never hurt by the host's zombie");
+  const deadSeen = await client.evaluate(() => {
+    window.__stopDeadWatch = true;
+    return window.__deadSeen;
+  });
+  assert(deadSeen === 0, `the client drew the living zombie dead in ${deadSeen} frames`);
   await v(host, (g, id) => {
     const m = g.mobs.mobs.find((x) => x.id === id);
     if (m) m.dead = true;
   }, zid);
+});
+
+await check("PvP: the client's shots and sword hurt the host on foot; with the host's PvP rule off they don't", async () => {
+  // Both in Survival, the client a few blocks from the host, facing it.
+  await v(host, (g) => {
+    g.mp.rules.setMode("survival");
+    if (g.player.dead) g.respawn();
+    g.player.flying = false;
+    g.player.health = 20;
+  });
+  await until(client, (g) => g.player.mode === "survival", 10000);
+  // (Placed and aimed in one go, from a spot with a clear line to the host's chest.)
+  const aim = `(g) => {
+    if (g.player.dead) g.respawn();
+    const r = g.mp.players.get(1);
+    const chest = r.position.clone().add(new g.THREE.Vector3(0, 1.1, 0));
+    for (const [dx, dy, dz] of [[3, 0, 0], [-3, 0, 0], [0, 0, 3], [0, 0, -3], [2.5, 1.5, 0], [-2.5, 1.5, 0], [0, 2, 2.5], [0, 2, -2.5]]) {
+      g.player.position.set(r.position.x + dx, r.position.y + dy, r.position.z + dz);
+      g.player.velocity.set(0, 0, 0);
+      const eye = g.player.getEyePosition();
+      const d = chest.clone().sub(eye);
+      const len = d.length();
+      if (!g.world.raycast(eye, d.clone().normalize(), len, { solidOnly: true })) break;
+    }
+    const eye = g.player.getEyePosition();
+    const d = chest.clone().sub(eye);
+    g.player.yaw = Math.atan2(-d.x, -d.z);
+    g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+  }`;
+  const aimAnd = (body) => v(client, new Function("g", `(${aim})(g); return (${body})(g);`));
+  assert(await v(host, (g) => g.mp.pvp === true), "PvP is not on by default");
+  await sleep(800);
+  const before = await v(host, (g) => g.player.health);
+  const r = await aimAnd((g) => {
+    g.weapons.enabled = true;
+    return g.weapons.fireSniper();
+  });
+  assert(r && r.type === "mob", `the sniper shot did not hit the host: ${JSON.stringify(r)}`);
+  const hurt = await until(host, (g, b) => g.player.health < b || g.player.dead, 8000, before);
+  assert(hurt, "the host was not hurt by the client's shot");
+  // Melee: the sword (a creature hit through the same stand-in).
+  await v(host, (g) => {
+    if (g.player.dead) g.respawn();
+    g.player.health = 20;
+  });
+  await sleep(1200);
+  const meleeHit = await aimAnd((g) => {
+    const eye = g.player.getEyePosition();
+    const hit = g.mobs.raycast(eye, g.player.getForwardVector(), 6);
+    return hit && hit.mob.isRemotePlayer ? g.mobs.attack(hit.mob, { type: "sword", damage: 6 }) : false;
+  });
+  assert(meleeHit, "the client's swing found no player");
+  const meleeHurt = await until(host, (g) => g.player.health < 20 || g.player.dead, 8000);
+  assert(meleeHurt, "the sword did not hurt the host");
+  // The host turns PvP off (lobby checkbox): nothing hurts any more.
+  await host.evaluate(() => {
+    const cb = document.getElementById("mp-lobby-pvp");
+    cb.checked = false;
+    cb.dispatchEvent(new Event("change"));
+  });
+  const off = await until(client, (g) => g.mp.pvp === false, 8000);
+  assert(off, "the client never got the PvP rule");
+  await v(host, (g) => {
+    if (g.player.dead) g.respawn();
+    g.player.health = 20;
+  });
+  await sleep(800);
+  const r2 = await aimAnd((g) => g.weapons.fireSniper());
+  await sleep(1500);
+  const h2 = await v(host, (g) => g.player.health);
+  assert(h2 === 20 && r2.type !== "mob", `with PvP off: host ${h2}, shot ${JSON.stringify(r2)}`);
+  await v(host, (g) => g.mp.rules.setPvp(true));
+  await until(client, (g) => g.mp.pvp === true, 8000);
+});
+
+await check("one shared world: a supply crate and dropped items are the same for both, and only one player opens the crate", async () => {
+  const id = await v(host, (g) => {
+    const r = g.mp.players.get([...g.mp.players.remotes.keys()][0]);
+    const c = g.crates.drop({ center: r.livePos, dist: 12 });
+    return c && c.id;
+  });
+  assert(id, "the host could not drop a crate");
+  const seen = await until(client, (g, i) => g.crates.byId(i) && g.crates.byId(i).pos.toArray(), 10000, id);
+  assert(seen, "the client never saw the host's crate");
+  // Both fast-forward the fall (it is the same path everywhere), the client walks up to it.
+  await v(host, (g, i) => g.crates._advance(g.crates.byId(i), 60), id);
+  const opened0 = await v(client, (g) => g.stats.world.cratesOpened);
+  const landed = await v(client, (g, i) => {
+    const c = g.crates.byId(i);
+    g.crates._advance(c, 60);
+    if (g.player.dead) g.respawn();
+    g.player.position.set(c.pos.x + 0.5, c.pos.y, c.pos.z);
+    return c.state;
+  }, id);
+  assert(landed === "landed", `crate state ${landed}`);
+  const opened = await until(client, (g, a) => g.stats.world.cratesOpened > a.o && !g.crates.byId(a.i), 10000, { o: opened0, i: id });
+  assert(opened, "the client could not open the crate");
+  const goneOnHost = await until(host, (g, i) => !g.crates.byId(i) || g.crates.byId(i).state === "gone", 8000, id);
+  assert(goneOnHost, "the crate is still there on the host");
+  // An item that drops on the host (a broken block) shows up for the client too.
+  const key = await v(host, (g) => {
+    const p = g.player.position;
+    const it = g.entities.spawn(12, 2, new g.THREE.Vector3(p.x + 40, p.y + 1, p.z));
+    return it && it.shared;
+  });
+  assert(key, "the host's dropped item is not shared");
+  const there = await until(client, (g, k) => g.mp.items.byKey.has(k), 8000, key);
+  assert(there, "the client never saw the host's dropped item");
 });
 
 await check("Survival together: the client follows the host's mission, and a finished mission rewards both", async () => {
@@ -567,6 +691,14 @@ await check("Dogfight: everyone in a jet, PvP hits, kills and deaths on the scor
   // The client's scoreboard shows the same numbers.
   const board = await v(client, (g, pid) => ({ host: g.mp.dogfight.scores.get(1), me: g.mp.dogfight.scores.get(pid) }), bob);
   assert(board.host.k === 3 && board.me.d === 3, JSON.stringify(board));
+  // (Round 8) The mouse is free for the results: no pointer lock, no pause menu over them,
+  // and a real click on the buttons works (Playwright clicks only what is on top).
+  for (const [page, name] of [[host, "host"], [client, "client"]]) {
+    const st = await page.evaluate(() => ({ lock: !!document.pointerLockElement, pause: !document.getElementById("pause-menu").classList.contains("hidden"), state: window.__ufo.gameState }));
+    assert(!st.lock && !st.pause && st.state !== "playing", `${name}: ${JSON.stringify(st)}`);
+  }
+  await client.click("#mp-result-close", { timeout: 5000 });
+  assert(await client.evaluate(() => document.getElementById("mp-results").classList.contains("hidden")), "Close did not close the results");
 });
 
 await check("a client leaving: the host drops it; joining again (same nickname) brings its things back", async () => {

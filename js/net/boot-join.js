@@ -85,6 +85,16 @@ export function bootJoin(net, rawCode) {
     auto = sessionStorage.getItem(AUTOJOIN_KEY) === codeEl.value && !!nickEl.value;
     sessionStorage.removeItem(AUTOJOIN_KEY);
   } catch {}
+  // Coming from the Multiplayer screen (nickname and code already typed):
+  // no form, just "Joining..." (the form comes back only if it fails).
+  const fields = overlay.querySelectorAll(".mp-field");
+  const showForm = (on) => {
+    for (const f of fields) f.classList.toggle("hidden", !on);
+    joinBtn.classList.toggle("hidden", !on);
+    const h = overlay.querySelector("h2");
+    if (h) h.textContent = on ? "Join a multiplayer game" : "Joining the game";
+  };
+  showForm(!auto);
   return new Promise((resolve) => {
     let busy = false;
     const setBusy = (on, text = "") => {
@@ -120,15 +130,17 @@ export function bootJoin(net, rawCode) {
       url.searchParams.set("join", code);
       url.searchParams.delete("seed");
       history.replaceState(null, "", url.toString());
-      setBusy(true, `Connecting to room ${code}...`);
+      setBusy(true, `Connecting to room ${code} as ${nick}...`);
       try {
         const welcome = await net.join(code, { nick });
         setBusy(false, "");
         status.textContent = `Joined ${welcome.hostNick || "the host"}'s game. Loading the world...`;
+        status.classList.add("busy");
         net.onStatus = null;
         resolve(welcome);
       } catch (err) {
         setBusy(false, "");
+        showForm(true);
         joinBtn.textContent = "Try again";
         showError(errEl, err);
       }

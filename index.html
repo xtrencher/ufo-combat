@@ -1155,6 +1155,11 @@
   .mp-host-only.locked { opacity: 0.55; pointer-events: none; }
   .mp-note { font-size: 12px; color: var(--ui-dim); line-height: 1.45; margin: 4px 0 10px; }
   #mp-join-boot, #mp-ended { z-index: 260; }
+  #mp-results { z-index: 250; }
+  #click-to-play { position: fixed; inset: 0; z-index: 150; display: flex; align-items: center; justify-content: center; cursor: pointer; background: rgba(6,10,18,0.35); }
+  #click-to-play > div { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 34px; background: var(--ui-panel, rgba(12,18,28,0.85)); border: 1px solid var(--ui-line-strong, rgba(255,255,255,0.2)); }
+  #click-to-play b { font: 800 26px var(--ui-font); letter-spacing: 3px; text-transform: uppercase; color: var(--ui-text); }
+  #click-to-play small { font: 500 13px var(--ui-font); color: var(--ui-dim); }
   #mp-hud { position: fixed; top: 8px; left: 8px; z-index: 12; pointer-events: none; font: 600 11px var(--ui-font); color: var(--ui-text); text-shadow: 0 1px 3px #000; display: flex; flex-direction: column; gap: 4px; }
   #mp-hud.hidden { display: none; }
   #mp-hud .mp-chip { background: rgba(10,15,24,0.6); border: 1px solid var(--ui-line); border-radius: 9px; padding: 4px 9px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
@@ -1252,7 +1257,7 @@
           <input type="text" id="mp-code" class="mp-code" maxlength="9" placeholder="ABCDE" autocomplete="off" spellcheck="false" />
         </div>
         <div class="mp-note">Joining opens the host's world (your own worlds are not changed).</div>
-        <div class="menu-buttons"><button class="btn big primary" id="mp-join-btn" type="button">Join</button></div>
+        <div class="menu-buttons"><button class="btn big primary" id="mp-join-btn" type="button">Play</button></div>
       </div>
       <div id="mp-screen-status" class="mp-status"></div>
       <div id="mp-screen-error" class="mp-error hidden"></div>
@@ -1276,6 +1281,10 @@
             <option value="creative">Creative</option>
             <option value="dogfight">Dogfight</option>
           </select>
+        </div>
+        <div class="row">
+          <label for="mp-lobby-pvp">PvP / friendly fire</label>
+          <input type="checkbox" id="mp-lobby-pvp" checked />
         </div>
         <div class="row mp-dogfight-row">
           <label for="mp-lobby-deaths">Dogfight: deaths until you're out</label>
@@ -1309,7 +1318,7 @@
       <div id="mp-boot-status" class="mp-status"></div>
       <div id="mp-boot-error" class="mp-error hidden"></div>
       <div class="menu-buttons">
-        <button class="btn big primary" id="mp-boot-join" type="button">Join</button>
+        <button class="btn big primary" id="mp-boot-join" type="button">Play</button>
         <a class="btn secondary" id="mp-boot-solo" href="./">Play single player instead</a>
       </div>
     </div>
@@ -1325,6 +1334,8 @@
       </div>
     </div>
   </div>
+
+  <div id="click-to-play" class="hidden"><div><b>Click to play</b><small>You're in the game. Click anywhere to take the controls.</small></div></div>
 
   <div id="mp-results" class="overlay hidden">
     <div class="panel">

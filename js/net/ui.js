@@ -55,6 +55,7 @@ export class MpMenus {
       g.showMenuAfterLeave?.();
     });
     $("mp-lobby-mode").addEventListener("change", (e) => this.mp.rules?.setMode(e.target.value));
+    $("mp-lobby-pvp").addEventListener("change", (e) => this.mp.rules?.setPvp(e.target.checked));
     $("mp-lobby-deaths").addEventListener("change", (e) => this.mp.dogfight?.setDeathLimit(Number(e.target.value)));
     $("mp-lobby-restart").addEventListener("click", () => this.mp.dogfight?.restart());
     // Game ended.
@@ -68,8 +69,14 @@ export class MpMenus {
       window.location.reload();
     });
     // Dogfight results.
-    $("mp-result-close").addEventListener("click", () => this.mp.dogfight?.closeResults());
-    $("mp-result-again").addEventListener("click", () => this.mp.dogfight?.restart());
+    $("mp-result-close").addEventListener("click", () => {
+      this.mp.dogfight?.closeResults();
+      g.resumePlay?.();
+    });
+    $("mp-result-again").addEventListener("click", () => {
+      this.mp.dogfight?.restart();
+      g.resumePlay?.();
+    });
     g.screens.onOpen["mp-lobby"] = () => this.refresh();
     g.screens.onOpen["mp-screen"] = () => {
       $("mp-screen-error").classList.add("hidden");
@@ -208,6 +215,8 @@ export class MpMenus {
     $("mp-lobby-mode").value = mp.mode;
     $("mp-lobby-mode").disabled = !net.isHost;
     $("mp-lobby-deaths").disabled = !net.isHost;
+    $("mp-lobby-pvp").checked = mp.pvp !== false;
+    $("mp-lobby-pvp").disabled = !net.isHost;
     if (mp.dogfight) $("mp-lobby-deaths").value = String(mp.dogfight.deathLimit);
     for (const el of document.querySelectorAll(".mp-dogfight-row")) el.classList.toggle("hidden", mp.mode !== "dogfight");
     $("mp-lobby-restart").classList.toggle("hidden", !net.isHost);

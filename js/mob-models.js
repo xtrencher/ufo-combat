@@ -986,8 +986,10 @@ const PLAYER = {
     { name: "legR", size: [4, 12, 4], pivot: [2, 12, 0], from: [-2, -12, -2] },
     { name: "body", size: [8, 12, 4], pivot: [0, 12, 0], from: [-4, 0, -2] },
     { name: "head", size: [8, 8, 8], pivot: [0, 24, 0], from: [-4, 0, -4], parent: "body" },
-    { name: "armL", size: [4, 12, 4], pivot: [-6, 22, 0], from: [-2, -10, -2], parent: "body" },
-    { name: "armR", size: [4, 12, 4], pivot: [6, 22, 0], from: [-2, -10, -2], parent: "body" },
+    // (The model faces +Z: its right hand is on the -X side. Round 8: the
+    // arms were the wrong way round, so the item was in the left hand.)
+    { name: "armL", size: [4, 12, 4], pivot: [6, 22, 0], from: [-2, -10, -2], parent: "body" },
+    { name: "armR", size: [4, 12, 4], pivot: [-6, 22, 0], from: [-2, -10, -2], parent: "body" },
   ],
   paint(s) {
     const skin = hex(0xd29a6e);
@@ -1064,10 +1066,23 @@ const PLAYER = {
     // The right arm swings with the walk, chops when mining or attacking,
     // and is raised to aim when holding a gun.
     const chop = Math.sin(st.swing * Math.PI);
-    p.armR.rotation.x = st.aim ? -1.35 - st.headPitch * 0.9 : swing * 0.8 - chop * 1.6;
-    p.armR.rotation.z = st.aim ? 0 : chop * 0.3;
-    p.armL.rotation.x = st.aim === "two" ? -1.2 - st.headPitch * 0.9 : p.armL.rotation.x;
-    p.armL.rotation.y = st.aim === "two" ? 0.45 : 0;
+    const kick = st.kick || 0; // a shot's recoil: the muzzle jumps up
+    p.armR.rotation.x = st.aim ? -1.35 - st.headPitch * 0.9 - kick * 0.3 : swing * 0.8 - chop * 1.6;
+    p.armR.rotation.z = st.aim ? 0 : -chop * 0.3;
+    p.armR.rotation.y = st.aim === "two" ? 0.2 : 0;
+    p.armL.rotation.x = st.aim === "two" ? -1.2 - st.headPitch * 0.9 - kick * 0.2 : p.armL.rotation.x;
+    p.armL.rotation.y = st.aim === "two" ? -0.45 : 0;
+    // Drawing a bow: the bow arm (left) straight out where they look, the
+    // string hand (right) pulled back to the cheek.
+    if (st.aim === "bow") {
+      const d = st.draw || 0;
+      p.armL.rotation.x = -1.5 - st.headPitch * 0.95;
+      p.armL.rotation.y = -0.12;
+      p.armL.rotation.z = 0;
+      p.armR.rotation.x = -1.55 - st.headPitch * 0.95;
+      p.armR.rotation.y = 0.55 + d * 0.55;
+      p.armR.rotation.z = 0;
+    }
     p.body.rotation.x = st.sneak ? 0.45 : 0;
     p.head.rotation.x = -st.headPitch - (st.sneak ? 0.45 : 0);
     p.head.rotation.y = st.headYaw;

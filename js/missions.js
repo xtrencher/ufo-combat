@@ -933,16 +933,7 @@ export class MissionDirector {
     for (let i = st.rings.length - 1; i >= 0; i--) {
       const r = st.rings[i];
       r.t -= dt;
-      r.fx -= dt;
-      if (r.fx <= 0) {
-        r.fx = 0.1;
-        const n = Math.round(26 * Math.max(0.4, 1));
-        for (let k = 0; k < n; k++) {
-          const a = (k / n) * Math.PI * 2 + (r.t * 0.8);
-          const gy = this.world.surfaceY(Math.floor(r.pos.x + Math.cos(a) * r.r), Math.floor(r.pos.z + Math.sin(a) * r.r));
-          fx.glow.spawn({ x: r.pos.x + Math.cos(a) * r.r, y: gy + 1.2, z: r.pos.z + Math.sin(a) * r.r, life: 0.22, size0: 0.55, size1: 0.35, color0: red, alpha: 0.9 });
-        }
-      }
+      this._drawRing(r, dt);
       if (r.t <= -1) st.rings.splice(i, 1);
     }
     for (let i = (st.pending || []).length - 1; i >= 0; i--) {
@@ -962,9 +953,7 @@ export class MissionDirector {
         this.toast?.("A fragment was lost to the aliens.", 2.5);
         continue;
       }
-      // The glow: a bright core and a column of sparks rising from it.
-      fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, life: 0.08, size0: 2.6, size1: 2.0, color0: star, alpha: 0.9 });
-      if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
+      this._drawFrag(f);
       // (Online, any player picks it up.)
       const finder = (this.players ? this.players() : [this.player]).find((q) => !q.dead && Math.hypot(q.position.x - f.pos.x, q.position.z - f.pos.z) < 3 && Math.abs(q.position.y - f.pos.y) < 4);
       if (finder) {
@@ -978,6 +967,59 @@ export class MissionDirector {
       }
     }
     st.frags = st.frags.filter((f) => f.life > 0);
+  }
+
+  // A meteor's warning ring on the ground (also drawn for guests online: see coop.js).
+  _drawRing(r, dt) {
+    const fx = this.effects;
+    if (!fx) return;
+    const red = this._redC || (this._redC = new THREE.Color(3.5, 0.5, 0.25));
+    r.fx = (r.fx ?? 0) - dt;
+    if (r.fx > 0) return;
+    r.fx = 0.1;
+    const n = 26;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + r.t * 0.8;
+      const gy = this.world.surfaceY(Math.floor(r.pos.x + Math.cos(a) * r.r), Math.floor(r.pos.z + Math.sin(a) * r.r));
+      fx.glow.spawn({ x: r.pos.x + Math.cos(a) * r.r, y: gy + 1.2, z: r.pos.z + Math.sin(a) * r.r, life: 0.22, size0: 0.55, size1: 0.35, color0: red, alpha: 0.9 });
+    }
+  }
+
+  // A star fragment's glow: a bright core and a column of sparks rising from it.
+  _drawFrag(f) {
+    const fx = this.effects;
+    if (!fx) return;
+    const star = this._starC || (this._starC = new THREE.Color(1.4, 2.2, 4));
+    fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, life: 0.08, size0: 2.6, size1: 2.0, color0: star, alpha: 0.9 });
+    if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
+  }
+
+  // What a guest must see of the mission's own objects (online): rings and fragments.
+  netObjects() {
+    const st = this.state;
+    if (this.mission?.event !== "meteors" || !st.init) return null;
+    const r1 = (v) => Math.round(v * 10) / 10;
+    return {
+      r: (st.rings || []).map((r) => [r1(r.pos.x), r1(r.pos.y), r1(r.pos.z), r.r, Math.round(r.t * 2) / 2]),
+      f: (st.frags || []).map((f) => [r1(f.pos.x), r1(f.pos.y), r1(f.pos.z)]),
+    };
+  }
+
+  // A guest draws the host's mission objects (see netObjects).
+  drawNetObjects(objs, dt) {
+    if (!objs) return;
+    const keep = (this._netRings ||= new Map());
+    const seen = new Set();
+    for (const [x, y, z, rr, t] of objs.r || []) {
+      const key = `${x},${z}`;
+      seen.add(key);
+      let r = keep.get(key);
+      if (!r) keep.set(key, (r = { pos: new THREE.Vector3(x, y, z), r: rr, t, fx: 0 }));
+      r.t -= dt;
+      this._drawRing(r, dt);
+    }
+    for (const k of keep.keys()) if (!seen.has(k)) keep.delete(k);
+    for (const [x, y, z] of objs.f || []) this._drawFrag({ pos: _v.set(x, y, z) });
   }
 
   // ---------- 20. The Overlord: a shielded mothership ----------
@@ -1122,8 +1164,14 @@ export class MissionDirector {
   _fxBoss(dt) {
     const st = this.state;
     const b = st.boss;
+    if (!b || !this._alive(b) || !b.shield) return;
+    this.drawShield(b);
+  }
+
+  // The boss's shield shimmer (also drawn for guests online).
+  drawShield(b) {
     const fx = this.effects;
-    if (!b || !fx || !this._alive(b) || !b.shield) return;
+    if (!fx) return;
     const c = this._shieldC || (this._shieldC = new THREE.Color(0.3, 1.1, 2.4));
     const n = 5;
     for (let i = 0; i < n; i++) {

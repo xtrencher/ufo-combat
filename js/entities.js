@@ -102,7 +102,7 @@ export class ItemEntities {
       // Pull toward the player once collectable.
       if (center && !player.dead && it.pickupDelay <= 0) {
         const d = center.distanceTo(p);
-        if (d < PICKUP_RADIUS) {
+        if (d < (it.shared ? 1.8 : PICKUP_RADIUS)) {
           const left = this.onPickup ? this.onPickup(it) : it.count;
           if (left <= 0) {
             this._remove(i);
@@ -110,7 +110,10 @@ export class ItemEntities {
           }
           it.count = left;
           it.pickupDelay = 1; // inventory full: try again later
-        } else if (d < MAGNET_RADIUS) {
+        } else if (d < MAGNET_RADIUS && !it.shared) {
+          // (A shared item online stays put until the host gives it to someone:
+          // pulled toward each player on their own screen, it would be in
+          // different places for everyone.)
           const pull = new THREE.Vector3().subVectors(center, p).normalize().multiplyScalar(14 * dt);
           it.vel.add(pull);
         }

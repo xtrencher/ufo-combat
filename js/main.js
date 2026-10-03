@@ -53,7 +53,7 @@ import { TractorBeam } from "./tractor-beam.js";
 import { Stats } from "./stats.js";
 import { FullscreenControl } from "./fullscreen.js";
 import { NetSession, normalizeRoomCode } from "./net/session.js";
-import { bootJoin, inviteUrl } from "./net/boot-join.js";
+import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
 
 // ---------- Seed ----------
@@ -350,7 +350,7 @@ lasers.addProvider({
   // (Online, a bolt fired on another machine never hits creatures here: its shooter or the host judged that.)
   ignores: (b) => b.mirror,
   raycast(origin, dir, maxDist, bolt) {
-    const hit = mobs.raycast(origin, dir, maxDist, (m) => m !== bolt.source && !(bolt.owner === "alien" && (m.spec.alien || m.spec.sentry)));
+    const hit = mobs.raycast(origin, dir, maxDist, (m) => !m.isRemotePlayer && m !== bolt.source && !(bolt.owner === "alien" && (m.spec.alien || m.spec.sentry)));
     if (!hit) return null;
     return {
       distance: hit.distance,
@@ -979,12 +979,17 @@ stats.loadWorld(savedPlayer?.stats);
 const progress = new Progress();
 progress.load(savedPlayer?.missions, stats.world);
 const progressTier = () => progress.tier(stats.world);
-const ownedItems = () => {
+const myItems = () => {
   const set = new Set();
   for (const s of inventory.slots) if (s) set.add(s.id);
   for (const a of inventory.armor) if (a) set.add(a.id);
   return set;
 };
+// What loot rolls count as "already owned". Online it is what *every* player
+// has (js/net/coop.js): loot is shared, so a weapon a friend still lacks can
+// drop from your kill for them to pick up, and the group ends up equipped alike.
+let mpLate = null; // (the multiplayer facade, made further down)
+const ownedItems = () => (mpLate?.active && mpLate.coop?.groupOwned ? new Set(mpLate.coop.groupOwned) : myItems());
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
 function dropLoot(list, at) {
   for (const [id, n] of list) {
@@ -1332,6 +1337,7 @@ const DEATH_MESSAGES = {
 // crash, an enemy missile) keeps its own message.
 const PLAYER_WEAPONS = { grenade: "grenade", bazooka: "bazooka rocket", airstrike: "airstrike", ufocannon: "UFO cannon", nuke: "nuke", missile: "missile", cannon: "cannon" };
 function deathMessage(cause) {
+  if (typeof cause === "string" && /^pk@\d+$/.test(cause)) return `Killed by ${mp.playerName(Number(cause.slice(3)))}`;
   if (typeof cause === "string" && cause.includes("@")) {
     const m = /^([a-z_]+?)@(\d+)(_fall)?$/.exec(cause);
     if (m) {
@@ -1449,6 +1455,8 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   if (!info.mirror) vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
   else if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer ? "explosion" : "explosion_other");
   // (Another player's blast that hurts or kills you: theirs, in the death message.)
+  // (With the host's PvP / friendly fire rule off, another player's blast doesn't hurt you.)
+  if (info.mirror && info.by && info.by !== net.pid && !mp.pvpAllowed()) return;
   if (info.mirror && info.by) {
     source = `${source}@${info.by}`;
     if (vehicles.active && info.by !== net.pid && center.distanceTo(vehicles.active.pos) < radius * 2.5) {
@@ -1924,8 +1932,19 @@ function requestLock() {
 function showPause() {
   if (gameState === "start" || gameState === "dead" || gameState === "inventory") return;
   if (document.pointerLockElement === canvas) return;
-  // (The online session just ended: its own screen says what now.)
-  if (mp.ended) {
+  // (The online session just ended, or a Dogfight's results are up: their own
+  // screen says what now, and its buttons take the mouse.)
+  if (mp.ended || !document.getElementById("mp-results").classList.contains("hidden")) {
+    if (!mp.ended) {
+      gameState = "paused";
+      player.enabled = mp.active;
+      chord.reset();
+      interaction.release();
+      vehicles.releaseAll();
+      player.keys?.clear?.();
+      ui.hidePauseMenu();
+      return;
+    }
     gameState = "paused";
     player.enabled = false;
     ui.showHud(false);
@@ -1941,15 +1960,38 @@ function showPause() {
   ui.showPauseMenu(SEED, renderDistance);
 }
 
-ui.playBtn.addEventListener("click", () => {
-  audio.ensureStarted();
+// Into the game from the main menu (or, for a guest, straight from joining).
+function enterGame() {
   // Online the room decides the mode (Dogfight plays by Survival's rules, in a jet).
   setMode(mp.active ? (mp.mode === "creative" ? "creative" : "survival") : ui.modeSelect.value);
-  // (A world that hasn't had its starting loadout yet gets Creative's from fillStartingWeapons.)
-  if (player.creative && loadoutGiven) giveCreativeItems();
   fillStartingWeapons(newWorld);
   markInventoryChanged();
   if (!GUEST) saveJSON("last", { seed: SEED });
+}
+
+ui.playBtn.addEventListener("click", () => {
+  audio.ensureStarted();
+  enterGame();
+  requestLock();
+});
+
+// A guest lands in the host's world as soon as it has arrived: no main menu.
+// (The browser only captures the mouse after a click: "Click to play".)
+const clickToPlay = document.getElementById("click-to-play");
+function enterAsGuest() {
+  if (gameState !== "start") return;
+  enterGame();
+  ui.hideStartMenu();
+  screens.closeAll();
+  flyover.hide();
+  gameState = "paused";
+  player.enabled = true;
+  ui.showHud(true);
+  clickToPlay.classList.remove("hidden");
+}
+clickToPlay.addEventListener("click", () => {
+  clickToPlay.classList.add("hidden");
+  audio.ensureStarted();
   requestLock();
 });
 
@@ -2048,6 +2090,7 @@ document.addEventListener("pointerlockchange", () => {
   if (locked) {
     gameState = "playing";
     player.enabled = true;
+    clickToPlay.classList.add("hidden");
     ui.hideStartMenu();
     ui.hidePauseMenu();
     screens.closeAll();
@@ -2479,6 +2522,7 @@ const game = {
   hooks,
   progressTier,
   ownedItems,
+  myItems,
   markInventoryChanged,
   spawn: { x: spawnX, z: spawnZ },
   get gameState() {
@@ -2513,11 +2557,26 @@ const game = {
     ui.playBtn.disabled = false;
     ui.setPlayLabel("Join the game");
     refreshPlayLabels();
+    hideBootJoin();
+    if (GUEST) enterAsGuest();
   },
   // A step of the game while the tab is hidden (the background clock).
   backgroundStep() {
     const ft = clock.getDelta();
     simulate(Math.min(ft, MAX_DT), ft);
+  },
+  // Back to the controls after a screen that took the mouse (a click on its button).
+  resumePlay() {
+    clickToPlay.classList.add("hidden");
+    audio.ensureStarted();
+    if (gameState === "paused" || gameState === "playing") requestLock();
+  },
+  // The mouse is free (a screen closed without a click): "Click to play".
+  showClickToPlay() {
+    if (gameState === "paused" && document.pointerLockElement !== canvas) {
+      ui.hidePauseMenu();
+      clickToPlay.classList.remove("hidden");
+    }
   },
   // Leaving the page on purpose (no "are you sure" prompt).
   allowUnload() {
@@ -2540,6 +2599,7 @@ const game = {
   },
 };
 const mp = new Multiplayer(net, game);
+mpLate = mp;
 // The lobby's Play button: into the game (or back into it).
 function refreshPlayLabels() {
   const lobbyPlay = document.getElementById("mp-lobby-play");
@@ -3046,7 +3106,7 @@ function simulate(dt, frameTime) {
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
   held.update(dt, player, heldLight, camera, interaction.eating);
-  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0 });
+  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
   updateDebug(dt, frameTime);
   mp.update(dt);
 }
