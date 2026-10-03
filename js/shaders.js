@@ -497,7 +497,15 @@ void main() {
   // Natural color variation of leaves and grass (see mesher.js; 0.5 = none):
   // warmer, yellower one way, cooler and darker the other.
   albedo *= 1.0 + (vTint - 0.502) * vec3(0.34, 0.16, -0.3);
-  float shadow = sunShadow();
+  #ifdef USE_NORMALMAP
+    float shadow = sunShadow();
+  #else
+    // (Perf) A face turned away from the sun gets no direct sunlight, the
+    // only thing the shadow changes here: its shadow lookups (6-16 texture
+    // reads a pixel) are skipped. Not for leaves and plants (lit through
+    // from behind) or surfaces under water (caustics). Same picture.
+    float shadow = (dot(vNormal, uLightDir) > 0.0 || (flags & 24) != 0) ? sunShadow() : 1.0;
+  #endif
   #ifdef USE_NORMALMAP
     // Per-pixel relief: bumps catch and lose the light, with a specular
     // highlight whose sharpness follows the material's roughness.
