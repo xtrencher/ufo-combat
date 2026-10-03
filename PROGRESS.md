@@ -2169,6 +2169,7 @@ Goals per group size (1 / 2 / 3 players): skeleton 1/2/3, landing aliens 2/4/6, 
 11. A lost aircraft taken from an airport never came back while you stayed near (its slot stayed "used"); online the slot stayed taken on the other peers for good (Part 9).
 12. The Sunburn base was the nearest airport, i.e. usually the players' own; the "parked fighter" marker could point at the B-2 (Part 9).
 13. Distant shapes and airport lights still stood in a nuked area (polish).
+15. Mission ground spawns (squads, landing parties) refused any spot below the sea's level, so on a nuked airport (a dry crater) the Touchdown squad never came (found by the full round6 suite, which nukes the home airport first): dry crater floors are fine now, and the search widens when spots keep failing (polish).
 14. A squad leader's weapon dropped only if a living player made the kill (a leader killed by its own blast, a fall, a UFO, or by a player who died at the same moment dropped nothing) (Part 9).
 
 ## Round 8 decisions (and why)
@@ -2189,7 +2190,6 @@ Goals per group size (1 / 2 / 3 players): skeleton 1/2/3, landing aliens 2/4/6, 
 - Ambient flyers (butterflies, parrots, fish) are each player's own.
 - Distant city shapes are plain boxes (no lit windows at night); only airports have night lights from far away. Distant shapes follow the site plan, not player edits (a building a player tore down still shows from far until its chunk loads; nuked areas are handled).
 - In Steal the ship, players on foot inside the hall when the doors seal must dig out (or ride along).
-- The Touchdown check in round6-tests failed once in a full run (red squad didn't appear in 60 s) and passed alone; see the final test status.
 
 ## How to test Round 8 in 10 minutes
 Serve the folder (`npx serve .` or `python3 -m http.server`) and open it in Chrome.

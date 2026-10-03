@@ -363,7 +363,8 @@ export class MissionDirector {
       const z = Math.floor(p.z + Math.sin(a) * d);
       if (!world.getChunk(x >> 4, z >> 4)) continue;
       const top = world.surfaceY(x, z);
-      if (top < SEA_LEVEL) continue;
+      // (Not a lake or sea bed; a dry spot below the sea's level, like a nuke's crater floor, is fine.)
+      if (top < 2 || world.getBlock(x, top + 1, z) === BLOCK.WATER) continue;
       const b = world.getBlock(x, top, z);
       if (b === BLOCK.WATER || IS_LEAVES[b] || IS_LOG[b]) continue; // water, or a tree
       // (Airports and cities are paved above the natural ground: fine; a roof
@@ -542,14 +543,17 @@ export class MissionDirector {
 
   _spawnAlien(kind, dist, around = null) {
     const p = around || this.player.position;
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 24; k++) {
       const a = Math.random() * Math.PI * 2;
-      const x = Math.floor(p.x + Math.cos(a) * dist * rand(0.8, 1.2));
-      const z = Math.floor(p.z + Math.sin(a) * dist * rand(0.8, 1.2));
+      // (Wider the more tries fail: the spot can be a lake, or a nuke's crater.)
+      const r = dist * rand(0.8, 1.2) * (1 + Math.floor(k / 8));
+      const x = Math.floor(p.x + Math.cos(a) * r);
+      const z = Math.floor(p.z + Math.sin(a) * r);
       const world = this.mobs.world;
       if (!world.getChunk(x >> 4, z >> 4)) continue;
       const top = world.surfaceY(x, z);
-      if (top < SEA_LEVEL) continue;
+      // Dry ground (Round 8: below the sea's level too, e.g. a dry crater floor; not under water).
+      if (top < 2 || world.getBlock(x, top + 1, z) === BLOCK.WATER || world.getBlock(x, top, z) === BLOCK.WATER) continue;
       const m = this.mobs.spawn(kind, x + 0.5, top + 1, z + 0.5);
       if (m) {
         m.ai.target = true;
