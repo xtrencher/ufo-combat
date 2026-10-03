@@ -2138,3 +2138,77 @@ Source of truth for this round. Round 7 was complete before this round started. 
 
 ### Part 9.4 (chain and difficulty for 1, 2, 3 players)
 Goals per group size (1 / 2 / 3 players): skeleton 1/2/3, landing aliens 2/4/6, crates 1/2/3, scouts 1/2/2, crew 2/4/6, night 1, patrol 4/8/12, scout hunter 3/5/6, grays 5/10/15, take-offs 1/2/3, touchdown 1 landing + 3/6/9 squad, jet kills 2/3/4, enemy fighters 1/2/3, raiders 3/5/6, reds 3/6/9, star fragments 4/8/12, salvage 1, large UFO 1/2/2, Sunburn 1, Steal 1, Overlord 1, slayer 25/38/50. With the group: UFO count x1.3 / x1.6, UFO health x1.25 / x1.5, creature health x1.1 / x1.2, squads and leaders per player, an airport fighter for everyone. The single-player numbers are unchanged; the one-off objectives (Sunburn, Steal, Overlord) get harder online through their guards (1+N guard UFOs at the base, 2+2N soldiers in the bunker, the boss's group health) instead of their goal. The chain stays monotonic (each mission's sky rules no easier than the one before: unit test). Steal uses Sunburn's sky (max 5).
+
+### Final polish notes
+- F.2: `tools/mp-tests.mjs` now has 23 checks. New in the polish pass: a **third player** (Carol) joins through the real menus (Multiplayer > nickname > Join a game > code > Play), lands in the world with both others (seed, player list, everyone sees everyone); a mission goal grows from 4 to 6 when she joins mid-mission (her tracker shows the host's goal) and shrinks back to 4 when she leaves; airports are stocked for three (a fighter each plus a spare, the same on every peer); the host's zombie next to her shows for her. The check always lets her leave, so a failure can't spoil the two-player checks after it.
+- Found in the polish pass: distant building shapes and airport lights still stood where a nuke had swept everything away (they are built from the site plan, not the blocks). They now skip the nukes' blast zones and are rebuilt when a new zone appears.
+- Older suites updated to Round 8 rules (not to hide regressions: each was a test asserting an old behaviour that Round 8 changed on purpose): the mouse sensitivity default (two jet manoeuvre checks timed at 1.0 now set 1.0 for their duration), a scout per player (`state.scouts`), navigation lights while an aircraft is in use (day and night), 22 missions, the salvo charge shown as a spiral (the pips are now the clicks).
+
+## Round 8 summary (for the player)
+- **Multiplayer that feels like one world:** joining from the menu goes straight in (one click to take the mouse); PvP is the host's choice (on by default); crates, dropped items, animals, villagers, guards and every walking creature are the same for everyone, and only one player gets each item; zombies no longer lie "dead" while they attack; the Dogfight results can be clicked; parked aircraft stand clear and level.
+- **Co-op missions scale with the group** (kill goals per player, UFO goals by half per extra player, a leader / crate / scout per player) and follow players joining or leaving mid-mission.
+- **Animations:** other players hold things in the right hand, swing, draw the bow in the left hand and show their shots; your own first-person bow stays on the right.
+- **Gameplay:** mouse sensitivity 60% by default; aliens see and shoot from much farther; switching to Creative and back leaves your Survival inventory exactly as it was; thin pistol tracers; UFOs sometimes dash in to beam you up (a hit breaks it off); crash blasts grow with the ship's size and fall height; the railgun hits everything on its line, at any height.
+- **A new main menu:** Play (with the mode and a New world link), Multiplayer, Settings; square, blue, clean.
+- **Aircraft:** the **B-2 Spirit** (the only aircraft with the nuke), a **radar**, a missile lock that never switches targets (spiral salvo charge, left click cancels), a longer takeoff roll, free look from the current view, lights on when in use, six colour schemes.
+- **The nuke** leaves no vegetation anywhere in its zone (even ground loaded later), a wider crater, trees knocked flat and burnt beyond it.
+- **The world:** airports, cities and villages visible from far away, airport lights visible for kilometres at night, bigger villages (a plaza and well, 6-10 houses, farms, lamps, more villagers), bigger deserts (sometimes huge).
+- **Missions:** red-alien leaders carry the railgun on their backs and always drop it; Operation Sunburn is a B-2 bombing run on a far-off airport; a new mission, **Steal the ship** (a guarded bunker, a lockdown, a ghost-mode escape through the rock); 22 missions, re-checked for 1, 2 and 3 players.
+
+## Round 8 bugs found in the audit (all fixed)
+1. Snapshot interpolation blended bit-flag words and ids: mobs showed dead while alive, UFOs looked shot down, jets' gear/afterburner flags and players' held items flickered (Part 1).
+2. Supply crates, kill loot and creature drops were personal; animals and villagers differed per player; guards were set out around the host only; meteor rings/fragments and the boss shield showed on the host only; every guest's marker followed the host's target (Part 1).
+3. The Dogfight results were covered by the death screen and their buttons were unreachable without the mouse (Part 1).
+4. A guest saw the nickname form twice and a main menu when joining from the menu (Part 1).
+5. "Your own grenade" showed in other players' feeds; no way to message one other guest (Part 1).
+6. Player models held items in the left hand (arms swapped in the model); tools pointed back along the arm; the first-person bow swung to the left and flipped (Part 3).
+7. The railgun stopped at y 64 and hit only the first vehicle on its line (Part 4).
+8. A dash-abducting UFO drifted away / went back to roaming (found while building it) (Part 4).
+9. The nuke left trees and grass on ground loaded after the blast and floating half-trees at chunk borders (Part 7).
+10. Airports set out their aircraft and bunker (ship and guards) only once the runway's middle chunk was loaded: a bunker reached with a short render distance stayed empty (Part 9).
+11. A lost aircraft taken from an airport never came back while you stayed near (its slot stayed "used"); online the slot stayed taken on the other peers for good (Part 9).
+12. The Sunburn base was the nearest airport, i.e. usually the players' own; the "parked fighter" marker could point at the B-2 (Part 9).
+13. Distant shapes and airport lights still stood in a nuked area (polish).
+14. A squad leader's weapon dropped only if a living player made the kill (a leader killed by its own blast, a fall, a UFO, or by a player who died at the same moment dropped nothing) (Part 9).
+
+## Round 8 decisions (and why)
+- **PvP on by default, host-only setting:** the request asked for it; Dogfight stays PvP always. **A nuke hurts everyone even with PvP off:** it is a nuke (and it keeps the B-2 run tense).
+- **Everything shared, host decides:** one world for all players means no duplicated loot; the item-pickup race is arbitrated by the host so two players can never both get an item. Ambient flyers (butterflies, parrots, fish) stay local: they are decoration, and syncing them would only cost bandwidth.
+- **Goal scaling:** per-player goals for things everyone should do (kills, crates, take-offs), +50% per extra player for shared targets (UFOs), fixed for one-off events (Sunburn, Steal, the Overlord) which get harder through their guards instead.
+- **Main menu:** three buttons; settings-only things (graphics preset, mods, keys) moved into Settings so the first screen is just "play".
+- **Aircraft lights on when in use, day and night:** real aircraft run them whenever they operate; parked ones are dark, which also makes parked rows look calm.
+- **Nuke only on the B-2:** the request; it turns the nuke into a mission of its own (a slow bomber that needs escorts online).
+- **Distant buildings as boxes in the terrain's material:** cheap (built once per site, merged per chunk), fade with the same fog as the land, and hide the moment real chunks show; lights drawn pulled in toward the eye beyond the far plane so the far plane (and depth precision) stays as it was.
+- **Villages bigger but about as many:** a flatness check keeps the bigger pad off cliffs, and the village chance went up a little to keep the count.
+- **Steal the ship uses the existing bunkers:** they already had armed guards, a ramp and a hall; the mission adds soldiers, a lockdown and the escape rule. Ghost mode is the intended way out (the doors and rock burn); a player on foot can still dig through the doors.
+- **Leader drops on the authority:** the drop happens where the creature is real (single player / host), once, shared, and the mission waits for the pickup (max 3 minutes) so the weapon can't be lost to a despawn timer.
+
+## Round 8 known issues and limits
+- A nuke's crater still travels as the nuking player's block edits; the crater is 1.6x wider now, so a big nuke sends more data online (the blast zone itself is applied by each peer and costs nothing).
+- With PvP off, another player's nuke still hurts (by design, see decisions).
+- Ambient flyers (butterflies, parrots, fish) are each player's own.
+- Distant city shapes are plain boxes (no lit windows at night); only airports have night lights from far away. Distant shapes follow the site plan, not player edits (a building a player tore down still shows from far until its chunk loads; nuked areas are handled).
+- In Steal the ship, players on foot inside the hall when the doors seal must dig out (or ride along).
+- The Touchdown check in round6-tests failed once in a full run (red squad didn't appear in 60 s) and passed alone; see the final test status.
+
+## How to test Round 8 in 10 minutes
+Serve the folder (`npx serve .` or `python3 -m http.server`) and open it in Chrome.
+
+**Single player (about 6 minutes)**
+1. Main menu: only Play (with the Survival / Creative switch, the seed and "+ New world"), Multiplayer and Settings; Settings has Mods and Keys buttons at the top. Square corners, blue accent.
+2. Play in **Creative**: open the inventory, take a few weapons, switch to Survival in the pause menu: your Survival hotbar is back exactly as it was (nothing creative left over). Back to Creative.
+3. Fly (double-tap Space) to the nearest airport (F3 shows it). On the way, look at it from far: hangars, tower and terminal show as shapes long before they load. Press `F` at a fighter: the radar (bottom right) shows airports, UFOs and missiles. Hold right click on a UFO: a spiral closes in; a left click cancels the lock; release after the spiral is solid for a salvo, all at that target. Hold both mouse buttons: free look starts from where you were looking.
+4. Get out, walk to the **B-2** (the big flying wing on the apron), `F`, full throttle: a long roll (~300 blocks), lights come on with the roll. Climb, `B` drops the nuke (a fighter's `B` refuses). Watch the crater: wide, trees beyond it knocked flat and burnt, no grass or leaves left; fly on and back: ground loading later is cleared too.
+5. Settings > Gameplay > Time of day: about 23:00 (Creative), fly away 2-3 km and look back: the airport's runway lights are visible. Fly over a village: a plaza with a well, houses, farms, lamps, villagers.
+6. In Survival, on foot near aliens: they shoot from far (60-110 blocks). A pistol shows thin pale tracers. With UFOs around, one may dash in over you and beam you up: shoot it to break it off.
+
+**Missions (about 2 minutes, via the console)** `const g = window.__ufo; g.progress.step = g.MISSIONS.findIndex(m => m.id === "reds")` in Survival: the red squad's leader carries a railgun on its back; however it dies the railgun drops and the marker points at it. `"sunburn"`: the marker goes to the B-2 first, then to a far-off airport. `"steal"`: the marker leads to an airport bunker; board the ship, the doors seal, `G` and fly up through the rock, 150 blocks out completes it.
+
+**Multiplayer (about 3 minutes, two or three tabs)**
+1. Tab A: Multiplayer > nickname > Host a game > Open room > Play. The lobby has the PvP checkbox (on).
+2. Tab B (and C): Multiplayer > nickname > Join a game > code > **Play**: no second form, you land in the world; one click takes the mouse.
+3. Both see each other's sword in the right hand, swings, a drawn bow, shots. With PvP on, B's shots hurt A ("Killed by B"); untick PvP in A's lobby: they don't.
+4. Kill an animal or open a crate: one shared item/crate, only one player gets it. In Survival, the mission goal shows "x/4" with two players, "x/6" when C joins, back to 4 when C leaves.
+5. Host > Dogfight: play it to the end: the results screen frees the mouse and its buttons work.
+
+Automated: `cd tools && npm install && node unit-tests.mjs && node mp-tests.mjs` (about 6 minutes) covers the multiplayer parts above with two and three headless players.
