@@ -1064,7 +1064,7 @@ function giveMissionReward(m) {
 const modsCheckbox = document.getElementById("mods-enabled");
 modsCheckbox.checked = settings.mods;
 function refreshModsPills() {
-  for (const id of ["menu-mods-state", "pause-mods-state"]) {
+  for (const id of ["settings-mods-state"]) {
     const el = document.getElementById(id);
     el.textContent = mods.enabled ? "ON" : "OFF";
     el.classList.toggle("on", mods.enabled);
@@ -2018,10 +2018,9 @@ const openScreen = (id) => screens.show(id, gameState === "start" ? "start-menu"
 for (const [btn, id] of [
   ["menu-settings-btn", "settings-screen"],
   ["pause-settings-btn", "settings-screen"],
-  ["menu-mods-btn", "mods-screen"],
-  ["pause-mods-btn", "mods-screen"],
-  ["menu-controls-btn", "controls-screen"],
-  ["pause-controls-btn", "controls-screen"],
+  // (Round 8: Mods and the key list are reached from Settings.)
+  ["settings-mods-btn", "mods-screen"],
+  ["settings-keys-btn", "controls-screen"],
   ["pause-stats-btn", "stats-screen"],
   ["pause-missions-btn", "missions-screen"],
   ["new-world-btn", "new-world-screen"],

@@ -127,15 +127,15 @@ if (args.from || args.only) {
 
 // ================= Part 1 =================
 
-await check("rebrand: title, storage prefix, logo, default preset Medium", async () => {
+await check("rebrand: title, storage prefix, no logo on the menu (Round 8), default preset Medium", async () => {
   const s = await v((g) => ({
     title: document.title,
-    logo: document.querySelector(".logo-text")?.textContent,
+    logo: document.querySelector("#start-menu .logo-text, #start-menu .logo") ? "present" : "none",
     keys: Object.keys(localStorage),
     preset: g.settings.graphics,
   }));
   assert(s.title === "UFO COMBAT", `title ${s.title}`);
-  assert(/UFO\s*COMBAT/.test(s.logo), `logo ${s.logo}`);
+  assert(s.logo === "none", `logo ${s.logo}`);
   assert(s.keys.length > 0 && s.keys.every((k) => k.startsWith("ufocombat_v1_")), `storage keys ${s.keys}`);
   assert(["ultra", "medium", "low"].includes(s.preset), `preset ${s.preset}`);
   const fresh = await v(() => {
@@ -145,11 +145,9 @@ await check("rebrand: title, storage prefix, logo, default preset Medium", async
   void fresh;
 });
 
-await check("main menu: Settings, Mods, Controls and New World screens open and go back", async () => {
+await check("main menu: Settings (with Mods and the key list in it) and New World screens open and go back", async () => {
   for (const [btn, screen] of [
     ["#menu-settings-btn", "#settings-screen"],
-    ["#menu-mods-btn", "#mods-screen"],
-    ["#menu-controls-btn", "#controls-screen"],
     ["#new-world-btn", "#new-world-screen"],
   ]) {
     await page.click(btn);
@@ -157,6 +155,19 @@ await check("main menu: Settings, Mods, Controls and New World screens open and 
     assert(!(await page.isVisible("#start-menu")), "the main menu hides");
     await page.keyboard.press("Escape");
     assert(!(await page.isVisible(screen)) && (await page.isVisible("#start-menu")), `${screen}: Esc goes back`);
+  }
+  // (Round 8) Mods and the key list are reached from Settings, and go back there.
+  for (const [btn, screen] of [
+    ["#settings-mods-btn", "#mods-screen"],
+    ["#settings-keys-btn", "#controls-screen"],
+  ]) {
+    await page.click("#menu-settings-btn");
+    await page.click(btn);
+    assert(await page.isVisible(screen), `${screen} opens from Settings`);
+    await page.keyboard.press("Escape");
+    assert(await page.isVisible("#settings-screen"), `${screen}: Esc goes back to Settings`);
+    await page.keyboard.press("Escape");
+    assert(await page.isVisible("#start-menu"), "and then to the main menu");
   }
   const controls = await v(() => document.getElementById("controls-list").textContent);
   assert(/Binoculars/.test(controls) && /Laser blaster/.test(controls), "controls list covers the new features");

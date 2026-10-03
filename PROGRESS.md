@@ -2014,9 +2014,9 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 4.7 Railgun always cuts through everything in its line
 
 ## Part 5: Main menu redesign
-- [ ] 5.1 Remove UFO graphic, title, subtitle
-- [ ] 5.2 Essential buttons only (Play merged with New World; Mods and Graphics into Settings)
-- [ ] 5.3 Modern minimalist style (square corners, blue accents) across all menus
+- [x] 5.1 Remove UFO graphic, title, subtitle
+- [x] 5.2 Essential buttons only (Play merged with New World; Mods and Graphics into Settings)
+- [x] 5.3 Modern minimalist style (square corners, blue accents) across all menus
 
 ## Part 6: Aircraft
 - [ ] 6.1 B-2 Spirit bomber (accurate shape; big, slow, sluggish), at airports (wider runways)
@@ -2087,4 +2087,9 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Dash abduction:** now and then (every 40-75 s or so, more likely with higher aggression; not giants, not mission ships, not on the gentlest settings) a UFO fighting a player on foot dashes in to stop dead right over a player (online: a random player on foot) and beams them up. A hit breaks it off: the beam goes out, it dashes back out to 70-130 blocks and fights on with its guns. Online the beam lifts a guest on their own machine (victim-side, like everything aimed at a player), so any player can be the victim.
 - **UFO crash blast** grows with the ship's size and the height it fell from (x0.25 for a drop of a few blocks up to x1.8 from 90+ blocks; crater capped at 48): a low fall is a small bang, a high one blows a big crater.
 - **Railgun:** it stopped cutting at y 64 (anything higher, a hill, a tower, an airport on high ground, came through), and it only hit the first vehicle on its line. Now it cuts up to the top of the world and hits every UFO, vehicle and creature on the line.
+
+### Part 5 (main menu)
+- **Removed** the UFO graphic, the "UFO COMBAT" title and the subtitle from the main menu (the world's flyover behind it stays, with the saucer you can shoot).
+- **Buttons (decision):** **Play** (continues this world, or starts it, in the mode picked right under it: a Survival / Creative switch), with the world's seed and a small **+ New world** link in the same card (so playing and starting a new world are one flow), then **Multiplayer** and **Settings**. That is all: the graphics preset and the FPS advice moved to Settings (the live FPS chip and a "try lower settings" note stay in a corner when it runs slowly), and **Mods** and the **key list** are buttons at the top of Settings (from the main menu and the pause menu). The pause menu lost its Mods and Controls buttons for the same reason.
+- **Style:** square corners everywhere, a blue accent (#3d9bff), uppercase letter-spaced labels, a thin accent line on panels, quiet hover motion (buttons slide a little, an accent bar and a chevron appear). The same look for the main menu, pause, settings, multiplayer screens and lobby, the death screen, the Dogfight results and "Click to play".
 

@@ -1,5 +1,6 @@
-// Menus around the game: the main menu (logo, Play / New World / Settings /
-// Mods / Controls) over a slow camera flyover of the world with a UFO
+// Menus around the game: the main menu (Round 8: Play with the mode and
+// "New world", Multiplayer, Settings; Mods and the key list are in
+// Settings) over a slow camera flyover of the world with a UFO
 // drifting across the sky, and the sub-screens shared by the main menu and
 // the pause menu (settings, mods, controls, stats). Opening a sub-screen
 // hides the menu it came from; Back (or Esc) returns to it.
