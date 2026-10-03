@@ -962,6 +962,7 @@ if (savedPlayer) {
   // Worlds from before the loadout flag existed already had their weapons.
   loadoutGiven = savedPlayer.loadout !== false;
   survivalStash = savedPlayer.survivalStash && typeof savedPlayer.survivalStash === "object" ? savedPlayer.survivalStash : null;
+  nuke.loadZones(savedPlayer.blastZones);
 } else {
   player.spawnAt(spawnX, spawnZ);
 }
@@ -1219,6 +1220,7 @@ function playerState() {
     vehicles: vehicles.serialize(),
     stats: stats.world,
     survivalStash,
+    blastZones: nuke.serializeZones(),
   };
 }
 

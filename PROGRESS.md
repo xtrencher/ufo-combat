@@ -2029,9 +2029,9 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 6.8 Aircraft color schemes
 
 ## Part 7: Nuke and destruction
-- [ ] 7.1 Nuke removes all trees/leaves/grass/plants in radius (no floating remains)
-- [ ] 7.2 Wider crater matching the smoke cloud
-- [ ] 7.3 Blast zone knocks down/burns trees outside the crater
+- [x] 7.1 Nuke removes all trees/leaves/grass/plants in radius (no floating remains)
+- [x] 7.2 Wider crater matching the smoke cloud
+- [x] 7.3 Blast zone knocks down/burns trees outside the crater
 
 ## Part 8: World
 - [ ] 8.1 Distant buildings in LOD (airports, cities, villages)
@@ -2102,4 +2102,11 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Free look:** starts from where the camera looks at that moment (the crosshair's direction or a locked target, relative to the aircraft), with no snap to straight ahead; the aircraft holds its attitude from that moment (as before).
 - **Lights (decision):** the navigation lights and strobes are off while an aircraft stands parked and come on when it starts its takeoff roll (throttle up), staying on through the flight, day and night (dimmer by day, as real aircraft run them whenever they operate). The formation strips and the cockpit glow stay night-only (the earlier night rule now applies only to those). Same on every player's screen (puppets light up from the owner's throttle and ground state).
 - **Colour schemes:** gray (each type's own), green, light blue, desert, navy and arctic; about half the parked aircraft are in their type's grey, the rest in one of the others, fixed per airport and slot (the same for every player); the B-2 has darker versions of each. Saved and sent with the aircraft.
+
+### Part 7 (nuke and destruction)
+- **Why trees and grass were left:** the blast cleared only the columns of chunks loaded at that moment; the rest were retried only while the explosion lasted (about two minutes), so ground loaded later (and the half of a tree across a chunk border) kept its trees, leaves floating where the other half was cut, and grass. Now every nuke leaves a **blast zone** (saved with the world, sent to joining players) that is applied to each chunk as it generates later, once per chunk; and leaves are burnt off all the way down a column (a crown is several leaves deep), not just the top one.
+- **Crater:** 1.6x wider (about the width of the mushroom's cap), the same depth.
+- **Zones around it:** out to 1.85x the size everything standing is swept away (as before, wider); out to 2.6x every tree is knocked flat (the trunk lies on the ground pointing away from the blast) and all leaves, grass, flowers and snow burn off; out to 3.3x trees burn (crowns and plants gone, trunks left as two-block stumps) and grass turns to dirt.
+- **Online:** the blast zone is applied by every player's game for itself (the same rules on the same terrain give the same result), so ground the nuking player never loaded is cleared for the others too; the crater itself still travels as the nuking player's block edits (see known issues: it is bigger now).
+- Note for tests: `node --check` on this repo's .js files parses them as CommonJS and let a stray top-level `return` through; `tools/check-syntax.mjs` (module parsing) is the one to trust, and is used from here on.
 

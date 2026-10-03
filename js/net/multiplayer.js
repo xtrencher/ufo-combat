@@ -63,6 +63,12 @@ export class Multiplayer {
     };
     net.onPlayersChanged = () => this.ui.refresh();
     net.welcomeExtra = () => ({ seed: game.SEED, hostNick: net.nick, mode: this.mode });
+    // (Round 8) The nukes' blast zones: a joining guest clears the ground the
+    // same way when it streams in (see nuke.js).
+    net.registerSync("blastZones", {
+      save: () => game.nuke?.serializeZones?.() || [],
+      load: (list) => game.nuke?.loadZones?.(list),
+    });
     net.on("_stateLoaded", () => {
       this.stateLoaded = true;
       for (const m of this.modules) m.stateLoaded?.();
