@@ -69,7 +69,7 @@ export class ItemSync {
   }
 
   _info(it) {
-    return { k: it.shared, id: it.id, n: it.count, dur: it.dur, p: [r2(it.pos.x), r2(it.pos.y), r2(it.pos.z)], v: [r1(it.vel.x), r1(it.vel.y), r1(it.vel.z)], d: r1(Math.max(0, it.pickupDelay)) };
+    return { k: it.shared, id: it.id, n: it.count, dur: it.dur, p: [r2(it.pos.x), r2(it.pos.y), r2(it.pos.z)], v: [r1(it.vel.x), r1(it.vel.y), r1(it.vel.z)], d: r1(Math.max(0, it.pickupDelay)), ...(it.keep ? { kp: 1 } : {}) };
   }
 
   _onDrop(m, from) {
@@ -78,7 +78,7 @@ export class ItemSync {
     this._receiving = true;
     let it;
     try {
-      it = g.entities.spawn(m.id, m.n, new THREE.Vector3(m.p[0], m.p[1], m.p[2]), new THREE.Vector3(m.v[0], m.v[1], m.v[2]), { dur: m.dur, pickupDelay: m.d ?? 1 });
+      it = g.entities.spawn(m.id, m.n, new THREE.Vector3(m.p[0], m.p[1], m.p[2]), new THREE.Vector3(m.v[0], m.v[1], m.v[2]), { dur: m.dur, pickupDelay: m.d ?? 1, keep: !!m.kp });
     } finally {
       this._receiving = false;
     }

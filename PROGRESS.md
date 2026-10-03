@@ -2034,14 +2034,14 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 7.3 Blast zone knocks down/burns trees outside the crater
 
 ## Part 8: World
-- [ ] 8.1 Distant buildings in LOD (airports, cities, villages)
-- [ ] 8.2 Airport/runway lights visible from far at night
-- [ ] 8.3 Bigger villages
-- [ ] 8.4 Bigger deserts, sometimes very large
+- [x] 8.1 Distant buildings in LOD (airports, cities, villages)
+- [x] 8.2 Airport/runway lights visible from far at night
+- [x] 8.3 Bigger villages
+- [x] 8.4 Bigger deserts, sometimes very large
 
 ## Part 9: Missions
-- [ ] 9.1 Railgun mission: red aliens carry and reliably drop the railgun
-- [ ] 9.2 Airport bombing mission with the B-2 (nuke an enemy airport)
+- [x] 9.1 Railgun mission: red aliens carry and reliably drop the railgun
+- [x] 9.2 Airport bombing mission with the B-2 (nuke an enemy airport)
 - [ ] 9.3 "Steal the UFO" mission (guarded hangar/base, armed humans, board, escape with ghost mode)
 - [ ] 9.4 Mission chain and difficulty re-checked for 1, 2, 3 players
 
@@ -2110,3 +2110,20 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Online:** the blast zone is applied by every player's game for itself (the same rules on the same terrain give the same result), so ground the nuking player never loaded is cleared for the others too; the crater itself still travels as the nuking player's block edits (see known issues: it is bigger now).
 - Note for tests: `node --check` on this repo's .js files parses them as CommonJS and let a stray top-level `return` through; `tools/check-syntax.mjs` (module parsing) is the one to trust, and is used from here on.
 
+
+### Part 8 (world)
+- Distant structures (js/distant.js): every airport, city and village within the view distance gets simplified box shapes (hangars, tower with its glass cab, terminal, tanks, radar, every city lot's boxes with setbacks, village houses with roofs), merged per chunk and drawn with the distant terrain's own material (same light, haze and fog as the land around, so they fade together). A chunk's shapes hide as soon as its real blocks are meshed and shown, so the two never overlap. Built once per site when it comes into range (no per-frame cost beyond a visibility flag per chunk). Range follows the render distance, so it scales with the graphics preset.
+- Airport lights at night: runway edge lights, green thresholds, red end lights, approach light rows, blue taxiway lights and a red tower beacon as glowing points (constant pixel size), fading in at dusk, drawn up to 4.5 km away. Beyond the camera's far plane they are drawn pulled in toward the eye along the same direction (same place on screen, same size), so they show from kilometres off without moving the far plane. Lights are deterministic from the seed, so every player sees the same.
+- Bigger villages: pad radius 15 -> 28, a cobbled plaza with a well, gravel streets in a cross, 6-10 houses (6-8 x 6-7, walls 4-5 high, cobblestone footing, log corners, glass windows, plank floor, stepped roof, a torch by every door, doors on the street) on 16 lots, 2-3 farm plots with a water channel and log border, 12 lamp posts. A flatness check (the ground under the pad may vary at most 8 blocks, up to 4 tries per cell) keeps them off cliffs; the village chance went up a little to keep about the same number of villages. Up to 5 villagers (was 2) around each, spawned around any player online (host-run, synced like every walking mob).
+- Bigger deserts: the hot zone gives deserts a bigger share (savanna/jungle thresholds moved), and a very-low-frequency "dry" field (scale 7 km) now and then turns a whole region hot and dry: some deserts stretch for many kilometres. Desert share of land went from ~15% to ~26% across seeds; terrain generation stays under the 3 ms per chunk budget (one extra noise octave per column).
+- Tests: the village unit test checks 6-10 houses and a torch per house plus 12 lamps.
+
+### Part 9.1 (railgun mission)
+- The squad leader visibly carries its weapon: the item's own model slung across its back (mobs.setCarry), sent to guests with the mob ("ld"), gone when it dies.
+- The drop no longer depends on who killed it: the leader drops its weapon however it dies (shot, blown up, killed by its own kind, drowned, another player's kill), on the authority (single player / host), once, shared with everyone, while some player still lacks it. The drop never despawns (entities keep flag, synced) and the mission marks it ("Railgun: pick it up") and waits for the pickup before completing (progress.hold, at most 3 minutes in case it fell out of reach). Same for the blaster and minigun patrols.
+
+### Part 9.2 (Operation Sunburn with the B-2)
+- The enemy base is no longer the nearest airport (which is where the players' B-2 stands): it is another airport at least 1200 blocks from the home airport, the nearest such (1.5 km in the open if there is none). Flight time in the B-2: about 15-30 s.
+- The marker leads to the parked B-2 first ("B-2 bomber: get in (F)"), and once someone is in a B-2 to the base ("Enemy base: drop the nuke (B) N m"; online the others see "Enemy base: escort the B-2"). Only the B-2 carries the nuke (Part 6), so the mission is a bomber run, with fighters as escorts online.
+- A lost B-2 (shot down, crashed) frees its parking slot: the airport sets out a new one for another try. Online the other peers free the slot too when the taken aircraft goes (vehicles "took" key kept on the puppet), so every peer sets out the same aircraft again.
+- Fighters' "Parked fighter: get in" marker (Wings / Take off missions) no longer points at the B-2.

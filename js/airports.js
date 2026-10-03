@@ -67,6 +67,10 @@ export class AirportManager {
   // Sets out the aircraft of airport s that aren't there yet (more when the group grows).
   _fill(s, jets) {
     const veh = this.vehicles;
+    // (Round 8) An aircraft taken from here that is gone (shot down, crashed)
+    // frees its slot: the airport sets out a new one (a new B-2 for another
+    // try at the enemy base). Bunker ships are set out once (see below).
+    for (let i = jets.length - 1; i >= 0; i--) if (jets[i].type === "jet" && !veh.vehicles.includes(jets[i])) jets.splice(i, 1);
     const slots = this.sites.parkingSlots(s);
     const n = Math.min(this.fighterCount(s), slots.fighters.length);
     const have = new Set(jets.map((j) => j.parkKey));

@@ -347,7 +347,7 @@ export class EntitySync {
       seenM.add(m.id);
       if (!was) {
         k.m.set(m.id, m);
-        add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, dead: m.dead ? 1 : 0 });
+        add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, ld: m.carryId || 0, dead: m.dead ? 1 : 0 });
       }
       snap.m.push([m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0), r2(m.attack ?? 1), r1(m.vel?.y ?? 0)]);
     }
@@ -578,6 +578,7 @@ export class EntitySync {
       mob.maxHealth = mob.health = e.hp;
       mob.leader = !!e.leader;
       mob.dead = !!e.dead;
+      if (e.ld && !mob.dead) g.mobs.setCarry(mob, e.ld);
       mob.interp = new Interp({ angles: ["y", "hy"], snap: 12 });
       this.mobById.set(e.id, mob);
     }

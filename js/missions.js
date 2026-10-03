@@ -8,6 +8,7 @@
 // progression.js; this module is the game side of it.
 import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
+import { itemInfo } from "./items.js";
 import { BLOCK, IS_LEAVES, IS_LOG } from "./blocks.js";
 
 
@@ -225,6 +226,29 @@ export class MissionDirector {
     if (!t || !t.follow) return;
     const f = t.follow;
     if (f.pos && !f.dead && !f.falling && f.state !== "gone") t.pos.copy(f.pos);
+  }
+
+  // (Round 8) A squad leader's weapon on the ground (mobs.onLeaderDown in
+  // main.js): marked until someone picks it up; the mission waits for it
+  // (at most three minutes, in case it fell somewhere out of reach).
+  leaderDropped(it) {
+    this._drops = (this._drops || []).filter((d) => this._dropThere(d.it));
+    this._drops.push({ it, t: performance.now() });
+  }
+
+  _dropThere(it) {
+    return !!this.entities?.items.includes(it);
+  }
+
+  // The leader's weapon still waiting to be picked up, or null.
+  _drop() {
+    if (!this._drops?.length) return null;
+    this._drops = this._drops.filter((d) => this._dropThere(d.it) && performance.now() - d.t < 180000);
+    return this._drops[0]?.it || null;
+  }
+
+  holding() {
+    return !!this._drop();
   }
 
   _setTarget(obj, label) {
@@ -682,6 +706,11 @@ export class MissionDirector {
     const p = this.player.position;
     const spec = this.mission?.squad || { kind: "alien_gray", n: 6, leaderDrop: null };
     const squad = (st.squad || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    const drop = this._drop();
+    if (drop) {
+      this._setTarget(drop, `${itemInfo(drop.id)?.name ?? "Weapon"}: pick it up`);
+      return;
+    }
     if (squad.length === 0) {
       st.waitT = (st.waitT ?? 1) - 0.5;
       if (st.waitT > 0) {
@@ -707,6 +736,7 @@ export class MissionDirector {
           m.leader = true;
           m.leaderDrop = spec.leaderDrop;
           m.maxHealth = m.health = Math.round(m.health * 1.5);
+          this.mobs.setCarry?.(m, spec.leaderDrop);
         }
         st.squad.push(m);
       }
@@ -744,7 +774,7 @@ export class MissionDirector {
     const p = this.player.position;
     let jet = null;
     for (const v of this.vehicles.vehicles) {
-      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet) continue;
+      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet || v.jetType === "b2") continue;
       if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
     }
     return jet ? { pos: jet.pos.clone(), label: "Parked fighter: get in (F)", follow: jet } : null;
@@ -1274,18 +1304,52 @@ export class MissionDirector {
     }
   }
 
+  // (Round 8) The enemy base: another airport, at least 1200 blocks from
+  // the one the players start from (where the B-2 stands), the nearest such.
+  _pickBase() {
+    const p = this._anyone().position;
+    const sites = this.terrain.sites;
+    const home = sites.nearest(p.x, p.z, 4000, "airport");
+    const from = home || { x: p.x, z: p.z };
+    let best = null;
+    let bestD = Infinity;
+    for (const s of sites.within(from.x, from.z, 6000)) {
+      if (s.kind !== "airport" || s === home) continue;
+      const d = Math.hypot(s.x - from.x, s.z - from.z);
+      if (d < 1200 || d >= bestD) continue;
+      best = s;
+      bestD = d;
+    }
+    if (best) return { x: best.x, y: best.y, z: best.z, site: best };
+    // (No other airport out there: a base in the open, 1500 blocks off.)
+    const x = from.x + 1500;
+    const z = from.z;
+    return { x, y: Math.max(SEA_LEVEL + 6, this.terrain.heightAt(Math.floor(x), Math.floor(z))), z, site: null };
+  }
 
+  // A B-2 with someone in it (online: any player's), or null.
+  _b2Flying() {
+    for (const v of this.vehicles.vehicles) if (v.type === "jet" && v.jetType === "b2" && v.alive && (v.occupied || (v.puppet && v.netOcc))) return v;
+    return null;
+  }
 
-  // 14. Operation Sunburn: the nearest airport is an enemy base, guarded by
-  // UFOs and fighters; a nuke on it completes the mission.
+  // The nearest parked, empty B-2 (as a marker target), or null.
+  _parkedB2Target() {
+    const p = this._anyone().position;
+    let jet = null;
+    for (const v of this.vehicles.vehicles) {
+      if (v.type !== "jet" || v.jetType !== "b2" || !v.alive || v.occupied || v.netOcc || v.isEnemyJet) continue;
+      if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
+    }
+    return jet ? { pos: jet.pos.clone(), label: "B-2 bomber: get in (F)", follow: jet } : null;
+  }
+
+  // 18. Operation Sunburn: take the B-2 from your airport, fly to the enemy
+  // base (another airport, far off) and drop the nuke on it. Online one
+  // player flies the bomber, the others escort it in the fighters.
   _airport() {
     const st = this.state;
-    const p = this.player.position;
-    if (!this.base) {
-      const a = this.airports.nearest(4000);
-      if (a) this.base = { x: a.site.x, y: a.site.y, z: a.site.z, site: a.site };
-      else this.base = { x: p.x + 900, y: SEA_LEVEL + 6, z: p.z, site: null };
-    }
+    if (!this.base) this.base = this._pickBase();
     const b = this.base;
     const center = new THREE.Vector3(b.x, b.y, b.z);
     // (Online: how close the nearest player is.)
@@ -1313,7 +1377,17 @@ export class MissionDirector {
       }
     }
     for (const u of st.guards) if (d < 700 && !u.hostile) this.ufos.anger(u, 200);
-    this.target = { pos: center, label: "Enemy base: nuke it (B in the jet)", follow: null };
+    // The marker: the bomber first, then the base.
+    const b2 = this._b2Flying();
+    if (!b2) {
+      const t = this._parkedB2Target() || this._airportTarget("Airport: take the B-2 bomber");
+      if (t) {
+        this.target = t;
+        return;
+      }
+    }
+    const mine = this.vehicles.active === b2 && b2;
+    this.target = { pos: center, label: mine ? `Enemy base: drop the nuke (B) ${Math.round(d)} m` : "Enemy base: escort the B-2", follow: null };
   }
 
   // The nuke went off: on the enemy base?

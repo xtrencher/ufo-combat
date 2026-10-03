@@ -64,6 +64,7 @@ export class BiomeSource {
   constructor(seed) {
     this.tempNoise = new Noise((seed ^ 0x1a2b3c4d) >>> 0);
     this.moistNoise = new Noise((seed ^ 0x5e6f7081) >>> 0);
+    this.dryNoise = new Noise((seed ^ 0x3d5a9e17) >>> 0);
   }
 
   // Smooth climate fields, roughly in [-0.7, 0.7]: t = cold..hot, m = dry..wet.
@@ -73,6 +74,16 @@ export class BiomeSource {
     // (Round 6: bigger again, so a desert or a jungle is a region you travel through for a long time.)
     const t = this.tempNoise.fbm2(wx, wz, 3, 0.45, 2, 1 / 2200) * 1.2;
     const m = this.moistNoise.fbm2(wx + 4000, wz - 4000, 3, 0.45, 2, 1 / 1900) * 1.2;
+    // Round 8: now and then a very large dry region: a very-low-frequency
+    // field that, where it is high, makes the climate hot and dry, so a
+    // desert can stretch for many kilometres (most worlds have one within
+    // a few kilometres of the start).
+    const dry = this.dryNoise.fbm2(wx - 9000, wz + 7000, 1, 0.5, 2, 1 / 7000) * 0.85;
+    const k = Math.min(1, Math.max(0, (dry - 0.3) / 0.15));
+    if (k > 0) {
+      const w = k * k * (3 - 2 * k);
+      return { t: t + (0.42 - t) * w * (t < 0.42 ? 1 : 0), m: m + (-0.35 - m) * w * (m > -0.35 ? 1 : 0) };
+    }
     return { t, m };
   }
 
@@ -92,8 +103,9 @@ export class BiomeSource {
     if (t < -0.3) return m > -0.05 ? BIOME.SNOWY_TAIGA : BIOME.SNOWY_PLAINS;
     // The hot zone is wide: deserts take the dry half of it, jungles the wet third, savanna between.
     if (t > 0.16) {
-      if (m > 0.2) return BIOME.JUNGLE;
-      if (m > 0.02) return BIOME.SAVANNA;
+      // (Round 8: deserts take a bigger share of the hot zone.)
+      if (m > 0.22) return BIOME.JUNGLE;
+      if (m > 0.07) return BIOME.SAVANNA;
       return BIOME.DESERT;
     }
     if (t > 0.08 && m < -0.3) return BIOME.BADLANDS;

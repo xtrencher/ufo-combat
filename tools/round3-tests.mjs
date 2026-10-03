@@ -753,7 +753,7 @@ await check("missions: the chain (21 missions in Round 6) from a pistol scout to
   const j = JSON.stringify(late);
   assert(late.village.target && late.village.raiders === 3, `the village raid: ${j}`);
   assert(late.boss.ship, `the boss mothership: ${j}`);
-  assert(late.airport.target && /base/i.test(late.airport.label) && late.nuked === 1, `the enemy base: ${j}`);
+  assert(late.airport.target && /base|B-2/i.test(late.airport.label) && late.nuked === 1, `the enemy base: ${j}`);
   // The mission list in the pause menu.
   const list = await v((g) => {
     g.progress.step = 3;

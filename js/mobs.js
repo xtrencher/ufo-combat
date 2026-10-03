@@ -14,6 +14,7 @@ import { BLOCK, BLOCK_INFO, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
 import { ITEM, meleeDamage } from "./items.js";
 import { sweepAxis, rayAabb } from "./physics.js";
 import { createMobModel } from "./mob-models.js";
+import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { BIOME } from "./biomes.js";
 import { Crowd } from "./crowd.js";
@@ -196,10 +197,10 @@ const PASSIVE_KINDS = Object.keys(SPECIES).filter((k) => !SPECIES[k].hostile && 
 const HOSTILE_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].hostile);
 const OTHER_HOSTILE_KINDS = HOSTILE_KINDS.filter((k) => k !== "zombie" && !SPECIES[k].special);
 const FLYER_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].flies);
-const VILLAGERS_PER_VILLAGE = 2;
+const VILLAGERS_PER_VILLAGE = 5;
 const MAX_FLYERS = 10;
 const MAX_TOTAL_MOBS = 34;
-const VILLAGE_SEARCH_RADIUS = 40;
+const VILLAGE_SEARCH_RADIUS = 60;
 
 // Seconds for a full-strength swing with the given tool.
 function attackCooldown(tool) {
@@ -345,6 +346,35 @@ export class MobManager {
     return m;
   }
 
+  // (Round 8) A mission leader visibly carries the weapon it will drop: the
+  // item's own model slung across its back (gone when it dies: it drops).
+  setCarry(m, id) {
+    if (m.carryMesh) {
+      m.carryMesh.parent?.remove(m.carryMesh);
+      m.carryMesh = null;
+    }
+    m.carryId = id || 0;
+    const model = id ? itemModel(id) : null;
+    const body = m.model.parts.body;
+    if (!model || !body) return;
+    if (!this._carryMat) this._carryMat = createEntityMaterial("color");
+    const mesh = new THREE.Mesh(model.geometry, this._carryMat);
+    mesh.castShadow = true;
+    // Barrel up over the shoulder, diagonally across the back.
+    mesh.rotation.set(-Math.PI / 2, 0, 0);
+    const sling = new THREE.Group();
+    sling.add(mesh);
+    sling.rotation.set(0, Math.PI, 0.7);
+    sling.scale.setScalar(model.gun === "railgun" ? 1.15 : 0.95);
+    const geo = body.children[0]?.geometry;
+    geo?.computeBoundingBox?.();
+    const bb = geo?.boundingBox;
+    sling.position.set(0, bb ? (bb.min.y + bb.max.y) / 2 : 0.35, bb ? bb.min.z - 0.07 : -0.25);
+    body.add(sling);
+    bindEntityLight(mesh, () => m.light);
+    m.carryMesh = sling;
+  }
+
   _remove(i) {
     const m = this.mobs[i];
     this.group.remove(m.model.root);
@@ -447,9 +477,9 @@ export class MobManager {
     if (!villages) return;
     const p = this.player.position;
     let village = villages.nearestVillage(p.x, p.z, VILLAGE_SEARCH_RADIUS);
-    let radius = 20;
+    let radius = 34;
     let cap = VILLAGERS_PER_VILLAGE;
-    let spread = 8;
+    let spread = 20;
     // Airports and cities (sites.js) have their people too: a few around an
     // airport's apron, a crowd in a city.
     const site = terrain.sites?.nearest(p.x, p.z, 320);
@@ -1601,6 +1631,8 @@ export class MobManager {
       m.deathTime = 0;
       this.kills++;
       this.killsByKind[m.kind] = (this.killsByKind[m.kind] || 0) + 1;
+      // (Round 8) A mission leader drops the weapon it carries however it dies (main.js).
+      if (m.leaderDrop && !m.net) this.onLeaderDown?.(m);
       if (this.onKill) this.onKill(m, this.time - (m.lastPlayerHit ?? -99) < 6);
       this.audio.playMob(m.kind, "death", dist);
       return true;
@@ -1919,6 +1951,7 @@ export class MobManager {
   // Positions and animates the model.
   _place(m) {
     const model = m.model;
+    if (m.dead && m.carryMesh) this.setCarry(m, 0);
     model.root.position.copy(m.pos);
     model.root.rotation.y = m.yaw;
     // Hit flash (red), burning (orange), and a red, tipping-over death.

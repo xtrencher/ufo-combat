@@ -106,6 +106,8 @@ export class VehicleSync {
     vm.onRemoved = (v) => {
       prevRemoved?.(v);
       if (!this.mp.active || !v.net) return;
+      // (Another player's aircraft taken from an airport is gone: its slot is free again here too.)
+      if (v.tookKey) this.game.airports.taken.delete(v.tookKey);
       if (!v.puppet && v.net.owner === this.net.pid) this.net.toAll({ t: "vrem", nid: v.net.nid });
       if (this.byId.get(v.net.nid) === v) this.byId.delete(v.net.nid);
     };
@@ -405,7 +407,8 @@ export class VehicleSync {
     if (m.owner === this.net.pid) return;
     if (m.took) this.game.airports.takeParked(m.took);
     if (this.byId.has(m.nid)) return;
-    this._createPuppet(m.nid, m.owner, m.type, m.data);
+    const v = this._createPuppet(m.nid, m.owner, m.type, m.data);
+    if (v && m.took) v.tookKey = m.took;
   }
 
   _onStates(m, from) {

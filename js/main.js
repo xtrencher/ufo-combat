@@ -32,6 +32,7 @@ import { LaserBolts, sweptSphere, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
+import { DistantStructures } from "./distant.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
 import { MenuScreens, MenuFlyover, MenuPerf, renderControls } from "./menu.js";
@@ -267,6 +268,8 @@ const lod = new LodSystem(scene, world, SEED);
 lod.configure({ renderDistance, detailDistance: activePreset.detailDistance });
 // 3D grass blades near the player (High/Ultra).
 const grass = new GrassField(scene, world);
+// Airports, cities and villages seen from far away, and airport lights at night (Round 8).
+const distant = new DistantStructures({ scene, world, material: lod.material });
 
 // Plans chunk streaming and LOD tiles around a position (cheap when nothing changed).
 function streamAround(x, z) {
@@ -672,10 +675,9 @@ function lootFor(kind, detail, at, { into = false, leaderDrop = null } = {}) {
     else dropLoot(loot, pos.clone().setY(Math.max(pos.y - 2, 3)));
   } else if (kind === "alien") {
     if (!mods.enabled) return;
-    // A mission patrol's leader always carries its new alien weapon.
-    const owned = ownedItems();
-    if (leaderDrop && !owned.has(leaderDrop)) dropLoot([[leaderDrop, 1]], pos);
-    else dropLoot(rollLoot("alien", detail, progressTier(), owned), pos);
+    // (A mission patrol's leader drops its weapon however it dies: mobs.onLeaderDown below.)
+    void leaderDrop;
+    dropLoot(rollLoot("alien", detail, progressTier(), ownedItems()), pos);
     dropArmor(detail, pos);
   } else if (kind === "guard" || kind === "zombie") dropArmor(kind, pos);
   else if (kind === "skeleton") dropLoot(rollLoot("skeleton", null, progressTier(), ownedItems()), pos);
@@ -720,6 +722,17 @@ function mobLootKind(m) {
   if (m.kind === "skeleton") return ["skeleton", null];
   return null;
 }
+// (Round 8) A mission patrol's leader always drops the weapon it carries,
+// however it dies (shot, blown up, drowned, killed by another player or by
+// its own kind) and whoever is near, while some player still lacks it. The
+// drop never despawns and the mission marks it until someone picks it up.
+// Runs where the creature is real (single player, the host online), so
+// exactly one drops, shared with everyone.
+mobs.onLeaderDown = (m) => {
+  if (player.creative || !mods.enabled || ownedItems().has(m.leaderDrop)) return;
+  const it = entities.spawn(m.leaderDrop, 1, new THREE.Vector3(m.pos.x, m.pos.y + 1, m.pos.z), new THREE.Vector3(0, 4, 0), { keep: true, pickupDelay: 0.8 });
+  if (it) missionDirector.leaderDropped(it);
+};
 mobs.onKill = (m, byPlayer) => {
   if (!byPlayer) return;
   mobKilled(m);
@@ -1020,6 +1033,8 @@ crates.randomAllowed = () => !progress.enabled || progress.step > SUPPLY_MISSION
 crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast, weapons, effects, audio, world });
+missionDirector.entities = entities;
+progress.hold = () => !!progress.mission?.squad && missionDirector.holding();
 hooks.onUfoDown = (u) => missionDirector.ufoDown(u);
 mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
@@ -2687,6 +2702,7 @@ window.__ufo = window.__voxelands = {
   audio,
   lod,
   grass,
+  distant,
   motes,
   streamAround,
   water: { isUnderwater, surfaceHeight },
@@ -3168,6 +3184,9 @@ function simulate(dt, frameTime) {
   world.processQueues(gameState === "playing" ? STREAM_BUDGET_PLAYING_MS : STREAM_BUDGET_MENU_MS);
   lod.update();
   grass.update(player.position);
+  distant.viewRange = viewRD * 16;
+  distant.night = worldUniforms.uNight.value;
+  distant.update(dt, camera);
 
   chord.update();
   binoculars.update(dt, gameState === "playing");

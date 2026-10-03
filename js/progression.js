@@ -278,7 +278,7 @@ export const MISSIONS = [
   {
     id: "sunburn",
     title: "Operation Sunburn",
-    text: "The aliens have taken an airport and turned it into a base (marked). Fly there and drop your nuke on it (B in the jet). Fighters and UFOs guard it.",
+    text: "The aliens have taken a far-off airport and turned it into a base. Take the B-2 bomber standing at your airport (marked), fly to the base and drop the nuke on it (B). Fighters and UFOs guard it: online, the others escort the bomber in the fighters.",
     objectives: [{ stat: "airportsNuked", goal: 1, label: "Enemy base nuked" }],
     reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "airport",
@@ -409,6 +409,8 @@ export class Progress {
     const m = this.mission;
     if (!m) return null;
     if (!this.objectives(stats).every((o) => o.value >= o.goal)) return null;
+    // (Round 8: a mission can hold on a moment, e.g. while a leader's weapon still lies there to pick up.)
+    if (this.hold?.()) return null;
     this.done.push(m.id);
     this.step++;
     // The next mission starts counting from now.

@@ -627,7 +627,7 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   let crops = 0;
   for (let dx = -VILLAGE_REACH; dx <= VILLAGE_REACH; dx++) {
     for (let dz = -VILLAGE_REACH; dz <= VILLAGE_REACH; dz++) {
-      for (let dy = -6; dy <= 9; dy++) {
+      for (let dy = -6; dy <= 12; dy++) {
         const id = get(center.x + dx, center.groundY + dy, center.z + dz);
         if (id === BLOCK.PLANKS) planks++;
         else if (id === BLOCK.TORCH) torches++;
@@ -638,7 +638,10 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   }
   console.log(`        village at (${center.x}, ${center.z}): ${planks} plank blocks, ${torches} torches, ${gravel} gravel path blocks, ${crops} crop blocks`);
   assert.ok(planks > 50, `expected substantial house walls, got ${planks} plank blocks`);
-  assert.equal(torches, 2, `expected exactly 2 torches (one per house), got ${torches}`);
+  // (Round 8: bigger villages: a torch beside every house door, and 12 lamp posts along the streets.)
+  const houses = gen.villages.houses(center).length;
+  assert.ok(houses >= 6 && houses <= 10, `expected 6-10 houses, got ${houses}`);
+  assert.equal(torches, houses + 12, `expected a torch per house (${houses}) and 12 lamps, got ${torches}`);
   assert.ok(gravel > 20, `expected a real path network, got ${gravel} gravel blocks`);
   assert.ok(crops > 0, "expected some crops in the farm plot");
   // Regenerating the same chunks independently gives identical results
