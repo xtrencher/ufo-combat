@@ -501,7 +501,8 @@
     justify-content: center;
     padding: 16px;
     text-align: center;
-    background: radial-gradient(ellipse at center, rgba(30,70,140,0.55) 0%, rgba(8,20,55,0.86) 65%, rgba(2,6,20,0.96) 100%);
+    /* (Nearly opaque: the pause menu opens behind it when the mouse is freed.) */
+    background: radial-gradient(ellipse at center, rgba(24,56,118,0.95) 0%, rgba(8,20,55,0.97) 65%, rgba(2,6,20,0.99) 100%);
     animation: death-fade 0.9s ease-out both;
   }
   #victory-screen .victory-title {

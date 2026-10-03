@@ -2259,10 +2259,10 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 
 ## Final polish
 - [ ] F.1 Regression pass (single-player)
-- [ ] F.2 Multiplayer review with 2 and 3 headless pages (damage matrix, missions 18-20 with guests, mission respawns, call-ins, mode switching, mob spawning)
-- [ ] F.3 Player's-eye review (new missions, terrain and spawn, airport lights at night at different distances, blue aliens)
+- [x] F.2 Multiplayer review with 2 and 3 headless pages (damage matrix, missions 18-20 with guests, mission respawns, call-ins, mode switching, mob spawning)
+- [x] F.3 Player's-eye review (new missions, terrain and spawn, airport lights at night at different distances, blue aliens)
 - [ ] F.4 Full test suites once
-- [ ] F.5 README
+- [x] F.5 README
 - [ ] F.6 PROGRESS: summary, damage matrix results, audit bugs, decisions, known issues, 10-minute test
 - [ ] F.7 "ROUND 9 COMPLETE", commit, push
 
@@ -2337,7 +2337,7 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 ### Final polish notes
 - **F.2** The three-player suite found two test races (the guests read the previous mission's goals and respawn place before the host's new state reached them) and two real gaps: the steal mission's bunker was a random player's nearest (now the nearest to the group), and creatures hardly ever spawned around a guest away from the host (audit 12). `mp-round9-tests.mjs` 8/8, `mp-tests.mjs` 23/23.
 - **F.1 / F.4** The older suites' failures were all tests of things Round 9 changed on purpose, no game regressions: round2 and round4 placed creatures at fixed spots that are water in the flatter terrain (land creatures are refused there now: the tests look for the nearest dry spot, and round4's UFO is put over its cow), round2 provoked a fighter with a made-up "bullet" cause (only a player's weapon provokes it since Round 9: the game's own "player" now), round3 still read "MISSION 4/22". The parrot check was flaky by design (its perch search had to hit one of four leaves: about two runs in three); it gets a 5x5 canopy. The unit suite's terrain-speed budget (3 ms per chunk) read 3.19 ms with a browser suite running alongside; the Round 9 generator is not slower (side by side under the same load: 2.9 ms against the old one's 4.4).
-- **F.3** Player's-eye screenshots (probe, Medium preset): the spawn on level grass, the land from 150 blocks up (broad flats, a huge desert, the sea), the airport at 23:00 from 350 / 1100 / 2200 blocks (the runway lights show inside the render distance and fade into the fog toward the far end; beyond the fog, nothing: no lights floating over the fog any more), the blue alien next to a green one at night and by day (its head is plain shaded skin; eyes, seams and gun glow), the six new missions, the victory screen and the call-in buttons.
+- **F.3** Player's-eye screenshots (probe, Medium preset): the spawn on level grass, the land from 150 blocks up (broad flats, a huge desert, the sea), the airport at 23:00 from 350 / 1100 / 2200 blocks (the runway lights show inside the render distance and fade into the fog toward the far end; beyond the fog, nothing: no lights floating over the fog any more), the blue alien next to a green one at night and by day (its head is plain shaded skin; eyes, seams and gun glow), the six new missions, the victory screen and the call-in buttons. Found and fixed by looking: the boss bar read "THE OVERLORD" in the finale (it now shows the Dreadnought, online too), and the victory screen was see-through, so the pause menu that opens behind it (the mouse is freed) showed through its numbers (the backdrop is nearly opaque now). (The swarm frame at 23:30 shows "Night is falling...": by design, a night with under 200 s left waits for the next dusk.)
 
 ## Round 9 summary (for the player)
 - **Damage online is one system:** all 17 weapons against all 14 kinds of target, as the host or a guest, on foot or in a vehicle, do the same damage, give the kill to whoever fired and show the same on every screen. A guest's sword works on every swing (it stopped after the first), the jet's guns hit what the crosshair is on, the tractor beam takes enemy fighters, a guest's blasts and nukes follow the PvP rule, and the AI's shots and blasts always hurt.
@@ -2362,6 +2362,9 @@ Source of truth for this round. Round 8 was complete (and merged) before this ro
 12. The fighter missions' second fighter came 20-30 s after the first (wave timing); a night mission started in the evening waited for the next night.
 13. The open-ground steal mission's soldiers could spawn in water.
 14. The blue alien's whole head glowed (5.5).
+15. The boss bar always read "THE OVERLORD" (also during the Armada), and the guests never got the boss's name (F.3).
+16. The victory screen was see-through over the pause menu behind it (F.3).
+17. A flying mission's respawn place was a random player's nearest airport (online it flipped between players), and the steal mission's bunker a random player's nearest (F.2).
 
 ## Round 9 decisions (and why)
 - **Guests find hits, the host applies them** through the very same damage functions: one code path for every weapon, so a fix applies to host and guests alike, and kill credit, loot and mission credit fall out of it. Players stay the judges of their own health (PvP, as in Round 7).
