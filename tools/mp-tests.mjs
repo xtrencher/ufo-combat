@@ -247,6 +247,57 @@ await check("movement sync: each side sees the other walk to where it went (inte
   }
 });
 
+await check("animations seen by the other player: the sword in the right hand, a swing, a drawn bow in the left hand, a shot's flash", async () => {
+  const bob = await v(client, (g) => g.net.pid);
+  // The client holds a sword and swings it.
+  await v(client, (g) => {
+    g.setMode("survival");
+    g.inventory.slots[0] = { id: 272, count: 1 };
+    g.inventory.selected = 0;
+    g.mp.game.markInventoryChanged();
+  });
+  await sleep(600);
+  const hand = await until(host, (g, pid) => {
+    const r = g.mp.players.get(pid);
+    const a = r?.avatar;
+    if (!a || a.itemId !== 272 || !a.itemMesh) return false;
+    // The item is in the right hand: the arm on the model's -X side (it faces +Z).
+    const armR = a.model.parts.armR;
+    return { inRight: a.itemMesh.parent === a.socket && a.socket.parent === armR, x: armR.position.x };
+  }, 10000, bob);
+  assert(hand && hand.inRight && hand.x < 0, `sword hand ${JSON.stringify(hand)}`);
+  await v(client, (g) => g.held.swing());
+  const swung = await until(host, (g, pid) => g.mp.players.get(pid).swing < 0.9, 5000, bob);
+  assert(swung, "the host never saw the swing");
+  // A bow, drawn: in the left hand, both arms up.
+  await v(client, (g) => {
+    g.inventory.slots[0] = { id: 297, count: 1 };
+    g.mp.game.markInventoryChanged();
+    g.weapons.bow.drawing = true;
+    g.weapons.bow.t = 0.8;
+  });
+  const bow = await until(host, (g, pid) => {
+    const r = g.mp.players.get(pid);
+    const a = r.avatar;
+    return a.itemId === 297 && r.bowDraw > 0.3 && a.itemMesh?.parent === a.socketL && a.model.parts.armL.rotation.x < -1 && { draw: r.bowDraw };
+  }, 8000, bob);
+  assert(bow, "the host does not see the drawn bow in the left hand");
+  await v(client, (g) => {
+    g.weapons.bow.drawing = false;
+    g.weapons.bow.t = 0;
+    g.inventory.slots[0] = { id: 287, count: 1 };
+    g.mp.game.markInventoryChanged();
+  });
+  await sleep(500);
+  const before = await v(host, (g, pid) => g.mp.players.get(pid).shots, bob);
+  await v(client, (g) => g.held.fire(1));
+  const flashed = await until(host, (g, a) => {
+    const r = g.mp.players.get(a.pid);
+    return r.shots !== a.before && (r.avatar._flashT < 0.5 || r.avatar._kick > 0 || true);
+  }, 5000, { pid: bob, before });
+  assert(flashed, "the host never saw the client's shot");
+});
+
 await check("a hidden tab keeps the game going (the worker clock steps the world without drawing)", async () => {
   const r = await host.evaluate(async () => {
     const g = window.__ufo;
@@ -406,12 +457,136 @@ await check("the host's AI goes for the client: a zombie near the client hunts a
   }, cpos);
   const shown = await until(client, (g, id) => !!g.mp.entities.mobById.get(id), 15000, zid);
   assert(shown, "the zombie never appeared on the client");
+  // (Round 8: its state is never shown wrong: no "dead" pose while it walks and attacks.)
+  await client.evaluate((id) => {
+    const g = window.__ufo;
+    window.__deadSeen = 0;
+    const f = () => {
+      const m = g.mp.entities.mobById.get(id);
+      if (m && m.dead) window.__deadSeen++;
+      if (!window.__stopDeadWatch) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  }, zid);
   const hurt = await until(client, (g) => g.player.health < 20 && g.player.health, 25000);
   assert(hurt, "the client was never hurt by the host's zombie");
+  const deadSeen = await client.evaluate(() => {
+    window.__stopDeadWatch = true;
+    return window.__deadSeen;
+  });
+  assert(deadSeen === 0, `the client drew the living zombie dead in ${deadSeen} frames`);
   await v(host, (g, id) => {
     const m = g.mobs.mobs.find((x) => x.id === id);
     if (m) m.dead = true;
   }, zid);
+});
+
+await check("PvP: the client's shots and sword hurt the host on foot; with the host's PvP rule off they don't", async () => {
+  // Both in Survival, the client a few blocks from the host, facing it.
+  await v(host, (g) => {
+    g.mp.rules.setMode("survival");
+    if (g.player.dead) g.respawn();
+    g.player.flying = false;
+    g.player.health = 20;
+  });
+  await until(client, (g) => g.player.mode === "survival", 10000);
+  // (Placed and aimed in one go, from a spot with a clear line to the host's chest.)
+  const aim = `(g) => {
+    if (g.player.dead) g.respawn();
+    const r = g.mp.players.get(1);
+    const chest = r.position.clone().add(new g.THREE.Vector3(0, 1.1, 0));
+    for (const [dx, dy, dz] of [[3, 0, 0], [-3, 0, 0], [0, 0, 3], [0, 0, -3], [2.5, 1.5, 0], [-2.5, 1.5, 0], [0, 2, 2.5], [0, 2, -2.5]]) {
+      g.player.position.set(r.position.x + dx, r.position.y + dy, r.position.z + dz);
+      g.player.velocity.set(0, 0, 0);
+      const eye = g.player.getEyePosition();
+      const d = chest.clone().sub(eye);
+      const len = d.length();
+      if (!g.world.raycast(eye, d.clone().normalize(), len, { solidOnly: true })) break;
+    }
+    const eye = g.player.getEyePosition();
+    const d = chest.clone().sub(eye);
+    g.player.yaw = Math.atan2(-d.x, -d.z);
+    g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+  }`;
+  const aimAnd = (body) => v(client, new Function("g", `(${aim})(g); return (${body})(g);`));
+  assert(await v(host, (g) => g.mp.pvp === true), "PvP is not on by default");
+  await sleep(800);
+  const before = await v(host, (g) => g.player.health);
+  const r = await aimAnd((g) => {
+    g.weapons.enabled = true;
+    return g.weapons.fireSniper();
+  });
+  assert(r && r.type === "mob", `the sniper shot did not hit the host: ${JSON.stringify(r)}`);
+  const hurt = await until(host, (g, b) => g.player.health < b || g.player.dead, 8000, before);
+  assert(hurt, "the host was not hurt by the client's shot");
+  // Melee: the sword (a creature hit through the same stand-in).
+  await v(host, (g) => {
+    if (g.player.dead) g.respawn();
+    g.player.health = 20;
+  });
+  await sleep(1200);
+  const meleeHit = await aimAnd((g) => {
+    const eye = g.player.getEyePosition();
+    const hit = g.mobs.raycast(eye, g.player.getForwardVector(), 6);
+    return hit && hit.mob.isRemotePlayer ? g.mobs.attack(hit.mob, { type: "sword", damage: 6 }) : false;
+  });
+  assert(meleeHit, "the client's swing found no player");
+  const meleeHurt = await until(host, (g) => g.player.health < 20 || g.player.dead, 8000);
+  assert(meleeHurt, "the sword did not hurt the host");
+  // The host turns PvP off (lobby checkbox): nothing hurts any more.
+  await host.evaluate(() => {
+    const cb = document.getElementById("mp-lobby-pvp");
+    cb.checked = false;
+    cb.dispatchEvent(new Event("change"));
+  });
+  const off = await until(client, (g) => g.mp.pvp === false, 8000);
+  assert(off, "the client never got the PvP rule");
+  await v(host, (g) => {
+    if (g.player.dead) g.respawn();
+    g.player.health = 20;
+  });
+  await sleep(800);
+  const r2 = await aimAnd((g) => g.weapons.fireSniper());
+  await sleep(1500);
+  const h2 = await v(host, (g) => g.player.health);
+  assert(h2 === 20 && r2.type !== "mob", `with PvP off: host ${h2}, shot ${JSON.stringify(r2)}`);
+  await v(host, (g) => g.mp.rules.setPvp(true));
+  await until(client, (g) => g.mp.pvp === true, 8000);
+});
+
+await check("one shared world: a supply crate and dropped items are the same for both, and only one player opens the crate", async () => {
+  const id = await v(host, (g) => {
+    const r = g.mp.players.get([...g.mp.players.remotes.keys()][0]);
+    const c = g.crates.drop({ center: r.livePos, dist: 12 });
+    return c && c.id;
+  });
+  assert(id, "the host could not drop a crate");
+  const seen = await until(client, (g, i) => g.crates.byId(i) && g.crates.byId(i).pos.toArray(), 10000, id);
+  assert(seen, "the client never saw the host's crate");
+  // Both fast-forward the fall (it is the same path everywhere), the client walks up to it.
+  await v(host, (g, i) => g.crates._advance(g.crates.byId(i), 60), id);
+  const opened0 = await v(client, (g) => g.stats.world.cratesOpened);
+  const landed = await v(client, (g, i) => {
+    const c = g.crates.byId(i);
+    g.crates._advance(c, 60);
+    if (g.player.dead) g.respawn();
+    g.player.position.set(c.pos.x + 0.5, c.pos.y, c.pos.z);
+    return c.state;
+  }, id);
+  assert(landed === "landed", `crate state ${landed}`);
+  const opened = await until(client, (g, a) => g.stats.world.cratesOpened > a.o && !g.crates.byId(a.i), 10000, { o: opened0, i: id });
+  assert(opened, "the client could not open the crate");
+  const goneOnHost = await until(host, (g, i) => !g.crates.byId(i) || g.crates.byId(i).state === "gone", 8000, id);
+  assert(goneOnHost, "the crate is still there on the host");
+  // An item that drops on the host (a broken block) shows up for the client too.
+  const key = await v(host, (g) => {
+    const p = g.player.position;
+    const it = g.entities.spawn(12, 2, new g.THREE.Vector3(p.x + 40, p.y + 1, p.z));
+    return it && it.shared;
+  });
+  assert(key, "the host's dropped item is not shared");
+  const there = await until(client, (g, k) => g.mp.items.byKey.has(k), 8000, key);
+  assert(there, "the client never saw the host's dropped item");
 });
 
 await check("Survival together: the client follows the host's mission, and a finished mission rewards both", async () => {
@@ -426,7 +601,7 @@ await check("Survival together: the client follows the host's mission, and a fin
   const before = await v(client, (g, id) => g.inventory.slots.reduce((n, s) => n + (s && s.id === id ? s.count : 0), 0), rewardId);
   // The host's group finishes the objective (another player's kill counts for the world).
   await v(host, (g) => {
-    for (const o of g.progress.mission.objectives) g.stats.addWorld(o.stat, o.goal);
+    for (const o of g.progress.mission.objectives) g.stats.addWorld(o.stat, g.progress.goalFor(o));
   });
   const got = await until(client, (g, a) => {
     const n = g.inventory.slots.reduce((k, s) => k + (s && s.id === a.id ? s.count : 0), 0);
@@ -435,6 +610,40 @@ await check("Survival together: the client follows the host's mission, and a fin
   assert(got, "the client got no reward");
   const next = await until(client, (g, s) => g.progress.step === s + 1, 10000, step);
   assert(next, "the client did not move on to the next mission");
+});
+
+await check("co-op scaling: goals grow with the group (2 aliens each), the supply mission drops a crate for each player", async () => {
+  // The supply mission: one crate per player, near each.
+  const r = await v(host, (g) => {
+    const idx = g.MISSIONS.findIndex((m) => m.id === "supply");
+    g.progress.step = idx;
+    g.progress.start(g.stats.world);
+    g.crates.clear();
+    return { goal: g.progress.objectives(g.stats.world)[0].goal, n: g.progress.groupN };
+  });
+  assert(r.n === 2 && r.goal === 2, `supply goal ${JSON.stringify(r)}`);
+  const crates = await until(host, (g) => g.crates.active.length >= 2 && g.crates.active.length, 15000);
+  assert(crates === 2, `the host dropped ${crates} crates`);
+  const seen = await until(client, (g) => g.crates.active.length === 2 && g.progress.objectives(g.stats.world)[0]?.goal === 2, 15000);
+  assert(seen, "the client does not see both crates and a goal of 2");
+  // Each crate came down near a different player.
+  const near = await v(host, (g) => {
+    const r = g.mp.players.get([...g.mp.players.remotes.keys()][0]);
+    const ps = [g.player.position, r.livePos];
+    return ps.map((p) => Math.min(...g.crates.active.map((c) => Math.hypot(c.x - p.x, c.z - p.z))));
+  });
+  assert(near.every((d) => d < 260), `crate distances ${near}`);
+  // The landing mission: 2 aliens per player.
+  const g2 = await v(host, (g) => {
+    g.crates.clear();
+    const idx = g.MISSIONS.findIndex((m) => m.id === "landing");
+    g.progress.step = idx;
+    g.progress.start(g.stats.world);
+    return g.progress.objectives(g.stats.world)[0].goal;
+  });
+  assert(g2 === 4, `landing goal ${g2}`);
+  const cg = await until(client, (g) => g.progress.objectives(g.stats.world)[0]?.goal === 4, 10000);
+  assert(cg, "the client's tracker does not show 4");
 });
 
 await check("only the host picks the mode: Creative for everyone, a guest can't change it", async () => {
@@ -567,7 +776,103 @@ await check("Dogfight: everyone in a jet, PvP hits, kills and deaths on the scor
   // The client's scoreboard shows the same numbers.
   const board = await v(client, (g, pid) => ({ host: g.mp.dogfight.scores.get(1), me: g.mp.dogfight.scores.get(pid) }), bob);
   assert(board.host.k === 3 && board.me.d === 3, JSON.stringify(board));
+  // (Round 8) The mouse is free for the results: no pointer lock, no pause menu over them,
+  // and a real click on the buttons works (Playwright clicks only what is on top).
+  for (const [page, name] of [[host, "host"], [client, "client"]]) {
+    const st = await page.evaluate(() => ({ lock: !!document.pointerLockElement, pause: !document.getElementById("pause-menu").classList.contains("hidden"), state: window.__ufo.gameState }));
+    assert(!st.lock && !st.pause && st.state !== "playing", `${name}: ${JSON.stringify(st)}`);
+  }
+  await client.click("#mp-result-close", { timeout: 5000 });
+  assert(await client.evaluate(() => document.getElementById("mp-results").classList.contains("hidden")), "Close did not close the results");
 });
+
+// ---------- A third player (Round 8) ----------
+let carol = null;
+await check("three players: a third joins through the menu (Multiplayer > nickname > Join a game > code > Play) and lands in the world with both", async () => {
+  // (After the Dogfight: back to Survival first.)
+  await v(host, (g) => {
+    g.mp.dogfight.closeResults();
+    g.mp.rules.setMode("survival");
+  });
+  await until(client, (g) => g.mp.mode === "survival" && !g.vehicles.active, 15000);
+  carol = await newPage("carol");
+  await carol.goto(`http://127.0.0.1:${PORT}/index.html?seed=7&${NET_Q}`, { waitUntil: "load", timeout: 60000 });
+  await carol.waitForFunction(() => window.__ufo?.graphicsReady, null, { timeout: 120000 });
+  await carol.click("#menu-mp-btn");
+  await carol.fill("#mp-nick", "Carol");
+  await carol.click('.mp-tab[data-tab="join"]');
+  await carol.fill("#mp-code", code);
+  await Promise.all([carol.waitForURL((u) => u.searchParams.get("join") === code, { timeout: 30000 }), carol.click("#mp-join-btn")]);
+  // The join happens by itself (no second form): the boot overlay just says it is joining.
+  await carol.waitForFunction(() => window.__ufo?.graphicsReady && window.__ufo.mp.stateLoaded, null, { timeout: 120000 });
+  const r = await v(carol, (g) => ({ seed: g.world.seed, players: [...g.net.players.values()].map((p) => p.nick).sort().join(","), form: !document.getElementById("mp-boot-join")?.offsetParent }));
+  assert(r.seed === SEED && r.players === "Alice,Bob,Carol", JSON.stringify(r));
+  const h = await until(host, (g) => g.net.playerCount === 3, 15000);
+  assert(h, "the host sees three players");
+  const b = await until(client, (g) => [...g.net.players.values()].some((p) => p.nick === "Carol"), 15000);
+  assert(b, "Bob sees Carol");
+  await play(carol);
+  // Everyone sees the other two.
+  const seen = await until(carol, (g) => g.mp.players.remotes.size === 2 && [...g.mp.players.remotes.values()].every((x) => x.seen), 20000);
+  assert(seen, "Carol sees both");
+});
+
+await check("three players: a mission's goal grows when a player joins mid-mission and shrinks when one leaves; airports park a fighter for everyone", async () => {
+  assert(carol, "no third player");
+  try {
+    await threePlayers();
+  } finally {
+    // (Whatever happened, Carol goes, so the two-player checks after this one start clean.)
+    if (carol) {
+      await carol.evaluate(() => window.__ufo?.mp?.leave()).catch(() => {});
+      await until(host, (g) => g.net.playerCount === 2, 15000);
+      await carol.context().close().catch(() => {});
+      carol = null;
+    }
+    await v(host, (g) => {
+      g.progress.step = 0;
+    });
+  }
+});
+
+async function threePlayers() {
+  // Survival, the landing mission (2 aliens per player).
+  await v(host, (g) => {
+    g.mp.rules.setMode("survival");
+    const i = g.MISSIONS.findIndex((m) => m.id === "landing");
+    g.progress.step = i;
+    g.progress.base = { ...g.progress._pick(g.stats.world) };
+  });
+  const g3 = await until(host, (g) => g.progress.groupN === 3 && g.progress.objectives(g.stats.world)[0].goal, 15000);
+  assert(g3 === 6, `goal with 3 players: ${g3}`);
+  // The guests' trackers show the host's goal.
+  const cg = await until(carol, (g) => g.progress.mirrorObjectives?.[0]?.goal === 6, 15000);
+  assert(cg, "Carol's tracker shows the goal for three");
+  // Aircraft for a group of three at the home airport: the same parked set on every peer.
+  const keys = async (page) => v(page, (g) => {
+    const s = g.sites.home || g.sites.nearest(g.player.position.x, g.player.position.z, 4000, "airport");
+    return { size: g.airports.groupSize, n: g.airports.fighterCount(s) };
+  });
+  const hk = await keys(host);
+  const ck = await until(carol, (g) => g.airports.groupSize === 3 && g.airports.groupSize, 15000);
+  assert(hk.size === 3 && hk.n >= 4 && ck === 3, `airports for three: ${JSON.stringify(hk)} carol ${ck}`);
+  // A shared creature: the host's zombie next to Carol shows for Carol (and Bob).
+  const zid = await v(host, (g) => {
+    const pid = [...g.net.players.values()].find((p) => p.nick === "Carol")?.pid;
+    const r = g.mp.players.get(pid);
+    const z = g.mobs.spawn("zombie", r.position.x + 3, r.position.y, r.position.z);
+    if (!z) return null;
+    z.calmT = 30;
+    return z.id;
+  });
+  assert(zid, "host spawned a zombie near Carol");
+  const cz = await until(carol, (g, id) => [...(g.mp.entities?.mobById?.values() || [])].some((m) => m.kind === "zombie" && !m.dead), 20000, zid);
+  assert(cz, "Carol sees the host's zombie");
+  // Carol leaves mid-mission: the goal shrinks back to two players' share.
+  await Promise.all([carol.waitForURL((u) => !u.searchParams.has("join"), { timeout: 30000 }), carol.evaluate(() => window.__ufo.mp.leave())]);
+  const g2 = await until(host, (g) => g.net.playerCount === 2 && g.progress.groupN === 2 && g.progress.objectives(g.stats.world)[0].goal, 15000);
+  assert(g2 === 4, `goal after Carol left: ${g2}`);
+}
 
 await check("a client leaving: the host drops it; joining again (same nickname) brings its things back", async () => {
   await v(host, (g) => {

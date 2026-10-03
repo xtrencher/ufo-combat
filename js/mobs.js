@@ -14,6 +14,7 @@ import { BLOCK, BLOCK_INFO, IS_SOLID, IS_LEAVES, IS_WET } from "./blocks.js";
 import { ITEM, meleeDamage } from "./items.js";
 import { sweepAxis, rayAabb } from "./physics.js";
 import { createMobModel } from "./mob-models.js";
+import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { BIOME } from "./biomes.js";
 import { Crowd } from "./crowd.js";
@@ -136,20 +137,23 @@ export const SPECIES = {
   // Red: a slow armoured brute lobbing plasma that blasts the ground.
   alien: {
     name: "Green alien", alien: true, hostile: true, special: true, health: 18, r: 0.3, h: 1.62, eye: 1.3, glows: true,
-    speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 40, ranged: true, laser: true, laserDamage: 3, strafes: true,
-    weapon: "pistol", shootMin: 5, shootMax: 26, shootCooldown: 1.25, noBurn: true, pathfind: true, bigJump: true,
+    // (Round 8: aliens fight back from about as far as the player's guns
+    // reach: they spot you from far off and shoot from long range, with an
+    // aim that is decent but not deadly at that distance.)
+    speed: 1.4, chaseSpeed: 3.1, maxDrop: 3, damage: 0, sight: 95, ranged: true, laser: true, laserDamage: 3, strafes: true,
+    weapon: "pistol", shootMin: 5, shootMax: 70, shootCooldown: 1.25, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.APPLE, 1, 1, 0.25]],
   },
   alien_gray: {
     name: "Gray alien", alien: true, hostile: true, special: true, health: 14, r: 0.28, h: 1.78, eye: 1.45, glows: true,
-    speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 48, ranged: true, laser: true, laserDamage: 2, strafes: true,
-    weapon: "burst", shootMin: 10, shootMax: 46, shootCooldown: 2.1, noBurn: true, pathfind: true, bigJump: true,
+    speed: 1.6, chaseSpeed: 3.6, maxDrop: 3, damage: 0, sight: 130, ranged: true, laser: true, laserDamage: 2, strafes: true,
+    weapon: "burst", shootMin: 10, shootMax: 110, shootCooldown: 2.1, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.APPLE, 1, 2, 0.3], [ITEM.GOLDEN_APPLE, 1, 1, 0.04]],
   },
   alien_red: {
     name: "Red alien", alien: true, hostile: true, special: true, health: 46, r: 0.42, h: 2.1, eye: 1.7, glows: true,
-    speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 36, ranged: true, laser: true, laserDamage: 6,
-    weapon: "plasma", shootMin: 4, shootMax: 24, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true,
+    speed: 1.0, chaseSpeed: 2.3, maxDrop: 4, damage: 0, sight: 85, ranged: true, laser: true, laserDamage: 6,
+    weapon: "plasma", shootMin: 4, shootMax: 60, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true,
     drops: [[ITEM.APPLE, 1, 2, 0.4], [ITEM.GOLDEN_APPLE, 1, 1, 0.08], [ITEM.GOLD_INGOT, 1, 2, 0.4]],
   },
   // Blue aliens: quick flankers. They close in and blink to a new spot
@@ -157,7 +161,7 @@ export const SPECIES = {
   // scatter of fast bolts: dangerous up close, weak at range.
   alien_blue: {
     name: "Blue alien", alien: true, hostile: true, special: true, health: 16, r: 0.28, h: 1.7, eye: 1.4, glows: true,
-    speed: 1.9, chaseSpeed: 4.2, maxDrop: 4, damage: 0, sight: 44, ranged: true, laser: true, laserDamage: 1.4, strafes: true,
+    speed: 1.9, chaseSpeed: 4.2, maxDrop: 4, damage: 0, sight: 75, ranged: true, laser: true, laserDamage: 1.4, strafes: true,
     weapon: "scatter", shootMin: 6, shootMax: 16, shootCooldown: 2.3, noBurn: true, pathfind: true, bigJump: true, blinks: true,
     drops: [[ITEM.APPLE, 1, 1, 0.3], [ITEM.GOLDEN_APPLE, 1, 1, 0.04]],
   },
@@ -166,8 +170,8 @@ export const SPECIES = {
   // restricted area around them (a Creative player is left alone).
   guard: {
     name: "Guard", hostile: true, special: true, sentry: true, health: 22, r: 0.3, h: 1.85, eye: 1.6,
-    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 60, ranged: true, laser: true, laserDamage: 1.5, strafes: true,
-    weapon: "rifle", shootMin: 6, shootMax: 38, shootCooldown: 2.3, pathfind: true,
+    speed: 1.0, chaseSpeed: 3.0, maxDrop: 3, damage: 0, sight: 80, ranged: true, laser: true, laserDamage: 1.5, strafes: true,
+    weapon: "rifle", shootMin: 6, shootMax: 75, shootCooldown: 2.3, pathfind: true,
     drops: [[ITEM.COAL, 0, 0, 0]],
   },
   fish: {
@@ -193,10 +197,10 @@ const PASSIVE_KINDS = Object.keys(SPECIES).filter((k) => !SPECIES[k].hostile && 
 const HOSTILE_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].hostile);
 const OTHER_HOSTILE_KINDS = HOSTILE_KINDS.filter((k) => k !== "zombie" && !SPECIES[k].special);
 const FLYER_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].flies);
-const VILLAGERS_PER_VILLAGE = 2;
+const VILLAGERS_PER_VILLAGE = 5;
 const MAX_FLYERS = 10;
 const MAX_TOTAL_MOBS = 34;
-const VILLAGE_SEARCH_RADIUS = 40;
+const VILLAGE_SEARCH_RADIUS = 60;
 
 // Seconds for a full-strength swing with the given tool.
 function attackCooldown(tool) {
@@ -342,6 +346,35 @@ export class MobManager {
     return m;
   }
 
+  // (Round 8) A mission leader visibly carries the weapon it will drop: the
+  // item's own model slung across its back (gone when it dies: it drops).
+  setCarry(m, id) {
+    if (m.carryMesh) {
+      m.carryMesh.parent?.remove(m.carryMesh);
+      m.carryMesh = null;
+    }
+    m.carryId = id || 0;
+    const model = id ? itemModel(id) : null;
+    const body = m.model.parts.body;
+    if (!model || !body) return;
+    if (!this._carryMat) this._carryMat = createEntityMaterial("color");
+    const mesh = new THREE.Mesh(model.geometry, this._carryMat);
+    mesh.castShadow = true;
+    // Barrel up over the shoulder, diagonally across the back.
+    mesh.rotation.set(-Math.PI / 2, 0, 0);
+    const sling = new THREE.Group();
+    sling.add(mesh);
+    sling.rotation.set(0, Math.PI, 0.7);
+    sling.scale.setScalar(model.gun === "railgun" ? 1.15 : 0.95);
+    const geo = body.children[0]?.geometry;
+    geo?.computeBoundingBox?.();
+    const bb = geo?.boundingBox;
+    sling.position.set(0, bb ? (bb.min.y + bb.max.y) / 2 : 0.35, bb ? bb.min.z - 0.07 : -0.25);
+    body.add(sling);
+    bindEntityLight(mesh, () => m.light);
+    m.carryMesh = sling;
+  }
+
   _remove(i) {
     const m = this.mobs[i];
     this.group.remove(m.model.root);
@@ -444,9 +477,9 @@ export class MobManager {
     if (!villages) return;
     const p = this.player.position;
     let village = villages.nearestVillage(p.x, p.z, VILLAGE_SEARCH_RADIUS);
-    let radius = 20;
+    let radius = 34;
     let cap = VILLAGERS_PER_VILLAGE;
-    let spread = 8;
+    let spread = 20;
     // Airports and cities (sites.js) have their people too: a few around an
     // airport's apron, a crowd in a city.
     const site = terrain.sites?.nearest(p.x, p.z, 320);
@@ -592,6 +625,16 @@ export class MobManager {
     // `spawning` and `hostileSpawning` are settings (creature spawning,
     // Peaceful difficulty); `enabled` is used by tests.
     if (!this.enabled || this.spawning === false) return;
+    // Online, a guest's creatures are the host's (Round 8: animals and
+    // villagers too); only the little ambient flyers (butterflies, parrots,
+    // fish) are each player's own.
+    if (this.puppets) {
+      this._spawnTimer -= dt;
+      if (this._spawnTimer > 0) return;
+      this._spawnTimer = SPAWN_INTERVAL;
+      if (Math.random() < 0.4) this._trySpawnFlyers();
+      return;
+    }
     if (!this._seeded && this._chunkReady(this.player.position.x, this.player.position.z)) {
       // Start the world with some animals around.
       this._seeded = true;
@@ -617,9 +660,10 @@ export class MobManager {
     this._spawnTimer = SPAWN_INTERVAL;
     const zombieCount = this.countKind("zombie");
     if (this.mobs.length - zombieCount >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
-    if (this.countOf(false) < MAX_PASSIVE && Math.random() < 0.3) this._trySpawnPassive(30, 80);
+    const passiveCap = MAX_PASSIVE * (this.targets ? Math.min(3, this.targets().length) : 1);
+    if (this.countOf(false) < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countOf(false)));
     if (this.countOf(true) < MAX_HOSTILE * (this.targets ? Math.min(3, this.targets().length) : 1) && this.hostileSpawning !== false && !this.puppets && Math.random() < 0.67) this._aroundAnyone(() => this._trySpawnHostile());
-    this._trySpawnVillagers();
+    this._aroundAnyone(() => this._trySpawnVillagers());
     if (Math.random() < 0.4) this._trySpawnFlyers();
   }
 
@@ -760,7 +804,7 @@ export class MobManager {
       // A crew that has just climbed out of a wreck (m.aggro) hunts the
       // player from wherever they are, at any height.
       const sight = m.aggro ? Math.max(m.spec.sight, 160) : m.spec.sight;
-      const vertical = m.aggro ? 60 : 10;
+      const vertical = m.aggro ? 60 : m.spec.alien || m.spec.sentry ? 30 : 10;
       // (A calm crew member looks around and leaves the player be for now.)
       let willing = this._canTarget(m) && !(m.calmT > 0);
       // A posted guard only fights when alerted (the player in his zone, or
@@ -1215,7 +1259,9 @@ export class MobManager {
     const dir = target.sub(from);
     const dist = dir.length() || 1;
     dir.divideScalar(dist);
-    const spread = (weapon === "burst" ? 0.012 : weapon === "rifle" ? 0.02 : 0.03) + dist * (weapon === "burst" ? 0.0006 : weapon === "rifle" ? 0.0009 : 0.0012);
+    // (Round 8: the aim spreads far less with distance, so a long shot can hit:
+    // about +-4 blocks at 90 blocks for a pistol, a little tighter for a rifle or a burst.)
+    const spread = (weapon === "burst" ? 0.009 : weapon === "rifle" ? 0.014 : 0.021) + dist * (weapon === "burst" ? 0.00018 : weapon === "rifle" ? 0.0002 : 0.00025);
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;
@@ -1585,6 +1631,8 @@ export class MobManager {
       m.deathTime = 0;
       this.kills++;
       this.killsByKind[m.kind] = (this.killsByKind[m.kind] || 0) + 1;
+      // (Round 8) A mission leader drops the weapon it carries however it dies (main.js).
+      if (m.leaderDrop && !m.net) this.onLeaderDown?.(m);
       if (this.onKill) this.onKill(m, this.time - (m.lastPlayerHit ?? -99) < 6);
       this.audio.playMob(m.kind, "death", dist);
       return true;
@@ -1767,8 +1815,9 @@ export class MobManager {
         this._afterMove(m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z), crowdDist);
         continue;
       }
-      // Online (host): a hostile creature thinks about the nearest player.
-      if (targets && m.spec.hostile) this.player = this._nearestTarget(m, targets);
+      // Online (host): a creature thinks about the nearest player (and stays
+      // while anyone is near: animals and villagers are everyone's too).
+      if (targets && !m.spec.flies) this.player = this._nearestTarget(m, targets);
       try {
         this._updateMob(m, i, dt, crowdDist, daylight, targets ? Math.hypot(m.pos.x - p.x, m.pos.z - p.z) : null);
       } finally {
@@ -1902,6 +1951,7 @@ export class MobManager {
   // Positions and animates the model.
   _place(m) {
     const model = m.model;
+    if (m.dead && m.carryMesh) this.setCarry(m, 0);
     model.root.position.copy(m.pos);
     model.root.rotation.y = m.yaw;
     // Hit flash (red), burning (orange), and a red, tipping-over death.

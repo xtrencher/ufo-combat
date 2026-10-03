@@ -74,7 +74,7 @@ export const SCHEMA = [
 
   // ----- Controls -----
   { key: "fov", id: "fov", group: "controls", type: "range", label: "Field of view", min: 50, max: 110, step: 1, def: 75, fmt: int, static: true },
-  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 1, fmt: (v) => `${v.toFixed(2)}x`, static: true },
+  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 0.6, fmt: (v) => `${v.toFixed(2)}x`, static: true },
   { key: "invertY", id: "invert-y", group: "controls", type: "checkbox", label: "Invert mouse Y", def: false, static: true },
   { key: "binocularZoom", group: "controls", type: "range", label: "Binocular zoom (hold both mouse buttons)", min: 2, max: 12, step: 0.5, def: 6, fmt: times },
 

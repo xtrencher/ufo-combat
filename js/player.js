@@ -92,7 +92,7 @@ export class Player {
     this.zoomSensMul = 1; // mouse-look multiplier while zoomed (sniper scope)
     this.binocularFov = null; // binoculars (both mouse buttons): overrides everything
     this.binocularSens = 1;
-    this.mouseSensitivity = 1; // user setting multiplier
+    this.mouseSensitivity = 0.6; // user setting multiplier (Round 8 default: 60% of the old one)
     this.invertY = false;
     this.baseFov = BASE_FOV; // user setting
     this.mobDamageScale = 1; // difficulty

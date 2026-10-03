@@ -1,5 +1,6 @@
-// Menus around the game: the main menu (logo, Play / New World / Settings /
-// Mods / Controls) over a slow camera flyover of the world with a UFO
+// Menus around the game: the main menu (Round 8: Play with the mode and
+// "New world", Multiplayer, Settings; Mods and the key list are in
+// Settings) over a slow camera flyover of the world with a UFO
 // drifting across the sky, and the sub-screens shared by the main menu and
 // the pause menu (settings, mods, controls, stats). Opening a sub-screen
 // hides the menu it came from; Back (or Esc) returns to it.
@@ -56,19 +57,21 @@ export const CONTROLS = [
     ["R", "Teleport dash: the ship streaks along the view in a split second; hold R to keep streaking (no distance limit). Distance and travel time, or off, in Settings > Vehicles"],
     ["B", "Superweapon: after a short charge, a huge laser straight down"],
   ]],
-  ["Fighter jet", [
+  ["Fighter jet and B-2 bomber", [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
-    ["W / S", "Throttle up / down (a takeoff roll takes about 120 blocks, 90 in the F-16: use a runway)"],
+    ["W / S", "Throttle up / down (a takeoff roll takes about 160 blocks, 125 in the F-16, 300 in the B-2: use a runway)"],
     ["Shift", "Afterburner"],
     ["A / D", "Bank harder (flight assist; without it: roll)"],
     ["Q / E", "Rudder (yaw)"],
     ["Space (hold)", "Air brakes: panels (F-16) or control surfaces (F-22) open, the jet sheds speed very fast and turns much tighter; too slow and it stalls. On the ground: wheel brakes"],
-    ["Left click", "Autocannon (aims a little for you; overheats: watch the heat bar)"],
+    ["Left click", "Autocannon (aims a little for you; overheats: watch the heat bar). The B-2 has none. While a lock is building or locked: cancels it (nothing fires)"],
     ["Right click", "Unguided missile, straight ahead"],
-    ["Right click (hold)", "Missile lock on the UFO or enemy aircraft nearest the view centre (ones attacking you first), even behind you; release after 1 s: one missile, longer: a salvo (4 from the F-22, 2 from the F-16). You keep full control while the camera looks at the target (a ring shows where the mouse steers); a ring and pips charge up for the salvo. The view follows the target until the hit; right click brings it back. Let go before LOCKED: nothing fires"],
+    ["Right click (hold)", "Missile lock on the UFO or enemy aircraft nearest the view centre (ones attacking you first), even behind you; once it starts on a target it never switches to another. Release after 1 s: one missile; keep holding while a spiral closes in around the target for a salvo (4 from the F-22, 2 from the F-16; the B-2 fires one at a time). You keep full control while the camera looks at the target. The view follows the target until the hit; right click brings it back. Let go before LOCKED: nothing fires"],
+    ["Both mouse buttons (hold)", "Free look from where you are looking now; the aircraft holds its attitude"],
+    ["Radar", "Bottom right while flying: UFOs (red diamonds), enemy aircraft (orange), other players, airports (white bars), missiles coming at you (blinking red), the mission (yellow star)"],
     ["Roll away", "A close enemy missile misses, narrowly, when you roll more than about 90 degrees (it needs a few seconds before it works again)"],
     ["C", "Flares: fool missiles and seeking shots"],
-    ["B", "Drop the nuke (it falls on a parachute: get clear!)"],
+    ["B", "B-2 only: drop the nuke (it falls on a parachute: get clear!)"],
     ["F", "Get out on the ground, eject in the air"],
   ]],
   ["Game", [
@@ -142,7 +145,8 @@ export const MENU_TIPS = [
   "Hold the right mouse button with the bazooka to lock on; release for a homing rocket.",
   "The railgun's beam goes through everything: blocks, creatures and UFOs.",
   "Press J to call a fighter jet (1: F-22, 2: F-16). Airports have long runways: much easier to take off from.",
-  "In the jet, tap right click for an unguided missile, or hold it to lock: 1 second for one, longer for a salvo.",
+  "In the jet, tap right click for an unguided missile, or hold it to lock: 1 second for one, until the spiral closes for a salvo. Left click cancels a lock.",
+  "Only the B-2 bomber carries the nuke: find one at an airport (it is the big flying wing).",
   "Press C in the jet for flares: they fool missiles and seeking shots.",
   "Press I in any vehicle for its stats and controls.",
   "A UFO shot down over land may crash in one piece: board it with F and fly it yourself (in Survival from the Salvage mission).",

@@ -34,6 +34,8 @@ export const STAT_LABELS = [
   ["landingSquad", "Landing squad aliens killed (mission)"],
   ["meteorFragments", "Star fragments collected"],
   ["bossesDown", "Bosses destroyed"],
+  ["shipsStolen", "Alien ships stolen from a bunker"],
+  ["playerKills", "Players taken down (multiplayer)"],
 ];
 
 function blank() {

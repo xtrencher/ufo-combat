@@ -16,7 +16,7 @@
 import * as THREE from "three";
 import { BillboardPool } from "./particles.js";
 import { makeCraterShape, effectsQuality } from "./effects.js";
-import { BLOCK, IS_LEAVES } from "./blocks.js";
+import { BLOCK, IS_LEAVES, IS_LOG, IS_SOLID } from "./blocks.js";
 import { LAYER_FX } from "./layers.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
@@ -26,6 +26,16 @@ export const NUKE_DEFAULTS = { size: 96, intensity: "high" };
 // Depth of the crater: about what a size-44 nuke used to dig (22 blocks), growing
 // only slowly with the size, so a big nuke makes a very wide, shallow-looking bowl.
 const craterDepth = (R) => 22 * Math.sqrt(R / 44);
+// (Round 8) The crater's width: as wide as the mushroom's cap gets (about
+// 1.6x the size), at the same depth; beyond it everything standing is
+// swept away out to CLEAR, trees are knocked flat out to KNOCK, and burnt
+// (leaves and plants gone, trunks left as stumps) out to BURN.
+const CRATER_W = 1.6;
+const CLEAR = 1.85;
+export const NUKE_CLEAR = CLEAR; // (distant.js: no far-off building shapes where a nuke swept everything away)
+const KNOCK = 2.6;
+const BURN = 3.3;
+const isPlant = (id) => IS_LEAVES[id] || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW || id === BLOCK.SNOW;
 const INTENSITY = { low: 0.4, medium: 0.7, high: 1 };
 const SLICES_MIN = 10;
 
@@ -56,6 +66,13 @@ export class NukeSystem {
     scene.add(this.ball, this.shell, this.ring);
     this.flashEl = document.getElementById("nuke-flash");
     this.onDetonate = null; // (center, radius) => void: damage (main.js)
+    // (Round 8) Blast zones: every nuke's zone is remembered (saved with the
+    // world) and applied to each chunk that generates later inside it, so
+    // terrain that wasn't loaded at the time (or a tree cut in half at a
+    // chunk's edge) is cleared too when you get there: nothing is left
+    // standing or floating. Each zone remembers which chunks it has done.
+    this.zones = []; // { x, y, z, R, done: Set of chunk keys }
+    world.onChunkGenerated = (chunk) => this._chunkGenerated(chunk);
     this._c = {
       hot: new THREE.Color(4, 3.4, 2.2),
       fire: new THREE.Color(3, 1.3, 0.35),
@@ -89,15 +106,28 @@ export class NukeSystem {
       removed: [],
       scorched: false,
       cloudT: 0,
-      slices: Math.max(SLICES_MIN, Math.ceil(R / 4)), // the crater is carved in this many slices over frames
-      clearR: R * 1.3, // everything standing within this is destroyed (see _scorch)
+      slices: Math.max(SLICES_MIN, Math.ceil((R * CRATER_W) / 4)), // the crater is carved in this many slices over frames
+      clearR: R * CLEAR, // everything standing within this is destroyed (see _scorch)
+      knockR: R * KNOCK,
+      burnR: R * BURN,
       height: Math.min(300, 50 + R * 3.8), // mushroom cap height above the ground
       mirror,
     };
     if (mirror) {
+      // (Another player's nuke: its crater arrives as their edits; the blast
+      // zone is applied here too, locally, so ground they never loaded but we
+      // have is cleared just the same: the rules are the same everywhere.)
       d.slice = d.slices;
-      d.scorched = true;
     }
+    // The zone, for terrain that streams in later; the chunks loaded now are
+    // done by the scorch pass.
+    const zone = { x: center.x, y: center.y, z: center.z, R, done: new Set() };
+    const r = R * BURN;
+    for (let cz = Math.floor((center.z - r) / 16); cz <= Math.floor((center.z + r) / 16); cz++) {
+      for (let cx = Math.floor((center.x - r) / 16); cx <= Math.floor((center.x + r) / 16); cx++) if (this.world.getChunk(cx, cz)) zone.done.add(`${cx},${cz}`);
+    }
+    this.zones.push(zone);
+    if (this.zones.length > 24) this.zones.shift();
     this._buildCloud(d);
     this.active.push(d);
     this.count++;
@@ -125,10 +155,11 @@ export class NukeSystem {
   _carveSlice(d) {
     const c = d.center;
     const R = d.R;
-    const x0 = Math.floor(c.x) - R - 2;
-    const width = Math.ceil((2 * R + 5) / d.slices);
+    const Rc = R * CRATER_W; // (Round 8: much wider, the same depth)
+    const x0 = Math.floor(c.x - Rc) - 2;
+    const width = Math.ceil((2 * Rc + 5) / d.slices);
     const a = x0 + d.slice * width;
-    const removed = this.effects._carve(c, R, { shape: d.shape, x0: a, x1: a + width - 1, maxRadius: NUKE_MAX_SIZE + 20, vScale: R / craterDepth(R) });
+    const removed = this.effects._carve(c, Rc, { shape: d.shape, x0: a, x1: a + width - 1, maxRadius: Rc + 20, vScale: Rc / craterDepth(R) });
     this.effects.floodInto(removed);
     d.slice++;
     // A sample of debris flying out.
@@ -372,8 +403,7 @@ export class NukeSystem {
   _scorch(d, budget) {
     const w = this.world;
     const c = d.center;
-    const R2 = d.R * 2;
-    const clearR = d.clearR;
+    const R2 = d.burnR;
     if (!d.scorchCols) {
       d.deferred = [];
       // The columns, nearest first (a counting sort by ring), so the clearing
@@ -415,7 +445,7 @@ export class NukeSystem {
       n++;
       if (!this._scorchColumn(d, x, z, edits)) d.deferred.push(x, z);
     }
-    if (edits.length) w.setBlocks(edits);
+    if (edits.length) w.setBlocks(edits, { remote: d.mirror });
     return d.scorchI >= d.scorchCols.length;
   }
 
@@ -440,7 +470,7 @@ export class NukeSystem {
       this._scorchColumn(d, x, z, edits);
     }
     d.deferred = keep;
-    if (edits.length) this.world.setBlocks(edits);
+    if (edits.length) this.world.setBlocks(edits, { remote: d.mirror });
   }
 
   // Returns false when the column's chunk is not loaded (nothing done).
@@ -468,17 +498,96 @@ export class NukeSystem {
       }
       return true;
     }
+    const dist = Math.sqrt(dist2);
+    const h = w.heightAt(x, z);
+    // Leaves, grass, flowers and snow burn off all the way down the column
+    // (a tree's crown is several leaves deep: all of it goes).
+    let trunkBase = -1;
     for (let y = WORLD_HEIGHT - 1; y > 0; y--) {
       const id = blocks[(y << 8) | col];
       if (id === BLOCK.AIR) continue;
-      if (IS_LEAVES[id] || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW || id === BLOCK.SNOW) {
+      if (isPlant(id)) {
         edits.push(x, y, z, BLOCK.AIR);
+        continue;
+      }
+      if (IS_LOG[id]) {
+        // A standing trunk: logs down to the ground.
+        let yb = y;
+        while (yb > 1 && IS_LOG[blocks[((yb - 1) << 8) | col]]) yb--;
+        if (y - yb >= 1 && yb <= h + 2) trunkBase = yb;
+        y = yb; // (go on below the trunk: the ground)
         continue;
       }
       if (id === BLOCK.GRASS) edits.push(x, y, z, BLOCK.DIRT);
       break;
     }
+    if (trunkBase < 0) return true;
+    // The trunk: knocked flat (closer in) or burnt down to a stump (farther out).
+    let top = trunkBase;
+    while (top + 1 < WORLD_HEIGHT && IS_LOG[blocks[((top + 1) << 8) | col]]) top++;
+    const logId = blocks[(trunkBase << 8) | col];
+    if (dist <= d.knockR) {
+      for (let y = trunkBase; y <= top; y++) edits.push(x, y, z, BLOCK.AIR);
+      // It lies on the ground pointing away from the blast (a few logs long).
+      const dx = (x + 0.5 - c.x) / (dist || 1);
+      const dz = (z + 0.5 - c.z) / (dist || 1);
+      const len = Math.min(5, top - trunkBase + 1);
+      for (let k = 1; k <= len; k++) {
+        const fx = Math.floor(x + 0.5 + dx * k);
+        const fz = Math.floor(z + 0.5 + dz * k);
+        if (!w.getChunk(fx >> 4, fz >> 4)) break;
+        let gy = trunkBase;
+        while (gy > 1 && !IS_SOLID[w.getBlock(fx, gy - 1, fz)]) gy--;
+        while (gy < WORLD_HEIGHT - 1 && IS_SOLID[w.getBlock(fx, gy, fz)]) gy++;
+        if (Math.abs(gy - trunkBase) > 3) break;
+        edits.push(fx, gy, fz, logId);
+      }
+    } else {
+      for (let y = trunkBase + 2; y <= top; y++) edits.push(x, y, z, BLOCK.AIR);
+    }
     return true;
+  }
+
+  // A chunk that generated after a nuke went off inside its zone: the blast
+  // zone's rules applied to it now (once per zone and chunk), locally.
+  _chunkGenerated(chunk) {
+    if (!this.zones.length) return;
+    const key = `${chunk.cx},${chunk.cz}`;
+    const x0 = chunk.cx * 16;
+    const z0 = chunk.cz * 16;
+    for (const zone of this.zones) {
+      if (zone.done.has(key)) continue;
+      const r = zone.R * BURN;
+      const nx = Math.max(x0, Math.min(x0 + 16, zone.x));
+      const nz = Math.max(z0, Math.min(z0 + 16, zone.z));
+      if ((nx - zone.x) ** 2 + (nz - zone.z) ** 2 > r * r) continue;
+      zone.done.add(key);
+      const d = { center: new THREE.Vector3(zone.x, zone.y, zone.z), R: zone.R, clearR: zone.R * CLEAR, knockR: zone.R * KNOCK, burnR: r };
+      const edits = [];
+      for (let z = z0; z < z0 + 16; z++) {
+        for (let x = x0; x < x0 + 16; x++) {
+          if ((x + 0.5 - zone.x) ** 2 + (z + 0.5 - zone.z) ** 2 > r * r) continue;
+          this._scorchColumn(d, x, z, edits);
+        }
+      }
+      // (Local: every player's game does this for itself, the same way.)
+      if (edits.length) this.world.setBlocks(edits, { remote: true });
+    }
+  }
+
+  // The zones, for the world save.
+  serializeZones() {
+    return this.zones.map((z) => ({ x: Math.round(z.x * 10) / 10, y: Math.round(z.y * 10) / 10, z: Math.round(z.z * 10) / 10, R: z.R, done: [...z.done] }));
+  }
+
+  loadZones(list) {
+    this.zones = [];
+    for (const z of Array.isArray(list) ? list : []) {
+      if (![z.x, z.y, z.z, z.R].every(Number.isFinite) || !Array.isArray(z.done)) continue;
+      this.zones.push({ x: z.x, y: z.y, z: z.z, R: z.R, done: new Set(z.done.filter((k) => typeof k === "string")) });
+    }
+    // (Chunks already loaded that a zone hasn't done yet: now.)
+    if (this.zones.length) for (const chunk of this.world.chunks.values()) this._chunkGenerated(chunk);
   }
 
   update(dt, listener, daylight = 1) {
@@ -495,8 +604,8 @@ export class NukeSystem {
       const R = d.R;
       // Crater: one slice per frame.
       if (d.slice < d.slices) this._carveSlice(d);
-      if (!d.scorched) d.scorched = this._scorch(d, 700);
-      else if (!d.mirror && d.slice >= d.slices && d.t - (d.retryT ?? 0) > 2) {
+      if (!d.scorched) d.scorched = this._scorch(d, 2500);
+      else if (d.slice >= d.slices && d.t - (d.retryT ?? 0) > 2) {
         d.retryT = d.t;
         this._retryDeferred(d, 1500);
       }
@@ -530,7 +639,7 @@ export class NukeSystem {
       }
       this._updateCloud(d, dt);
       if (d.t > 125 && d.slice >= d.slices && d.scorched) {
-        if (!d.mirror) this._retryDeferred(d, 4000);
+        this._retryDeferred(d, 4000);
         this.active.splice(i, 1);
       }
     }
@@ -540,6 +649,11 @@ export class NukeSystem {
   // The radius of the blast's damage (for tests / HUD).
   static damageRadius(R) {
     return R * 2;
+  }
+
+  // How far the crater reaches (horizontally) for a nuke of size R.
+  static craterRadius(R) {
+    return R * CRATER_W;
   }
 }
 

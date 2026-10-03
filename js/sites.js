@@ -51,9 +51,10 @@ export const RUNWAY_HALF_WIDTH = 7;
 // hangars, tanks, parking: how many; tower: the control tower's height;
 // terminal / radar: whether there is one; bunker: the chance of a bunker.
 const AIRPORT_SIZES = {
-  field: { half: 300, rw: 9, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
-  regional: { half: 380, rw: 11, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
-  international: { half: 460, rw: 13, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
+  // (Round 8: wider runways, for the B-2's 44-block wing.)
+  field: { half: 300, rw: 14, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
+  regional: { half: 380, rw: 16, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
+  international: { half: 460, rw: 18, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
 };
 
 const CITY_V_GAP = 6; // between the apron and the first street of the city
@@ -436,6 +437,22 @@ export class SiteGrower {
     return Math.abs(u) <= s.half + 2 + margin && Math.abs(v) <= s.rw + margin ? s : null;
   }
 
+  // Every site within maxDist of (wx, wz) (the radar).
+  within(wx, wz, maxDist) {
+    const out = [];
+    const c0x = Math.floor((wx - maxDist) / SITE_CELL);
+    const c1x = Math.floor((wx + maxDist) / SITE_CELL);
+    const c0z = Math.floor((wz - maxDist) / SITE_CELL);
+    const c1z = Math.floor((wz + maxDist) / SITE_CELL);
+    for (let cz = c0z; cz <= c1z; cz++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const s = this._site(cx, cz);
+        if (s && Math.hypot(s.x - wx, s.z - wz) < maxDist) out.push(s);
+      }
+    }
+    return out;
+  }
+
   // The nearest site (optionally of a kind) within maxDist of (wx, wz), or null.
   nearest(wx, wz, maxDist, kind = null) {
     let best = null;
@@ -471,6 +488,67 @@ export class SiteGrower {
       out.push({ x: x + 0.5, z: z + 0.5, dx, dz, yaw: Math.atan2(-dx, -dz), length: half * 2 - 24, y: site.y + 1 });
     }
     return out;
+  }
+
+  // Round 8: the parking row along the front of the apron, worked out from
+  // the layout so no slot touches a building: { fighters: [slot], bomber:
+  // slot | null }, each slot { x, y, z, yaw, u, v, key }. Fighters stand 19
+  // blocks apart (a 13-block wingspan and room to walk between); the B-2
+  // (a 46-block wing) gets a 54-block stretch of its own. Deterministic
+  // (from the site's plan alone), so every player gets the same slots.
+  parkingSlots(site) {
+    if (site._slots) return site._slots;
+    const a = site.apron;
+    const rw = site.rw;
+    const vC = rw + 21; // the row's centre line (noses toward the runway)
+    const band0 = vC - 10;
+    const band1 = vC + 10;
+    const blocked = [];
+    const block = (u0, u1, v0, v1) => {
+      if (v1 >= band0 && v0 <= band1) blocked.push([u0, u1]);
+    };
+    const t = site.tower;
+    if (t) block(t.u0 - 6, t.u1 + 6, t.v0 - 4, t.v1 + 4);
+    const tm = site.terminal;
+    if (tm) block(tm.u0 - 3, tm.u1 + 3, tm.v0 - 2, tm.v1);
+    const rd = site.radar;
+    if (rd) block(rd.u - rd.r - 4, rd.u + rd.r + 4, rd.v - rd.r - 2, rd.v + rd.r + 2);
+    for (const h of site.hangars || []) block(h.u0 - 2, h.u1 + 2, h.v0, h.v1);
+    // The free stretches of the row.
+    let free = [[a.u0 + 3, a.u1 - 3]];
+    for (const [b0, b1] of blocked) {
+      const next = [];
+      for (const [f0, f1] of free) {
+        if (b1 < f0 || b0 > f1) next.push([f0, f1]);
+        else {
+          if (b0 - 1 > f0) next.push([f0, b0 - 1]);
+          if (b1 + 1 < f1) next.push([b1 + 1, f1]);
+        }
+      }
+      free = next;
+    }
+    const [vx, vz] = this.dirV(site);
+    const yaw = Math.atan2(vx, vz);
+    const slot = (u, key) => {
+      const [x, z] = this.toWorld(site, u, vC);
+      return { x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw, u, v: vC, key };
+    };
+    // The bomber: the start of the longest stretch.
+    let bomber = null;
+    free.sort((p, q) => q[1] - q[0] - (p[1] - p[0]));
+    if (free.length && free[0][1] - free[0][0] >= 54) {
+      const [f0, f1] = free[0];
+      bomber = slot(f0 + 27, `${site.id}#b`);
+      free[0] = [f0 + 55, f1];
+    }
+    // The fighters: as many as fit, in the order of the row.
+    free.sort((p, q) => p[0] - q[0]);
+    const fighters = [];
+    for (const [f0, f1] of free) {
+      for (let u = f0 + 9; u + 9 <= f1; u += 19) fighters.push(slot(u, `${site.id}#${fighters.length}`));
+    }
+    site._slots = { fighters, bomber };
+    return site._slots;
   }
 
   // Where aircraft are parked: [{ x, y, z, yaw }] (nose toward the runway).

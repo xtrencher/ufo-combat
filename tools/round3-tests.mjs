@@ -631,7 +631,8 @@ await check("jet visuals: a lit paint finish (specular, panel lines, livery) bri
   const j = JSON.stringify(r);
   assert(r.avg > 0.08, `the paint isn't near-black: ${j}`);
   assert(r.lit, `a specular finish with panel lines and a livery: ${j}`);
-  assert(!r.dayLights && r.nightLights, `navigation lights only at night: ${j}`);
+  // (Round 8: an aircraft in use runs its navigation lights day and night, like a real one; parked, they are off.)
+  assert(r.dayLights && r.nightLights, `navigation lights while flying, day and night: ${j}`);
   assert(r.nightFill > r.dayFill, `more ambient fill at night: ${j}`);
   assert(r.verts > 3000, `a detailed model: ${j}`);
 });
@@ -665,7 +666,7 @@ await check("world and graphics: 128-tall world, render distance up to 256 chunk
 
 // ================= Part 6: missions and balance =================
 
-await check("missions: the chain (21 missions in Round 6) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
+await check("missions: the chain (22 missions in Round 8) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
   await v((g) => {
     g.setMode("survival");
     g.ufos.config.activity = 1;
@@ -685,7 +686,7 @@ await check("missions: the chain (21 missions in Round 6) from a pistol scout to
   }, 60000);
   assert(m1, "a scout was spawned for mission 1");
   assert(m1.size === "small" && m1.hp <= 45 && m1.dist < 200 && m1.agl < 60, `a small, weak, close, low scout: ${JSON.stringify(m1)}`);
-  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/21/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
+  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/22/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
   assert(m1.rulesSmall === "small", `early skies only have small UFOs: ${JSON.stringify(m1)}`);
   // The pistol kills it: 5 damage a shot.
   const kill = await v((g) => {
@@ -730,7 +731,8 @@ await check("missions: the chain (21 missions in Round 6) from a pistol scout to
   // Late missions: a village raid, a mothership, the enemy base (set up by the director).
   const late = await v(async (g) => {
     const out = {};
-    for (const [step, key] of [[13, "village"], [19, "boss"], [18, "airport"]]) {
+    const at = (id) => g.MISSIONS.findIndex((m) => m.id === id);
+    for (const [step, key] of [[at("village"), "village"], [at("overlord"), "boss"], [at("sunburn"), "airport"]]) {
       g.progress.step = step;
       g.progress.base = { ...g.progress._pick(g.stats.world) };
       g.missions.state = { t: 0 };
@@ -753,7 +755,7 @@ await check("missions: the chain (21 missions in Round 6) from a pistol scout to
   const j = JSON.stringify(late);
   assert(late.village.target && late.village.raiders === 3, `the village raid: ${j}`);
   assert(late.boss.ship, `the boss mothership: ${j}`);
-  assert(late.airport.target && /base/i.test(late.airport.label) && late.nuked === 1, `the enemy base: ${j}`);
+  assert(late.airport.target && /base|B-2/i.test(late.airport.label) && late.nuked === 1, `the enemy base: ${j}`);
   // The mission list in the pause menu.
   const list = await v((g) => {
     g.progress.step = 3;
@@ -761,7 +763,7 @@ await check("missions: the chain (21 missions in Round 6) from a pistol scout to
     const l = g.progress.list(g.stats.world);
     return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
   });
-  assert(list.n === 21 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  assert(list.n === 22 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
   await v((g) => {
     g.progress.load(null, g.stats.world);
     g.setMode("creative");

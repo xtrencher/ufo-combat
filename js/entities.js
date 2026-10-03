@@ -32,10 +32,14 @@ export class ItemEntities {
 
   // Spawns a stack at `pos` with velocity `vel`. pickupDelay: seconds before
   // it can be collected (longer for items the player throws).
-  spawn(id, count, pos, vel = null, { dur, pickupDelay = 0.4 } = {}) {
+  // keep: never despawns (a mission's weapon drop).
+  spawn(id, count, pos, vel = null, { dur, pickupDelay = 0.4, keep = false } = {}) {
     const model = itemModel(id);
     if (!model || count <= 0) return null;
-    if (this.items.length >= MAX_ITEMS) this._remove(0);
+    if (this.items.length >= MAX_ITEMS) {
+      const old = this.items.findIndex((x) => !x.keep);
+      this._remove(old >= 0 ? old : 0);
+    }
     const mesh = new THREE.Mesh(model.geometry, this.materials[model.kind]);
     mesh.scale.setScalar(model.cube ? 0.3 : 0.45);
     mesh.castShadow = true;
@@ -52,6 +56,7 @@ export class ItemEntities {
       spin: Math.random() * Math.PI * 2,
       light: { sky: 15, block: 0 },
       onGround: false,
+      keep,
     };
     bindEntityLight(mesh, () => item.light);
     this.group.add(mesh);
@@ -91,7 +96,7 @@ export class ItemEntities {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       it.age += dt;
-      if (it.age > DESPAWN_SECONDS) {
+      if (it.age > DESPAWN_SECONDS && !it.keep) {
         this._remove(i);
         continue;
       }
@@ -102,7 +107,7 @@ export class ItemEntities {
       // Pull toward the player once collectable.
       if (center && !player.dead && it.pickupDelay <= 0) {
         const d = center.distanceTo(p);
-        if (d < PICKUP_RADIUS) {
+        if (d < (it.shared ? 1.8 : PICKUP_RADIUS)) {
           const left = this.onPickup ? this.onPickup(it) : it.count;
           if (left <= 0) {
             this._remove(i);
@@ -110,7 +115,10 @@ export class ItemEntities {
           }
           it.count = left;
           it.pickupDelay = 1; // inventory full: try again later
-        } else if (d < MAGNET_RADIUS) {
+        } else if (d < MAGNET_RADIUS && !it.shared) {
+          // (A shared item online stays put until the host gives it to someone:
+          // pulled toward each player on their own screen, it would be in
+          // different places for everyone.)
           const pull = new THREE.Vector3().subVectors(center, p).normalize().multiplyScalar(14 * dt);
           it.vel.add(pull);
         }

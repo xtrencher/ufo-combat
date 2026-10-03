@@ -8,6 +8,7 @@
 // progression.js; this module is the game side of it.
 import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
+import { itemInfo } from "./items.js";
 import { BLOCK, IS_LEAVES, IS_LOG } from "./blocks.js";
 
 
@@ -47,6 +48,51 @@ export class MissionDirector {
   // Is anyone (online: any player) alive and in the game?
   get anyAlive() {
     return this.players ? this.players().some((p) => !p.dead) : !this.player.dead;
+  }
+
+  // ---------- The group (Round 8) ----------
+  // Online the missions are the whole group's: their goals grow with it
+  // (progress.goalFor), and the director sets out enough for everyone (a
+  // skeleton, a crate, a share of the squad for each player), near each of
+  // them. Goals are worked out afresh all the time, so a player joining or
+  // leaving mid-mission never leaves it impossible: more is set out when the
+  // goal grows, and a mission whose goal drops to what is done completes.
+
+  get groupN() {
+    return Math.max(1, this.progress.groupN || 1);
+  }
+
+  // Everyone in the game who is alive (this player alone offline).
+  _people() {
+    const list = this.players ? this.players().filter((p) => !p.dead) : [];
+    return list.length ? list : [this.player];
+  }
+
+  // Someone to set the next thing out near: a random player.
+  _anyone() {
+    const list = this._people();
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  // How much of objective i is still to do.
+  _remaining(i = 0) {
+    const o = this.progress.objectives(this.stats.world)[i];
+    return o ? Math.max(0, o.goal - o.value) : 0;
+  }
+
+  // The nearest of `list` (things with .pos) to this player.
+  _nearestOf(list) {
+    const p = this.player.position;
+    let best = null;
+    let bd = Infinity;
+    for (const o of list) {
+      const d = o.pos.distanceTo(p);
+      if (d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    return best;
   }
 
   get mission() {
@@ -109,7 +155,7 @@ export class MissionDirector {
         this._intact();
         break;
       case "hunt":
-        this._keepUfos(2, 650);
+        this._keepUfos(1 + this.groupN, 650);
         this.target = this._nearestUfo(900, "UFO");
         break;
       case "squad":
@@ -122,7 +168,7 @@ export class MissionDirector {
         this._landjet();
         break;
       case "dogfight":
-        if (this.vehicles.active?.type === "jet") this._keepUfos(3, 900);
+        if (this.vehicles.active?.type === "jet" || (this.pilotJets && this.pilotJets().length)) this._keepUfos(2 + this.groupN, 900);
         this.target = this.vehicles.active?.type === "jet" ? this._nearestUfo(1400, "UFO") : this._parkedJetTarget() || this._airportTarget("Airport: take a parked jet");
         break;
       case "fighter":
@@ -142,6 +188,9 @@ export class MissionDirector {
         break;
       case "airport":
         this._airport();
+        break;
+      case "steal":
+        this._steal();
         break;
       default:
         this.target = null;
@@ -182,6 +231,29 @@ export class MissionDirector {
     if (f.pos && !f.dead && !f.falling && f.state !== "gone") t.pos.copy(f.pos);
   }
 
+  // (Round 8) A squad leader's weapon on the ground (mobs.onLeaderDown in
+  // main.js): marked until someone picks it up; the mission waits for it
+  // (at most three minutes, in case it fell somewhere out of reach).
+  leaderDropped(it) {
+    this._drops = (this._drops || []).filter((d) => this._dropThere(d.it));
+    this._drops.push({ it, t: performance.now() });
+  }
+
+  _dropThere(it) {
+    return !!this.entities?.items.includes(it);
+  }
+
+  // The leader's weapon still waiting to be picked up, or null.
+  _drop() {
+    if (!this._drops?.length) return null;
+    this._drops = this._drops.filter((d) => this._dropThere(d.it) && performance.now() - d.t < 180000);
+    return this._drops[0]?.it || null;
+  }
+
+  holding() {
+    return !!this._drop();
+  }
+
   _setTarget(obj, label) {
     this.target = { pos: (obj.pos || obj).clone ? (obj.pos || obj).clone() : new THREE.Vector3(obj.x, obj.y ?? 0, obj.z), label, follow: obj.pos ? obj : null };
   }
@@ -192,9 +264,9 @@ export class MissionDirector {
     return u && !u.falling && u.state !== "gone" && this.ufos.ufos.includes(u);
   }
 
-  // A UFO for a mission, spawned out of sight at `dist` blocks.
-  _spawnUfo(opts, dist = 140, low = true) {
-    const p = this.player.position;
+  // A UFO for a mission, spawned out of sight at `dist` blocks (from a random player, online).
+  _spawnUfo(opts, dist = 140, low = true, around = null) {
+    const p = around || this._anyone().position;
     const a = Math.random() * Math.PI * 2;
     const x = p.x + Math.cos(a) * dist;
     const z = p.z + Math.sin(a) * dist;
@@ -203,13 +275,15 @@ export class MissionDirector {
     return this.ufos.spawn({ ...opts, pos: { x, y, z }, hidden: true });
   }
 
+  // (Online: the nearest to anyone in the game.)
   _nearestUfo(maxDist, label, filter = null) {
     let best = null;
     let bd = maxDist;
-    const p = this.player.position;
+    const people = this._people();
     for (const u of this.ufos.ufos) {
       if (u.falling || u.state === "gone" || (filter && !filter(u))) continue;
-      const d = u.pos.distanceTo(p);
+      let d = Infinity;
+      for (const q of people) d = Math.min(d, u.pos.distanceTo(q.position));
       if (d < bd) {
         bd = d;
         best = u;
@@ -224,8 +298,8 @@ export class MissionDirector {
     const st = this.state;
     st.spawnT = (st.spawnT ?? 5) - 0.5;
     if (st.spawnT > 0) return;
-    const p = this.player.position;
-    const near = this.ufos.ufos.filter((u) => !u.falling && u.state !== "gone" && u.state !== "leave" && u.pos.distanceTo(p) < range).length;
+    const people = this._people();
+    const near = this.ufos.ufos.filter((u) => !u.falling && u.state !== "gone" && u.state !== "leave" && people.some((q) => u.pos.distanceTo(q.position) < range)).length;
     if (near < n) {
       this.ufos.spawn({});
       st.spawnT = 12;
@@ -242,33 +316,45 @@ export class MissionDirector {
 
   // 1. A small, weak scout close by, low, that doesn't wander off: pistol
   // range. It comes down in one piece with two green aliens aboard.
+  // (Online: as many scouts as are still to be shot down, up to one per player, each near its player.)
   _scout() {
     const st = this.state;
-    if (!this._alive(st.scout) || st.scout.pos.distanceTo(this.player.position) > 700) {
+    const people = this._people();
+    const far = (u) => !people.some((q) => u.pos.distanceTo(q.position) < 700);
+    st.scouts = (st.scouts || []).filter((u) => this._alive(u) && !far(u));
+    const want = Math.min(this._remaining(), people.length);
+    if (st.scouts.length < want) {
       st.waitT = (st.waitT ?? 2) - 0.5;
-      if (st.waitT > 0) return;
-      st.waitT = 6;
-      const design = ["saucer", "saucer_disc", "tictac", "saucer_domed"][Math.floor(Math.random() * 4)];
-      const u = this._spawnUfo({ design, size: "small", style: "volley" }, rand(90, 130));
-      u.missionTarget = true;
-      u.noLeave = true;
-      u.tether = 110;
-      u.home = this.player.position.clone();
-      u.dodgeMul = 0.35; // it rarely dashes away from pistol fire
-      u.maxHealth = u.health = 40; // eight pistol hits (under a magazine), or five full bow draws
-      u.crashPlan = { exploded: false, crew: 2, crewKind: "alien" };
-      st.scout = u;
-      this.toast?.("A scout UFO is snooping around nearby: follow the marker.", 4);
+      if (st.waitT <= 0) {
+        st.waitT = 6;
+        // Near the player who has no scout close by.
+        const who = people.find((q) => !st.scouts.some((u) => u.home && u.home.distanceTo(q.position) < 200)) || this._anyone();
+        const design = ["saucer", "saucer_disc", "tictac", "saucer_domed"][Math.floor(Math.random() * 4)];
+        const u = this._spawnUfo({ design, size: "small", style: "volley" }, rand(90, 130), true, who.position);
+        u.missionTarget = true;
+        u.noLeave = true;
+        u.tether = 110;
+        u.home = who.position.clone();
+        u.homeOf = who;
+        u.dodgeMul = 0.35; // it rarely dashes away from pistol fire
+        u.maxHealth = u.health = 40; // eight pistol hits (under a magazine), or five full bow draws
+        u.crashPlan = { exploded: false, crew: 2, crewKind: "alien" };
+        st.scouts.push(u);
+        this.toast?.("A scout UFO is snooping around nearby: follow the marker.", 4);
+      }
     }
-    if (st.scout.home && st.scout.home.distanceTo(this.player.position) > 160) st.scout.home.copy(this.player.position);
-    this._setTarget(st.scout, "Scout UFO");
+    // (Each keeps near its player.)
+    for (const u of st.scouts) if (u.homeOf && !u.homeOf.dead && u.home.distanceTo(u.homeOf.position) > 160) u.home.copy(u.homeOf.position);
+    const s = this._nearestOf(st.scouts);
+    if (s) this._setTarget(s, "Scout UFO");
+    else this.target = null;
   }
 
   // A spot on dry, open ground about `dist` blocks from the player (loaded
   // chunks only), or null. With a short render distance (nothing loaded that
   // far out) it comes closer rather than never: a mission must always start.
-  _groundSpot(dist, spread = 0.3) {
-    const p = this.player.position;
+  _groundSpot(dist, spread = 0.3, around = null) {
+    const p = around || this.player.position;
     const world = this.mobs.world;
     for (let k = 0; k < 48; k++) {
       const a = Math.random() * Math.PI * 2;
@@ -277,7 +363,8 @@ export class MissionDirector {
       const z = Math.floor(p.z + Math.sin(a) * d);
       if (!world.getChunk(x >> 4, z >> 4)) continue;
       const top = world.surfaceY(x, z);
-      if (top < SEA_LEVEL) continue;
+      // (Not a lake or sea bed; a dry spot below the sea's level, like a nuke's crater floor, is fine.)
+      if (top < 2 || world.getBlock(x, top + 1, z) === BLOCK.WATER) continue;
       const b = world.getBlock(x, top, z);
       if (b === BLOCK.WATER || IS_LEAVES[b] || IS_LOG[b]) continue; // water, or a tree
       // (Airports and cities are paved above the natural ground: fine; a roof
@@ -295,27 +382,33 @@ export class MissionDirector {
 
   // 1. The archer: a skeleton close by (it doesn't burn in the daylight and
   // doesn't wander off); it drops its bow. Another comes if it is lost.
+  // (Online: one skeleton for each bow still to be won, each near a player.)
   _skeleton() {
     const st = this.state;
-    const alive = st.sk && !st.sk.dead && this.mobs.mobs.includes(st.sk);
-    if (!alive) {
+    st.sks = (st.sks || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    const want = Math.min(this._remaining(), 4);
+    if (st.sks.length < want) {
       st.waitT = (st.waitT ?? 1) - 0.5;
-      this.target = null;
-      if (st.waitT > 0) return;
-      st.waitT = 8;
-      const at = this._groundSpot(32, 0.25);
-      if (!at) return;
-      const m = this.mobs.spawn("skeleton", at.x, at.y, at.z);
-      if (!m) return;
-      m.fireproof = true;
-      m.missionTarget = true;
-      st.sk = m;
-      if (!st.told) {
-        st.told = true;
-        this.toast?.("A skeleton is prowling nearby: follow the marker.", 4);
+      if (st.waitT <= 0) {
+        st.waitT = st.sks.length ? 3 : 8;
+        const people = this._people();
+        const who = people.find((q) => !st.sks.some((m) => m.pos.distanceTo(q.position) < 70)) || this._anyone();
+        const at = this._groundSpot(32, 0.25, who.position);
+        const m = at && this.mobs.spawn("skeleton", at.x, at.y, at.z);
+        if (m) {
+          m.fireproof = true;
+          m.missionTarget = true;
+          st.sks.push(m);
+          if (!st.told) {
+            st.told = true;
+            this.toast?.(want > 1 ? "Skeletons are prowling nearby: one bow each. Follow the marker." : "A skeleton is prowling nearby: follow the marker.", 4);
+          }
+        }
       }
     }
-    this._setTarget(st.sk, "Skeleton (it has a bow)");
+    const sk = this._nearestOf(st.sks);
+    if (sk) this._setTarget(sk, "Skeleton (it has a bow)");
+    else this.target = null;
   }
 
   // 2. Visitors: a small UFO lands nearby and lets its crew out. They look
@@ -333,7 +426,8 @@ export class MissionDirector {
       this.target = null;
       if (st.waitT > 0) return;
       st.waitT = 20;
-      const spot = this._groundSpot(75, 0.2);
+      if (this._remaining() <= 0) return;
+      const spot = this._groundSpot(75, 0.2, this._anyone().position);
       if (!spot) return;
       const a = Math.random() * Math.PI * 2;
       const u = this.ufos.spawn({ size: "small", design: ["saucer", "saucer_disc", "saucer_domed"][Math.floor(Math.random() * 3)], style: "volley", crewKind: "alien", pos: { x: spot.x + Math.cos(a) * 140, y: spot.y + 70, z: spot.z + Math.sin(a) * 140 }, hidden: true });
@@ -382,7 +476,9 @@ export class MissionDirector {
       if (st.landedT >= 3) {
         // The crew climbs out: calm for a while.
         const group = `visit${Math.floor(Math.random() * 1e9)}`;
-        for (let i = 0; i < 2; i++) {
+        // (Online: two for each player, or what is still to do.)
+        const n = Math.max(2, Math.min(2 * this.groupN, this._remaining()));
+        for (let i = 0; i < n; i++) {
           const m = this._spawnAlien("alien", 4, st.spot);
           if (!m) continue;
           m.aggro = false;
@@ -425,34 +521,39 @@ export class MissionDirector {
   // out), two more are beamed down near the player.
   _crew() {
     const st = this.state;
-    const p = this.player.position;
-    const aliens = this.mobs.mobs.filter((m) => !m.dead && m.spec.alien && m.pos.distanceTo(p) < 260);
-    if (aliens.length === 0) {
+    const people = this._people();
+    const aliens = this.mobs.mobs.filter((m) => !m.dead && m.spec.alien && people.some((q) => m.pos.distanceTo(q.position) < 260));
+    // (Online: more are beamed down, for everyone, when none are left.)
+    if (aliens.length === 0 && this._remaining() > 0) {
       st.noneT = (st.noneT ?? 0) + 0.5;
       if (st.noneT > (st.spawned ? 20 : 8)) {
         st.noneT = 0;
         st.spawned = true;
-        for (let i = 0; i < 2; i++) this._spawnAlien("alien", 40);
-        this.toast?.("Two aliens were beamed down nearby!", 3);
+        const n = Math.max(2, Math.min(2 * this.groupN, this._remaining()));
+        for (let i = 0; i < n; i++) this._spawnAlien("alien", 40, people[i % people.length].position);
+        this.toast?.(`${n} aliens were beamed down nearby!`, 3);
       }
-      this.target = null;
-      return;
-    }
-    st.noneT = 0;
-    aliens.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
-    this._setTarget(aliens[0], "Alien");
+      if (!aliens.length) {
+        this.target = null;
+        return;
+      }
+    } else st.noneT = 0;
+    this._setTarget(this._nearestOf(aliens), "Alien");
   }
 
   _spawnAlien(kind, dist, around = null) {
     const p = around || this.player.position;
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 24; k++) {
       const a = Math.random() * Math.PI * 2;
-      const x = Math.floor(p.x + Math.cos(a) * dist * rand(0.8, 1.2));
-      const z = Math.floor(p.z + Math.sin(a) * dist * rand(0.8, 1.2));
+      // (Wider the more tries fail: the spot can be a lake, or a nuke's crater.)
+      const r = dist * rand(0.8, 1.2) * (1 + Math.floor(k / 8));
+      const x = Math.floor(p.x + Math.cos(a) * r);
+      const z = Math.floor(p.z + Math.sin(a) * r);
       const world = this.mobs.world;
       if (!world.getChunk(x >> 4, z >> 4)) continue;
       const top = world.surfaceY(x, z);
-      if (top < SEA_LEVEL) continue;
+      // Dry ground (Round 8: below the sea's level too, e.g. a dry crater floor; not under water).
+      if (top < 2 || world.getBlock(x, top + 1, z) === BLOCK.WATER || world.getBlock(x, top, z) === BLOCK.WATER) continue;
       const m = this.mobs.spawn(kind, x + 0.5, top + 1, z + 0.5);
       if (m) {
         m.ai.target = true;
@@ -465,19 +566,25 @@ export class MissionDirector {
   }
 
   // 3. A supply crate dropped for the player (another if it gets lost).
+  // Online one for each player (each near its player); the mission is done
+  // when as many have been opened (by anyone) as there are players.
   _crate() {
     const st = this.state;
-    const c = this.crates.nearest(this.player.position.x, this.player.position.z);
-    if (!c) {
+    const active = this.crates.active;
+    const need = this._remaining();
+    if (active.length < need) {
       st.dropT = (st.dropT ?? 0) - 0.5;
       if (st.dropT <= 0) {
-        this.crates.drop({ dist: 60 + Math.random() * 30 });
         st.dropT = 60;
+        const people = this._people();
+        const lacking = people.filter((q) => !active.some((c) => Math.hypot(c.pos.x - q.position.x, c.pos.z - q.position.z) < 150));
+        const list = lacking.length ? lacking : people;
+        for (let i = 0; i < need - active.length; i++) this.crates.drop({ center: list[i % list.length].position, dist: 60 + Math.random() * 30 });
       }
-      this.target = null;
-      return;
     }
-    this._setTarget(c.crate, "Supply crate");
+    const c = this.crates.nearest(this.player.position.x, this.player.position.z);
+    if (c) this._setTarget(c.crate, active.length > 1 ? `Supply crate (${active.length})` : "Supply crate");
+    else this.target = null;
   }
 
   // 4. Nights: a night counts when dawn comes and the player hasn't died
@@ -558,8 +665,13 @@ export class MissionDirector {
     if (w < waves.length && (st.nt ?? 0) >= waves[w].at) {
       st.wave = w + 1;
       st.alive = st.alive || [];
-      const at = this._groundSpot(70, 0.15) || new THREE.Vector3(p.x + 70, 0, p.z);
-      for (const kind of waves[w].kinds) {
+      const near = this._anyone().position;
+      const at = this._groundSpot(70, 0.15, near) || new THREE.Vector3(near.x + 70, 0, near.z);
+      // (Online: bigger landing parties for a bigger group, 60% more per extra player.)
+      const base = waves[w].kinds;
+      const n = Math.round(base.length * (1 + 0.6 * (this.groupN - 1)));
+      for (let i = 0; i < n; i++) {
+        const kind = base[i % base.length];
         const m = this._spawnAlien(kind, 5, at);
         if (m) st.alive.push(m);
       }
@@ -601,6 +713,11 @@ export class MissionDirector {
     const p = this.player.position;
     const spec = this.mission?.squad || { kind: "alien_gray", n: 6, leaderDrop: null };
     const squad = (st.squad || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    const drop = this._drop();
+    if (drop) {
+      this._setTarget(drop, `${itemInfo(drop.id)?.name ?? "Weapon"}: pick it up`);
+      return;
+    }
     if (squad.length === 0) {
       st.waitT = (st.waitT ?? 1) - 0.5;
       if (st.waitT > 0) {
@@ -608,19 +725,25 @@ export class MissionDirector {
         return;
       }
       st.waitT = 25;
-      // Where they land: open ground about 90 blocks away.
-      const at = this._groundSpot(90, 0.15) || new THREE.Vector3(p.x + 90, 0, p.z);
+      // Where they land: open ground about 90 blocks from a player.
+      const near = this._anyone().position;
+      const at = this._groundSpot(90, 0.15, near) || new THREE.Vector3(near.x + 90, 0, near.z);
       st.squad = [];
-      const left = Math.max(1, (this.progress.objectives(this.stats.world)[0]?.goal ?? spec.n) - (this.progress.objectives(this.stats.world)[0]?.value ?? 0));
-      const n = Math.max(Math.min(spec.n, left + 1), Math.min(2, spec.n));
+      // (Online: the squad grows with the group, and there is a leader with
+      // the new weapon for every player, while that weapon is still missing.)
+      const N = Math.min(12, spec.n * this.groupN);
+      const left = Math.max(1, this._remaining());
+      const n = Math.max(Math.min(N, left + this.groupN), Math.min(2, N));
+      const leaders = Math.min(this.groupN, n);
       for (let i = 0; i < n; i++) {
         const m = this._spawnAlien(spec.kind, 6, at);
         if (!m) continue;
-        if (i === 0 && spec.leaderDrop) {
+        if (i < leaders && spec.leaderDrop) {
           // The leader: a little tougher, and it carries the new weapon.
           m.leader = true;
           m.leaderDrop = spec.leaderDrop;
           m.maxHealth = m.health = Math.round(m.health * 1.5);
+          this.mobs.setCarry?.(m, spec.leaderDrop);
         }
         st.squad.push(m);
       }
@@ -634,7 +757,7 @@ export class MissionDirector {
       if (st.squad.length) this.toast?.(`An alien squad has landed: follow the marker!${spec.leaderDrop ? " Its leader is marked." : ""}`, 4);
       return;
     }
-    const leader = squad.find((m) => m.leader);
+    const leader = this._nearestOf(squad.filter((m) => m.leader));
     if (leader) {
       this._setTarget(leader, `Squad leader (${squad.length} left)`);
       return;
@@ -658,31 +781,33 @@ export class MissionDirector {
     const p = this.player.position;
     let jet = null;
     for (const v of this.vehicles.vehicles) {
-      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet) continue;
+      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet || v.jetType === "b2") continue;
       if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
     }
     return jet ? { pos: jet.pos.clone(), label: "Parked fighter: get in (F)", follow: jet } : null;
   }
 
   // 10. An enemy fighter that hunts the player (kept around for the mission).
+  // (Online: one hijacked fighter for each player, while they are still to be shot down.)
   _fighter() {
     const st = this.state;
-    const alive = st.jet && st.jet.alive && this.vehicles.vehicles.includes(st.jet);
-    if (!alive) {
+    st.jets = (st.jets || []).filter((j) => j.alive && this.vehicles.vehicles.includes(j));
+    const want = Math.min(this._remaining(), this.groupN, 4);
+    if (st.jets.length < want) {
       st.waitT = (st.waitT ?? 3) - 0.5;
       if (st.waitT <= 0) {
-        st.waitT = 30;
+        st.waitT = st.jets.length ? 8 : 30;
         const j = this.enemyJets.spawn({ hostile: true, dist: 900 });
         if (j) {
           j.mission = true;
-          st.jet = j;
+          st.jets.push(j);
         }
       }
-      this.target = null;
-      return;
     }
-    st.jet.provoked = Math.max(st.jet.provoked, 30);
-    this._setTarget(st.jet, "Enemy fighter");
+    for (const j of st.jets) j.provoked = Math.max(j.provoked, 30);
+    const j = this._nearestOf(st.jets);
+    if (j) this._setTarget(j, st.jets.length > 1 ? `Enemy fighter (${st.jets.length})` : "Enemy fighter");
+    else this.target = null;
   }
 
   // 11. A raid on the nearest village: three raiders burn it until they are
@@ -713,8 +838,8 @@ export class MissionDirector {
       }
       st.raiders = [];
       st.raidT = 300; // five minutes to save it
-      for (let i = 0; i < left; i++) {
-        const u = this.ufos.spawn({ size: i === 0 && left === 3 ? "medium" : "small", style: i % 2 ? "heavy" : "sweep", pos: { x: place.x + rand(-40, 40), y: place.y + rand(28, 40), z: place.z + rand(-40, 40) }, hidden: true });
+      for (let i = 0; i < Math.min(left, 6); i++) {
+        const u = this.ufos.spawn({ size: i === 0 && left >= 3 ? "medium" : "small", style: i % 2 ? "heavy" : "sweep", pos: { x: place.x + rand(-40, 40), y: place.y + rand(28, 40), z: place.z + rand(-40, 40) }, hidden: true });
         u.raider = true;
         u.missionTarget = true;
         u.noLeave = true;
@@ -822,7 +947,7 @@ export class MissionDirector {
         this.stats.add("landingSquad");
       }
     }
-    const need = 3 - st.counted.size;
+    const need = (this.progress.objectives(this.stats.world)[1]?.goal ?? 3) - st.counted.size;
     if (need <= 0) {
       this.target = null;
       return;
@@ -832,7 +957,8 @@ export class MissionDirector {
       this.target = null;
       if (st.waitT > 0) return;
       st.waitT = 20;
-      const at = this._groundSpot(75, 0.2) || new THREE.Vector3(p.x + 75, 0, p.z);
+      const near = st.landPos || p;
+      const at = this._groundSpot(75, 0.2, near) || new THREE.Vector3(near.x + 75, 0, near.z);
       st.squad = [...squad];
       for (let i = squad.length; i < need; i++) {
         const m = this._spawnAlien("alien_red", 6, at);
@@ -881,13 +1007,16 @@ export class MissionDirector {
     // New strikes (not while the player is dead).
     st.strikeT -= 0.5;
     const collected = this.progress.objectives(this.stats.world)[0]?.value ?? 0;
-    if (st.strikeT <= 0 && !this.player.dead && this.weapons?.airstrike) {
-      st.strikeT = Math.max(3.2, rand(5.5, 8) - collected * 0.7);
+    const goal = this.progress.objectives(this.stats.world)[0]?.goal ?? 4;
+    if (st.strikeT <= 0 && this.anyAlive && this.weapons?.airstrike) {
+      // (Online: around everyone, a little more often for a bigger group.)
+      st.strikeT = Math.max(3.2, rand(5.5, 8) - (collected / goal) * 2.8) / Math.sqrt(this.groupN);
+      const q = this._anyone().position;
       const a = Math.random() * Math.PI * 2;
       const d = rand(20, 65);
-      const x = Math.floor(p.x + Math.cos(a) * d);
-      const z = Math.floor(p.z + Math.sin(a) * d);
-      const wantFrag = st.since >= 2 && st.frags.length + (st.seed || 0) < 2;
+      const x = Math.floor(q.x + Math.cos(a) * d);
+      const z = Math.floor(q.z + Math.sin(a) * d);
+      const wantFrag = st.since >= 2 && st.frags.length + (st.seed || 0) < 1 + this.groupN;
       const y = Math.max(this.world.heightAt(x, z), SEA_LEVEL) + 1;
       const target = new THREE.Vector3(x + 0.5, y, z + 0.5);
       const delay = 4.5;
@@ -919,7 +1048,7 @@ export class MissionDirector {
     let best = null;
     for (const f of st.frags) if (!best || f.pos.distanceTo(p) < best.pos.distanceTo(p)) best = f;
     this.target = best ? { pos: best.pos.clone(), label: `Star fragment (${Math.ceil(best.life)} s)`, follow: null } : null;
-    this.state.note = collected >= 4 ? "" : `Fragments: ${collected}/4. Rocks fall by the red rings.`;
+    this.state.note = collected >= goal ? "" : `Fragments: ${collected}/${goal}. Rocks fall by the red rings.`;
   }
 
   // Every frame: the warning rings, the rocks' craters becoming fragments, the fragments' glow and pickup.
@@ -933,16 +1062,7 @@ export class MissionDirector {
     for (let i = st.rings.length - 1; i >= 0; i--) {
       const r = st.rings[i];
       r.t -= dt;
-      r.fx -= dt;
-      if (r.fx <= 0) {
-        r.fx = 0.1;
-        const n = Math.round(26 * Math.max(0.4, 1));
-        for (let k = 0; k < n; k++) {
-          const a = (k / n) * Math.PI * 2 + (r.t * 0.8);
-          const gy = this.world.surfaceY(Math.floor(r.pos.x + Math.cos(a) * r.r), Math.floor(r.pos.z + Math.sin(a) * r.r));
-          fx.glow.spawn({ x: r.pos.x + Math.cos(a) * r.r, y: gy + 1.2, z: r.pos.z + Math.sin(a) * r.r, life: 0.22, size0: 0.55, size1: 0.35, color0: red, alpha: 0.9 });
-        }
-      }
+      this._drawRing(r, dt);
       if (r.t <= -1) st.rings.splice(i, 1);
     }
     for (let i = (st.pending || []).length - 1; i >= 0; i--) {
@@ -962,9 +1082,7 @@ export class MissionDirector {
         this.toast?.("A fragment was lost to the aliens.", 2.5);
         continue;
       }
-      // The glow: a bright core and a column of sparks rising from it.
-      fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, life: 0.08, size0: 2.6, size1: 2.0, color0: star, alpha: 0.9 });
-      if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
+      this._drawFrag(f);
       // (Online, any player picks it up.)
       const finder = (this.players ? this.players() : [this.player]).find((q) => !q.dead && Math.hypot(q.position.x - f.pos.x, q.position.z - f.pos.z) < 3 && Math.abs(q.position.y - f.pos.y) < 4);
       if (finder) {
@@ -973,11 +1091,64 @@ export class MissionDirector {
         else this.stats.addWorld("meteorFragments");
         this.audio?.playCrate?.();
         for (let k = 0; k < 16; k++) fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, vx: rand(-5, 5), vy: rand(1, 8), vz: rand(-5, 5), life: 0.7, size0: 0.4, size1: 0.05, color0: star, gravity: 0.5, drag: 1.5 });
-        const n = this.progress.objectives(this.stats.world)[0]?.value ?? 0;
-        this.toast?.(`Star fragment collected (${Math.min(4, n)}/4)`, 2.5);
+        const o = this.progress.objectives(this.stats.world)[0];
+        this.toast?.(`Star fragment collected (${o?.value ?? 0}/${o?.goal ?? 4})`, 2.5);
       }
     }
     st.frags = st.frags.filter((f) => f.life > 0);
+  }
+
+  // A meteor's warning ring on the ground (also drawn for guests online: see coop.js).
+  _drawRing(r, dt) {
+    const fx = this.effects;
+    if (!fx) return;
+    const red = this._redC || (this._redC = new THREE.Color(3.5, 0.5, 0.25));
+    r.fx = (r.fx ?? 0) - dt;
+    if (r.fx > 0) return;
+    r.fx = 0.1;
+    const n = 26;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + r.t * 0.8;
+      const gy = this.world.surfaceY(Math.floor(r.pos.x + Math.cos(a) * r.r), Math.floor(r.pos.z + Math.sin(a) * r.r));
+      fx.glow.spawn({ x: r.pos.x + Math.cos(a) * r.r, y: gy + 1.2, z: r.pos.z + Math.sin(a) * r.r, life: 0.22, size0: 0.55, size1: 0.35, color0: red, alpha: 0.9 });
+    }
+  }
+
+  // A star fragment's glow: a bright core and a column of sparks rising from it.
+  _drawFrag(f) {
+    const fx = this.effects;
+    if (!fx) return;
+    const star = this._starC || (this._starC = new THREE.Color(1.4, 2.2, 4));
+    fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, life: 0.08, size0: 2.6, size1: 2.0, color0: star, alpha: 0.9 });
+    if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
+  }
+
+  // What a guest must see of the mission's own objects (online): rings and fragments.
+  netObjects() {
+    const st = this.state;
+    if (this.mission?.event !== "meteors" || !st.init) return null;
+    const r1 = (v) => Math.round(v * 10) / 10;
+    return {
+      r: (st.rings || []).map((r) => [r1(r.pos.x), r1(r.pos.y), r1(r.pos.z), r.r, Math.round(r.t * 2) / 2]),
+      f: (st.frags || []).map((f) => [r1(f.pos.x), r1(f.pos.y), r1(f.pos.z)]),
+    };
+  }
+
+  // A guest draws the host's mission objects (see netObjects).
+  drawNetObjects(objs, dt) {
+    if (!objs) return;
+    const keep = (this._netRings ||= new Map());
+    const seen = new Set();
+    for (const [x, y, z, rr, t] of objs.r || []) {
+      const key = `${x},${z}`;
+      seen.add(key);
+      let r = keep.get(key);
+      if (!r) keep.set(key, (r = { pos: new THREE.Vector3(x, y, z), r: rr, t, fx: 0 }));
+      r.t -= dt;
+      this._drawRing(r, dt);
+    }
+    for (const k of keep.keys()) if (!seen.has(k)) keep.delete(k);
+    for (const [x, y, z] of objs.f || []) this._drawFrag({ pos: _v.set(x, y, z) });
   }
 
   // ---------- 20. The Overlord: a shielded mothership ----------
@@ -1110,7 +1281,7 @@ export class MissionDirector {
     if (round === 1) {
       const at = this._groundSpot(70, 0.2) || new THREE.Vector3(p.x + 70, 0, p.z);
       let n = 0;
-      for (let i = 0; i < 3; i++) if (this._spawnAlien("alien_red", 6, at)) n++;
+      for (let i = 0; i < 2 + this.groupN; i++) if (this._spawnAlien("alien_red", 6, at)) n++;
       if (n) {
         this._dropship(at, "alien_red");
         this.toast?.("The Overlord has dropped a red squad on you!", 4);
@@ -1122,8 +1293,14 @@ export class MissionDirector {
   _fxBoss(dt) {
     const st = this.state;
     const b = st.boss;
+    if (!b || !this._alive(b) || !b.shield) return;
+    this.drawShield(b);
+  }
+
+  // The boss's shield shimmer (also drawn for guests online).
+  drawShield(b) {
     const fx = this.effects;
-    if (!b || !fx || !this._alive(b) || !b.shield) return;
+    if (!fx) return;
     const c = this._shieldC || (this._shieldC = new THREE.Color(0.3, 1.1, 2.4));
     const n = 5;
     for (let i = 0; i < n; i++) {
@@ -1134,25 +1311,61 @@ export class MissionDirector {
     }
   }
 
+  // (Round 8) The enemy base: another airport, at least 1200 blocks from
+  // the one the players start from (where the B-2 stands), the nearest such.
+  _pickBase() {
+    const p = this._anyone().position;
+    const sites = this.terrain.sites;
+    const home = sites.nearest(p.x, p.z, 4000, "airport");
+    const from = home || { x: p.x, z: p.z };
+    let best = null;
+    let bestD = Infinity;
+    for (const s of sites.within(from.x, from.z, 6000)) {
+      if (s.kind !== "airport" || s === home) continue;
+      const d = Math.hypot(s.x - from.x, s.z - from.z);
+      if (d < 1200 || d >= bestD) continue;
+      best = s;
+      bestD = d;
+    }
+    if (best) return { x: best.x, y: best.y, z: best.z, site: best };
+    // (No other airport out there: a base in the open, 1500 blocks off.)
+    const x = from.x + 1500;
+    const z = from.z;
+    return { x, y: Math.max(SEA_LEVEL + 6, this.terrain.heightAt(Math.floor(x), Math.floor(z))), z, site: null };
+  }
 
+  // A B-2 with someone in it (online: any player's), or null.
+  _b2Flying() {
+    for (const v of this.vehicles.vehicles) if (v.type === "jet" && v.jetType === "b2" && v.alive && (v.occupied || (v.puppet && v.netOcc))) return v;
+    return null;
+  }
 
-  // 14. Operation Sunburn: the nearest airport is an enemy base, guarded by
-  // UFOs and fighters; a nuke on it completes the mission.
+  // The nearest parked, empty B-2 (as a marker target), or null.
+  _parkedB2Target() {
+    const p = this._anyone().position;
+    let jet = null;
+    for (const v of this.vehicles.vehicles) {
+      if (v.type !== "jet" || v.jetType !== "b2" || !v.alive || v.occupied || v.netOcc || v.isEnemyJet) continue;
+      if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
+    }
+    return jet ? { pos: jet.pos.clone(), label: "B-2 bomber: get in (F)", follow: jet } : null;
+  }
+
+  // 18. Operation Sunburn: take the B-2 from your airport, fly to the enemy
+  // base (another airport, far off) and drop the nuke on it. Online one
+  // player flies the bomber, the others escort it in the fighters.
   _airport() {
     const st = this.state;
-    const p = this.player.position;
-    if (!this.base) {
-      const a = this.airports.nearest(4000);
-      if (a) this.base = { x: a.site.x, y: a.site.y, z: a.site.z, site: a.site };
-      else this.base = { x: p.x + 900, y: SEA_LEVEL + 6, z: p.z, site: null };
-    }
+    if (!this.base) this.base = this._pickBase();
     const b = this.base;
     const center = new THREE.Vector3(b.x, b.y, b.z);
-    const d = center.distanceTo(p);
+    // (Online: how close the nearest player is.)
+    let d = Infinity;
+    for (const q of this._people()) d = Math.min(d, center.distanceTo(q.position));
     // Guards: two UFOs over the base, and a fighter that scrambles when you come near.
     st.guards = (st.guards || []).filter((u) => this._alive(u));
     st.guardT = (st.guardT ?? 0) - 0.5;
-    if (st.guards.length < 2 && st.guardT <= 0 && d < 1600) {
+    if (st.guards.length < 1 + this.groupN && st.guardT <= 0 && d < 1600) {
       st.guardT = 40;
       const u = this.ufos.spawn({ size: "medium", style: "heavy", pos: { x: b.x + rand(-60, 60), y: b.y + 45, z: b.z + rand(-60, 60) }, hidden: true });
       u.home = center.clone();
@@ -1171,7 +1384,199 @@ export class MissionDirector {
       }
     }
     for (const u of st.guards) if (d < 700 && !u.hostile) this.ufos.anger(u, 200);
-    this.target = { pos: center, label: "Enemy base: nuke it (B in the jet)", follow: null };
+    // The marker: the bomber first, then the base.
+    const b2 = this._b2Flying();
+    if (!b2) {
+      const t = this._parkedB2Target() || this._airportTarget("Airport: take the B-2 bomber");
+      if (t) {
+        this.target = t;
+        return;
+      }
+    }
+    const mine = this.vehicles.active === b2 && b2;
+    this.target = { pos: center, label: mine ? `Enemy base: drop the nuke (B) ${Math.round(d)} m` : "Enemy base: escort the B-2", follow: null };
+  }
+
+  // (Round 8) Steal the ship: an alien ship kept in the underground bunker
+  // of an airport (sites.js / airports.js: a walled compound, a ramp down
+  // into a hall, armed guards who shoot anyone in the restricted zone). The
+  // mission adds soldiers (more for a bigger group), and makes sure a ship is
+  // there (the bunker's own, or one brought in if it was taken before). Once
+  // someone boards it the base locks down: the blast doors at the foot of the
+  // ramp are sealed, every guard is on alert and reinforcements come up the
+  // compound. The way out is ghost mode (G), burning up through the rock;
+  // the mission is done when the ship is 150 blocks from the hall.
+  // (Online: the host runs it; any player can be the pilot, the others fight
+  // the guards. A ship lost after boarding: the doors open again and a new
+  // ship is brought in.)
+  _steal() {
+    const st = this.state;
+    const sites = this.terrain.sites;
+    if (st.site === undefined) {
+      const p = this._anyone().position;
+      let best = null;
+      let bestD = Infinity;
+      for (const s of sites.within(p.x, p.z, 8000)) {
+        if (s.kind !== "airport" || !s.bunkers?.length) continue;
+        const d = Math.hypot(s.x - p.x, s.z - p.z);
+        if (d < bestD) {
+          best = s;
+          bestD = d;
+        }
+      }
+      st.site = best;
+    }
+    const site = st.site;
+    if (!site) {
+      // (No airport with a bunker within 8 km, very rare: a captured ship in
+      // the open, a little way off, under guard.)
+      this._stealOpen();
+      return;
+    }
+    const spot = sites.bunkerSpots(site)[0];
+    const key = `${site.id}#h${spot.id}`;
+    const hall = new THREE.Vector3(spot.x, spot.y, spot.z);
+    let d = Infinity;
+    for (const q of this._people()) d = Math.min(d, hall.distanceTo(q.position));
+    const ready = this.world.getChunk(Math.floor(spot.x) >> 4, Math.floor(spot.z) >> 4) && this.world.getChunk(Math.floor(spot.zone.x) >> 4, Math.floor(spot.zone.z) >> 4);
+    // The ship: the bunker's own (set out by airports.js when someone comes
+    // near; online the copy a guest boarded comes back as its puppet), else one brought in.
+    if (!st.ship || !this.vehicles.vehicles.includes(st.ship) || !st.ship.alive) {
+      const was = st.ship;
+      st.ship = this.vehicles.vehicles.find((v) => v.type === "ufo" && v.alive && (v.parkKey === key || v.tookKey === key || v.missionShip === key)) || null;
+      if (!st.ship && was && st.locked) {
+        // Lost after boarding: the doors open again, another ship comes.
+        this._stealDoors(site, spot, false);
+        st.locked = false;
+        st.newShipT = 6;
+      }
+      if (!st.ship && ready && d < 220) {
+        st.newShipT = (st.newShipT ?? 3) - 0.5;
+        if (st.newShipT <= 0) {
+          const v = this.vehicles.create("ufo", { design: "saucer_domed", seed: (site.seed + 4242) | 0, radius: 3.8, pos: [spot.x, spot.y, spot.z], yaw: spot.yaw });
+          if (v) {
+            v.pos.y = spot.y + v.bottom + 0.9;
+            v.hangar = true;
+            v.missionShip = key;
+            st.ship = v;
+          }
+        }
+      }
+    }
+    // More soldiers in the bunker (once, when its chunks are there): two, plus two for each player.
+    if (!st.guardsSet && ready && d < 260 && this.mobs.hostileSpawning !== false) {
+      st.guardsSet = true;
+      st.guards = [];
+      const n = 2 + 2 * this.groupN;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const g = this.mobs.spawnGuard(spot.x + Math.cos(a) * 8, spot.y, spot.z + Math.sin(a) * 7, spot.zone);
+        if (g) {
+          g.missionTarget = false;
+          st.guards.push(g);
+        }
+      }
+    }
+    const ship = st.ship;
+    const aboard = ship && (ship.occupied || (ship.puppet && ship.netOcc));
+    if (aboard && !st.locked) {
+      st.locked = true;
+      st.everAboard = true;
+      this._stealDoors(site, spot, true);
+      // Every guard on alert, and reinforcements up in the compound.
+      for (const g of this.mobs.mobs) if (!g.dead && g.spec.sentry && g.pos.distanceTo(hall) < 90) this.mobs.alarm(g, 90);
+      if (this.mobs.hostileSpawning !== false) {
+        for (let i = 0; i < 1 + this.groupN; i++) {
+          const g = this.mobs.spawnGuard(spot.zone.x + (Math.random() - 0.5) * 30, site.y + 1, spot.zone.z + (Math.random() - 0.5) * 30, spot.zone);
+          if (g) this.mobs.alarm(g, 10);
+        }
+      }
+      this.toast?.("LOCKDOWN! The blast doors are sealed. Ghost mode (G): burn your way out through the rock!", 6);
+    }
+    if (ship && aboard) {
+      const away = ship.pos.distanceTo(hall);
+      if (away >= 150) {
+        if (!st.escaped) {
+          st.escaped = true;
+          this.stats.add("shipsStolen");
+          this.toast?.("You got the ship out: it's yours!", 5);
+        }
+        this.target = null;
+        return;
+      }
+      this.target = { pos: new THREE.Vector3(hall.x, site.y + 30, hall.z), label: `Escape: ghost mode (G), up through the rock (${Math.round(150 - away)} m to go)`, follow: null };
+      st.note = "Get 150 blocks away from the bunker.";
+      return;
+    }
+    st.note = "";
+    if (ship && d < 90) this._setTarget(ship, "The alien ship: board it (F)");
+    else this.target = { pos: new THREE.Vector3(spot.zone.x, site.y + 1, spot.zone.z), label: "Bunker: the captured ship (armed guards)", follow: null };
+  }
+
+  // The blast doors at the foot of the bunker's ramp: sealed (only where there
+  // is air: nothing built is lost) or opened again.
+  _stealDoors(site, spot, close) {
+    const sites = this.terrain.sites;
+    const b = site.bunkers[spot.id];
+    const list = [];
+    if (close) {
+      for (let u = b.ru0 - 1; u <= b.ru1 + 1; u++) {
+        for (const v of [b.hv0, b.hv0 + 1]) {
+          const [x, z] = sites.toWorld(site, u, v);
+          for (let y = spot.y; y < spot.y + 10; y++) {
+            if (this.world.getBlock(x, y, z) !== BLOCK.AIR) continue;
+            list.push(x, y, z, (y - spot.y) % 3 === 1 ? BLOCK.STONE : BLOCK.COBBLESTONE);
+          }
+        }
+      }
+      this.state.doors = list.slice();
+    } else {
+      const old = this.state.doors || [];
+      for (let i = 0; i < old.length; i += 4) if (this.world.getBlock(old[i], old[i + 1], old[i + 2]) === old[i + 3]) list.push(old[i], old[i + 1], old[i + 2], BLOCK.AIR);
+      this.state.doors = null;
+    }
+    if (list.length) this.world.setBlocks(list);
+  }
+
+  // The fallback: a captured ship standing in the open 700 blocks off, ringed by soldiers.
+  _stealOpen() {
+    const st = this.state;
+    if (!st.open) {
+      const at = this._groundSpot(700, 0.2, this._anyone().position);
+      st.open = at ? { x: at.x, y: at.y, z: at.z } : null;
+      if (!st.open) return;
+    }
+    const o = st.open;
+    const c = new THREE.Vector3(o.x, o.y, o.z);
+    let d = Infinity;
+    for (const q of this._people()) d = Math.min(d, c.distanceTo(q.position));
+    if ((!st.ship || !this.vehicles.vehicles.includes(st.ship) || !st.ship.alive) && d < 260 && this.world.getChunk(Math.floor(o.x) >> 4, Math.floor(o.z) >> 4)) {
+      st.ship = this.vehicles.vehicles.find((v) => v.missionShip === "open" && v.alive) || this.vehicles.create("ufo", { design: "saucer_domed", seed: 4242, radius: 3.8, pos: [o.x, o.y + 4, o.z], yaw: 0 });
+      if (st.ship) st.ship.missionShip = "open";
+      if (!st.guardsSet && this.mobs.hostileSpawning !== false) {
+        st.guardsSet = true;
+        const zone = { x: o.x, z: o.z, r: 40 };
+        for (let i = 0; i < 4 + 2 * this.groupN; i++) {
+          const a = (i / (4 + 2 * this.groupN)) * Math.PI * 2;
+          const x = Math.floor(o.x + Math.cos(a) * 14);
+          const z = Math.floor(o.z + Math.sin(a) * 14);
+          this.mobs.spawnGuard(x + 0.5, this.terrain.heightAt(x, z) + 1, z + 0.5, zone);
+        }
+      }
+    }
+    const ship = st.ship;
+    if (ship && (ship.occupied || (ship.puppet && ship.netOcc))) {
+      const away = ship.pos.distanceTo(c);
+      if (away >= 150 && !st.escaped) {
+        st.escaped = true;
+        this.stats.add("shipsStolen");
+        this.toast?.("You got the ship out: it's yours!", 5);
+      }
+      this.target = away >= 150 ? null : { pos: c.clone(), label: `Escape: get clear (${Math.round(150 - away)} m to go)`, follow: null };
+      return;
+    }
+    if (ship && d < 90) this._setTarget(ship, "The alien ship: board it (F)");
+    else this.target = { pos: c, label: "The captured ship (armed guards)", follow: null };
   }
 
   // The nuke went off: on the enemy base?

@@ -44,6 +44,12 @@ export class CoopSync {
     net.on("died", (m, from) => this._onDied(m, from));
     net.on("pdata", (m, from) => this._onPlayerData(m, from));
     net.on("summon", (m, from) => this._onSummon(m, from));
+    net.on("own", (m, from) => this._onOwn(m, from));
+    net.on("gown", (m) => this.net.isClient && Array.isArray(m.l) && (this.groupOwned = new Set(m.l)));
+    this.owned = new Map(); // host: pid -> Set of item ids that player has
+    this.groupOwned = null; // what every player has (loot rolls; see main.js ownedItems)
+    this._ownSig = "";
+    this._ownT = 0;
     net.registerSync("coop", {
       save: (pid) => this._joinState(pid),
       load: (s) => this._loadJoinState(s),
@@ -93,6 +99,7 @@ export class CoopSync {
     g.ufos.groupScale = 1;
     g.ufos.groupHealth = 1;
     g.mobs.groupHealth = 1;
+    g.progress.groupN = 1;
     if (this.net.isHost || this._wasHost) this._saveGuests();
     if (!this.net.isHost && g.missions && !g.GUEST) g.missions.enabled = true;
     document.getElementById("respawn-near-btn")?.classList.add("hidden");
@@ -105,6 +112,7 @@ export class CoopSync {
 
   playerLeft(p) {
     this._groupRules();
+    if (this.owned.delete(p.pid)) this._groupOwnedChanged();
     // (Its things were saved with its last report.)
     if (this.net.isHost) this._saveGuests();
   }
@@ -114,9 +122,15 @@ export class CoopSync {
   _groupRules() {
     const g = this.game;
     const n = Math.max(1, Math.min(6, this.net.playerCount || 1));
+    // Airports: a fighter for everyone (the host's count, never shrinking in a session).
+    if (this.net.isHost) g.airports.groupSize = Math.max(g.airports.groupSize || 1, Math.min(8, this.net.playerCount || 1));
+    // The missions' goals (progression.js goalFor): for everyone in the game now.
+    if (this.net.isHost) g.progress.groupN = Math.max(1, Math.min(8, this.net.playerCount || 1));
     g.ufos.groupScale = 1 + 0.3 * (n - 1);
     g.ufos.groupHealth = 1 + 0.25 * (n - 1);
-    g.mobs.groupHealth = 1 + 0.2 * (n - 1);
+    // (Round 8: the missions' squads and kill goals now grow with the group,
+    // so each creature only gets a little tougher.)
+    g.mobs.groupHealth = 1 + 0.1 * (n - 1);
   }
 
   // ---------- Host: the mission state ----------
@@ -124,6 +138,7 @@ export class CoopSync {
   update(dt) {
     if (!this.mp.active) return;
     const g = this.game;
+    this._reportOwned(dt);
     if (this.net.isHost) {
       this._t -= dt;
       if (this._t <= 0) {
@@ -147,7 +162,10 @@ export class CoopSync {
         this._pdT = PDATA_INTERVAL;
         this.net.toHost({ t: "pdata", d: g.playerData() });
       }
-      this._guestCrate(dt);
+      this._guestMarker();
+      // The host's mission objects (meteor rings, star fragments, the boss's shield).
+      if (this.mission?.mo) g.missions.drawNetObjects(this.mission.mo, dt);
+      if (this.mission?.boss) for (const u of this.mp.entities.ufoById.values()) if (u.boss && u.shield && !u.falling) g.missions.drawShield(u);
     }
     this._refreshDeathButton();
   }
@@ -163,9 +181,13 @@ export class CoopSync {
       step: p.step,
       obj: p.objectives(g.stats.world).map((o) => [o.label, o.value, o.goal]),
       tgt: t ? [Math.round(t.pos.x * 10) / 10, Math.round(t.pos.y * 10) / 10, Math.round(t.pos.z * 10) / 10, t.label] : null,
+      // What the marker follows (a guest points it at the nearest one of those to them).
+      tk: t?.follow ? (t.follow.canopy ? "c" : t.follow.S ? (t.follow.missionTarget ? "u" : "U") : t.follow.spec && t.follow.kind ? "m" : null) : null,
       boss: b ? { health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
       note: g.missions.note?.() || "",
       ev: p.mission?.event || null,
+      mo: g.missions.netObjects?.() || null,
+      gs: g.airports.groupSize || 1,
     };
   }
 
@@ -184,6 +206,7 @@ export class CoopSync {
       if (!first && p.mission) g.toast?.(`NEW MISSION ${p.step + 1}/${MISSIONS.length}: ${p.mission.title}. ${p.mission.text}`, 7);
     }
     this._lastStep = p.step;
+    if (Number.isInteger(m.gs)) g.airports.groupSize = Math.max(1, Math.min(8, m.gs));
     p.mirrorObjectives = (m.obj || []).map(([label, value, goal]) => ({ label, value, goal }));
     const d = g.missions;
     d.target = m.tgt ? { pos: new g.THREE.Vector3(m.tgt[0], m.tgt[1], m.tgt[2]), label: m.tgt[3], follow: null } : null;
@@ -197,14 +220,62 @@ export class CoopSync {
     if (mission && !this.game.player.creative) this.game.giveMissionReward(mission);
   }
 
-  // The supply-drop mission: a guest gets a crate of their own too.
-  _guestCrate(dt) {
+  // A guest's marker: the mission's target nearest to this player (a crate,
+  // a creature, a UFO of the mission), else where the host's points.
+  _guestMarker() {
     const g = this.game;
-    if (this.mission?.ev !== "crate" || !g.crates.enabled || g.player.dead || g.gameState === "start") return;
-    this._crateT = (this._crateT ?? 4) - dt;
-    if (this._crateT > 0) return;
-    this._crateT = 60;
-    if (!g.crates.nearest(g.player.position.x, g.player.position.z)) g.crates.drop({ dist: 60 + Math.random() * 30 });
+    const m = this.mission;
+    const d = g.missions;
+    if (!m?.tgt || !m.tk || !d.target) return;
+    const me = g.player.position;
+    let best = null;
+    let bd = Infinity;
+    const consider = (pos) => {
+      const dist = Math.hypot(pos.x - me.x, pos.z - me.z);
+      if (dist < bd) {
+        bd = dist;
+        best = pos;
+      }
+    };
+    if (m.tk === "c") for (const c of g.crates.active) consider(c.pos);
+    else if (m.tk === "m") for (const mob of this.mp.entities.mobById.values()) if (mob.missionTarget && !mob.dead) consider(mob.pos);
+    else if (m.tk === "u" || m.tk === "U") for (const u of this.mp.entities.ufoById.values()) if ((m.tk === "U" || u.missionTarget) && !u.falling && u.state !== "gone") consider(u.pos);
+    if (best) d.target.pos.copy(best);
+    else d.target.pos.set(m.tgt[0], m.tgt[1], m.tgt[2]);
+  }
+
+  // ---------- What everyone has (for loot rolls) ----------
+
+  _reportOwned(dt) {
+    this._ownT -= dt;
+    if (this._ownT > 0 || !this.mp.stateLoaded || this.game.gameState === "start") return;
+    this._ownT = 2;
+    const list = [...this.game.myItems()].sort((a, b) => a - b).slice(0, 80);
+    const sig = list.join(",");
+    if (sig === this._ownSig) return;
+    this._ownSig = sig;
+    if (this.net.isHost) this._onOwn({ l: list }, HOST_PID);
+    else this.net.toHost({ t: "own", l: list });
+  }
+
+  _onOwn(m, from) {
+    if (!this.net.isHost || !Array.isArray(m.l)) return;
+    this.owned.set(from, new Set(m.l.filter(Number.isFinite).slice(0, 80)));
+    this._groupOwnedChanged();
+  }
+
+  _groupOwnedChanged() {
+    let common = null;
+    for (const [pid, set] of this.owned) {
+      if (!this.net.players.has(pid)) continue;
+      common = common ? new Set([...common].filter((id) => set.has(id))) : new Set(set);
+    }
+    this.groupOwned = common;
+    const l = common ? [...common] : [];
+    const sig = l.join(",");
+    if (sig === this._gownSig) return;
+    this._gownSig = sig;
+    this.net.broadcast({ t: "gown", l });
   }
 
   // ---------- Stats a guest reports ----------
@@ -229,7 +300,9 @@ export class CoopSync {
   // This player died (main.js): everyone hears of it.
   died(cause, text) {
     if (!this.mp.active) return;
-    this.net.toAll({ t: "died", text: String(text).slice(0, 80), cause: String(cause).slice(0, 40) });
+    // (Told about someone else: "their own grenade", not "your own".)
+    const third = String(text).replace(/\byour own\b/g, "their own").replace(/\byour\b/g, "their");
+    this.net.toAll({ t: "died", text: third.slice(0, 80), cause: String(cause).slice(0, 40) });
   }
 
   _onDied(m, from) {

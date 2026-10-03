@@ -127,15 +127,15 @@ if (args.from || args.only) {
 
 // ================= Part 1 =================
 
-await check("rebrand: title, storage prefix, logo, default preset Medium", async () => {
+await check("rebrand: title, storage prefix, no logo on the menu (Round 8), default preset Medium", async () => {
   const s = await v((g) => ({
     title: document.title,
-    logo: document.querySelector(".logo-text")?.textContent,
+    logo: document.querySelector("#start-menu .logo-text, #start-menu .logo") ? "present" : "none",
     keys: Object.keys(localStorage),
     preset: g.settings.graphics,
   }));
   assert(s.title === "UFO COMBAT", `title ${s.title}`);
-  assert(/UFO\s*COMBAT/.test(s.logo), `logo ${s.logo}`);
+  assert(s.logo === "none", `logo ${s.logo}`);
   assert(s.keys.length > 0 && s.keys.every((k) => k.startsWith("ufocombat_v1_")), `storage keys ${s.keys}`);
   assert(["ultra", "medium", "low"].includes(s.preset), `preset ${s.preset}`);
   const fresh = await v(() => {
@@ -145,11 +145,9 @@ await check("rebrand: title, storage prefix, logo, default preset Medium", async
   void fresh;
 });
 
-await check("main menu: Settings, Mods, Controls and New World screens open and go back", async () => {
+await check("main menu: Settings (with Mods and the key list in it) and New World screens open and go back", async () => {
   for (const [btn, screen] of [
     ["#menu-settings-btn", "#settings-screen"],
-    ["#menu-mods-btn", "#mods-screen"],
-    ["#menu-controls-btn", "#controls-screen"],
     ["#new-world-btn", "#new-world-screen"],
   ]) {
     await page.click(btn);
@@ -157,6 +155,19 @@ await check("main menu: Settings, Mods, Controls and New World screens open and 
     assert(!(await page.isVisible("#start-menu")), "the main menu hides");
     await page.keyboard.press("Escape");
     assert(!(await page.isVisible(screen)) && (await page.isVisible("#start-menu")), `${screen}: Esc goes back`);
+  }
+  // (Round 8) Mods and the key list are reached from Settings, and go back there.
+  for (const [btn, screen] of [
+    ["#settings-mods-btn", "#mods-screen"],
+    ["#settings-keys-btn", "#controls-screen"],
+  ]) {
+    await page.click("#menu-settings-btn");
+    await page.click(btn);
+    assert(await page.isVisible(screen), `${screen} opens from Settings`);
+    await page.keyboard.press("Escape");
+    assert(await page.isVisible("#settings-screen"), `${screen}: Esc goes back to Settings`);
+    await page.keyboard.press("Escape");
+    assert(await page.isVisible("#start-menu"), "and then to the main menu");
   }
   const controls = await v(() => document.getElementById("controls-list").textContent);
   assert(/Binoculars/.test(controls) && /Laser blaster/.test(controls), "controls list covers the new features");
@@ -178,7 +189,8 @@ await check("settings: every group has a reset button, stepped sliders, perf pre
   await page.click('#perf-presets .btn[data-preset="balanced"]');
   const bal = await v((g) => ({ preset: g.graphics, rd: g.renderDistance, res: g.settings.perf.resolution }));
   assert(bal.preset === "medium" && bal.rd === 12 && bal.res === 1, `balanced ${JSON.stringify(bal)}`);
-  // Stepped slider: zombie spawn rate.
+  // Stepped slider: zombie spawn rate. (A Creative setting since Round 6: Survival's rules are fixed.)
+  await v((g) => g.setMode("creative"));
   await page.click('.settings-tab[data-page="mobs"]');
   await page.$eval("#zombies-spawnRate", (el) => {
     el.value = String(Number(el.max));
@@ -188,24 +200,26 @@ await check("settings: every group has a reset button, stepped sliders, perf pre
   assert(z.rate === 50 && z.label === "APOCALYPSE" && z.saved === 50, `apocalypse ${JSON.stringify(z)}`);
   await page.click('.reset-group-btn[data-page="mobs"]');
   const r = await v((g) => g.mobs.zombies.spawnRate);
+  await v((g) => g.setMode("survival"));
   assert(r === 1, "reset to defaults");
   // Back to Low for speed.
   await v((g) => g.setGraphics("low"));
   await page.keyboard.press("Escape");
 });
 
-await check("new game: Survival starts with basic gear (Round 4); Creative has every weapon (the suite then uses the classic 8-slot layout)", async () => {
+await check("new game: Survival starts with basic gear (Round 4); switching to Creative keeps the inventory (Round 8) (the suite then uses the classic 8-slot layout)", async () => {
   await play();
   const hotbar = await v((g) => g.inventory.slots.slice(0, 9).map((s) => s?.id ?? 0));
   assert(hotbar[0] === 271 && hotbar[1] === 275 && hotbar[2] === 261 && hotbar.slice(3).every((id) => id === 0), `hotbar ${hotbar}`);
   await v((g) => {
+    const before = JSON.stringify(g.inventory.slots);
     g.setMode("creative");
-    const have = new Set(g.inventory.slots.filter(Boolean).map((s) => s.id));
-    // Every weapon is there (10 of them and the bow)...
-    if (![286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 297].every((id) => have.has(id))) throw new Error("creative is missing weapons");
-    // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster, radio.
+    // (Round 8: switching to Creative adds nothing: every weapon is in the palette instead.)
+    if (JSON.stringify(g.inventory.slots) !== before) throw new Error("switching to Creative changed the inventory");
+    // ...and the rest of this suite uses the classic layout: pistol, grenade, bazooka, machine gun, airstrike, sniper, blaster,
+    // and the railgun in the old Jet Radio's slot (293 is gone since Round 6).
     g.inventory.clear();
-    [287, 286, 288, 289, 291, 290, 292, 293].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
+    [287, 286, 288, 289, 291, 290, 292, 294].forEach((id, i) => (g.inventory.slots[i] = { id, count: 1 }));
     g.inventory.selected = 0;
     g.player.flying = true;
     g.player.position.y += 12;
@@ -310,7 +324,7 @@ await check("mods off: vanilla (mod items stashed, recipes and palette hidden); 
       bolts: g.lasers.bolts.length,
     };
   });
-  assert(off.slots.every((id) => id < 286 || id > 293) && !off.weapons && off.bolts === 0, `vanilla ${JSON.stringify(off)}`);
+  assert(off.slots.every((id) => id < 286 || id > 295) && !off.weapons && off.bolts === 0, `vanilla ${JSON.stringify(off)}`);
   const on = await v((g) => {
     g.setModsEnabled(true);
     return g.inventory.slots.slice(0, 9).map((s) => s && s.id);
@@ -426,6 +440,8 @@ await check("UFOs: eight distinct minimal designs in four sizes; durability scal
 
 await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fills the sky; more at night", async () => {
   await v((g) => {
+    // (The activity is a Creative rule since Round 6: Survival's sky follows the missions.)
+    g.setMode("creative");
     g.settingsPanel.set("ufos.activity", 4);
     g.sky.setHours(12);
   });
@@ -441,16 +457,18 @@ await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fi
       const u = g.ufos.spawn({});
       spots.push(u.pos.distanceTo(g.player.position));
     }
+    const dbg = { max: g.ufos.maxCount, md: g.ufos.missionDriven, rate: g.ufos.spawnRate, act: g.ufos.config.activity, mode: g.player.mode };
     for (let i = 0; i < 40; i++) g.ufos._updateSpawning(1);
     const n = g.ufos.count;
     const minDist = Math.min(...g.ufos.ufos.map((u) => u.pos.distanceTo(g.player.position)));
     g.settingsPanel.set("ufos.activity", 0);
     g.ufos.clear();
-    return { n, minDist, spots: Math.min(...spots), view: g.ufos.viewDistance };
+    g.setMode("survival");
+    return { n, minDist, spots: Math.min(...spots), view: g.ufos.viewDistance, dbg };
   });
   Object.assign(r, { dayMax, nightMax });
   assert(r.nightMax > r.dayMax, `more at night: ${JSON.stringify(r)}`);
-  assert(r.n >= 40, `apocalypse count ${r.n}`);
+  assert(r.n >= 40, `apocalypse count ${r.n} ${JSON.stringify(r.dbg)}`);
   // (Round 2: hidden spawns may be nearer than the fog when terrain or the sea hides them, but never close: at least half the view distance or 110 blocks.)
   const floor = Math.min(110, r.view * 0.5) - 1;
   assert(r.minDist > floor && r.spots > floor, `spawned well away from the player: ${JSON.stringify(r)}`);
@@ -663,7 +681,12 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
   await page.keyboard.up("Space");
   const y1 = await v((g) => ({ y: g.vehicles.active.pos.y, v: g.vehicles.active.vel.length() }));
   assert(y1.y > y0 + 0.5 && y1.v === 0, `rose (${y0} -> ${y1.y}) and stops dead when the key is released (v=${y1.v})`);
-  // Forward along the view at the cruising speed, instantly.
+  // Forward along the view at the cruising speed, instantly. (Looking a little up and clear of
+  // the crater's rim: terrain ahead stops the ship, which is right but not what this checks.)
+  await v((g) => {
+    g.vehicles.active.pos.y += 12;
+    g.vehicles.active.camPitch = 0.25;
+  });
   await page.keyboard.down("KeyW");
   await frames(2);
   const moving = await v((g) => ({ v: g.vehicles.active.vel.length(), cruise: g.vehicles.active.cruise }));
@@ -722,9 +745,12 @@ await check("other UFOs take you for one of their own until you shoot one (then 
 });
 
 await check("ghost mode flies through terrain, burning a tunnel", async () => {
+  // (Round 8: the G key, in Survival too: the setting is a Creative rule.)
+  if (!(await v((g) => g.vehicles.config.ufo.ghost))) await page.keyboard.press("KeyG");
+  await frames(2);
   const r = await v((g) => {
     const v = g.vehicles.active;
-    g.settingsPanel.set("vehicles.ufoGhost", true);
+    if (!g.vehicles.config.ufo.ghost) return -1;
     const a = window.__arena;
     // Aim down into the stone floor of the arena and push through it.
     v.pos.set(a.x + 0.5, a.y + v.bottom + 2, a.z + 0.5);
@@ -738,7 +764,10 @@ await check("ghost mode flies through terrain, burning a tunnel", async () => {
   await until((g) => g.vehicles.active.pos.y < window.__arena.y - 0.5, 20000);
   await page.keyboard.up("KeyW");
   const after = await v((g) => ({ id: g.world.getBlock(window.__arena.x, window.__arena.y, window.__arena.z), y: g.vehicles.active.pos.y }));
-  await v((g) => g.settingsPanel.set("vehicles.ufoGhost", false));
+  await v((g) => {
+    g.settingsPanel.set("vehicles.ufoGhost", false);
+    g.vehicles.config.ufo.ghost = false;
+  });
   assert(r === 3 && after.id === 0 && after.y < (await v(() => window.__arena.y)), `tunnel: ${JSON.stringify(after)}`);
 });
 
@@ -1067,6 +1096,15 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
 
 await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom cloud, and it counts", async () => {
   await ensureJet();
+  // (Round 8: only the B-2 carries the nuke: swap the fighter for one, in the air where it is.)
+  await v((g) => {
+    const f = g.vehicles.active;
+    const yaw = Math.atan2(-f.forward(new g.THREE.Vector3()).x, -f.forward(new g.THREE.Vector3()).z);
+    const b2 = g.vehicles.create("jet", { jetType: "b2", pos: [f.pos.x, f.pos.y, f.pos.z], yaw, airborne: true, speed: 110, throttle: 0.6 });
+    g.vehicles.exit({ force: true });
+    g.vehicles.remove(f);
+    g.vehicles.enter(b2);
+  });
   const r0 = await v((g) => {
     const j = g.vehicles.active;
     window.__nukes = g.stats.world.nukes;
@@ -1095,6 +1133,14 @@ await check("the nuke: drops on a parachute, then a flash, a crater, a mushroom 
   assert(boom, "detonated");
   const after = await until((g) => g.nuke.active[0]?.slice >= 10 && { cloud: g.nuke.cloud.particles.length, air: g.world.getBlock(Math.floor(g.nuke.active[0].center.x), Math.floor(g.nuke.active[0].center.y - 3), Math.floor(g.nuke.active[0].center.z)), nukes: g.stats.world.nukes - window.__nukes }, 120000);
   assert(after && after.cloud > 20 && after.nukes === 1, `nuke aftermath ${JSON.stringify(after)}`);
+  // (Back to a fighter for the checks after this one.)
+  await v((g) => {
+    const b = g.vehicles.active;
+    if (b?.jetType === "b2") {
+      g.vehicles.exit({ force: true });
+      g.vehicles.remove(b);
+    }
+  });
 });
 
 await check("crashing the jet into the ground destroys it: 'Crashed your jet'", async () => {

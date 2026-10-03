@@ -627,7 +627,7 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   let crops = 0;
   for (let dx = -VILLAGE_REACH; dx <= VILLAGE_REACH; dx++) {
     for (let dz = -VILLAGE_REACH; dz <= VILLAGE_REACH; dz++) {
-      for (let dy = -6; dy <= 9; dy++) {
+      for (let dy = -6; dy <= 12; dy++) {
         const id = get(center.x + dx, center.groundY + dy, center.z + dz);
         if (id === BLOCK.PLANKS) planks++;
         else if (id === BLOCK.TORCH) torches++;
@@ -638,7 +638,10 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   }
   console.log(`        village at (${center.x}, ${center.z}): ${planks} plank blocks, ${torches} torches, ${gravel} gravel path blocks, ${crops} crop blocks`);
   assert.ok(planks > 50, `expected substantial house walls, got ${planks} plank blocks`);
-  assert.equal(torches, 2, `expected exactly 2 torches (one per house), got ${torches}`);
+  // (Round 8: bigger villages: a torch beside every house door, and 12 lamp posts along the streets.)
+  const houses = gen.villages.houses(center).length;
+  assert.ok(houses >= 6 && houses <= 10, `expected 6-10 houses, got ${houses}`);
+  assert.equal(torches, houses + 12, `expected a torch per house (${houses}) and 12 lamps, got ${torches}`);
   assert.ok(gravel > 20, `expected a real path network, got ${gravel} gravel blocks`);
   assert.ok(crops > 0, "expected some crops in the farm plot");
   // Regenerating the same chunks independently gives identical results
@@ -1519,13 +1522,13 @@ console.log("\nProgression (progression.js)");
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (21 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0 };
+  await test("the mission chain (22 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 21);
+    assert.equal(MISSIONS.length, 22);
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1575,6 +1578,12 @@ console.log("\nProgression (progression.js)");
     assert.equal(v4("dogfight"), "dogfight");
     assert.equal(v4("mothership"), "sunburn");
     assert.equal(v4("slayer"), "slayer");
+    // A v5 (Round 6-7) save: "Steal the ship" (Round 8) comes before the Overlord; a save past the base carries on where it was.
+    const v5 = (id) => { const q = new Progress(); q.load({ v: 5, step: ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "overlord", "slayer"].indexOf(id), base: {}, done: [] }, stats); return q.mission?.id; };
+    assert.equal(v5("sunburn"), "sunburn");
+    assert.equal(v5("overlord"), "overlord");
+    assert.equal(v5("slayer"), "slayer");
+    assert.equal(idx("steal"), idx("sunburn") + 1);
     const v4end = new Progress();
     v4end.load({ v: 4, step: 19, base: {}, done: [] }, stats);
     assert.equal(v4end.mission, null);
@@ -1702,6 +1711,17 @@ console.log("Multiplayer (js/net)");
     t.push({ ts: 0.1, p: [500, 0, 0], v: [0, 0, 0] }, 0.1);
     const tp = t.sample(0.06 + t.delay);
     assert.ok(tp.p[0] === 0 || tp.p[0] === 500, `teleport drawn at ${tp.p[0]}`);
+  });
+
+  await test("interpolation never blends flags or ids (Round 8: a walking zombie never reads as dead)", () => {
+    const ip = new Interp({ angles: ["y"] });
+    // On the ground (4), then on the ground with a target (12): halfway, a blend would be 8 or an odd 5..11.
+    for (let i = 0; i <= 10; i++) ip.push({ ts: i * 0.05, p: [i * 0.2, 0, 0], v: [4, 0, 0], f: i % 2 ? 12 : 4, h: i % 2 ? 300 : 7 }, i * 0.05);
+    for (let t = 0.12; t < 0.6; t += 0.007) {
+      const s = ip.sample(t);
+      assert.ok(s.f === 4 || s.f === 12, `flags ${s.f} at ${t}`);
+      assert.ok(s.h === 7 || s.h === 300, `held item ${s.h} at ${t}`);
+    }
   });
 
   await test("a block-edit batch survives the wire (the run-length format, per chunk)", () => {

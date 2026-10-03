@@ -15,8 +15,8 @@
 // represented on the host by a stand-in with the Player's shape (position,
 // velocity, vehicle, damage(), applyImpulse()), whose damage goes to that
 // player as a message ("dmg"; the player's own armour and difficulty
-// apply there). Kills are announced to their player ("kill"), with loot
-// for everyone near (each player rolls their own: instanced loot).
+// apply there). Kills are announced to their player ("kill"), who rolls the
+// loot; it drops into the shared world (items.js) for anyone to pick up.
 import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { HOST_PID } from "./session.js";
@@ -123,6 +123,7 @@ export class EntitySync {
     if (this.net.isHost) {
       g.mobs.targets = () => this.targets();
       g.ufos.targets = () => this.targets();
+      g.airports.positions = () => this.targets().filter((t) => !t.dead).map((t) => (t.vehicle ? t.vehicle.pos : t.position));
     } else {
       // A guest: the host's world, drawn from its states.
       g.mobs.puppets = true;
@@ -131,9 +132,9 @@ export class EntitySync {
       g.enemyJets.puppets = true;
       // Whatever this page had of its own goes (the host's comes next).
       g.ufos.clear();
-      g.mobs.removeHostiles?.();
+      // (Every creature but the ambient flyers: the host's come next.)
+      for (let i = g.mobs.mobs.length - 1; i >= 0; i--) if (!g.mobs.mobs[i].spec.flies) g.mobs._remove(i);
       g.missions.enabled = false;
-      g.crates.enabled = false;
     }
   }
 
@@ -141,6 +142,7 @@ export class EntitySync {
     const g = this.game;
     g.mobs.targets = null;
     g.ufos.targets = null;
+    g.airports.positions = null;
     g.mobs.puppets = false;
     g.ufos.puppets = false;
     g.airports.guardsEnabled = true;
@@ -207,46 +209,40 @@ export class EntitySync {
       if (ship?.net) this.claims.push(["ab", u.net.id, ship.net.nid]);
     };
     // Host: who killed what (the last player to hit it), kills and loot for everyone.
-    g.mobs.keepDrops = (m) => !m.lastHitPid || m.lastHitPid === this.net.pid || !this.mp.active;
+    // (A creature's own drops fall where it died, on the host, for everyone:
+    // items are shared online, see items.js. A guest's copies drop nothing.)
+    g.mobs.keepDrops = (m) => !m.net;
+    // Kills: the killer rolls the loot, which drops for everyone to pick up
+    // (Round 8: one shared world, no personal loot).
     const onKill = g.mobs.onKill;
     g.mobs.onKill = (m, byPlayer) => {
       if (!this.mp.active || !this.net.isHost || !byPlayer || !m.lastHitPid || m.lastHitPid === HOST_PID) {
         onKill?.(m, byPlayer);
-        if (this.mp.active && this.net.isHost && byPlayer) this._lootForOthers(m, HOST_PID, "mob");
         return;
       }
       g.mobKilled(m, { mine: false });
       this._killFor(m.lastHitPid, "mob", m);
-      this._lootForOthers(m, m.lastHitPid, "mob");
-      const lk = g.mobLootKind(m);
-      if (lk && this._near(g.player.position, m.pos)) g.lootFor(lk[0], lk[1], new THREE.Vector3(m.pos.x, m.pos.y + 0.6, m.pos.z));
     };
     const onShotDown = g.ufos.onShotDown;
     g.ufos.onShotDown = (u, byPlayer) => {
       const pid = u.lastHitPid;
       if (!this.mp.active || !this.net.isHost || !byPlayer || !pid || pid === HOST_PID) {
         onShotDown?.(u, byPlayer);
-        if (this.mp.active && this.net.isHost && byPlayer) this._lootForOthers(u, HOST_PID, "ufo");
         return;
       }
       const killer = this.mp.players.get(pid);
       g.ufoKilled(u, { mine: false, inJet: killer?.vehicle?.type === "jet" });
       this._killFor(pid, "ufo", u);
-      this._lootForOthers(u, pid, "ufo");
-      if (!u.absorbed && this._near(g.player.position, u.pos)) g.lootFor("ufo", u.size, u.pos);
     };
     const onJetDown = g.enemyJets.onDown;
     g.enemyJets.onDown = (jet, cause) => {
       const pid = jet.lastHitByPid;
       if (!this.mp.active || !this.net.isHost || !pid || pid === HOST_PID || jet.downedByOther) {
         onJetDown?.(jet, cause);
-        if (this.mp.active && this.net.isHost && !jet.downedByOther) this._lootForOthers(jet, HOST_PID, "jet");
         return;
       }
       g.stats.addWorld("enemyJetsDown");
-      if (this._near(g.player.position, jet.pos)) g.lootFor("enemyjet", null, jet.pos);
       this._killFor(pid, "jet", jet);
-      this._lootForOthers(jet, pid, "jet");
     };
   }
 
@@ -340,19 +336,20 @@ export class EntitySync {
         rem.u.push([id, u.state === "gone" ? 1 : 0]);
       }
     }
-    // Hostile creatures.
+    // Creatures (hostile ones, animals, villagers: everything but the little
+    // ambient flyers, which are each player's own).
     const seenM = new Set();
     for (const m of g.mobs.mobs) {
-      if (!m.spec.hostile) continue;
+      if (m.spec.flies || m.net) continue;
       const d = Math.hypot(m.pos.x - c.x, m.pos.z - c.z);
       const was = k.m.has(m.id);
       if (d > MOB_RANGE * (was ? KEEP : 1)) continue;
       seenM.add(m.id);
       if (!was) {
         k.m.set(m.id, m);
-        add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, dead: m.dead ? 1 : 0 });
+        add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, ld: m.carryId || 0, dead: m.dead ? 1 : 0 });
       }
-      snap.m.push([m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0), r2(m.attack ?? 1), r1(m.vel?.y ?? 0)]);
+      snap.m.push([m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0), r2(m.attack ?? 1), r1(m.vel?.y ?? 0)]);
     }
     for (const [id] of k.m) {
       if (!seenM.has(id)) {
@@ -505,21 +502,6 @@ export class EntitySync {
     this.net.broadcast({ t: "feed", text: `${this.mp.playerName(pid)} downed ${what}` }, { except: pid });
   }
 
-  // Everyone else near a kill gets loot of their own.
-  _lootForOthers(obj, killer, kind) {
-    const pos = obj.pos;
-    for (const r of this.mp.players.active()) {
-      if (r.pid === killer || r.dead) continue;
-      if (r.livePos.distanceTo(pos) > 250) continue;
-      if (kind === "ufo") this.net.send(r.pid, { t: "loot", k: "ufo", d: obj.size, at: vec1(pos) });
-      else if (kind === "jet") this.net.send(r.pid, { t: "loot", k: "enemyjet", at: vec1(pos) });
-      else {
-        const lk = this.game.mobLootKind(obj);
-        if (lk) this.net.send(r.pid, { t: "loot", k: lk[0], d: lk[1], at: [r1(pos.x), r1(pos.y + 0.6), r1(pos.z)] });
-      }
-    }
-  }
-
   // ---------- Client: messages ----------
 
   _onDamage(m) {
@@ -596,6 +578,7 @@ export class EntitySync {
       mob.maxHealth = mob.health = e.hp;
       mob.leader = !!e.leader;
       mob.dead = !!e.dead;
+      if (e.ld && !mob.dead) g.mobs.setCarry(mob, e.ld);
       mob.interp = new Interp({ angles: ["y", "hy"], snap: 12 });
       this.mobById.set(e.id, mob);
     }
@@ -768,6 +751,7 @@ export class EntitySync {
     m.ai.state = f & 16 ? "hide" : "idle";
     m.ai.timer = f & 16 ? 1 : 0;
     m.calmT = f & 32 ? 1 : 0;
+    m.missionTarget = !!(f & 64);
     m.attack = st.a ?? 1;
     m.vel.y = st.vy ?? 0;
     const speed = Math.hypot(m.pos.x - ox, m.pos.z - oz) / Math.max(dt, 1e-3);

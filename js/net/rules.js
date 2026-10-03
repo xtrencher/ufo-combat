@@ -51,7 +51,16 @@ export class RulesSync {
 
   _rules() {
     const g = this.game;
-    return { t: "rules", mode: this.mp.mode, s: g.settingsPanel.ruleValues(), d: g.difficulty, mods: g.mods.enabled };
+    return { t: "rules", mode: this.mp.mode, s: g.settingsPanel.ruleValues(), d: g.difficulty, mods: g.mods.enabled, pvp: this.mp.pvp !== false };
+  }
+
+  // The host's "PvP / friendly fire" rule.
+  setPvp(on) {
+    if (!this.net.isHost) return;
+    this.mp.pvp = !!on;
+    this._sig = "";
+    this.mp.feed(`PvP / friendly fire: ${on ? "on" : "off"}`);
+    this.mp.ui.refresh();
   }
 
   // The host picks the mode (the lobby, or the pause menu).
@@ -109,6 +118,11 @@ export class RulesSync {
     g.settingsPanel.setHostRules(m.s || {});
     g.setHostDifficulty(m.d || "normal");
     if (typeof m.mods === "boolean") g.setModsFromHost(m.mods);
+    if (typeof m.pvp === "boolean" && m.pvp !== this.mp.pvp) {
+      this.mp.pvp = m.pvp;
+      this.mp.feed(`PvP / friendly fire: ${m.pvp ? "on" : "off"}`);
+      this.mp.ui.refresh();
+    }
     if (m.mode && m.mode !== this.mp.mode) this._onMode({ mode: m.mode });
     else if (m.mode && this.game.player.mode !== (m.mode === "creative" ? "creative" : "survival")) this._applyMode(m.mode, m.mode);
   }

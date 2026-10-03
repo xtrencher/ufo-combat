@@ -483,6 +483,8 @@ export class World {
     }
     if (this.chunksHidden) chunk.group.visible = false;
     this.scene.add(chunk.group);
+    // (Round 8: a nuke's blast zone reaching this chunk is applied now: see nuke.js.)
+    this.onChunkGenerated?.(chunk);
     // This chunk, or a neighbor that was waiting on it, may now be meshable.
     for (let dz = -1; dz <= 1; dz++) {
       for (let dx = -1; dx <= 1; dx++) {

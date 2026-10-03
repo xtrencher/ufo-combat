@@ -9,10 +9,22 @@ import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
 
 const CELL = 320; // world grid cell size a village candidate is picked from
-const CHANCE = 0.35; // fraction of cells that actually get a village
-const PAD_RADIUS = 15; // the flattened pad reaches this far from the center
+const CHANCE = 0.42; // fraction of cells that actually get a village
+// Round 8: villages are bigger: a plaza with a well, gravel streets in a
+// cross, six to ten houses of a few sizes on lots along the streets (doors on
+// the street), farm plots and lamp posts.
+const PAD_RADIUS = 28; // the flattened pad reaches this far from the center
 export const VILLAGE_REACH = PAD_RADIUS + 2;
+const MAX_SLOPE = 8; // the natural ground under the pad may not vary more than this
 const GOOD_BIOMES = new Set([BIOME.PLAINS, BIOME.SAVANNA, BIOME.FOREST, BIOME.BIRCH_FOREST, BIOME.DESERT]);
+// House lots per quadrant: (a, b) is the lot's nearest corner to the middle,
+// |offset| from the two streets. Mirrored into the four quadrants.
+const LOTS = [
+  [4, 4],
+  [14, 4],
+  [4, 14],
+  [14, 14],
+];
 
 const CENTER_SALT = 0x6a1f3c9b;
 const PLACE_SALT = 0x2d84af11;
@@ -31,14 +43,29 @@ export class VillageGrower {
     if (this._centers.has(key)) return this._centers.get(key);
     let center = null;
     if (hash2((this.seed ^ CENTER_SALT) >>> 0, cellX, cellZ) < CHANCE) {
-      const jx = hash2((this.seed ^ PLACE_SALT) >>> 0, cellX, cellZ);
-      const jz = hash2((this.seed ^ PLACE_SALT ^ 0x9e37) >>> 0, cellX, cellZ);
-      const x = cellX * CELL + Math.floor(jx * (CELL - VILLAGE_REACH * 2)) + VILLAGE_REACH;
-      const z = cellZ * CELL + Math.floor(jz * (CELL - VILLAGE_REACH * 2)) + VILLAGE_REACH;
-      const h = this.terrain.heightAt(x, z);
-      const biome = this.terrain.biomeAt(x, z);
-      // (not on an airport or in a city: those have their own people)
-      if (h > SEA_LEVEL + 2 && GOOD_BIOMES.has(biome) && !this.terrain.sites.covers(x, z, VILLAGE_REACH + 40)) center = { x, z, groundY: h };
+      // A few tries per cell for a spot that is dry, in a good biome and flat enough.
+      for (let t = 0; t < 4 && !center; t++) {
+        const jx = hash2((this.seed ^ PLACE_SALT) >>> 0, cellX * 8 + t, cellZ);
+        const jz = hash2((this.seed ^ PLACE_SALT ^ 0x9e37) >>> 0, cellX * 8 + t, cellZ);
+        const x = cellX * CELL + Math.floor(jx * (CELL - VILLAGE_REACH * 2)) + VILLAGE_REACH;
+        const z = cellZ * CELL + Math.floor(jz * (CELL - VILLAGE_REACH * 2)) + VILLAGE_REACH;
+        const h = this.terrain.heightAt(x, z);
+        const biome = this.terrain.biomeAt(x, z);
+        // (not on an airport or in a city: those have their own people)
+        if (h <= SEA_LEVEL + 2 || !GOOD_BIOMES.has(biome) || this.terrain.sites.covers(x, z, VILLAGE_REACH + 40)) continue;
+        let lo = h;
+        let hi = h;
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2;
+          for (const r of [PAD_RADIUS * 0.55, PAD_RADIUS]) {
+            const hh = this.terrain.heightAt(Math.round(x + Math.cos(a) * r), Math.round(z + Math.sin(a) * r));
+            lo = Math.min(lo, hh);
+            hi = Math.max(hi, hh);
+          }
+        }
+        if (hi - lo > MAX_SLOPE || lo <= SEA_LEVEL) continue;
+        center = { x, z, groundY: h };
+      }
     }
     this._centers.set(key, center);
     if (this._centers.size > 400) this._centers.clear();
@@ -84,34 +111,115 @@ export class VillageGrower {
     if (s) return s;
     const rand = mulberry32((this.seed ^ Math.imul(center.x, 0x9e3779b1) ^ Math.imul(center.z, 0x85ebca6b) ^ 0x76a3) >>> 0);
     const out = [];
-    // The flattened pad: grass (or sand in the desert), gravel paths in a
-    // cross through the middle.
+    const lay = this.layout(center);
+    // The flattened pad: grass (or sand in the desert), gravel streets in a
+    // cross through the middle, a cobbled plaza with a well at the center.
     const sandy = this.terrain.biomeAt(center.x, center.z) === BIOME.DESERT;
     const padTop = sandy ? BLOCK.SAND : BLOCK.GRASS;
     const padFill = sandy ? BLOCK.SAND : BLOCK.DIRT;
-    for (let dz = -PAD_RADIUS; dz <= PAD_RADIUS; dz++) {
-      for (let dx = -PAD_RADIUS; dx <= PAD_RADIUS; dx++) {
-        if (dx * dx + dz * dz > PAD_RADIUS * PAD_RADIUS) continue;
+    const R = PAD_RADIUS;
+    for (let dz = -R; dz <= R; dz++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const d2 = dx * dx + dz * dz;
+        if (d2 > R * R) continue;
+        const plaza = Math.abs(dx) <= 3 && Math.abs(dz) <= 3;
         const onPath = Math.abs(dx) <= 1 || Math.abs(dz) <= 1;
-        out.push(dx, 0, dz, onPath ? BLOCK.GRAVEL : padTop);
-        for (let dy = -6; dy < 0; dy++) out.push(dx, dy, dz, padFill);
-        for (let dy = 1; dy <= 9; dy++) out.push(dx, dy, dz, BLOCK.AIR);
+        out.push(dx, 0, dz, plaza ? BLOCK.COBBLESTONE : onPath ? BLOCK.GRAVEL : padTop);
+        // (deeper fill and more headroom near the middle; a gentle rim at the edge)
+        const depth = d2 > (R - 3) * (R - 3) ? 4 : 8;
+        for (let dy = -depth; dy < 0; dy++) out.push(dx, dy, dz, padFill);
+        for (let dy = 1; dy <= 14; dy++) out.push(dx, dy, dz, BLOCK.AIR);
       }
     }
-    // Two simple houses, doors facing the middle.
-    house(out, -9, -9, "z+");
-    house(out, 4, 4, "z-");
-    // A small farm patch: tilled dirt with scattered "crop" tall grass.
-    for (let dz = 6; dz <= 9; dz++) {
-      for (let dx = -3; dx <= 3; dx++) {
-        out.push(dx, 0, dz, BLOCK.DIRT);
-        if (rand() < 0.75) out.push(dx, 1, dz, BLOCK.TALL_GRASS);
+    // The well: a cobblestone ring around water, posts and a little roof.
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dz === 0) {
+          for (let dy = -3; dy <= 0; dy++) out.push(0, dy, 0, BLOCK.WATER);
+        } else out.push(dx, 1, dz, BLOCK.COBBLESTONE);
       }
+    }
+    for (const [px, pz] of [[-1, -1], [1, 1]]) for (let dy = 2; dy <= 3; dy++) out.push(px, dy, pz, BLOCK.WOOD);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) out.push(dx, 4, dz, BLOCK.PLANKS);
+    // Houses, doors on the street.
+    for (const h of lay.houses) house(out, h);
+    // Farm plots: tilled rows of crops with a water channel down the middle.
+    for (const f of lay.farms) {
+      for (let dz = f.z; dz < f.z + f.d; dz++) {
+        for (let dx = f.x; dx < f.x + f.w; dx++) {
+          const mid = f.w >= f.d ? dz === f.z + (f.d >> 1) : dx === f.x + (f.w >> 1);
+          if (mid) {
+            out.push(dx, 0, dz, BLOCK.WATER);
+            continue;
+          }
+          out.push(dx, 0, dz, BLOCK.DIRT);
+          if (rand() < 0.8) out.push(dx, 1, dz, BLOCK.TALL_GRASS);
+        }
+      }
+      // A log border.
+      for (let dx = f.x - 1; dx <= f.x + f.w; dx++) for (const dz of [f.z - 1, f.z + f.d]) out.push(dx, 1, dz, BLOCK.OAK_BARK);
+      for (let dz = f.z; dz < f.z + f.d; dz++) for (const dx of [f.x - 1, f.x + f.w]) out.push(dx, 1, dz, BLOCK.OAK_BARK);
+    }
+    // Lamp posts along the streets.
+    for (const [lx, lz] of lay.lamps) {
+      for (let dy = 1; dy <= 3; dy++) out.push(lx, dy, lz, BLOCK.WOOD);
+      out.push(lx, 4, lz, BLOCK.TORCH);
     }
     s = Int16Array.from(out);
     if (this._shapes.size > 200) this._shapes.clear();
     this._shapes.set(key, s);
     return s;
+  }
+
+  // The plan of a village (deterministic from the seed and its place): house
+  // footprints { x, z, w, d, h, door } (corner relative to the center, h the
+  // wall height), farm plots { x, z, w, d } and lamp posts [dx, dz].
+  layout(center) {
+    if (center._layout) return center._layout;
+    const rand = mulberry32((this.seed ^ Math.imul(center.x, 0x27d4eb2d) ^ Math.imul(center.z, 0x165667b1) ^ 0x51ed) >>> 0);
+    const houses = [];
+    const farms = [];
+    const lamps = [];
+    const slots = [];
+    for (const [qx, qz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) for (const [a, b] of LOTS) slots.push({ qx, qz, a, b });
+    // Shuffle the lots, then houses on most, farms on a couple.
+    for (let i = slots.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [slots[i], slots[j]] = [slots[j], slots[i]];
+    }
+    const nHouses = 6 + Math.floor(rand() * 5); // 6-10
+    const nFarms = 2 + Math.floor(rand() * 2);
+    for (const sl of slots) {
+      const far = sl.a === 14 && sl.b === 14; // the outer corner lot: smaller
+      if (houses.length < nHouses && !(far && rand() < 0.5)) {
+        const w = far ? 6 : 6 + Math.floor(rand() * 3); // 6-8
+        const d = far ? 6 : 6 + Math.floor(rand() * 2); // 6-7
+        const h = rand() < 0.3 ? 5 : 4;
+        // The lot's corner nearest the middle is (a, b) from the streets.
+        const x = sl.qx > 0 ? sl.a : -sl.a - w + 1;
+        const z = sl.qz > 0 ? sl.b : -sl.b - d + 1;
+        // Door on the nearer street.
+        let door;
+        if (sl.b <= sl.a) door = sl.qz > 0 ? "z-" : "z+";
+        else door = sl.qx > 0 ? "x-" : "x+";
+        if (sl.a === sl.b) door = rand() < 0.5 ? (sl.qz > 0 ? "z-" : "z+") : sl.qx > 0 ? "x-" : "x+";
+        houses.push({ x, z, w, d, h, door });
+      } else if (!far && farms.length < nFarms) {
+        const w = 8;
+        const d = 6;
+        farms.push({ x: sl.qx > 0 ? sl.a + 1 : -sl.a - w, z: sl.qz > 0 ? sl.b + 1 : -sl.b - d, w, d });
+      }
+    }
+    for (const k of [7, 15, 23]) {
+      lamps.push([2, k], [-2, -k], [k, -2], [-k, 2]);
+    }
+    center._layout = { houses, farms, lamps };
+    return center._layout;
+  }
+
+  // The house footprints of a village (for the distant view, distant.js).
+  houses(center) {
+    return this.layout(center).houses;
   }
 
   // Places every village that overlaps chunk (cx, cz).
@@ -142,41 +250,59 @@ export class VillageGrower {
   }
 }
 
-// A 6x6 house footprint (walls y 1-4, a stepped roof above), with a doorway
-// on the given side facing the village middle. `ox, oz` is the corner
-// (minimum x/z) of the footprint, relative to the village center.
-function house(out, ox, oz, doorSide) {
-  const W = 6;
+// A house: footprint w x d with its corner at (x, z) relative to the village
+// center, walls y 1..h (a cobblestone footing, plank walls with log corners
+// and glass windows), a doorway on the `door` side and a stepped roof above;
+// a torch beside the door.
+function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }) {
+  const midX = Math.floor((W - 1) / 2);
+  const midZ = Math.floor((D - 1) / 2);
   for (let x = 0; x < W; x++) {
-    for (let z = 0; z < W; z++) {
-      const edge = x === 0 || x === W - 1 || z === 0 || z === W - 1;
-      if (!edge) continue;
+    for (let z = 0; z < D; z++) {
+      const ex = x === 0 || x === W - 1;
+      const ez = z === 0 || z === D - 1;
+      // The floor inside.
+      if (!ex && !ez) {
+        out.push(ox + x, 0, oz + z, BLOCK.PLANKS);
+        continue;
+      }
+      const corner = ex && ez;
       const isDoor =
-        (doorSide === "z+" && z === W - 1 && (x === 2 || x === 3)) ||
-        (doorSide === "z-" && z === 0 && (x === 2 || x === 3)) ||
-        (doorSide === "x+" && x === W - 1 && (z === 2 || z === 3)) ||
-        (doorSide === "x-" && x === 0 && (z === 2 || z === 3));
-      for (let y = 1; y <= 4; y++) {
+        (door === "z+" && z === D - 1 && (x === midX || x === midX + 1)) ||
+        (door === "z-" && z === 0 && (x === midX || x === midX + 1)) ||
+        (door === "x+" && x === W - 1 && (z === midZ || z === midZ + 1)) ||
+        (door === "x-" && x === 0 && (z === midZ || z === midZ + 1));
+      for (let y = 1; y <= H; y++) {
         if (isDoor && y <= 2) continue;
-        out.push(ox + x, y, oz + z, BLOCK.PLANKS);
+        let id = BLOCK.PLANKS;
+        if (corner) id = BLOCK.WOOD;
+        else if (y === 1) id = BLOCK.COBBLESTONE;
+        else if (y === 2 && !isDoor && ((ex && z % 3 === 1 && z < D - 1) || (ez && x % 3 === 1 && x < W - 1))) id = BLOCK.GLASS;
+        out.push(ox + x, y, oz + z, id);
       }
     }
   }
-  // A simple tapering roof.
-  for (let x = -1; x <= W; x++) for (let z = -1; z <= W; z++) out.push(ox + x, 5, oz + z, BLOCK.OAK_BARK);
-  for (let x = 1; x < W - 1; x++) for (let z = 1; z < W - 1; z++) out.push(ox + x, 6, oz + z, BLOCK.OAK_BARK);
-  for (let x = 2; x < W - 2; x++) for (let z = 2; z < W - 2; z++) out.push(ox + x, 7, oz + z, BLOCK.OAK_BARK);
+  // A stepped roof.
+  let k = 0;
+  for (let y = H + 1; ; y++, k++) {
+    const x0 = -1 + k;
+    const x1 = W - k;
+    const z0 = -1 + k;
+    const z1 = D - k;
+    if (x0 > x1 || z0 > z1) break;
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) out.push(ox + x, y, oz + z, BLOCK.OAK_BARK);
+    if (k >= 2) break;
+  }
   // A torch beside the doorway, standing on the pad just outside it.
-  let tx = 2;
-  let tz = 0;
-  if (doorSide === "z+") tz = W;
-  else if (doorSide === "z-") tz = -1;
-  else if (doorSide === "x+") {
+  let tx = midX - 1;
+  let tz = -1;
+  if (door === "z+") tz = D;
+  else if (door === "x+") {
     tx = W;
-    tz = 2;
-  } else if (doorSide === "x-") {
+    tz = midZ - 1;
+  } else if (door === "x-") {
     tx = -1;
-    tz = 2;
+    tz = midZ - 1;
   }
   out.push(ox + tx, 1, oz + tz, BLOCK.TORCH);
 }

@@ -27,6 +27,8 @@ import { EntitySync } from "./entities.js";
 import { CoopSync } from "./coop.js";
 import { Dogfight } from "./dogfight.js";
 import { ItemSync } from "./items.js";
+import { PvpSync } from "./pvp.js";
+import { CrateSync } from "./crates.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -47,6 +49,9 @@ export class Multiplayer {
     this.coop = this.addModule(new CoopSync(this));
     this.dogfight = this.addModule(new Dogfight(this));
     this.items = this.addModule(new ItemSync(this));
+    this.pvp = true; // the host's "PvP / friendly fire" rule (Round 8: on by default)
+    this.pvpSync = this.addModule(new PvpSync(this));
+    this.crates = this.addModule(new CrateSync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);
@@ -58,6 +63,12 @@ export class Multiplayer {
     };
     net.onPlayersChanged = () => this.ui.refresh();
     net.welcomeExtra = () => ({ seed: game.SEED, hostNick: net.nick, mode: this.mode });
+    // (Round 8) The nukes' blast zones: a joining guest clears the ground the
+    // same way when it streams in (see nuke.js).
+    net.registerSync("blastZones", {
+      save: () => game.nuke?.serializeZones?.() || [],
+      load: (list) => game.nuke?.loadZones?.(list),
+    });
     net.on("_stateLoaded", () => {
       this.stateLoaded = true;
       for (const m of this.modules) m.stateLoaded?.();
@@ -83,6 +94,11 @@ export class Multiplayer {
   }
   get pid() {
     return this.net.pid;
+  }
+
+  // May players hurt each other right now (the host's rule; Dogfight always)?
+  pvpAllowed() {
+    return !!this.pvpSync?.allowed;
   }
 
   addModule(m) {
@@ -111,7 +127,8 @@ export class Multiplayer {
     this.bg.start();
     for (const m of this.modules) m.start?.();
     this.ui.refresh();
-    hideBootJoin();
+    // (A guest's "Joining" screen stays until the host's world is in.)
+    if (!this.game.GUEST) hideBootJoin();
   }
 
   // ---------- Leaving ----------
@@ -150,6 +167,7 @@ export class Multiplayer {
   // This player died (main.js).
   playerDied(cause, text) {
     this.coop?.died(cause, text);
+    this.pvpSync?.died(cause);
     this.dogfight?.died?.(cause);
   }
 

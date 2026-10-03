@@ -189,7 +189,9 @@ export class LaserBolts {
   // hits), range (blocks), radius, length, scorch (leave a mark), sound.
   // mirror (multiplayer): a bolt another player (or the host's AI) fired, seen
   // here: it only hits this player and this player's own vehicle (see main.js).
-  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false }) {
+  // tracer: a bullet (the pistol), drawn like the machine gun's tracers: a
+  // thin pale streak with a faint halo, no muzzle glow, small sparks.
+  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false }) {
     if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
     const bolt = {
       pos: from.clone(),
@@ -208,12 +210,13 @@ export class LaserBolts {
       blast,
       mirror,
       sound,
+      tracer,
       dead: false,
     };
     this.bolts.push(bolt);
     this.fired++;
-    // A little muzzle glow.
-    this.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.08, size0: radius * 9, size1: radius * 3, color0: bolt.color, alpha: 0.9 });
+    // A little muzzle glow (a gun's own flash does that for a bullet).
+    if (!tracer) this.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.08, size0: radius * 9, size1: radius * 3, color0: bolt.color, alpha: 0.9 });
     if (sound && this.audio?.playBlaster) {
       const ears = this.listener ? this.listener() : null;
       this.audio.playBlaster(ears ? from.distanceTo(ears) : 0, owner);
@@ -239,13 +242,13 @@ export class LaserBolts {
     const point = b.pos.clone().addScaledVector(b.dir, hit.distance);
     const fx = this.effects;
     const q = effectsQuality.scale;
-    const sparks = Math.max(3, Math.round(12 * q));
+    const sparks = b.tracer ? Math.max(2, Math.round(4 * q)) : Math.max(3, Math.round(12 * q));
     const n = hit.block ? new THREE.Vector3(hit.block.normal[0], hit.block.normal[1], hit.block.normal[2]) : b.dir.clone().negate();
     for (let i = 0; i < sparks; i++) {
       const v = n.clone().multiplyScalar(2 + Math.random() * 5).add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6));
       fx.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.2 + Math.random() * 0.3, size0: 0.09, size1: 0.02, color0: b.color, gravity: 0.5, drag: 2.5 });
     }
-    fx.glow.spawn({ x: point.x, y: point.y, z: point.z, life: 0.14, size0: 0.9 + b.radius * 6, size1: 0.2, color0: b.color, alpha: 0.9 });
+    if (!b.tracer) fx.glow.spawn({ x: point.x, y: point.y, z: point.z, life: 0.14, size0: 0.9 + b.radius * 6, size1: 0.2, color0: b.color, alpha: 0.9 });
     fx.smoke.spawn({ x: point.x, y: point.y, z: point.z, vx: n.x * 0.6, vy: 0.6, vz: n.z * 0.6, life: 0.9, size0: 0.2, size1: 0.8, color0: SMOKE0, color1: SMOKE1, alpha: 0.4, drag: 1.5 });
     if (hit.block) {
       const loaded = this.world.getChunk(hit.block.block[0] >> 4, hit.block.block[2] >> 4);
@@ -294,8 +297,9 @@ export class LaserBolts {
       _p.copy(b.pos).addScaledVector(b.dir, -len / 2);
       _m.compose(_p, _q, _s.set(b.radius, b.radius, len));
       this.core.setMatrixAt(i, _m);
-      this.core.setColorAt(i, _c.copy(b.color).multiplyScalar(0.35).addScalar(1.1));
-      _m.compose(_p, _q, _s.set(b.radius * 3.2, b.radius * 3.2, len * 1.15));
+      this.core.setColorAt(i, b.tracer ? _c.copy(b.color) : _c.copy(b.color).multiplyScalar(0.35).addScalar(1.1));
+      const halo = b.tracer ? 1.7 : 3.2;
+      _m.compose(_p, _q, _s.set(b.radius * halo, b.radius * halo, len * 1.15));
       this.halo.setMatrixAt(i, _m);
       this.halo.setColorAt(i, b.color);
     }

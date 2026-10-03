@@ -106,6 +106,8 @@ export class VehicleSync {
     vm.onRemoved = (v) => {
       prevRemoved?.(v);
       if (!this.mp.active || !v.net) return;
+      // (Another player's aircraft taken from an airport is gone: its slot is free again here too.)
+      if (v.tookKey) this.game.airports.taken.delete(v.tookKey);
       if (!v.puppet && v.net.owner === this.net.pid) this.net.toAll({ t: "vrem", nid: v.net.nid });
       if (this.byId.get(v.net.nid) === v) this.byId.delete(v.net.nid);
     };
@@ -264,7 +266,7 @@ export class VehicleSync {
       v._place();
       if (v.alive) {
         v.model.setThrottle(v.throttle, v.afterburner, v.time);
-        v.model.setLights(v.time, night);
+        v.model.setLights(v.time, night, !v.onGround || v.throttle > 0.02);
         v.model.setControls?.(v.surf.pitch, v.surf.roll, v.surf.yaw, v.airbrake);
         v.model.setGear(v.gearT);
         v._effects(dt, null);
@@ -322,9 +324,9 @@ export class VehicleSync {
     if (cause === "explosion" || cause === "explosion_other") return false;
     const mine = cause === "player" || cause === "cannon" || cause === "beam" || cause === "missile" || cause === "pvp";
     if (!mine && !this.net.isHost) return false;
-    // Friendly fire is off in co-op: only Dogfight lets players hurt each other's aircraft
-    // (and not someone who is out of the match, watching).
-    if (mine && v.netOcc && (this.mp.mode !== "dogfight" || this.mp.dogfight?.watching)) return false;
+    // Players hurt each other's aircraft only with the host's PvP rule on (always in a
+    // Dogfight, and not someone who is out of the match, watching).
+    if (mine && v.netOcc && !this.mp.pvpAllowed()) return false;
     v.hurtTime = 0;
     this.net.toAll({ t: "vhit", nid: v.net.nid, dmg: Math.round(amount * 10) / 10, cause, by: this.net.pid });
     this.game.hud?.hitMarker?.();
@@ -405,7 +407,8 @@ export class VehicleSync {
     if (m.owner === this.net.pid) return;
     if (m.took) this.game.airports.takeParked(m.took);
     if (this.byId.has(m.nid)) return;
-    this._createPuppet(m.nid, m.owner, m.type, m.data);
+    const v = this._createPuppet(m.nid, m.owner, m.type, m.data);
+    if (v && m.took) v.tookKey = m.took;
   }
 
   _onStates(m, from) {

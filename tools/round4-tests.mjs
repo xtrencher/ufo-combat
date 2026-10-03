@@ -847,7 +847,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
     for (let i = 0; i < 40 && !u; i++) {
       window.__step(0.5);
       g.player.health = Math.max(g.player.health, 10);
-      u = g.missions.state.scout;
+      u = g.missions.state.scout || g.missions.state.scouts?.[0]; // (Round 8: a scout per player)
     }
     if (!u) return { ...out, fail: "no scout", dead: g.player.dead, en: g.missions.enabled, mid: g.missions.missionId, st: Object.keys(g.missions.state).join(), ufos: g.ufos.ufos.length };
     g.inventory.selected = g.inventory.slots.findIndex((s) => s && s.id === 287);
@@ -965,7 +965,7 @@ await check("the chain: jets unlock with 'Take to the air', alien ships with 'Sa
     return out;
   });
   const j = JSON.stringify(r);
-  assert(r.n === 21 && r.rewards === "261,262", `21 missions, apples only: ${j}`);
+  assert(r.n === 22 && r.rewards === "261,262", `22 missions, apples only: ${j}`);
   assert(r.jetEarly && !r.jetLate, `jets with mission 10: ${j}`);
 });
 

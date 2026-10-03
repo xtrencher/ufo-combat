@@ -276,6 +276,15 @@ export class NetSession {
     for (const [pid, link] of this.links) if (pid !== except && link.ready) link.send(msg, fast);
   }
 
+  // Either side: to one player (a client's message to another client goes
+  // through the host, which passes it on to that player only).
+  toPlayer(pid, msg, { fast = false } = {}) {
+    if (pid === this.pid) return false;
+    if (this.role === "host" || pid === HOST_PID) return this.send(pid, msg, { fast });
+    if (this.role === "client") return this.toHost({ t: "_relay", m: msg, f: fast ? 1 : 0, to: pid }, { fast });
+    return false;
+  }
+
   // Either side: to everyone else in the game (a client goes through the
   // host, which relays it: see "_relay").
   toAll(msg, { fast = false } = {}) {
@@ -651,8 +660,14 @@ export class NetSession {
         // Host: a client's message for everyone: handled here too, and passed on.
         if (this.role === "host" && msg.m && typeof msg.m.t === "string" && !msg.m.t.startsWith("_")) {
           msg.m._from = link.pid;
-          this._dispatch(msg.m, link.pid);
           const fast = !!msg.f;
+          // (For one player only: passed on to them alone.)
+          if (msg.to) {
+            const l = this.links.get(msg.to);
+            if (l && l.ready && msg.to !== link.pid) l.send(msg.m, fast);
+            return;
+          }
+          this._dispatch(msg.m, link.pid);
           for (const [pid, l] of this.links) if (pid !== link.pid && l.ready) l.send(msg.m, fast);
         }
         return;
