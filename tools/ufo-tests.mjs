@@ -440,6 +440,8 @@ await check("UFOs: eight distinct minimal designs in four sizes; durability scal
 
 await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fills the sky; more at night", async () => {
   await v((g) => {
+    // (The activity is a Creative rule since Round 6: Survival's sky follows the missions.)
+    g.setMode("creative");
     g.settingsPanel.set("ufos.activity", 4);
     g.sky.setHours(12);
   });
@@ -455,16 +457,18 @@ await check("UFO activity: spawns arrive far away and out of view; APOCALYPSE fi
       const u = g.ufos.spawn({});
       spots.push(u.pos.distanceTo(g.player.position));
     }
+    const dbg = { max: g.ufos.maxCount, md: g.ufos.missionDriven, rate: g.ufos.spawnRate, act: g.ufos.config.activity, mode: g.player.mode };
     for (let i = 0; i < 40; i++) g.ufos._updateSpawning(1);
     const n = g.ufos.count;
     const minDist = Math.min(...g.ufos.ufos.map((u) => u.pos.distanceTo(g.player.position)));
     g.settingsPanel.set("ufos.activity", 0);
     g.ufos.clear();
-    return { n, minDist, spots: Math.min(...spots), view: g.ufos.viewDistance };
+    g.setMode("survival");
+    return { n, minDist, spots: Math.min(...spots), view: g.ufos.viewDistance, dbg };
   });
   Object.assign(r, { dayMax, nightMax });
   assert(r.nightMax > r.dayMax, `more at night: ${JSON.stringify(r)}`);
-  assert(r.n >= 40, `apocalypse count ${r.n}`);
+  assert(r.n >= 40, `apocalypse count ${r.n} ${JSON.stringify(r.dbg)}`);
   // (Round 2: hidden spawns may be nearer than the fog when terrain or the sea hides them, but never close: at least half the view distance or 110 blocks.)
   const floor = Math.min(110, r.view * 0.5) - 1;
   assert(r.minDist > floor && r.spots > floor, `spawned well away from the player: ${JSON.stringify(r)}`);
@@ -677,7 +681,12 @@ await check("board the wreck (F): it lifts out of the crater and flies with no i
   await page.keyboard.up("Space");
   const y1 = await v((g) => ({ y: g.vehicles.active.pos.y, v: g.vehicles.active.vel.length() }));
   assert(y1.y > y0 + 0.5 && y1.v === 0, `rose (${y0} -> ${y1.y}) and stops dead when the key is released (v=${y1.v})`);
-  // Forward along the view at the cruising speed, instantly.
+  // Forward along the view at the cruising speed, instantly. (Looking a little up and clear of
+  // the crater's rim: terrain ahead stops the ship, which is right but not what this checks.)
+  await v((g) => {
+    g.vehicles.active.pos.y += 12;
+    g.vehicles.active.camPitch = 0.25;
+  });
   await page.keyboard.down("KeyW");
   await frames(2);
   const moving = await v((g) => ({ v: g.vehicles.active.vel.length(), cruise: g.vehicles.active.cruise }));
@@ -736,9 +745,12 @@ await check("other UFOs take you for one of their own until you shoot one (then 
 });
 
 await check("ghost mode flies through terrain, burning a tunnel", async () => {
+  // (Round 8: the G key, in Survival too: the setting is a Creative rule.)
+  if (!(await v((g) => g.vehicles.config.ufo.ghost))) await page.keyboard.press("KeyG");
+  await frames(2);
   const r = await v((g) => {
     const v = g.vehicles.active;
-    g.settingsPanel.set("vehicles.ufoGhost", true);
+    if (!g.vehicles.config.ufo.ghost) return -1;
     const a = window.__arena;
     // Aim down into the stone floor of the arena and push through it.
     v.pos.set(a.x + 0.5, a.y + v.bottom + 2, a.z + 0.5);
@@ -752,7 +764,10 @@ await check("ghost mode flies through terrain, burning a tunnel", async () => {
   await until((g) => g.vehicles.active.pos.y < window.__arena.y - 0.5, 20000);
   await page.keyboard.up("KeyW");
   const after = await v((g) => ({ id: g.world.getBlock(window.__arena.x, window.__arena.y, window.__arena.z), y: g.vehicles.active.pos.y }));
-  await v((g) => g.settingsPanel.set("vehicles.ufoGhost", false));
+  await v((g) => {
+    g.settingsPanel.set("vehicles.ufoGhost", false);
+    g.vehicles.config.ufo.ghost = false;
+  });
   assert(r === 3 && after.id === 0 && after.y < (await v(() => window.__arena.y)), `tunnel: ${JSON.stringify(after)}`);
 });
 

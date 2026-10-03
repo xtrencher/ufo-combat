@@ -2171,6 +2171,7 @@ Goals per group size (1 / 2 / 3 players): skeleton 1/2/3, landing aliens 2/4/6, 
 13. Distant shapes and airport lights still stood in a nuked area (polish).
 14. A squad leader's weapon dropped only if a living player made the kill (a leader killed by its own blast, a fall, a UFO, or by a player who died at the same moment dropped nothing) (Part 9).
 15. Mission ground spawns (squads, landing parties) refused any spot below the sea's level, so on a nuked airport (a dry crater) the Touchdown squad never came (found by the full round6 suite, which nukes the home airport first): dry crater floors are fine now, and the search widens when spots keep failing (polish).
+16. **Ghost mode's G key did nothing in Survival** (since Round 6 the ghost setting is a Creative rule, fixed at "off" in Survival, and the key only flipped the setting): "Steal the ship" depends on it. The key now switches the ship's ghost mode in every mode (verified with the real G key in Survival, burning up out of the bunker) (polish, found by the full ufo-tests run).
 
 ## Round 8 decisions (and why)
 - **PvP on by default, host-only setting:** the request asked for it; Dogfight stays PvP always. **A nuke hurts everyone even with PvP off:** it is a nuke (and it keeps the B-2 run tense).

@@ -389,7 +389,13 @@ settingsPanel.on("vehicles.ufoTopSpeed", (v) => (vehicles.config.ufo.maxSpeed = 
 settingsPanel.on("vehicles.ufoMinSpeed", (v) => (vehicles.config.ufo.minSpeed = v));
 settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
 // G while piloting switches it (the Settings row follows).
-vehicles.onGhostToggle = (v) => settingsPanel.set("vehicles.ufoGhost", v);
+// G in a UFO switches ghost mode in every mode. (Round 8 fix: the setting is a
+// Creative rule, fixed at "off" in Survival, so the key did nothing there,
+// and "Steal the ship" needs it: the key now switches the ship itself too.)
+vehicles.onGhostToggle = (v) => {
+  settingsPanel.set("vehicles.ufoGhost", v);
+  vehicles.config.ufo.ghost = v;
+};
 settingsPanel.on("vehicles.ufoDash", (v) => (vehicles.config.ufo.dash = v));
 settingsPanel.on("vehicles.ufoDashTime", (v) => (vehicles.config.ufo.dashTime = v));
 settingsPanel.on("vehicles.beamBlocks", (v) => (vehicles.config.ufo.beamBlocks = v));
