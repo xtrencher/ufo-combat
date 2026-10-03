@@ -474,14 +474,27 @@ await check("UFOs: more health; a beaming UFO that dashes away takes its beam al
     const p = g.player.position;
     g.ufos.clear();
     const small = g.ufos.spawn({ size: "small", pos: new T.Vector3(p.x, 200, p.z + 300) });
-    const u = g.ufos.spawn({ size: "small", pos: new T.Vector3(p.x + 30, p.y + 20, p.z) });
+    // The cow (Round 9: land creatures never spawn in water: the nearest dry
+    // spot), and the UFO over it.
+    let cow = null;
+    for (let k = 0; k < 40 && !cow; k++) {
+      const cx = Math.floor(p.x + 30 + (k ? Math.cos(k * 2.4) * (2 + k) : 0));
+      const cz = Math.floor(p.z + (k ? Math.sin(k * 2.4) * (2 + k) : 0));
+      const top = g.world.surfaceY(cx, cz);
+      cow = g.mobs.spawn("cow", cx + 0.5, top >= 0 ? top + 1 : p.y, cz + 0.5);
+    }
+    const u = g.ufos.spawn({ size: "small", pos: new T.Vector3(cow.pos.x, Math.max(p.y, cow.pos.y) + 20, cow.pos.z) });
     u.noLeave = true;
     const beam = g.ufos._getBeam(u);
     u.state = "trick";
     u.trick = "abduct";
     u.timer = 30;
-    u.target = g.mobs.spawn("cow", p.x + 30, p.y, p.z);
-    for (let i = 0; i < 60; i++) g.ufos.update(1 / 30);
+    u.target = cow;
+    const trace = [];
+    for (let i = 0; i < 60; i++) {
+      g.ufos.update(1 / 30);
+      if (i % 15 === 0) trace.push(`${u.state}/${u.trick} tgt${!!u.target} y${u.pos.y.toFixed(1)} cow${cow.pos.x.toFixed(1)},${cow.pos.y.toFixed(1)},${cow.pos.z.toFixed(1)} dead${cow.dead} in${g.mobs.mobs.includes(cow)} d${Math.hypot(u.pos.x - cow.pos.x, u.pos.z - cow.pos.z).toFixed(1)} grace${(g.ufos.graceT ?? 0).toFixed(0)} ${g.player.mode} p${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)} blk${g.world.getBlock(Math.floor(cow.pos.x), Math.floor(cow.pos.y), Math.floor(cow.pos.z))}`);
+    }
     const on = beam.on;
     g.ufos._blink(u, 80, 60);
     for (let i = 0; i < 20; i++) g.ufos.update(1 / 30);
@@ -494,7 +507,7 @@ await check("UFOs: more health; a beaming UFO that dashes away takes its beam al
     const pending = g.ufos.pendingCrews[g.ufos.pendingCrews.length - 1];
     const kinds = new Set();
     for (let k = 0; k < 8; k++) kinds.add(g.ufos.spawn({ size: "medium", pos: new T.Vector3(p.x, 250, p.z + 500) }).crewKind);
-    const out = { hp: small.maxHealth, on, beamAfter, pendingKind: pending?.kind, crewKinds: kinds.size };
+    const out = { hp: small.maxHealth, on, beamAfter, pendingKind: pending?.kind, crewKinds: kinds.size, trace };
     g.ufos.pendingCrews.length = 0;
     g.ufos.clear();
     return out;
@@ -965,7 +978,7 @@ await check("the chain: jets unlock with 'Take to the air', alien ships with 'Sa
     return out;
   });
   const j = JSON.stringify(r);
-  assert(r.n === 22 && r.rewards === "261,262", `22 missions, apples only: ${j}`);
+  assert(r.n === 28 && r.rewards === "261,262", `28 missions, apples only: ${j}`);
   assert(r.jetEarly && !r.jetLate, `jets with mission 10: ${j}`);
 });
 
@@ -977,9 +990,13 @@ await check("parrots: a macaw rig (hooked beak, wings, long tail) that perches o
     const x = Math.floor(p.x);
     const z = Math.floor(p.z) - 4;
     // A branch in the open (above whatever is there: a roof would hide it).
+    // (A 5x5 canopy: the parrot picks random spots around its home, and a
+    // five-leaf cross was found in only about two runs out of three.)
     let y = Math.floor(p.y) + 8;
-    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) y = Math.max(y, g.world.surfaceY(x + dx, z + dz) + 4);
-    g.world.setBlocks([x, y, z, 7, x + 1, y, z, 7, x - 1, y, z, 7, x, y, z + 1, 7, x, y, z - 1, 7]);
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) y = Math.max(y, g.world.surfaceY(x + dx, z + dz) + 4);
+    const leaves = [];
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) leaves.push(x + dx, y, z + dz, 7);
+    g.world.setBlocks(leaves);
     const m = g.mobs.spawn("parrot", x + 0.5, y + 3, z + 0.5);
     m.home = { x: x + 0.5, y: y + 2, z: z + 0.5 };
     const parts = Object.keys(m.model.parts).join();

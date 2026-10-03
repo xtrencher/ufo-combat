@@ -110,6 +110,7 @@ const X = new THREE.Vector3(1, 0, 0);
 const Y = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _gunNose = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
@@ -984,8 +985,11 @@ export class Jet extends Vehicle {
     if (this.heat >= 1) this.jammed = true;
     const from = this.pos.clone().addScaledVector(fwd, 6.6).addScaledVector(right, 0.9).addScaledVector(this.up(_v), 0.35);
     const speed = 700 + Math.max(0, this.vel.dot(fwd));
-    let dir = fwd.clone();
-    if (this.cfg.aimAssist !== false) dir = this._assistDir(from, fwd, speed);
+    // (Round 9) The gun sits off to the side: its shots converge on what the
+    // nose points at, so they hit what the crosshair is on, a creature on
+    // the ground included (the aim assist still leads UFOs and aircraft).
+    let dir = this.pos.clone().addScaledVector(fwd, 7 + this._gunRange(fwd)).sub(from).normalize();
+    if (this.cfg.aimAssist !== false) dir = this._assistDir(from, dir, speed);
     dir.x += (Math.random() - 0.5) * 0.008;
     dir.y += (Math.random() - 0.5) * 0.008;
     dir.z += (Math.random() - 0.5) * 0.008;
@@ -993,6 +997,19 @@ export class Jet extends Vehicle {
     mgr.lasers.fire({ from, dir, color: this._tracer || (this._tracer = new THREE.Color(5, 3.4, 1.1)), speed, damage: this.spec.cannonDamage * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: 1100, radius: 0.07, length: 9, scorch: true, sound: false });
     mgr.audio?.playCannon?.();
     mgr.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.05, size0: 1.4, size1: 0.3, color0: this._tracer, alpha: 0.9 });
+  }
+
+  // How far ahead of the nose the guns converge: on the ground, a building or
+  // a creature straight ahead (up to the cannon's range), else far out.
+  _gunRange(fwd) {
+    const mgr = this.manager;
+    const nose = _gunNose.copy(this.pos).addScaledVector(fwd, 7);
+    let d = 600;
+    const block = mgr.world?.raycast?.(nose, fwd, 1100, { solidOnly: true });
+    if (block) d = block.distance;
+    const mob = mgr.mobs?.raycast?.(nose, fwd, Math.min(d, 1100));
+    if (mob && mob.distance < d) d = mob.distance;
+    return Math.max(20, d);
   }
 
   // Aim assist: a target near the nose pulls the shots toward where it will
@@ -1462,7 +1479,9 @@ export class Jet extends Vehicle {
             mgr.onMissileHit?.(direct.ref);
           } else if (direct?.kind === "vehicle" || direct?.kind === "player") {
             const v = direct.kind === "vehicle" ? direct.ref : direct.ref.vehicle;
-            v?.damage?.(MISSILE_DAMAGE * 0.55, "enemymissile");
+            // (Round 9: a player's own missile at another player's aircraft is
+            // theirs, "missile"; it used to count as an enemy fighter's.)
+            v?.damage?.(MISSILE_DAMAGE * 0.55, m.hostile ? "enemymissile" : m.rogue ? "roguemissile" : "missile");
           }
           fx.explode(boom, { radius: src === "missile" ? 5 : 4.5, source: src });
         }

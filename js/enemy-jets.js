@@ -12,13 +12,17 @@ import * as THREE from "three";
 import { VehicleManager } from "./vehicles.js";
 import { Jet } from "./vehicle-jet.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { isPlayerCause } from "./damage.js";
 
 export const ENEMY_JET_DEFAULTS = { count: 1 }; // how many patrol at once (0 = none)
 const HOSTILE_TIME = 60; // seconds of anger after the player last attacked this fighter
 const MISSILE_INTERVAL = 9;
 const MAX_JETS = 3;
 // Damage causes that don't come from the player.
-const NOT_PLAYER = new Set(["ufo_laser", "enemyjet", "enemymissile", "explosion_other", "roguemissile", "crash"]);
+// (Round 9: anything that isn't a player's weapon, damage.js; it used to be a
+// short list, so an alien's or a soldier's shot provoked the fighter and
+// counted as the host's kill.)
+const NOT_PLAYER = { has: (cause) => !isPlayerCause(cause) };
 // Hunting UFOs: they help the player, but never clear the sky for them:
 // weaker guns and missiles against UFOs, engagements with pauses between
 // them, a few kills at most per fighter, only small to large ships, never a
@@ -408,7 +412,8 @@ export class EnemyJetManager {
   }
 
   spawn(opts = {}) {
-    const p = this.player.position;
+    // (opts.center: around whom; online, a mission's fighters come for any player.)
+    const p = opts.center || this.player.position;
     const R = opts.dist ?? clamp((this.vehicles.viewRange || 300) * 1.2, 320, 900);
     const a = opts.angle ?? Math.random() * Math.PI * 2;
     const x = p.x + Math.cos(a) * R;
@@ -431,9 +436,13 @@ export class EnemyJetManager {
     }
     if (this.puppets) return;
     const jets = this.jets;
+    // (Round 9: far from every player, not just this one; a mission's fighter
+    // only when it is very far from everyone.)
+    const people = this.targets ? this.targets().filter((t) => !t.dead) : [this.player];
     for (const j of jets) {
-      // Far away for good: gone.
-      if (j.pos.distanceTo(this.player.position) > 4200) veh.remove(j);
+      let d = Infinity;
+      for (const t of people) d = Math.min(d, j.pos.distanceTo(t.vehicle ? t.vehicle.pos : t.position));
+      if (d > (j.mission ? 9000 : 4200)) veh.remove(j);
     }
     const max = this.allowed() ? Math.min(MAX_JETS, Math.round(this.config.count)) : 0;
     // (A mission's fighter stays whatever the setting says.)

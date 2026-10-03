@@ -58,6 +58,12 @@ export class ItemSync {
     const onPickup = ents.onPickup;
     ents.onPickup = (item) => {
       if (!item.shared || !this.mp.active) return onPickup ? onPickup(item) : item.count;
+      // (Round 9) No room for it (and no armour slot free for it): it waits
+      // where it is, as offline. Asking would have the host hand it over, the
+      // inventory refuse it and it be thrown out again, over and over.
+      const inv = g.inventory;
+      const aslot = inv.constructor.armorSlotOf?.(item.id) ?? -1;
+      if (g.player.dead || (!inv.canFit(item.id, 1) && !(aslot >= 0 && !inv.armor[aslot]))) return item.count;
       // Asked of the host; until it answers the item waits where it is.
       if (item.asked && performance.now() - item.asked < 1500) return item.count;
       item.asked = performance.now();
@@ -69,7 +75,8 @@ export class ItemSync {
   }
 
   _info(it) {
-    return { k: it.shared, id: it.id, n: it.count, dur: it.dur, p: [r2(it.pos.x), r2(it.pos.y), r2(it.pos.z)], v: [r1(it.vel.x), r1(it.vel.y), r1(it.vel.z)], d: r1(Math.max(0, it.pickupDelay)), ...(it.keep ? { kp: 1 } : {}) };
+    // (Round 9: with its age, so a joiner's copy despawns when everyone's does.)
+    return { k: it.shared, id: it.id, n: it.count, dur: it.dur, p: [r2(it.pos.x), r2(it.pos.y), r2(it.pos.z)], v: [r1(it.vel.x), r1(it.vel.y), r1(it.vel.z)], d: r1(Math.max(0, it.pickupDelay)), a: Math.round(it.age ?? 0), ...(it.keep ? { kp: 1 } : {}) };
   }
 
   _onDrop(m, from) {
@@ -84,6 +91,7 @@ export class ItemSync {
     }
     if (!it) return;
     it.shared = m.k;
+    if (Number.isFinite(m.a)) it.age = Math.max(0, m.a);
     this.byKey.set(m.k, it);
   }
 
@@ -91,10 +99,15 @@ export class ItemSync {
     if (this.net.isHost) this._grant(m.k, from);
   }
 
-  // Host: the first to ask gets it.
+  // Host: the first to ask gets it. (Round 9: an item the host no longer has,
+  // despawned or gone, is gone for the one who asked too: no ghost left.)
   _grant(key, pid) {
     const it = this.byKey.get(key);
-    if (!it || it.taken) return;
+    if (!it) {
+      if (pid !== HOST_PID) this.net.send(pid, { t: "itaken", k: key, by: 0, n: 0 });
+      return;
+    }
+    if (it.taken) return;
     it.taken = pid;
     const msg = { t: "itaken", k: key, by: pid, n: it.count };
     this.net.broadcast(msg);
@@ -115,10 +128,15 @@ export class ItemSync {
   }
 
   update() {
-    // Items that despawned here are forgotten.
+    // Items that despawned here are forgotten (Round 9: the host's, for
+    // everyone: their copies go too).
     if (this.byKey.size && (this._gc = ((this._gc ?? 0) + 1) % 120) === 0) {
       const live = new Set(this.game.entities.items);
-      for (const [k, it] of this.byKey) if (!live.has(it)) this.byKey.delete(k);
+      for (const [k, it] of this.byKey) {
+        if (live.has(it)) continue;
+        this.byKey.delete(k);
+        if (this.net.isHost && this.mp.active && !it.taken) this.net.broadcast({ t: "itaken", k, by: 0, n: 0 });
+      }
     }
   }
 

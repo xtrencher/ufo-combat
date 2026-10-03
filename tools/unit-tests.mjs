@@ -1255,7 +1255,7 @@ console.log("\nRound 6 landforms (terrain.js, biomes.js)");
   const { BIOME } = await import("../js/biomes.js");
   const { SEA_LEVEL } = await import("../js/constants.js");
 
-  await test("flat country, deep valleys, bigger mountains and the meadow exist (6 seeds, 8000 x 8000 blocks)", () => {
+  await test("flat country, deep valleys, mountain ranges and the meadow exist (6 seeds, 8000 x 8000 blocks)", () => {
     let land = 0;
     let flat = 0;
     let steep = 0;
@@ -1288,8 +1288,9 @@ console.log("\nRound 6 landforms (terrain.js, biomes.js)");
     }
     const pc = (n) => ((n / land) * 100).toFixed(1);
     console.log(`        land ${land}: flat ${pc(flat)}%, over 100 ${pc(high)}%, desert ${pc(desert)}%, jungle ${pc(jungle)}%, meadow ${pc(meadow)}%, valley floors in the mountains ${pc(valley)}%, steep ${pc(steep)}%`);
-    assert.ok(flat / land > 0.06, "wide flat country exists");
-    assert.ok(high / land > 0.05, "tall mountains");
+    // (Round 9: more flat land and fewer mountains, the big ranges kept in places.)
+    assert.ok(flat / land > 0.15, "wide flat country exists (more of it since Round 9)");
+    assert.ok(high / land > 0.025 && high / land < 0.09, `tall mountain ranges still rise in places, on less of the land: ${high / land}`);
     assert.ok(desert / land > 0.06 && jungle / land > 0.025, "much larger deserts and jungles than the 3% / 2% of Round 5");
     assert.ok(meadow / land > 0.02, "meadows");
     assert.ok(valley / land > 0.003, "valley floors cut into the mountain country");
@@ -1522,13 +1523,13 @@ console.log("\nProgression (progression.js)");
   const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (22 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0 };
+  await test("the mission chain (28 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0, abductorsDown: 0, flagshipDown: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 22);
+    assert.equal(MISSIONS.length, 28);
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1584,9 +1585,15 @@ console.log("\nProgression (progression.js)");
     assert.equal(v5("overlord"), "overlord");
     assert.equal(v5("slayer"), "slayer");
     assert.equal(idx("steal"), idx("sunburn") + 1);
+    // (Round 9) A save that had finished its chain carries on with the missions added since; the finale is last.
     const v4end = new Progress();
     v4end.load({ v: 4, step: 19, base: {}, done: [] }, stats);
-    assert.equal(v4end.mission, null);
+    assert.equal(v4end.mission?.id, "scramble");
+    const v6end = new Progress();
+    v6end.load({ v: 6, step: 22, base: {}, done: [] }, stats);
+    assert.equal(v6end.mission?.id, "scramble");
+    assert.deepEqual(MISSIONS.slice(idx("slayer") + 1).map((m) => m.id), ["scramble", "abductors", "titan", "swarm", "fortress", "armada"]);
+    assert.equal(MISSIONS[MISSIONS.length - 1].boss?.stat, "flagshipDown");
     assert.ok(idx("patrol") < idx("grays") && idx("grays") < idx("reds"));
     assert.deepEqual([idx("patrol"), idx("grays"), idx("reds")].map((i) => MISSIONS[i].squad.leaderDrop), [ITEM.LASER_BLASTER, ITEM.MINIGUN, ITEM.RAILGUN]);
     // The patrol leaders' weapons are within reach of their mission's tier.
@@ -1595,7 +1602,7 @@ console.log("\nProgression (progression.js)");
       assert.ok(ALIEN_WEAPONS.find(([id]) => id === w)[1] <= MISSIONS[i].tier, `${MISSIONS[i].id} tier`);
     }
     // Everything through to the end.
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 40; i++) {
       for (const k of Object.keys(stats)) stats[k] += 50; // (each mission counts from when it starts)
       q.update(stats);
     }

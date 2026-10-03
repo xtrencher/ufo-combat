@@ -35,6 +35,8 @@ export const STAT_LABELS = [
   ["meteorFragments", "Star fragments collected"],
   ["bossesDown", "Bosses destroyed"],
   ["shipsStolen", "Alien ships stolen from a bunker"],
+  ["abductorsDown", "Abductor UFOs shot down (mission)"],
+  ["flagshipDown", "The Armada's flagship destroyed"],
   ["playerKills", "Players taken down (multiplayer)"],
 ];
 

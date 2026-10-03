@@ -46,6 +46,14 @@ export class CoopSync {
     net.on("summon", (m, from) => this._onSummon(m, from));
     net.on("own", (m, from) => this._onOwn(m, from));
     net.on("gown", (m) => this.net.isClient && Array.isArray(m.l) && (this.groupOwned = new Set(m.l)));
+    // (Round 9) A guest came back from a death: the host's UFOs leave them be a moment.
+    net.on("rsp", (m, from) => {
+      if (!this.net.isHost) return;
+      const px = this.mp.entities.proxy(from);
+      if (px && px !== this.game.player) px.graceUntil = this.game.ufos.time + 8;
+    });
+    // (Round 9) The steal mission's bunker sets out a new ship: here too.
+    net.on("untake", (m) => this.net.isClient && typeof m.k === "string" && this.game.airports.untake(m.k));
     this.owned = new Map(); // host: pid -> Set of item ids that player has
     this.groupOwned = null; // what every player has (loot rolls; see main.js ownedItems)
     this._ownSig = "";
@@ -72,6 +80,7 @@ export class CoopSync {
         return out;
       };
       g.missions.nightDeaths = () => host.teamWipes;
+      g.missions.onUntake = (k) => this.mp.active && this.net.broadcast({ t: "untake", k });
       this.guestData = loadJSON(`guests_${g.SEED}`) || {};
       g.progress.onChange = ((prev) => () => {
         prev?.();
@@ -94,6 +103,7 @@ export class CoopSync {
     g.missions.players = null;
     g.missions.pilotJets = null;
     g.missions.nightDeaths = null;
+    g.missions.onUntake = null;
     g.progress.mirror = false;
     g.progress.mirrorObjectives = null;
     g.ufos.groupScale = 1;
@@ -183,12 +193,25 @@ export class CoopSync {
       tgt: t ? [Math.round(t.pos.x * 10) / 10, Math.round(t.pos.y * 10) / 10, Math.round(t.pos.z * 10) / 10, t.label] : null,
       // What the marker follows (a guest points it at the nearest one of those to them).
       tk: t?.follow ? (t.follow.canopy ? "c" : t.follow.S ? (t.follow.missionTarget ? "u" : "U") : t.follow.spec && t.follow.kind ? "m" : null) : null,
-      boss: b ? { health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
+      boss: b ? { name: b.name || null, health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
       note: g.missions.note?.() || "",
       ev: p.mission?.event || null,
       mo: g.missions.netObjects?.() || null,
       gs: g.airports.groupSize || 1,
+      // (Round 9) Where a player who dies now comes back (around the mission's location).
+      rp: ((r) => (r ? [Math.round(r.x / 4) * 4, Math.round(r.z / 4) * 4, Math.round(r.r)] : null))(g.missions.respawnPlace?.()),
     };
+  }
+
+  // (Round 9) A guest respawned: the host's UFOs give them a moment.
+  respawned() {
+    if (this.mp.active && this.net.isClient) this.net.toHost({ t: "rsp" });
+  }
+
+  // (Round 9) A guest's respawn: around the host's mission (main.js).
+  respawnPlace() {
+    const rp = this.mission?.on ? this.mission.rp : null;
+    return Array.isArray(rp) && rp.length === 3 && rp.every(Number.isFinite) ? { x: rp[0], z: rp[1], r: Math.max(10, Math.min(200, rp[2])) } : null;
   }
 
   // ---------- Guest: the mission state ----------
@@ -218,6 +241,8 @@ export class CoopSync {
     if (this.net.isHost) return;
     const mission = MISSIONS.find((x) => x.id === m.id);
     if (mission && !this.game.player.creative) this.game.giveMissionReward(mission);
+    // (Round 9) The finale: the war is won for everyone.
+    if (mission && mission.id === MISSIONS[MISSIONS.length - 1].id) setTimeout(() => this.game.showVictory?.(), 2500);
   }
 
   // A guest's marker: the mission's target nearest to this player (a crate,

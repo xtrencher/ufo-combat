@@ -111,18 +111,29 @@ await page.evaluate(() => window.__ufo.setGraphics("low"));
 await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 120000 });
 
 async function play() {
-  if ((await v((g) => g.gameState)) === "dead") await v((g) => g.respawn());
-  if ((await v((g) => g.gameState)) === "playing") return;
-  // (After a respawn the game waits for the mouse, with no menu showing.)
-  for (let k = 0; k < 3 && !(await page.isVisible("#resume-btn")) && (await v((g) => g.gameState)) === "paused"; k++) {
-    await page.mouse.click(480, 270);
-    await frames(5);
-    if ((await v((g) => g.gameState)) === "playing") return;
+  // (Retried until the game runs: the pointer lock a click asks for can come
+  // a moment later and hide the pause menu just as Resume is clicked.)
+  const t0 = Date.now();
+  while (Date.now() - t0 < 90000) {
+    const st = await v((g) => g.gameState);
+    if (st === "playing") return;
+    if (st === "dead") {
+      await v((g) => g.respawn());
+      continue;
+    }
+    if (st === "start") {
+      await page.click("#play-btn", { timeout: 5000 }).catch(() => {});
+    } else if (await page.isVisible("#resume-btn")) {
+      await page.click("#resume-btn", { timeout: 3000 }).catch(() => {});
+    } else {
+      // (After a respawn the game waits for the mouse, with no menu showing.)
+      await page.mouse.click(480, 270);
+      await frames(5);
+      if ((await v((g) => g.gameState)) === "paused" && !(await page.isVisible("#resume-btn"))) await page.evaluate(() => document.getElementById("pause-menu").classList.remove("hidden"));
+    }
+    await frames(3);
   }
-  if ((await v((g) => g.gameState)) === "paused" && !(await page.isVisible("#resume-btn"))) await page.evaluate(() => document.getElementById("pause-menu").classList.remove("hidden"));
-  const btn = (await v((g) => g.gameState)) === "start" ? "#play-btn" : "#resume-btn";
-  await page.click(btn, { timeout: 60000 });
-  await page.waitForFunction(() => window.__ufo.gameState === "playing", null, { timeout: 30000 });
+  throw new Error(`the game didn't start playing (state ${await v((g) => g.gameState)})`);
 }
 
 // Sets up an open, flat area high above the terrain (nothing in the way of
@@ -539,10 +550,16 @@ await check("aliens face the player when they shoot, and chase at once after lea
   const r = await v(async (g) => {
     const p = g.player;
     const place = (kind, dz, dx = 0) => {
-      const x = Math.floor(p.position.x) + 0.5 + dx;
-      const z = Math.floor(p.position.z) + 0.5 + dz;
-      const top = g.world.surfaceY(Math.floor(x), Math.floor(z));
-      const m = g.mobs.spawn(kind, x, (top >= 0 ? top : Math.floor(p.position.y)) + 1, z);
+      // (Round 9: land creatures never spawn in water, so the nearest dry spot.)
+      let m = null;
+      for (let r = 0; r <= 100 && !m; r += 4) {
+        for (let k = 0; k < (r ? 16 : 1) && !m; k++) {
+          const x = Math.floor(p.position.x) + 0.5 + dx + Math.round(Math.cos((k / 16) * Math.PI * 2) * r);
+          const z = Math.floor(p.position.z) + 0.5 + dz + Math.round(Math.sin((k / 16) * Math.PI * 2) * r);
+          const top = g.world.surfaceY(Math.floor(x), Math.floor(z));
+          m = g.mobs.spawn(kind, x, (top >= 0 ? top : Math.floor(p.position.y)) + 1, z);
+        }
+      }
       m.aggro = true;
       m.ai.target = true;
       m.yaw = 0; // facing +Z: away from the player
@@ -745,6 +762,14 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     out.unchanged = JSON.stringify(g.inventory.slots) === surv;
     g.setMode("survival");
     out.back = JSON.stringify(g.inventory.slots) === surv;
+    // (Round 9: a switch never touches the inventory: what was taken in Creative stays in Survival.)
+    g.setMode("creative");
+    const free = g.inventory.slots.findIndex((x, i) => i >= 9 && !x);
+    g.inventory.slots[free] = { id: ITEM.RAILGUN, count: 1 };
+    const withRail = JSON.stringify(g.inventory.slots);
+    g.setMode("survival");
+    out.keeps = JSON.stringify(g.inventory.slots) === withRail;
+    g.inventory.slots[free] = null;
     g.setMode("creative");
     out.missing = ALL_WEAPONS.length - out.weaponsShown + 1; // (the weapons tab: every weapon and the bow)
     return out;
@@ -755,7 +780,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
   assert(r.loadouts[0] === 9 && r.loadouts[1] === 10 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts} (Round 6: no Jet Radio)`);
   assert(r.weaponsShown === 10 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
-  assert(r.missing === 0 && r.unchanged && r.back, `creative: every weapon in the palette, switching keeps the inventory: ${JSON.stringify(r)}`);
+  assert(r.missing === 0 && r.unchanged && r.back && r.keeps, `creative: every weapon in the palette, switching keeps the inventory (Creative's things stay): ${JSON.stringify(r)}`);
 });
 
 await check("railgun: charges about a second, then destroys blocks in a line, and hits every creature and UFO on it", async () => {
@@ -1255,8 +1280,9 @@ await check("enemy jets (Round 4: patrol fighters): neutral while the player sho
       if (e.hostile || e.missiles.length) calm = false;
     }
     quiet.calmAfterUfos = calm;
-    // The player shoots the fighter itself: it turns hostile.
-    e.damage(4, "bullet", true);
+    // The player shoots the fighter itself: it turns hostile. ("player": the
+    // cause the game's guns use; since Round 9 only a player's weapon provokes it.)
+    e.damage(4, "player", true);
     let attacked = false;
     let missiles = 0;
     let shots = 0;

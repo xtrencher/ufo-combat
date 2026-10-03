@@ -21,14 +21,23 @@ import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { HOST_PID } from "./session.js";
 import { EnemyJet } from "../enemy-jets.js";
+import { SPECIES } from "../mobs.js";
+import { isPlayerCause } from "../damage.js";
 
 const SNAP_RATE = 15;
 const UFO_RANGE = 1100; // blocks: UFOs within this of a client are sent
-const MOB_RANGE = 120;
+const MOB_RANGE = 120; // creatures within this of a client: every snapshot
+// (Round 9) Farther out, the fighting ones (hostile creatures, aliens,
+// soldiers, mission targets) are sent too, at a third of the rate and the
+// nearest few only, so a guest's sniper, rail or jet guns reach as far as
+// the host's: out to FAR_MOB_RANGE on foot, FAR_MOB_RANGE_AIR in a vehicle.
+const FAR_MOB_RANGE = 320;
+const FAR_MOB_RANGE_AIR = 420;
+const FAR_MOB_MAX = 48;
 const JET_RANGE = 2600;
 const KEEP = 1.2; // hysteresis: already sent ones are kept a little farther
 const EYE = 1.62;
-const KEEP_RADIUS = 3; // chunks of ground the host keeps generated around a player on foot
+const KEEP_RADIUS = 5; // chunks of ground the host keeps generated around a player on foot (Round 9: was 3, too small for creatures to spawn around them; see mobs.js REMOTE_REACH)
 const _v = new THREE.Vector3();
 
 // A remote player as the host's AI sees them.
@@ -113,6 +122,7 @@ export class EntitySync {
     net.on("kill", (m) => this._onKill(m));
     net.on("loot", (m) => this._onLoot(m));
     net.on("mobdie", (m) => this._onMobDie(m));
+    net.on("abd", (m) => this._onAbducted(m));
   }
 
   // ---------- Lifecycle ----------
@@ -123,6 +133,7 @@ export class EntitySync {
     if (this.net.isHost) {
       g.mobs.targets = () => this.targets();
       g.ufos.targets = () => this.targets();
+      g.enemyJets.targets = () => this.targets();
       g.airports.positions = () => this.targets().filter((t) => !t.dead).map((t) => (t.vehicle ? t.vehicle.pos : t.position));
     } else {
       // A guest: the host's world, drawn from its states.
@@ -142,6 +153,7 @@ export class EntitySync {
     const g = this.game;
     g.mobs.targets = null;
     g.ufos.targets = null;
+    g.enemyJets.targets = null;
     g.airports.positions = null;
     g.mobs.puppets = false;
     g.ufos.puppets = false;
@@ -201,10 +213,25 @@ export class EntitySync {
       g.hud?.hitMarker?.();
     };
     g.mobs.onPuppetUpdate = (m, dt) => this._driveMob(m, dt);
+    // (Round 9) A guest's tractor beam on the host's creature: a claim; the
+    // host lifts its real one and says so when it is aboard ("abd").
+    g.mobs.onPuppetBeam = (m, lift, topY, top) => {
+      const now = g.mobs.time;
+      if (now - (m._beamClaimT ?? -9) < 0.1) return;
+      m._beamClaimT = now;
+      this.claims.push(["bl", m.net.id, r1(lift), r1(topY), r1(top.x), r1(top.z)]);
+    };
+    g.mobs.onRemoteAbduct = (m, pid) => {
+      if (this.net.isHost && pid && pid !== this.net.pid) this.net.send(pid, { t: "abd", id: m.id, kind: m.kind });
+    };
     g.ufos.onPuppetHit = (u, amount, from) => {
       this.claims.push(["u", u.net.id, r1(amount), from?.isVector3 ? r1(from.x) : 0, from?.isVector3 ? r1(from.y) : 0, from?.isVector3 ? r1(from.z) : 0]);
     };
     g.ufos.onPuppetUpdate = (u, dt) => this._driveUfo(u, dt);
+    // (Round 9) A guest's beam pulling the host's fighter: the host pulls it.
+    g.vehicles.onPuppetJetPull = (j, v) => {
+      if (j.netEJ) this.claims.push(["cj", j.netEJ, r1(v.x), r1(v.y), r1(v.z)]);
+    };
     g.ufos.onPuppetAbsorb = (u, ship) => {
       if (ship?.net) this.claims.push(["ab", u.net.id, ship.net.nid]);
     };
@@ -258,6 +285,7 @@ export class EntitySync {
       this._snapT -= dt;
       if (this._snapT <= 0) {
         this._snapT = 1 / SNAP_RATE;
+        this._round = ((this._round || 0) + 1) % 3000;
         for (const [pid, link] of this.net.links) if (link.ready) this._snapshotFor(pid);
       }
       this._keepT -= dt;
@@ -337,19 +365,26 @@ export class EntitySync {
       }
     }
     // Creatures (hostile ones, animals, villagers: everything but the little
-    // ambient flyers, which are each player's own).
+    // ambient flyers, which are each player's own). Near ones in every
+    // snapshot; the fighting ones farther out too, a third as often (Round 9).
     const seenM = new Set();
+    const r = this.mp.players.get(pid);
+    const farRange = r?.vehicle ? FAR_MOB_RANGE_AIR : FAR_MOB_RANGE;
+    const far = [];
+    const tick = this._round || 0;
     for (const m of g.mobs.mobs) {
       if (m.spec.flies || m.net) continue;
       const d = Math.hypot(m.pos.x - c.x, m.pos.z - c.z);
       const was = k.m.has(m.id);
-      if (d > MOB_RANGE * (was ? KEEP : 1)) continue;
-      seenM.add(m.id);
-      if (!was) {
-        k.m.set(m.id, m);
-        add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, ld: m.carryId || 0, dead: m.dead ? 1 : 0 });
+      if (d > MOB_RANGE * (was ? KEEP : 1)) {
+        if ((m.spec.hostile || m.missionTarget) && d <= farRange * (was ? KEEP : 1)) far.push([d, m]);
+        continue;
       }
-      snap.m.push([m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0), r2(m.attack ?? 1), r1(m.vel?.y ?? 0)]);
+      this._mobOut(m, k, add, snap, seenM, true);
+    }
+    if (far.length) {
+      far.sort((a, b) => a[0] - b[0]);
+      for (let i = 0; i < Math.min(far.length, FAR_MOB_MAX); i++) this._mobOut(far[i][1], k, add, snap, seenM, tick % 3 === 0);
     }
     for (const [id] of k.m) {
       if (!seenM.has(id)) {
@@ -383,6 +418,19 @@ export class EntitySync {
     if (add.u.length || add.m.length || add.j.length) this.net.send(pid, { t: "eadd", ...add });
     if (rem.u.length || rem.m.length || rem.j.length) this.net.send(pid, { t: "erem", ...rem });
     if (snap.u.length || snap.m.length || snap.j.length) this.net.send(pid, snap, { fast: true });
+  }
+
+  // One creature for one client: added the first time, its state in this
+  // snapshot when `state` (far ones skip some), kept on the "seen" list.
+  _mobOut(m, k, add, snap, seenM, state) {
+    seenM.add(m.id);
+    if (!k.m.has(m.id)) {
+      k.m.set(m.id, m);
+      add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, ld: m.carryId || 0, dead: m.dead ? 1 : 0 });
+      state = true;
+    }
+    if (!state) return;
+    snap.m.push([m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0), r2(m.attack ?? 1), r1(m.vel?.y ?? 0), Math.round((Math.max(0, m.health) / (m.maxHealth || 1)) * 1000) / 1000]);
   }
 
   _ufoInfo(u) {
@@ -456,6 +504,12 @@ export class EntitySync {
             g.mobs.player = prev;
             g.mobs.currentAttacker = null;
           }
+        } else if (c[0] === "bl") {
+          const mob = g.mobs.mobs.find((x) => x.id === c[1]);
+          if (!mob || mob.dead) continue;
+          mob.remoteBeam = { lift: Math.min(12, Math.max(0, Number(c[2]) || 0)), topY: c[3], tx: c[4], tz: c[5], by: from, until: g.mobs.time + 0.35 };
+          mob.lastPlayerHit = g.mobs.time;
+          mob.lastHitPid = from;
         } else if (c[0] === "j") {
           const j = g.vehicles.vehicles.find((x) => x.isEnemyJet && x.id === c[1]);
           if (!j || !j.alive) continue;
@@ -467,6 +521,11 @@ export class EntitySync {
           } finally {
             g.vehicles.currentAttacker = null;
           }
+        } else if (c[0] === "cj") {
+          const j = g.vehicles.vehicles.find((x) => x.isEnemyJet && x.id === c[1]);
+          if (!j || !j.alive) continue;
+          j.beamHeld = 0.35;
+          j.vel.set(c[2], c[3], c[4]);
         } else if (c[0] === "ab") {
           const u = g.ufos.ufos.find((x) => x.id === c[1]);
           const ship = this.mp.vehicles.byNid(c[2]);
@@ -537,6 +596,17 @@ export class EntitySync {
     }
   }
 
+  // (Round 9) A creature our beam was lifting is aboard (the host's call):
+  // its drops go into our hold, like the host's own beam.
+  _onAbducted(m) {
+    const g = this.game;
+    const mob = this.mobById.get(m.id);
+    if (mob) g.mobs._abductFx(mob);
+    const spec = SPECIES[m.kind];
+    const ship = g.vehicles.active;
+    if (spec && ship?._abducted) ship._abducted({ kind: m.kind, spec });
+  }
+
   _onLoot(m) {
     const g = this.game;
     g.lootFor(m.k, m.d ?? null, m.at);
@@ -593,10 +663,11 @@ export class EntitySync {
       j._realDamage = j.damage;
       j.damage = (amount, cause, byPlayer) => {
         if (!j.alive || amount <= 0) return false;
-        // Our shots and missiles: a claim (blasts were judged where they went off).
-        if (cause === "explosion" || cause === "explosion_other" || cause === "enemymissile" || cause === "roguemissile") return false;
+        // Our shots, missiles, beam and (Round 9) our own blasts: a claim. What
+        // the host's AI does to it is the host's to judge.
+        if (!isPlayerCause(cause)) return false;
         j.hurtTime = 0;
-        this.claims.push(["j", e.id, r1(amount), cause === "beam" ? "beam" : cause || "player"]);
+        this.claims.push(["j", e.id, r1(amount), cause === "beam" ? "beam" : cause === "explosion" ? "explosion" : cause || "player"]);
         if (cause !== "beam") g.hud?.hitMarker?.();
         return true;
       };
@@ -652,7 +723,7 @@ export class EntitySync {
     for (const s of m.m || []) {
       const mob = this.mobById.get(s[0]);
       if (!mob) continue;
-      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10] }, now);
+      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1 }, now);
     }
     for (const s of m.j || []) {
       const j = this.jetById.get(s.n);
@@ -754,6 +825,8 @@ export class EntitySync {
     m.missionTarget = !!(f & 64);
     m.attack = st.a ?? 1;
     m.vel.y = st.vy ?? 0;
+    // (Round 9) Its health, the host's: the same on every screen.
+    if (Number.isFinite(st.hp)) m.health = st.hp * m.maxHealth;
     const speed = Math.hypot(m.pos.x - ox, m.pos.z - oz) / Math.max(dt, 1e-3);
     if (m.walk > 0.05) m.walkPhase += Math.min(speed, 8) * dt * 1.8 + dt * 0.5;
   }

@@ -666,7 +666,7 @@ await check("world and graphics: 128-tall world, render distance up to 256 chunk
 
 // ================= Part 6: missions and balance =================
 
-await check("missions: the chain (22 missions in Round 8) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
+await check("missions: the chain (28 missions in Round 9) from a pistol scout to nuking an enemy base; the director sets each one up; the sky follows the mission's rules; HUD marker and a mission list", async () => {
   await v((g) => {
     g.setMode("survival");
     g.ufos.config.activity = 1;
@@ -686,7 +686,7 @@ await check("missions: the chain (22 missions in Round 8) from a pistol scout to
   }, 60000);
   assert(m1, "a scout was spawned for mission 1");
   assert(m1.size === "small" && m1.hp <= 45 && m1.dist < 200 && m1.agl < 60, `a small, weak, close, low scout: ${JSON.stringify(m1)}`);
-  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/22/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
+  assert(m1.marker && /Scout/.test(m1.tracker) && /MISSION 4\/28/.test(m1.tracker), `the marker and tracker show it: ${JSON.stringify(m1)}`);
   assert(m1.rulesSmall === "small", `early skies only have small UFOs: ${JSON.stringify(m1)}`);
   // The pistol kills it: 5 damage a shot.
   const kill = await v((g) => {
@@ -763,7 +763,7 @@ await check("missions: the chain (22 missions in Round 8) from a pistol scout to
     const l = g.progress.list(g.stats.world);
     return { n: l.length, done: l.filter((m) => m.state === "done").length, current: l.find((m) => m.state === "current")?.title, btn: !!document.getElementById("pause-missions-btn") };
   });
-  assert(list.n === 22 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
+  assert(list.n === 28 && list.done === 3 && list.current === "First contact" && list.btn, `the mission list: ${JSON.stringify(list)}`);
   await v((g) => {
     g.progress.load(null, g.stats.world);
     g.setMode("creative");

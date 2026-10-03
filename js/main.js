@@ -52,7 +52,8 @@ import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
 import { createJetModel } from "./jet-model.js";
 import { TractorBeam } from "./tractor-beam.js";
-import { Stats } from "./stats.js";
+import { Stats, formatPlayTime } from "./stats.js";
+import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause } from "./damage.js";
 import { FullscreenControl } from "./fullscreen.js";
 import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
@@ -360,7 +361,9 @@ lasers.addProvider({
     return {
       distance: hit.distance,
       hit(b, point, d) {
-        if (mobs.shoot(hit.mob, b.damage, d, 2.5) && b.owner === "player") hud.hitMarker?.();
+        // (Round 9: an alien's, a UFO's or a fighter's bolt is no player's kill.)
+        const mine = fromPlayer(b.owner);
+        if (mobs.shoot(hit.mob, b.damage, d, 2.5, mine) && mine) hud.hitMarker?.();
         for (let i = 0; i < 6; i++) effects.debris.spawn(point.x, point.y, point.z, (Math.random() - 0.5) * 3, Math.random() * 3, (Math.random() - 0.5) * 3, 0.05, bloodColor, 0.5);
       },
     };
@@ -432,6 +435,10 @@ settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
 nuke.onDetonate = (center, R, info = {}) => {
   hooks.onNuke?.(center, R);
   if (!info.mirror) stats.add("nukes");
+  // (Round 9) Another player's nuke, with the host's PvP rule off: it doesn't
+  // hurt you or your aircraft (like their other blasts; its crater and the
+  // mission's credit still count).
+  if (info.mirror && info.by && info.by !== net.pid && !mp.pvpAllowed()) return;
   // Damage reach: the crater grows with the nuke's size, the reach of the blast on creatures,
   // ships and you only slowly (a size-96 nuke does not kill across 250 blocks).
   // (Online, another player's nuke only hurts this player and their vehicle here.)
@@ -440,16 +447,24 @@ nuke.onDetonate = (center, R, info = {}) => {
     mobs.explosion(center, Math.max(R * 1.2, Rd * 1.4), true);
     ufos.explosion(center, Rd * 2.2, true);
     vehicles.explosion(center, Rd * 1.6);
-  } else if (vehicles.active) vehicles.explosionOn(vehicles.active, center, Rd * 1.6);
+  } else if (vehicles.active) {
+    if (info.by && info.by !== net.pid) {
+      vehicles.active.lastHitByPid = info.by;
+      vehicles.active.lastHitByT = performance.now();
+    }
+    vehicles.explosionOn(vehicles.active, center, Rd * 1.6, "explosion_other");
+  }
   // The player: deadly within about twice the crater radius, thrown far.
   if (!player.dead && !player.vehicle) {
     const off = player.position.clone().sub(center);
     const d = off.length();
     if (d < Rd * 2.6) {
       const f = 1 - d / (Rd * 2.6);
-      if (player.damage(Math.ceil(70 * f * f + 2), "nuke", { pierce: true })) {
+      // (Another player's nuke: theirs, in the death message. Round 9.)
+      const src = info.mirror && info.by && info.by !== net.pid ? `nuke@${info.by}` : "nuke";
+      if (player.damage(Math.ceil(70 * f * f + 2), src, { pierce: true })) {
         lastBlastHitTime = performance.now();
-        lastBlastSource = "nuke";
+        lastBlastSource = src;
       }
       off.y = Math.max(off.y, 0) + d * 0.3;
       player.applyImpulse(off.normalize().multiplyScalar(40 * f));
@@ -597,7 +612,7 @@ lasers.addProvider({
     }
     if (!best) return null;
     const h = best;
-    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "ufo" ? "ufo_laser" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "player") };
+    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, fromPlayer(b.owner) ? "player" : boltCause(b)) };
   },
 });
 // Enemy bolts hit the player on foot.
@@ -622,7 +637,7 @@ lasers.addProvider({
       distance: t,
       hit(b, point, d) {
         // Every shot that reaches you hurts (no grace time between shots).
-        if (player.damage(b.damage, b.owner === "alien" ? "alien" : b.owner === "enemyjet" || b.owner === "rogue" ? "enemyjet" : "ufo_laser", { projectile: true, from: point.clone().addScaledVector(d, -4) })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
+        if (player.damage(b.damage, boltCause(b), { projectile: true, from: point.clone().addScaledVector(d, -4) })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
   },
@@ -630,7 +645,7 @@ lasers.addProvider({
 // The UFO cannon's bolts (and big enemy ones) blow small holes. (A bolt from
 // another machine online: its blast arrives from there.)
 lasers.onBlast = (point, bolt) => {
-  if (!bolt.mirror) effects.explode(point, { radius: bolt.blast, source: bolt.owner === "playerufo" ? "ufocannon" : "ufo_laser" });
+  if (!bolt.mirror) effects.explode(point, { radius: bolt.blast, source: bolt.owner === "playerufo" ? "ufocannon" : /^alien_red/.test(bolt.cause || "") ? "alien_plasma" : "ufo_blast" });
 };
 
 // Messages across the middle of the screen.
@@ -881,10 +896,56 @@ function callJet(force = false, type = lastJetType) {
   jetSpawnAirborne = spawnAirborne;
   audio.playNotice();
 }
-// Every jet the player called in that nobody is sitting in goes away.
+// Every jet the player called in that nobody is sitting in goes away
+// (Round 9: and a Creative call-in's UFO).
 function removePlayerJets() {
-  for (const v of [...vehicles.vehicles]) if (v.type === "jet" && !v.occupied && (v === playerJet || v.isPlayerJet)) vehicles.remove(v);
+  for (const v of [...vehicles.vehicles]) if (!v.occupied && !v.puppet && ((v.type === "jet" && (v === playerJet || v.isPlayerJet)) || v.calledIn)) vehicles.remove(v);
   playerJet = null;
+}
+
+// (Round 9) Creative call-ins (the pause menu): straight into the air, at the
+// controls of an F-22, an F-16, the B-2 or a random UFO. The last one called
+// in that nobody sits in goes. Online the aircraft is shared like any other
+// player's (net/vehicles.js), for the host and guests alike.
+function callIn(kind) {
+  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight") return false;
+  if (!mods.enabled) {
+    toast("Switch mods on first (Settings > Mods).", 3);
+    return false;
+  }
+  if (vehicles.active) vehicles.exit({ force: true });
+  removePlayerJets();
+  const p = player.position;
+  const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), SEA_LEVEL);
+  let v;
+  if (kind === "ufo") {
+    const design = UFO_DESIGNS[Math.floor(Math.random() * UFO_DESIGNS.length)];
+    const radius = [4, 5.5, 7, 9, 12][Math.floor(Math.random() * 5)];
+    v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, Math.min(200, Math.max(ground + 40 + radius, p.y + 30)), p.z], yaw: player.yaw });
+  } else {
+    if (!JET_TYPES[kind]) return false;
+    const cfg = vehicles.config.jet;
+    const alt = kind === "b2" ? 100 : 75;
+    v = vehicles.create("jet", { jetType: kind, pos: [p.x, Math.min(215, Math.max(ground + alt, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62 * (JET_TYPES[kind].speed ?? 1), throttle: 0.75 });
+    if (v) v.isPlayerJet = true;
+  }
+  if (!v) return false;
+  v.keep = true; // (never evicted by the vehicle cap)
+  v.calledIn = true;
+  if (v.type === "jet") playerJet = v;
+  vehicles.enter(v);
+  audio.playNotice();
+  toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3);
+  return true;
+}
+// The call-ins show in the pause menu in Creative only.
+function refreshCallIns() {
+  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight");
+}
+for (const b of document.querySelectorAll("#pause-callins [data-callin]")) {
+  b.addEventListener("click", () => {
+    if (callIn(b.dataset.callin)) requestLock();
+  });
 }
 // A jet that is destroyed right after landing on its strip (something in the
 // way we didn't see) is replaced by one in the air, so a call never ends
@@ -925,13 +986,13 @@ vehicles.onExit = () => {
   playerDirty = true;
 };
 vehicles.onPilotKilled = (cause, v) => {
-  const shotDown = cause === "enemyjet" || cause === "enemymissile";
   // (Online: shot down by another player lately, or crashed while they were on your tail.)
   if (v.lastHitByPid && v.lastHitByPid !== net.pid && performance.now() - (v.lastHitByT ?? 0) < 12000) {
     player.damage(9999, `pvp@${v.lastHitByPid}`, { pierce: true });
     return;
   }
-  player.damage(9999, shotDown ? cause : v.type === "jet" ? (cause === "crash" ? "jet_crash" : "jet_down") : "ufo_down", { pierce: true });
+  // (Round 9: the message names what brought it down: a fighter, a UFO, fire from the ground, a crash.)
+  player.damage(9999, pilotCause(v.type, cause), { pierce: true });
 };
 vehicles.onPilotHurt = () => {
   hud.hurt();
@@ -940,19 +1001,16 @@ vehicles.onPilotHurt = () => {
 interaction.weapons = weapons;
 interaction.combat = mobs;
 
-// A brand new game (mods on) starts with its loadout: Survival only a
-// pistol (everything else is loot), Creative every weapon, filling the hotbar
+// A brand new game (mods on) starts with its loadout: Survival basic gear
+// (everything else is loot), Creative every weapon, filling the hotbar
 // first. It always wins those slots in a new world; a world that started with
 // mods off gets it (in free slots) the first time it's played with mods on.
+// (Round 9: that is the only time anything is given. Switching between
+// Creative and Survival never touches the inventory: see setMode.)
 let loadoutGiven = false;
-// What the inventory was before Creative (see setMode); { fresh: true }: a
-// world begun in Creative, whose Survival starts with the Survival loadout.
-let survivalStash = null;
 function fillStartingWeapons(fresh) {
   if (loadoutGiven || !mods.enabled) return;
   loadoutGiven = true;
-  // (A world begun in Creative: its Survival will start with the Survival loadout.)
-  if (player.creative && fresh) survivalStash = { fresh: true };
   (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((entry, i) => {
     const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
     if (fresh && i < HOTBAR_SIZE) inventory.slots[i] = makeStack(id, n);
@@ -980,8 +1038,9 @@ if (savedPlayer) {
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
   if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
   // Worlds from before the loadout flag existed already had their weapons.
+  // (An older save's "survivalStash", the inventory set aside in Creative,
+  // is no longer used: the inventory a save has is the one it keeps.)
   loadoutGiven = savedPlayer.loadout !== false;
-  survivalStash = savedPlayer.survivalStash && typeof savedPlayer.survivalStash === "object" ? savedPlayer.survivalStash : null;
   nuke.loadZones(savedPlayer.blastZones);
 } else {
   player.spawnAt(spawnX, spawnZ);
@@ -1064,7 +1123,34 @@ function refreshSurvivalSystems() {
 }
 mods.onChange(refreshSurvivalSystems);
 refreshSurvivalSystems();
-progress.onComplete = (m) => giveMissionReward(m);
+progress.onComplete = (m) => {
+  giveMissionReward(m);
+  if (m.id === MISSIONS[MISSIONS.length - 1].id) setTimeout(showVictory, 2500);
+};
+// (Round 9) The last mission won: the victory screen (online, for everyone:
+// js/net/coop.js), with this world's numbers. The game goes on behind it.
+function showVictory() {
+  const el = document.getElementById("victory-screen");
+  if (!el || !el.classList.contains("hidden")) return;
+  const w = stats.world;
+  const rows = [
+    ["Missions completed", w.missionsDone],
+    ["UFOs shot down", w.ufosDown],
+    ["Motherships and titans", w.ufosDownBig],
+    ["Aliens killed", w.aliensKilled],
+    ["Fighters shot down", w.enemyJetsDown],
+    ["Deaths", w.deaths],
+    ["Play time", formatPlayTime(w.playTime || 0)],
+  ];
+  document.getElementById("victory-stats").innerHTML = rows.map(([k, n]) => `<div>${k}</div><div class="num">${n}</div>`).join("");
+  el.classList.remove("hidden");
+  audio.playNotice?.();
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+}
+document.getElementById("victory-btn").addEventListener("click", () => {
+  document.getElementById("victory-screen").classList.add("hidden");
+  if (gameState === "paused") requestLock();
+});
 // A finished mission's reward, into the inventory. (Online every player gets it.)
 function giveMissionReward(m) {
   stats.add("missionsDone");
@@ -1241,7 +1327,6 @@ function playerState() {
     missions: progress.serialize(),
     vehicles: vehicles.serialize(),
     stats: stats.world,
-    survivalStash,
     blastZones: nuke.serializeZones(),
   };
 }
@@ -1324,45 +1409,14 @@ entities.onPickup = (item) => {
 player.onFlightToggle = (enabled) => audio.playFlightToggle(enabled);
 
 // ---------- Damage, death and respawn ----------
-const DEATH_MESSAGES = {
-  fall: "Fell from a high place",
-  drown: "Drowned",
-  void: "Fell out of the world",
-  grenade: "Blown up by your own grenade",
-  bazooka: "Blown up by your own bazooka",
-  airstrike: "Blown up by your own airstrike",
-  grenade_fall: "Sent flying by your own grenade",
-  bazooka_fall: "Sent flying by your own bazooka",
-  airstrike_fall: "Sent flying by your own airstrike",
-  zombie: "Killed by a zombie",
-  skeleton: "Shot by a skeleton",
-  spider: "Killed by a spider",
-  abducted: "Abducted by a UFO",
-  ufo_laser: "Zapped by a UFO",
-  alien: "Shot by an alien",
-  ufo_crash: "Crushed by a crashing UFO",
-  ufo_crash_fall: "Thrown by a crashing UFO",
-  ufocannon: "Blasted by your own UFO cannon",
-  ufocannon_fall: "Blasted off a cliff by your own UFO cannon",
-  ufo_down: "Went down with your UFO",
-  ufo_boom: "Caught in an exploding UFO",
-  jet_crash: "Crashed your jet",
-  jet_down: "Shot down in your jet",
-  nuke: "Too close to your own nuke",
-  nuke_fall: "Blown away by your own nuke",
-  missile: "Hit by your own missile",
-  cannon: "Hit by your own jet's cannon",
-  enemyjet: "Shot down by an enemy fighter",
-  enemymissile: "Hit by an enemy missile",
-  roguemissile: "Caught in a dogfight between a fighter and a UFO",
-  enemymissile_fall: "Blown out of the sky by an enemy missile",
-};
 // Online, another player's explosive carries their id ("grenade@3"): the
 // message names them ("Blown up by Bob's grenade"). The host's AI (a UFO
 // crash, an enemy missile) keeps its own message.
 const PLAYER_WEAPONS = { grenade: "grenade", bazooka: "bazooka rocket", airstrike: "airstrike", ufocannon: "UFO cannon", nuke: "nuke", missile: "missile", cannon: "cannon" };
 function deathMessage(cause) {
   if (typeof cause === "string" && /^pk@\d+$/.test(cause)) return `Killed by ${mp.playerName(Number(cause.slice(3)))}`;
+  // (Round 9 fix: checked before the general "@" rule below, which read it as plain "pvp".)
+  if (typeof cause === "string" && /^pvp@\d+$/.test(cause)) return `Shot down by ${mp.playerName(Number(cause.slice(4)))}`;
   if (typeof cause === "string" && cause.includes("@")) {
     const m = /^([a-z_]+?)@(\d+)(_fall)?$/.exec(cause);
     if (m) {
@@ -1373,7 +1427,6 @@ function deathMessage(cause) {
       return DEATH_MESSAGES[src + (fall || "")] || DEATH_MESSAGES[src] || src;
     }
   }
-  if (typeof cause === "string" && cause.startsWith("pvp@")) return `Shot down by ${mp.playerName(Number(cause.slice(4)))}`;
   return DEATH_MESSAGES[cause] || cause || "You died";
 }
 let lastBlastHitTime = -Infinity;
@@ -1439,20 +1492,36 @@ function safeSpawnColumn() {
   return [spawnX, spawnZ];
 }
 
-function respawn() {
+// (Round 9) During a mission (Survival): a random safe spot around the
+// mission's location (online, the host's mission: net/coop.js), or null
+// (the world spawn).
+function missionRespawnSpot() {
+  if (player.creative || mp.mode === "dogfight") return null;
+  const place = mp.active && net.isClient ? mp.coop?.respawnPlace?.() : missionDirector.respawnPlace();
+  return place ? missionDirector.safeSpotAround(place, place.r) : null;
+}
+
+// Back in the game after a death: at `at` ([x, z], e.g. next to a friend),
+// else around the current mission, else at the world spawn.
+function respawn(at = null) {
   if (gameState !== "dead") return;
   hud.hideDeath();
-  world.prepareArea(spawnX + 0.5, spawnZ + 0.5, INITIAL_SYNC_RADIUS);
+  const spot = Array.isArray(at) ? at : missionRespawnSpot();
+  world.prepareArea(spot ? spot[0] : spawnX + 0.5, spot ? spot[1] : spawnZ + 0.5, INITIAL_SYNC_RADIUS);
   player.revive();
-  player.spawnAt(...safeSpawnColumn());
+  if (spot) player.spawnAt(Math.floor(spot[0]), Math.floor(spot[1]));
+  else player.spawnAt(...safeSpawnColumn());
   player.yaw = 0;
   player.pitch = 0;
   player.syncCamera();
   streamAround(player.position.x, player.position.z);
   deathCause = null;
-  // (Online the UFOs only give this player a moment: the others are still fighting.)
-  if (mp.active) ufos.graceT = Math.max(ufos.graceT, 8);
-  else ufos.playerRespawned();
+  // (Online the UFOs only give this player a moment: the others are still
+  // fighting. Round 9: a guest's moment too, which the host's UFOs grant.)
+  if (mp.active) {
+    if (net.isHost) player.graceUntil = ufos.time + 8;
+    else mp.coop?.respawned?.();
+  } else ufos.playerRespawned();
   playerDirty = true;
   gameState = "paused";
   audio.ensureStarted();
@@ -1463,32 +1532,49 @@ function respawn() {
     ui.showHud(true);
   } else requestLock();
 }
-hud.respawnBtn.addEventListener("click", respawn);
+hud.respawnBtn.addEventListener("click", () => respawn());
 
 // Explosions hurt (lethally up close) and shove the player away from the
 // blast center with an upward kick, falling off with distance and scaled
 // by the size of the blast (a bazooka rocket is 5 grenades wide).
 effects.onExplosion = (center, radius, source, info = {}) => {
-  const byPlayer = source !== "ufo_crash" && source !== "ufo_laser" && source !== "ufo_boom" && source !== "enemymissile" && source !== "roguemissile";
+  // (Round 9) Who caused it: a player's weapon (credit, the PvP rule, their
+  // name in a death message) or the world and its AI (a UFO's blast, a
+  // crash, an enemy missile, a meteor: nobody's kill, always hurts).
+  const byPlayer = isPlayerCause(source);
   // Online, another machine's explosion (info.mirror) only hurts this player and
   // their own vehicle here: what it did to creatures, UFOs and other vehicles
   // was judged where it went off.
-  if (!info.mirror) mobs.explosion(center, radius, byPlayer);
+  // (Round 9: a guest's world blast, its own aircraft blowing up, reaches the
+  // host's creatures and UFOs too, as nobody's kill: the guest's copies of
+  // them make no claim for it.)
+  const worldBlastHere = !info.mirror || (!byPlayer && net.isHost && mp.active);
+  if (worldBlastHere) mobs.explosion(center, radius, byPlayer);
   // The blast takes the plants with it (the burnt ring too), so none are left floating over the crater.
   if (grass.density > 0 && center.distanceTo(player.position) < 90) grass.clear(center.x, center.z, Math.min(radius + 2.5, 30));
-  if (!info.mirror) ufos.explosion(center, radius, byPlayer && source !== "ufocannon_enemy");
-  if (!info.mirror) vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
-  else if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer ? "explosion" : "explosion_other");
-  // (Another player's blast that hurts or kills you: theirs, in the death message.)
-  // (With the host's PvP / friendly fire rule off, another player's blast doesn't hurt you.)
-  if (info.mirror && info.by && info.by !== net.pid && !mp.pvpAllowed()) return;
-  if (info.mirror && info.by) {
+  if (worldBlastHere) ufos.explosion(center, radius, byPlayer);
+  if (!info.mirror) {
+    vehicles.explosion(center, radius, byPlayer ? "explosion" : "explosion_other");
+    return hurtByBlast(center, radius, source);
+  }
+  // Another player's blast: their name in the message, and with the host's
+  // PvP rule off it doesn't hurt you or your vehicle. (The AI's blasts, which
+  // the host sends, always do; Round 9 fix: they used to be stopped by the
+  // rule too, and named the host as their cause.)
+  const other = info.by && info.by !== net.pid;
+  if (other && byPlayer) {
+    if (!mp.pvpAllowed()) return;
     source = `${source}@${info.by}`;
-    if (vehicles.active && info.by !== net.pid && center.distanceTo(vehicles.active.pos) < radius * 2.5) {
+    if (vehicles.active && center.distanceTo(vehicles.active.pos) < radius * 2.5) {
       vehicles.active.lastHitByPid = info.by;
       vehicles.active.lastHitByT = performance.now();
     }
   }
+  if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer && !other ? "explosion" : "explosion_other");
+  hurtByBlast(center, radius, source);
+};
+// What a blast does to this player on foot: damage close in, and a shove.
+function hurtByBlast(center, radius, source) {
   const size = Math.sqrt(radius / GRENADE_RADIUS);
   const offset = player.position.clone();
   offset.y += 0.9; // body center
@@ -1515,41 +1601,18 @@ effects.onExplosion = (center, radius, source, info = {}) => {
     lastBlastHitTime = performance.now();
     lastBlastSource = source;
   }
-};
+}
 
 // ---------- Game mode ----------
 function setMode(mode) {
-  const before = player.mode;
   player.setMode(mode);
   refreshSurvivalSystems();
   ui.setModeShown(player.mode);
-  // (Round 8) Switching to Creative adds nothing: the inventory stays as it
-  // is (anything else comes from the creative palette, by hand), and what it
-  // was is kept aside; back in Survival the inventory is exactly that again,
-  // so nothing taken in Creative is left over.
-  if (before !== "creative" && player.creative) {
-    survivalStash = { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected };
-  } else if (before === "creative" && !player.creative && survivalStash) {
-    restoreSurvivalStash();
-  }
+  // (Round 9) The inventory is never touched by a switch, either way: what
+  // you have stays (things taken in Creative included), nothing is added or
+  // taken away, online too (the host's switch is everyone's: net/rules.js).
   playerDirty = true;
-}
-
-function restoreSurvivalStash() {
-  const s = survivalStash;
-  survivalStash = null;
-  if (s.fresh) {
-    inventory.clear();
-    for (const entry of SURVIVAL_LOADOUT) {
-      const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
-      inventory.add(id, n);
-    }
-  } else {
-    inventory.load(s.inv);
-    inventory.loadArmor(s.armor);
-    if (Number.isInteger(s.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, s.sel));
-  }
-  markInventoryChanged();
+  refreshCallIns();
 }
 
 
@@ -2000,6 +2063,7 @@ function showPause() {
   audio.setJetEngine(0, false, 0, false);
   interaction.release();
   ui.showHud(false);
+  refreshCallIns();
   ui.showPauseMenu(SEED, renderDistance);
 }
 
@@ -2494,11 +2558,13 @@ const game = {
   rollLoot,
   lootFor,
   giveMissionReward,
+  showVictory,
+  callIn,
   deathMessage,
   // Online: a player's things (the host keeps a guest's between visits).
   playerData() {
     const p = player.position;
-    return { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected, health: player.dead ? MAX_HEALTH : player.health, pos: player.dead ? null : [round3(p.x), round3(p.y), round3(p.z)], loadout: loadoutGiven, stash: survivalStash };
+    return { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected, health: player.dead ? MAX_HEALTH : player.health, pos: player.dead ? null : [round3(p.x), round3(p.y), round3(p.z)], loadout: loadoutGiven };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
@@ -2507,7 +2573,6 @@ const game = {
     if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
     if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
     loadoutGiven = d.loadout !== false;
-    survivalStash = d.stash && typeof d.stash === "object" ? d.stash : null;
     markInventoryChanged();
     if (Array.isArray(d.pos) && d.pos.length === 3 && d.pos.every(Number.isFinite)) game.teleport(d.pos[0], d.pos[1], d.pos[2]);
   },
@@ -2526,7 +2591,6 @@ const game = {
   // Respawn next to (x, z) instead of the world spawn (online: near a friend).
   respawnNear(x, z) {
     if (gameState !== "dead") return;
-    respawn();
     let best = null;
     for (let r = 2; r <= 6 && !best; r++) {
       for (let k = 0; k < 8 && !best; k++) {
@@ -2538,7 +2602,7 @@ const game = {
         if (top > 0 && !IS_WET[world.getBlock(cx, top, cz)] && world.getBlock(cx, top + 1, cz) === BLOCK.AIR && world.getBlock(cx, top + 2, cz) === BLOCK.AIR) best = [cx, cz];
       }
     }
-    game.teleport(best ? best[0] + 0.5 : x, null, best ? best[1] + 0.5 : z);
+    respawn(best ? [best[0] + 0.5, best[1] + 0.5] : [x, z]);
   },
   // Dogfight online: missions and supply drops stop (and come back after).
   setSurvivalPaused(on) {
@@ -2967,14 +3031,18 @@ function updateMissionMarker(show) {
   const text = `${t.label} ${d}m`;
   if (missionMarkerLabel.textContent !== text) missionMarkerLabel.textContent = text;
 }
-// The boss bar (the Overlord fight): name, health, the shield state.
+// The boss bar (the Overlord and the Dreadnought): name, health, the shield state.
 const bossBarEl = document.getElementById("boss-bar");
+const bossNameEl = bossBarEl.querySelector(".bb-name");
 const bossFillEl = bossBarEl.querySelector(".bb-fill");
 const bossNoteEl = bossBarEl.querySelector(".bb-note");
 function updateBossBar(show) {
   const b = show ? missionDirector.bossInfo : null;
   bossBarEl.classList.toggle("hidden", !b);
   if (!b) return;
+  // (Round 9: the boss's own name; the bar always read "THE OVERLORD".)
+  const name = b.name || "THE OVERLORD";
+  if (bossNameEl.textContent !== name) bossNameEl.textContent = name;
   bossBarEl.classList.toggle("shielded", b.shield);
   bossBarEl.classList.toggle("final", b.final);
   bossFillEl.style.width = `${(b.health * 100).toFixed(1)}%`;

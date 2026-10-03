@@ -30,6 +30,9 @@ export class AirportManager {
     // took (it flies elsewhere now), and whether guards are set out here.
     this.taken = new Set();
     this.guardsEnabled = true;
+    // (Round 9) Bunkers whose ship is set out again for the steal mission
+    // (see untake): the ship only, not a second set of guards.
+    this.reship = new Set();
     // Online (host): every player's position (airports near any of them are
     // set out here, with their guards: the guards are the host's creatures).
     this.positions = null; // () => [Vector3]
@@ -113,6 +116,20 @@ export class AirportManager {
         }
       }
     }
+  }
+
+  // (Round 9) The steal mission lost the bunker's ship (blown up, or flown
+  // off and lost): the bunker sets out a new one, here and (net/coop.js
+  // "untake") on every other peer, so there is always exactly one. Its
+  // guards are not set out a second time.
+  untake(key) {
+    this.taken.delete(key);
+    const m = /^(.*)#h(\d+)$/.exec(key);
+    if (!m) return;
+    const done = this.bunkerSet.get(m[1]);
+    if (!done || !done.delete(Number(m[2]))) return;
+    this.bunkersDone.set(m[1], false);
+    this.reship.add(key);
   }
 
   // The nearest airport (or city with one) within maxDist of the player: { site, dist }.
@@ -212,6 +229,7 @@ export class AirportManager {
       const design = HANGAR_DESIGNS[(s.seed >>> (h.id * 3)) % HANGAR_DESIGNS.length];
       const radius = 3.4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 14; // fits the hall and the ramp
       const key = `${s.id}#h${h.id}`;
+      const reship = this.reship.delete(key); // (a new ship only: its guards are still about)
       const ufo = this.taken.has(key) ? null : veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
       if (ufo) {
         ufo.parkKey = key;
@@ -223,7 +241,7 @@ export class AirportManager {
         jets.push(ufo);
       }
       // (No guards on Peaceful: no hostile creatures at all. Online, only the host sets them out.)
-      if (this.mobs && this.mobs.hostileSpawning !== false && this.guardsEnabled) for (const g of h.guards) {
+      if (this.mobs && this.mobs.hostileSpawning !== false && this.guardsEnabled && !reship) for (const g of h.guards) {
         const m = this.mobs.spawnGuard(g.x, g.y, g.z, h.zone);
         if (m) guards.push(m);
       }
@@ -248,6 +266,7 @@ export class AirportManager {
     this.guards.delete(id);
     this.bunkerSet.delete(id);
     this.bunkersDone.delete(id);
+    for (const k of this.reship) if (k.startsWith(`${id}#`)) this.reship.delete(k);
     if (!list || !this.mobs) return;
     for (const g of list) {
       const i = this.mobs.mobs.indexOf(g);

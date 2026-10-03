@@ -425,7 +425,11 @@ export class PilotUfo extends Vehicle {
     const st = this.pilotStyle;
     const r = this.radius;
     const d = dirOverride ? dirOverride.clone() : this._aim.clone().sub(from);
-    if (d.lengthSq() < 1) d.copy(this._viewDir(_w));
+    // (No aim point clear of the muzzle: along the view. Round 9 fix: a given
+    // direction is a unit vector, which often comes out a hair short of 1 and
+    // was thrown away for the view direction: half of a spread's fan, and the
+    // lock-on salvo's aimed bolts, flew straight ahead instead.)
+    if (d.lengthSq() < (dirOverride ? 1e-6 : 1)) d.copy(this._viewDir(_w));
     d.normalize();
     // Never start inside the hull's own rim: step out along the shot.
     from.addScaledVector(d, Math.min(r * 0.35, 6));
@@ -603,6 +607,8 @@ export class PilotUfo extends Vehicle {
       // Drawn toward the middle of the beam first, then up it.
       const v = to.multiplyScalar(speed);
       if (isJet) {
+        // (Online, the host's fighter: the host pulls it. Round 9.)
+        if (obj.puppet) mgr.onPuppetJetPull?.(obj, v);
         obj.beamHeld = 0.35;
         obj.vel.copy(v);
       } else {
@@ -611,7 +617,9 @@ export class PilotUfo extends Vehicle {
       }
     };
     for (const u of mgr.ufos?.ufos ?? []) if (!u.falling && u.state !== "gone") pull(u, u.radius, false);
-    for (const v of mgr.vehicles) if (v !== this && v.type === "jet" && v.alive && v.isEnemyJet && !v.onGround) pull(v, v.radius, true);
+    // (Round 9 fix: an enemy fighter's type is "enemyjet", never "jet": the
+    // beam never took one, alone or online.)
+    for (const v of mgr.vehicles) if (v !== this && v.isEnemyJet && v.alive && !v.onGround) pull(v, v.radius, true);
   }
 
   // A jet swallowed by the beam: gone in a flash (it counts as shot down).
@@ -1170,6 +1178,8 @@ export class PilotUfo extends Vehicle {
       if (m.dead) continue;
       if (Math.hypot(m.pos.x - top.x, m.pos.z - top.z) < R + 1.2 && m.pos.y < top.y && m.pos.y > bottomY - 2) out.push(m);
     }
+    // (Online, the other players on foot under it too, by the PvP rule. Round 9.)
+    for (const s of mgr.mobs.standIns?.() ?? []) if (Math.hypot(s.pos.x - top.x, s.pos.z - top.z) < R + 1.2 && s.pos.y < top.y && s.pos.y > bottomY - 2) out.push(s);
     for (const m of out) mgr.mobs.shoot(m, 60, { x: 0, z: 0 }, 0);
     for (const u of mgr.ufos?.ufos ?? []) {
       if (u.state === "gone" || u.falling) continue;
