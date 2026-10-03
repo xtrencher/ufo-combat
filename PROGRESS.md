@@ -2409,3 +2409,11 @@ Serve the folder (`npx serve .` or `python3 -m http.server`) and open it in Chro
 
 Automated: `cd tools && npm install && node mp-round9-tests.mjs && node round9-tests.mjs` (about 6 minutes); the full damage matrix is `node mp-damage-tests.mjs` (about 10 minutes).
 
+
+## Round 9 status: paused for testing
+Paused at the owner's request before F.1/F.4/F.6/F.7 were closed. Parts 1-5 and F.2, F.3, F.5 are done (ticked above). Test results so far:
+- `unit-tests.mjs` 61/61, `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `settings-tests.mjs` 7/7, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `check-mob-models.mjs` OK.
+- `ufo-tests.mjs` 34/35 in the full run (8 minutes): the one failure was a stale expectation (Round 9 names a UFO pilot's death by what shot it down, now worded "Shot down by an enemy UFO"); the check was updated and passes.
+- Multiplayer: `mp-damage-tests.mjs` 444/444 applicable cells, `mp-round9-tests.mjs` 8/8 (three players), `mp-tests.mjs` 23/23. (Run before the last small changes: the boss's name in the online mission state, the flying missions' respawn airport, the victory screen's backdrop, that death message's wording.)
+- `smoke-test.mjs`: stopped at the pause after 17 checks, all passing; not run to the end.
+Still to do: the full smoke test (and a last multiplayer run on the final code), then F.1, F.4 and F.6 (the final test status) and F.7 "ROUND 9 COMPLETE".

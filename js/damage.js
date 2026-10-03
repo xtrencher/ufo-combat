@@ -113,7 +113,7 @@ export const DEATH_MESSAGES = {
   ufo_boom: "Caught in an exploding UFO",
   ufo_boom_fall: "Thrown by an exploding UFO",
   ufo_down: "Went down with your UFO",
-  ufo_down_ufo: "Shot down by a UFO in your UFO",
+  ufo_down_ufo: "Shot down by an enemy UFO",
   // Aircraft.
   jet_crash: "Crashed your jet",
   jet_down: "Shot down in your jet",

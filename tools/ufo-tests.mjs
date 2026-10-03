@@ -835,16 +835,19 @@ await check("mods off while flying: set down safely, vehicles and UFOs gone; mod
   assert(!r.vehicle && r.ufos === 0 && !r.shown && !r.solid && r.back, JSON.stringify(r));
 });
 
-await check("dying in a destroyed vehicle: 'Went down with your UFO'", async () => {
+await check("dying in a destroyed vehicle: the message names what brought it down ('Shot down by an enemy UFO', Round 9)", async () => {
   await v((g) => {
     g.setMode("survival");
-    const w = g.vehicles.vehicles.find((x) => x.type === "ufo");
+    const p = g.player.position;
+    // (The one an earlier check left, or a new one: the check also runs alone.)
+    const w = g.vehicles.vehicles.find((x) => x.type === "ufo" && x.alive) || g.vehicles.create("ufo", { design: "saucer", seed: 7, radius: 4, pos: [p.x, p.y + 8, p.z], yaw: 0 });
     g.player.position.copy(w.pos);
     g.vehicles.enter(w);
     w.damage(99999, "ufo_laser");
   });
   const dead = await until((g) => g.gameState === "dead" && g.deathCause, 30000);
-  assert(dead === "ufo_down", `cause ${dead}`);
+  const text = await v((g, c) => g.mp.game.deathMessage(c), dead);
+  assert(dead === "ufo_down_ufo" && text === "Shot down by an enemy UFO", `cause ${dead}: ${text}`);
   await respawnIfDead();
 });
 
