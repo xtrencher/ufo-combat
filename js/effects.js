@@ -257,12 +257,15 @@ export class EffectsSystem {
   //   radius: how far the blast digs; visual (optional): how big it looks,
   //   sounds and shakes, if bigger than the crater (a huge crashing ship:
   //   the crater is capped, the fireball is not).
-  explode(position, { radius = GRENADE_RADIUS, source = "grenade", visual = null } = {}) {
+  //   mirror (multiplayer): another player's explosion, seen here: the fire,
+  //   smoke, flash and sound, and what it does to this player, but no crater
+  //   (the blocks it blew away arrive as block edits). by: that player's id.
+  explode(position, { radius = GRENADE_RADIUS, source = "grenade", visual = null, mirror = false, by = 0 } = {}) {
     const scale = explosionScale[source] ?? 1;
     radius *= scale;
     const t0 = performance.now();
-    const removed = this._carve(position, radius);
-    this.floodInto(removed);
+    const removed = mirror ? [] : this._carve(position, radius);
+    if (!mirror) this.floodInto(removed);
     const carveMs = performance.now() - t0;
     const look = visual ? Math.max(radius, visual * scale) : radius; // the size it looks
     this._spawnExplosionParticles(position, removed, radius, look);
@@ -288,7 +291,7 @@ export class EffectsSystem {
     this.lastExplosion = { x: position.x, y: position.y, z: position.z, radius, look, source, removed: removed.length / 4, maxDist, carveMs, distance, shake };
     this.explosionCount++;
     // (What it hurts: the crater's size, a little more for a blast that looks bigger.)
-    if (this.onExplosion) this.onExplosion(position, look > radius ? Math.min(look, radius * 1.5) : radius, source);
+    if (this.onExplosion) this.onExplosion(position, look > radius ? Math.min(look, radius * 1.5) : radius, source, { mirror, by });
   }
 
   _spawnExplosionParticles(center, removed, radius, look = radius) {

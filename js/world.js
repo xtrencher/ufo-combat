@@ -205,7 +205,10 @@ export class World {
   // is updated once for the whole batch, and every affected chunk (plus
   // border neighbors) is queued for a rebuild. Returns the number of blocks
   // that actually changed.
-  setBlocks(list, { recordEdit = true } = {}) {
+  // remote: edits that came from another player online (js/net/world.js): the
+  // player who made them already ran water flow, falling sand and the like,
+  // and their results arrive as edits of their own.
+  setBlocks(list, { recordEdit = true, remote = false } = {}) {
     const changed = [];
     const apply = (x, y, z, id) => {
       if (y < 0 || y >= WORLD_HEIGHT) return false;
@@ -234,7 +237,7 @@ export class World {
       const z = changed[i + 2];
       const above = this.getBlock(x, y, z);
       if (BLOCK_INFO[above]?.support && !isSupportedBy(above, this.getBlock(x, y - 1, z))) {
-        if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped) this.onBlockPopped(x, y, z, above);
+        if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped && !remote) this.onBlockPopped(x, y, z, above);
       }
     }
     if (changed.length === 0) return 0;
@@ -242,7 +245,7 @@ export class World {
       if (c.meshed) this.editRemeshQueue.add(c);
     }
     if (recordEdit && this.onEdit) this.onEdit();
-    for (const fn of this.changeListeners) fn(changed, { recordEdit });
+    for (const fn of this.changeListeners) fn(changed, { recordEdit, remote });
     return changed.length / 3;
   }
 

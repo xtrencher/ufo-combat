@@ -72,6 +72,14 @@ export class Stats {
     this._dirty = true;
   }
 
+  // Online (host): something another player did counts for the world (the
+  // shared missions), not for this player's own totals.
+  addWorld(key, n = 1) {
+    if (!(key in this.world)) return;
+    this.world[key] += n;
+    this._dirty = true;
+  }
+
   // Counts play time (only while actually playing) and saves the totals now
   // and then.
   tick(dt, playing) {

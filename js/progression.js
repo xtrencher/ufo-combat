@@ -372,6 +372,7 @@ export class Progress {
   objectives(stats) {
     const m = this.mission;
     if (!m) return [];
+    if (this.mirror && this.mirrorObjectives) return this.mirrorObjectives;
     return m.objectives.map((o) => ({ label: o.label, goal: o.goal, value: Math.max(0, Math.min(o.goal, Math.floor((stats[o.stat] ?? 0) - (this.base[o.stat] ?? 0)))) }));
   }
 
@@ -384,7 +385,8 @@ export class Progress {
   // Checks the current mission; completes it (and moves on) when every
   // objective is met. Returns the finished mission or null.
   update(stats) {
-    if (!this.enabled) return null;
+    // (Online a guest's chain is the host's: see js/net/coop.js.)
+    if (!this.enabled || this.mirror) return null;
     const m = this.mission;
     if (!m) return null;
     if (!this.objectives(stats).every((o) => o.value >= o.goal)) return null;

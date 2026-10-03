@@ -69,6 +69,8 @@ export class EnemyJet extends Jet {
   // from a UFO it is fighting (or a stray blast) don't.
   damage(amount, cause = "vehicle", byPlayer = false) {
     const other = NOT_PLAYER.has(cause);
+    // (Online: which player hit it; 1 is the host.)
+    if (!other && this.alive) this.lastHitByPid = this.manager.currentAttacker ?? 1;
     const ok = super.damage(amount, cause, byPlayer);
     if (ok && !this.alive && other) this.downedByOther = true;
     if (ok && this.alive && !other) {
@@ -95,9 +97,19 @@ export class EnemyJet extends Jet {
     return null;
   }
 
+  // The player this fighter is after: online, whoever attacked it (or, for a
+  // hijacked one, the nearest player: see EnemyJetManager); else the player.
+  get foe() {
+    const f = this._foe;
+    return f && !f.gone ? f : this.manager.player;
+  }
+  set foe(p) {
+    this._foe = p;
+  }
+
   _player() {
-    const mgr = this.manager;
-    return { pos: mgr.player.vehicle ? mgr.player.vehicle.pos : mgr.player.position, vel: mgr.player.vehicle ? mgr.player.vehicle.vel : mgr.player.velocity };
+    const p = this.foe;
+    return { pos: p.vehicle ? p.vehicle.pos : p.position, vel: p.vehicle ? p.vehicle.vel : p.velocity };
   }
 
   // ---------- Autopilot ----------
@@ -113,7 +125,7 @@ export class EnemyJet extends Jet {
     const P = this._player();
     const toP = _w.copy(P.pos).sub(this.pos);
     const dist = toP.length();
-    const hostile = (this.hijacked || this.provoked > 0) && !mgr.player.dead;
+    const hostile = (this.hijacked || this.provoked > 0) && !this.foe.dead;
     this.hostile = hostile;
     let wantYaw = this.aimYaw;
     let wantPitch = this.aimPitch;
@@ -211,7 +223,7 @@ export class EnemyJet extends Jet {
       if (ai.missileT <= 0 && dist > 200 && dist < 1500 && angle < 0.55 && this.missileT <= 0) {
         ai.missileT = MISSILE_INTERVAL + Math.random() * 5;
         this.missileT = 1;
-        this._launchMissile({ kind: "player", ref: mgr.player }, { hostile: true });
+        this._launchMissile({ kind: "player", ref: this.foe }, { hostile: true });
         mgr.onMessage?.("ENEMY MISSILE LAUNCH!");
       }
     } else if (this._hunting(dt)) {
@@ -356,7 +368,7 @@ export class EnemyJet extends Jet {
     const ang = d.clone().normalize().angleTo(fwd);
     if (ang > 0.12) return fwd.clone();
     const target = P.pos.clone().addScaledVector(P.vel, dist / speed);
-    const onFoot = !this.manager.player.vehicle;
+    const onFoot = !this.foe.vehicle;
     if (onFoot) target.y += 1; // (the chest)
     const aim = target.sub(from).normalize();
     return onFoot ? aim.clone() : fwd.clone().lerp(aim, 0.7).normalize(); // (on foot: short bursts, see _autopilot; moving makes them miss)
@@ -390,8 +402,9 @@ export class EnemyJetManager {
     vehicles.enemyJets = this;
   }
 
+  // (Online a guest's are the host's, drawn as puppets: not this manager's.)
   get jets() {
-    return this.vehicles.vehicles.filter((v) => v.isEnemyJet && v.alive);
+    return this.vehicles.vehicles.filter((v) => v.isEnemyJet && v.alive && !v.puppet);
   }
 
   spawn(opts = {}) {
@@ -416,6 +429,7 @@ export class EnemyJetManager {
       for (const j of this.jets) veh.remove(j);
       return;
     }
+    if (this.puppets) return;
     const jets = this.jets;
     for (const j of jets) {
       // Far away for good: gone.

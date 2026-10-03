@@ -928,7 +928,9 @@ export class Jet extends Vehicle {
       list.push({ kind: "ufo", ref: u, weight: 1, attacking: u.hostile && u.state === "attack" });
     }
     for (const v of mgr.vehicles) {
-      if (v === this || !v.alive || !v.isEnemyJet) continue;
+      // (Dogfight online: the other players' aircraft too.)
+      const rival = mgr.pvp && v.puppet && v.netOcc && !this.isEnemyJet;
+      if (v === this || !v.alive || !(v.isEnemyJet || rival)) continue;
       list.push({ kind: "jet", ref: v, weight: 0.85, attacking: !this.isEnemyJet && (v.hostile || v.provoked > 0) });
     }
     return list;
@@ -1358,7 +1360,7 @@ export class Jet extends Vehicle {
           direct = { kind: "ufo", ref: uh.ufo };
         }
         const vh = m.rogue ? null : mgr.raycast(m.pos, m.dir, step, this);
-        if (!boom && vh && vh.vehicle.isEnemyJet) {
+        if (!boom && vh && (vh.vehicle.isEnemyJet || (mgr.pvp && vh.vehicle.puppet && vh.vehicle.netOcc))) {
           boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
           direct = { kind: "jet", ref: vh.vehicle };
         }
@@ -1510,6 +1512,8 @@ export class Jet extends Vehicle {
       for (const m of v.missiles) if (m.hostile && m.target && (m.target.ref === this || (m.target.kind === "player" && m.target.ref.vehicle === this) || (m.target.kind === "decoy" && m.target.ref.owner === this))) consider(m.pos, "missile");
     }
     for (const b of mgr.lasers.bolts) if (b.homing && !b.homing.returned && b.homing.target === this) consider(b.pos, "seeker");
+    // (Online: missiles fired on another machine at this jet.)
+    if (mgr.remoteMissiles && !this.puppet) for (const pos of mgr.remoteMissiles(this)) consider(pos, "missile");
     if (!best || bestD > 1500) {
       this.warn = null;
       this._warnPos = null;
@@ -1886,7 +1890,7 @@ export class Jet extends Vehicle {
 }
 
 // A missile: white body, grey fins, dark seeker head (along -Z).
-function missileGeometry() {
+export function missileGeometry() {
   const parts = [
     [new THREE.CylinderGeometry(0.16, 0.16, 2.6, 8).rotateX(Math.PI / 2), 0xe8e8e8],
     [new THREE.ConeGeometry(0.16, 0.5, 8).rotateX(-Math.PI / 2).translate(0, 0, -1.55), 0x2a2d33],
@@ -1897,7 +1901,7 @@ function missileGeometry() {
 }
 
 // The bomb: a fat dark-green body with a yellow band and four fins.
-function nukeGeometry() {
+export function nukeGeometry() {
   const parts = [
     [new THREE.CylinderGeometry(0.45, 0.45, 2.4, 12), 0x3b4a2c],
     [new THREE.SphereGeometry(0.45, 12, 8).translate(0, -1.2, 0), 0x3b4a2c],

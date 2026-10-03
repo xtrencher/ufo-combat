@@ -217,7 +217,8 @@ export class Airstrikes {
       if (this._update(m, dt)) {
         this.scene.remove(m.root);
         this.meteors.splice(i, 1);
-        if (m.pos.y > -20 && m.age <= 15) this._impact(m.pos);
+        // (Another player's meteor online: its own explosion comes from them.)
+        if (!m.mirror && m.pos.y > -20 && m.age <= 15) this._impact(m.pos);
       }
     }
   }

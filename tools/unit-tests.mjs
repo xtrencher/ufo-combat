@@ -1643,5 +1643,74 @@ console.log("\nProgression (progression.js)");
   });
 }
 
+console.log("Multiplayer (js/net)");
+{
+  const { randomRoomCode, normalizeRoomCode, isRoomCode, cleanNick, netErrorText } = await import("../js/net/session.js");
+  const { Interp } = await import("../js/net/interp.js");
+  const { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ICE_SERVERS } = await import("../js/net/config.js");
+
+  await test("room codes: random ones are valid, typed ones are normalised, look-alikes never appear", () => {
+    for (let i = 0; i < 200; i++) {
+      const c = randomRoomCode();
+      assert.equal(c.length, ROOM_CODE_LENGTH);
+      assert.ok(isRoomCode(c), c);
+      assert.ok(!/[01OIL]/.test(c), c);
+    }
+    assert.equal(normalizeRoomCode(" k7m-pq "), "K7MPQ");
+    assert.ok(isRoomCode(normalizeRoomCode("k7mpq")));
+    assert.ok(!isRoomCode("K7MP"), "too short");
+    assert.ok(!isRoomCode("K7MP0"), "0 is not in the alphabet");
+    assert.ok(![..."0O1IL"].some((ch) => ROOM_CODE_ALPHABET.includes(ch)));
+  });
+
+  await test("nicknames are cleaned (no markup, no control characters, at most 16 characters)", () => {
+    assert.equal(cleanNick("  Bob   the  Pilot "), "Bob the Pilot");
+    assert.equal(cleanNick("<b>Eve</b>"), "bEve/b");
+    assert.equal(cleanNick("x".repeat(40)).length, 16);
+    assert.equal(cleanNick("\u0007Zed"), "Zed");
+  });
+
+  await test("connection errors explain themselves; ICE has STUN and room for a TURN server", () => {
+    for (const code of ["room-not-found", "signaling", "connect-failed", "host-left", "kicked", "version"]) {
+      const e = netErrorText({ code });
+      assert.equal(e.code, code);
+      assert.ok(e.title.length > 5 && e.help.length > 20, code);
+    }
+    assert.equal(netErrorText(new Error("boom")).code, "unknown");
+    assert.ok(ICE_SERVERS.some((s) => String(s.urls).startsWith("stun:")));
+  });
+
+  await test("interpolation: in between two states, a delay behind, extrapolated briefly, snaps on a teleport", () => {
+    const ip = new Interp({ angles: ["y"], quats: ["q"], snap: 20 });
+    // States every 50 ms moving +10 blocks/s along x; arriving on time.
+    for (let i = 0; i <= 10; i++) ip.push({ ts: i * 0.05, p: [i * 0.5, 0, 0], v: [10, 0, 0], y: 0, q: [0, 0, 0, 1] }, i * 0.05);
+    const s = ip.sample(0.5);
+    // Drawn ~0.1 s in the past: about 4 blocks along.
+    assert.ok(Math.abs(s.p[0] - (0.5 - ip.delay) * 10) < 0.05, `x ${s.p[0]} delay ${ip.delay}`);
+    // A gap in the stream: carried on by the velocity, but not for ever.
+    const late = ip.sample(0.5 + ip.delay + 0.1);
+    assert.ok(late.p[0] > 5 && late.p[0] < 5 + 10 * 0.26, `extrapolated ${late.p[0]}`);
+    // Angles take the short way round.
+    const a = new Interp({ angles: ["y"] });
+    a.push({ ts: 0, p: [0, 0, 0], y: 3.1 }, 0);
+    a.push({ ts: 0.1, p: [0, 0, 0], y: -3.1 }, 0.1);
+    const mid = a.sample(0.05 + a.delay);
+    assert.ok(Math.abs(Math.abs(mid.y) - Math.PI) < 0.05, `yaw ${mid.y}`);
+    // A teleport is not slid across.
+    const t = new Interp({ snap: 20 });
+    t.push({ ts: 0, p: [0, 0, 0], v: [0, 0, 0] }, 0);
+    t.push({ ts: 0.1, p: [500, 0, 0], v: [0, 0, 0] }, 0.1);
+    const tp = t.sample(0.06 + t.delay);
+    assert.ok(tp.p[0] === 0 || tp.p[0] === 500, `teleport drawn at ${tp.p[0]}`);
+  });
+
+  await test("a block-edit batch survives the wire (the run-length format, per chunk)", () => {
+    const map = new Map();
+    for (let i = 0; i < 400; i++) map.set(blockIndex(i % 16, 30 + (i >> 8), (i >> 4) % 16), i % 3 === 0 ? 0 : 5);
+    const back = decodeChunkEdits(encodeChunkEdits(map));
+    assert.deepEqual([...back].sort((a, b) => a[0] - b[0]), [...map].sort((a, b) => a[0] - b[0]));
+  });
+}
+
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed > 0 ? 1 : 0);

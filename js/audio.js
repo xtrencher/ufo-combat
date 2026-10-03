@@ -130,7 +130,30 @@ export class Audio {
 
   // Routes the following sounds into a category's bus.
   _cat(name) {
-    this._out = this.buses[name] || this.master;
+    const bus = this.buses[name] || this.master;
+    if (this._distGain > 0 && this.ctx) {
+      // (playDistant: through a quieter gain on the way.)
+      const g = this.ctx.createGain();
+      g.gain.value = this._distGain;
+      g.connect(bus);
+      this._out = g;
+    } else this._out = bus;
+  }
+
+  // Multiplayer: another player's sound (a shot, a throw), `distance` blocks
+  // away: fn() calls one of the play* methods, which comes out quieter with
+  // distance (and not at all far away).
+  playDistant(distance, fn) {
+    if (!this.ctx) return;
+    const k = 1 / (1 + Math.max(0, distance) / 14);
+    if (k < 0.04) return;
+    this._distGain = k;
+    try {
+      fn();
+    } finally {
+      this._distGain = 0;
+      this._out = this.master;
+    }
   }
 
   ensureStarted() {

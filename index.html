@@ -1116,6 +1116,71 @@
   /* While playing with the pointer locked there is no mouse to hover with: stay out of the way. */
   body.pointer-locked #fs-zone { pointer-events: none; }
   .fs-hint { margin-top: 8px; font-size: 11px; color: var(--ui-dim); }
+
+  /* ===== Round 7: multiplayer (menus, lobby, HUD) ===== */
+  .mp-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .mp-tab { flex: 1; font: 600 14px var(--ui-font); color: var(--ui-dim); background: rgba(255,255,255,0.05); border: 1px solid var(--ui-line); border-radius: 10px; padding: 9px 8px; cursor: pointer; }
+  .mp-tab:hover { color: var(--ui-text); background: rgba(255,255,255,0.1); }
+  .mp-tab.active { color: var(--ui-text); background: rgba(79,227,176,0.16); border-color: var(--ui-accent); }
+  .mp-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .mp-field label { font-size: 12px; color: var(--ui-dim); text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; }
+  .mp-field input { font: 600 16px var(--ui-font); background: rgba(255,255,255,0.07); color: var(--ui-text); border: 1px solid var(--ui-line-strong); border-radius: 10px; padding: 10px 12px; outline: none; }
+  .mp-field input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px rgba(79,227,176,0.15); }
+  .mp-field input.mp-code { font: 800 26px ui-monospace, Consolas, monospace; letter-spacing: 10px; text-transform: uppercase; text-align: center; }
+  .mp-mode-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  /* (Their own class: the main menu's code owns every .mode-card.) */
+  .mp-mode { text-align: left; font: inherit; cursor: pointer; padding: 9px 9px; background: rgba(255,255,255,0.05); border: 1px solid var(--ui-line); border-radius: 12px; color: var(--ui-text); transition: background 0.15s, border-color 0.15s, transform 0.12s; }
+  .mp-mode b { display: block; font-size: 15px; letter-spacing: 0.4px; font-weight: 700; }
+  .mp-mode small { display: block; font-size: 11px; opacity: 0.7; margin-top: 2px; line-height: 1.3; }
+  .mp-mode:hover { background: rgba(255,255,255,0.11); transform: translateY(-1px); }
+  .mp-mode.active { background: rgba(79,227,176,0.16); border-color: var(--ui-accent); box-shadow: inset 0 0 0 1px rgba(79,227,176,0.25); }
+  .mp-status { min-height: 18px; font-size: 13px; color: var(--ui-dim); margin: 6px 0 0; }
+  .mp-status.busy::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; border: 2px solid var(--ui-accent); border-right-color: transparent; animation: mp-spin 0.8s linear infinite; vertical-align: -1px; }
+  @keyframes mp-spin { to { transform: rotate(360deg); } }
+  .mp-error { background: rgba(255,90,70,0.12); border: 1px solid rgba(255,110,90,0.4); border-radius: 12px; padding: 12px 14px; margin: 10px 0 4px; }
+  .mp-error b { display: block; color: #ffb0a4; margin-bottom: 4px; }
+  .mp-error p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ui-text); }
+  .mp-error pre { font-size: 11px; opacity: 0.7; white-space: pre-wrap; margin: 6px 0 0; }
+  .mp-room { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(79,227,176,0.08); border: 1px solid rgba(79,227,176,0.3); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; }
+  .mp-room .mp-room-code { font: 800 30px ui-monospace, Consolas, monospace; letter-spacing: 8px; color: var(--ui-accent); }
+  .mp-room small { display: block; color: var(--ui-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px; }
+  .mp-players { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--ui-line); border-radius: 12px; overflow: hidden; }
+  .mp-players li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--ui-line); font-size: 14px; }
+  .mp-players li:last-child { border-bottom: none; }
+  .mp-players .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .mp-players .nick { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mp-players .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--ui-warn); background: rgba(255,201,77,0.14); border-radius: 6px; padding: 2px 6px; }
+  .mp-players .ping { font: 12px ui-monospace, Consolas, monospace; color: var(--ui-dim); min-width: 52px; text-align: right; }
+  .mp-players .kick { padding: 3px 8px; font-size: 11px; }
+  .mp-host-only.locked { opacity: 0.55; pointer-events: none; }
+  .mp-note { font-size: 12px; color: var(--ui-dim); line-height: 1.45; margin: 4px 0 10px; }
+  #mp-join-boot, #mp-ended { z-index: 260; }
+  #mp-hud { position: fixed; top: 8px; left: 8px; z-index: 12; pointer-events: none; font: 600 11px var(--ui-font); color: var(--ui-text); text-shadow: 0 1px 3px #000; display: flex; flex-direction: column; gap: 4px; }
+  #mp-hud.hidden { display: none; }
+  #mp-hud .mp-chip { background: rgba(10,15,24,0.6); border: 1px solid var(--ui-line); border-radius: 9px; padding: 4px 9px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  #mp-hud .mp-chip.warn { color: #ffb0a4; border-color: rgba(255,110,90,0.5); }
+  #mp-feed { position: fixed; top: 70px; right: 12px; z-index: 12; pointer-events: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font: 600 12px var(--ui-font); text-shadow: 0 1px 3px #000; }
+  #mp-feed div { background: rgba(10,15,24,0.62); border: 1px solid var(--ui-line); border-radius: 8px; padding: 4px 9px; color: var(--ui-text); animation: mp-feed-in 0.25s ease-out; }
+  @keyframes mp-feed-in { from { opacity: 0; transform: translateX(16px); } }
+  #mp-scoreboard { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; min-width: 440px; max-width: 92vw; pointer-events: none; background: var(--ui-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border: 1px solid var(--ui-line); border-radius: 16px; padding: 16px 20px; color: var(--ui-text); box-shadow: 0 24px 70px rgba(0,0,0,0.55); }
+  #mp-scoreboard.hidden, #mp-results.hidden, #mp-countdown.hidden { display: none; }
+  .mp-score-title { font: 800 13px var(--ui-font); letter-spacing: 3px; text-transform: uppercase; color: var(--ui-accent); margin-bottom: 8px; display: flex; justify-content: space-between; gap: 16px; }
+  .mp-score-title span { color: var(--ui-dim); letter-spacing: 1px; }
+  table.mp-score { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.mp-score th { font-size: 10px; text-transform: uppercase; letter-spacing: 1.3px; color: var(--ui-dim); text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--ui-line); }
+  table.mp-score th:first-child, table.mp-score td:first-child { text-align: left; }
+  table.mp-score td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--ui-line); font-variant-numeric: tabular-nums; }
+  table.mp-score tr.me td { background: rgba(79,227,176,0.1); }
+  table.mp-score tr.out td { opacity: 0.5; }
+  #mp-results .panel { text-align: center; max-width: 520px; }
+  #mp-results .mp-result-big { font: 900 44px var(--ui-font); letter-spacing: 4px; margin: 4px 0 6px; }
+  #mp-results .mp-result-big.win { color: var(--ui-accent); text-shadow: 0 0 30px rgba(79,227,176,0.6); }
+  #mp-results .mp-result-big.lose { color: #ff7a6a; text-shadow: 0 0 30px rgba(255,90,70,0.5); }
+  #mp-results table.mp-score { margin: 12px 0 6px; }
+  #mp-countdown { position: fixed; top: 34%; left: 50%; transform: translateX(-50%); z-index: 41; pointer-events: none; font: 900 64px var(--ui-font); color: #fff; text-shadow: 0 0 30px rgba(79,227,176,0.7), 0 2px 6px #000; letter-spacing: 4px; text-align: center; }
+  #mp-countdown small { display: block; font-size: 16px; letter-spacing: 3px; color: var(--ui-accent); }
+  .host-locked-note { background: rgba(79,227,176,0.08); border: 1px solid rgba(79,227,176,0.25); border-radius: 10px; padding: 8px 10px; }
+  body.mp-guest .host-rule-hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -1154,6 +1219,125 @@
   </div>
 
   <pre id="debug-overlay" class="hidden"></pre>
+
+  <!-- Round 7: multiplayer -->
+  <div id="mp-hud" class="hidden"></div>
+  <div id="mp-feed"></div>
+  <div id="mp-countdown" class="hidden"></div>
+  <div id="mp-scoreboard" class="hidden"></div>
+
+  <div id="mp-screen" class="overlay hidden">
+    <div class="panel">
+      <h2>Multiplayer</h2>
+      <div class="mp-field">
+        <label for="mp-nick">Your nickname</label>
+        <input type="text" id="mp-nick" maxlength="16" placeholder="Pilot" autocomplete="nickname" spellcheck="false" />
+      </div>
+      <div class="mp-tabs" role="tablist">
+        <button class="mp-tab active" data-tab="host" type="button">Host a game</button>
+        <button class="mp-tab" data-tab="join" type="button">Join a game</button>
+      </div>
+      <div class="mp-tab-page" data-tab="host">
+        <div class="mp-note">Your current world becomes the shared world. You get a short room code: friends enter it (or open your invite link) to join. Free and peer-to-peer: no server, no account.</div>
+        <div class="mp-mode-cards" role="group" aria-label="Game mode">
+          <button class="mp-mode active" data-mpmode="survival" type="button"><b>Survival</b><small>Missions together</small></button>
+          <button class="mp-mode" data-mpmode="creative" type="button"><b>Creative</b><small>Build and fly</small></button>
+          <button class="mp-mode" data-mpmode="dogfight" type="button"><b>Dogfight</b><small>Jets, scoreboard</small></button>
+        </div>
+        <div class="menu-buttons"><button class="btn big primary" id="mp-host-btn" type="button">Open room</button></div>
+      </div>
+      <div class="mp-tab-page hidden" data-tab="join">
+        <div class="mp-field">
+          <label for="mp-code">Room code</label>
+          <input type="text" id="mp-code" class="mp-code" maxlength="9" placeholder="ABCDE" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="mp-note">Joining opens the host's world (your own worlds are not changed).</div>
+        <div class="menu-buttons"><button class="btn big primary" id="mp-join-btn" type="button">Join</button></div>
+      </div>
+      <div id="mp-screen-status" class="mp-status"></div>
+      <div id="mp-screen-error" class="mp-error hidden"></div>
+      <div class="menu-buttons"><button class="btn secondary back-btn" type="button">Back</button></div>
+    </div>
+  </div>
+
+  <div id="mp-lobby" class="overlay hidden">
+    <div class="panel">
+      <h2>Multiplayer game</h2>
+      <div class="mp-room">
+        <div><small>Room code</small><div class="mp-room-code" id="mp-lobby-code">-----</div></div>
+        <div class="menu-buttons small" style="margin:0"><button class="btn small" id="mp-copy-code" type="button">Copy code</button><button class="btn small" id="mp-copy-link" type="button">Copy invite link</button></div>
+      </div>
+      <ul class="mp-players" id="mp-lobby-players"></ul>
+      <div class="mp-host-only" id="mp-lobby-host">
+        <div class="row">
+          <label for="mp-lobby-mode">Game mode</label>
+          <select id="mp-lobby-mode">
+            <option value="survival">Survival</option>
+            <option value="creative">Creative</option>
+            <option value="dogfight">Dogfight</option>
+          </select>
+        </div>
+        <div class="row mp-dogfight-row">
+          <label for="mp-lobby-deaths">Dogfight: deaths until you're out</label>
+          <select id="mp-lobby-deaths">
+            <option value="3">3</option><option value="5">5</option><option value="10">10</option><option value="15">15</option><option value="20">20</option>
+          </select>
+        </div>
+        <div class="menu-buttons small mp-dogfight-row"><button class="btn small" id="mp-lobby-restart" type="button">Start a new match</button></div>
+      </div>
+      <div id="mp-lobby-note" class="mp-note"></div>
+      <div id="mp-lobby-status" class="mp-status"></div>
+      <div class="menu-buttons">
+        <button class="btn big primary" id="mp-lobby-play" type="button">Play</button>
+        <button class="btn secondary back-btn" type="button">Back</button>
+        <button class="btn secondary" id="mp-leave-btn" type="button">Leave game</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mp-join-boot" class="overlay hidden">
+    <div class="panel">
+      <h2>Join a multiplayer game</h2>
+      <div class="mp-field">
+        <label for="mp-boot-code">Room code</label>
+        <input type="text" id="mp-boot-code" class="mp-code" maxlength="9" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="mp-field">
+        <label for="mp-boot-nick">Your nickname</label>
+        <input type="text" id="mp-boot-nick" maxlength="16" placeholder="Pilot" autocomplete="nickname" spellcheck="false" />
+      </div>
+      <div id="mp-boot-status" class="mp-status"></div>
+      <div id="mp-boot-error" class="mp-error hidden"></div>
+      <div class="menu-buttons">
+        <button class="btn big primary" id="mp-boot-join" type="button">Join</button>
+        <a class="btn secondary" id="mp-boot-solo" href="./">Play single player instead</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="mp-ended" class="overlay hidden">
+    <div class="panel">
+      <h2 id="mp-ended-title">The host left the game</h2>
+      <p class="mp-note" id="mp-ended-help"></p>
+      <div class="menu-buttons">
+        <button class="btn big primary" id="mp-ended-solo" type="button">Back to my own world</button>
+        <button class="btn secondary" id="mp-ended-rejoin" type="button">Try to rejoin</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mp-results" class="overlay hidden">
+    <div class="panel">
+      <div class="mp-score-title" style="justify-content:center">Dogfight over</div>
+      <div class="mp-result-big" id="mp-result-big">VICTORY</div>
+      <div id="mp-result-text" class="mp-note"></div>
+      <div id="mp-result-table"></div>
+      <div class="menu-buttons" style="justify-content:center">
+        <button class="btn big primary" id="mp-result-again" type="button" style="width:auto">New match</button>
+        <button class="btn secondary" id="mp-result-close" type="button">Close</button>
+      </div>
+    </div>
+  </div>
 
   <div id="inventory-screen" class="hidden"></div>
 
@@ -1222,7 +1406,10 @@
             <button class="btn big" id="menu-settings-btn">Settings</button>
             <button class="btn big" id="menu-mods-btn">Mods <span id="menu-mods-state" class="pill on">ON</span></button>
           </div>
-          <button class="btn big" id="menu-controls-btn">Controls</button>
+          <div class="button-pair">
+            <button class="btn big" id="menu-mp-btn">Multiplayer</button>
+            <button class="btn big" id="menu-controls-btn">Controls</button>
+          </div>
         </div>
       </div>
       <div class="menu-footer">
@@ -1280,6 +1467,7 @@
           <button class="btn big" id="pause-missions-btn">Missions</button>
           <button class="btn big" id="pause-controls-btn">Controls</button>
         </div>
+        <button class="btn big" id="pause-mp-btn">Multiplayer <span id="pause-mp-state" class="pill hidden"></span></button>
         <div class="button-pair">
           <button class="btn secondary" id="copy-link-btn">Copy world link</button>
           <button class="btn secondary" id="main-menu-btn">Save &amp; main menu</button>

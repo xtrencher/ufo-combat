@@ -187,7 +187,9 @@ export class LaserBolts {
   // HDR), speed (blocks/s), damage, owner (string: "player", "ufo", "alien",
   // "playerufo", ...), source (the object that fired it, which it never
   // hits), range (blocks), radius, length, scorch (leave a mark), sound.
-  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false }) {
+  // mirror (multiplayer): a bolt another player (or the host's AI) fired, seen
+  // here: it only hits this player and this player's own vehicle (see main.js).
+  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false }) {
     if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
     const bolt = {
       pos: from.clone(),
@@ -204,6 +206,8 @@ export class LaserBolts {
       scorch,
       hole,
       blast,
+      mirror,
+      sound,
       dead: false,
     };
     this.bolts.push(bolt);

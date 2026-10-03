@@ -39,6 +39,8 @@ before closing the page while you play.
   defaults**.
 - **Mods** switches the UFO COMBAT content on or off (see below).
 - **Controls** lists every key.
+- **Multiplayer** hosts a game for your friends or joins theirs (see
+  **How to play with friends** below).
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
 Settings, Mods, Stats, Controls, Copy world link, Save & main menu).
@@ -263,6 +265,138 @@ hold something else.
 Explosions shake the camera and sound quieter, more muffled and later the
 farther away they are. Sand and gravel fall when the ground under them is
 blown away.
+
+## How to play with friends (multiplayer)
+
+Up to **8 players**, free, with no account and no server of your own: the
+browsers connect **directly to each other** (peer-to-peer WebRTC). A free
+public matchmaking server (PeerJS) only introduces them; after that the
+game's data goes straight between the players' browsers. The game stays a
+plain static site (GitHub Pages).
+
+### Host a game
+
+1. Open the game and press **Multiplayer** (on the main menu, or in the
+   pause menu during a game: Esc > Multiplayer).
+2. Type your **nickname**, pick **Survival**, **Creative** or **Dogfight**,
+   and press **Open room**.
+3. You get a 5-character **room code** (like `K7MPQ`). Send it to your
+   friends, or press **Copy invite link** and send them the link.
+4. Press **Play**. Your current world becomes the shared world. It stays
+   yours: it is saved on your computer as usual, with everything your
+   friends build in it.
+
+The host is in charge: only the host picks the **game mode** (Esc >
+Multiplayer, any time) and the **game settings** for everyone (Settings:
+difficulty, weapons, creatures, UFOs, vehicles, the clock; a guest's own
+settings for those are locked while they play and kept for their own
+worlds). The Multiplayer screen shows every player with their ping, and
+the host can **Remove** a player. **Close room** (or going back to the main
+menu, or closing the tab) ends the game for everyone.
+
+The host's computer runs the world for everyone (the UFOs, the creatures,
+the missions), so the player with the faster computer and the better
+connection should host. The host's tab may be in the background: the game
+keeps running there (it just isn't drawn).
+
+### Join a game
+
+- **Open the invite link** you were sent, or press **Multiplayer > Join a
+  game** and type the room code (letters and digits; capitals don't
+  matter). Pick a nickname and press **Join**.
+- You play in the host's world. Your own worlds are not touched, and
+  nothing of the host's world is saved on your computer.
+- The host keeps your things (inventory, armor, where you were) in their
+  world: join again with the **same nickname** and you have them back. A
+  new player starts next to the host.
+- **Leave game** in the pause menu (or Esc > Multiplayer > Leave game) takes
+  you back to your own world.
+
+### Modes
+
+- **Survival together:** one mission chain for the whole group, the host's.
+  Everyone's kills and deeds count toward the objectives (the tracker, the
+  yellow marker and the boss bar show the same mission to everyone), and a
+  finished mission **rewards every player**. Loot is personal: when a UFO,
+  an alien or a fighter goes down, every player nearby gets drops of their
+  own (no fighting over them). Supply crates are personal too. Bigger
+  groups get a bigger fight (more and tougher UFOs, tougher aliens and
+  zombies, a tougher Overlord). The long night only starts over when the
+  whole group is down at the same time. A dead player can respawn at the
+  world spawn or **next to a friend**.
+- **Creative together:** everyone flies, builds and blasts; the host's
+  Creative settings (UFO activity and the rest) apply. A guest's "summon a
+  UFO" (Mods screen) asks the host's game for it.
+- **Dogfight:** everyone flies an F-22, all against all. After a countdown
+  everyone is put in a jet high over the arena; shoot the others down with
+  the cannon and missiles (flares and rolling away still work). A
+  shot-down pilot is back in a jet 3 seconds later; nobody can climb out.
+  The kill goes to whoever hit the jet last (a crash while someone was on
+  your tail counts for them). The host sets the **death limit**
+  (Multiplayer screen): at that many deaths a player is out and watches.
+  The last one in wins; everyone sees **VICTORY** or **DEFEAT** and the
+  final scores, and the host can start a new match at once. No UFOs or
+  enemy fighters get in the way during a Dogfight.
+
+### While playing
+
+- Every player's **nickname** floats over them (and over their aircraft),
+  with their health in Survival and the distance when they are far.
+- Hold **Tab** for the scoreboard: the players and their pings (in a
+  Dogfight, kills and deaths).
+- The top-left corner shows the mode, the room code, the players and (for
+  a guest) the ping, and warns when the connection to the host lags.
+- **Nothing pauses online:** Esc only takes your hands off the controls.
+- Shots never hurt friends in Survival or Creative (in a Dogfight they do);
+  **explosions hurt everyone nearby**, like your own do (the death message
+  says whose it was).
+- To try it alone, open the game in **two browser tabs or windows** on one
+  computer: host in one, join with the code in the other.
+
+### If connecting fails
+
+- **"Room not found":** check the code (there is no 0/O or 1/I in codes),
+  and that the host is still in the game with the room open (a room closes
+  when the host leaves or reloads the page; a new room has a new code).
+- **"Can't reach the matchmaking server":** check the internet connection;
+  an ad blocker, firewall or school/office network may block `0.peerjs.com`
+  or `cdn.jsdelivr.net`. The free server can also be busy for a moment: try
+  again a minute later.
+- **"Couldn't connect to the host":** both players reached the matchmaking
+  server, but their networks don't let a direct connection through. This
+  happens on some mobile, school, office and hotel networks, behind some
+  VPNs, and between two strict ("symmetric") home routers. Try another
+  network (a phone hotspot often works), turn off the VPN, or let the other
+  player host. Without a TURN relay server (see below) some pairs of
+  networks simply can't connect.
+- **"Different game versions":** both players reload the page with
+  `Ctrl+Shift+R` (`Cmd+Shift+R` on a Mac).
+- **"Lost the connection to the host"** or a lag warning: the host's game
+  stopped answering (closed, crashed, a network drop). Use **Try to rejoin**,
+  or go back to your own world.
+- It still doesn't work: make sure both play the same deployment (the same
+  address), in an up-to-date Chrome, Edge, Firefox or Safari.
+
+### Adding a TURN server (for networks that block direct connections)
+
+All the network settings are in one file, `js/net/config.js`. To relay the
+connections that can't go direct, add a TURN server to `ICE_SERVERS` there
+(an entry is prepared, commented out: fill in its address, user name and
+password). TURN servers relay traffic, so they cost bandwidth (a TURN
+provider or your own coturn server). A self-hosted PeerJS server can be
+used instead of the public one by adding `?peerServer=host:port/path` to
+the address (the invite links carry it along).
+
+### For mod makers
+
+The networking lives in `js/net/` and the rest of the game only has small
+hooks into it. A mod can share its own state: `mp.net.on(type, fn)` handles
+a message type, `mp.net.toAll(msg)` sends to everyone (through the host),
+`mp.net.toHost(msg)` / `mp.net.broadcast(msg)` send one way,
+`mp.net.registerSync(name, { save, load })` adds a piece of state to what
+a joining player gets, and `mp.addModule({ start, update, stop,
+playerJoined, playerLeft })` runs alongside the game's own modules (`mp` is
+`window.__ufo.mp`).
 
 ## UFOs (Mods on)
 
@@ -665,9 +799,24 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has nine test suites (`cd tools && npm install && npm test`; the
+`/tools` has ten test suites (`cd tools && npm install && npm test`; the
 browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
 environment variable):
+
+- `mp-tests.mjs`: multiplayer, with a host and a client in two headless
+  pages (two separate browser profiles) connected by the real PeerJS client
+  and real WebRTC data channels, through a local PeerJS signaling server
+  (the `peer` package, started by the test): opening a room through the
+  menus, joining by room code (the invite link and the nickname prompt),
+  nicknames, movement sync both ways, a hidden tab that keeps the game
+  going, block changes both ways and a race on one block, a client's
+  explosion on the host, the host's UFO on the client, a hit (the client's
+  pistol on the host's UFO, applied by the host), the host's zombie hunting
+  and hurting the client, a shared mission and its reward for both, the
+  host-only mode switch, a vehicle claim (the client flies the host's UFO),
+  a Dogfight played to the end (kills, deaths, the death limit, VICTORY and
+  DEFEAT), a client leaving and rejoining with its things kept, and the
+  host leaving. About 3 minutes.
 
 - `round6-tests.mjs`: the Round 6 features in the real game: the fullscreen
   control and the cancelled shortcuts, the bow, laser pistol and UFO limits,
@@ -745,5 +894,11 @@ subpath only, like GitHub Pages.
 - Block textures (32x32), item icons and mob skins are painted pixel by
   pixel in code (`js/textures.js`, `js/itemtextures.js`, `js/mob-models.js`).
 - All sounds are synthesized with the Web Audio API (`js/audio.js`).
+- Multiplayer is peer-to-peer WebRTC through PeerJS (loaded only when
+  used), host-authoritative, in `js/net/`: the session and rooms
+  (`session.js`), snapshot interpolation (`interp.js`), players, vehicles
+  (owners, puppets, claims), block edits, effects, the host's entities
+  with hit claims, rules, the co-op missions and the Dogfight, one module
+  each. Design and decisions: `PROGRESS.md`, Round 7.
 - See `PROGRESS.md` for the full development log, design decisions, known
   issues and a self-assessment.

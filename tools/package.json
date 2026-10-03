@@ -5,7 +5,7 @@
   "description": "Headless browser test tooling for UFO COMBAT (not part of the shipped game).",
   "type": "module",
   "scripts": {
-    "test": "node unit-tests.mjs && node round6-tests.mjs && node round5-tests.mjs && node round4-tests.mjs && node settings-tests.mjs && node round3-tests.mjs && node round2-tests.mjs && node ufo-tests.mjs && node smoke-test.mjs",
+    "test": "node unit-tests.mjs && node mp-tests.mjs && node round6-tests.mjs && node round5-tests.mjs && node round4-tests.mjs && node settings-tests.mjs && node round3-tests.mjs && node round2-tests.mjs && node ufo-tests.mjs && node smoke-test.mjs",
     "test:unit": "node unit-tests.mjs",
     "test:ufo": "node ufo-tests.mjs",
     "test:smoke": "node smoke-test.mjs",
@@ -14,9 +14,13 @@
     "test:settings": "node settings-tests.mjs",
     "test:round4": "node round4-tests.mjs",
     "test:round5": "node round5-tests.mjs",
-    "test:round6": "node round6-tests.mjs"
+    "test:round6": "node round6-tests.mjs",
+    "test:mp": "node mp-tests.mjs"
   },
   "devDependencies": {
+    "express": "^4.22.3",
+    "peer": "^1.0.2",
+    "peerjs": "^1.5.4",
     "playwright-core": "^1.47.0",
     "serve": "^14.2.1",
     "three": "0.160.0"

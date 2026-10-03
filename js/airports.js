@@ -22,6 +22,24 @@ export class AirportManager {
     this.bunkersDone = new Map();
     this.timer = 0;
     this.enabled = true;
+    // Multiplayer: parking spots ("site#index") whose aircraft another player
+    // took (it flies elsewhere now), and whether guards are set out here.
+    this.taken = new Set();
+    this.guardsEnabled = true;
+  }
+
+  // Multiplayer: someone else boarded the aircraft parked at `key`: our copy goes.
+  takeParked(key) {
+    this.taken.add(key);
+    for (const [, jets] of this.parked) {
+      for (let i = jets.length - 1; i >= 0; i--) {
+        const j = jets[i];
+        if (j.parkKey === key && j.parkedAt && !j.occupied) {
+          jets.splice(i, 1);
+          if (this.vehicles.vehicles.includes(j)) this.vehicles.remove(j);
+        }
+      }
+    }
   }
 
   // The nearest airport (or city with one) within maxDist of the player: { site, dist }.
@@ -88,12 +106,16 @@ export class AirportManager {
     const count = 1 + (s.seed % 3);
     for (let i = 0; i < Math.min(count, spots.length); i++) {
       const spot = spots[i];
+      // (Multiplayer: a jet another player took is not put out again.)
+      const key = `${s.id}#${i}`;
+      if (this.taken.has(key)) continue;
       // A mix of Raptors and Falcons (fixed per airport and spot).
       const jet = veh.create("jet", { jetType: (s.seed + i) % 2 ? "f16" : "f22", pos: [spot.x, spot.y + GEAR, spot.z], yaw: spot.yaw });
       if (!jet) continue;
       jet.transient = true; // never saved: the airport puts it out again next time
       jet.keep = true; // not evicted by the vehicle cap while the airport is near
       jet.parkedAt = s.id;
+      jet.parkKey = key;
       jets.push(jet);
     }
     this.parked.set(s.id, jets);
@@ -119,8 +141,10 @@ export class AirportManager {
       done.add(h.id);
       const design = HANGAR_DESIGNS[(s.seed >>> (h.id * 3)) % HANGAR_DESIGNS.length];
       const radius = 3.4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 14; // fits the hall and the ramp
-      const ufo = veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
+      const key = `${s.id}#h${h.id}`;
+      const ufo = this.taken.has(key) ? null : veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
       if (ufo) {
+        ufo.parkKey = key;
         ufo.pos.y = h.y + ufo.bottom + 0.9; // hovering a little above the floor
         ufo.hangar = true;
         ufo.transient = true;
@@ -128,8 +152,8 @@ export class AirportManager {
         ufo.parkedAt = s.id;
         jets.push(ufo);
       }
-      // (No guards on Peaceful: no hostile creatures at all.)
-      if (this.mobs && this.mobs.hostileSpawning !== false) for (const g of h.guards) {
+      // (No guards on Peaceful: no hostile creatures at all. Online, only the host sets them out.)
+      if (this.mobs && this.mobs.hostileSpawning !== false && this.guardsEnabled) for (const g of h.guards) {
         const m = this.mobs.spawnGuard(g.x, g.y, g.z, h.zone);
         if (m) guards.push(m);
       }

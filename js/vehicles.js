@@ -228,6 +228,10 @@ export class VehicleManager {
     this.onPilotKilled = null; // (cause) => void
     this.onPilotHurt = null; // (amount, cause) => void
     this.onMessage = null; // (text) => void: a short HUD notice
+    // Multiplayer (js/net/vehicles.js): every vehicle added, removed or destroyed.
+    this.onAdded = null; // (vehicle) => void
+    this.onRemoved = null; // (vehicle) => void
+    this.onDestroyedHook = null; // (vehicle, cause) => void
     this.hudEl = document.getElementById("vehicle-hud");
     this.promptEl = document.getElementById("vehicle-prompt");
     this.infoEl = document.getElementById("vehicle-info");
@@ -305,6 +309,7 @@ export class VehicleManager {
       const old = this.vehicles.find((v) => v !== this.active && !v.keep);
       if (old) this.remove(old);
     }
+    this.onAdded?.(vehicle);
     return vehicle;
   }
 
@@ -313,6 +318,7 @@ export class VehicleManager {
     const i = this.vehicles.indexOf(vehicle);
     if (i >= 0) this.vehicles.splice(i, 1);
     vehicle.dispose();
+    this.onRemoved?.(vehicle);
   }
 
   create(type, data) {
@@ -342,7 +348,15 @@ export class VehicleManager {
   // F: board a vehicle nearby, or get out of the one you're in.
   toggle() {
     if (!this.enabled) return false;
-    if (this.active) return this.exit();
+    if (this.active) {
+      // (Online Dogfight: no getting out.)
+      const why = this.exitLocked?.();
+      if (why) {
+        this.onMessage?.(why);
+        return false;
+      }
+      return this.exit();
+    }
     const v = this.nearestEnterable();
     if (!v) return false;
     // (Survival: the game can hold a vehicle back, e.g. jets before their mission.)
@@ -432,6 +446,7 @@ export class VehicleManager {
     if (!v.alive) return;
     v.alive = false;
     const pilot = v === this.active;
+    this.onDestroyedHook?.(v, cause);
     v.onDestroyed(cause);
     if (pilot) {
       this.active = null;
@@ -466,14 +481,17 @@ export class VehicleManager {
   // Explosions hurt vehicles too.
   // cause: "explosion" (the player's) or "explosion_other" (anything else).
   explosion(center, radius, cause = "explosion") {
-    for (const v of this.vehicles) {
-      if (!v.alive) continue;
-      const d = Math.max(0, v.pos.distanceTo(center) - v.radius * 0.6);
-      const reach = radius * 1.8;
-      if (d >= reach) continue;
-      const f = 1 - d / reach;
-      v.damage(Math.floor(45 * Math.sqrt(radius / 7) * f), cause);
-    }
+    for (const v of this.vehicles) this.explosionOn(v, center, radius, cause);
+  }
+
+  // One vehicle's share of a blast.
+  explosionOn(v, center, radius, cause = "explosion") {
+    if (!v.alive) return;
+    const d = Math.max(0, v.pos.distanceTo(center) - v.radius * 0.6);
+    const reach = radius * 1.8;
+    if (d >= reach) return;
+    const f = 1 - d / reach;
+    v.damage(Math.floor(45 * Math.sqrt(radius / 7) * f), cause);
   }
 
   // ---------- Input ----------
@@ -521,6 +539,7 @@ export class VehicleManager {
         if (v.removeAt <= 0 && !v.keepWreck) {
           this.vehicles.splice(i, 1);
           v.dispose();
+          this.onRemoved?.(v);
         }
       }
     }
@@ -571,7 +590,7 @@ export class VehicleManager {
       `<div class="vh-health"><div style="width:${(hp * 100).toFixed(0)}%;background:${hp > 0.5 ? "#4fdc8a" : hp > 0.25 ? "#ffc94a" : "#ff4a3a"}"></div></div>` +
       (h.weapon ? `<div class="vh-weapon">${h.weapon}</div>` : "") +
       (h.warning ? `<div class="vh-warning">${h.warning}</div>` : "") +
-      (h.help ? `<div class="vh-help">${h.help}</div>` : "");
+      (h.help ? `<div class="vh-help">${this.exitLocked?.() ? h.help.replace(/F (EJECT|get out|exit)/i, "F: no getting out") : h.help}</div>` : "");
   }
 
   // The vehicle info panel (I): stats and controls of the vehicle you are in.
