@@ -2647,6 +2647,7 @@ window.__ufo = window.__voxelands = {
   crates,
   missions: missionDirector,
   testFlags,
+  MISSIONS,
   dropLoot,
   rollLoot,
   perf,

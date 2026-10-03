@@ -550,7 +550,7 @@ await check("Survival together: the client follows the host's mission, and a fin
   const before = await v(client, (g, id) => g.inventory.slots.reduce((n, s) => n + (s && s.id === id ? s.count : 0), 0), rewardId);
   // The host's group finishes the objective (another player's kill counts for the world).
   await v(host, (g) => {
-    for (const o of g.progress.mission.objectives) g.stats.addWorld(o.stat, o.goal);
+    for (const o of g.progress.mission.objectives) g.stats.addWorld(o.stat, g.progress.goalFor(o));
   });
   const got = await until(client, (g, a) => {
     const n = g.inventory.slots.reduce((k, s) => k + (s && s.id === a.id ? s.count : 0), 0);
@@ -559,6 +559,40 @@ await check("Survival together: the client follows the host's mission, and a fin
   assert(got, "the client got no reward");
   const next = await until(client, (g, s) => g.progress.step === s + 1, 10000, step);
   assert(next, "the client did not move on to the next mission");
+});
+
+await check("co-op scaling: goals grow with the group (2 aliens each), the supply mission drops a crate for each player", async () => {
+  // The supply mission: one crate per player, near each.
+  const r = await v(host, (g) => {
+    const idx = g.MISSIONS.findIndex((m) => m.id === "supply");
+    g.progress.step = idx;
+    g.progress.start(g.stats.world);
+    g.crates.clear();
+    return { goal: g.progress.objectives(g.stats.world)[0].goal, n: g.progress.groupN };
+  });
+  assert(r.n === 2 && r.goal === 2, `supply goal ${JSON.stringify(r)}`);
+  const crates = await until(host, (g) => g.crates.active.length >= 2 && g.crates.active.length, 15000);
+  assert(crates === 2, `the host dropped ${crates} crates`);
+  const seen = await until(client, (g) => g.crates.active.length === 2 && g.progress.objectives(g.stats.world)[0]?.goal === 2, 15000);
+  assert(seen, "the client does not see both crates and a goal of 2");
+  // Each crate came down near a different player.
+  const near = await v(host, (g) => {
+    const r = g.mp.players.get([...g.mp.players.remotes.keys()][0]);
+    const ps = [g.player.position, r.livePos];
+    return ps.map((p) => Math.min(...g.crates.active.map((c) => Math.hypot(c.x - p.x, c.z - p.z))));
+  });
+  assert(near.every((d) => d < 260), `crate distances ${near}`);
+  // The landing mission: 2 aliens per player.
+  const g2 = await v(host, (g) => {
+    g.crates.clear();
+    const idx = g.MISSIONS.findIndex((m) => m.id === "landing");
+    g.progress.step = idx;
+    g.progress.start(g.stats.world);
+    return g.progress.objectives(g.stats.world)[0].goal;
+  });
+  assert(g2 === 4, `landing goal ${g2}`);
+  const cg = await until(client, (g) => g.progress.objectives(g.stats.world)[0]?.goal === 4, 10000);
+  assert(cg, "the client's tracker does not show 4");
 });
 
 await check("only the host picks the mode: Creative for everyone, a guest can't change it", async () => {

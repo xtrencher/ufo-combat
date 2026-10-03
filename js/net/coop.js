@@ -99,6 +99,7 @@ export class CoopSync {
     g.ufos.groupScale = 1;
     g.ufos.groupHealth = 1;
     g.mobs.groupHealth = 1;
+    g.progress.groupN = 1;
     if (this.net.isHost || this._wasHost) this._saveGuests();
     if (!this.net.isHost && g.missions && !g.GUEST) g.missions.enabled = true;
     document.getElementById("respawn-near-btn")?.classList.add("hidden");
@@ -123,9 +124,13 @@ export class CoopSync {
     const n = Math.max(1, Math.min(6, this.net.playerCount || 1));
     // Airports: a fighter for everyone (the host's count, never shrinking in a session).
     if (this.net.isHost) g.airports.groupSize = Math.max(g.airports.groupSize || 1, Math.min(8, this.net.playerCount || 1));
+    // The missions' goals (progression.js goalFor): for everyone in the game now.
+    if (this.net.isHost) g.progress.groupN = Math.max(1, Math.min(8, this.net.playerCount || 1));
     g.ufos.groupScale = 1 + 0.3 * (n - 1);
     g.ufos.groupHealth = 1 + 0.25 * (n - 1);
-    g.mobs.groupHealth = 1 + 0.2 * (n - 1);
+    // (Round 8: the missions' squads and kill goals now grow with the group,
+    // so each creature only gets a little tougher.)
+    g.mobs.groupHealth = 1 + 0.1 * (n - 1);
   }
 
   // ---------- Host: the mission state ----------
@@ -177,7 +182,7 @@ export class CoopSync {
       obj: p.objectives(g.stats.world).map((o) => [o.label, o.value, o.goal]),
       tgt: t ? [Math.round(t.pos.x * 10) / 10, Math.round(t.pos.y * 10) / 10, Math.round(t.pos.z * 10) / 10, t.label] : null,
       // What the marker follows (a guest points it at the nearest one of those to them).
-      tk: t?.follow ? (t.follow.canopy ? "c" : t.follow.S ? "u" : t.follow.spec && t.follow.kind ? "m" : null) : null,
+      tk: t?.follow ? (t.follow.canopy ? "c" : t.follow.S ? (t.follow.missionTarget ? "u" : "U") : t.follow.spec && t.follow.kind ? "m" : null) : null,
       boss: b ? { health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
       note: g.missions.note?.() || "",
       ev: p.mission?.event || null,
@@ -234,7 +239,7 @@ export class CoopSync {
     };
     if (m.tk === "c") for (const c of g.crates.active) consider(c.pos);
     else if (m.tk === "m") for (const mob of this.mp.entities.mobById.values()) if (mob.missionTarget && !mob.dead) consider(mob.pos);
-    else if (m.tk === "u") for (const u of this.mp.entities.ufoById.values()) if (u.missionTarget && !u.falling && u.state !== "gone") consider(u.pos);
+    else if (m.tk === "u" || m.tk === "U") for (const u of this.mp.entities.ufoById.values()) if ((m.tk === "U" || u.missionTarget) && !u.falling && u.state !== "gone") consider(u.pos);
     if (best) d.target.pos.copy(best);
     else d.target.pos.set(m.tgt[0], m.tgt[1], m.tgt[2]);
   }

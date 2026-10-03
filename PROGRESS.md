@@ -1868,7 +1868,7 @@ Source of truth for this round. Round 6 was complete (all items ticked) before t
 ## Group 2: Players
 - [x] 2.1 Nicknames (everyone, host included), stored locally
 - [x] 2.2 Player states at 20 Hz, interpolation, remote avatars (walk/sneak/swim/fly/held item/death), nameplates above heads and vehicles
-- [ ] 2.3 Remote vehicles as puppets (jets: throttle, afterburner, gear, surfaces, brakes; UFOs: tilt, lights, beam), ownership, claims, airport jets
+- [x] 2.3 Remote vehicles as puppets (jets: throttle, afterburner, gear, surfaces, brakes; UFOs: tilt, lights, beam), ownership, claims, airport jets
 
 ## Group 3: World and rules sync
 - [x] 3.1 Block edits: capture, send, apply, race resolution, full edit transfer on join
@@ -1993,12 +1993,12 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - [x] 1.7 Full multiplayer audit; every bug found fixed and listed
 
 ## Part 2: Co-op missions and scaling
-- [ ] 2.1 Shared missions scale with player count (kills, one crate per player), anyone contributes
-- [ ] 2.2 Enemies attack all players; numbers scale in a balanced way
+- [x] 2.1 Shared missions scale with player count (kills, one crate per player), anyone contributes
+- [x] 2.2 Enemies attack all players; numbers scale in a balanced way
 - [ ] 2.3 Targets recalculated when a player joins/leaves mid-mission
-- [ ] 2.4 More supply crates with more players
-- [ ] 2.5 Airport parked aircraft scale with players (>= one fighter per player + spare)
-- [ ] 2.6 Mission chain re-checked for 1, 2, 3 players
+- [x] 2.4 More supply crates with more players
+- [x] 2.5 Airport parked aircraft scale with players (>= one fighter per player + spare)
+- [x] 2.6 Mission chain re-checked for 1, 2, 3 players
 
 ## Part 3: Animations
 - [ ] 3.1 Remote players' animations correct (melee, bow draw/shoot, firing, hands/directions)
@@ -2065,3 +2065,11 @@ Source of truth for this round. Round 7 was complete before this round started. 
 - **Dogfight end:** the results take the mouse: pointer lock released, jet controls released, no pause menu over them, and a player who went down on the last kill is revived first (their death screen used to cover the buttons: the new multiplayer test clicks the real button). "Close" / "New match" go back into the game with that click.
 - **Jets parked:** parking slots are planned from the airport layout (a row along the front of the apron, clear of the tower, terminal, radar and hangars, 19 blocks apart; a 54-block stretch for the B-2) and each footprint is checked against the real blocks (solid flat pad, nothing in the way) before an aircraft is set out, level on its wheels.
 - **Audit: bugs found and fixed** (besides the above): flags/ids blended by interpolation (mobs, UFOs, jets, players, vehicle owners); crates seen by one player only; personal loot and personal creature drops; animals and villagers different for every player; guards around the host only; meteor rings/fragments and the boss shield host-only; the marker following the host's target for everyone; the Dogfight results covered by the death screen; "your own grenade" in other players' feeds (now "their own"); a client could not send a message to one other client (added `net.toPlayer`, relayed by the host); the joining guest saw the nickname form twice and then a main menu.
+
+### Part 2 (co-op missions and scaling)
+- **Goals scale with the group** (`progress.goalFor`): each objective is "player" (goal x players: skeletons/bows, crates, alien kills, red squad, takeoffs, hijacked fighters, star fragments), "group" (goal x (1 + 0.5 per extra player), rounded up: UFO counts, raiders, UFOs from the jet, large UFOs) or fixed (a night, the landing on the runway, boarding a wreck, the base, the Overlord). Examples: the landing's aliens 2 / 4 / 6 for 1 / 2 / 3 players; the scout hunt 3 / 5 / 6; the slayer 25 / 38 / 50.
+- **The director sets out enough for everyone, near everyone**: a skeleton per bow still to win (each near a player), a crate per player, a scout per player, two landing aliens per player, squads of n x players with a leader carrying the new weapon for every player (each drops it while someone still lacks it: loot rolls count only what everyone has), night landing parties 60% bigger per extra player, a hijacked fighter per player, more meteor strikes and fragments around all players, bigger red squads for the Overlord, one more base guard per player. UFO counts (+30%/player) and health (+25%/player) as in Round 7; hostile creatures now only +10% health per extra player (their numbers already grow with the goals).
+- **Join/leave mid-mission:** goals are computed afresh all the time (from the host's player count): a growing goal makes the director set out more (new landings, squads, crates...), a shrinking one completes the mission at once if it is already met. Nothing is ever left impossible.
+- **Airports:** at least one fighter per player plus a spare (the host's count, the most players seen this session, never shrinking, so every peer parks the same aircraft); slots from the parking planner (Part 1).
+- **Chain check (1, 2, 3 players):** walked through all 21 missions with the scaled goals and spawns (listed above); every one has its targets set out for the current group and is completable by any mix of players.
+

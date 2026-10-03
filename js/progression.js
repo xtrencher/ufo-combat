@@ -68,8 +68,14 @@ export const MAX_TIER = 5;
 // kinds crew them. So there are no UFOs at all for the first two missions,
 // then a single one, and more as the chain goes on.
 //
-// objectives: [{ stat, goal, label }] measured from the moment the mission
-// starts (stat counters are the world's; see stats.js). reward: apples.
+// objectives: [{ stat, goal, label, scale }] measured from the moment the
+// mission starts (stat counters are the world's; see stats.js). Online the
+// goals grow with the group (Round 8; anyone's deeds count for everyone):
+// scale "player": goal x players (a skeleton with a bow, a crate, a squad's
+// share of aliens for each player: 2 kills for 1 player, 4 for 2, 6 for 3);
+// "group": goal x (1 + 0.5 per extra player), rounded up (UFO counts: more
+// players shoot them down faster); none: the same for any group (a night, a
+// landing, the base, the boss). reward: apples.
 // event: what the mission director (missions.js) sets up for it.
 // tier: the loot tier while it is the current mission (0-5).
 // squad: an alien patrol for the "squad" event: { kind, n, leaderDrop }.
@@ -87,7 +93,7 @@ export const MISSIONS = [
     id: "skeleton",
     title: "The archer",
     text: "A skeleton is prowling nearby (follow the marker). Kill it with your sword and take its bow: hold right click to draw, let go to shoot.",
-    objectives: [{ stat: "skeletonsKilled", goal: 1, label: "Skeleton killed" }],
+    objectives: [{ stat: "skeletonsKilled", goal: 1, label: "Skeletons killed", scale: "player" }],
     reward: [[ITEM.APPLE, 3]],
     event: "skeleton",
     tier: 0,
@@ -97,7 +103,7 @@ export const MISSIONS = [
     id: "landing",
     title: "Visitors",
     text: "A small UFO is landing nearby. Its crew will look around for a moment, then come for you: be ready with your bow (and your sword: they go down in melee too).",
-    objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed" }],
+    objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed", scale: "player" }],
     reward: [[ITEM.APPLE, 4]],
     event: "landing",
     tier: 0,
@@ -107,7 +113,7 @@ export const MISSIONS = [
     id: "supply",
     title: "Supply drop",
     text: "Friends on the ground have dropped supplies for you: a pistol. Follow the orange smoke and open the crate. (R reloads.)",
-    objectives: [{ stat: "cratesOpened", goal: 1, label: "Supply crates opened" }],
+    objectives: [{ stat: "cratesOpened", goal: 1, label: "Supply crates opened", scale: "player" }],
     reward: [[ITEM.APPLE, 3]],
     event: "crate",
     tier: 0,
@@ -117,7 +123,7 @@ export const MISSIONS = [
     id: "first_contact",
     title: "First contact",
     text: "A scout UFO is snooping around nearby. Find it (follow the marker) and shoot it down with your pistol or your bow.",
-    objectives: [{ stat: "ufosDown", goal: 1, label: "Scout shot down" }],
+    objectives: [{ stat: "ufosDown", goal: 1, label: "Scouts shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 1]],
     event: "scout",
     tier: 0,
@@ -127,7 +133,7 @@ export const MISSIONS = [
     id: "crew",
     title: "The crew",
     text: "Aliens climbed out of the wreck, and they are armed. Kill them before they get you.",
-    objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed" }],
+    objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 1], [ITEM.APPLE, 2]],
     event: "crew",
     tier: 1,
@@ -147,7 +153,7 @@ export const MISSIONS = [
     id: "patrol",
     title: "Laser patrol",
     text: "A UFO has landed a patrol of green aliens nearby. Their leader (marked) carries a laser blaster: wipe them out and take it.",
-    objectives: [{ stat: "aliensKilled", goal: 4, label: "Aliens killed" }],
+    objectives: [{ stat: "aliensKilled", goal: 4, label: "Aliens killed", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 1]],
     event: "squad",
     squad: { kind: "alien", n: 4, leaderDrop: ITEM.LASER_BLASTER },
@@ -158,7 +164,7 @@ export const MISSIONS = [
     id: "scout_hunter",
     title: "Scout hunter",
     text: "Take the fight to them: shoot down three UFOs. Bigger ones are about now.",
-    objectives: [{ stat: "ufosDown", goal: 3, label: "UFOs shot down" }],
+    objectives: [{ stat: "ufosDown", goal: 3, label: "UFOs shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "hunt",
     tier: 2,
@@ -168,7 +174,7 @@ export const MISSIONS = [
     id: "grays",
     title: "Gray squad",
     text: "A squad of grays (fast sharpshooters with burst rifles) has landed. Their leader (marked) carries a laser minigun: take it. Keep moving.",
-    objectives: [{ stat: "aliensKilled", goal: 5, label: "Aliens killed" }],
+    objectives: [{ stat: "aliensKilled", goal: 5, label: "Aliens killed", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "squad",
     squad: { kind: "alien_gray", n: 5, leaderDrop: ITEM.MINIGUN },
@@ -179,7 +185,7 @@ export const MISSIONS = [
     id: "wings",
     title: "Take to the air",
     text: "Fighter jets wait at airports (F3 shows the nearest, and the marker points the way). Walk up to one, get in (F) and take off: full throttle (W), Shift for the afterburner.",
-    objectives: [{ stat: "takeoffs", goal: 1, label: "Takeoffs" }],
+    objectives: [{ stat: "takeoffs", goal: 1, label: "Takeoffs", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "takeoff",
     tier: 3,
@@ -191,7 +197,7 @@ export const MISSIONS = [
     text: "Bring a jet back down: land it on an airport's runway (F3 shows the nearest airport; line up with the runway, throttle down to about 30%, hold Space for the air brakes and the wheel brakes) and stop. The aliens will not let you rest: a red squad drops in on the ground. Get out (F) and finish them.",
     objectives: [
       { stat: "landings", goal: 1, label: "Jet landed on a runway" },
-      { stat: "landingSquad", goal: 3, label: "Red aliens killed" },
+      { stat: "landingSquad", goal: 3, label: "Red aliens killed", scale: "player" },
     ],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "landjet",
@@ -202,7 +208,7 @@ export const MISSIONS = [
     id: "dogfight",
     title: "Dogfight",
     text: "Shoot down two UFOs from your jet: the cannon (left click), a missile (a click fires one straight ahead) or a missile lock (hold right click, release when LOCKED).",
-    objectives: [{ stat: "ufosDownByJet", goal: 2, label: "UFOs shot down from the jet" }],
+    objectives: [{ stat: "ufosDownByJet", goal: 2, label: "UFOs shot down from the jet", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "dogfight",
     tier: 3,
@@ -212,7 +218,7 @@ export const MISSIONS = [
     id: "air_superiority",
     title: "Air superiority",
     text: "The aliens have hijacked one of our fighters, and it is hunting you. Shoot it down: flares (C) fool its missiles, hard turns make them miss.",
-    objectives: [{ stat: "enemyJetsDown", goal: 1, label: "Hijacked fighter shot down" }],
+    objectives: [{ stat: "enemyJetsDown", goal: 1, label: "Hijacked fighters shot down", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
     tier: 3,
@@ -222,7 +228,7 @@ export const MISSIONS = [
     id: "village",
     title: "Village under attack",
     text: "Raiders are burning a village. Get there (follow the marker) and shoot down the three raiders before they finish the job.",
-    objectives: [{ stat: "raidersDown", goal: 3, label: "Raiders shot down" }],
+    objectives: [{ stat: "raidersDown", goal: 3, label: "Raiders shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "village",
     tier: 3,
@@ -232,7 +238,7 @@ export const MISSIONS = [
     id: "reds",
     title: "Red brutes",
     text: "Red brutes (slow, armoured, with plasma cannons that blast the ground) have landed. Their leader (marked) carries a railgun: take it. Keep your distance.",
-    objectives: [{ stat: "aliensKilled", goal: 3, label: "Aliens killed" }],
+    objectives: [{ stat: "aliensKilled", goal: 3, label: "Aliens killed", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "squad",
     squad: { kind: "alien_red", n: 3, leaderDrop: ITEM.RAILGUN },
@@ -243,7 +249,7 @@ export const MISSIONS = [
     id: "meteors",
     title: "Falling stars",
     text: "A meteor storm is falling out of the night sky. Every rock is announced by a red ring on the ground: keep out of it. The craters leave glowing star fragments (marked): collect four before the alien salvagers carry them off.",
-    objectives: [{ stat: "meteorFragments", goal: 4, label: "Star fragments collected" }],
+    objectives: [{ stat: "meteorFragments", goal: 4, label: "Star fragments collected", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 4]],
     event: "meteors",
     tier: 4,
@@ -263,7 +269,7 @@ export const MISSIONS = [
     id: "big_game",
     title: "Big game",
     text: "The big ships are coming. Bring down a large UFO (missiles, the bazooka's lock-on, the railgun or an airstrike help).",
-    objectives: [{ stat: "ufosDownLarge", goal: 1, label: "Large UFOs shot down" }],
+    objectives: [{ stat: "ufosDownLarge", goal: 1, label: "Large UFOs shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 4]],
     event: "large",
     tier: 4,
@@ -293,7 +299,7 @@ export const MISSIONS = [
     id: "slayer",
     title: "UFO slayer",
     text: "The invasion is broken, but they keep coming. Shoot down twenty-five more.",
-    objectives: [{ stat: "ufosDown", goal: 25, label: "UFOs shot down" }],
+    objectives: [{ stat: "ufosDown", goal: 25, label: "UFOs shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "hunt",
     tier: 5,
@@ -328,6 +334,16 @@ export class Progress {
     this.onChange = null; // () => void
     this.onStart = null; // (mission) => void: a mission became the current one
     this.enabled = true;
+    // Online (host): how many players the goals are for (see goalFor).
+    this.groupN = 1;
+  }
+
+  // An objective's goal for the current group (see the objectives' "scale").
+  goalFor(o, n = this.groupN) {
+    n = Math.max(1, Math.min(8, n | 0));
+    if (o.scale === "player") return o.goal * n;
+    if (o.scale === "group") return Math.ceil(o.goal * (1 + 0.5 * (n - 1)));
+    return o.goal;
   }
 
   get mission() {
@@ -373,7 +389,10 @@ export class Progress {
     const m = this.mission;
     if (!m) return [];
     if (this.mirror && this.mirrorObjectives) return this.mirrorObjectives;
-    return m.objectives.map((o) => ({ label: o.label, goal: o.goal, value: Math.max(0, Math.min(o.goal, Math.floor((stats[o.stat] ?? 0) - (this.base[o.stat] ?? 0)))) }));
+    return m.objectives.map((o) => {
+      const goal = this.goalFor(o);
+      return { label: o.label, goal, value: Math.max(0, Math.min(goal, Math.floor((stats[o.stat] ?? 0) - (this.base[o.stat] ?? 0)))) };
+    });
   }
 
   // Every mission with its state, for the list in the pause menu:
