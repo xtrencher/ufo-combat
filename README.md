@@ -4,8 +4,10 @@ A procedurally generated voxel sandbox under alien attack, running entirely
 in the browser: no install, no build step, no accounts. Build and survive in
 a block world, then take on UFOs with a bow, guns, a railgun, a laser
 minigun, homing rockets, meteor airstrikes, two fighter jets (an F-22 and an
-F-16, with missiles, flares and a real runway takeoff) and, late in the
-game, a flying saucer of your own. Built from scratch with plain JavaScript and
+F-16, with missiles, flares, radar and a real runway takeoff), a B-2 stealth
+bomber that carries the nuke and, late in the game, a flying saucer of your
+own (stolen from a guarded bunker if need be). Play alone or with friends
+(peer-to-peer, up to 8 players, one shared world). Built from scratch with plain JavaScript and
 [Three.js](https://threejs.org/).
 
 Everything is generated in code at runtime: the terrain, every block
@@ -29,25 +31,26 @@ plain fullscreen: the game still cancels the shortcuts a page is allowed to canc
 (Ctrl+W, Ctrl+T, Ctrl+N) cannot be cancelled outside fullscreen: sprint with a double-tap of `W` instead of `Ctrl+W` there; the browser also asks
 before closing the page while you play.
 
-- **Play / Continue** enters the world (the last world you played is
-  continued; pick **Survival** or **Creative** with the two cards under the
-  button).
-- **New World** starts a fresh world, with an optional seed (a number, or any
-  text).
-- **Settings** has every option, in tabs (Graphics, Performance, Controls,
-  Audio, Gameplay, Weapons, Mobs, UFOs, Vehicles), each with **Reset to
-  defaults**.
-- **Mods** switches the UFO COMBAT content on or off (see below).
-- **Controls** lists every key.
+The main menu (Round 8: square corners, a blue accent, no logo over the
+flyover) has three things:
+
+- **Play** enters the world (the last world you played is continued) in the
+  mode picked right under it (**Survival** / **Creative**). The same card
+  shows the world's seed and a small **+ New world** link (a fresh world,
+  with an optional seed: a number, or any text).
 - **Multiplayer** hosts a game for your friends or joins theirs (see
   **How to play with friends** below).
+- **Settings** has every option, in tabs (Graphics, Performance, Controls,
+  Audio, Gameplay, Weapons, Mobs, UFOs, Vehicles), each with **Reset to
+  defaults**; the **Mods** switch (see below) and the **key list** are
+  buttons at its top, and the graphics preset lives in its Graphics tab.
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
-Settings, Mods, Stats, Controls, Copy world link, Save & main menu).
+Settings, Missions, Stats, Multiplayer, Copy world link, Save & main menu).
 
 - **Survival:** you start with basic gear only (a stone sword, a stone
   pickaxe and five apples) at 17:50 (the golden hour before sunset), and a
-  chain of twenty-one **missions** (see below) that starts with a skeleton and
+  chain of twenty-two **missions** (see below) that starts with a skeleton and
   its bow, goes through jets, a meteor storm and a mothership boss, and
   ends with the slayer's last stand. There is no crafting, and
   missions pay in apples and golden apples only: weapons come from the
@@ -122,7 +125,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 
 ### Missions, loot and supply crates (Survival)
 
-- **Missions:** twenty-one of them, one after another, shown top right with a
+- **Missions:** twenty-two of them, one after another, shown top right with a
   progress bar per objective, the target's distance and direction, and a
   yellow **marker** over the target (an arrow at the screen's edge when it is
   behind you). **Esc > Missions** lists them all with their rewards, which
@@ -144,13 +147,14 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   | 12 | Dogfight | Shoot down two UFOs from the jet | 2 golden apples |
   | 13 | Air superiority | Shoot down the hijacked fighter hunting you | 2 golden apples |
   | 14 | Village under attack | Shoot down three raiders burning a village (5 minutes) | 3 golden apples |
-  | 15 | Red brutes | Wipe out a red squad; its leader carries the **railgun** | 3 golden apples |
+  | 15 | Red brutes | Wipe out a red squad; its leader carries the **railgun** (on its back, plain to see) and always drops it, however it dies: the marker then points at it until someone picks it up | 3 golden apples |
   | 16 | Falling stars | A meteor storm at night: dodge the rocks (a red ring marks each landing 4.5 s ahead) and collect four glowing star fragments from the craters before alien salvagers take them | 4 golden apples |
   | 17 | Salvage | The next UFO you down lands intact: board it (alien ships, hangar ones too, are yours from now on) | 3 golden apples |
   | 18 | Big game | Bring down a large UFO | 4 golden apples |
-  | 19 | Operation Sunburn | Nuke the airport the aliens turned into a base | 8 golden apples |
-  | 20 | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: three shield rounds, an escort, and a red squad dropped on you. Doable on foot | 12 golden apples |
-  | 21 | UFO slayer | Shoot down twenty-five more | 10 golden apples |
+  | 19 | Operation Sunburn | Take the **B-2 bomber** from your airport, fly to the far-off airport the aliens turned into a base and drop the nuke on it (`B`); guard UFOs and a fighter defend it. A lost B-2 is replaced at its airport | 8 golden apples |
+  | 20 | Steal the ship | Soldiers keep a captured alien ship in the underground bunker of an airport: fight your way past the armed guards, board it (`F`), and when they seal the blast doors switch on **ghost mode** (`G`) and burn your way out through the rock; get 150 blocks clear | 8 golden apples |
+  | 21 | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: three shield rounds, an escort, and a red squad dropped on you. Doable on foot | 12 golden apples |
+  | 22 | UFO slayer | Shoot down twenty-five more | 10 golden apples |
 
   Each mission also sets the sky, and in Survival **only the missions do**
   (the UFO activity, spawn chance, max count and size settings are
@@ -168,7 +172,9 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
     gun, armor; sniper rifle; bazooka; airstrike designator), plus golden
     apples, food and sometimes a tool.
   - **Aliens:** their leaders (missions 7, 9 and 15) carry the alien
-    weapons: laser blaster, laser minigun, railgun. Later on ordinary aliens
+    weapons (slung on their backs): laser blaster, laser minigun, railgun.
+    A leader always drops its weapon, whoever or whatever kills it, while
+    someone in the group still lacks it, and the drop never despawns. Later on ordinary aliens
     of that kind or stronger can drop one you missed. Otherwise aliens drop
     food, tools and golden apples, better the further you are.
   - **Missions:** apples and golden apples only.
@@ -301,9 +307,11 @@ keeps running there (it just isn't drawn).
 
 ### Join a game
 
-- **Open the invite link** you were sent, or press **Multiplayer > Join a
-  game** and type the room code (letters and digits; capitals don't
-  matter). Pick a nickname and press **Join**.
+- **Open the invite link** you were sent (pick a nickname and press
+  **Join**), or press **Multiplayer > Join a game**, type your nickname and the room
+  code (letters and digits; capitals don't matter) and press **Play**: that
+  joins straight away (no second form). When the host's world has arrived you
+  are in it; click once to take the mouse and play.
 - You play in the host's world. Your own worlds are not touched, and
   nothing of the host's world is saved on your computer.
 - The host keeps your things (inventory, armor, where you were) in their
@@ -317,11 +325,18 @@ keeps running there (it just isn't drawn).
 - **Survival together:** one mission chain for the whole group, the host's.
   Everyone's kills and deeds count toward the objectives (the tracker, the
   yellow marker and the boss bar show the same mission to everyone), and a
-  finished mission **rewards every player**. Loot is personal: when a UFO,
-  an alien or a fighter goes down, every player nearby gets drops of their
-  own (no fighting over them). Supply crates are personal too. Bigger
-  groups get a bigger fight (more and tougher UFOs, tougher aliens and
-  zombies, a tougher Overlord). The long night only starts over when the
+  finished mission **rewards every player**. **One shared world** (Round 8):
+  every item lying anywhere (loot, a mined block, a dead player's things)
+  and every supply crate is the same for everyone, and only one player can
+  pick each up; every walking creature is the host's and the same for all.
+  The missions **scale with the group**: kill goals grow per player (2
+  aliens each in "Visitors", a squad leader with the new weapon for every
+  player, a crate for each player), UFO goals by half a mission per extra
+  player, and the goals follow players joining or leaving mid-mission.
+  Bigger groups also get more and tougher UFOs (x1.3 as many and x1.25
+  health per extra player), a little tougher creatures, more guards, and a
+  fighter for everyone at each airport. In Operation Sunburn one player
+  flies the B-2 and the others escort it. The long night only starts over when the
   whole group is down at the same time. A dead player can respawn at the
   world spawn or **next to a friend**.
 - **Creative together:** everyone flies, builds and blasts; the host's
@@ -347,9 +362,12 @@ keeps running there (it just isn't drawn).
 - The top-left corner shows the mode, the room code, the players and (for
   a guest) the ping, and warns when the connection to the host lags.
 - **Nothing pauses online:** Esc only takes your hands off the controls.
-- Shots never hurt friends in Survival or Creative (in a Dogfight they do);
-  **explosions hurt everyone nearby**, like your own do (the death message
-  says whose it was).
+- **PvP** is the host's choice (a checkbox in the lobby, **on** by
+  default): on, players' shots, swords and explosions hurt each other
+  ("Killed by NAME", counted in Stats); off, nothing another player does
+  hurts you (except a nuke's blast). In a Dogfight it is always on.
+- At the end of a **Dogfight** the results screen frees the mouse and its
+  buttons work (new match, close).
 - To try it alone, open the game in **two browser tabs or windows** on one
   computer: host in one, join with the code in the other.
 
@@ -478,7 +496,7 @@ the world, including the one you're sitting in.
 Board a UFO that came down in one piece, or one of the small ships that
 sometimes hover in the hall of a **secured underground bunker** at an
 airport (armed human guards stand watch and open fire when you enter the
-restricted zone; in Survival boarding works from mission 15,
+restricted zone; in Survival boarding works from mission 17,
 "Salvage"; before that they are locked), or in Creative spawn one from the
 **Mods** screen (any shape and size). It has no physics limits (and no ceiling: fly as high as you like): it hovers
 perfectly still and moves instantly in any direction. The camera keeps the
@@ -509,8 +527,9 @@ you beam up are "stored": their drops go to your inventory, as do the blocks.
 ### Fighter jet
 
 **There is no calling in a jet:** fighters stand **parked at airports**, in front
-of the hangars (F-22 Raptors and F-16 Fighting Falcons): walk up to one and
-press **F**. In Survival that works from mission 10, "Take to the air" (the
+of the hangars (F-22 Raptors and F-16 Fighting Falcons), with a **B-2 Spirit**
+bomber where the apron has room: walk up to one and press **F** (the B-2
+near the middle of its wing). In Survival that works from mission 10, "Take to the air" (the
 marker points at the nearest parked fighter; **F3** shows the nearest airport).
 The **F-22 Raptor** is a heavy stealth fighter (160 health, faster,
 four-missile salvos); the **F-16 Fighting Falcon** is light and agile (130
@@ -520,8 +539,24 @@ detailed model (canopy frame, pilot, probes, folding landing gear, a layered
 afterburner) in a satin grey paint with panel lines and a subtle two-tone
 livery that catches the sun and the moon, so it is clearly visible at night;
 both jets have a skin shader with panel tones, soot behind the engines and
-faint streaks. Their small navigation, strobe and formation lights switch
-on only at night.
+faint streaks. **Lights:** navigation lights and strobes are off while an
+aircraft stands parked and come on with its takeoff roll (day and night,
+dimmer by day); the formation strips and the cockpit glow are night-only.
+**Colours:** each type's own grey, green, light blue, desert, navy or arctic,
+fixed per airport and slot (about half are grey; the same for every player).
+
+**The B-2 Spirit** (Round 8) is the only aircraft that carries the **nuke**
+(`B`; in a fighter `B` just says so). A big flying wing with the sawtooth
+trailing edge, moving elevons and drag rudders and tall landing gear: half a
+fighter's top speed, slow to turn and roll, 420 health, no afterburner and
+no cannon, missiles one at a time, and a long takeoff roll (about 300
+blocks). Lost, it is replaced at its airport.
+
+**Radar** (Round 8): bottom right in any aircraft (jets, the B-2, your own
+UFO), heading up, 2.4 km to the rim: UFOs (red diamonds, bigger for bigger
+ships), enemy aircraft (orange arrowheads), other players (their colour),
+airports (white runway bars, pinned to the rim when far), missiles coming at
+you (blinking red, with a line) and the mission target (yellow star).
 
 **Airports** are rarer now but bigger: one regular airport (never a small
 field) always lies close to where a new world starts (a few hundred blocks
@@ -534,8 +569,9 @@ airports have terminals and a radar, some have a secured bunker.
 It flies like a jet: the **throttle runs 0-100%** and your speed follows it
 (about 1000 km/h at 100%, a bit more with the afterburner), lift needs
 airspeed, drag, gravity, and a stall below the stall speed (the nose drops).
-It can't hover. **Takeoff is a real ground roll** and forgiving: full
-throttle, a few seconds on the wheels, the nose rises at flying speed (flight
+It can't hover. **Takeoff is a real ground roll** and forgiving (about 160
+blocks in the F-22, 125 in the F-16, 300 in the B-2): full throttle, a few
+seconds on the wheels, the nose rises at flying speed (flight
 assist does it for you), the wheels leave the ground and fold away; small
 angles and imperfect runways are fine. **Landing is reliable**: come in
 level, wheels first, at a reasonable sink rate, and the jet rolls out; hold
@@ -545,7 +581,8 @@ and you with it, unless you **eject** (F in the air: the seat fires you out
 and a parachute opens). Both jets are agile: **full 360 degree rolls** (hold
 `A`/`D`; it stops cleanly when you let go) and **loops** work, with the aim
 and the jet handled as quaternions so nothing flips at the top. **Free look:
-hold both mouse buttons** to freeze the controls and look around freely; the
+hold both mouse buttons** to freeze the controls and look around freely,
+starting from where the camera looks at that moment (no snap); the
 ailerons, elevators and rudders on the model move with your inputs. A jet
 destroyed in the air blows up in a **big fireball** and its burning wreck
 falls and explodes again on impact. The engine sound is much quieter now.
@@ -561,11 +598,11 @@ falls and explodes again on impact. The engine sound is much quieter now.
 | **Air brakes** (hold): panels / control surfaces open with a hydraulic whine, the jet sheds speed very fast and turns much tighter (HUD: "Air brakes OPEN"); too slow with them open and it **stalls**. On the ground: the wheel brakes (reverse: `S` at 0%) | `Space` |
 | Autocannon (tracers) | Left click (aims a little for you; **overheats** after about two seconds: watch the heat bar) |
 | **Missile** | A **click** of right click fires one **unguided** missile straight ahead (also when there's nothing to lock) |
-| **Missile lock** | **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it **while you keep full control of the jet** (the mouse still steers, a ring on the HUD shows where; every key works). Release after **1 s** for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
-| **Salvo charge** | From the solid lock to the salvo time a **ring fills around the target box**, one **pip per missile** lights up with a rising click (4 on the F-22, 2 on the F-16), the box shakes and the screen edge glows orange; at SALVO the ring spins and the pips pulse |
+| **Missile lock** | (Round 8: a lock never switches targets: if it loses its target it is gone until you press again; a salvo goes entirely at the locked target; a **left click cancels** the lock, nothing fires.) **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it **while you keep full control of the jet** (the mouse still steers, a ring on the HUD shows where; every key works). Release after **1 s** for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
+| **Salvo charge** | From the solid lock to the salvo time a **spiral turns and closes in around the target box** (Round 8), one **pip per missile** lights up with a rising click (4 on the F-22, 2 on the F-16), the box shakes and the screen edge glows orange; when it becomes a solid pulsing circle a release fires the salvo (before that, one missile) |
 | **Roll out of a missile** | A hostile missile that gets close when you have **rolled more than about 90 degrees** (either way) loses you and **passes narrowly by** ("MISSILE EVADED!"); it needs a few seconds before it works again, so rolling all the time does not make you immune. Flares still work as always |
 | **Flares** | `C` (a burst of decoys; they fool missiles and seeking shots, which may even turn on whoever fired them) |
-| Nuclear bomb | `B` (it drops on a parachute: get clear! No cooldown) |
+| Nuclear bomb (**B-2 only**) | `B` (it drops on a parachute: get clear! No cooldown) |
 | Chase / cockpit view | `F5` |
 | Get out / eject | `F` |
 | Stats and controls panel | `I` |
@@ -594,12 +631,16 @@ one exception is the hijacked fighter of mission 12, in a darker paint.
 racing over the ground, a huge crater, a scorched blast zone and a
 mushroom cloud that climbs for a minute; the boom is heard, late and
 muffled, from far away. The default **size is 96** (the old maximum; the
-Creative setting goes up to 200): the crater is **very wide** (its radius is the
-size, deep as before: about 30 blocks) and **everything within about 1.3x
-the size is destroyed**: trees (trunks and leaves), grass and plants (nothing is
-left floating), houses, city blocks, hangars, towers and **runways, aprons and
-streets**, in a wave that spreads out from the centre like the shockwave. Out to
-twice the size the ground is scorched and the topmost leaves burn off.
+Creative setting goes up to 200): the crater is **very wide** (Round 8: its
+radius is 1.6x the size, as wide as the mushroom's cap; about 30 blocks deep)
+and **everything within 1.85x the size is destroyed**: houses, city blocks,
+hangars, towers and **runways, aprons and streets**, in a wave that spreads
+out from the centre like the shockwave. Out to 2.6x every tree is **knocked
+flat** (trunks lying away from the blast) and all leaves, grass, flowers and
+snow burn off; out to 3.3x trees burn down to stumps and grass turns to dirt.
+**No vegetation is left** anywhere in the blast zone, including ground that
+loads later: the zone is saved with the world (and sent to players who join)
+and applied to every chunk as it generates.
 **Settings > Weapons:** nuke size (12-200, default 96) and effects intensity.
 
 ## Stats
@@ -705,8 +746,9 @@ oaks with roots spreading over the ground. On High and Ultra the ground
 comes alive with grass, reeds along the water, ferns in the shade of trees,
 and flowers.
 
-**Villages** (a few houses and a farm), and much bigger **airports and
-cities**, are rarer (and spread far apart), except for one regular
+**Villages** (Round 8: bigger: a cobbled plaza with a well, gravel streets,
+six to ten houses with windows and lit doors, farm plots, lamp posts, up to
+five villagers), and much bigger **airports and cities**, are rarer (and spread far apart), except for one regular
 airport close to where a new world starts (**F3** shows the nearest). The land is levelled under them, distant terrain
 included. **Airports** come in three sizes (small field, regional,
 international) with runways from 600 to 920 blocks long and 18-26 wide, an
@@ -721,7 +763,13 @@ cross; cords tied from the crate to the parachute's rim) and only ever land
 on dry ground. Grass is shorter and **breakable** (a swing at the ground cuts
 it; explosions burn it away), the leaves are more see-through and the view
 sways a little with your steps. Craters, nuke craters included, show in the
-distant terrain too.
+distant terrain too. **From far away** (Round 8) airports, cities and
+villages show as simple shapes in their own colours (hangars, towers,
+skyscrapers with their setbacks, houses with roofs) long before their full
+detail loads, and at night **airport lights** (runway edges, thresholds,
+approach lights, taxiways, the tower's red beacon) are visible from up to
+4.5 km, so a runway can be found in the dark. **Deserts** are bigger, and
+now and then one stretches for many kilometres.
 
 
 - An **airport** has a long dark runway with markings, threshold stripes and
@@ -815,8 +863,15 @@ environment variable):
   and hurting the client, a shared mission and its reward for both, the
   host-only mode switch, a vehicle claim (the client flies the host's UFO),
   a Dogfight played to the end (kills, deaths, the death limit, VICTORY and
-  DEFEAT), a client leaving and rejoining with its things kept, and the
-  host leaving. About 3 minutes.
+  DEFEAT, clickable results), a client leaving and rejoining with its things
+  kept, and the host leaving. Round 8 added: animations seen by the other
+  player (sword, swing, bow, shots), PvP on and off (the host's rule), one
+  shared world (a supply crate and dropped items, only one player gets
+  each), co-op scaling (goals per player, a crate each), a zombie never
+  drawn dead while alive, and a **third player** joining through the menus,
+  with the mission goal growing when they join mid-mission and shrinking when
+  they leave, airports stocked for three, and the host's creatures shared
+  with them. About 5 minutes.
 
 - `round6-tests.mjs`: the Round 6 features in the real game: the fullscreen
   control and the cancelled shortcuts, the bow, laser pistol and UFO limits,
@@ -824,7 +879,8 @@ environment variable):
   calls, air brakes (speed, turn, stall, the panels), rolling out of a
   missile, full control during a lock and the salvo charge, UFOs with no
   ceiling, the tractor beam pulling in UFOs and jets, the lock-on salvo, the
-  Touchdown, Falling stars and Overlord missions, and the 21-mission chain.
+  Touchdown, Falling stars and Overlord missions, and the mission chain
+  (22 missions since Round 8).
 - `round5-tests.mjs`: the Round 5 features in the real game: the defaults,
   jet throttle and speed, loops and rolls, free look (both mouse buttons),
   armor, bunkers with guards, supply drops on dry land, breakable grass, the

@@ -2047,10 +2047,10 @@ Source of truth for this round. Round 7 was complete before this round started. 
 
 ## Final polish
 - [ ] F.1 Regression pass (single-player)
-- [ ] F.2 Multiplayer review with 2 and 3 headless pages; mp tests extended
+- [x] F.2 Multiplayer review with 2 and 3 headless pages; mp tests extended
 - [ ] F.3 Player's-eye review
 - [ ] F.4 Full test suites once
-- [ ] F.5 README
+- [x] F.5 README
 - [ ] F.6 PROGRESS summary, audit bugs, decisions, known issues, 10-minute test
 - [ ] F.7 "ROUND 8 COMPLETE", commit, push
 
