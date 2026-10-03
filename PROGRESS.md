@@ -2225,3 +2225,46 @@ Automated: `cd tools && npm install && node unit-tests.mjs && node mp-tests.mjs`
 - Syntax: `tools/check-syntax.mjs` (module parsing) clean on all 78 files.
 
 ROUND 8 COMPLETE
+
+# Round 9 (UFO COMBAT) checklist
+
+Source of truth for this round. Round 8 was complete (and merged) before this round started; this round's work continues on the same branch name from the merged main. Ticked as finished; decisions in "Round 9 decisions and notes".
+
+## Part 1: Multiplayer damage overhaul (top priority)
+- [ ] 1.1 Bug: guests sometimes can't damage mobs (a spider) while the host can: root cause found and fixed
+- [ ] 1.2 One host-authoritative damage pipeline for every weapon x every target, host or guest, on foot or in a vehicle; every bypassing path fixed
+- [ ] 1.3 Damage matrix test (host + guest headless pages): every weapon x every target type, guest attacker damages and gets kill credit, same result on both screens; same matrix with the host attacking; results logged here
+- [ ] 1.4 Full multiplayer audit of the other synchronized systems (entities, items, crates, missions, vehicles, deaths and respawns, effects, block changes); fixes listed here
+
+## Part 2: Mission fixes
+- [ ] 2.1 Mission 18: mission targets never despawn, get replaced or lose their damage (every mission checked: despawn rules, culling, respawn logic, desync)
+- [ ] 2.2 Steal the ship: exactly one ship (every mission checked for duplicate spawns, also online)
+- [ ] 2.3 Death messages: every damage source reports the right cause (soldiers, spiders, UFOs, ...)
+- [ ] 2.4 Respawning during a mission: at random safe spots around the mission's location
+
+## Part 3: Missions
+- [ ] 3.1 More missions after mission 22: varied, rising difficulty, a proper finale
+- [ ] 3.2 Full chain re-checked for 1, 2 and 3 players
+
+## Part 4: Creative mode
+- [ ] 4.1 Call-in buttons (Creative only): in the air in a jet (F-22, F-16, B-2), or in a random flying UFO; works online
+- [ ] 4.2 Switching between Creative and Survival never changes the inventory (Creative items stay; nothing added)
+
+## Part 5: World and visuals
+- [ ] 5.1 Terrain: more flat land, fewer mountains, big ranges kept in places
+- [ ] 5.2 Spawn always on flat ground, never on a mountain
+- [ ] 5.3 Airport lights: a sensible range, fading with distance and fog like the render distance
+- [ ] 5.4 Land mobs never spawn on or in water (fish still do; aliens from a UFO crashed in water are the exception); online too
+- [ ] 5.5 Blue aliens: heads don't glow (normal, non-emissive)
+
+## Final polish
+- [ ] F.1 Regression pass (single-player)
+- [ ] F.2 Multiplayer review with 2 and 3 headless pages (damage matrix, missions 18-20 with guests, mission respawns, call-ins, mode switching, mob spawning)
+- [ ] F.3 Player's-eye review (new missions, terrain and spawn, airport lights at night at different distances, blue aliens)
+- [ ] F.4 Full test suites once
+- [ ] F.5 README
+- [ ] F.6 PROGRESS: summary, damage matrix results, audit bugs, decisions, known issues, 10-minute test
+- [ ] F.7 "ROUND 9 COMPLETE", commit, push
+
+## Round 9 decisions and notes
+(appended as work proceeds)
