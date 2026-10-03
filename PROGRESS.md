@@ -2169,8 +2169,8 @@ Goals per group size (1 / 2 / 3 players): skeleton 1/2/3, landing aliens 2/4/6, 
 11. A lost aircraft taken from an airport never came back while you stayed near (its slot stayed "used"); online the slot stayed taken on the other peers for good (Part 9).
 12. The Sunburn base was the nearest airport, i.e. usually the players' own; the "parked fighter" marker could point at the B-2 (Part 9).
 13. Distant shapes and airport lights still stood in a nuked area (polish).
-15. Mission ground spawns (squads, landing parties) refused any spot below the sea's level, so on a nuked airport (a dry crater) the Touchdown squad never came (found by the full round6 suite, which nukes the home airport first): dry crater floors are fine now, and the search widens when spots keep failing (polish).
 14. A squad leader's weapon dropped only if a living player made the kill (a leader killed by its own blast, a fall, a UFO, or by a player who died at the same moment dropped nothing) (Part 9).
+15. Mission ground spawns (squads, landing parties) refused any spot below the sea's level, so on a nuked airport (a dry crater) the Touchdown squad never came (found by the full round6 suite, which nukes the home airport first): dry crater floors are fine now, and the search widens when spots keep failing (polish).
 
 ## Round 8 decisions (and why)
 - **PvP on by default, host-only setting:** the request asked for it; Dogfight stays PvP always. **A nuke hurts everyone even with PvP off:** it is a nuke (and it keeps the B-2 run tense).
