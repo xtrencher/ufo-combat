@@ -1975,7 +1975,9 @@ try {
       world.setBlocks(edits);
       player.air = 0.3;
     }, site);
-    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 30000, polling: 30 });
+    // (About 1.5 s of game time: under water at 1280x800 the software renderer
+    // can drop below one frame a second, so a minute or more.)
+    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 150000, polling: 30 });
     const s = await page.evaluate(() => ({ air: window.__voxelands.player.air, bubbles: !document.getElementById("bubbles").classList.contains("hidden") }));
     assert(s.air === 0 && s.bubbles, `expected empty breath and visible bubbles: ${JSON.stringify(s)}`);
     await page.evaluate(({ x, y, z }) => {
@@ -2181,7 +2183,9 @@ try {
     }, a);
     // Give it plenty of game time to reach the moat and look for a way around.
     await page.evaluate(() => (window.__t0 = window.__voxelands.mobs.time));
-    await page.waitForFunction(() => window.__voxelands.mobs.time > window.__t0 + 10, null, { timeout: 180000, polling: 200 });
+    // (10 s of game time: up to 7 minutes with the software renderer below one
+    // frame a second at 1280x800 over this much water.)
+    await page.waitForFunction(() => window.__voxelands.mobs.time > window.__t0 + 10, null, { timeout: 600000, polling: 200 });
     const s = await page.evaluate(({ z }) => {
       clearInterval(window.__wetTimer);
       return { wet: window.__wet, zz: window.__zombie.pos.z, edge: z - 3, hp: window.__voxelands.player.health, target: window.__zombie.ai.target };
