@@ -383,7 +383,7 @@ lasers.addProvider({
       hit(b, point, d) {
         // (Round 9: an alien's, a UFO's or a fighter's bolt is no player's kill.)
         const mine = fromPlayer(b.owner);
-        if (mobs.shoot(hit.mob, b.damage, d, 2.5, mine) && mine) hud.hitMarker?.();
+        if (mobs.shoot(hit.mob, b.damage, d, b.kb ?? 2.5, mine) && mine) hud.hitMarker?.();
         for (let i = 0; i < 6; i++) effects.debris.spawn(point.x, point.y, point.z, (Math.random() - 0.5) * 3, Math.random() * 3, (Math.random() - 0.5) * 3, 0.05, bloodColor, 0.5);
       },
     };
@@ -453,6 +453,7 @@ settingsPanel.on("vehicles.enemyJets", (v) => (enemyJets.config.count = v));
 const nuke = new NukeSystem({ scene, world, effects, audio });
 vehicles.nuke = nuke;
 vehicles.ufos = ufos;
+vehicles.lod = lod; // (the UFO dash never outruns the land that is drawn)
 settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
 settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
 nuke.onDetonate = (center, R, info = {}) => {
@@ -1123,6 +1124,18 @@ const myItems = () => {
 // drop from your kill for them to pick up, and the group ends up equipped alike.
 let mpLate = null; // (the multiplayer facade, made further down)
 const ownedItems = () => (mpLate?.active && mpLate.coop?.groupOwned ? new Set(mpLate.coop.groupOwned) : myItems());
+// (Round 10) Chests (js/chests.js): a village chest's loot follows the
+// chain's tier and what you have; their contents are saved with the world.
+const chests = interaction.chests;
+chests.getTier = progressTier;
+chests.getOwned = ownedItems;
+chests.load(savedPlayer?.chests);
+invScreen.chests = chests;
+invScreen.onCloseRequest = () => closeInventory();
+interaction.onOpenChest = (x, y, z) => {
+  invScreen.chestPos = [x, y, z];
+  openInventory("chest");
+};
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
 function dropLoot(list, at) {
   for (const [id, n] of list) {
@@ -1433,6 +1446,7 @@ function playerState() {
     modStash: mods.serialize(),
     loadout: loadoutGiven,
     missions: progress.serialize(),
+    chests: chests.serialize(),
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),

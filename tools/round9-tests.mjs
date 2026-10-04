@@ -368,7 +368,8 @@ await check("respawning during a mission: a random safe spot around the mission'
 await check("mission chain: 28 missions, the counterattack after UFO slayer, rising difficulty, the Armada last", async () => {
   const r = await v(async () => {
     const { MISSIONS } = await import("./js/progression.js");
-    return MISSIONS.map((m) => ({ id: m.id, ev: m.event, h: m.rules.health, d: m.rules.damage, max: m.rules.max }));
+    // (Round 10: the classic chain is the pool's first 28; new missions follow it.)
+    return MISSIONS.slice(0, 28).map((m) => ({ id: m.id, ev: m.event, h: m.rules.health, d: m.rules.damage, max: m.rules.max }));
   });
   const ids = r.map((m) => m.id);
   assert(r.length === 28 && JSON.stringify(ids.slice(22)) === JSON.stringify(["scramble", "abductors", "titan", "swarm", "fortress", "armada"]), JSON.stringify(ids));

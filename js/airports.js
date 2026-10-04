@@ -1,5 +1,6 @@
 // Airports in use: aircraft parked on the aprons of the airports and cities
-// (sites.js) near the player, and now and then a UFO hovering in a hangar.
+// (sites.js) near the player (Round 10: now and then a fighter inside a
+// hangar, nose to the doorway), and the alien ships in the bunkers.
 // A parked fighter is a real jet (boardable with F, like the one called in
 // with J); they are set out when the player comes within range and put away
 // when they leave. Parked aircraft are never saved.
@@ -84,7 +85,13 @@ export class AirportManager {
     // try at the enemy base). Bunker ships are set out once (see below).
     for (let i = jets.length - 1; i >= 0; i--) if (jets[i].type === "jet" && !veh.vehicles.includes(jets[i])) jets.splice(i, 1);
     const slots = this.sites.parkingSlots(s);
-    const n = Math.min(this.fighterCount(s), slots.fighters.length);
+    // (Round 10) Some of the fighters stand in the hangars that have room for
+    // one (sites.js jetHangars), at least one out on the apron; the hangars
+    // take the ones the apron has no room for. The same total as before.
+    const total = this.fighterCount(s);
+    const inHangars = slots.hangars || [];
+    const n = Math.min(slots.fighters.length, total - Math.min(inHangars.length, total - 1));
+    const nh = Math.min(inHangars.length, total - n);
     const have = new Set(jets.map((j) => j.parkKey));
     const put = (slot, jetType, span, len, checked = false) => {
       if (have.has(slot.key) || this.taken.has(slot.key)) return;
@@ -101,6 +108,7 @@ export class AirportManager {
     };
     // A mix of Raptors and Falcons (fixed per airport and slot), and a B-2.
     for (let i = 0; i < n; i++) put(slots.fighters[i], (s.seed + i) % 2 ? "f16" : "f22", 15, 16);
+    for (let i = 0; i < nh; i++) put(inHangars[i], ((s.seed >>> 3) + inHangars[i].hangar) % 2 ? "f16" : "f22", 15, 16);
     if (JET_TYPES.b2 && !have.has(`${s.id}#b`) && !this.taken.has(`${s.id}#b`)) {
       const spot = this._bomberSpot(s, slots);
       if (spot) put(spot, "b2", 48, 22, true);

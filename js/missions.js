@@ -1438,6 +1438,7 @@ export class MissionDirector {
     this._keepTarget(u);
     u.homeOf = who;
     u.dodgeMul = 0.5;
+    u.crashPlan = { crew: Math.random() < 0.5 ? 1 : 0 }; // (a hunter is crewed light: a hunt doesn't fill the ground with aliens)
     this.ufos.anger(u, 90);
     st.hunters.push(u);
   }

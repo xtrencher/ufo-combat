@@ -125,7 +125,7 @@ await test("garbage input yields no edits instead of throwing", () => {
 console.log("\nLight engine (light.js) vs. brute-force reference");
 
 const { LightEngine } = await import("../js/light.js");
-const { BLOCK, IS_OPAQUE, LIGHT_FILTER, SKY_PASS, EMISSION } = await import("../js/blocks.js");
+const { BLOCK, IS_OPAQUE, LIGHT_FILTER, SKY_PASS, EMISSION, IS_WALL_TORCH, IS_CHEST } = await import("../js/blocks.js");
 
 const H = WORLD_HEIGHT;
 const DIRS = [
@@ -623,6 +623,8 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   };
   let planks = 0;
   let torches = 0;
+  let wallTorches = 0;
+  let chests = 0;
   let gravel = 0;
   let crops = 0;
   for (let dx = -VILLAGE_REACH; dx <= VILLAGE_REACH; dx++) {
@@ -631,6 +633,8 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
         const id = get(center.x + dx, center.groundY + dy, center.z + dz);
         if (id === BLOCK.PLANKS) planks++;
         else if (id === BLOCK.TORCH) torches++;
+        else if (IS_WALL_TORCH[id]) wallTorches++;
+        else if (IS_CHEST[id]) chests++;
         else if (id === BLOCK.GRAVEL) gravel++;
         else if (id === BLOCK.TALL_GRASS) crops++;
       }
@@ -641,7 +645,10 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   // (Round 8: bigger villages: a torch beside every house door, and 12 lamp posts along the streets.)
   const houses = gen.villages.houses(center).length;
   assert.ok(houses >= 6 && houses <= 10, `expected 6-10 houses, got ${houses}`);
-  assert.equal(torches, houses + 12, `expected a torch per house (${houses}) and 12 lamps, got ${torches}`);
+  // (Round 10: wall torches beside the doors and inside every house; chests in about half of them, at least one.)
+  assert.equal(torches, 12, `expected 12 lamp posts' torches, got ${torches}`);
+  assert.ok(wallTorches >= houses * 2, `expected at least 2 wall torches per house (${houses}), got ${wallTorches}`);
+  assert.ok(chests >= 1 && chests <= houses + 1, `expected chests in some houses (${houses}), got ${chests}`);
   assert.ok(gravel > 20, `expected a real path network, got ${gravel} gravel blocks`);
   assert.ok(crops > 0, "expected some crops in the farm plot");
   // Regenerating the same chunks independently gives identical results
