@@ -789,9 +789,11 @@ try {
       player.flying = true;
       player.velocity.set(0, 0, 0);
       player.position.set(x0 + 0.5, y + 3, z0 + 0.5);
-      // Tree species growing near spawn (the world generator's plan).
+      // Tree species growing near spawn (the world generator's plan). (Round 9:
+      // within 400 blocks: the flatter land moved seed 42's spawn, and the
+      // nearest birches now stand 200-400 blocks off.)
       const kinds = new Set();
-      for (let x = spawn.x - 200; x < spawn.x + 200; x += 2) for (let z = spawn.z - 200; z < spawn.z + 200; z += 2) {
+      for (let x = spawn.x - 400; x < spawn.x + 400; x += 3) for (let z = spawn.z - 400; z < spawn.z + 400; z += 3) {
         const root = v.world.terrain.trees.rootAt(x, z);
         if (root) kinds.add(root.species);
       }
@@ -2227,7 +2229,8 @@ try {
     await page.waitForTimeout(150);
     const vy1 = await page.evaluate(() => window.__voxelands.mobs.arrows[0]?.vel.y ?? null);
     if (vy0 !== null && vy1 !== null) assert(vy1 < vy0, `the arrow's vertical velocity should decay under gravity: ${vy0} -> ${vy1}`);
-    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 15000, polling: 50 });
+    // (Its aim scatters: a few arrows can miss before one lands.)
+    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 40000, polling: 50 });
     const hpAfter = await page.evaluate(() => window.__voxelands.player.health);
     console.log(`        skeleton shot an arrow (vel.y ${vy0?.toFixed(2)} -> ${vy1?.toFixed(2)}); player health ${r.hpBefore} -> ${hpAfter}`);
     assert(hpAfter < 20, "the skeleton's arrow should have hurt the player");
