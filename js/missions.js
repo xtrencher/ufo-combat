@@ -936,6 +936,11 @@ export class MissionDirector {
       }
       return;
     }
+    // (A dusk plan that was dropped in the dark, e.g. the clock moved under it: plan it again; at dusk already, the night begins.)
+    if (st.retry || (!st.fastDone && st.lateChecked)) {
+      if (!this._warpTo(19.6, dt)) this._warpDone({ h: 19.6 });
+      return;
+    }
     if (!st.fastDone && !st.lateChecked && !st.retry) {
       // (Round 9) Started at night: the night counts from now if most of it is
       // still ahead (the landings need about three minutes); late at night it
@@ -1505,7 +1510,7 @@ export class MissionDirector {
       this.progress.setBack("holdTime", TAKEN_SETBACK * taken, this.stats.world);
       this.toast?.(this.players ? "Someone was taken! The clock goes back a minute." : "You were taken! The clock goes back a minute.", 4);
     }
-    if (this.anyAlive && st.hunters.length && held < goal) this._addHold(0.5, this._people());
+    if (this.anyAlive && held < goal) this._addHold(0.5, this._people()); // (an empty sky too: shooting the ships down buys a breather, not a stopped clock)
     const marks = v === 2 ? [0.3, 0.7] : [0.5];
     st.party = st.party ?? 0;
     if (st.party < marks.length && held >= goal * marks[st.party]) {
@@ -1740,17 +1745,21 @@ export class MissionDirector {
       // (A walk takes about a second for every four blocks: time enough, less of it on the variant that says so.)
       st.total = st.timeLeft = Math.round(Math.hypot(at.x - from.x, at.z - from.z) / [2.2, 2.8, 2, 2.2][v] + [25, 15, 30, 25][v]);
       st.rings = [];
-      st.arrived = new Set();
+      // (By nick, kept in the saved place: a guest who rejoins comes back as a new proxy, and a reload rebuilds this.)
+      st.arrived = new Set(Array.isArray(this.progress.place?.in) ? this.progress.place.in : []);
       st.strikeT = 7;
     }
     const z = st.zone;
     const c = new THREE.Vector3(z.x, z.y, z.z);
     const people = this._people().filter((q) => !q.dead);
     if (this.anyAlive) st.timeLeft -= 0.5;
-    // Arrivals (each player once).
+    // Arrivals (each player once, by nick: offline there is only the player).
+    const keyOf = (q) => String(this.nameOf?.(q) ?? (q.isRemote ? `#${q.pid}` : "@host")).toLowerCase();
     for (const q of people) {
-      if (st.arrived.has(q) || Math.hypot(q.position.x - z.x, q.position.z - z.z) >= z.r || Math.abs(q.position.y - z.y) >= 10) continue;
-      st.arrived.add(q);
+      const k = keyOf(q);
+      if (st.arrived.has(k) || Math.hypot(q.position.x - z.x, q.position.z - z.z) >= z.r || Math.abs(q.position.y - z.y) >= 10) continue;
+      st.arrived.add(k);
+      if (this.progress.place) this.progress.place.in = [...st.arrived];
       if (q === this.player) this.stats.add("evacuated");
       else this.stats.addWorld("evacuated");
       const who = this.nameOf?.(q);
@@ -1774,7 +1783,7 @@ export class MissionDirector {
       } else this._leash(st.spotter, 120, 90);
     }
     // The bombardment, near whoever is still out in the open (not too near the shelter).
-    const out = people.filter((q) => !st.arrived.has(q));
+    const out = people.filter((q) => !st.arrived.has(keyOf(q)));
     st.rings = st.rings.filter((r) => r.t > -1);
     st.strikeT -= 0.5;
     if (out.length && st.strikeT <= 0 && this.weapons?.airstrike) {

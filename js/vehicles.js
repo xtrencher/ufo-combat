@@ -34,6 +34,8 @@ const _dir = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _pose = { pos: null, q: null, vel: null };
 const _pose2 = { pos: null, q: null, vel: null };
+const _lead = new THREE.Vector3();
+const _lead2 = new THREE.Vector3();
 
 // ---------- Base class ----------
 
@@ -589,13 +591,14 @@ export class VehicleManager {
     // (The list is read afresh each time: a crash's blast can take a vehicle out of it.)
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
-      // (Not a ship mid-dash: its ram is its own, vehicle-ufo.js; nor a jet a
-      // tractor beam is drawing up: the beam swallows it.)
-      const sa = a.alive && !a.dashing && !(a.beamHeld > 0) ? a.collider : null;
+      // (Not a ship mid-dash, ours or another player's (netDash): its ram is
+      // its own, vehicle-ufo.js; nor a jet a tractor beam is drawing up: the
+      // beam swallows it.)
+      const sa = a.alive && !a.dashing && !a.netDash && !(a.beamHeld > 0) ? a.collider : null;
       if (!sa) continue;
       for (let j = i + 1; j < list.length && a.alive; j++) {
         const b = list[j];
-        const sb = b.alive && !b.dashing && !(b.beamHeld > 0) ? b.collider : null;
+        const sb = b.alive && !b.dashing && !b.netDash && !(b.beamHeld > 0) ? b.collider : null;
         // (Both another machine's: theirs to judge. An aircraft still parked
         // at an airport is every peer's own copy: only against our own.)
         if (!sb || (a.puppet && b.puppet) || (a.puppet && b.parkedAt) || (b.puppet && a.parkedAt)) continue;
@@ -606,19 +609,29 @@ export class VehicleManager {
         const rv = Math.hypot(rvx, rvy, rvz);
         if (rv < 0.05) continue;
         const reach = sa.r + sb.r + rv * dt;
-        const dx = b.pos.x - a.pos.x;
-        const dy = b.pos.y - a.pos.y;
-        const dz = b.pos.z - a.pos.z;
+        const pa = this._colPos(a, _lead);
+        const pb = this._colPos(b, _lead2);
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const dz = pb.z - pa.z;
         if (dx * dx + dy * dy + dz * dz > reach * reach) continue;
-        if (!hullContact(sa, this._colPose(a, _pose), sb, this._colPose(b, _pose2), dt)) continue;
+        if (!hullContact(sa, this._colPose(a, _pose, pa), sb, this._colPose(b, _pose2, pb), dt)) continue;
         this._contact(a, b);
       }
     }
   }
 
+  // Where a body is now: another machine's is drawn its interpolation delay
+  // behind its owner (15-25 blocks at fighter speeds), so it is tested where
+  // it has got to by now, as its owner sees it (no crashes into a ghost).
+  _colPos(v, out) {
+    if (!v.puppet || !v.interp) return v.pos;
+    return out.copy(v.pos).addScaledVector(v.vel, Math.min(0.35, v.interp.delay));
+  }
+
   // A body as hullContact wants it ({ pos, q, vel }; a ship has no attitude quaternion).
-  _colPose(v, out) {
-    out.pos = v.pos;
+  _colPose(v, out, pos = v.pos) {
+    out.pos = pos;
     out.q = v.q && v.q.isQuaternion ? v.q : null;
     out.vel = v.vel;
     return out;
@@ -663,20 +676,38 @@ export class VehicleManager {
     if (closing < BUMP_SPEED) return;
     if (this.collisionJudge && !this.collisionJudge(a, b)) return;
     // Damage: the share of each grows with the other's mass; at CRASH_SPEED
-    // two of a kind are both lost, much faster and even a B-2 is.
+    // two of a kind are both lost, much faster and even a B-2 is. (But one
+    // contact with a much lighter body takes at most a share of a heavy one's
+    // hull, however fast: a fighter can't erase a B-2 or a big ship at once.)
     const s = (closing - BUMP_SPEED) / (CRASH_SPEED - BUMP_SPEED);
     const k = s * Math.sqrt(s);
-    const da = Math.ceil(a.maxHealth * k * ((2 * b.mass) / (a.mass + b.mass)));
-    const db = Math.ceil(b.maxHealth * k * ((2 * a.mass) / (a.mass + b.mass)));
+    let da = Math.ceil(a.maxHealth * k * ((2 * b.mass) / (a.mass + b.mass)));
+    let db = Math.ceil(b.maxHealth * k * ((2 * a.mass) / (a.mass + b.mass)));
+    if (a.mass > b.mass * 2) da = Math.min(da, Math.ceil(a.maxHealth * Math.min(1, (3 * b.mass) / a.mass)));
+    if (b.mass > a.mass * 2) db = Math.min(db, Math.ceil(b.maxHealth * Math.min(1, (3 * a.mass) / b.mass)));
     if (mine && s > 0.25) this.onMessage?.("COLLISION!");
-    this._collisionHit(a, da);
-    this._collisionHit(b, db);
+    // (Whether a player flew each, read before either is lost.)
+    const pilotA = !!a.occupied;
+    const pilotB = !!b.occupied;
+    this._collisionHit(a, da, b, pilotB);
+    this._collisionHit(b, db, a, pilotA);
   }
 
-  _collisionHit(v, amount) {
+  _collisionHit(v, amount, other = null, pilot = false) {
     if (!v.alive || amount <= 0) return;
     if (v.puppet) this.collisionHit?.(v, amount);
-    else v.damage(amount, "crash");
+    else {
+      // (What it met, while the damage lands: a fighter downed by an aircraft a
+      // player flew is theirs, by another fighter isn't; enemy-jets.js.)
+      v.bumpedBy = other;
+      v.bumpedPilot = pilot;
+      try {
+        v.damage(amount, "crash");
+      } finally {
+        v.bumpedBy = null;
+        v.bumpedPilot = false;
+      }
+    }
   }
 
   // ---------- Input ----------

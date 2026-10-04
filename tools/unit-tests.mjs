@@ -1680,6 +1680,11 @@ console.log("\nProgression (progression.js)");
       assert.equal(new Set(ids).size, ids.length, `no repeats ${tag}`);
       assert.equal(c.vars.length, ids.length);
       assert.ok(c.vars.every((v) => Number.isInteger(v) && v >= 0 && v <= 3));
+      // The act headers are the acts drawn (not each mission's earliest).
+      const pa = new Progress();
+      pa.setChain(ids, c.vars, c.acts);
+      assert.deepEqual(pa.acts, c.acts, `the drawn acts fit: ${tag}`);
+      assert.deepEqual(ids.map((id, i) => pa.missionAt(i).act), c.acts, `the views' acts: ${tag}`);
       // Every mandatory mission is in; the optional ones that sit out are few.
       for (const m of MISSIONS) if (!m.optional) assert.ok(at(m.id) >= 0, `${m.id} is in: ${tag}`);
       skipped += MISSIONS.length - ids.length;
@@ -1740,13 +1745,20 @@ console.log("\nProgression (progression.js)");
     q.load(saved, stats);
     assert.deepEqual(q.chain, p.chain);
     assert.deepEqual(q.vars, p.vars);
+    assert.deepEqual(q.acts, makeChain(1234).acts, "the acts drawn kept too");
     assert.equal(q.seed, 1234);
     assert.equal(q.mission.id, "wings");
-    const odd = { ...saved, chain: [saved.chain[0], "nope", ...saved.chain.slice(1)], vars: [0, 0, ...saved.vars.slice(1)], step: saved.step + 1 };
+    const odd = { ...saved, chain: [saved.chain[0], "nope", ...saved.chain.slice(1)], vars: [0, 0, ...saved.vars.slice(1)], acts: [saved.acts[0], 1, ...saved.acts.slice(1)], step: saved.step + 1 };
     const r = new Progress();
     r.load(odd, stats);
     assert.deepEqual(r.chain, p.chain);
+    assert.deepEqual(r.acts, q.acts);
     assert.equal(r.mission.id, "wings");
+    // (A save from before the acts were kept: each mission by its earliest act.)
+    const noActs = new Progress();
+    noActs.load({ ...saved, acts: undefined }, stats);
+    assert.equal(noActs.acts, null);
+    assert.equal(noActs.missionAt(noActs.total - 1).act, 4);
     // A new game: a fresh run (Node has no navigator.webdriver), so two games seldom match.
     const a = new Progress();
     a.load(null, stats);

@@ -9,7 +9,8 @@
 // same from the workers. With --mp, online too (a host and a guest in two
 // pages through a local PeerJS server, like mp-tests.mjs): the guest opens a
 // chest and sees the host's contents, both have it open and see each
-// other's clicks, a stale click is refused and nothing is lost, and a chest
+// other's clicks, a stale click is refused and nothing is lost, closing the
+// screen right after a click neither duplicates nor loses items, and a chest
 // the guest breaks spills the host's contents for both.
 //
 //   node r10-villages-tests.mjs [--only=substring] [--seed=42] [--mp]
@@ -534,6 +535,65 @@ async function mpChecks() {
     const g2 = await pv(guest, (g) => g.invScreen.chestView.slots.map((s) => (s ? [s.id, s.count] : 0)));
     const h2 = await pv(host, (g, pos) => g.interaction.chests.store.get(pos.join(",")).map((s) => (s ? [s.id, s.count] : 0)), chestPos);
     assert(JSON.stringify(g2) === JSON.stringify(h2), JSON.stringify({ guest: g2, host: h2 }));
+  });
+
+  await check("online: a guest closing the chest screen right after a click neither duplicates nor loses items", async () => {
+    assert(chestPos, "no chest");
+    const APPLE = 262; // (golden apples)
+    const count = (list) => list.reduce((n, s) => n + (s && s.id === APPLE ? s.count : 0), 0);
+    const total = async () => {
+      const g = await pv(guest, (g, id) => [...g.inventory.slots, g.invScreen.cursor].reduce((n, s) => n + (s && s.id === id ? s.count : 0), 0), APPLE);
+      const h = await pv(host, (g, pos) => g.interaction.chests.store.get(pos.join(",")), chestPos);
+      return g + count(h || []);
+    };
+    const reopen = async () => {
+      const opened = await toChest(guest, chestPos, 0);
+      assert(opened.open, `the guest's chest screen didn't open: ${JSON.stringify(opened)}`);
+      assert(await until(guest, (g) => g.invScreen.chestView?.ready && !g.invScreen.busy, 10000), "the host never answered");
+    };
+    const settled = () => until(guest, (g) => !g.invScreen.busy && !g.interaction.chests.pending && g.gameState !== "inventory", 10000);
+    const out = {};
+    // A stack from the inventory into the chest, then Esc at once.
+    await reopen();
+    await pv(guest, (g, id) => g.inventory.add(id, 10), APPLE);
+    const t0 = await total();
+    out.deposit = await pv(guest, (g) => {
+      g.invScreen.invViews[0].el.dispatchEvent(new MouseEvent("mousedown", { button: 0, shiftKey: true, bubbles: true }));
+      const busy = g.invScreen.busy;
+      g.invScreen.onCloseRequest();
+      return busy;
+    });
+    assert(await settled(), "the deposit never settled");
+    const t1 = await total();
+    // That stack back out of the chest (into the inventory), then Esc at once.
+    await reopen();
+    const t2 = await total();
+    out.take = await pv(guest, (g, id) => {
+      const i = g.invScreen.chestView.slots.findIndex((s) => s && s.id === id);
+      if (i < 0) return "none";
+      document.querySelectorAll(".inv-chest .slot")[i].dispatchEvent(new MouseEvent("mousedown", { button: 0, shiftKey: true, bubbles: true }));
+      const busy = g.invScreen.busy;
+      g.invScreen.onCloseRequest();
+      return busy;
+    }, APPLE);
+    assert(await settled(), "the take never settled");
+    const t3 = await total();
+    // The stack in hand put into an empty chest slot, then Esc at once.
+    await reopen();
+    await pv(guest, (g, id) => (g.invScreen.cursor = { id, count: 5 }), APPLE);
+    const t4 = await total();
+    out.place = await pv(guest, (g) => {
+      const i = g.invScreen.chestView.slots.findIndex((s) => !s);
+      if (i < 0) return "full";
+      document.querySelectorAll(".inv-chest .slot")[i].dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true }));
+      const busy = g.invScreen.busy;
+      g.invScreen.onCloseRequest();
+      return busy;
+    });
+    assert(await settled(), "the placing never settled");
+    const t5 = await total();
+    const r = { ...out, t0, t1, t2, t3, t4, t5, cursor: await pv(guest, (g) => g.invScreen.cursor) };
+    assert(t1 === t0 && t3 === t2 && t5 === t4 && !r.cursor, JSON.stringify(r));
   });
 
   await check("online: a chest the guest breaks spills the host's contents for both, and both screens close", async () => {

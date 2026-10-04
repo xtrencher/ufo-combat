@@ -9,7 +9,7 @@
 // Bumped whenever the messages between peers change incompatibly: a host and
 // a client with different versions refuse to play together (with a message
 // saying to reload), instead of misbehaving.
-export const NET_VERSION = 7;
+export const NET_VERSION = 8;
 
 // The PeerJS client library (loaded only when multiplayer is used, so single
 // player never needs it).

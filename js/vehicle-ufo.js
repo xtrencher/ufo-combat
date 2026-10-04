@@ -31,6 +31,7 @@ import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT, CHUNK_SIZE } from "./constants.js";
 import { pickUfoStyle } from "./ufos.js";
 import { tileSpan } from "./lod-mesher.js";
+import { discShape, hullContact } from "./hitboxes.js";
 
 export const UFO_SPEED_DEFAULTS = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
 const BEAM_LIFT = 6; // blocks per second
@@ -74,10 +75,16 @@ const DASH_LOOK = 130;
 // ship's size power) to each thing, once per dash; half that to a boss, none
 // through a shield. Each ship or aircraft rammed costs the hull RAM_SELF of
 // its own strength (creatures and players nothing), and a dash that rammed
-// anything has the full DASH_COOLDOWN, held or not.
+// anything has the full DASH_COOLDOWN, held or not, plus RAM_COOL for each
+// thing hit (up to RAM_COOL_MAX of them). The path is at most RAM_REACH to
+// either side of its line, however big the ship (the superweapon's shaft is
+// capped at 24, the tunnel at 7).
 const RAM_DAMAGE = 80;
 const RAM_BOSS = 0.5;
 const RAM_SELF = 0.03;
+const RAM_REACH = 12;
+const RAM_COOL = 0.25;
+const RAM_COOL_MAX = 20;
 
 // The player's version of each enemy attack style (ufos.js STYLES): the
 // same look and sound, balanced for the player. damage is per bolt (per
@@ -104,7 +111,6 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _x1 = new THREE.Vector3();
 const _x2 = new THREE.Vector3();
-const _x3 = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 function sizeName(radius) {
@@ -1113,7 +1119,7 @@ export class PilotUfo extends Vehicle {
     const d = this.dashing;
     this.dashing = null;
     this.vel.set(0, 0, 0);
-    if (d?.rammed?.size) cool = DASH_COOLDOWN;
+    if (d?.rammed?.size) cool = DASH_COOLDOWN + RAM_COOL * Math.min(d.hits || 0, RAM_COOL_MAX);
     if (cool > this.dashT) this.dashT = this.dashTotal = cool;
   }
 
@@ -1130,11 +1136,17 @@ export class PilotUfo extends Vehicle {
     trail.spawnPath(this.model.hull, from, this.pos, n, shade, 0.35);
   }
 
-  // Online, another player's ship (a puppet: net/vehicles.js): a jump this
-  // big between two frames is a dash, drawn with the same smear.
-  netMoved(prev, dt) {
+  // Online, another player's ship (a puppet: net/vehicles.js), drawn with the
+  // same smear while its snapshot says it dashes (`dash`; a jump of 2000+ is
+  // a teleport, not a dash). Without that flag, a jump this big between two
+  // frames is taken for a dash.
+  netMoved(prev, dt, dash) {
     if (!prev || !(dt > 0)) return;
     const step = prev.distanceTo(this.pos);
+    if (dash !== undefined) {
+      if (dash && step < 2000) this._dashSmear(prev);
+      return;
+    }
     if (step > 8 && step / dt > 600 && step < 2000) this._dashSmear(prev);
   }
 
@@ -1255,7 +1267,7 @@ export class PilotUfo extends Vehicle {
     const mgr = this.manager;
     const done = d.rammed || (d.rammed = new Set());
     const r = this.radius;
-    const R = r * 0.85; // across the hull
+    const R = Math.min(r * 0.85, RAM_REACH); // across the hull
     const H = Math.max(1.2, this.info.h * r * 0.5 + 0.6); // half its height
     const lift = (this.info.h * 0.5 - this.info.bottom) * r; // its centre above pos
     const ax = a.x;
@@ -1294,6 +1306,7 @@ export class PilotUfo extends Vehicle {
         if (!touches(m.pos.x, m.pos.y + h / 2, m.pos.z, m.spec?.r ?? 0.4, h / 2)) continue;
         done.add(m);
         mgr.mobs.shoot(m, dmg, push, 10, true);
+        d.hits = (d.hits || 0) + 1;
         this._ramFx(at.set(m.pos.x, m.pos.y + h / 2, m.pos.z), 1, false);
       }
     }
@@ -1306,17 +1319,36 @@ export class PilotUfo extends Vehicle {
       at.copy(u.pos);
       const hit = mgr.ufos.damage(u, Math.round(u.boss ? dmg * RAM_BOSS : dmg), true, at.clone());
       if (hit || u.shield || u.immune) knocks++;
-      if (hit) this._ramFx(at, u.radius, true);
+      if (hit) {
+        d.hits = (d.hits || 0) + 1;
+        this._ramFx(at, u.radius, true);
+      }
     }
     // Aircraft and other ships: parked, flown by others, enemy fighters.
+    // (An aircraft by its real shape, against the hull's flat disc swept from
+    // a to b: a ship at the end of the step that moved the whole step in it.)
+    const disc = this._ramDisc || (this._ramDisc = discShape(R, -this.info.bottom * r, (this.info.top ?? this.info.bottom) * r));
+    const me = this._ramMe || (this._ramMe = { pos: new THREE.Vector3(), q: null, vel: new THREE.Vector3() });
+    const still = this._ramStill || (this._ramStill = { pos: null, q: null, vel: new THREE.Vector3() });
+    me.pos.copy(b);
+    me.vel.set(dx, dy, dz);
+    const sweep = disc.r + Math.sqrt(len2);
     for (const v of mgr.vehicles ?? []) {
       if (v === this || !v.alive || done.has(v)) continue;
-      const vr = (v.hitRadius ?? v.radius) * 0.7;
-      // (An aircraft by its real shape, the ship's path grown by its size.)
-      if (v.hull ? !v.segmentHit(_x2.set(ax, ay, az), _x3.set(b.x, b.y + lift, b.z), R * 0.8) : !touches(v.pos.x, v.pos.y, v.pos.z, vr, Math.max(1.2, vr * 0.4))) continue;
+      if (v.hull) {
+        const reach = sweep + v.hull.r;
+        if (v.pos.distanceToSquared(b) > reach * reach) continue;
+        still.pos = v.pos;
+        still.q = v.q && v.q.isQuaternion ? v.q : null;
+        if (!hullContact(disc, me, v.hull, still, 1)) continue;
+      } else {
+        const vr = (v.hitRadius ?? v.radius) * 0.7;
+        if (!touches(v.pos.x, v.pos.y, v.pos.z, vr, Math.max(1.2, vr * 0.4))) continue;
+      }
       done.add(v);
       if (!v.damage(dmg, "player", true)) continue;
       knocks++;
+      d.hits = (d.hits || 0) + 1;
       this._ramFx(at.copy(v.pos), v.radius, true);
     }
     // (The hull takes a knock from each ship it ploughs through.)
@@ -1548,7 +1580,7 @@ export class PilotUfo extends Vehicle {
         ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl (or W twice, held) boosts 3x`],
         ["Weapon", this._weaponText()],
         ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashReach)} blocks along the view at ${Math.round(this.dashSpeed)} blocks/s (this ship's dash is ${this.dashClass}), always ending in view; hold R to keep streaking, gathering speed as far as the world around you is drawn, no distance limit; ${DASH_COOLDOWN} s cooldown; the base distance and speed are in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
-        ["Ghost ram", `with ghost mode on, a dash rams what it flies through: ${Math.round(RAM_DAMAGE * this.power)} damage to each creature, ship or aircraft (half to a boss, nothing through a shield), once per dash; each ship rammed costs ${Math.round(RAM_SELF * 100)}% of your hull`],
+        ["Ghost ram", `with ghost mode on, a dash rams what it flies through: ${Math.round(RAM_DAMAGE * this.power)} damage to each creature, ship or aircraft (half to a boss, nothing through a shield), once per dash, along a path at most ${RAM_REACH * 2} blocks wide; each ship rammed costs ${Math.round(RAM_SELF * 100)}% of your hull, and the cooldown after a ram is ${RAM_COOL} s longer for each thing hit (up to ${DASH_COOLDOWN + RAM_COOL * RAM_COOL_MAX} s)`],
         ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
         ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship; works at any altitude; a bigger ship also pulls in smaller UFOs (1.3x smaller) and enemy jets (ship radius 6.5+), swallowing them"],
         ["Lock-on salvo", "hold T on a UFO, jet or hostile creature near the crosshair: locked after 1 s, a salvo of homing laser bolts (more for bigger ships) fires by itself after 3 s; let go earlier to cancel; 7 s to recharge"],

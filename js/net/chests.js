@@ -71,10 +71,16 @@ export class ChestSync {
     if (this.mp.active) this.net.toHost({ t: "chopen", p: [view.x, view.y, view.z] });
   }
 
+  // (A click already sent still settles from the host's "chres": the channel
+  // is ordered, so the host applies it before this close.)
   close(view) {
     if (this.mp.active) this.net.toHost({ t: "chclose", p: [view.x, view.y, view.z] });
-    for (const done of this._ops.values()) done(false);
-    this._ops.clear();
+  }
+
+  // A generated chest this guest broke: the host spills its loot if it
+  // hasn't that ground loaded (it rides with the edit, js/net/world.js).
+  goneLocal(x, y, z) {
+    if (this.mp.active) this.mp.world?.goneLocal?.(x, y, z);
   }
 
   op(view, changes, done) {

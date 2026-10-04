@@ -1328,7 +1328,9 @@ export class MobManager {
     dir.divideScalar(dist);
     // (Round 8: the aim spreads far less with distance, so a long shot can hit:
     // about +-4 blocks at 90 blocks for a pistol, a little tighter for a rifle or a burst.)
-    const spread = (weapon === "burst" ? 0.009 : weapon === "rifle" ? 0.014 : 0.021) + dist * (weapon === "burst" ? 0.00018 : weapon === "rifle" ? 0.0002 : 0.00025);
+    // (Half that at an aircraft: its real shape is hit now, not a sphere, so
+    // about as many shots land as before.)
+    const spread = ((weapon === "burst" ? 0.009 : weapon === "rifle" ? 0.014 : 0.021) + dist * (weapon === "burst" ? 0.00018 : weapon === "rifle" ? 0.0002 : 0.00025)) * (veh?.hull ? 0.5 : 1);
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread;
     dir.z += (Math.random() - 0.5) * spread * 2;

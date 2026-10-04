@@ -185,7 +185,7 @@ export const MISSIONS = [
     id: "patrol",
     title: "Laser patrol",
     text: "A UFO has landed a patrol of green aliens nearby. Their leader (marked) carries a laser blaster: wipe them out and take it.",
-    objectives: [{ stat: "aliensKilled", goal: 4, label: "Aliens killed", scale: "player" }],
+    objectives: [{ stat: "aliensKilled", goal: 4, goals: [4, 5, 4, 3], label: "Aliens killed", scale: "player" }],
     event: "squad",
     act: 2,
     squad: { kind: "alien", n: 4, leaderDrop: ITEM.LASER_BLASTER },
@@ -206,7 +206,7 @@ export const MISSIONS = [
     id: "grays",
     title: "Gray squad",
     text: "A squad of grays (fast sharpshooters with burst rifles) has landed. Their leader (marked) carries a laser minigun: take it. Keep moving.",
-    objectives: [{ stat: "aliensKilled", goal: 5, label: "Aliens killed", scale: "player" }],
+    objectives: [{ stat: "aliensKilled", goal: 5, goals: [5, 6, 5, 4], label: "Aliens killed", scale: "player" }],
     event: "squad",
     act: 2, after: ["patrol"],
     squad: { kind: "alien_gray", n: 5, leaderDrop: ITEM.MINIGUN },
@@ -271,7 +271,7 @@ export const MISSIONS = [
     id: "reds",
     title: "Red brutes",
     text: "Red brutes (slow, armoured, with plasma cannons that blast the ground) have landed. Their leader (marked) carries a railgun: take it. Keep your distance.",
-    objectives: [{ stat: "aliensKilled", goal: 3, label: "Aliens killed", scale: "player" }],
+    objectives: [{ stat: "aliensKilled", goal: 3, goals: [3, 4, 3, 2], label: "Aliens killed", scale: "player" }],
     event: "squad",
     act: 3, after: ["grays"],
     squad: { kind: "alien_red", n: 3, leaderDrop: ITEM.RAILGUN },
@@ -617,11 +617,13 @@ function tryChain(rand) {
   }
   // The weapon leaders wait for a place whose tier has their weapon.
   for (let i = 0; i < ids.length; i++) if (curveAt(i, ids.length).tier < leaderTier(BY_ID.get(ids[i]))) return null;
-  return { ids, vars: ids.map(() => Math.floor(rand() * 4)) };
+  // (The acts drawn, for the act headers: after the variants, so a seed's run is the same.)
+  return { ids, vars: ids.map(() => Math.floor(rand() * 4)), acts: ids.map((id) => (BY_ID.get(id).final ? ACT_NAMES.length - 1 : actOf(id))) };
 }
 
-// A run for this seed: { ids, vars } (vars: each mission's variant, 0-3, for
-// the director to vary its numbers by). The classic chain if no try works.
+// A run for this seed: { ids, vars, acts } (vars: each mission's variant, 0-3,
+// for the director to vary its numbers by; acts: the act each was drawn into).
+// The classic chain if no try works.
 export function makeChain(seed) {
   const rand = seeded(seed);
   for (let k = 0; k < 500; k++) {
@@ -684,24 +686,34 @@ export class Progress {
   }
 
   // (Round 10) Sets the run (ids in order; unknown or repeated ids are left
-  // out) and each mission's variant. The step stays where it is (a guest
-  // mirroring the host's run sets its step next; see js/net/coop.js).
-  setChain(ids, vars = null) {
+  // out), each mission's variant and the act it was drawn into (none, or
+  // ones that don't fit: each by its earliest act). The step stays where it
+  // is (a guest mirroring the host's run sets its step next; see js/net/coop.js).
+  setChain(ids, vars = null, acts = null) {
     const seen = new Set();
     const keep = [];
     const vv = [];
+    const aa = [];
     (Array.isArray(ids) ? ids : []).forEach((id, i) => {
       if (typeof id !== "string" || !BY_ID.has(id) || seen.has(id)) return;
       seen.add(id);
       keep.push(id);
       vv.push(Number.isInteger(vars?.[i]) ? Math.max(0, Math.min(3, vars[i])) : 0);
+      aa.push(Number.isInteger(acts?.[i]) ? acts[i] : 0);
     });
     if (!keep.length) return this.setChain(CLASSIC_IDS);
     this.chain = keep;
     this.vars = vv;
+    const fits = aa.every((a, i) => {
+      const m = BY_ID.get(keep[i]);
+      const [lo, hi] = actRange(m);
+      const prev = i ? aa[i - 1] : 1;
+      return a >= prev && (m.final ? a === ACT_NAMES.length - 1 : m.follows ? a === prev : a >= lo && a <= hi);
+    });
+    this.acts = fits ? aa : null;
     // (A short signature of the run: online, the host sends the run itself only when it changes.)
     let hsh = 5381;
-    for (const ch of `${keep.join(",")}/${vv.join("")}`) hsh = (Math.imul(hsh, 33) + ch.charCodeAt(0)) | 0;
+    for (const ch of `${keep.join(",")}/${vv.join("")}/${(this.acts || []).join("")}`) hsh = (Math.imul(hsh, 33) + ch.charCodeAt(0)) | 0;
     this.key = `${n36(keep.length)}${n36(hsh >>> 0)}`;
     // The missions as this run plays them: each with its place's tier, sky and reward.
     const n = keep.length;
@@ -709,7 +721,7 @@ export class Progress {
     this._views = keep.map((id, i) => {
       const m = BY_ID.get(id);
       const c = curveAt(i, n);
-      act = m.final ? ACT_NAMES.length - 1 : m.follows ? act : Math.max(act, actRange(m)[0]);
+      act = this.acts ? this.acts[i] : m.final ? ACT_NAMES.length - 1 : m.follows ? act : Math.max(act, actRange(m)[0]);
       const reward = c.reward.map(([item, k]) => [item, k]);
       if (m.bonus) {
         const g = reward.find(([item]) => item === ITEM.GOLDEN_APPLE);
@@ -731,7 +743,7 @@ export class Progress {
   newChain(seed = (Math.random() * 4294967296) >>> 0) {
     const c = makeChain(seed >>> 0);
     this.seed = seed >>> 0;
-    this.setChain(c.ids, c.vars);
+    this.setChain(c.ids, c.vars, c.acts);
     this.step = 0;
     this.done = [];
     this.place = null;
@@ -870,7 +882,7 @@ export class Progress {
   }
 
   serialize() {
-    return { v: 7, step: this.step, base: this.base, done: this.done, chain: this.chain, vars: this.vars, ...(this.seed != null ? { seed: this.seed } : {}), ...(this.place ? { place: this.place } : {}) };
+    return { v: 7, step: this.step, base: this.base, done: this.done, chain: this.chain, vars: this.vars, ...(this.acts ? { acts: this.acts } : {}), ...(this.seed != null ? { seed: this.seed } : {}), ...(this.place ? { place: this.place } : {}) };
   }
 
   load(data, stats) {
@@ -913,7 +925,7 @@ export class Progress {
         const ids = Array.isArray(data.chain) ? data.chain : [];
         const known = (id) => typeof id === "string" && BY_ID.has(id);
         step = ids.slice(0, step).filter(known).length;
-        if (!this.setChain(ids, Array.isArray(data.vars) ? data.vars : null) || !ids.some(known)) step = Math.min(step, CLASSIC_IDS.length);
+        if (!this.setChain(ids, Array.isArray(data.vars) ? data.vars : null, Array.isArray(data.acts) ? data.acts : null) || !ids.some(known)) step = Math.min(step, CLASSIC_IDS.length);
         if (Number.isInteger(data.seed)) this.seed = data.seed >>> 0;
       }
       this.step = Math.min(step, this.total);

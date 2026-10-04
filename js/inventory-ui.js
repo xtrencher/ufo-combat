@@ -165,16 +165,17 @@ export class InventoryScreen {
   }
 
   // Puts the carried stack back into the inventory (anything that doesn't
-  // fit is dropped) and hides the screen.
+  // fit is dropped) and hides the screen. (A chest click still with the
+  // host: its answer decides what the hand holds, and puts that back.)
   close() {
     if (!this.isOpen) return;
     const leftovers = [];
-    if (this.cursor) {
+    if (this.cursor && !this.busy) {
       const s = this.cursor;
       const left = this.inventory.add(s.id, s.count, s.dur);
       if (left > 0) leftovers.push({ ...s, count: left });
+      this.cursor = null;
     }
-    this.cursor = null;
     this.kind = null;
     this.hover = null;
     this.root.classList.add("hidden");
@@ -305,6 +306,13 @@ export class InventoryScreen {
     this.chests.submit(changes, (ok) => {
       this.busy = false;
       if (ok) onOk();
+      // (The screen closed meanwhile: what the hand holds goes back into the inventory.)
+      if (!this.isOpen && this.cursor) {
+        const s = this.cursor;
+        this.cursor = null;
+        const left = this.inventory.add(s.id, s.count, s.dur);
+        if (left > 0) this.onDrop?.({ ...s, count: left });
+      }
       this.refresh();
       this._changed();
       this._showTooltip();
@@ -389,12 +397,14 @@ export class InventoryScreen {
       if (!before && !sent) return;
       this._submit([[i, before, sent]], () => {
         const slots = this.inventory.slots;
-        const cur = slots[h];
-        // (picked something up meanwhile into that slot: only what was sent leaves it)
-        if (cur && sent && cur.id === sent.id && cur.count > sent.count) {
-          cur.count -= sent.count;
-          if (before) this._give(before);
-        } else slots[h] = before;
+        if (sameStack(slots[h], sent)) {
+          slots[h] = before; // unchanged meanwhile: a plain swap
+          return;
+        }
+        // (The slot changed while the host answered, e.g. a pickup: only what
+        // was sent leaves the inventory, and the chest's stack is added.)
+        if (sent) this._take(h, sent.id, sent.dur, sent.count);
+        if (before) this._give(before);
       });
     } else if (code === "KeyQ" && before) {
       const n = ctrl ? before.count : 1;
@@ -404,7 +414,7 @@ export class InventoryScreen {
 
   // Throws the carried stack (or one item of it) out of the screen.
   _dropCursor(one) {
-    if (!this.cursor) return;
+    if (!this.cursor || this.busy) return; // (a chest click still with the host decides the hand)
     let dropped;
     if (one && this.cursor.count > 1) {
       dropped = { ...this.cursor, count: 1 };

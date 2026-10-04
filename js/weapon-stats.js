@@ -5,8 +5,9 @@
 // weapon hits, the longer the wait. Sustained damage per second in
 // brackets (damage x shots in a magazine / (time to fire it + reload)).
 // The guns' bullets and the lasers' bolts take time to arrive (bullets ~175-190
-// blocks/s, the sniper's 480, lasers 650-680): that delays hits but does not
-// change these rates; against a far, moving target the bullets need a lead.
+// blocks/s, the sniper's 480 or 624 with a long view, lasers 650-680): that
+// delays hits but does not change these rates; against a far, moving target
+// the bullets need a lead.
 //   mag: shots before a reload; reload: seconds to reload (or recharge);
 //   heat / cool: seconds of fire before it overheats, seconds to cool.
 export const WEAPON_STATS = {

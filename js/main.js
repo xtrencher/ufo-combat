@@ -644,7 +644,14 @@ lasers.addProvider({
     }
     if (!best) return null;
     const h = best;
-    return { distance: h.distance, hit: (b) => h.vehicle.damage(b.damage, fromPlayer(b.owner) ? "player" : boltCause(b)) };
+    return {
+      distance: h.distance,
+      hit: (b) => {
+        const mine = fromPlayer(b.owner);
+        // (A puppet, another player's aircraft or the host's fighter, shows the marker itself.)
+        if (h.vehicle.damage(b.damage, mine ? "player" : boltCause(b)) && mine && !b.mirror && !h.vehicle.puppet) hud.hitMarker?.();
+      },
+    };
   },
 });
 // Enemy bolts hit the player on foot.
@@ -672,6 +679,41 @@ lasers.addProvider({
         if (player.damage(b.damage, boltCause(b), { projectile: true, from: point.clone().addScaledVector(d, -4) })) player.applyImpulse(new THREE.Vector3(d.x * 3, 1.5, d.z * 3));
       },
     };
+  },
+});
+// Online, another player's bolt or bullet seen here: its shooter judged the
+// hit, but it still stops (and sparks) at whatever it visibly struck instead
+// of flying on and pocking the wall behind. (No damage: hit does nothing.)
+let mirrorBy = null;
+const mirrorHitsMob = (m) => !(m.isRemotePlayer && m.pid === mirrorBy);
+const noHit = () => {};
+lasers.addProvider({
+  ignores: (b) => !(b.mirror && fromPlayer(b.owner)),
+  raycast(origin, dir, maxDist, bolt, dt) {
+    let best = null;
+    mirrorBy = bolt.by;
+    const m = mobs.raycast(origin, dir, maxDist, mirrorHitsMob); // (the other players too, with PvP on)
+    if (m) best = m.distance;
+    const u = ufos.raycast(origin, dir, best ?? maxDist);
+    if (u && u.distance <= (best ?? maxDist)) best = u.distance;
+    const step = Math.max(maxDist, bolt.step ?? maxDist);
+    if (vehicles.enabled) {
+      for (const v of vehicles.vehicles) {
+        if (!v.alive || (v.netOcc && v.netOcc === bolt.by)) continue; // (never the shooter's own aircraft: the gun sits inside it)
+        const t = v.sweptRaycast(origin, dir, step, bolt.radius * 2, dt);
+        if (t !== null && t <= (best ?? maxDist)) best = t;
+      }
+    }
+    if (!player.dead && !player.vehicle && !player.creative && mp.pvpAllowed()) {
+      // (This player, as the shooter saw them: only with PvP on, like the stand-ins there.)
+      const p = player.position;
+      const pad = 0.12 + (bolt.radius ?? 0.1) * 2.2;
+      playerBoxMin.set(p.x - 0.35 - pad, p.y - pad * 0.5, p.z - 0.35 - pad);
+      playerBoxMax.set(p.x + 0.35 + pad, p.y + 1.85 + pad, p.z + 0.35 + pad);
+      const t = sweptBox(origin, dir, step, playerBoxMin, playerBoxMax, player.velocity, dt);
+      if (t !== null && t <= (best ?? maxDist)) best = t;
+    }
+    return best === null ? null : { distance: best, hit: noHit };
   },
 });
 // The UFO cannon's bolts (and big enemy ones) blow small holes. (A bolt from
@@ -3547,6 +3589,7 @@ function simulate(dt, frameTime) {
     ufos.viewDistance = viewRD * 16;
     vehicles.viewRange = viewRD * 16;
     weapons.viewRange = viewRD * 16;
+    weapons.fairBullets = mp.active && mp.pvpAllowed();
     ufos.update(dt);
     nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition(), sky.daylight);
     effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());

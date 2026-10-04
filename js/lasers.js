@@ -275,8 +275,9 @@ export class LaserBolts {
       const ears = this.listener ? this.listener() : null;
       const d = ears ? point.distanceTo(ears) : 0;
       // (A bullet whines off the block; a bolt crackles.)
-      if (b.tracer && this.audio?.playRicochet) this.audio.playRicochet(Math.min(d, 300));
-      else if (this.audio?.playLaserHit) this.audio.playLaserHit(d);
+      if (b.tracer) {
+        if (d < 340) this.audio?.playRicochet?.(d); // (beyond that it is out of earshot: no sound graph for it)
+      } else if (this.audio?.playLaserHit) this.audio.playLaserHit(d);
     } else if (hit.target) {
       hit.target.hit(b, point, b.dir);
     }

@@ -257,6 +257,8 @@ export class VehicleSync {
     }
     v.vel.set(0, 0, 0);
     v.netOcc = 0;
+    v.netDash = false;
+    v.netDashT = 0;
   }
 
   _removeLocal(v) {
@@ -343,6 +345,12 @@ export class VehicleSync {
           v.model.setDead(true);
         }
         v.crashed = !!(st.f & 8);
+        // Mid-dash (no collisions, as on the pilot's machine): from the newest
+        // state too (the start, before the drawn time reaches it) and held a
+        // moment (the half step after the last dash state).
+        const dashing = (st.f & 128) || (v.interp.last?.f & 128);
+        v.netDashT = dashing ? 0.2 : Math.max(0, (v.netDashT || 0) - dt);
+        v.netDash = v.netDashT > 0;
         this._ufoWeapons(v, st);
       }
       v.beam.update(dt, this.game.effects);
@@ -620,7 +628,8 @@ export class VehicleSync {
     } else if (v.type === "ufo") {
       s.y = r3(v.yaw);
       s.tl = [r3(v.tilt.x), r3(v.tilt.z)];
-      s.f = (v.beam?.on ? 1 : 0) | (v.beam?.floating ? 2 : 0) | (v.downed ? 4 : 0) | (v.crashed ? 8 : 0);
+      // (128: mid-dash, so no peer counts the streak as a collision.)
+      s.f = (v.beam?.on ? 1 : 0) | (v.beam?.floating ? 2 : 0) | (v.downed ? 4 : 0) | (v.crashed ? 8 : 0) | (v.dashing ? 128 : 0);
       if (v.beam?.on) {
         s.bb = r2(v.beam.bottomY);
         s.br = r2(v.beam.radius ?? v.radius);

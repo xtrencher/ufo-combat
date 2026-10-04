@@ -166,12 +166,9 @@ export class Chests {
     const v = this.view;
     if (!v) return;
     this.view = null;
+    // (A click still with the host stays pending: its answer settles it,
+    // screen or not, and no other click goes until then.)
     if (!this.authority) this.remote?.close(v);
-    if (this.pending) {
-      const p = this.pending;
-      this.pending = null;
-      p.done(false);
-    }
   }
 
   // A click on the open chest: changes [[slot, before, after], ...] (stacks
@@ -189,9 +186,10 @@ export class Chests {
     });
   }
 
-  // A guest's click still unanswered after a while is given up (frame tick).
+  // A guest's click still unanswered after a while is given up (frame tick),
+  // only once the session is gone: while it lasts the host answers every one.
   update() {
-    if (this.pending && Date.now() - this.pending.t > 4000) {
+    if (this.pending && !this.remote?.mp?.active && Date.now() - this.pending.t > 4000) {
       const p = this.pending;
       this.pending = null;
       p.done(false);
@@ -266,7 +264,7 @@ export class Chests {
       }
       const n = setBlocks(list, opts);
       if (fresh) for (const [x, y, z] of fresh) if (IS_CHEST[world.getBlock(x, y, z)]) this.store.delete(Chests.key(x, y, z));
-      if (gone) for (const [x, y, z, placed] of gone) if (!IS_CHEST[world.getBlock(x, y, z)]) this._gone(x, y, z, placed, list.length);
+      if (gone) for (const [x, y, z, placed] of gone) if (!IS_CHEST[world.getBlock(x, y, z)]) this._gone(x, y, z, placed, list.length, opts?.remote);
       return n;
     };
     // (A chest blown up far out, in ground not loaded here: its record goes.)
@@ -279,7 +277,7 @@ export class Chests {
     }
   }
 
-  _gone(x, y, z, placed, batch) {
+  _gone(x, y, z, placed, batch, remote) {
     const key = Chests.key(x, y, z);
     const v = this.view;
     if (v && v.key === key) {
@@ -288,13 +286,37 @@ export class Chests {
     }
     let slots = this.store.get(key);
     this.store.delete(key);
-    if (!this.authority) return;
+    if (!this.authority) {
+      // (This guest broke a generated one: the host may not have that ground loaded.)
+      if (!remote && !placed && batch <= BIG_BATCH) this.remote?.goneLocal?.(x, y, z);
+      return;
+    }
     this.onGone?.(key);
     if (!slots) {
       if (placed || batch > BIG_BATCH) return;
       slots = this._roll(x, y, z);
     }
     for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
+  }
+
+  // The authority: a chest in ground not loaded here was replaced by a
+  // remote edit (it never passes setBlocks): its stored contents spill.
+  goneUnloaded(x, y, z) {
+    if (!this.authority) return false;
+    const key = Chests.key(x, y, z);
+    const slots = this.store.get(key);
+    if (!slots) return false;
+    this.store.delete(key);
+    this.onGone?.(key);
+    for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
+    return true;
+  }
+
+  // The authority: a generated chest nobody opened, broken by a guest in
+  // ground not loaded here: its loot rolls and spills as if seen.
+  goneGenerated(x, y, z) {
+    if (!this.authority || this.store.has(Chests.key(x, y, z))) return;
+    for (const s of this._roll(x, y, z)) if (s) this.onDrop?.(s, x, y, z);
   }
 
   // ---------- Save ----------

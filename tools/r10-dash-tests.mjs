@@ -340,7 +340,43 @@ await check("ghost ram: creatures, UFOs and aircraft in the path are hit once ea
   assert(!pl.mob && !pl.ufo && !pl.boss && !pl.parked && !pl.self, `a plain dash passes through harmlessly: ${j}`);
 });
 
-await check("another player's dash is drawn with the smear (and an ordinary move is not)", async () => {
+await check("the ghost ram meets aircraft by the hull's flat shape, its path is capped in width, and the cooldown grows with what it hit", async () => {
+  const r = await v((g) => {
+    const D = window.__dash;
+    g.vehicles.lod = g.lod;
+    // A big flat ship: one fighter in its path, one just above its hull.
+    let u = D.ship({ radius: 12, mul: 1, speedLevel: 0, cfg: { ghost: true, dash: 2 } });
+    let p = u.pos.clone();
+    const top = p.y + (u.info.top ?? u.info.bottom) * u.radius;
+    const jet = (y, dz) => {
+      const j = g.vehicles.create("jet", { jetType: "f16", pos: [p.x, y, p.z - dz], yaw: 0, airborne: true, speed: 0, throttle: 0 });
+      j.health = j.maxHealth = 500;
+      return j;
+    };
+    const inPath = jet(p.y, 40);
+    const above = jet(top + 6, 60);
+    D.run(u, 200, 1 / 60, 1);
+    const air = { inPath: 500 - inPath.health, above: 500 - above.health, power: u.power };
+    // A giant: a creature 20 beside the line (inside 0.85 r, outside the cap), one 5 beside it.
+    u = D.ship({ radius: 30, mul: 1, speedLevel: 0, cfg: { ghost: true, dash: 2 } });
+    p = u.pos;
+    const near = g.mobs.spawn("zombie", p.x + 5, p.y - 0.9, p.z - 50);
+    const far = g.mobs.spawn("zombie", p.x + 20, p.y - 0.9, p.z - 50);
+    for (const m of [near, far]) if (m) m.health = m.maxHealth = 5000;
+    D.run(u, 200, 1 / 60, 1);
+    const giant = { near: near ? 5000 - near.health : null, far: far ? 5000 - far.health : null, cool: +(u.dashTotal || 0).toFixed(2) }; // (the cooldown it was given)
+    g.vehicles.config.ufo.ghost = false;
+    return { air, giant };
+  });
+  const j = JSON.stringify(r);
+  assert(r.air.inPath === Math.round(80 * r.air.power), `the fighter in the path is rammed: ${j}`);
+  assert(r.air.above === 0, `the fighter above the hull is not: ${j}`);
+  assert(r.giant.near === null || r.giant.near > 0, `the creature beside the line is rammed: ${j}`);
+  assert(r.giant.far === null || r.giant.far === 0, `the path is capped in width: ${j}`);
+  assert(r.giant.near === null || r.giant.cool > 2.5, `the cooldown grows with what was hit: ${j}`);
+});
+
+await check("another player's dash is drawn with the smear (and an ordinary move, a boost or a teleport is not)", async () => {
   const r = await v((g) => {
     const D = window.__dash;
     const u = D.ship({});
@@ -354,11 +390,27 @@ await check("another player's dash is drawn with the smear (and an ordinary move
     u.pos.z -= 60;
     u.netMoved(prev, 1 / 60);
     const fast = trail.ghosts.length;
+    // With the snapshot's dash flag: a fast cruise (boost) is not a dash, a
+    // dash step of a few blocks (a high frame rate) is, a teleport is not.
+    trail.clear();
+    prev.copy(u.pos);
+    u.pos.z -= 60;
+    u.netMoved(prev, 1 / 60, false);
+    const boost = trail.ghosts.length;
+    prev.copy(u.pos);
+    u.pos.z -= 6;
+    u.netMoved(prev, 1 / 144, true);
+    const flagged = trail.ghosts.length;
+    trail.clear();
+    prev.copy(u.pos);
+    u.pos.z -= 3000;
+    u.netMoved(prev, 1 / 60, true);
+    const teleport = trail.ghosts.length;
     g.vehicles.exit({ force: true });
     for (const j of [...g.vehicles.vehicles]) g.vehicles.remove(j);
-    return { slow, fast };
+    return { slow, fast, boost, flagged, teleport };
   });
-  assert(r.slow === 0 && r.fast > 0, JSON.stringify(r));
+  assert(r.slow === 0 && r.fast > 0 && r.boost === 0 && r.flagged > 0 && r.teleport === 0, JSON.stringify(r));
 });
 
 // ---------- Summary ----------

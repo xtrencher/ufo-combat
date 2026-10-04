@@ -38,7 +38,8 @@ const PISTOL_RANGE = 160;
 // pistol's and the machine gun's bullets, and faster than the sniper's.
 const PISTOL_SPEED = 175; // blocks/s
 // (With a long view range, the pistol's and machine gun's bullets fly half
-// as fast again, so a far target is not seconds away; still slower than lasers.)
+// as fast again, so a far target is not seconds away; still slower than lasers.
+// Not where players can shoot each other: there everyone's are the same.)
 const LONG_VIEW_BULLET = 1.5;
 // A bullet: a pale tracer streak (Round 8: the pistol's was a big glowing
 // yellow bolt that looked like a laser).
@@ -93,10 +94,14 @@ const MACHINEGUN_SPEED = 190; // blocks/s
 // Sniper rifle: a toggled scope (zoomed FOV + overlay), a single very
 // long-range, high-damage bullet per left click. Its bullet is the fastest
 // (a high-velocity round: 240 blocks in half a second, a small lead on a
-// moving target), but lasers are faster still.
+// moving target), but lasers are faster still. With a long view range it
+// flies 624 blocks/s and reaches at most ~1.6 s of flight (about 1000
+// blocks), so a far shot still lands; the railgun is for farther.
 export const SNIPER_DAMAGE = 34;
 const SNIPER_RANGE = 400;
 const SNIPER_SPEED = 480; // blocks/s
+const SNIPER_LONG_VIEW = 1.3; // (624: still under the lasers' 650-680)
+const SNIPER_FLIGHT = 1.6; // seconds
 const SNIPER_ZOOM_FOV = 15;
 
 // Airstrike designator: aim a laser at a spot and fire; after a delay a rain
@@ -156,6 +161,9 @@ export class WeaponSystem {
     // reaches at least as far as what is visible, so a UFO you can see is one
     // you can hit.
     this.viewRange = 160;
+    // Online with PvP on (set by the game): bullet speeds don't follow the
+    // view range, so a weak PC's bullets are as fast as anyone's.
+    this.fairBullets = false;
     // Extra things bullets, rockets and grenades can hit (UFOs, vehicles):
     // { raycast(origin, dir, maxDist) -> { distance, hit(damage, dir, point) }, sphereHit(p, r) }.
     this.targets = [];
@@ -246,6 +254,11 @@ export class WeaponSystem {
   // A weapon's range: at least `base`, and a share of the visible distance.
   _range(base, share) {
     return Math.min(2400, Math.max(base, this.viewRange * share));
+  }
+
+  // A bullet's speed: faster with a long view range (not in PvP, see fairBullets).
+  _bulletSpeed(base, k = LONG_VIEW_BULLET) {
+    return base * (this.viewRange > 300 && !this.fairBullets ? k : 1);
   }
 
   // 0-1 while a throw is being drawn back.
@@ -489,7 +502,9 @@ export class WeaponSystem {
   fireSniper() {
     const p = this.player;
     const muzzle = this._handPoint(0.9, 0.26, 0.14, this._muzzle);
-    const shot = this._fireBullet("sniper", muzzle, 0, this._range(SNIPER_RANGE, 1.2), SNIPER_SPEED, SNIPER_DAMAGE, 0.022, 14, 6);
+    const speed = this._bulletSpeed(SNIPER_SPEED, SNIPER_LONG_VIEW);
+    const range = Math.min(this._range(SNIPER_RANGE, 1.2), Math.max(SNIPER_RANGE, speed * SNIPER_FLIGHT)); // (a far shot lands within ~1.6 s)
+    const shot = this._fireBullet("sniper", muzzle, 0, range, speed, SNIPER_DAMAGE, 0.022, 14, 6);
     this.effects.muzzleFlash(muzzle, 1.8);
     this.held.fire(1.6);
     p.kick(0.07);
@@ -502,7 +517,7 @@ export class WeaponSystem {
     const p = this.player;
     const muzzle = this._handPoint(0.7, 0.3, 0.16, this._muzzle);
     // Spread and camera recoil both grow the longer the trigger is held.
-    const speed = MACHINEGUN_SPEED * (this.viewRange > 300 ? LONG_VIEW_BULLET : 1);
+    const speed = this._bulletSpeed(MACHINEGUN_SPEED);
     const shot = this._fireBullet("machinegun", muzzle, 0.006 + this._mgHeat * 0.03, this._range(MACHINEGUN_RANGE, 0.55), speed, MACHINEGUN_DAMAGE, 0.016, 3.6, 2);
     this.effects.muzzleFlash(muzzle, 0.85);
     this.held.fire(0.55);
@@ -710,7 +725,7 @@ export class WeaponSystem {
     const p = this.player;
     const muzzle = this._handPoint(0.7, 0.26, 0.17, this._muzzle);
     // (A tiny spread, so rapid fire isn't a laser.)
-    const speed = PISTOL_SPEED * (this.viewRange > 300 ? LONG_VIEW_BULLET : 1);
+    const speed = this._bulletSpeed(PISTOL_SPEED);
     const shot = this._fireBullet("pistol", muzzle, 0.004, this._range(PISTOL_RANGE, 0.6), speed, PISTOL_DAMAGE, 0.014, 3.2, null);
     this.effects.muzzleFlash(muzzle, 1);
     this.held.fire(1);
@@ -859,7 +874,20 @@ export class WeaponSystem {
     const dir = step.clone().divideScalar(len || 1);
     const blockHit = this.world.raycast(r.pos, dir, len, { solidOnly: true });
     const mobHit = this.mobs.raycast(r.pos, dir, blockHit ? blockHit.distance : len);
-    const tHit = this._targetHit(r.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
+    const lim = mobHit ? mobHit.distance : blockHit ? blockHit.distance : len;
+    const tHit = this._targetHit(r.pos, dir, lim);
+    // A locked aircraft's fuse also along the whole step, in the jet's frame
+    // of motion like the missiles' (a point test once a frame lets a fast
+    // or low-fps pass slip by a thin wing).
+    const hv = r.target && r.age > 0.25 && r.target.ref?.hull && r.target.ref.sweptRaycast ? r.target.ref : null;
+    if (hv) {
+      const tt = hv.sweptRaycast(r.pos, dir, len, 1.4, dt);
+      if (tt !== null && tt <= lim && (!tHit || tt < tHit.distance)) {
+        // (A real touch is a direct hit.)
+        if (hv.sweptRaycast(r.pos, dir, len, 0, dt) !== null && hv.damage(ROCKET_DIRECT, "player")) this.onHit?.();
+        return r.pos.clone().addScaledVector(dir, tt);
+      }
+    }
     if (tHit) {
       // A direct hit on a UFO or a vehicle: the warhead's punch on top of the blast.
       const at = r.pos.clone().addScaledVector(dir, tHit.distance);

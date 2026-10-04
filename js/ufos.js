@@ -113,6 +113,9 @@ const MAX_UFOS = 150;
 const DESPAWN_DISTANCE = 1500;
 const SPAWN_MAX = 900; // farthest spawn (blocks), however far the view distance reaches
 const MAX_KEPT_WRECKS = 8; // intact wrecks kept in the world
+// How much of an aircraft's turn the bolts lead (its hull is hit, not a
+// sphere: without it a turning jet was missed about twice as often).
+const TURN_LEAD = 0.7;
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -236,6 +239,7 @@ export class UfoManager {
     this.onPuppetUpdate = null; // (ufo, dt) => void
     this.onPuppetAbsorb = null; // (ufo, ship) => void
     this._cur = null; // the player the current UFO is thinking about (online)
+    this._acc = new WeakMap(); // vehicle -> its smoothed acceleration (_trackAcc)
   }
 
   get count() {
@@ -777,6 +781,8 @@ export class UfoManager {
       this._updatePuppets(dt);
       return;
     }
+    // (The aircraft's turns, for the bolts' lead.)
+    for (const v of this.vehicles?.vehicles ?? []) if (v.alive && !v.parkedAt) this._trackAcc(v);
     // (A frame count, not the clock, picks the far UFOs' thinking frames: at
     // 30 fps floor(time * 60) only ever lands on every other value.)
     this._frame = ((this._frame ?? 0) + 1) | 0;
@@ -1584,11 +1590,32 @@ export class UfoManager {
     this._steer(u, goal, u.S.cruise * 2, dt, 1.4);
   }
 
+  // A vehicle's acceleration, smoothed over a few frames (a guest's from its
+  // drawn velocity: the smoothing takes out the snapshot steps).
+  _trackAcc(v) {
+    let s = this._acc.get(v);
+    if (!s) {
+      this._acc.set(v, (s = { prev: v.vel.clone(), acc: new THREE.Vector3(), t: this.time }));
+      return;
+    }
+    const dt = this.time - s.t;
+    if (!(dt > 0)) return;
+    if (dt > 0.5) s.acc.set(0, 0, 0);
+    else {
+      const k = 1 - Math.exp(-8 * dt);
+      s.acc.lerp(_x.copy(v.vel).sub(s.prev).divideScalar(dt), k);
+      // (A respawn or a teleport: no wild lead.)
+      if (s.acc.lengthSq() > 120 * 120) s.acc.setLength(120);
+    }
+    s.prev.copy(v.vel);
+    s.t = this.time;
+  }
+
   // Leading a moving target: the direction to fire a bolt of `speed` from
   // `from` so it meets a target at `pos` moving with `vel` (the intercept
   // point; `lead` < 1 aims a little behind, so a target that keeps running
-  // across can get away).
-  _lead(from, pos, vel, speed, out, lead = 1) {
+  // across can get away). `acc`: an aircraft's turn, led by TURN_LEAD.
+  _lead(from, pos, vel, speed, out, lead = 1, acc = null) {
     const dx = pos.x - from.x;
     const dy = pos.y - from.y;
     const dz = pos.z - from.z;
@@ -1609,7 +1636,8 @@ export class UfoManager {
       }
     }
     t = Math.min(t, 6);
-    return out.set(dx + vx * t * lead, dy + vy * t * lead, dz + vz * t * lead).normalize();
+    const h = acc ? 0.5 * TURN_LEAD * t * t : 0;
+    return out.set(dx + vx * t * lead + (h && acc.x * h), dy + vy * t * lead + (h && acc.y * h), dz + vz * t * lead + (h && acc.z * h)).normalize();
   }
 
   // Where the UFO's shots leave from (its underside).
@@ -1698,13 +1726,15 @@ export class UfoManager {
     const n = Math.max(count, st.count);
     const fan = st.fan || 0;
     const lead = vehicle ? 1 : 0.92;
+    // (An aircraft's turn too: its hull is hit, not a sphere. A ship is still a sphere: as before.)
+    const acc = vehicle?.hull ? this._acc.get(vehicle)?.acc : null;
     for (let k = 0; k < n; k++) {
       // Big ships fire from around the hull: the muzzle is chosen first and
       // the shot aimed from it (aiming from the middle of the ship and then
       // moving the muzzle made every shot from a big UFO miss).
       const muzzle = from.clone();
       if (u.radius > 8 && !fan) muzzle.add(new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)).multiplyScalar(u.radius * 0.5));
-      const dir = this._lead(muzzle, target, vel, speed, new THREE.Vector3(), lead);
+      const dir = this._lead(muzzle, target, vel, speed, new THREE.Vector3(), lead, acc);
       if (fan && n > 1) {
         // A fan across the line of fire, level with the ground.
         const side = _w.set(-dir.z, 0, dir.x);

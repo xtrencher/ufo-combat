@@ -391,7 +391,8 @@ export class SiteGrower {
   // terminal, radar, tank or other hangar in front of the doorway, and no
   // aircraft parked there (the lane is kept free in the parking row), as long
   // as the airport keeps room for MIN_ROOM fighters (or as many as before):
-  // the row and the hangars together, a hangar's jet being one of them.
+  // the row and the hangars together, a hangar's jet being one of them, and
+  // the B-2 keeps its slot in the row.
   // Such a hangar has more lights on its walls (h.wt: the wall torches
   // facing +u, -u and -v) and none on the middle line, under the jet.
   // Worked out once per site, when first needed (its chunks or its parking
@@ -411,7 +412,8 @@ export class SiteGrower {
     const [ux, uz] = this.dirU(site);
     const [vx, vz] = this.dirV(site);
     const lanes = [];
-    const room = this._row(site, lanes).fighters;
+    const base = this._row(site, lanes);
+    const room = base.fighters;
     for (const h of site.hangars) {
       h.jet = false;
       if (hash2((site.seed ^ JET_HANGAR_SALT) >>> 0, h.id, 7) >= JET_HANGAR_CHANCE) continue;
@@ -421,7 +423,8 @@ export class SiteGrower {
       if (boxes.some((b) => b[0] <= h.uc + 9 && b[1] >= h.uc - 9 && b[2] < h.v0 && b[3] >= site.rw + 6)) continue;
       lanes.push([h.uc - 7, h.uc + 7, site.rw + 6, h.v0 - 1]);
       const row = this._row(site, lanes);
-      if (row.fighters + lanes.length < Math.min(room, MIN_ROOM)) {
+      // (Nor where the lane takes the B-2's place in the row: it would stand on the runway.)
+      if (row.fighters + lanes.length < Math.min(room, MIN_ROOM) || (base.bomber !== null && row.bomber === null)) {
         lanes.pop();
         continue;
       }

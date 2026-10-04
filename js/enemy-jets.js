@@ -73,8 +73,10 @@ export class EnemyJet extends Jet {
   // from a UFO it is fighting (or a stray blast) don't.
   damage(amount, cause = "vehicle", byPlayer = false) {
     const other = NOT_PLAYER.has(cause);
-    // (Online: which player hit it; 1 is the host.)
+    // (Online: which player hit it; 1 is the host. A collision with an
+    // aircraft a player flew: theirs, like a hit of theirs.)
     if (!other && this.alive) this.lastHitByPid = this.manager.currentAttacker ?? 1;
+    else if (cause === "crash" && this.bumpedBy && this.bumpedPilot && this.alive) this.lastHitByPid = this.bumpedBy.puppet ? this.bumpedBy.netOcc || 1 : 1;
     const ok = super.damage(amount, cause, byPlayer);
     if (ok && !this.alive && other) this.downedByOther = true;
     if (ok && this.alive && !other) {
@@ -215,9 +217,13 @@ export class EnemyJet extends Jet {
       wantPitch = Math.asin(clamp(aim.y, -1, 1));
       throttle = 1;
       ab = ai.run === "attack" ? angle > 0.7 : dist > 350;
-      if (!lowTarget && dist < 90 && (angle > 0.5 || dist < 45)) {
-        // (Air to air: break off rather than ram. Round 10: also straight
-        // ahead and close, as aircraft that touch now crash.)
+      // (Air to air: break off rather than ram, also straight ahead and close,
+      // as aircraft that touch now crash; the distance is middle to middle, so
+      // it grows with the target's size (a big ship's rim, a B-2's wings) and
+      // with the fighter's speed (room to turn).)
+      const tr = fv ? (fv.collider?.r ?? fv.hitRadius ?? fv.radius ?? 0) : 0;
+      const brk = 45 + tr + Math.max(0, this.speed - 120) * 0.25;
+      if (!lowTarget && dist < brk + 45 && (angle > 0.5 || dist < brk)) {
         wantYaw += 1.2;
         wantPitch = 0.4;
       }
@@ -382,19 +388,24 @@ export class EnemyJet extends Jet {
     const ang = d.clone().normalize().angleTo(fwd);
     if (ang > 0.12) return fwd.clone();
     const target = P.pos.clone().addScaledVector(P.vel, dist / speed);
-    const onFoot = !this.foe.vehicle;
+    const fv = this.foe.vehicle;
+    const onFoot = !fv;
     if (onFoot) target.y += 1; // (the chest)
     const aim = target.sub(from).normalize();
     // (On foot: short bursts, see _autopilot; moving makes them miss. An
     // aircraft: Round 10, its shots meet the real shape, not a 5.5-block
-    // sphere, so the guns lean further onto it to land about as often.)
-    return onFoot ? aim.clone() : fwd.clone().lerp(aim, 0.87).normalize();
+    // sphere, so the guns lean further onto it to land about as often. A
+    // ship is still a sphere: as before.)
+    return onFoot ? aim.clone() : fwd.clone().lerp(aim, fv.hull ? 0.87 : 0.7).normalize();
   }
 
   onDestroyed(cause) {
     // A crash counts for the player only while it was hunting them (they
-    // outflew it); anything else not done by the player isn't theirs.
-    if (NOT_PLAYER.has(cause) && !(cause === "crash" && (this.hijacked || this.provoked > 0))) this.downedByOther = true;
+    // outflew it), and only into the ground or into an aircraft a player
+    // flew (not another fighter or an empty one); anything else not done by
+    // the player isn't theirs.
+    const pilotHit = !this.bumpedBy || this.bumpedPilot;
+    if (NOT_PLAYER.has(cause) && !(cause === "crash" && pilotHit && (this.hijacked || this.provoked > 0))) this.downedByOther = true;
     super.onDestroyed(cause);
     this.manager.enemyJets?.onDown(this, cause);
   }

@@ -256,14 +256,14 @@ export class CoopSync {
   }
 
   // (Round 10) The run's signature (in every mission state), and the run
-  // itself, compactly: ids in order, the variants as digits.
+  // itself, compactly: ids in order, the variants and the acts as digits.
   _chainSig() {
     return this.game.progress.key || "";
   }
 
   _chainState() {
     const p = this.game.progress;
-    return { ch: p.chain.join(","), cv: p.vars.join("") };
+    return { ch: p.chain.join(","), cv: p.vars.join(""), ca: p.acts ? p.acts.join("") : "" };
   }
 
   // (Round 9) A guest respawned: the host's UFOs give them a moment.
@@ -288,8 +288,10 @@ export class CoopSync {
     if (typeof m.ch === "string" && m.ch.length < 4000) {
       const ids = m.ch.split(",");
       const vars = typeof m.cv === "string" ? [...m.cv].map(Number) : null;
-      if (ids.join() !== p.chain.join() || (vars && vars.join() !== p.vars.join())) {
-        p.setChain(ids, vars);
+      // (No acts, e.g. from an older host: each mission by its earliest act.)
+      const acts = typeof m.ca === "string" && m.ca ? [...m.ca].map(Number) : null;
+      if (ids.join() !== p.chain.join() || (vars && vars.join() !== p.vars.join()) || (acts || []).join() !== (p.acts || []).join()) {
+        p.setChain(ids, vars, acts);
         p.seed = null;
         p.done = p.chain.slice(0, p.step);
         this._lastStep = -1; // (a new run: no "NEW MISSION" for the step it is at)

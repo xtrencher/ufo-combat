@@ -471,13 +471,18 @@ await check("Run for cover, Sabotage and Rescue: a shelter and the bombardment's
     g.player.position.set(z.x, z.y + 0.1, z.z);
     tick();
     out.in = g.progress.objectives(g.stats.world)[0].value;
+    // (Counted once, kept in the saved place: a rebuilt state does not count them again.)
+    out.saved = JSON.stringify(g.progress.place?.in);
+    st.zone = null;
+    tick();
+    out.again = g.progress.objectives(g.stats.world)[0].value;
     g.progress.update(g.stats.world);
     out.next = g.progress.mission?.id;
     return out;
   });
   const je = JSON.stringify(e);
   assert(e.zone && e.dist >= 100 && e.rings >= 1 && e.spotter && /"r":\[\[/.test(e.mo) && /"z":\[\[/.test(e.mo), `the run for cover: ${je}`);
-  assert(e.resp && e.in === 1 && e.next === "hunted", `arrived: ${je}`);
+  assert(e.resp && e.in === 1 && e.again === 1 && e.saved === '["@host"]' && e.next === "hunted", `arrived: ${je}`);
   await endNew();
   await survival();
   assert((await startNew("sabotage")) === "sabotage", "sabotage is on");
