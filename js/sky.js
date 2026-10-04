@@ -146,7 +146,7 @@ export class Sky {
     this.material = createSkyMaterial();
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(500, 32, 16), this.material);
     this.dome.frustumCulled = false;
-    this.dome.renderOrder = -1000;
+    this.dome.renderOrder = 1e6; // last opaque draw, pinned to the far plane (early-Z skips the covered pixels)
     scene.add(this.dome);
 
     this._tmp = new THREE.Color();

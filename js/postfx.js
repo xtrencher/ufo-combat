@@ -414,12 +414,27 @@ export class PostFX {
     } else {
       r.render(scene, camera);
     }
+    // Under-water shafts read the scene depth, so they run before the
+    // overlay clears it (the sunbeams below use the sky mask and run after,
+    // so the held item still blocks the sun).
+    r.autoClear = false;
+    const uwRays = this.godRays && params.underwater && params.underwaterRays > 0 && params.surfaceY !== undefined;
+    if (uwRays) {
+      const u = this.uwRaysMat.uniforms;
+      u.tDepth.value = this.sceneRT.depthTexture;
+      this._viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      u.uInvViewProj.value.copy(this._viewProj).invert();
+      u.uCamPos.value.copy(camera.position);
+      u.uLight.value.copy(params.underwaterLight);
+      u.uSurfaceY.value = params.surfaceY;
+      u.uTime.value = params.time ?? 0;
+      this._pass(this.uwRaysMat, this.raysRT);
+    }
     if (overlay) {
-      r.autoClear = false;
+      r.setRenderTarget(this.sceneRT);
       r.clearDepth();
       r.render(overlay.scene, overlay.camera);
     }
-    r.autoClear = false;
 
     // Bloom.
     if (this.bloomLevels > 0) {
@@ -444,16 +459,7 @@ export class PostFX {
     // Light shafts: under water, rays from the surface; otherwise sunbeams
     // (only while the sun is up and roughly in front of the camera).
     let rays = 0;
-    if (this.godRays && params.underwater && params.underwaterRays > 0 && params.surfaceY !== undefined) {
-      const u = this.uwRaysMat.uniforms;
-      u.tDepth.value = this.sceneRT.depthTexture;
-      this._viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      u.uInvViewProj.value.copy(this._viewProj).invert();
-      u.uCamPos.value.copy(camera.position);
-      u.uLight.value.copy(params.underwaterLight);
-      u.uSurfaceY.value = params.surfaceY;
-      u.uTime.value = params.time ?? 0;
-      this._pass(this.uwRaysMat, this.raysRT);
+    if (uwRays) {
       rays = params.underwaterRays;
       this.lastRays = { kind: "underwater", strength: rays };
     } else if (this.godRays && params.sunWorldPos) {
