@@ -273,7 +273,7 @@ await check("mission 18 (Big game) online: one large UFO, the same ship on every
       g.missions.checkT = 0;
       g.missions.update(0.5);
     }
-    return { same: g.missions.state.big === u && g.ufos.ufos.includes(u), hp: u.health, home: u.home ? Math.round(Math.hypot(u.home.x - a[0], u.home.z - a[1])) : -1, larges: g.ufos.ufos.filter((x) => x.S.idx >= 2 && !x.falling).length };
+    return { same: g.missions.state.big === u && g.ufos.ufos.includes(u), hp: u.health, home: u.home ? Math.round(Math.hypot(u.home.x - a[0], u.home.z - a[1])) : -1, larges: g.ufos.ufos.filter((x) => x.S.idx >= 2 && !x.falling && x.missionTarget).length }; // (the mission's own: a random large UFO near the far guest is not a replacement)
   }, far);
   assert(r.same && r.hp === hp && r.home >= 0 && r.home < 30 && r.larges === 1, JSON.stringify(r));
   await v(g2, (g) => (g.player.flying = false));

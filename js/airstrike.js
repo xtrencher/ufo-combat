@@ -141,6 +141,9 @@ export class Airstrikes {
     root.rotateY(Math.PI); // the rock's hot face (-Z) leads
     this.scene.add(root);
     const meteor = { pos: m.start.clone(), dir: m.dir, speed: m.speed, root, rock, glow, age: 0, trail: 0, src: m.src || "airstrike", spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(3) };
+    // (its whole planned flight and a little more: a steep, slow fall takes over 15 s)
+    const flight = m.len / m.speed;
+    meteor.maxAge = Number.isFinite(flight) ? Math.max(15, flight + 3) : 15;
     this.meteors.push(meteor);
     if (this.audio?.playMeteorIncoming) this.audio.playMeteorIncoming(m.len / m.speed, m.start.distanceTo(this.listener));
     return meteor;
@@ -190,7 +193,7 @@ export class Airstrikes {
         life: 3.2 + Math.random() * 1.8, size0: 1.3, size1: 5 + Math.random() * 2, color0: this._c.smoke, color1: this._c.smokeEnd, alpha: 0.5, drag: 0.6,
       });
     }
-    return m.age > 15 || m.pos.y < -20;
+    return m.age > (m.maxAge ?? 15) || m.pos.y < -20;
   }
 
   _impact(pos, source = "airstrike") {
@@ -221,7 +224,7 @@ export class Airstrikes {
         this.scene.remove(m.root);
         this.meteors.splice(i, 1);
         // (Another player's meteor online: its own explosion comes from them.)
-        if (!m.mirror && m.pos.y > -20 && m.age <= 15) this._impact(m.pos, m.src);
+        if (!m.mirror && m.pos.y > -20 && m.age <= (m.maxAge ?? 15)) this._impact(m.pos, m.src);
       }
     }
   }

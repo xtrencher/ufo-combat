@@ -306,16 +306,17 @@ export class Sky {
     this.cascades = cascades.slice(0, this.shadowLights.length);
     this.shadowLights.forEach((light, i) => {
       const cascade = this.cascades[i];
+      // (free the old map first: three never frees the map of a light that stops casting)
+      if (light.shadow.map) {
+        light.shadow.map.dispose();
+        light.shadow.map = null;
+      }
       light.castShadow = !!cascade;
       if (!cascade) return;
       light.shadow.mapSize.set(cascade.mapSize, cascade.mapSize);
       const texel = (2 * cascade.extent) / cascade.mapSize;
       light.shadow.bias = -0.0003;
       light.shadow.normalBias = texel * 1.2;
-      if (light.shadow.map) {
-        light.shadow.map.dispose();
-        light.shadow.map = null;
-      }
       const cam = light.shadow.camera;
       cam.left = -cascade.extent;
       cam.right = cascade.extent;

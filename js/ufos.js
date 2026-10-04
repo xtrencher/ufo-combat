@@ -634,6 +634,7 @@ export class UfoManager {
     u.hostileT = Math.max(u.hostileT || 0, 30);
     u.tgtPlayer = victim;
     if (this.audio?.playUfoDash) this.audio.playUfoDash(u.pos.distanceTo(this._ears()));
+    this.onDashWarn?.(victim); // (online: the net side warns a guest victim)
     // (Online: only a player's own, or one in sight, makes a toast on the host.)
     if (victim === this.localPlayer) this.onMessage?.("A UFO is right above you! Shoot it to break the beam!");
     else if (to.distanceTo(this._ears()) < Math.max(150, this.viewDistance)) this.onMessage?.("A UFO dashed in to beam someone up!");
@@ -956,6 +957,9 @@ export class UfoManager {
     if (u.state === "gone" || u.falling) return;
     if (u.net) {
       this.onPuppetAbsorb?.(u, ship);
+      // (The toast is the capturing guest's; once, though the claim repeats until the host takes it.)
+      if (!u.swallowToast) this.onMessage?.(`Swallowed a ${u.size} UFO!`);
+      u.swallowToast = true;
       return;
     }
     this._stopWeapons(u);
@@ -969,7 +973,8 @@ export class UfoManager {
     u.captured = null;
     this._dropTarget(u);
     u.state = "gone";
-    this.onMessage?.(`Swallowed a ${u.size} UFO!`);
+    // (Online, a guest's capture is run here for its claim: no toast for the host.)
+    if ((this.currentAttacker ?? 1) === 1) this.onMessage?.(`Swallowed a ${u.size} UFO!`);
     if (this.onShotDown) this.onShotDown(u, true);
   }
 
@@ -2125,12 +2130,13 @@ export class UfoManager {
     u.model.lightsOn = 0; // dark: nothing glows any more
     u.pos.addScaledVector(u.vel, dt);
     // Hit the ground (solid terrain, or the sea floor): crash.
+    // (Loaded: the live ground, so a crater dug below the natural height is
+    // fallen into, not hit in mid-air; the floor catches a fast fall.)
     let hitGround = false;
     if (this.world.getChunk(bx >> 4, bz >> 4)) {
       const id = this.world.getBlock(bx, Math.floor(u.pos.y - bottom), bz);
-      hitGround = IS_SOLID[id] === 1;
-    }
-    if (!hitGround) hitGround = u.pos.y - bottom <= this.world.heightAt(bx, bz) + 1;
+      hitGround = IS_SOLID[id] === 1 || u.pos.y - bottom <= this._floorAt(bx, bz) + 1;
+    } else hitGround = u.pos.y - bottom <= this.world.heightAt(bx, bz) + 1;
     if (hitGround || u.pos.y < 0) this._crash(u);
   }
 

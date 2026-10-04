@@ -452,6 +452,8 @@ export class NetSession {
   _dropClient(pid, reason = "left") {
     const link = this.links.get(pid);
     if (!link) return;
+    // (A kicked client's channel usually closes before the kick's own drop.)
+    if (link.kicked) reason = "kicked";
     this.links.delete(pid);
     link.close();
     const player = this.players.get(pid);
@@ -463,6 +465,8 @@ export class NetSession {
 
   kick(pid) {
     if (this.role !== "host" || pid === HOST_PID) return;
+    const link = this.links.get(pid);
+    if (link) link.kicked = true;
     this.send(pid, { t: "_bye", reason: "kicked" });
     setTimeout(() => this._dropClient(pid, "kicked"), 300);
   }
@@ -616,8 +620,9 @@ export class NetSession {
         if (this.role === "client") {
           // The host's clock, from the least-delayed samples (a delayed one overestimates).
           const offset = msg.now + rtt / 2 - now();
+          // (Relaxed on every pong: a route that got slower is followed again.)
+          this._bestRtt = Math.min(this._bestRtt * 1.02 + 0.001, rtt);
           if (rtt <= this._bestRtt * 1.3 || !this._clockSet) {
-            this._bestRtt = Math.min(this._bestRtt * 1.05 + 0.002, rtt);
             this.clockOffset = this._clockSet ? this.clockOffset * 0.8 + offset * 0.2 : offset;
             this._clockSet = true;
           }
@@ -633,11 +638,11 @@ export class NetSession {
         return;
       case "_players":
         if (this.role === "client") {
-          const left = msg.left ? this.players.get(msg.left) : null;
-          const before = new Set(this.players.keys());
+          // (Every player gone from the list: a guest still loading missed the "left" one.)
+          const before = new Map(this.players);
           this._setPlayers(msg.players);
           for (const p of this.players.values()) if (!before.has(p.pid) && p.pid !== this.pid) this.onPlayerJoin?.(p);
-          if (left) this.onPlayerLeave?.(left, msg.reason || "left");
+          for (const [pid, p] of before) if (!this.players.has(pid) && pid !== this.pid) this.onPlayerLeave?.(p, pid === msg.left ? msg.reason || "left" : "left");
         }
         return;
       case "_ready":
@@ -721,7 +726,8 @@ export class NetSession {
   // Leaves (client) or closes the room (host), telling the others.
   leave() {
     if (!this.active) return;
-    if (this.role === "host") this.broadcast({ t: "_bye", reason: "host-left" });
+    // (Every link, guests still loading too: broadcast skips them.)
+    if (this.role === "host") for (const l of this.links.values()) l.send({ t: "_bye", reason: "host-left" });
     else this.toHost({ t: "_bye" });
     const role = this.role;
     // (Give the goodbye a moment to leave before the channels close.)

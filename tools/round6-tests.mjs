@@ -751,6 +751,9 @@ await check("mission Touchdown: a jet landing on a runway starts a red squad on 
     const jet = g.vehicles.create("jet", { pos: [site.x, site.y + 60, site.z], yaw: 0, airborne: true, speed: 120, throttle: 0.5 });
     g.vehicles.enter(jet);
     const tick = () => { g.missions.checkT = 0; g.missions.update(0.5); };
+    // (Up for over a second counts as a flight: three checks half a second apart.)
+    tick();
+    tick();
     tick();
     const flew = !!g.missions.state.air;
     const label0 = g.missions.target?.label;

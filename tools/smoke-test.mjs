@@ -1953,6 +1953,8 @@ try {
       v.player.pitch = 0;
     }, a);
     await page.waitForTimeout(300);
+    // (Just respawned by the check before: the spawn protection runs out first.)
+    await page.waitForFunction(() => !(window.__voxelands.player._invulnerable > 0), null, { timeout: 20000, polling: 50 });
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
     await page.waitForFunction(() => window.__voxelands.gameState === "dead", null, { timeout: 60000, polling: 30 });
@@ -2229,8 +2231,9 @@ try {
     await page.waitForTimeout(150);
     const vy1 = await page.evaluate(() => window.__voxelands.mobs.arrows[0]?.vel.y ?? null);
     if (vy0 !== null && vy1 !== null) assert(vy1 < vy0, `the arrow's vertical velocity should decay under gravity: ${vy0} -> ${vy1}`);
-    // (Its aim scatters: a few arrows can miss before one lands.)
-    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 40000, polling: 50 });
+    // (Its aim scatters: a few arrows can miss before one lands. Generous:
+    // by now the software renderer can run the game at a frame or two a second.)
+    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 90000, polling: 50 });
     const hpAfter = await page.evaluate(() => window.__voxelands.player.health);
     console.log(`        skeleton shot an arrow (vel.y ${vy0?.toFixed(2)} -> ${vy1?.toFixed(2)}); player health ${r.hpBefore} -> ${hpAfter}`);
     assert(hpAfter < 20, "the skeleton's arrow should have hurt the player");

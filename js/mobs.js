@@ -278,6 +278,12 @@ export class MobManager {
     this._flashColor = new THREE.Color();
     this._c0 = new THREE.Color();
     this._c1 = new THREE.Color();
+    // (particles keep their colours by reference, so each effect has its own)
+    this._smokeGrey = new THREE.Color(0.85, 0.85, 0.85);
+    this._smokeGrey2 = new THREE.Color(0.5, 0.5, 0.5);
+    this._critC = new THREE.Color(3, 2.4, 0.9);
+    this._burnC = new THREE.Color(3.2, 1.2, 0.25);
+    this._burnC2 = new THREE.Color(0.6, 0.12, 0.02);
   }
 
   get count() {
@@ -639,8 +645,9 @@ export class MobManager {
 
   // Lowering the zombie cap removes the farthest zombies over it.
   trimZombies() {
+    if (this.puppets) return; // (a guest: the host trims its zombies and its erem removes them here)
     const p = this.player.position;
-    const zombies = this.mobs.filter((m) => m.kind === "zombie" && !m.dead).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
+    const zombies = this.mobs.filter((m) => m.kind === "zombie" && !m.dead && !m.net).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
     for (let k = 0; k < zombies.length - this.zombies.max; k++) this._remove(this.mobs.indexOf(zombies[k]));
   }
 
@@ -1256,16 +1263,28 @@ export class MobManager {
     // The arrow leaves the bow (held out in the left hand), aimed from there.
     const guess = new THREE.Vector3(dx, dy + 0.9 - m.spec.eye, dz).normalize();
     const start = this._muzzle(m, guess);
-    const vdx = m.pos.x + dx - start.x;
-    const vdz = m.pos.z + dz - start.z;
-    const vdy = m.pos.y + dy + 0.9 - start.y;
+    let vdx = m.pos.x + dx - start.x;
+    let vdz = m.pos.z + dz - start.z;
+    let vdy = m.pos.y + dy + 0.9 - start.y;
     const dist = Math.hypot(vdx, vdy, vdz) || 1;
     const t = dist / ARROW_SPEED;
-    // Aims a little high to help compensate for the drop over the flight. The
-    // flight time is not floored: the drop grows with t squared, so at point
-    // blank (t ~ 0.1 s) there is next to no lift (a floor of 0.35 s used to
-    // send the arrow a block and a half over the player's head).
-    const riseComp = -0.5 * ARROW_GRAVITY * t * Math.min(t, 1) * 0.55;
+    // A little scatter, wider the farther the shot (about a body width at 15
+    // blocks): close shots land, long ones sometimes miss.
+    const spread = 0.04 * dist;
+    const sa = Math.random() * Math.PI * 2;
+    const sr = Math.sqrt(Math.random()) * spread;
+    const hd = Math.hypot(vdx, vdz) || 1;
+    const side = Math.cos(sa) * sr; // (sideways, across the line of fire)
+    const px = -vdz / hd;
+    const pz = vdx / hd;
+    vdx += px * side;
+    vdz += pz * side;
+    vdy += Math.sin(sa) * sr * 0.7;
+    // Aimed high by the drop over the flight (it grows with t squared, so at
+    // point blank, t ~ 0.1 s, there is next to no lift). (Fix: only 55% of
+    // the drop was made up, so from about 10 blocks on every arrow landed at
+    // the player's feet, though skeletons shoot from up to 22.)
+    const riseComp = -0.5 * ARROW_GRAVITY * t * t;
     const dir = new THREE.Vector3(vdx, vdy + riseComp, vdz).normalize();
     // (Inside a wall at point blank: from the archer's eyes instead.)
     if (IS_SOLID[this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))]) start.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(dir, m.spec.r + 0.3);
@@ -1335,18 +1354,31 @@ export class MobManager {
 
   // Whether the player's body is hit somewhere along the arrow's step this
   // frame; returns the distance along the step, or null.
+  // Where along this frame's flight (0..maxDist) the arrow enters the
+  // player's body box, or null. (Exact: a slow frame's long step used to be
+  // sampled at four points, which skipped right past a 0.7-wide body.)
   _arrowHitsPlayer(pos, dir, maxDist) {
     if (this.player.dead || this.player.creative) return null;
     const p = this.player.position;
-    const samples = 4;
-    for (let s = 1; s <= samples; s++) {
-      const t = (maxDist * s) / samples;
-      const x = pos.x + dir.x * t;
-      const y = pos.y + dir.y * t;
-      const z = pos.z + dir.z * t;
-      if (Math.abs(x - p.x) < 0.35 && Math.abs(z - p.z) < 0.35 && y > p.y - 0.1 && y < p.y + 1.9) return t;
+    let t0 = 0;
+    let t1 = maxDist;
+    const o = [pos.x, pos.y, pos.z];
+    const d = [dir.x, dir.y, dir.z];
+    const lo = [p.x - 0.35, p.y - 0.1, p.z - 0.35];
+    const hi = [p.x + 0.35, p.y + 1.9, p.z + 0.35];
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(d[k]) < 1e-9) {
+        if (o[k] < lo[k] || o[k] > hi[k]) return null;
+        continue;
+      }
+      let a = (lo[k] - o[k]) / d[k];
+      let b = (hi[k] - o[k]) / d[k];
+      if (a > b) [a, b] = [b, a];
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return null;
     }
-    return null;
+    return t0;
   }
 
   _updateArrows(dt) {
@@ -1698,8 +1730,8 @@ export class MobManager {
     const m = this.mobs[i];
     const c = m.pos;
     // A puff of smoke, then the drops.
-    const grey = this._c0.setRGB(0.85, 0.85, 0.85);
-    const grey2 = this._c1.setRGB(0.5, 0.5, 0.5);
+    const grey = this._smokeGrey;
+    const grey2 = this._smokeGrey2;
     for (let k = 0; k < 10; k++) {
       this.effects.smoke.spawn({
         x: c.x + (Math.random() - 0.5) * m.spec.r * 2,
@@ -1813,7 +1845,7 @@ export class MobManager {
   }
 
   _critSparks(m) {
-    const c = this._c0.setRGB(3, 2.4, 0.9);
+    const c = this._critC;
     for (let i = 0; i < 12; i++) {
       this.effects.glow.spawn({
         x: m.pos.x, y: m.pos.y + m.spec.h * 0.7, z: m.pos.z,
@@ -2015,8 +2047,8 @@ export class MobManager {
       this._hurt(m, 2, null, 0);
     }
     if (Math.random() < dt * 14) {
-      const c = this._c0.setRGB(3.2, 1.2, 0.25);
-      const c2 = this._c1.setRGB(0.6, 0.12, 0.02);
+      const c = this._burnC;
+      const c2 = this._burnC2;
       this.effects.glow.spawn({
         x: m.pos.x + (Math.random() - 0.5) * 0.5, y: m.pos.y + Math.random() * m.spec.h, z: m.pos.z + (Math.random() - 0.5) * 0.5,
         vy: 1 + Math.random(), life: 0.5, size0: 0.35, size1: 0.1, color0: c, color1: c2,

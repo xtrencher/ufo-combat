@@ -267,7 +267,15 @@ export class AirportManager {
       const radius = 3.4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 14; // fits the hall and the ramp
       const key = `${s.id}#h${h.id}`;
       const reship = this.reship.delete(key); // (a new ship only: its guards are still about)
-      const ufo = this.taken.has(key) ? null : veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
+      // (Nor while this bunker's ship is still here or being flown out, within
+      // the mission's 150-block escape: one reloaded mid-escape keeps its key,
+      // see PilotUfo.serialize. The hall's 60 blocks match _bunkerShip's.)
+      const here = veh.vehicles.some((v) => {
+        if (v.type !== "ufo" || !v.alive || (v.parkKey !== key && v.tookKey !== key)) return false;
+        const d = Math.hypot(v.pos.x - h.x, v.pos.y - h.y, v.pos.z - h.z);
+        return d <= 60 || ((v.occupied || (v.puppet && v.netOcc)) && d < 150);
+      });
+      const ufo = this.taken.has(key) || here ? null : veh.create("ufo", { design, seed: (s.seed + h.id * 977) | 0, radius, pos: [h.x, h.y, h.z], yaw: h.yaw });
       if (ufo) {
         ufo.parkKey = key;
         ufo.pos.y = h.y + ufo.bottom + 0.9; // hovering a little above the floor
@@ -312,7 +320,9 @@ export class AirportManager {
   }
 
   clear() {
-    for (const id of [...this.guards.keys()]) this._dropGuards(id);
+    // (Every site, guarded or not: on Peaceful and on guests there are no
+    // guards, and a stale bunkerSet would never set the bunker ship out again.)
+    for (const id of new Set([...this.guards.keys(), ...this.bunkerSet.keys(), ...this.parked.keys()])) this._dropGuards(id);
     for (const jets of this.parked.values()) for (const j of jets) if (j.alive && !j.occupied && j.parkedAt && this.vehicles.vehicles.includes(j)) this.vehicles.remove(j);
     this.parked.clear();
   }

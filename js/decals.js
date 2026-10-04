@@ -104,33 +104,46 @@ export class BulletHoles {
       fog: true,
     });
     const geometry = new THREE.PlaneGeometry(kind === "scorch" ? SIZE * 2.6 : SIZE, kind === "scorch" ? SIZE * 2.6 : SIZE);
+    // One instanced mesh for the whole pool (one draw call, not 96). Its
+    // marks are spread over the world, so it is never frustum-culled as a
+    // whole; a hidden mark is a zero-scale matrix.
+    this.mesh = new THREE.InstancedMesh(geometry, material, MAX_DECALS);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 4;
+    this.mesh.visible = false;
+    this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    this._obj = new THREE.Object3D();
     this.decals = [];
     for (let i = 0; i < MAX_DECALS; i++) {
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.visible = false;
-      mesh.renderOrder = 4;
-      scene.add(mesh);
-      this.decals.push({ mesh, cell: null });
+      this.mesh.setMatrixAt(i, this._zero);
+      this.decals.push({ visible: false, cell: null });
     }
+    scene.add(this.mesh);
     this.next = 0;
     world.changeListeners.push((changed) => this._onChanged(changed));
   }
 
   get count() {
-    return this.decals.filter((d) => d.mesh.visible).length;
+    return this.decals.filter((d) => d.visible).length;
   }
 
   // Leaves a mark at `point` on the face of block `cell` ([x, y, z]) whose
   // outward normal is `normal` ([nx, ny, nz]).
   add(point, cell, normal) {
-    const d = this.decals[this.next];
+    const i = this.next;
+    const d = this.decals[i];
     this.next = (this.next + 1) % MAX_DECALS;
-    const n = new THREE.Vector3(normal[0], normal[1], normal[2]);
-    d.mesh.position.copy(point).addScaledVector(n, 0.004);
-    d.mesh.lookAt(d.mesh.position.clone().add(n));
-    d.mesh.rotateZ(Math.random() * Math.PI * 2);
-    d.mesh.scale.setScalar(0.8 + Math.random() * 0.4);
-    d.mesh.visible = true;
+    const o = this._obj;
+    o.position.set(normal[0], normal[1], normal[2]).multiplyScalar(0.004).add(point);
+    o.lookAt(o.position.x + normal[0], o.position.y + normal[1], o.position.z + normal[2]);
+    o.rotateZ(Math.random() * Math.PI * 2);
+    o.scale.setScalar(0.8 + Math.random() * 0.4);
+    o.updateMatrix();
+    this.mesh.setMatrixAt(i, o.matrix);
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.visible = true;
+    d.visible = true;
     d.cell = cell.slice();
     d.id = this.world.getBlock(cell[0], cell[1], cell[2]);
   }
@@ -138,12 +151,19 @@ export class BulletHoles {
   // After any edit, marks whose block is gone (or replaced) disappear. This
   // checks the (few) marks rather than the (possibly huge) list of changes.
   _onChanged() {
-    for (const d of this.decals) {
-      if (!d.mesh.visible) continue;
+    let changed = false;
+    let any = false;
+    for (let i = 0; i < this.decals.length; i++) {
+      const d = this.decals[i];
+      if (!d.visible) continue;
       if (this.world.getBlock(d.cell[0], d.cell[1], d.cell[2]) !== d.id) {
-        d.mesh.visible = false;
+        d.visible = false;
         d.cell = null;
-      }
+        this.mesh.setMatrixAt(i, this._zero);
+        changed = true;
+      } else any = true;
     }
+    if (changed) this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.visible = any;
   }
 }

@@ -79,6 +79,8 @@ export class Multiplayer {
     window.addEventListener("pagehide", () => {
       if (!net.active) return;
       if (this.isClient && this.stateLoaded && game.gameState !== "start") net.toHost({ t: "pdata", d: game.playerData() });
+      // (The host: the guests' things received since the last write.)
+      if (this.isHost) this.coop?._saveGuests();
       net.leave();
     });
   }
@@ -111,8 +113,9 @@ export class Multiplayer {
 
   // Host: opens a room in the current world.
   async host(nick, mode) {
-    this.mode = mode || this.mode;
     const code = await this.net.host({ nick });
+    // (Only once the room is open: a failed attempt leaves no stale mode.)
+    this.mode = mode || this.mode;
     this._started();
     return code;
   }
@@ -141,10 +144,15 @@ export class Multiplayer {
     this.net.leave();
     this.bg.stop();
     for (const m of this.modules) m.stop?.();
+    // (After the modules' stop(), which still reads it: the host plays on
+    // alone, and main.js checks "dogfight" without checking `active`.)
+    if (!wasGuest) this.mode = this.game.player.creative ? "creative" : "survival";
     this.ui.refresh();
     if (wasGuest) {
       this.game.allowUnload();
-      window.location.href = soloUrl();
+      // (A moment for the last things and the goodbye to leave: navigating at
+      // once can close the channel with them still queued.)
+      setTimeout(() => (window.location.href = soloUrl()), 250);
     }
   }
 

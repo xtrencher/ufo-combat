@@ -6,7 +6,7 @@ import { UI, isMobileDevice } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, lastEditsBytes } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
@@ -51,6 +51,7 @@ import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
 import { createJetModel } from "./jet-model.js";
+import { createB2Model } from "./b2-model.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { Stats, formatPlayTime } from "./stats.js";
 import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause, baseCause } from "./damage.js";
@@ -269,6 +270,8 @@ if (!GUEST) world.loadEdits(loadEdits(SEED));
   const cores = navigator.hardwareConcurrency || 4;
   const n = want !== null ? Math.max(0, Math.min(4, Math.floor(Number(want)) || 0)) : Math.max(1, Math.min(2, cores - 2));
   if (n > 0) world.enableGenWorkers(n);
+  // (Meshing goes to the same workers; ?meshWorkers=0 keeps it here.)
+  world.meshInWorkers = new URLSearchParams(window.location.search).get("meshWorkers") !== "0";
 }
 postfx.setWaterMaterial(world.materials.water);
 world.meshOptions.fancyLeaves = activePreset.fancyLeaves; // before the first chunks are meshed
@@ -409,7 +412,9 @@ settingsPanel.on("vehicles.ufoGhost", (v) => (vehicles.config.ufo.ghost = v));
 // Creative rule, fixed at "off" in Survival, so the key did nothing there,
 // and "Steal the ship" needs it: the key now switches the ship itself too.)
 vehicles.onGhostToggle = (v) => {
-  settingsPanel.set("vehicles.ufoGhost", v);
+  // (Saved only where it is the player's own Creative setting: not Survival's
+  // default, nor a guest's host rule.)
+  if (!settingsPanel.survival && !settingsPanel.hostRules) settingsPanel.set("vehicles.ufoGhost", v);
   vehicles.config.ufo.ghost = v;
 };
 settingsPanel.on("vehicles.ufoDash", (v) => (vehicles.config.ufo.dash = v));
@@ -517,7 +522,7 @@ const ufoTarget = {
 const vehicleTarget = {
   raycast(origin, dir, maxDist) {
     const h = vehicles.raycast(origin, dir, maxDist, vehicles.active);
-    return h && { distance: h.distance, hit: (damage) => h.vehicle.damage(damage, "player") };
+    return h && { distance: h.distance, hit: (damage) => h.vehicle.damage(damage, "player") && hud.hitMarker?.() };
   },
   sphereHit: (p, r) => {
     const v = vehicles.sphereHit(p, r);
@@ -525,6 +530,7 @@ const vehicleTarget = {
   },
 };
 weapons.targets.push(ufoTarget, vehicleTarget);
+weapons.onHit = () => hud.hitMarker?.(); // (a gun, rail or arrow hit on a creature)
 // The railgun's beam goes through everything: every UFO and vehicle on the line.
 weapons.pierce.push({
   all(origin, dir, range) {
@@ -580,14 +586,18 @@ player.damageFilter = (amount, cause) => {
   if (player.creative || ARMOR_PASS.has(cause)) return amount;
   const red = inventory.armorReduction();
   if (red <= 0) return amount;
-  const out = Math.max(1, Math.round(amount * (1 - red)));
+  return Math.max(1, Math.round(amount * (1 - red)));
+};
+// (Worn only by the hits that land: Player.damage calls this after the hurt
+// grace time has let the hit through.)
+player.armorWear = (amount, cause) => {
+  if (player.creative || ARMOR_PASS.has(cause) || inventory.armorReduction() <= 0) return;
   const broken = inventory.damageArmor(Math.max(1, Math.floor(amount / 4)));
   if (broken.length) {
     for (const n of broken) toast(`Your ${n} broke!`, 2.5);
     audio.playClick?.();
   }
   markInventoryChanged();
-  return out;
 };
 weapons.airstrike.targets.push(ufoTarget);
 lasers.addProvider({
@@ -1057,6 +1067,7 @@ if (savedPlayer) {
   if (Number.isFinite(savedPlayer.pitch)) player.pitch = Math.max(-1.55, Math.min(1.55, savedPlayer.pitch));
   if (Number.isFinite(savedPlayer.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, savedPlayer.health));
   if (Number.isFinite(savedPlayer.air)) player.air = Math.max(0, Math.min(MAX_AIR, savedPlayer.air));
+  if (Number.isFinite(savedPlayer.absorb)) player.absorption = Math.max(0, Math.min(20, savedPlayer.absorb));
   inventory.load(savedPlayer.inv);
   inventory.loadArmor(savedPlayer.armor);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
@@ -1066,6 +1077,7 @@ if (savedPlayer) {
   // is no longer used: the inventory a save has is the one it keeps.)
   loadoutGiven = savedPlayer.loadout !== false;
   nuke.loadZones(savedPlayer.blastZones);
+  waterSim.loadMeta(savedPlayer.water);
 } else {
   player.spawnAt(spawnX, spawnZ);
 }
@@ -1125,6 +1137,13 @@ crates.onMessage = (t) => toast(t, 5);
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast, weapons, effects, audio, world });
 missionDirector.entities = entities;
 progress.hold = () => !!progress.mission?.squad && missionDirector.holding();
+// (A leader's weapon still on the ground when the game was saved: set out
+// again, and the mission waits for it as before.)
+for (const d of Array.isArray(savedPlayer?.leaderDrops) ? savedPlayer.leaderDrops : []) {
+  if (!Array.isArray(d) || !Number.isInteger(d[0]) || !d.slice(1, 4).every(Number.isFinite) || ownedItems().has(d[0])) continue;
+  const it = entities.spawn(d[0], 1, new THREE.Vector3(d[1], d[2], d[3]), new THREE.Vector3(0, 0, 0), { keep: true, pickupDelay: 0 });
+  if (it) missionDirector.leaderDropped(it);
+}
 hooks.onUfoDown = (u, mine) => missionDirector.ufoDown(u, mine);
 mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
@@ -1136,17 +1155,31 @@ progress.onStart = (m) => {
 const testFlags = { noMissions: false };
 // (Online Dogfight: no missions or supply drops while it lasts.)
 let survivalPaused = false;
+let progressOffAt = null; // (the mission stats when the chain went off)
 function refreshSurvivalSystems() {
   const on = mods.enabled && !player.creative && !survivalPaused;
   settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
+  const wasOn = progress.enabled;
   progress.enabled = on && !testFlags.noMissions;
+  // (Kills made while the chain is off, e.g. in Creative, don't count toward
+  // the mission: its base moves on by what was added meanwhile.)
+  if (wasOn && !progress.enabled) progressOffAt = progress._pick(stats.world);
+  else if (!wasOn && progress.enabled && progressOffAt) {
+    const now = progress._pick(stats.world);
+    for (const k in now) progress.base[k] = (progress.base[k] ?? 0) + now[k] - (progressOffAt[k] ?? 0);
+    progressOffAt = null;
+  }
   // (A guest follows the host's mission chain: js/net/coop.js.)
   missionDirector.enabled = on && !testFlags.noMissions && !GUEST;
   if (!on) crates.clear();
 }
 mods.onChange(refreshSurvivalSystems);
 refreshSurvivalSystems();
+// (Saved in Creative: the counts from when the chain went off, not from this load.)
+if (progressOffAt && savedPlayer?.missionsOff && typeof savedPlayer.missionsOff === "object") {
+  for (const k in progressOffAt) if (Number.isFinite(savedPlayer.missionsOff[k])) progressOffAt[k] = savedPlayer.missionsOff[k];
+}
 progress.onComplete = (m) => {
   giveMissionReward(m);
   if (m.id === MISSIONS[MISSIONS.length - 1].id) setTimeout(showVictory, 2500);
@@ -1190,7 +1223,7 @@ function giveMissionReward(m) {
     names.push(`${give[1] > 1 ? `${give[1]} x ` : ""}${itemInfo(give[0])?.name ?? "item"}`);
   }
   toast(`MISSION COMPLETE: ${m.title}. Reward: ${names.join(", ")}`, 6);
-  audio.playMission?.();
+  audio.playMissionDone?.();
   markInventoryChanged();
   playerDirty = true;
 }
@@ -1206,9 +1239,12 @@ function refreshModsPills() {
   }
 }
 refreshModsPills();
-function setModsEnabled(on) {
-  settings.mods = on;
-  persistSettings();
+// (persist false: for the moment only, e.g. a Dogfight's; the setting saved stays the player's.)
+function setModsEnabled(on, persist = true) {
+  if (persist) {
+    settings.mods = on;
+    persistSettings();
+  }
   modsCheckbox.checked = on;
   mods.set(on);
   if (on && gameState !== "start") fillStartingWeapons(false);
@@ -1333,19 +1369,35 @@ const menuPerf = new MenuPerf({
 });
 held.setItem(inventory.selectedStack?.id ?? 0, true);
 
+// The inventory as saved: a stack held on the inventory screen's cursor goes
+// into a free slot of the copy (close() puts it back; a save before that,
+// e.g. the tab closed, would lose it).
+function serializeInvWithCursor() {
+  const inv = inventory.serialize();
+  const c = invScreen.isOpen ? invScreen.cursor : null;
+  if (c) {
+    const i = inv.indexOf(0);
+    if (i >= 0) inv[i] = c.dur !== undefined ? [c.id, c.count, c.dur] : [c.id, c.count];
+  }
+  return inv;
+}
+
 function playerState() {
   // A dead player is saved as respawned: their items were dropped in the world.
   const p = player.dead ? null : player.position;
+  // (Watching a Dogfight: Creative only for the flight; the things kept aside are the player's.)
+  const kept = mp.dogfight?.keptInventory;
   return {
-    mode: player.mode,
+    mode: kept ? "survival" : player.mode,
     pos: p ? [round3(p.x), round3(p.y), round3(p.z)] : null,
     yaw: round3(player.yaw),
     pitch: round3(player.pitch),
     health: player.dead ? MAX_HEALTH : player.health,
     air: player.dead ? MAX_AIR : round3(player.air),
-    inv: inventory.serialize(),
-    armor: inventory.serializeArmor(),
-    sel: inventory.selected,
+    absorb: player.dead ? 0 : player.absorption,
+    inv: kept ? kept.slots : serializeInvWithCursor(),
+    armor: kept ? kept.armor : inventory.serializeArmor(),
+    sel: kept ? kept.sel : inventory.selected,
     time: round3(sky.time),
     modStash: mods.serialize(),
     loadout: loadoutGiven,
@@ -1353,6 +1405,10 @@ function playerState() {
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
+    // (Flowing water's cells: without them a reload turns each into a source.)
+    water: waterSim.meta.size ? waterSim.serializeMeta(3000) : undefined,
+    leaderDrops: progress.mission?.squad ? missionDirector.serializeDrops() : undefined,
+    missionsOff: progressOffAt || undefined, // (saved in Creative: what the mission counts had reached)
   };
 }
 
@@ -1364,7 +1420,9 @@ let playerDirty = false;
 let lastPlayerSave = 0;
 
 let saveFailWarned = false; // (the storage-full toast: once a session)
-function flushSave() {
+let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
+// `force`: try the edits even while backing off (leaving, a menu's save).
+function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
   if (GUEST) {
     pendingSave = false;
@@ -1374,14 +1432,19 @@ function flushSave() {
     return;
   }
   let failed = false;
-  if (pendingSave) {
+  if (pendingSave && (force || performance.now() >= nextEditTry)) {
     // (A failed save keeps the edits: the cache holds them all for the next try.)
     failed = !saveEdits(SEED, world.edits, encodedEditCache, world.dirtyEditChunks);
     world.dirtyEditChunks.clear();
     pendingSave = failed;
+    // (Storage full: the next try in about 30 s, not the whole edit set with
+    // every player save.)
+    if (failed) nextEditTry = performance.now() + 30000;
+    // (A big world's edits take a while to rewrite: about every 10 s while
+    // things keep changing, e.g. flowing water. Leaving the page still saves at once.)
+    else if (lastEditsBytes > 256 * 1024) nextEditTry = performance.now() + 8000;
   }
-  // (Storage full: the next try in about 30 s, not the whole edit set every 2 s.)
-  lastSaveTime = performance.now() + (failed ? 28000 : 0);
+  lastSaveTime = performance.now();
   stats.save();
   if (!newWorld || playerDirty) {
     const ok = savePlayer(SEED, playerState());
@@ -1665,7 +1728,16 @@ function setMode(mode) {
 }
 
 
-ui.modeSelect.addEventListener("change", () => setMode(ui.modeSelect.value));
+ui.modeSelect.addEventListener("change", () => {
+  // (Online the room's mode is the host's pick for everyone, as in the pause
+  // menu: a local switch would clear the host's crates for every guest.)
+  if (mp.active) {
+    if (mp.isHost) mp.rules.setMode(ui.modeSelect.value);
+    ui.setModeShown(player.mode);
+    return;
+  }
+  setMode(ui.modeSelect.value);
+});
 ui.pauseModeSelect.addEventListener("change", () => {
   // Online only the host picks the mode (for everyone).
   if (mp.active) {
@@ -1751,7 +1823,8 @@ const shaderStandIns = new THREE.Group();
 // so the first UFO, beam or jet doesn't stall a frame compiling them.
 {
   const warm = new THREE.Group();
-  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root, createJetModel(1, { type: "f16" }).root);
+  // (The B-2 too: every airport parks one, and its windscreen is a shader of its own.)
+  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root, createJetModel(1, { type: "f16" }).root, createB2Model().root);
   const beam = new TractorBeam(warm);
   beam.mesh.visible = true;
   beam.pool.visible = true;
@@ -1883,7 +1956,10 @@ for (const select of [ui.graphicsSelect, ui.startGraphicsSelect]) {
 }
 
 const fpsEl = document.getElementById("fps-counter");
-settingsPanel.on("showFps", (v) => (fpsEl.style.display = v ? "" : "none"));
+settingsPanel.on("showFps", (v) => {
+  fpsEl.style.display = v ? "" : "none";
+  document.body.classList.toggle("fps-on", !!v); // (the online chip moves below it)
+});
 
 // Controls.
 settingsPanel.on("fov", (v) => (player.baseFov = v));
@@ -2111,8 +2187,12 @@ function showPause() {
   chord.reset();
   audio.setJetEngine(0, false, 0, false);
   interaction.release();
+  // (A button let go in another window never reaches the page: online the
+  // vehicle would keep firing behind the menu.)
+  vehicles.releaseAll();
   ui.showHud(false);
   refreshCallIns();
+  ui.copyLinkBtn.textContent = mp.active ? "Copy invite link" : "Copy world link";
   ui.showPauseMenu(SEED, renderDistance);
 }
 
@@ -2268,9 +2348,11 @@ document.addEventListener("pointerlockchange", () => {
 document.addEventListener("pointerlockerror", () => showPause());
 
 function openInventory(kind) {
-  if (gameState !== "playing") return;
+  // (Watching a Dogfight: no palette, no things to take.)
+  if (gameState !== "playing" || mp.dogfight?.watching) return;
   chord.reset();
   interaction.release();
+  vehicles.releaseAll();
   gameState = "inventory";
   invScreen.open(kind, player.creative);
   document.exitPointerLock();
@@ -2297,6 +2379,7 @@ ui.copyLinkBtn.addEventListener("click", () => {
   const url = new URL(window.location.href);
   url.searchParams.set("seed", String(SEED));
   navigator.clipboard?.writeText(url.toString()).catch(() => {});
+  toast("World link copied", 2);
 });
 
 // ---------- Keyboard ----------
@@ -2311,6 +2394,17 @@ function selectSlot(i) {
 
 window.addEventListener("keydown", (e) => {
   if (gameState === "inventory") {
+    // (F1 / F3 / F5 stay cancelled here too: F5 would reload the page.)
+    if (e.code === "F1" || e.code === "F3" || e.code === "F5") {
+      e.preventDefault();
+      return;
+    }
+    // (Key repeat: the held E that opened the screen must not close it, nor
+    // a held digit swap the slots back and forth.)
+    if (e.repeat && (e.code === "KeyE" || e.code === "Escape" || e.code.startsWith("Digit"))) {
+      e.preventDefault();
+      return;
+    }
     if (e.code === "KeyE" || e.code === "Escape") {
       e.preventDefault();
       closeInventory();
@@ -2341,6 +2435,7 @@ window.addEventListener("keydown", (e) => {
   const idx = DIGIT_CODES.indexOf(e.code);
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
+  if (mp.dogfight?.watching) return; // (only watching: no dropping, reloading or inventory)
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
@@ -2415,12 +2510,16 @@ function updateDebug(dt, frameTime) {
 
 canvas.addEventListener("wheel", (e) => {
   if (gameState !== "playing") return;
+  // (Ctrl is sprint and the UFO's boost: Ctrl+wheel must not zoom the page.)
+  if (e.ctrlKey) e.preventDefault();
   if (vehicles.active) {
     vehicles.wheel(e.deltaY);
     return;
   }
-  selectSlot(inventory.selected + (e.deltaY > 0 ? 1 : -1));
-});
+  // (A sideways swipe or tilt wheel has no deltaY: no slot change.)
+  if (!e.deltaY) return;
+  selectSlot(inventory.selected + Math.sign(e.deltaY));
+}, { passive: false });
 
 // ---------- Mouse ----------
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -2438,17 +2537,22 @@ const chord = new MouseChord({
   zoom: (on) => binoculars.set(on),
 });
 
+// (The mouse's back / forward side buttons would leave the page mid-game.)
+const isSideButton = (e) => (e.button === 3 || e.button === 4) && (gameState === "playing" || gameState === "inventory");
 document.addEventListener("mousedown", (e) => {
+  if (isSideButton(e)) e.preventDefault();
   if (gameState !== "playing") return;
   if (e.button === 1) e.preventDefault();
   if (vehicles.active) {
     vehicles.mouseDown(e.button);
     return;
   }
+  if (mp.dogfight?.watching) return; // (no mining or placing in the shared world)
   chord.down(e.button);
 });
 
 document.addEventListener("mouseup", (e) => {
+  if (isSideButton(e)) e.preventDefault();
   vehicles.mouseUp(e.button);
   chord.up(e.button);
 });
@@ -2659,14 +2763,20 @@ const game = {
     // (Flying or under a parachute: only the column, the aircraft isn't
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
     const air = vehicles.active || player.parachute;
-    return { inv: inventory.serialize(), armor: inventory.serializeArmor(), sel: inventory.selected, health: player.dead ? MAX_HEALTH : player.health, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven };
+    const kept = mp.dogfight?.keptInventory;
+    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
     inventory.load(d.inv);
     inventory.loadArmor(d.armor);
+    // (Mod items put away while the host had Mods off: kept with the rest.)
+    mods.load(d.modStash);
+    if (mods.enabled) mods.restoreItems();
+    else mods.stashItems();
     if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
     if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
+    if (Number.isFinite(d.absorb)) player.absorption = Math.max(0, Math.min(20, d.absorb));
     loadoutGiven = d.loadout !== false;
     // (Things of their own: a loadout still owed goes into free slots, not over them.)
     newWorld = false;
@@ -2801,9 +2911,12 @@ const game = {
   },
   // A room was opened from a menu: the game mode follows the room's.
   hostStarted(mode) {
-    if (mode === "creative" || mode === "survival") {
-      ui.modeSelect.value = mode;
-      if (gameState !== "start") setMode(mode);
+    // (Dogfight plays by Survival's rules: a Creative host's pilot could never die.)
+    const pm = mode === "creative" ? "creative" : mode === "survival" || mode === "dogfight" ? "survival" : null;
+    if (pm) {
+      ui.modeSelect.value = pm;
+      ui.pauseModeSelect.value = pm;
+      if (gameState !== "start") setMode(pm);
     }
     refreshPlayLabels();
   },
@@ -2968,7 +3081,10 @@ window.__ufo = window.__voxelands = {
 // ---------- Stats overlay, hit marker, stats screen ----------
 const statsOverlayEl = document.getElementById("stats-overlay");
 let statsOverlayT = 0;
-settingsPanel.on("statsOverlay", (v) => statsOverlayEl.classList.toggle("hidden", !v));
+settingsPanel.on("statsOverlay", (v) => {
+  statsOverlayEl.classList.toggle("hidden", !v);
+  document.body.classList.toggle("stats-on", !!v); // (the mission tracker moves below it)
+});
 const beamOverlayEl = document.getElementById("beam-overlay");
 let beamWarned = false;
 function updateBeamFeedback() {
@@ -3090,7 +3206,7 @@ function updateRadar(dt) {
       contacts.push({ kind: "player", x: at.x, z: at.z, air: !!rv, heading: rv ? headingOf(rv) : 0, color: r.color });
     }
   }
-  for (const s of world.terrain.sites.within(pos.x, pos.z, radar.range * 2.5)) {
+  for (const s of world.terrain.sites.withinCached(pos.x, pos.z, radar.range * 2.5)) {
     if (s.kind !== "airport" && s.kind !== "city") continue;
     const [ux, uz] = world.terrain.sites.dirU(s);
     contacts.push({ kind: "airport", x: s.x, z: s.z, heading: Math.atan2(-ux, -uz), size: (s.half ?? 300) * 2 });
@@ -3240,7 +3356,7 @@ function updateHints(dt) {
   hintT = 0.5;
   if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
-  if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Right click fires missiles once LOCKED.", 6);
+  if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Tap right click: a missile straight ahead; hold it to lock on.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
   if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! Their lasers hurt: keep moving, and hit back (bow, sword, or better).", 5);
@@ -3320,6 +3436,7 @@ const MAX_DT = 0.05;
 
 // One step of the game: everything but drawing. (In a hidden tab during a
 // multiplayer game the background clock calls it without animate().)
+let loopsQuiet = false; // (the looping sounds were stopped for a frozen world)
 function simulate(dt, frameTime) {
   // The world keeps running behind the inventory and death screens; only
   // the pause and start menus freeze it. Online nothing pauses: the pause
@@ -3357,12 +3474,23 @@ function simulate(dt, frameTime) {
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
     lasers.update(dt);
+    loopsQuiet = false;
+  } else if (gameState !== "start" && !loopsQuiet) {
+    // (A frozen world, e.g. the single-player pause or the respawn wait: the
+    // looping sounds hold their last volume unless they are told to stop.)
+    loopsQuiet = true;
+    audio.setMinigun(0, false);
+    audio.setUfoHum(0, 0);
+    audio.setJetEngine(0, false, 0, false);
   }
   if (gameState === "start") {
     flyover.update(dt, camera, worldUniforms.uNight.value);
     effects.listener.copy(camera.position);
     if (!running) effects.update(dt);
-    menuPerf.update(frameTime, graphicsPreset);
+    // (Not the hidden tab's background clock, nor the gap on coming back:
+    // either would read as a low frame rate and advise lower graphics.)
+    if (document.visibilityState !== "hidden" && !skipMenuPerfFrame) menuPerf.update(frameTime, graphicsPreset);
+    skipMenuPerfFrame = false;
     menuUfoHint.classList.toggle("hidden", !(flyover.ufoVisible && flyover.score === 0));
   } else if (running) {
     // (the view follows the player: see above)
@@ -3378,7 +3506,10 @@ function simulate(dt, frameTime) {
   // menu: behind the inventory, the death screen or an online pause it goes on.)
   world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
   lod.update();
-  grass.update(player.position);
+  // (High over the ground in an aircraft the plants below are specks: not
+  // refilled as it races along, not drawn.)
+  const gv = vehicles.active;
+  grass.update(player.position, { suspended: !!gv && gv.pos.y - world.heightAt(Math.floor(gv.pos.x), Math.floor(gv.pos.z)) > grass.radius * 2 });
   distant.viewRange = viewRD * 16;
   distant.night = worldUniforms.uNight.value;
   distant.update(dt, camera);
@@ -3387,7 +3518,8 @@ function simulate(dt, frameTime) {
   binoculars.update(dt, gameState === "playing");
   interaction.updateTarget(gameState === "playing" && !vehicles.active);
   vehicles.updateHud(dt, gameState === "playing");
-  stats.tick(dt, gameState === "playing");
+  // (Play time is wall-clock: not the step clamped for the physics.)
+  stats.tick(Math.min(frameTime, 1), gameState === "playing");
   updateBeamFeedback();
   updateJetOverlay();
   updateRadar(dt);
@@ -3398,10 +3530,10 @@ function simulate(dt, frameTime) {
   if (gameState === "inventory") invScreen.refresh();
 
   const now = performance.now();
-  if (pendingSave && now - lastSaveTime > 2000) flushSave();
+  if (pendingSave && now - lastSaveTime > 2000 && now >= nextEditTry) flushSave(false);
   if (running && now - lastPlayerSave > 5000) {
     playerDirty = true;
-    flushSave();
+    flushSave(false);
   }
   updateEnvironment(dt);
   hud.update(dt, player);
@@ -3417,6 +3549,11 @@ function simulate(dt, frameTime) {
 }
 
 let lastFrozenRender = 0;
+// (The first frame back on a hidden tab spans the whole time away: not a frame rate.)
+let skipMenuPerfFrame = false;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") skipMenuPerfFrame = true;
+});
 function animate() {
   requestAnimationFrame(animate);
   const frameStart = performance.now();

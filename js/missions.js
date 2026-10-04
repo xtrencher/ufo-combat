@@ -325,6 +325,13 @@ export class MissionDirector {
     return !!this._drop();
   }
 
+  // The leaders' weapons still on the ground, for the save ([[id, x, y, z], ...]):
+  // a reload sets them out again, and the mission still waits for them.
+  serializeDrops() {
+    this._drop();
+    return (this._drops || []).map((d) => [d.it.id, Math.round(d.it.pos.x * 10) / 10, Math.round(d.it.pos.y * 10) / 10, Math.round(d.it.pos.z * 10) / 10]);
+  }
+
   _setTarget(obj, label) {
     this.target = { pos: (obj.pos || obj).clone ? (obj.pos || obj).clone() : new THREE.Vector3(obj.x, obj.y ?? 0, obj.z), label, follow: obj.pos ? obj : null };
   }
@@ -1922,21 +1929,30 @@ export class MissionDirector {
     const sites = this.terrain.sites;
     const b = site.bunkers[spot.id];
     const list = [];
+    const cells = [];
+    for (let u = b.ru0 - 1; u <= b.ru1 + 1; u++) {
+      for (const v of [b.hv0, b.hv0 + 1]) {
+        const [x, z] = sites.toWorld(site, u, v);
+        for (let y = spot.y; y < spot.y + 10; y++) cells.push(x, y, z, (y - spot.y) % 3 === 1 ? BLOCK.STONE : BLOCK.COBBLESTONE);
+      }
+    }
     if (close) {
-      for (let u = b.ru0 - 1; u <= b.ru1 + 1; u++) {
-        for (const v of [b.hv0, b.hv0 + 1]) {
-          const [x, z] = sites.toWorld(site, u, v);
-          for (let y = spot.y; y < spot.y + 10; y++) {
-            if (this.world.getBlock(x, y, z) !== BLOCK.AIR) continue;
-            list.push(x, y, z, (y - spot.y) % 3 === 1 ? BLOCK.STONE : BLOCK.COBBLESTONE);
-          }
-        }
+      let match = 0;
+      for (let i = 0; i < cells.length; i += 4) {
+        const id = this.world.getBlock(cells[i], cells[i + 1], cells[i + 2]);
+        if (id === cells[i + 3]) match++;
+        if (id === BLOCK.AIR) list.push(cells[i], cells[i + 1], cells[i + 2], cells[i + 3]);
       }
       this.state.doors = list.slice();
+      // (Doors already shut: sealed before a reload, whose list is gone; most of
+      // the doorway is door blocks, not one a player happened to build. Opening
+      // then clears every door block in the doorway.)
+      this.state.doorsAll = match * 2 > cells.length / 4;
     } else {
-      const old = this.state.doors || [];
+      const old = this.state.doorsAll ? cells : this.state.doors || [];
       for (let i = 0; i < old.length; i += 4) if (this.world.getBlock(old[i], old[i + 1], old[i + 2]) === old[i + 3]) list.push(old[i], old[i + 1], old[i + 2], BLOCK.AIR);
       this.state.doors = null;
+      this.state.doorsAll = false;
     }
     if (list.length) this.world.setBlocks(list);
   }
@@ -1945,7 +1961,9 @@ export class MissionDirector {
   _stealOpen() {
     const st = this.state;
     if (!st.open) {
-      const at = this._groundSpot(700, 0.2, this._anyone().position);
+      // (The ship from before a reload is still the mission's ship: the spot is where it is.)
+      const had = this.vehicles.vehicles.find((v) => v.missionShip === "open" && v.alive);
+      const at = had ? had.pos.clone() : this._groundSpot(700, 0.2, this._anyone().position);
       st.open = at ? { x: at.x, y: at.y, z: at.z } : null;
       if (!st.open) return;
     }

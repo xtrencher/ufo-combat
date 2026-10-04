@@ -127,6 +127,17 @@ export class ItemSync {
     if (left > 0) this.share(() => g.entities.spawn(it.id, left, g.player.position.clone().add(new THREE.Vector3(0, 1, 0)), null, { dur: it.dur, pickupDelay: 1.5 }));
   }
 
+  // Host: what already lies in its world when the room opens is shared too
+  // (it goes out with the join state).
+  start() {
+    if (!this.net.isHost) return;
+    for (const it of this.game.entities.items) {
+      if (it.shared) continue;
+      it.shared = `${this.net.pid}:${this._n++}`;
+      this.byKey.set(it.shared, it);
+    }
+  }
+
   update() {
     // Items that despawned here are forgotten (Round 9: the host's, for
     // everyone: their copies go too).

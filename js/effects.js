@@ -377,7 +377,8 @@ export class EffectsSystem {
     }
 
     // Expanding shockwave ring.
-    const ring = this._rings.find((r) => r.userData.age > 0.6) || this._rings[0];
+    // (a free ring first, else the oldest: a finished small ring stops ageing below 0.6)
+    const ring = this._rings.find((r) => !r.visible) || this._rings.reduce((a, b) => (b.userData.age > a.userData.age ? b : a));
     ring.position.set(center.x, center.y + 0.2, center.z);
     ring.userData.age = 0;
     ring.userData.radius = look;

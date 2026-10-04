@@ -308,9 +308,11 @@ export class VehicleManager {
     this.vehicles.push(vehicle);
     this.scene.add(vehicle.root);
     vehicle.root.visible = this.enabled;
-    // Too many parked / wrecked vehicles: the oldest unused one goes.
-    if (this.vehicles.length > MAX_VEHICLES) {
-      const old = this.vehicles.find((v) => v !== this.active && !v.keep);
+    // Too many parked / wrecked vehicles: the oldest unused one goes (never
+    // the one being added, a living fighter or another peer's puppet; only
+    // this peer's own vehicles count, so puppets don't push them out).
+    if (this.vehicles.reduce((n, v) => n + (v.puppet ? 0 : 1), 0) > MAX_VEHICLES) {
+      const old = this.vehicles.find((v) => v !== vehicle && v !== this.active && !v.keep && !v.puppet && !(v.isEnemyJet && v.alive));
       if (old) this.remove(old);
     }
     this.onAdded?.(vehicle);
@@ -582,10 +584,17 @@ export class VehicleManager {
     const near = playing && !v ? this.nearestEnterable() : null;
     if (this.promptEl) {
       this.promptEl.classList.toggle("hidden", !near);
-      if (near) this.promptEl.textContent = this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : `Press F to board the ${near.name}`;
+      // (Written only when it changes: no DOM work every frame.)
+      const text = near ? (this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : `Press F to board the ${near.name}`) : "";
+      if (text !== this._promptText) {
+        this._promptText = text;
+        if (text) this.promptEl.textContent = text;
+      }
     }
     if (!v || !playing || this._hudTimer > 0 || !this.hudEl) return;
     this._hudTimer = 0.1;
+    // (Live rows such as hull and ghost mode stay current while I is open.)
+    if (this.infoOpen) this.refreshInfo();
     const h = v.hud();
     const rows = h.rows.map(([k, val]) => `<div class="vh-row"><span>${k}</span><b>${val}</b></div>`).join("");
     const bars = (h.bars || []).map((b) => `<div class="vh-bar-row"><span>${b.label}</span><div class="vh-bar"><div class="${b.hot ? "hot" : ""}" style="width:${Math.round(Math.max(0, Math.min(1, b.value)) * 100)}%"></div></div></div>`).join("");
@@ -614,7 +623,8 @@ export class VehicleManager {
     const info = v.infoPanel();
     const stats = info.stats.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join("");
     const controls = info.controls.map(([k, val]) => `<tr><td><kbd>${k}</kbd></td><td>${val}</td></tr>`).join("");
-    el.innerHTML = `<h3>${info.title}</h3><h4>Stats</h4><table>${stats}</table><h4>Controls</h4><table>${controls}</table><div class="vi-close">Press I to close</div>`;
+    const html = `<h3>${info.title}</h3><h4>Stats</h4><table>${stats}</table><h4>Controls</h4><table>${controls}</table><div class="vi-close">Press I to close</div>`;
+    if (html !== this._infoHtml) el.innerHTML = this._infoHtml = html;
   }
 
   // Mods switched off: a seated player is set down safely (on the ground
@@ -641,7 +651,10 @@ export class VehicleManager {
     }
     if (!on) this.parachute.close(this.player);
     this.enabled = on;
-    for (const v of this.vehicles) v.root.visible = on;
+    for (const v of this.vehicles) {
+      v.root.visible = on;
+      if (!on) v.onDisabled?.();
+    }
     this.releaseAll();
   }
 

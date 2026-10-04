@@ -20,6 +20,7 @@ import { hash2, mulberry32 } from "./noise.js";
 import { BLOCK } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
+import { VILLAGE_REACH } from "./village.js";
 
 export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4 });
 export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak" };
@@ -86,9 +87,15 @@ export class TreeGrower {
     if (r >= MAX_DENSITY) return null;
     // No trees on airports and in cities (or leaning over them).
     if (this.terrain.sites.covers(wx, wz, 8)) return null;
-    const h = this.terrain.heightAt(wx, wz);
+    // Nor on a village's pad (it clears only so high above its ground: the
+    // crown of a tree rooted on higher ground there was left floating).
+    const v = this.terrain.villages?.nearestVillage(wx, wz, VILLAGE_REACH + 8);
+    if (v && (v.x - wx) ** 2 + (v.z - wz) ** 2 <= (VILLAGE_REACH + 6) ** 2) return null;
+    // (the terrain info once, for both the height and the biome)
+    const info = this.terrain._terrainInfo(wx, wz);
+    const h = info.height;
     if (h <= SEA_LEVEL + 1 || h >= WORLD_HEIGHT - 16) return null;
-    const biome = this.terrain.biomeAt(wx, wz);
+    const biome = this.terrain.biomes.biomeAt(wx, wz, h, info.mountainT, info.river, info.flat);
     if (NO_TREE_BIOMES.has(biome)) return null;
     const { density, forest } = this._density(wx, wz);
     const scaled = density * (BIOME_DENSITY[biome] ?? 1);

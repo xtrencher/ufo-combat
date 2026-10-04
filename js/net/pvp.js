@@ -109,6 +109,18 @@ export class PvpSync {
       }
       return best;
     };
+    // ...and so do the contact tests of grenades and meteors: they go off on
+    // another player (the blast itself follows the PvP rule like any other).
+    const sphereHit = mobs.sphereHit.bind(mobs);
+    mobs.sphereHit = (p, r) => {
+      const m = sphereHit(p, r);
+      if (m || !this.mp.active) return m;
+      for (const s of this._targets()) {
+        const hr = BODY_R + r;
+        if (Math.abs(p.x - s.pos.x) < hr && Math.abs(p.z - s.pos.z) < hr && p.y > s.pos.y - r && p.y < s.pos.y + BODY_H + r) return s;
+      }
+      return null;
+    };
     // (Round 9) The stand-ins for area weapons (the UFO superweapon's beam).
     mobs.standIns = () => (this.mp.active ? [...this._targets()] : []);
     // A hit on a stand-in: the damage goes to that player.

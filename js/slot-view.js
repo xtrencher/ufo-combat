@@ -30,7 +30,8 @@ export function stackLabel(stack) {
   if (!stack) return "";
   const info = itemInfo(stack.id);
   if (!info) return "";
-  if (stack.dur !== undefined && info.tool) return `${info.name} (${stack.dur}/${info.tool.durability})`;
+  const wear = info.tool || info.armor; // (armor wears out too)
+  if (stack.dur !== undefined && wear) return `${info.name} (${stack.dur}/${wear.durability})`;
   if (info.food) return `${info.name} (heals ${info.food / 2} ♥)`;
   return info.name;
 }
@@ -69,9 +70,10 @@ export class SlotView {
     const icon = this.icons.get(stack.id);
     if (icon) this.ctx.drawImage(icon, 0, 0, ICON, ICON);
     if (stack.count > 1) this.countEl.textContent = String(stack.count);
-    const tool = itemInfo(stack.id)?.tool;
-    if (tool && stack.dur !== undefined && stack.dur < tool.durability) {
-      const f = Math.max(0, stack.dur / tool.durability);
+    const info = itemInfo(stack.id);
+    const wear = info?.tool || info?.armor;
+    if (wear && stack.dur !== undefined && stack.dur < wear.durability) {
+      const f = Math.max(0, stack.dur / wear.durability);
       this.barFill.style.width = `${Math.round(f * 100)}%`;
       this.barFill.style.background = `hsl(${Math.round(f * 120)}, 90%, 50%)`;
       this.barEl.classList.remove("hidden");

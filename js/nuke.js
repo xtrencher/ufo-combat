@@ -50,8 +50,9 @@ export class NukeSystem {
     this.count = 0;
     this.listener = new THREE.Vector3();
     // A dedicated pool of big, slow cloud puffs.
-    this.cloud = new BillboardPool(scene, 1700, { additive: false, fog: false }); // (no distance fog: the cloud is seen from far beyond the view distance)
-    this.fire = new BillboardPool(scene, 360, { additive: true, fog: false });
+    // (room for two clouds at once: a full pool drops the oldest puffs, a living cloud's stem and rings)
+    this.cloud = new BillboardPool(scene, 2600, { additive: false, fog: false }); // (no distance fog: the cloud is seen from far beyond the view distance)
+    this.fire = new BillboardPool(scene, 720, { additive: true, fog: false });
     this.daylight = 1;
     // Fireball and shockwave meshes, reused.
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, fog: false }));
@@ -124,8 +125,14 @@ export class NukeSystem {
     // done by the scorch pass.
     const zone = { x: center.x, y: center.y, z: center.z, R, done: new Set() };
     const r = R * BURN;
+    d.zone = zone;
+    d.chunks = []; // [cx, cz, ...]: the chunks the scorch pass walks
     for (let cz = Math.floor((center.z - r) / 16); cz <= Math.floor((center.z + r) / 16); cz++) {
-      for (let cx = Math.floor((center.x - r) / 16); cx <= Math.floor((center.x + r) / 16); cx++) if (this.world.getChunk(cx, cz)) zone.done.add(`${cx},${cz}`);
+      for (let cx = Math.floor((center.x - r) / 16); cx <= Math.floor((center.x + r) / 16); cx++) {
+        if (!this.world.getChunk(cx, cz)) continue;
+        zone.done.add(`${cx},${cz}`);
+        d.chunks.push(cx, cz);
+      }
     }
     this.zones.push(zone);
     if (this.zones.length > 24) this.zones.shift();
@@ -399,41 +406,42 @@ export class NukeSystem {
   // - Out to 2R the land is scorched: grass turns to dirt, and the topmost
   //   leaves, plants and snow of each column burn off (trunks stay as
   //   charred stumps).
-  // Columns in chunks that are not loaded yet are retried later (when the
-  // player flies closer), for as long as the explosion's effects last.
+  // It walks only the chunks loaded at the blast: any other chunk (and one
+  // that unloads before the pass gets to it) is left to the zone, which
+  // applies itself when that chunk generates (_chunkGenerated).
   _scorch(d, budget) {
     const w = this.world;
     const c = d.center;
     const R2 = d.burnR;
     if (!d.scorchCols) {
-      d.deferred = [];
       // The columns, nearest first (a counting sort by ring), so the clearing
       // spreads outward like the shockwave.
       const RING = 6;
       const rings = Math.ceil(R2 / RING) + 1;
       const counts = new Uint32Array(rings + 1);
-      const x0 = Math.floor(c.x - R2);
-      const x1 = Math.ceil(c.x + R2);
-      const z0 = Math.floor(c.z - R2);
-      const z1 = Math.ceil(c.z + R2);
+      const keys = d.chunks ?? [];
       let total = 0;
-      for (let x = x0; x <= x1; x++) {
-        for (let z = z0; z <= z1; z++) {
-          const q = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
-          if (q > R2 * R2) continue;
-          counts[Math.floor(Math.sqrt(q) / RING) + 1]++;
-          total++;
+      for (let i = 0; i < keys.length; i += 2) {
+        for (let x = keys[i] * 16; x < keys[i] * 16 + 16; x++) {
+          for (let z = keys[i + 1] * 16; z < keys[i + 1] * 16 + 16; z++) {
+            const q = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
+            if (q > R2 * R2) continue;
+            counts[Math.floor(Math.sqrt(q) / RING) + 1]++;
+            total++;
+          }
         }
       }
       for (let i = 1; i <= rings; i++) counts[i] += counts[i - 1];
       d.scorchCols = new Int32Array(total * 2);
-      for (let x = x0; x <= x1; x++) {
-        for (let z = z0; z <= z1; z++) {
-          const q = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
-          if (q > R2 * R2) continue;
-          const k = counts[Math.floor(Math.sqrt(q) / RING)]++;
-          d.scorchCols[k * 2] = x;
-          d.scorchCols[k * 2 + 1] = z;
+      for (let i = 0; i < keys.length; i += 2) {
+        for (let x = keys[i] * 16; x < keys[i] * 16 + 16; x++) {
+          for (let z = keys[i + 1] * 16; z < keys[i + 1] * 16 + 16; z++) {
+            const q = (x + 0.5 - c.x) ** 2 + (z + 0.5 - c.z) ** 2;
+            if (q > R2 * R2) continue;
+            const k = counts[Math.floor(Math.sqrt(q) / RING)]++;
+            d.scorchCols[k * 2] = x;
+            d.scorchCols[k * 2 + 1] = z;
+          }
         }
       }
       d.scorchI = 0;
@@ -444,34 +452,11 @@ export class NukeSystem {
       const x = d.scorchCols[d.scorchI++];
       const z = d.scorchCols[d.scorchI++];
       n++;
-      if (!this._scorchColumn(d, x, z, edits)) d.deferred.push(x, z);
+      // (its chunk has unloaded: the zone does it when it comes back)
+      if (!this._scorchColumn(d, x, z, edits)) d.zone?.done.delete(`${x >> 4},${z >> 4}`);
     }
     if (edits.length) w.setBlocks(edits, { remote: d.mirror });
     return d.scorchI >= d.scorchCols.length;
-  }
-
-  // Retries the columns whose chunks were not loaded (a few hundred per call).
-  _retryDeferred(d, budget) {
-    if (!d.deferred || d.deferred.length === 0) return;
-    const edits = [];
-    const keep = [];
-    let n = 0;
-    for (let i = 0; i < d.deferred.length; i += 2) {
-      const x = d.deferred[i];
-      const z = d.deferred[i + 1];
-      if (n >= budget) {
-        keep.push(x, z);
-        continue;
-      }
-      if (!this.world.getChunk(x >> 4, z >> 4)) {
-        keep.push(x, z);
-        continue;
-      }
-      n++;
-      this._scorchColumn(d, x, z, edits);
-    }
-    d.deferred = keep;
-    if (edits.length) this.world.setBlocks(edits, { remote: d.mirror });
   }
 
   // Returns false when the column's chunk is not loaded (nothing done).
@@ -578,7 +563,10 @@ export class NukeSystem {
 
   // The zones, for the world save.
   serializeZones() {
-    return this.zones.map((z) => ({ x: Math.round(z.x * 10) / 10, y: Math.round(z.y * 10) / 10, z: Math.round(z.z * 10) / 10, R: z.R, done: [...z.done] }));
+    // (a zone whose scorch pass is still running saves no chunk as done: those
+    // ahead of the pass are not, and doing one again changes nothing)
+    const busy = new Set(this.active.filter((d) => !d.scorched && d.zone).map((d) => d.zone));
+    return this.zones.map((z) => ({ x: Math.round(z.x * 10) / 10, y: Math.round(z.y * 10) / 10, z: Math.round(z.z * 10) / 10, R: z.R, done: busy.has(z) ? [] : [...z.done] }));
   }
 
   loadZones(list) {
@@ -606,10 +594,6 @@ export class NukeSystem {
       // Crater: one slice per frame.
       if (d.slice < d.slices) this._carveSlice(d);
       if (!d.scorched) d.scorched = this._scorch(d, 2500);
-      else if (d.slice >= d.slices && d.t - (d.retryT ?? 0) > 2) {
-        d.retryT = d.t;
-        this._retryDeferred(d, 1500);
-      }
       // Fireball: swells, then cools and rises.
       const tb = d.t;
       if (tb < 6) {
@@ -640,7 +624,11 @@ export class NukeSystem {
       }
       this._updateCloud(d, dt);
       if (d.t > 125 && d.slice >= d.slices && d.scorched) {
-        this._retryDeferred(d, 4000);
+        // (its dissolved puffs would otherwise be drawn until their pool life ends)
+        for (const e of d.cloudPuffs) {
+          if (e.p) e.p.life = 0;
+          e.p = null;
+        }
         this.active.splice(i, 1);
       }
     }

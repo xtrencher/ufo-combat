@@ -6,7 +6,7 @@ export function isMobileDevice() {
 }
 
 const MODE_HINTS = {
-  survival: "Health, fall damage and drowning. Start with a pistol; shoot UFOs and aliens for better weapons, open supply crates, eat to heal.",
+  survival: "Health, fall damage and drowning. Start with a sword and pickaxe: skeletons drop the bow, supply crates bring guns, alien leaders carry alien weapons. Eat to heal.",
   creative: "Unlimited blocks from the E palette, instant mining, flight (double-tap Space), no damage.",
 };
 
@@ -98,6 +98,8 @@ export class UI {
   // A sniper scope overlay while zoomed: masks the screen to a circle and
   // hides the ordinary crosshair (the scope draws its own).
   setScoped(active) {
+    if (active === this._scoped) return; // (called every frame: touch the DOM only on a change)
+    this._scoped = active;
     this.scopeOverlayEl.classList.toggle("visible", active);
     this.crosshairEl.style.visibility = active ? "hidden" : "";
   }

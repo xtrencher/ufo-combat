@@ -27,6 +27,7 @@ const v3 = (v) => [r2(v.x), r2(v.y), r2(v.z)];
 const colorKeys = new Map(Object.entries(LASER_COLORS).map(([k, c]) => [c, k]));
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const NONE = []; // (no remote missiles: nothing allocated per fighter per frame)
 
 export class FxSync {
   constructor(mp) {
@@ -42,6 +43,8 @@ export class FxSync {
     this._hook();
     // Missiles from other machines coming at this player's jet (its warning).
     mp.game.vehicles.remoteMissiles = (jet) => this._incoming(jet);
+    // (The host) another player's missiles at one of its enemy fighters ("j:<id>"): it breaks and drops flares.
+    mp.game.vehicles.remoteMissilesAt = (ref) => this._incomingAt(ref);
     this.net.on("fx", (m, from) => this._onFx(m, from));
     this.net.on("pj", (m, from) => this._onPj(m, from));
   }
@@ -114,7 +117,8 @@ export class FxSync {
       audio[name] = (...args) => {
         orig(...args);
         if (this.mp.active && !this.mirroring && !this._soundSkip) {
-          const p = g.vehicles.active ? g.vehicles.active.pos : g.player.position;
+          // (A jet that isn't ours, e.g. the host's enemy fighter, sounds from where it is: see Jet._sound.)
+          const p = g.vehicles.soundAt || (g.vehicles.active ? g.vehicles.active.pos : g.player.position);
           this.out.push(["s", key, r1(p.x), r1(p.y), r1(p.z)]);
         }
       };
@@ -179,6 +183,8 @@ export class FxSync {
         for (const b of v.bombs || []) add(b, "nb", b.chute?.visible ? 1 : 0);
       }
     }
+    // (A bomb still falling from a jet that was removed: the manager carries it on, see vehicle-jet.js.)
+    for (const b of g.vehicles.strayBombs || []) add(b, "nb", b.chute?.visible ? 1 : 0);
     if (list.length && this.mp.stateLoaded) this.net.toAll({ t: "pj", ts: this.net.time, l: list }, { fast: true });
   }
 
@@ -207,8 +213,8 @@ export class FxSync {
     switch (e[0]) {
       case "x": {
         const pos = new THREE.Vector3(e[1], e[2], e[3]);
+        // (The grass it takes: main.js onExplosion, for mirrored ones too.)
         g.effects.explode(pos, { radius: e[4], source: e[5], visual: e[6] || null, mirror: true, by: from });
-        if (g.grass?.density > 0 && pos.distanceTo(g.player.position) < 90) g.grass.clear(pos.x, pos.z, Math.min(e[4] + 2.5, 30));
         break;
       }
       case "b": {
@@ -315,7 +321,8 @@ export class FxSync {
     else if (kind === "nb") {
       mesh = new THREE.Group();
       mesh.add(new THREE.Mesh(this._nukeGeo || (this._nukeGeo = nukeGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }))));
-      const chute = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2.4), new THREE.MeshLambertMaterial({ color: 0xd8d2c0, side: THREE.DoubleSide }));
+      // (One geometry and material for every chute: never disposed, never leaked.)
+      const chute = new THREE.Mesh(this._chuteGeo || (this._chuteGeo = new THREE.SphereGeometry(1.6, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2.4)), this._chuteMat || (this._chuteMat = new THREE.MeshLambertMaterial({ color: 0xd8d2c0, side: THREE.DoubleSide })));
       chute.position.y = 3.2;
       chute.visible = false;
       mesh.add(chute);
@@ -332,6 +339,14 @@ export class FxSync {
     const me = `v:${jet.net.nid}`;
     const mePlayer = `p:${this.net.pid}`;
     for (const p of this.remotePj.values()) if (p.kind === "ms" && (p.extra === me || p.extra === mePlayer)) out.push(p.pos);
+    return out;
+  }
+
+  // (The host) remote missiles homing on `ref` (an enemy fighter), by position.
+  _incomingAt(ref) {
+    if (!this.remotePj.size) return NONE;
+    const out = [];
+    for (const p of this.remotePj.values()) if (p.kind === "ms" && p.extra === ref) out.push(p.pos);
     return out;
   }
 

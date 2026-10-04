@@ -68,8 +68,10 @@ export class RulesSync {
     if (!this.net.isHost || !MODES.includes(mode)) return;
     const before = this.mp.mode;
     this.mp.mode = mode;
-    this._applyMode(mode, before);
+    // (The mode first: a guest has entered a Dogfight by the time its first
+    // "df" state arrives, so that new match puts it in a jet.)
     this.net.broadcast({ t: "mode", mode });
+    this._applyMode(mode, before);
     this._sig = "";
     this.mp.ui.refresh();
   }
@@ -124,7 +126,8 @@ export class RulesSync {
       this.mp.ui.refresh();
     }
     if (m.mode && m.mode !== this.mp.mode) this._onMode({ mode: m.mode });
-    else if (m.mode && this.game.player.mode !== (m.mode === "creative" ? "creative" : "survival")) this._applyMode(m.mode, m.mode);
+    // (A Dogfight watcher is in Creative on purpose: left flying.)
+    else if (m.mode && !this.mp.dogfight?.watching && this.game.player.mode !== (m.mode === "creative" ? "creative" : "survival")) this._applyMode(m.mode, m.mode);
   }
 
   _onMode(m) {

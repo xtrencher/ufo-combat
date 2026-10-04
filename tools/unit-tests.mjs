@@ -1131,7 +1131,7 @@ console.log("\nFlowing water (watersim.js)");
   const { BLOCK } = await import("../js/blocks.js");
 
   // A minimal stand-in for World: a sparse block map plus the same
-  // getChunk/getBlock/setBlock/changeListeners contract WaterSim relies on.
+  // getChunk/getBlock/setBlocks/changeListeners contract WaterSim relies on.
   class FakeWorld {
     constructor() {
       this.blocks = new Map();
@@ -1151,12 +1151,19 @@ console.log("\nFlowing water (watersim.js)");
       return this.blocks.get(this.k(x, y, z)) ?? BLOCK.AIR;
     }
     setBlock(x, y, z, id, { recordEdit = true } = {}) {
-      const key = this.k(x, y, z);
-      if (this.blocks.get(key) === id) return false;
-      this.blocks.set(key, id);
-      const changed = [x, y, z];
-      for (const fn of this.changeListeners) fn(changed, { recordEdit });
-      return true;
+      return this.setBlocks([x, y, z, id], { recordEdit }) > 0;
+    }
+    // (As World.setBlocks: a flat [x, y, z, id, ...] batch, one listener call.)
+    setBlocks(list, { recordEdit = true } = {}) {
+      const changed = [];
+      for (let i = 0; i < list.length; i += 4) {
+        const key = this.k(list[i], list[i + 1], list[i + 2]);
+        if (this.blocks.get(key) === list[i + 3]) continue;
+        this.blocks.set(key, list[i + 3]);
+        changed.push(list[i], list[i + 1], list[i + 2]);
+      }
+      if (changed.length) for (const fn of this.changeListeners) fn(changed, { recordEdit });
+      return changed.length / 3;
     }
   }
   const floor = (w, x0, x1, y, z0, z1) => {

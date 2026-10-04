@@ -8,6 +8,7 @@ import { itemInfo } from "./items.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 
 const SWING_TIME = 0.28;
+let barrelsGeo = null; // (built once and shared: never disposed)
 
 // A soft star-shaped flash for gun muzzles.
 function makeFlashTexture() {
@@ -178,7 +179,7 @@ export class HeldItem {
       // The minigun's barrels are their own mesh, spun by the game.
       this.barrels = null;
       if (model.barrels) {
-        this.barrels = new THREE.Mesh(minigunBarrels(), this.materials.color);
+        this.barrels = new THREE.Mesh((barrelsGeo ??= minigunBarrels()), this.materials.color);
         this.barrels.position.set(0, 0.04, -0.56);
         this.mesh.add(this.barrels);
       }

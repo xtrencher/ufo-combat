@@ -326,11 +326,22 @@ export class GrassField {
     return list;
   }
 
-  update(playerPos) {
+  // opts.suspended: the plants are hidden and not refilled (for the caller:
+  // high up or fast in a vehicle, where they can't be seen anyway).
+  update(playerPos, { suspended = false } = {}) {
     if (this.density <= 0) return;
+    if (suspended) {
+      this.mesh.visible = false;
+      this._suspended = true;
+      return;
+    }
+    if (this._suspended) {
+      this._suspended = false;
+      this.mesh.visible = true;
+    }
     this.material.uniforms.uPlayer.value.copy(playerPos);
     const chunks = this._chunksInRange(playerPos.x, playerPos.z);
-    let changed = this._builtAt.distanceTo(playerPos) > REBUILD_DISTANCE || chunks.length !== this._versions.size;
+    let changed = chunks.length !== this._versions.size;
     if (!changed) {
       for (const chunk of chunks) {
         if (this._versions.get(chunk) !== (chunk.meshCount || 0)) {
@@ -339,12 +350,19 @@ export class GrassField {
         }
       }
     }
+    // (a refill for moving alone at most 5 times a second: in a jet the player
+    // moves 1.5 blocks every frame, and a refill walks every spot in range;
+    // on foot it is never that fast, and a forced refill (Infinity) goes at once)
+    if (!changed && this._builtAt.distanceTo(playerPos) > REBUILD_DISTANCE) {
+      changed = this._builtAt.x === Infinity || performance.now() - (this._fillT ?? -Infinity) >= 200;
+    }
     if (changed) this._fill(chunks, playerPos);
   }
 
   _fill(chunks, playerPos) {
     const cfg = LEVELS[this.density];
     this._builtAt.copy(playerPos);
+    this._fillT = performance.now();
     this._versions.clear();
     for (const layer of Object.values(this.layers)) layer.count = 0;
     const { tuft, cross, reed, pad } = this.layers;

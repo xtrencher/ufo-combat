@@ -11,7 +11,9 @@
 // - With every key locked the browser also hands Esc to the page (hold Esc
 //   to leave fullscreen), so the pause menu keeps working: see `onEscape`.
 
-const BLOCKED_COMBOS = new Set(["KeyR", "KeyS", "KeyD", "KeyF", "KeyG", "KeyP", "KeyU", "KeyA", "KeyH", "KeyJ", "KeyL", "KeyK", "KeyO", "KeyE", "KeyB", "KeyN", "KeyQ", "KeyW", "KeyT"]);
+const BLOCKED_COMBOS = new Set(["KeyR", "KeyS", "KeyD", "KeyF", "KeyG", "KeyP", "KeyU", "KeyA", "KeyH", "KeyJ", "KeyL", "KeyK", "KeyO", "KeyE", "KeyB", "KeyN", "KeyQ", "KeyW", "KeyT", "KeyI",
+  // (Ctrl+digit would switch browser tabs while sprinting with Ctrl and picking a hotbar slot)
+  "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8", "Digit9"]);
 
 export class FullscreenControl {
   /** @param {{isInGame: () => boolean, onChange?: (on: boolean) => void}} opts */

@@ -141,6 +141,11 @@ export class PilotUfo extends Vehicle {
     this.dashing = null; // a dash under way: { from, to, t, dur }
     this.sw = { state: "idle", t: 0, cool: 0, depth: 0, hitT: 0, mesh: null, glow: null };
     this.keep = !this.wreck; // the player's ship is never cleaned up as clutter (a burnt-out wreck is)
+    // (A bunker ship flown out, or the mission's ship in the open: still known
+    // as that one after a reload, so no second copy is set out.)
+    if (typeof data.parkKey === "string") this.parkKey = data.parkKey;
+    if (typeof data.tookKey === "string") this.tookKey = data.tookKey;
+    if (typeof data.missionShip === "string") this.missionShip = data.missionShip;
     this._place();
   }
 
@@ -189,14 +194,44 @@ export class PilotUfo extends Vehicle {
     this.gun.queue.length = 0;
     this.gun.charge = 0;
     if (this.gun.beam) this.gun.beam.visible = false;
+    // (A salvo still leaving would otherwise fire on the next boarding.)
+    const L = this.lockOn;
+    L.queue.length = 0;
+    L.target = null;
+    L.t = 0;
+    L.pips = 0;
     if (this.dashing?.cont) {
       this.dashing = null;
       this.vel.set(0, 0, 0);
     }
   }
 
+  // Mods switched off: nothing is left frozen in the world (the beam, the
+  // superweapon and the lifted blocks sit outside root, which is hidden).
+  onDisabled() {
+    this.beam.set(false);
+    this.beam.strength = 0;
+    this.beam.update(0);
+    this._updateLifted(0);
+    this.sw.state = "idle";
+    if (this.sw.mesh) {
+      this.sw.mesh.visible = false;
+      this.sw.orb.visible = false;
+    }
+    if (this.gun.beam) this.gun.beam.visible = false;
+  }
+
   onDestroyedCleanup() {
-    if (this.sw.mesh) this.manager.scene.remove(this.sw.mesh, this.sw.orb);
+    const sw = this.sw;
+    if (sw.mesh) {
+      this.manager.scene.remove(sw.mesh, sw.orb);
+      sw.core.geometry.dispose(); // (core and halo share one geometry)
+      sw.core.material.dispose();
+      sw.halo.material.dispose();
+      sw.orb.geometry.dispose();
+      sw.orb.material.dispose();
+      sw.mesh = sw.orb = sw.core = sw.halo = null;
+    }
     const b = this.gun?.beam;
     if (b) {
       this.manager.scene.remove(b);
@@ -244,6 +279,7 @@ export class PilotUfo extends Vehicle {
     const edits = [];
     const seen = new Set();
     const removed = [];
+    let px = 0, py = 0, pz = 0; // the previous step's centre
     for (let s = 1; s <= steps; s++) {
       _v.lerpVectors(from, to, s / steps);
       const cx = Math.floor(_v.x);
@@ -257,9 +293,16 @@ export class PilotUfo extends Vehicle {
             const dy = y + 0.5 - _v.y;
             const dz = z + 0.5 - _v.z;
             if (dx * dx + dy * dy + dz * dz > r * r) continue;
+            // (Already burned by the previous step's sphere: no second lookup.)
+            if (s > 1) {
+              const ex = x + 0.5 - px;
+              const ey = y + 0.5 - py;
+              const ez = z + 0.5 - pz;
+              if (ex * ex + ey * ey + ez * ez <= r * r) continue;
+            }
             const id = w.getBlock(x, y, z);
             if (!IS_SOLID[id] || id === BLOCK.BEDROCK) continue;
-            const key = `${x},${y},${z}`;
+            const key = ((x & 0xfff) << 20) | (y << 12) | (z & 0xfff); // (y < 128: no string per block)
             if (seen.has(key)) continue;
             seen.add(key);
             edits.push(x, y, z, BLOCK.AIR);
@@ -267,6 +310,9 @@ export class PilotUfo extends Vehicle {
           }
         }
       }
+      px = _v.x;
+      py = _v.y;
+      pz = _v.z;
     }
     if (edits.length === 0) return 0;
     w.setBlocks(edits);
@@ -308,7 +354,13 @@ export class PilotUfo extends Vehicle {
       if (k.has("KeyA")) move.sub(right);
       if (k.has("Space")) move.y += 1;
       if (k.has("ShiftLeft") || k.has("ShiftRight")) move.y -= 1;
-      const boost = k.has("ControlLeft") || k.has("ControlRight") ? 3 : 1;
+      // Boost: Ctrl, or W tapped twice and held (Ctrl+W closes a windowed browser's tab).
+      if (input.pressed.has("KeyW")) {
+        if (this.time - (this._wTapT ?? -9) < 0.3) this._wBoost = true;
+        this._wTapT = this.time;
+      }
+      if (!k.has("KeyW")) this._wBoost = false;
+      const boost = k.has("ControlLeft") || k.has("ControlRight") || this._wBoost ? 3 : 1;
       // Instant: no inertia at all.
       if (move.lengthSq() > 0) this.vel.copy(move.normalize().multiplyScalar(this.cruise * boost));
       else this.vel.set(0, 0, 0);
@@ -342,6 +394,8 @@ export class PilotUfo extends Vehicle {
     } else if (this.crashed) {
       // A smoking wreck.
       this._smokeT -= dt;
+      // (Out of sight, past the fog: no plume to simulate.)
+      if (this._smokeT <= 0 && this.pos.distanceToSquared(this.manager.player.position) > (this.manager.viewRange + 50) ** 2) this._smokeT = 0.25;
       if (this._smokeT <= 0) {
         this._smokeT = 0.25;
         const c = this._smokeC || (this._smokeC = [new THREE.Color(0.12, 0.11, 0.1), new THREE.Color(0.4, 0.39, 0.37)]);
@@ -405,13 +459,14 @@ export class PilotUfo extends Vehicle {
 
   // Where the next shot leaves the hull: under it for a small ship, from a
   // point on the rim (turning round from shot to shot) for a big one.
-  _muzzle(out = new THREE.Vector3()) {
+  _muzzle(out = new THREE.Vector3(), hold = false) {
     const r = this.radius;
     const n = this.barrels;
     out.copy(this.pos);
     out.y -= this.bottom * 0.5;
     if (n > 1) {
-      this._barrel = ((this._barrel ?? -1) + 1) % n;
+      // (hold: the same barrel again, as a charge glows and fires from one spot.)
+      if (!hold || this._barrel === undefined) this._barrel = ((this._barrel ?? -1) + 1) % n;
       const a = (this._barrel / n) * Math.PI * 2 + this.yaw;
       out.x += Math.cos(a) * r * 0.62;
       out.z += Math.sin(a) * r * 0.62;
@@ -487,22 +542,25 @@ export class PilotUfo extends Vehicle {
     // Aim: whatever the camera's centre ray hits first (terrain, a UFO, a
     // creature, a vehicle). Every shot is aimed at that point, so shots from
     // a huge ship converge on the crosshair instead of passing beside it.
-    const cam = mgr.cameraRef;
-    const eye = cam ? cam.position : this.pos;
-    const dir = this._viewDir(_v).clone();
-    let range = 600;
-    const hit = mgr.world.raycast(eye, dir, range, { solidOnly: true });
-    if (hit) range = hit.distance;
-    const uh = mgr.ufos?.raycast(eye, dir, range, (u) => u.state !== "gone");
-    if (uh) range = Math.min(range, uh.distance);
-    const mh = mgr.mobs.raycast(eye, dir, range);
-    if (mh) range = Math.min(range, mh.distance);
-    const vh = mgr.raycast(eye, dir, range, this);
-    if (vh) range = Math.min(range, vh.distance);
-    // Nothing near: converge far out (the bolts are straight past that).
-    this._aim.copy(eye).addScaledVector(dir, hit || uh || mh || vh ? range : 600);
+    // (Only while something can fire: four long raycasts a frame otherwise.)
     const held = !!input.buttons[0];
     const clicked = input.pressed.has("mouse0");
+    if (held || clicked || g.queue.length || g.charge > 0) {
+      const cam = mgr.cameraRef;
+      const eye = cam ? cam.position : this.pos;
+      const dir = this._viewDir(_v).clone();
+      let range = 600;
+      const hit = mgr.world.raycast(eye, dir, range, { solidOnly: true });
+      if (hit) range = hit.distance;
+      const uh = mgr.ufos?.raycast(eye, dir, range, (u) => u.state !== "gone");
+      if (uh) range = Math.min(range, uh.distance);
+      const mh = mgr.mobs.raycast(eye, dir, range);
+      if (mh) range = Math.min(range, mh.distance);
+      const vh = mgr.raycast(eye, dir, range, this);
+      if (vh) range = Math.min(range, vh.distance);
+      // Nothing near: converge far out (the bolts are straight past that).
+      this._aim.copy(eye).addScaledVector(dir, hit || uh || mh || vh ? range : 600);
+    }
     // Bursts on their way (re-aimed shot by shot).
     for (let i = 0; i < g.queue.length; i++) {
       g.queue[i] -= dt;
@@ -517,16 +575,17 @@ export class PilotUfo extends Vehicle {
       if (g.charge > 0) {
         g.charge += dt;
         const k = Math.min(1, g.charge / st.charge);
-        const m = this._muzzle(_feet);
+        const m = this._muzzle(_feet, true);
         mgr.effects.glow.spawn({ x: m.x, y: m.y, z: m.z, life: 0.06, size0: (0.5 + this.radius * 0.12) * (0.3 + k * 1.4), size1: 0.2, color0: LASER_COLORS.white, alpha: 0.35 + k * 0.6 });
         if (g.charge >= st.charge) {
           g.charge = 0;
           g.t = st.reload;
-          this._bolt(this._muzzle(_feet));
+          this._bolt(this._muzzle(_feet, true));
           mgr.audio?.playUfoShot?.(st.sound, 0);
         }
       } else if ((held || clicked) && g.t <= 0) {
         g.charge = 0.0001;
+        this._muzzle(_feet); // (picks the next barrel for this charge)
         mgr.audio?.playUfoCharge?.(st.charge, 0);
       }
     } else if ((held || clicked) && g.t <= 0 && g.queue.length === 0) {
@@ -696,7 +755,9 @@ export class PilotUfo extends Vehicle {
   _lockAlive(t) {
     if (t.dead || t.state === "gone" || t.falling) return false;
     if (t.alive === false) return false;
-    return true;
+    // (Still in the world: a creature despawned or abducted is spliced out without dying.)
+    const mgr = this.manager;
+    return mgr.mobs.mobs.includes(t) || !!mgr.ufos?.ufos.includes(t) || mgr.vehicles.includes(t);
   }
 
   // One bolt of the salvo: from a point around the hull, flung out sideways and up, and homing in.
@@ -893,7 +954,7 @@ export class PilotUfo extends Vehicle {
       mgr.onMessage?.("Teleport dash is off (Settings > Vehicles)");
       return;
     }
-    this.dashT = DASH_COOLDOWN;
+    this.dashT = this.dashTotal = DASH_COOLDOWN;
     const dist = this.dashDistance;
     const from = this.pos.clone();
     let d = dist;
@@ -905,12 +966,13 @@ export class PilotUfo extends Vehicle {
     }
     if (d < 3) {
       mgr.onMessage?.("No room to dash");
-      this.dashT = 0.4;
+      this.dashT = this.dashTotal = 0.4;
       return;
     }
     const to = from.clone().addScaledVector(view, d);
-    to.y = Math.max(1 + this.bottom, Math.min(250, to.y));
-    this.dashing = { from, to, t: 0, dur: THREE.MathUtils.clamp(d / this.dashSpeed, 0.05, 1.2), last: from.clone(), cont: false, traveled: 0 };
+    to.y = Math.max(1 + this.bottom, to.y); // (no ceiling: Round 6)
+    // (In ghost mode no cap on the time: it burns its tunnel at the ghost speed.)
+    this.dashing = { from, to, t: 0, dur: this.cfg.ghost ? Math.max(0.05, d / this.dashSpeed) : THREE.MathUtils.clamp(d / this.dashSpeed, 0.05, 1.2), last: from.clone(), cont: false, traveled: 0 };
     this._carved = null;
     mgr.audio?.playTeleport?.();
     mgr.effects.shake.add(0.2);
@@ -938,7 +1000,7 @@ export class PilotUfo extends Vehicle {
       if (!holding) {
         this.dashing = null;
         this.vel.set(0, 0, 0);
-        this.dashT = DASH_HOLD_COOLDOWN;
+        this.dashT = this.dashTotal = DASH_HOLD_COOLDOWN;
         return;
       }
       const view = this._viewDir(_w);
@@ -974,7 +1036,7 @@ export class PilotUfo extends Vehicle {
       if (blocked && step < 0.5) {
         this.dashing = null;
         this.vel.set(0, 0, 0);
-        this.dashT = DASH_HOLD_COOLDOWN;
+        this.dashT = this.dashTotal = DASH_HOLD_COOLDOWN;
         mgr.onMessage?.("Dash stopped: terrain ahead");
       }
       return;
@@ -984,6 +1046,11 @@ export class PilotUfo extends Vehicle {
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     this.pos.lerpVectors(d.from, d.to, e);
     this.vel.copy(d.to).sub(d.from).divideScalar(d.dur);
+    if (this.cfg.ghost) {
+      // (A ghost tap goes through rock too: it burns its tunnel as it goes.)
+      this._burnTunnel(d.last, this.pos);
+      this._carved = this.pos.clone();
+    }
     this._dashSmear(d.last);
     d.last.copy(this.pos);
     if (k >= 1) {
@@ -1202,7 +1269,7 @@ export class PilotUfo extends Vehicle {
       stats: [
         ["Design", `${UFO_DESIGN_NAMES[this.design] || "UFO"}, ${sizeName(r)} (${(r * 2).toFixed(0)} blocks across)`],
         ["Hull", `${Math.round(this.health)} / ${this.maxHealth}`],
-        ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl boosts 3x`],
+        ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl (or W twice, held) boosts 3x`],
         ["Weapon", this._weaponText()],
         ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashDistance)} blocks along the view at ${Math.round(this.dashSpeed)} blocks/s (this ship's dash is ${this.dashClass}); hold R to keep streaking, no distance limit; ${DASH_COOLDOWN} s cooldown; the base distance and speed are in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
         ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
@@ -1216,7 +1283,7 @@ export class PilotUfo extends Vehicle {
         ["A / D", "Sideways"],
         ["Space / Shift", "Up / down"],
         ["Mouse wheel", "Cruising speed"],
-        ["Ctrl", "Boost"],
+        ["Ctrl", "Boost (or tap W twice and hold)"],
         ["Left click", `${this.pilotStyle.name} (this ship's own weapon)`],
         ["Right click (hold)", "Tractor beam (any altitude; a bigger ship pulls in smaller UFOs and enemy jets)"],
         ["T (hold)", "Lock-on: after 3 s a salvo of homing laser bolts"],
@@ -1239,7 +1306,7 @@ export class PilotUfo extends Vehicle {
     switch (this.style) {
       case "rapid":
       case "burst":
-        return `${st.name}: ${st.shots} bolts of ${dmg} damage, ${st.reload} s between bursts${from}`;
+        return `${st.name}: ${st.shots} bolts of ${dmg} damage, a burst every ${+(st.reload + st.shots * st.gap).toFixed(2)} s${from}`;
       case "heavy":
         return `${st.name}: a slow ball of ${dmg} damage that explodes, every ${st.reload} s${from}`;
       case "spread":
@@ -1309,8 +1376,9 @@ export class PilotUfo extends Vehicle {
         this.manager.scene.remove(b.mesh);
         b.mesh.geometry.dispose();
         this.lifted.splice(i, 1);
-        // Into the hold: the block's drops go to the player.
-        if (b.pos.y >= top - 0.3) for (const [itemId, n] of blockDrops(b.id, { type: "pickaxe", tier: 4, speed: 1 })) this.manager.inventory.add(itemId, n);
+        // Into the hold: the block's drops go to the player (also when the
+        // beam lets go early: the block is already out of the ground).
+        if (this.alive) for (const [itemId, n] of blockDrops(b.id, { type: "pickaxe", tier: 4, speed: 1 })) this.manager.inventory.add(itemId, n);
       }
     }
   }
@@ -1372,12 +1440,12 @@ export class PilotUfo extends Vehicle {
       ],
       bars: [
         { label: this.pilotStyle.beam ? `${this.pilotStyle.name} heat` : this.gun.charge > 0 ? "Charging" : this.pilotStyle.name, value: this.pilotStyle.beam ? this.gun.heat : this.weaponReady, hot: this.pilotStyle.beam ? this.gun.overheated || this.gun.heat > 0.75 : this.gun.charge > 0 },
-        { label: (this.cfg.dash ?? 1) > 0 ? (this.dashing?.cont ? "DASHING (hold R)" : "Dash (R)") : "Dash (off)", value: (this.cfg.dash ?? 1) <= 0 ? 0 : this.dashing ? 1 : this.dashT > 0 ? 1 - this.dashT / (this.dashT > DASH_HOLD_COOLDOWN ? DASH_COOLDOWN : DASH_HOLD_COOLDOWN) : 1, hot: !!this.dashing },
+        { label: (this.cfg.dash ?? 1) > 0 ? (this.dashing?.cont ? "DASHING (hold R)" : "Dash (R)") : "Dash (off)", value: (this.cfg.dash ?? 1) <= 0 ? 0 : this.dashing ? 1 : this.dashT > 0 ? 1 - this.dashT / (this.dashTotal || DASH_COOLDOWN) : 1, hot: !!this.dashing },
         { label: "Superweapon (B)", value: this.sw.state === "charge" ? this.sw.t / SUPER_CHARGE : this.sw.state === "fire" ? 1 : this.sw.cool > 0 ? 1 - this.sw.cool / SUPER_COOLDOWN : 1, hot: this.sw.state !== "idle" },
       ],
       weapon: `LMB ${this.pilotStyle.name.toLowerCase()} · RMB tractor beam (any height, pulls in smaller UFOs and jets) · T lock-on salvo${beam ? ` · <span class="vh-on">${beam}</span>` : ""}`,
       health: this.health / this.maxHealth,
-      help: "WASD move · Space/Shift up/down · Ctrl boost · wheel speed · R dash (hold: keep going) · B superweapon · T hold: lock-on salvo · G ghost mode · F5 camera · F leave · I info",
+      help: "WASD move · Space/Shift up/down · Ctrl or W W boost · wheel speed · R dash (hold: keep going) · B superweapon · T hold: lock-on salvo · G ghost mode · F5 camera · F leave · I info",
     };
   }
 
@@ -1392,14 +1460,23 @@ export class PilotUfo extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), design: this.design, spec: this.spec, style: this.style, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, downed: this.downed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
+    const data = { ...super.serialize(), design: this.design, spec: this.spec, style: this.style, wreck: this.wreck, radius: this.radius, yaw: Math.round(this.yaw * 100) / 100, crashed: this.crashed, downed: this.downed, tilt: [Math.round(this.tilt.x * 100) / 100, Math.round(this.tilt.z * 100) / 100] };
+    if (this.parkKey && !this.parkedAt) data.parkKey = this.parkKey; // (boarded: no longer the airport's)
+    if (this.tookKey) data.tookKey = this.tookKey;
+    if (this.missionShip) data.missionShip = this.missionShip;
+    return data;
   }
 
   dispose() {
     super.dispose();
     this.onDestroyedCleanup();
     this.beam.dispose();
-    for (const b of this.lifted) this.manager.scene.remove(b.mesh);
+    for (const b of this.lifted) {
+      this.manager.scene.remove(b.mesh);
+      b.mesh.geometry.dispose();
+    }
+    this.lifted.length = 0;
+    this._blockMat?.dispose();
     this.model.dispose();
   }
 }

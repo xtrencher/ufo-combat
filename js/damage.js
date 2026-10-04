@@ -45,7 +45,7 @@ export function boltCause(bolt) {
   const o = bolt.owner;
   if (o === "alien") return "alien";
   if (o === "enemyjet" || o === "rogue") return "enemyjet_gun";
-  if (o === "ufo") return "ufo_laser";
+  if (o === "ufo" || o === "decoyed") return "ufo_laser"; // (a bolt a flare turned back is still the UFO's)
   return o || "ufo_laser";
 }
 
@@ -84,6 +84,7 @@ export const DEATH_MESSAGES = {
   nuke: "Too close to your own nuke",
   nuke_fall: "Blown away by your own nuke",
   missile: "Hit by your own missile",
+  missile_fall: "Sent flying by your own missile",
   cannon: "Hit by your own jet's cannon",
   // Creatures.
   zombie: "Killed by a zombie",
@@ -126,6 +127,7 @@ export const DEATH_MESSAGES = {
   enemymissile: "Hit by an enemy missile",
   enemymissile_fall: "Blown out of the sky by an enemy missile",
   roguemissile: "Caught in a dogfight between a fighter and a UFO",
+  roguemissile_fall: "Thrown by a missile in a dogfight between a fighter and a UFO",
   // The missions' world.
   meteor: "Hit by a falling meteor",
   meteor_fall: "Thrown by a falling meteor",

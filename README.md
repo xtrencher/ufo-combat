@@ -28,7 +28,7 @@ appears in the top-right corner when the mouse is near it (it never sits over th
 browser shortcuts like **Ctrl+W** (sprint), **Ctrl+R**, **Ctrl+S**, **Tab** and the **Esc** key reach the game and do not close, reload or interfere with
 the page (hold **Esc** to leave fullscreen then; a short **Esc** still opens the pause menu). Browsers without the Keyboard Lock API (Firefox, Safari) get
 plain fullscreen: the game still cancels the shortcuts a page is allowed to cancel (Ctrl+R, Ctrl+S, Ctrl+D, Ctrl+F, Ctrl+P, Alt+key, Tab), but a few
-(Ctrl+W, Ctrl+T, Ctrl+N) cannot be cancelled outside fullscreen: sprint with a double-tap of `W` instead of `Ctrl+W` there; the browser also asks
+(Ctrl+W, Ctrl+T, Ctrl+N) cannot be cancelled outside fullscreen: sprint (and boost a UFO) with a double-tap of `W` instead of `Ctrl+W` there; the browser also asks
 before closing the page while you play.
 
 The main menu (Round 8: square corners, a blue accent, no logo over the
@@ -560,7 +560,7 @@ ship low in the view so the crosshair is always clear.
 | Sideways | `A` / `D` |
 | Up / down | `Space` / `Shift` |
 | Cruising speed | Mouse wheel (from a slow hover to extremely fast) |
-| Boost (3x) | `Ctrl` |
+| Boost (3x) | `Ctrl`, or `W` tapped twice and held (no Ctrl+W outside fullscreen) |
 | The ship's own weapon (what its kind fires: rapid bursts, heavy plasma, spread fans, charged shots, a sweeping beam, seeker plasma or pulse bolts; bigger ships hit harder) | Left click |
 | Tractor beam: works at **any altitude**; lifts creatures and loose blocks, and a bigger ship also **pulls in and swallows smaller UFOs** (at least 1.3x smaller) **and enemy jets** (ship radius 6.5+) | Hold right click |
 | **Lock-on salvo**: lock the UFO, jet or hostile creature nearest the crosshair; after 3 s a salvo of homing laser bolts (more for bigger ships) leaves by itself; let go earlier to cancel; 7 s to recharge | Hold `T` |
@@ -754,6 +754,17 @@ detail** (particles).
 (default 25). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
+
+**On slower computers** the game keeps the heavy work off the frame: the
+terrain is generated and the full-detail chunks are meshed in one or two
+worker threads (by the number of CPU cores), so a fast flight streams new
+ground in without stutter; the main thread only lights the chunks and hands
+them to the GPU. The larger shadow cascades (High, Ultra) are redrawn every
+second or third frame, creatures out of view cast no shadow, terrain faces
+turned away from the sun skip the shadow lookup, bullet holes are one draw
+call, and the 3D plants rest while you fly high above them. None of this
+changes what you see. (`?genWorkers=0` or `?meshWorkers=0` in the address
+keeps that work on the main thread, for comparison.)
 
 ## Settings reference
 

@@ -212,6 +212,8 @@ export class TerrainGenerator {
           if (hh <= SEA_LEVEL + 1 || Math.abs(hh - h) > 1) return false;
         }
       }
+      // (a cave cutting into the surface: the player would start at the bottom of its shaft)
+      if (this.isCarved(x, h, z) || this.isCarved(x, h - 1, z) || this.isCarved(x + 1, h, z) || this.isCarved(x - 1, h, z) || this.isCarved(x, h, z + 1) || this.isCarved(x, h, z - 1)) return false;
       return !this.trees.coversColumn(x, z);
     };
     for (let r = 0; r <= 240; r += 3) {
@@ -228,7 +230,8 @@ export class TerrainGenerator {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           const x = bx + dx;
           const z = bz + dz;
-          if (this.heightAt(x, z) > SEA_LEVEL + 1 && !this.trees.coversColumn(x, z)) return [x, z];
+          const h = this.heightAt(x, z);
+          if (h > SEA_LEVEL + 1 && !this.isCarved(x, h, z) && !this.isCarved(x, h - 1, z) && !this.trees.coversColumn(x, z)) return [x, z];
         }
       }
     }
@@ -400,7 +403,7 @@ export class TerrainGenerator {
     // their footprint with a flattened pad, houses, paths and a farm plot.
     this.villages.placeInChunk(blocks, chunk.cx, chunk.cz);
     // Airports and cities: levelled pads with runways, hangars, streets, towers.
-    this.sites.placeInChunk(blocks, chunk.cx, chunk.cz);
+    this.sites.placeInChunk(blocks, chunk.cx, chunk.cz, hAt); // (the heights computed above, not again)
   }
 
   _carveCaves(blocks, baseX, baseZ, hAt) {

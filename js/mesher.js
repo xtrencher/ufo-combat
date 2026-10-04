@@ -429,12 +429,30 @@ function emitTorch(b, x, y, z, id, pi) {
 // options: { fancyLeaves } (see emitLeafCards).
 // Returns { opaque, cutout, water } where each is null or a buffer set.
 export function meshChunk(neighbors, options = {}) {
-  const fancyLeaves = !!options.fancyLeaves;
-  const center = neighbors[4];
   const maxY = fillPadded(neighbors);
+  return meshBody(neighbors[4].cx, neighbors[4].cz, maxY, options);
+}
+
+// (Perf) Meshing in two halves, for a worker (see world.js): the padded
+// volume (the chunk, its border and light) taken on the main thread, where
+// the chunks live; then meshPadded, the costly part, in the worker. The same
+// buffers as meshChunk, byte for byte.
+export function padChunk(neighbors) {
+  const maxY = fillPadded(neighbors);
+  return { maxY, blocks: padBlocks.slice(), light: padLight.slice() };
+}
+
+export function meshPadded(blocks, light, cx, cz, maxY, options = {}) {
+  padBlocks.set(blocks);
+  padLight.set(light);
+  return meshBody(cx, cz, maxY, options);
+}
+
+function meshBody(cx, cz, maxY, options) {
+  const fancyLeaves = !!options.fancyLeaves;
   for (const b of Object.values(builders)) b.reset();
-  const baseX = center.cx * S;
-  const baseZ = center.cz * S;
+  const baseX = cx * S;
+  const baseZ = cz * S;
   const depths = [0, 0, 0, 0];
 
   for (let y = 0; y <= maxY; y++) {
