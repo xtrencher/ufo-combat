@@ -23,6 +23,7 @@
 // A wreck that blew up is charred.
 import * as THREE from "three";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
+import { LAYER_FX } from "./layers.js";
 
 // Every design; the first ones are the saucer family (the most common).
 export const UFO_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "sphere", "tictac", "torus", "triangle", "boomerang", "cylinder"];
@@ -582,6 +583,7 @@ export function createUfoModel(specIn, radius = 5, { castShadow = true } = {}) {
     });
     const mesh = new THREE.Mesh(g.geometry, mat);
     mesh.renderOrder = 11;
+    mesh.layers.set(LAYER_FX); // (after the water on High/Ultra, which drew over them; see layers.js)
     body.add(mesh);
     glows.push({ mesh, base: g.color, pulse: g.pulse || 0, shell: !!g.shell });
   }
@@ -591,6 +593,7 @@ export function createUfoModel(specIn, radius = 5, { castShadow = true } = {}) {
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex(), color: new THREE.Color(info.halo[0], info.halo[1], info.halo[2]), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
   halo.scale.setScalar(radius * 3.2);
   halo.renderOrder = 12;
+  halo.layers.set(LAYER_FX);
   halo.visible = haloOn;
   root.add(halo);
 

@@ -223,7 +223,7 @@ export const MISSIONS = [
     id: "air_superiority",
     title: "Air superiority",
     text: "The aliens have hijacked one of our fighters, and it is hunting you. Shoot it down: flares (C) fool its missiles, hard turns make them miss.",
-    objectives: [{ stat: "enemyJetsDown", goal: 1, label: "Hijacked fighters shot down", scale: "player" }],
+    objectives: [{ stat: "hijackedDown", goal: 1, label: "Hijacked fighters shot down", scale: "player" }],
     reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
     tier: 3,
@@ -325,7 +325,7 @@ export const MISSIONS = [
     id: "scramble",
     title: "Scramble!",
     text: "The aliens are throwing hijacked fighters at you in force: a whole wing is inbound (marked). Shoot down three of them: take a fighter from the airport, or lock on with the bazooka from the ground.",
-    objectives: [{ stat: "enemyJetsDown", goal: 3, label: "Hijacked fighters shot down", scale: "group" }],
+    objectives: [{ stat: "hijackedDown", goal: 3, label: "Hijacked fighters shot down", scale: "group" }],
     reward: [[ITEM.GOLDEN_APPLE, 6]],
     event: "airraid",
     tier: 5,
@@ -459,7 +459,7 @@ export class Progress {
   // mission's tier, plus one for a player who shoots down lots of UFOs.
   tier(stats) {
     const m = this.mission || MISSIONS[MISSIONS.length - 1];
-    const extra = Math.floor((stats?.ufosDown ?? 0) / 12) > 0 ? 1 : 0;
+    const extra = Math.floor((stats?.ufosDownSurvival ?? 0) / 12) > 0 ? 1 : 0; // (Survival kills only)
     return Math.min(MAX_TIER, m.tier + (this.mission ? extra : 1));
   }
 

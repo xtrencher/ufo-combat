@@ -608,7 +608,7 @@ export class MobManager {
   // One step of a creature held by a UFO: it rises to the ship (drifting to
   // the middle of its beam) and disappears inside. If the ship is shot down,
   // or leaves, it disappears at once (never a fall). True while it is held.
-  _abductStep(m, i, dt) {
+  _abductStep(m, i, dt, drawDist, crowdDist) {
     const u = m.abductedBy;
     const gone = !u || u.falling || u.state === "gone" || u.state === "leave";
     const under = u ? u.pos.y - (u.info?.bottom ?? 0) * (u.radius ?? 1) : 0;
@@ -625,7 +625,8 @@ export class MobManager {
       m.stagger = 1;
       m.walk = 0.8;
       m.walkPhase += dt * 9;
-      this._place(m);
+      // (Light and the crowd too: a far zombie, drawn in the crowd, was not drawn at all.)
+      this._afterMove(m, drawDist, crowdDist);
     }
     if (gone || m.pos.y + m.spec.h >= under - 0.3) {
       this._abductFx(m);
@@ -1946,7 +1947,7 @@ export class MobManager {
           return;
         }
       } else {
-        if (m.abductedBy && this._abductStep(m, i, dt)) return;
+        if (m.abductedBy && this._abductStep(m, i, dt, drawDist, crowdDist)) return;
         // Held in another player's tractor beam (online, Round 9): it rises to
         // their ship like under this player's own beam; aboard, it is theirs.
         if (m.remoteBeam) {
@@ -2022,7 +2023,9 @@ export class MobManager {
       m.model.root.visible = !crowd;
     }
     if (crowd) {
-      const bright = Math.max(l.block / 15, (l.sky / 15) * (0.25 + 0.75 * this.sky.daylight));
+      // (Sky light as is: the crowd's shader already dims it at night, as for
+      // the full models; dimmed here too, they went dark at the hand-over.)
+      const bright = Math.max(l.block / 15, l.sky / 15);
       const hurt = Math.max(0, 1 - m.hurtTime / 0.3);
       if (!this.crowd.add(m.pos, m.yaw, m.walk > 0.2 ? m.walkPhase : Math.PI / 2, 0.35 + bright * 0.65, hurt)) {
         m.crowd = false; // crowd full: draw it normally

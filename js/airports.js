@@ -10,6 +10,7 @@ import { PAINT_SCHEMES } from "./jet-model.js";
 
 const NEAR = 420; // blocks: parked aircraft appear inside this range
 const FAR = 900; // and are put away beyond this
+const GUARDS_BACK = 20 * 60; // seconds: a cleared airport's guards come back after this
 const GEAR = 1.35;
 const HANGAR_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "tictac", "triangle"]; // small enough for the bunker hall
 
@@ -24,6 +25,9 @@ export class AirportManager {
     this.guards = new Map(); // site id -> [guards]
     this.bunkerSet = new Map(); // site id -> Set of bunkers set out
     this.bunkersDone = new Map();
+    // Site id -> when its guards were all killed (seconds): no fresh set on
+    // every revisit, or flying out and back would farm their armor drops.
+    this.guardsCleared = new Map();
     this.timer = 0;
     this.enabled = true;
     // Multiplayer: parking spots ("site#index") whose aircraft another player
@@ -267,6 +271,7 @@ export class AirportManager {
       const radius = 3.4 + ((s.seed >>> (h.id * 5 + 1)) % 10) / 14; // fits the hall and the ramp
       const key = `${s.id}#h${h.id}`;
       const reship = this.reship.delete(key); // (a new ship only: its guards are still about)
+      const cleared = performance.now() / 1000 - (this.guardsCleared.get(s.id) ?? -Infinity) < GUARDS_BACK; // (the ship only)
       // (Nor while this bunker's ship is still here or being flown out, within
       // the mission's 150-block escape: one reloaded mid-escape keeps its key,
       // see PilotUfo.serialize. The hall's 60 blocks match _bunkerShip's.)
@@ -286,7 +291,7 @@ export class AirportManager {
         jets.push(ufo);
       }
       // (No guards on Peaceful: no hostile creatures at all. Online, only the host sets them out.)
-      if (this.mobs && this.mobs.hostileSpawning !== false && this.guardsEnabled && !reship) for (const g of h.guards) {
+      if (this.mobs && this.mobs.hostileSpawning !== false && this.guardsEnabled && !reship && !cleared) for (const g of h.guards) {
         const m = this.mobs.spawnGuard(g.x, g.y, g.z, h.zone);
         if (m) guards.push(m);
       }
@@ -308,6 +313,8 @@ export class AirportManager {
   // The guards of an airport that is put away go with it.
   _dropGuards(id) {
     const list = this.guards.get(id);
+    // (Every bunker set out and every guard dead: cleared. Live ones come back as before.)
+    if (list?.length && this.bunkersDone.get(id) === true && list.every((g) => g.dead)) this.guardsCleared.set(id, performance.now() / 1000);
     this.guards.delete(id);
     this.bunkerSet.delete(id);
     this.bunkersDone.delete(id);

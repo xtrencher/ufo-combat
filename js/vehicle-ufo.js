@@ -647,6 +647,15 @@ export class PilotUfo extends Vehicle {
     const speed = THREE.MathUtils.clamp(5 + this.radius * 0.7, 6, 26);
     const pull = (obj, r, isJet) => {
       if (!beam.contains(obj.pos, r * 0.6)) return;
+      // (A boss, shield down or not, a shielded or an immune ship: never
+      // swallowed, which would skip its shield, pylons and hull.)
+      if (!isJet && (obj.boss || obj.shield || obj.immune)) {
+        if (this.time - (this._tooBigT ?? -99) > 5) {
+          this._tooBigT = this.time;
+          mgr.onMessage?.(obj.boss || obj.shield ? "Its shield repels the beam." : "The beam can't get a hold on its hull.");
+        }
+        return;
+      }
       const ok = isJet ? this.radius >= PULL_JET_MIN_RADIUS : this.radius >= r * PULL_UFO_RATIO;
       if (!ok) {
         if (this.time - (this._tooBigT ?? -99) > 5 && obj.pos.distanceTo(top) < beam.top.y - beam.bottomY) {

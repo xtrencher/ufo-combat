@@ -598,9 +598,13 @@ export class UfoManager {
     if (byPlayer) {
       u.byPlayer = true;
       u.lastHitPid = this.currentAttacker ?? 1; // (online: which player; 1 is the host)
+      u.lastPlayerHitT = this.time;
       this.lastPlayerAttack = this.time; // the alien air force takes notice
       this._provoked(u);
     }
+    // (Downed by something else long after a player's last hit: not the
+    // player's kill. An assist window, as for the creatures.)
+    if (u.health <= 0 && !byPlayer && u.byPlayer && this.time - (u.lastPlayerHitT ?? -1e9) > 8) u.byPlayer = false;
     if (u.health <= 0) this._shotDown(u);
     else if (u.state === "beam" && u.dashAbduct) this._breakOff(u);
     else if (byPlayer) this._dodge(u, 1);
@@ -955,6 +959,7 @@ export class UfoManager {
   // loot goes straight into the hold).
   absorb(u, ship) {
     if (u.state === "gone" || u.falling) return;
+    if (u.boss || u.shield || u.immune) return; // (never swallowed: also a guest's claim)
     if (u.net) {
       this.onPuppetAbsorb?.(u, ship);
       // (The toast is the capturing guest's; once, though the claim repeats until the host takes it.)

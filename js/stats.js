@@ -6,6 +6,7 @@ import { loadJSON, saveJSON } from "./storage.js";
 
 export const STAT_LABELS = [
   ["ufosDown", "UFOs shot down"],
+  ["ufosDownSurvival", "UFOs shot down in Survival"],
   ["playTime", "Play time"],
   ["aliensKilled", "Aliens killed"],
   ["zombiesKilled", "Zombies killed"],
@@ -21,6 +22,7 @@ export const STAT_LABELS = [
   ["missilesHit", "Missile hits"],
   ["nukes", "Nukes dropped"],
   ["enemyJetsDown", "Fighters shot down (hijacked or patrol)"],
+  ["hijackedDown", "Hijacked fighters shot down"],
   ["ufosDownBig", "Motherships and giants shot down"],
   ["titansDown", "Titans shot down"],
   ["cratesOpened", "Supply crates opened"],
@@ -69,6 +71,8 @@ export class Stats {
   loadWorld(data) {
     this.world = blank();
     if (data && typeof data === "object") for (const k in this.world) if (Number.isFinite(data[k])) this.world[k] = data[k];
+    // (A world saved before the Survival count starts it at all its kills: it keeps its loot tier.)
+    if (data && typeof data === "object" && !Number.isFinite(data.ufosDownSurvival)) this.world.ufosDownSurvival = this.world.ufosDown;
   }
 
   add(key, n = 1) {

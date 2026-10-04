@@ -93,8 +93,8 @@ const SNIPER_ZOOM_FOV = 15;
 const AIRSTRIKE_AIM_RANGE = 500;
 
 // Laser blaster (the "laser pistol"): short glowing bolts, one per click (held:
-// about 4.5 per second, for as long as you like: no magazine, no reload). It is
-// weaker than the pistol: 3 a bolt against the pistol's 5.
+// about 4.5 per second, for as long as you like: no magazine, no reload). 6 a
+// bolt (~27/s): with no reload it out-damages the pistol in sustained fire.
 export const BLASTER_DAMAGE = 6;
 const BLASTER_SPEED = 130;
 const BLASTER_RANGE = 240;

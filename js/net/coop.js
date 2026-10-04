@@ -82,6 +82,8 @@ export class CoopSync {
       };
       g.missions.nightDeaths = () => host.teamWipes;
       g.missions.onUntake = (k) => this.mp.active && this.net.broadcast({ t: "untake", k });
+      // (Who flies a ship: the director's "it's yours" goes to everyone.)
+      g.missions.pilotName = (v) => (this.mp.active ? this.mp.playerName(v.puppet ? v.netOcc : this.net.pid) : null);
       this.guestData = loadJSON(`guests_${g.SEED}`) || {};
       // (Once a page: a room opened again must not wrap these twice, or every
       // guest got each mission's reward once per room opened.)
@@ -121,6 +123,7 @@ export class CoopSync {
     g.missions.pilotJets = null;
     g.missions.nightDeaths = null;
     g.missions.onUntake = null;
+    g.missions.pilotName = null;
     g.progress.mirror = false;
     g.progress.mirrorObjectives = null;
     g.ufos.groupScale = 1;

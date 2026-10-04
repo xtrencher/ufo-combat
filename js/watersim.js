@@ -39,6 +39,7 @@ export class WaterSim {
     this.world = world;
     this.active = new Set(); // "x,y,z" keys due for a tick
     this.meta = new Map(); // "x,y,z" -> { level, parent: [x,y,z] } for sim-made flow cells
+    this.metaVersion = 0; // (moves with every change to meta: the autosave rebuilds its list only then)
     this.processed = 0; // cells ticked (stats / tests)
     // This update()'s writes, sent to the world together at its end: the
     // ticks read them from here meanwhile.
@@ -130,7 +131,7 @@ export class WaterSim {
     // water when it comes back, not new infinite sources)
     if (!world.getChunk(x >> 4, z >> 4)) return;
     if (this._get(x, y, z) !== BLOCK.WATER) {
-      this.meta.delete(key);
+      if (this.meta.delete(key)) this.metaVersion++;
       return;
     }
     const info = this.meta.get(key); // absent = untouched terrain water (an infinite source)
@@ -142,6 +143,7 @@ export class WaterSim {
         // cell itself was supporting find out about it in turn.
         this._set(x, y, z, BLOCK.AIR);
         this.meta.delete(key);
+        this.metaVersion++;
         this._wakeAround(x, y, z);
         return;
       }
@@ -182,6 +184,7 @@ export class WaterSim {
 
   loadMeta(list) {
     this.meta.clear();
+    this.metaVersion++;
     if (!Array.isArray(list)) return;
     for (let i = 0; i + 6 < list.length; i += 7) {
       const v = list.slice(i, i + 7);
@@ -201,6 +204,7 @@ export class WaterSim {
       const curLevel = cur ? cur.level : 0;
       if (level < curLevel) {
         this.meta.set(key, { level, parent });
+        this.metaVersion++;
         this.active.add(key);
       }
       return;
@@ -208,6 +212,7 @@ export class WaterSim {
     if (IS_REPLACEABLE[id]) {
       this._set(x, y, z, BLOCK.WATER);
       this.meta.set(key, { level, parent });
+      this.metaVersion++;
       this.active.add(key);
     }
   }

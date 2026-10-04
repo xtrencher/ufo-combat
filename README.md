@@ -125,7 +125,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   turns away 4% of the damage (up to 80%), the HUD shows an armor bar, and
   every hit wears each piece. Pick a piece up with its slot free and it is
   worn at once; right click one in your hand, or use the armor row in the
-  inventory. Aliens, UFOs, supply crates and bunker guards drop armor, better
+  inventory. Aliens, zombies, skeletons and bunker guards drop armor, better
   the further the mission chain has got. Falls, drowning and fire go through.
 - **Dying** shows a big red **NOOB!** with the cause. You drop everything
   where you died and respawn with full health around the current mission's
@@ -199,7 +199,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   - **Supply crates** (the first one with mission 3, then every 1.5 to 3 minutes
     after it): a standard weapon you don't have yet while any are left, the
     lower ones first as the chain unlocks them (pistol; grenades, machine
-    gun, armor; sniper rifle; bazooka; airstrike designator), plus golden
+    gun; sniper rifle; bazooka; airstrike designator), plus golden
     apples, food and sometimes a tool.
   - **Aliens:** their leaders (missions 7, 9 and 15) carry the alien
     weapons (slung on their backs): laser blaster, laser minigun, railgun.
@@ -583,7 +583,8 @@ bomber at every airport: in its own spot on the apron, or (Round 9) where
 the apron has no room for its wing, on the runway just past the end of the
 apron, lined up for takeoff. Walk up to one and press **F** (the B-2 near
 the middle of its wing). In Survival that works from mission 10, "Take to the air" (the
-marker points at the nearest parked fighter; **F3** shows the nearest airport).
+marker points at the nearest parked fighter; **F3** shows the nearest airport);
+the B-2, and with it the nuke, from mission 19, Operation Sunburn.
 The **F-22 Raptor** is a heavy stealth fighter (160 health, faster,
 four-missile salvos); the **F-16 Fighting Falcon** is light and agile (130
 health, turns and rolls harder, a faster-firing cannon, a shorter takeoff

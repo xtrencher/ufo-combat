@@ -15,7 +15,7 @@ import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
 import { Inventory, HOTBAR_SIZE, makeStack } from "./inventory.js";
-import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM } from "./items.js";
+import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS } from "./items.js";
 const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
@@ -443,6 +443,7 @@ enemyJets.onDown = (jet, cause) => {
   // (Only the player's kills count: a jet shot down by a UFO it attacked isn't.)
   if (!jet.downedByOther) {
     stats.add("enemyJetsDown");
+    if (jet.hijacked) stats.add("hijackedDown"); // (the missions' count: a friendly patrol fighter isn't one)
     if (hooks.onEnemyJetDown) hooks.onEnemyJetDown(jet, cause);
   }
 };
@@ -702,6 +703,7 @@ vehicles.onAbduct = () => stats.add("animalsAbducted");
 function ufoKilled(u, { mine = true, inJet = vehicles.active?.type === "jet" } = {}) {
   const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
   add("ufosDown");
+  if (!player.creative && progress.enabled) add("ufosDownSurvival"); // (the loot tier's count: Creative kills don't raise it)
   if (u.size === "mothership" || u.size === "giant") add("ufosDownBig");
   if (u.S.idx >= 2) add("ufosDownLarge");
   if (inJet) add("ufosDownByJet");
@@ -874,7 +876,15 @@ function ufoLocked() {
   return !player.creative && progress.enabled && progress.step < UFO_MISSION;
 }
 const UFO_LOCKED_TEXT = `You can't fly alien ships yet: that comes with mission ${UFO_MISSION + 1} ("${MISSIONS[UFO_MISSION].title}").`;
-vehicles.canBoard = (v) => (v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : v.type === "ufo" && ufoLocked() ? UFO_LOCKED_TEXT : null);
+// The B-2 (and so the nuke) is Operation Sunburn's: before it the bomber
+// stays parked (a nuke on any squad would skip the missions in between).
+const B2_MISSION = MISSIONS.findIndex((m) => m.id === "sunburn");
+function b2Locked() {
+  return !player.creative && progress.enabled && progress.step < B2_MISSION;
+}
+const B2_LOCKED_TEXT = `The B-2 bomber and its nuke come with mission ${B2_MISSION + 1} ("${MISSIONS[B2_MISSION].title}").`;
+vehicles.canBoard = (v) =>
+  v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : v.type === "jet" && v.jetType === "b2" && b2Locked() ? B2_LOCKED_TEXT : v.type === "ufo" && ufoLocked() ? UFO_LOCKED_TEXT : null;
 // Patrol fighters (they hunt UFOs) join the sky with the player's own jets.
 enemyJets.allowed = () => !jetLocked();
 // (Round 6: there is no calling in a jet any more. Jets are taken from the
@@ -1244,12 +1254,21 @@ function refreshModsPills() {
 }
 refreshModsPills();
 // (persist false: for the moment only, e.g. a Dogfight's; the setting saved stays the player's.)
+// (A mod item held on the inventory screen's cursor goes into the stash with
+// the rest when Mods go off: the screen would put it back into a slot.)
+function stashCursorMod() {
+  const c = invScreen.cursor;
+  if (!c || !MOD_ITEMS.has(c.id)) return;
+  mods.stash.push({ slot: -1, id: c.id, count: c.count, dur: c.dur });
+  invScreen.cursor = null;
+}
 function setModsEnabled(on, persist = true) {
   if (persist) {
     settings.mods = on;
     persistSettings();
   }
   modsCheckbox.checked = on;
+  if (!on) stashCursorMod();
   mods.set(on);
   if (on && gameState !== "start") fillStartingWeapons(false);
   markInventoryChanged();
@@ -2405,6 +2424,7 @@ const DIGIT_CODES = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6",
 function selectSlot(i) {
   inventory.selected = ((i % HOTBAR_SIZE) + HOTBAR_SIZE) % HOTBAR_SIZE;
   interaction.eating = 0;
+  interaction._stopMining(); // (a held button starts again with the new tool's speed, drops and wear)
   weapons.cancel();
   markInventoryChanged();
 }
@@ -2880,6 +2900,7 @@ const game = {
   setModsFromHost(on) {
     modsCheckbox.disabled = true;
     if (mods.enabled === on) return;
+    if (!on) stashCursorMod();
     mods.set(on);
     if (on && gameState !== "start") fillStartingWeapons(false);
     markInventoryChanged();
@@ -2947,6 +2968,18 @@ const game = {
 };
 const mp = new Multiplayer(net, game);
 mpLate = mp;
+// No solid block placed inside another player (it would shove them out on
+// their screen). Their newest position, with a little margin for its age.
+interaction.othersOverlap = (bx, by, bz) => {
+  if (!mp.active) return false;
+  const r = 0.4;
+  for (const o of mp.players.active()) {
+    if (o.dead || o.vehicleNid) continue;
+    const p = o.interp.last ? o.livePos : o.position;
+    if (bx + 1 > p.x - r && bx < p.x + r && bz + 1 > p.z - r && bz < p.z + r && by + 1 > p.y - 0.1 && by < p.y + 1.9) return true;
+  }
+  return false;
+};
 // The lobby's Play button: into the game (or back into it).
 function refreshPlayLabels() {
   const lobbyPlay = document.getElementById("mp-lobby-play");

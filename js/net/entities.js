@@ -299,6 +299,7 @@ export class EntitySync {
         return;
       }
       g.stats.addWorld("enemyJetsDown");
+      if (jet.hijacked) g.stats.addWorld("hijackedDown");
       this._killFor(pid, "jet", jet);
     };
   }
@@ -608,7 +609,7 @@ export class EntitySync {
   _killFor(pid, kind, obj) {
     if (kind === "ufo") this.net.send(pid, { t: "kill", k: "ufo", size: obj.size, idx: obj.S?.idx ?? 0, at: vec1(obj.pos), into: obj.absorbed ? 1 : 0 });
     else if (kind === "mob") this.net.send(pid, { t: "kill", k: "mob", kind: obj.kind, at: vec1(obj.pos), lead: obj.leaderDrop || 0 });
-    else if (kind === "jet") this.net.send(pid, { t: "kill", k: "jet", at: vec1(obj.pos), into: obj.absorbedBy ? 1 : 0 });
+    else if (kind === "jet") this.net.send(pid, { t: "kill", k: "jet", at: vec1(obj.pos), into: obj.absorbedBy ? 1 : 0, hj: obj.hijacked ? 1 : 0 });
     // (UFOs, fighters and aliens only: not every zombie or cow, on any screen.)
     if (kind === "mob" && !obj.spec?.alien) return;
     const text = `${this.mp.playerName(pid)} downed ${killWhat(kind, obj)}`;
@@ -641,6 +642,7 @@ export class EntitySync {
     if (m.k === "ufo") {
       const st = g.stats;
       st.add("ufosDown");
+      if (!g.player.creative && g.progress.enabled) st.add("ufosDownSurvival");
       if (m.size === "mothership" || m.size === "giant") st.add("ufosDownBig");
       if (m.size === "giant") st.add("titansDown"); // (a mothership doesn't count, see missions.js)
       if ((m.idx ?? 0) >= 2) st.add("ufosDownLarge");
@@ -654,6 +656,7 @@ export class EntitySync {
       if (lk) g.lootFor(lk[0], lk[1], at.clone().setY(at.y + 0.6), { leaderDrop: fake.leaderDrop });
     } else if (m.k === "jet") {
       g.stats.add("enemyJetsDown");
+      if (m.hj) g.stats.add("hijackedDown");
       g.lootFor("enemyjet", null, at, { into: !!m.into });
     }
   }

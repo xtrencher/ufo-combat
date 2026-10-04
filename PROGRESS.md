@@ -2457,6 +2457,32 @@ At the owner's request, after the B-2 fix: the whole game read through for mista
 - Software rendering (the test machine) cannot measure real GPU frame times; the performance numbers above are CPU-side counts and main-thread times.
 - Remote block edits still don't wake the water simulation on the other peers (as before).
 
+### Second pass: balance, the newest code, rendering and frame cost
+A second round of readers, on what the first pass covered least: balance against the documented intent, the code added last (Rounds 8-9), the smaller modules (items, crafting, falling blocks, pathfinding, avatars), the shaders and the sky, and what each frame costs. Same method (every finding checked by a second reader, then fixed by file group, then the diff re-read).
+
+**Balance (the owner's first priority):**
+- **The B-2 waited for Operation Sunburn in name only:** it unlocked with the fighters at mission 10, so its unlimited nuke could wipe out every squad of missions 10-18. In Survival it now stays parked until mission 19 (boarding it says so); Creative and Dogfight are as before.
+- **The boss could be swallowed by a big enough player UFO's beam:** shield, pylons and hull skipped, and the kill credited. Bosses, shielded and immune ships now repel the beam (with a message), also for a guest's claim.
+- **A boss shield that came back early re-ran its round's reinforcements** each time (squads and hijacked fighters piled up); the squad and the jets now come once a round, the escorts are only topped up.
+- **"Hijacked fighters shot down" (missions 13 and 23) counted friendly patrol fighters too:** a new stat, `hijackedDown`, counts only the hijacked ones (host, guests and guests' kills on the host); the stats screen keeps the total as well.
+- **UFOs shot down in Creative raised the Survival loot tier for good:** the tier now uses `ufosDownSurvival` (Survival kills only); an old save starts it at all its kills, so nobody loses a tier.
+- **A UFO a player had hit once was theirs whoever finished it** (patrol fighters, other UFOs, a crash): the credit now needs a player hit in the last 8 s, as for creatures.
+- **Airport bunker guards came back on every revisit,** dropping armor at 35% with a tier bonus each time (farmable diamond armor mid-chain): a cleared airport sets out no guards for 20 minutes (live ones come back as before).
+- **Docs:** the README promised armor from supply crates and UFO wrecks (none drop it; aliens, zombies, skeletons and bunker guards do); the weapon comments now match the numbers (blaster 6 a bolt since Round 8, bow 10 at full draw).
+
+**Gameplay bugs:** a solid block could be placed inside another player online (it shoved them out on their screen); dropped items fell through a one-block roof or floor on a slow frame; switching the hotbar slot mid-mining kept the old tool's break time but used the new item's drops and wear; falling blocks that settled at once overwrote torches and flowers without a drop; A* expanded stale heap entries and spent the shared per-frame budget on them; the third-person avatar flashed a muzzle flash and recoil for shots fired in first person; a mod weapon held on the inventory cursor when the host turned Mods off stayed in the inventory; Steal the ship's open variant moved its mission spot to wherever the stolen ship had flown after a reload; a Dogfight results screen left a guest on a bare screen when the room's mode changed; "You got the ship out: it's yours!" went to every guest (now names the pilot online); far crowd zombies were darkened twice at night (they visibly darkened at the hand-over to full models), and vanished while a UFO's beam lifted them.
+
+**Rendering:** the underwater light shafts read the depth buffer after the held item had cleared it (the shafts lit straight through the terrain whenever something was in hand); above the cloud layer (y > 150, jets) the clouds were traced behind the viewer and drawn upside down (they now fade out just under the layer); the ore blocks' relief maps came from a different noise than their visible stone; UFO glow shells and halos sat on the world layer, so on High/Ultra the water pass drew over them.
+
+**Frame cost (nothing visible changes):**
+- **The sky is drawn last, on the far plane:** it was shaded on every pixel of the screen and then mostly painted over by terrain; now the depth test skips the covered pixels (under water it returns at once, and the moon's craters and the stars are only computed where they show).
+- **The water pass** (High/Ultra) no longer updates every object's matrix a second time per frame.
+- **Flowing water:** the LOD builders get edits at most twice a second (each flush sent a chunk's whole edit list to every worker, every frame while water flowed; a tile about to be built gets them at once), the LOD display reruns only when a chunk is meshed for the first time, and the 3D plants refill at most 5 times a second on nearby remeshes.
+- **Guests' ground on the host:** the chunks around a walking guest are generated in the workers (they were made synchronously on the host's main thread, a 10-30 ms hitch a few times a second).
+- **Smaller:** laser bolts test only the creatures near their path; an attacking UFO keeps its sight ray's answer for 0.2 s; the vehicle panel is written only when it changes; the plants' cut map uses numeric keys; parked jets allocate nothing per frame; the 5 s autosave rebuilds the water cells' list only when it changed.
+
+**Left as is (decided):** far crowd zombies get no torchlight (the instanced crowd shader has no per-instance block light; adding one is a shader change for a few dim figures at night); there is still no cloud deck seen from above.
+
 ### Test status (after the audit fixes)
 - `unit-tests.mjs` 61/61, `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `settings-tests.mjs` 7/7, `check-mob-models.mjs` OK.
 - `smoke-test.mjs` 66/67 in the full run (40 minutes; the skeleton check then failed on the aim bug above, and passes since), `ufo-tests.mjs` 34/35 in the full run (the check started inside the 30 s respawn grace an earlier abduction left; it clears that grace now and passes).

@@ -61,6 +61,7 @@ export class MissionDirector {
     this.players = null; // () => [player-like]
     this.pilotJets = null; // () => [jet]
     this.nightDeaths = null; // () => number
+    this.pilotName = null; // (vehicle) => the name of who flies it
   }
 
   // Is anyone (online: any player) alive and in the game?
@@ -463,7 +464,7 @@ export class MissionDirector {
         u.home = who.position.clone();
         u.homeOf = who;
         u.dodgeMul = 0.35; // it rarely dashes away from pistol fire
-        u.maxHealth = u.health = 40; // eight pistol hits (under a magazine), or five full bow draws
+        u.maxHealth = u.health = 40; // eight pistol hits (under a magazine), or four full bow draws
         u.crashPlan = { exploded: false, crew: 2, crewKind: "alien" };
         st.scouts.push(u);
         this.toast?.("A scout UFO is snooping around nearby: follow the marker.", 4);
@@ -1525,6 +1526,7 @@ export class MissionDirector {
       st.phase = 0;
       st.raise = true;
       st.shieldDownT = 0;
+      st.reinforced = -1;
       this.toast?.(`${B.name} is here! Its shield is up: shoot down the pylons (marked).`, 6);
       return;
     }
@@ -1537,7 +1539,11 @@ export class MissionDirector {
     if (boss.shield && st.raise && st.pylons.length === 0) {
       st.raise = false;
       this._bossPylons(boss, B.pylons[Math.min(B.pylons.length - 1, boss.shieldRound)]);
-      this._bossReinforce(boss, boss.shieldRound, B);
+      // (The squad and the jets once a round: a shield back early, in the
+      // same round, only tops up the escort, or they piled up each time.)
+      const again = st.reinforced === boss.shieldRound;
+      st.reinforced = boss.shieldRound;
+      this._bossReinforce(boss, boss.shieldRound, B, again);
     } else if (boss.shield && !st.raise && st.pylons.length === 0) {
       boss.shield = false;
       st.shieldDownT = 60;
@@ -1611,7 +1617,7 @@ export class MissionDirector {
   // two medium escorts, round 1 a red squad drops in as well, round 2 two
   // more escorts (and the last stretch is the boss alone). (Round 9: the
   // Dreadnought's bring hijacked fighters and a blue squad too.)
-  _bossReinforce(boss, round, B = OVERLORD) {
+  _bossReinforce(boss, round, B = OVERLORD, escortsOnly = false) {
     const st = this.state;
     const p = this.player.position;
     const escorts = B.escorts?.[round] ?? 0;
@@ -1623,6 +1629,7 @@ export class MissionDirector {
       this._keepTarget(e);
       st.escorts.push(e);
     }
+    if (escortsOnly) return;
     const kind = B.squads?.[round];
     if (kind) {
       const near = this._anyone().position;
@@ -1887,7 +1894,8 @@ export class MissionDirector {
           st.escaped = true;
           if (ship.puppet) this.stats.addWorld("shipsStolen"); // (a guest flew it out)
           else this.stats.add("shipsStolen");
-          this.toast?.("You got the ship out: it's yours!", 5);
+          const who = this.pilotName?.(ship);
+          this.toast?.(who ? `${who} got the ship out: it's theirs now!` : "You got the ship out: it's yours!", 5);
         }
         this.target = null;
         return;
@@ -1961,11 +1969,22 @@ export class MissionDirector {
   _stealOpen() {
     const st = this.state;
     if (!st.open) {
-      // (The ship from before a reload is still the mission's ship: the spot is where it is.)
+      // (The spot chosen before a reload, saved with the chain: the ship may
+      // have been flown off since. A save from before that has no spot: the
+      // ship from before the reload is still the mission's ship, and the spot
+      // is where it is.)
       const had = this.vehicles.vehicles.find((v) => v.missionShip === "open" && v.alive);
-      const at = had ? had.pos.clone() : this._groundSpot(700, 0.2, this._anyone().position);
-      st.open = at ? { x: at.x, y: at.y, z: at.z } : null;
-      if (!st.open) return;
+      const pl = this.progress.place;
+      if (pl?.mission === this.missionId && Number.isFinite(pl.x) && Number.isFinite(pl.z)) {
+        st.open = { x: pl.x, y: Number.isFinite(pl.y) ? pl.y : had?.pos.y ?? SEA_LEVEL, z: pl.z };
+      } else {
+        const at = had ? had.pos.clone() : this._groundSpot(700, 0.2, this._anyone().position);
+        st.open = at ? { x: at.x, y: at.y, z: at.z } : null;
+        if (!st.open) return;
+        // (Already flown out before the reload: no guards ring the pilot.)
+        if (had && (had.occupied || (had.puppet && had.netOcc))) st.guardsSet = true;
+        else this.progress.place = { mission: this.missionId, ...st.open };
+      }
     }
     const o = st.open;
     const c = new THREE.Vector3(o.x, o.y, o.z);
@@ -2001,7 +2020,8 @@ export class MissionDirector {
         st.escaped = true;
         if (ship.puppet) this.stats.addWorld("shipsStolen"); // (a guest flew it out)
         else this.stats.add("shipsStolen");
-        this.toast?.("You got the ship out: it's yours!", 5);
+        const who = this.pilotName?.(ship);
+        this.toast?.(who ? `${who} got the ship out: it's theirs now!` : "You got the ship out: it's yours!", 5);
       }
       this.target = away >= 150 ? null : { pos: c.clone(), label: `Escape: get clear (${Math.round(150 - away)} m to go)`, follow: null };
       return;

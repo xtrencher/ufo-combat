@@ -83,6 +83,7 @@ export class Interaction {
     this.onChange = null; // () => void: inventory contents changed
     // The mob system (raycast, attack, charge, swing, overlapsBlock), if any.
     this.combat = null;
+    this.othersOverlap = null; // (bx, by, bz) => whether the block would be inside another player (online)
     this.weapons = null; // the weapon system (grenades, pistol, bazooka), if any
     this.entityHit = null; // { mob, distance } under the crosshair
   }
@@ -388,6 +389,7 @@ export class Interaction {
     const world = this.world;
     if (!IS_REPLACEABLE[world.getBlock(px, py, pz)]) return false;
     if (BLOCK_INFO[blockId].solid && this._overlapsPlayer(px, py, pz)) return false;
+    if (BLOCK_INFO[blockId].solid && this.othersOverlap?.(px, py, pz)) return false;
     if (BLOCK_INFO[blockId].solid && this.combat && this.combat.overlapsBlock(px, py, pz)) return false;
     if (!isSupportedBy(blockId, world.getBlock(px, py - 1, pz))) return false;
     if (!world.setBlock(px, py, pz, blockId)) return false;

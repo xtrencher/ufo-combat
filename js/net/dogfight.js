@@ -146,9 +146,15 @@ export class Dogfight {
     this._respawnAt = null;
     this.scores.clear();
     document.getElementById("mp-countdown").classList.add("hidden");
-    document.getElementById("mp-results").classList.add("hidden");
+    const res = document.getElementById("mp-results");
+    const wasShown = !res.classList.contains("hidden");
+    res.classList.add("hidden");
     this._renderBoard();
     this._deathScreen(false);
+    // (Results up when the room's mode changed: they were the only screen,
+    // so one click back into the game, as in _newMatch. Not when the session
+    // ended: its own screen goes up.)
+    if (wasShown && !this.mp.ended) this.game.showClickToPlay?.();
   }
 
   // ---------- Host ----------
