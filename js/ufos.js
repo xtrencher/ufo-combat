@@ -117,6 +117,7 @@ const MAX_KEPT_WRECKS = 8; // intact wrecks kept in the world
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _x = new THREE.Vector3();
+const _sw = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const WATER_C = [new THREE.Color(0.75, 0.85, 0.95), new THREE.Color(0.9, 0.95, 1)];
 
@@ -1777,6 +1778,8 @@ export class UfoManager {
       vehicle,
       tickT: 0,
       end: new THREE.Vector3(),
+      last: null, // (where the beam ended a frame ago, and the frame before: what it swept across in between counts too)
+      prev: null,
       mesh: null,
     };
     if (this.audio?.playUfoShot) this.audio.playUfoShot("sweep", from.distanceTo(this._ears()));
@@ -1816,6 +1819,8 @@ export class UfoManager {
     const hit = this.world.raycast(from, dir, reach, { solidOnly: true });
     len = hit ? hit.distance : reach;
     sw.end.copy(from).addScaledVector(dir, len);
+    sw.prev = sw.last ? (sw.prev || new THREE.Vector3()).copy(sw.last) : null;
+    (sw.last || (sw.last = new THREE.Vector3())).copy(sw.end);
     const col = LASER_COLORS[u.laserKey] || LASER_COLORS.red;
     const width = 0.16 + u.radius * 0.01;
     if (!sw.mesh) {
@@ -1846,7 +1851,15 @@ export class UfoManager {
     const v = this._playerVehicle();
     let touched = false;
     if (v && v.alive) {
-      if (segPointDist(from, sw.end, v.pos) < (v.hitRadius ?? v.radius) + width) {
+      // (Round 10: the aircraft's own shape, not a sphere around it, and
+      // every line the beam swept through since the last frame: at a low
+      // frame rate it jumps far past a fighter's narrow body between two.)
+      let burnt = false;
+      if (v.segmentHit) {
+        const n = sw.prev ? Math.min(8, Math.ceil(sw.prev.distanceTo(sw.end) / 2)) : 0;
+        for (let k = 0; k <= n && !burnt; k++) burnt = v.segmentHit(from, k === n ? sw.end : _sw.copy(sw.prev).lerp(sw.end, k / n), width);
+      } else burnt = segPointDist(from, sw.end, v.pos) < (v.hitRadius ?? v.radius) + width;
+      if (burnt) {
         v.damage(dmg * 2, "ufo_laser");
         v.incoming = 2;
         touched = true;

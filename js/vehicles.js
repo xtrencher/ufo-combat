@@ -16,9 +16,24 @@
 import * as THREE from "three";
 import { IS_SOLID, IS_WET } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { sweptSphere } from "./lasers.js";
+import { hullRay, hullDistance, hullContact, discShape, CONTACT } from "./hitboxes.js";
 
 const ENTER_REACH = 4.5; // blocks from a vehicle's hull
 const MAX_VEHICLES = 12; // parked / wrecked vehicles kept in a world
+// Aircraft that touch (Round 10): below BUMP_SPEED (blocks/s, closing along
+// the contact) they just stop and part with a knock; above it the damage
+// grows, and at CRASH_SPEED two equal aircraft are both destroyed. The
+// lighter one takes more (MASS: a B-2 shrugs off a fighter that a fighter
+// would not).
+const BUMP_SPEED = 4;
+const CRASH_SPEED = 28;
+const PAIR_COOLDOWN = 1; // seconds before the same two can hurt each other again
+const _dir = new THREE.Vector3();
+// (Collision scratch: a pose for a ship (no quaternion of its own) and the contact normal.)
+const _n = new THREE.Vector3();
+const _pose = { pos: null, q: null, vel: null };
+const _pose2 = { pos: null, q: null, vel: null };
 
 // ---------- Base class ----------
 
@@ -41,6 +56,8 @@ export class Vehicle {
     this.camPitch = -0.15;
     this.hurtTime = 99;
     this.lastHitBy = null; // cause of the last damage (death messages)
+    this.hull = null; // the hit shape (hitboxes.js; aircraft), else a sphere of hitRadius
+    this.mass = 1; // for collisions
     this.id = manager.nextId++;
   }
 
@@ -95,8 +112,12 @@ export class Vehicle {
   onEnter() {}
   onExit() {}
 
-  // Nearest hit of a ray on this vehicle (a sphere), or null.
+  // Nearest hit of a ray on this vehicle (its hull, or a sphere), or null.
   raycast(origin, dir, maxDist) {
+    if (this.hull) {
+      const t = hullRay(this.hull, this.pos, this.q, origin, dir, maxDist);
+      return t < 0 ? null : t;
+    }
     const r = this.hitRadius ?? this.radius;
     const ox = origin.x - this.pos.x;
     const oy = origin.y - this.pos.y;
@@ -109,6 +130,48 @@ export class Vehicle {
     const tt = t >= 0 ? t : c < 0 ? 0 : null;
     if (tt === null || tt > maxDist) return null;
     return tt;
+  }
+
+  // Where along a bolt's step (0..step, or null) it comes within `pad` of the
+  // vehicle (the bolt's glow), solved in the vehicle's frame of motion: it
+  // moved vel*dt during the same step (a jet moves several blocks a frame).
+  sweptRaycast(origin, dir, step, pad = 0, dt = 0) {
+    if (this.hull) {
+      const t = hullRay(this.hull, this.pos, this.q, origin, dir, step, pad, this.vel, dt);
+      return t < 0 ? null : t;
+    }
+    return sweptSphere(origin, dir, step, this.pos, (this.hitRadius ?? this.radius) + pad, this.vel, dt);
+  }
+
+  // Does the segment a-b pass within `pad` of the vehicle? (a sweeping beam)
+  segmentHit(a, b, pad = 0) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return this.hullDistance(a, pad + 1) <= pad;
+    _dir.set(dx / len, dy / len, dz / len);
+    if (this.hull) return hullRay(this.hull, this.pos, this.q, a, _dir, len, pad) >= 0;
+    return sweptSphere(a, _dir, len, this.pos, (this.hitRadius ?? this.radius) + pad) !== null;
+  }
+
+  // How far a point is from the vehicle's surface (0 inside). `max`: beyond
+  // this it only needs to be known that it's at least that far.
+  hullDistance(p, max = Infinity) {
+    if (this.hull) return hullDistance(this.hull, this.pos, this.q, p, max);
+    return Math.max(0, this.pos.distanceTo(p) - (this.hitRadius ?? this.radius));
+  }
+
+  // The shape it collides with (an aircraft's hull, a ship's disc), or null.
+  get collider() {
+    if (this.hull) return this.hull;
+    // (A ship: a disc of its size, for collisions only; not a wreck in its crater.)
+    if (this.type !== "ufo" || !this.info || this.crashed || this.wreck) return null;
+    if (!this._disc) {
+      this._disc = discShape(this.hitRadius ?? this.radius, -this.info.bottom * this.radius, (this.info.top ?? this.info.bottom) * this.radius);
+      this.mass = Math.min(8, Math.max(0.6, (this.radius / 7) ** 2));
+    }
+    return this._disc;
   }
 
   serialize() {
@@ -480,7 +543,7 @@ export class VehicleManager {
   sphereHit(p, r) {
     for (const v of this.vehicles) {
       if (!v.alive || !this.enabled) continue;
-      if (v.pos.distanceTo(p) < (v.hitRadius ?? v.radius) + r) return v;
+      if (v.hullDistance(p, r + 1) < r) return v;
     }
     return null;
   }
@@ -491,14 +554,125 @@ export class VehicleManager {
     for (const v of this.vehicles) this.explosionOn(v, center, radius, cause);
   }
 
+  // How far a blast at `center` is from the vehicle, for its damage: from an
+  // aircraft's surface (a blast under the wing is close, one off the nose
+  // isn't), from a ship's middle less most of its size.
+  blastDistance(v, center, max = Infinity) {
+    if (v.hull) return v.hullDistance(center, max);
+    return Math.max(0, v.pos.distanceTo(center) - v.radius * 0.6);
+  }
+
   // One vehicle's share of a blast.
   explosionOn(v, center, radius, cause = "explosion") {
     if (!v.alive) return;
-    const d = Math.max(0, v.pos.distanceTo(center) - v.radius * 0.6);
     const reach = radius * 1.8;
+    const d = this.blastDistance(v, center, reach);
     if (d >= reach) return;
     const f = 1 - d / reach;
     v.damage(Math.floor(45 * Math.sqrt(radius / 7) * f), cause);
+  }
+
+  // ---------- Collisions ----------
+
+  // Aircraft touching each other (Round 10): any two alive aircraft or ships
+  // whose shapes meet during the frame (swept: fast ones can't pass through
+  // each other) part and, if they met hard enough, take damage by how fast
+  // they closed along the contact. Online each machine moves apart only the
+  // ones it simulates; the damage to both is dealt once, by the machine the
+  // game says judges that pair (collisionJudge, see net/vehicles.js), the
+  // other player's share sent through collisionHit.
+  _collide(dt) {
+    const list = this.vehicles;
+    const n = list.length;
+    if (n < 2 || dt <= 0) return;
+    this._colT = (this._colT || 0) + dt;
+    for (let i = 0; i < n; i++) {
+      const a = list[i];
+      const sa = a.alive && !a.dashing ? a.collider : null;
+      if (!sa) continue;
+      for (let j = i + 1; j < n; j++) {
+        const b = list[j];
+        const sb = b.alive && !b.dashing ? b.collider : null;
+        // (Both another machine's: theirs to judge. An aircraft still parked
+        // at an airport is every peer's own copy: only against our own.)
+        if (!sb || (a.puppet && b.puppet) || (a.puppet && b.parkedAt) || (b.puppet && a.parkedAt)) continue;
+        // Broad phase: within reach of each other this frame, and moving.
+        const rvx = b.vel.x - a.vel.x;
+        const rvy = b.vel.y - a.vel.y;
+        const rvz = b.vel.z - a.vel.z;
+        const rv = Math.hypot(rvx, rvy, rvz);
+        if (rv < 0.05) continue;
+        const reach = sa.r + sb.r + rv * dt;
+        const dx = b.pos.x - a.pos.x;
+        const dy = b.pos.y - a.pos.y;
+        const dz = b.pos.z - a.pos.z;
+        if (dx * dx + dy * dy + dz * dz > reach * reach) continue;
+        if (!hullContact(sa, this._colPose(a, _pose), sb, this._colPose(b, _pose2), dt)) continue;
+        this._contact(a, b, dt);
+      }
+    }
+  }
+
+  // A body as hullContact wants it ({ pos, q, vel }; a ship has no attitude quaternion).
+  _colPose(v, out) {
+    out.pos = v.pos;
+    out.q = v.q && v.q.isQuaternion ? v.q : null;
+    out.vel = v.vel;
+    return out;
+  }
+
+  // Two bodies touch (CONTACT): part them, then the damage, if any.
+  _contact(a, b) {
+    const n = _n.set(CONTACT.nx, CONTACT.ny, CONTACT.nz); // from a toward b
+    const closing = -((b.vel.x - a.vel.x) * n.x + (b.vel.y - a.vel.y) * n.y + (b.vel.z - a.vel.z) * n.z);
+    const ia = 1 / Math.max(0.1, a.mass);
+    const ib = 1 / Math.max(0.1, b.mass);
+    // Apart: out of each other along the normal and the closing speed taken
+    // away (only the ones simulated here: a puppet follows its owner).
+    const wa = a.puppet ? 0 : b.puppet ? 1 : ia / (ia + ib);
+    const wb = b.puppet ? 0 : a.puppet ? 1 : ib / (ia + ib);
+    const depth = CONTACT.depth + 0.02;
+    if (wa) a.pos.addScaledVector(n, -depth * wa);
+    if (wb) b.pos.addScaledVector(n, depth * wb);
+    if (closing > 0) {
+      const j = (closing * 1.15) / (ia + ib); // (a little bounce)
+      if (!a.puppet) a.vel.addScaledVector(n, -j * ia);
+      if (!b.puppet) b.vel.addScaledVector(n, j * ib);
+    }
+    // (Already overlapping at the start of the frame, e.g. two aircraft set
+    // down touching: they only part. And the same two hurt each other once
+    // per PAIR_COOLDOWN, whatever the frames in between say.)
+    if (!CONTACT.entered || closing < BUMP_SPEED * 0.5) return;
+    const now = this._colT;
+    const pairs = this._pairs || (this._pairs = []);
+    for (let k = pairs.length - 1; k >= 0; k--) {
+      const p = pairs[k];
+      if (now - p.t > PAIR_COOLDOWN || !p.a.alive || !p.b.alive) pairs.splice(k, 1);
+      else if ((p.a === a && p.b === b) || (p.a === b && p.b === a)) return;
+    }
+    pairs.push({ a, b, t: now });
+    // The knock, felt and heard by a pilot in either.
+    const mine = a === this.active || b === this.active;
+    if (mine) this.effects?.shake?.add?.(Math.min(0.6, 0.12 + closing * 0.015));
+    const at = this.player.position;
+    this.audio?.playUfoHit?.(Math.min(a.pos.distanceTo(at), b.pos.distanceTo(at)), closing > CRASH_SPEED * 0.5);
+    if (closing < BUMP_SPEED) return;
+    if (this.collisionJudge && !this.collisionJudge(a, b)) return;
+    // Damage: the share of each grows with the other's mass; at CRASH_SPEED
+    // two of a kind are both lost, much faster and even a B-2 is.
+    const s = (closing - BUMP_SPEED) / (CRASH_SPEED - BUMP_SPEED);
+    const k = s * Math.sqrt(s);
+    const da = Math.ceil(a.maxHealth * k * ((2 * b.mass) / (a.mass + b.mass)));
+    const db = Math.ceil(b.maxHealth * k * ((2 * a.mass) / (a.mass + b.mass)));
+    if (mine && s > 0.25) this.onMessage?.("COLLISION!");
+    this._collisionHit(a, da);
+    this._collisionHit(b, db);
+  }
+
+  _collisionHit(v, amount) {
+    if (!v.alive || amount <= 0) return;
+    if (v.puppet) this.collisionHit?.(v, amount);
+    else v.damage(amount, "crash");
   }
 
   // ---------- Input ----------
@@ -550,6 +724,7 @@ export class VehicleManager {
         }
       }
     }
+    if (this.enabled) this._collide(dt);
     const v = this.active;
     if (v) {
       v.seatPosition(this._seat);

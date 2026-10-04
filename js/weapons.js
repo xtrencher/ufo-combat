@@ -834,8 +834,11 @@ export class WeaponSystem {
         const to = c.sub(r.pos);
         const dist = to.length();
         // Proximity fuse: a homing rocket that gets close enough goes off
-        // (squarely on a UFO or vehicle: the direct hit counts too).
-        if (dist < (t.radius || 1) * 0.6 + 1.4 && r.age > 0.25) {
+        // (squarely on a UFO or vehicle: the direct hit counts too). An
+        // aircraft: close to its real shape (Round 10), not to its middle.
+        const hull = t.ref?.hull && t.ref.hullDistance ? t.ref : null;
+        const near = hull ? hull.hullDistance(r.pos, 2) < 1.4 : dist < (t.radius || 1) * 0.6 + 1.4;
+        if (near && r.age > 0.25) {
           const d2 = to.clone().divideScalar(dist || 1);
           const th = this._targetHit(r.pos, d2, dist + 1);
           if (th) th.hit(ROCKET_DIRECT, d2, r.pos.clone());

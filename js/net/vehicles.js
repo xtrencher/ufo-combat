@@ -150,6 +150,19 @@ export class VehicleSync {
       if (this.mp.active && v.puppet && (!v.alive || v.wreck)) return "It's a wreck";
       return prevCan ? prevCan(v) : null;
     };
+    // (Round 10) Aircraft colliding: each machine parts the ones it simulates;
+    // the damage to both is dealt once, by the machine of the lower player
+    // number of the two that simulate them (the host for its fighters and
+    // its own aircraft), and the other player's share goes to them.
+    vm.collisionJudge = (a, b) => {
+      if (!this.mp.active) return true;
+      return Math.min(this._simBy(a), this._simBy(b)) === this.net.pid;
+    };
+    vm.collisionHit = (v, amount) => {
+      if (!this.mp.active || !v.net || !v.alive) return;
+      v.hurtTime = 0;
+      this.net.toAll({ t: "vhit", nid: v.net.nid, dmg: Math.round(amount * 10) / 10, cause: "crash", by: this.net.pid });
+    };
     const enter = vm.enter.bind(vm);
     vm.enter = (v) => {
       // Someone else's vehicle: ask the host for it first (we climb in when it says yes).
@@ -160,6 +173,12 @@ export class VehicleSync {
       }
       return enter(v);
     };
+  }
+
+  // Which player's machine simulates a vehicle (the host's fighters are the host's).
+  _simBy(v) {
+    if (!v.puppet) return this.net.pid;
+    return v.net?.owner ?? HOST_PID;
   }
 
   // A local vehicle becomes shared (unless it's an enemy fighter, which is

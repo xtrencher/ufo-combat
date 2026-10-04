@@ -1310,8 +1310,11 @@ export class MobManager {
       m.burst = 2; // two more follow the first
       m.burstT = 0.12;
     }
-    const target = this.player.getEyePosition();
-    target.y -= 0.6;
+    // (Round 10: at the middle of the vehicle the player sits in: shots meet
+    // its real shape now, and the pilot's head sits above most of a jet.)
+    const veh = this.player.vehicle;
+    const target = veh ? veh.pos.clone() : this.player.getEyePosition();
+    if (!veh) target.y -= 0.6;
     // The bolt leaves the gun's muzzle (the gun arm is raised along the aim).
     const from = this._muzzle(m, _mz.copy(target).sub(m.pos).setY(target.y - m.pos.y - m.spec.eye + 0.4).normalize());
     if (IS_SOLID[this.world.getBlock(Math.floor(from.x), Math.floor(from.y), Math.floor(from.z))]) from.set(m.pos.x, m.pos.y + m.spec.eye - 0.4, m.pos.z);
