@@ -2495,3 +2495,17 @@ A second round of readers, on what the first pass covered least: balance against
 - Everything green on the final code: `unit-tests.mjs` 61/61, `perf-tests.mjs` 5/5, `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `settings-tests.mjs` 7/7, `ufo-tests.mjs` 35/35, `check-mob-models.mjs` OK, `chaos-tests.mjs` 400 steps / 0 problems.
 - `smoke-test.mjs`: 65/67 in the full run, then the two water checks (drowning, zombies at the moat) passed on their own with longer waits. They had timed out, not failed: the session moved to a slower test machine, where the software renderer draws a 1280x800 frame over that much water in more than a second (the same code from before this pass measured the same: 426 s for the moat's 10 s of game time). The unit test's hand-built stats needed the two new stat keys.
 - Multiplayer: `mp-tests.mjs` 23/23, `mp-round9-tests.mjs` 8/8, `mp-damage-tests.mjs` 444/444 applicable cells.
+
+# Round 10 checklist
+The owner's requests after the audit (all must work for the host and for guests online; balance first):
+- [ ] 10.1 Missions random each playthrough (same for everyone in a room): a campaign drawn from a pool, small to advanced in acts (no nuke mission first), milestones kept in order; future missions hidden; old saves keep the classic order.
+- [ ] 10.2 More interesting missions: new ones (e.g. surviving UFOs that try to beam you up), variants of the old ones; the long night without the jarring 30x clock.
+- [ ] 10.3 B-2 model: the real planform and details, as accurate as possible.
+- [ ] 10.4 Weapons: the machine gun fires real bullets like the pistol (no instant hits); lasers much faster than bullets.
+- [ ] 10.5 Villages: wall torches (Minecraft style) and chests with random loot (weapons too); chests in cities as well.
+- [ ] 10.6 Aircraft hit boxes that follow the model (no damage from a near miss; a wing far above you no longer takes the shots meant for you).
+- [x] 10.7 The sphere UFO is called the BAL UFO.
+- [ ] 10.8 Aircraft sometimes parked inside hangars.
+- [ ] 10.9 UFO dash: no more far teleports and broken visuals; in ghost mode a dash damages what it flies through.
+- [ ] 10.10 Aircraft colliding (runway or air) take damage by their speed, up to exploding.
+- [ ] 10.11 More bug hunting and optimization.
