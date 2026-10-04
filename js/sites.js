@@ -43,7 +43,7 @@ const SIZE_SALT = 0x51a7e004;
 const JET_HANGAR_SALT = 0x51a7e005;
 const LOT_DECO_SALT = 0x51a7e006;
 const JET_HANGAR_CHANCE = 0.42; // (Round 10) the share of hangars with a fighter in them (where the way out is clear)
-const MIN_ROOM = 4; // (Round 10) a hangar keeps a fighter only where the airport still parks at least this many (or as many as before)
+const MIN_ROOM = 3; // (Round 10) a hangar keeps a fighter only where the airport still parks at least this many (or as many as before)
 const CITY_CHEST_CHANCE = 0.3; // (Round 10) the share of city buildings with a chest in the lobby
 
 // The smallest runway's half length (what older callers assume); each site
@@ -416,7 +416,7 @@ export class SiteGrower {
       h.jet = false;
       if (hash2((site.seed ^ JET_HANGAR_SALT) >>> 0, h.id, 7) >= JET_HANGAR_CHANCE) continue;
       // The lane: the doorway's width (and a little more), from the taxiway to the door.
-      const l = [h.uc - 10, h.uc + 10, site.rw + 6, h.v0 - 1];
+      const l = [h.uc - 7, h.uc + 7, site.rw + 6, h.v0 - 1];
       if (boxes.some((b) => b[0] <= l[1] && b[1] >= l[0] && b[2] <= l[3] && b[3] >= l[2])) continue;
       lanes.push(l);
       const row = this._row(site, lanes);
