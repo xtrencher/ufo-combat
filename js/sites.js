@@ -42,8 +42,8 @@ const ORIENT_SALT = 0x51a7e003;
 const SIZE_SALT = 0x51a7e004;
 const JET_HANGAR_SALT = 0x51a7e005;
 const LOT_DECO_SALT = 0x51a7e006;
-const JET_HANGAR_CHANCE = 0.42; // (Round 10) the share of hangars with a fighter in them (where the way out is clear)
-const MIN_ROOM = 3; // (Round 10) a hangar keeps a fighter only where the airport still parks at least this many (or as many as before)
+const JET_HANGAR_CHANCE = 0.5; // (Round 10) the share of hangars with a fighter in them (where the way out is clear)
+const MIN_ROOM = 4; // (Round 10) a hangar takes a fighter only where the airport keeps room for this many (or as many as before): a group of four always finds a jet each
 const CITY_CHEST_CHANCE = 0.3; // (Round 10) the share of city buildings with a chest in the lobby
 
 // The smallest runway's half length (what older callers assume); each site
@@ -385,17 +385,17 @@ export class SiteGrower {
   }
 
   // (Round 10) The hangars that house a fighter (airports.js parks one
-  // inside, nose to the doorway): about two in five, by a hash of the site's
+  // inside, nose to the doorway): about half of them, by a hash of the site's
   // seed (not the layout's random stream: the rest of the plan stays as it
   // was), and only where the way out to the taxiway is clear: no tower,
   // terminal, radar, tank or other hangar in front of the doorway, and no
   // aircraft parked there (the lane is kept free in the parking row), as long
-  // as that costs the airport no parking space: the row and the hangars
-  // together hold at least as many fighters as the row did, so a hangar's
-  // jet is one of them, never one less. Such a hangar has its lights on the
-  // walls (h.wt: the wall torches facing +u, -u and -v), the floor clear for
-  // the jet. Worked out once per site, when first needed (its chunks or its
-  // parking slots), so the many sites only planned for a survey don't pay.
+  // as the airport keeps room for MIN_ROOM fighters (or as many as before):
+  // the row and the hangars together, a hangar's jet being one of them.
+  // Such a hangar has more lights on its walls (h.wt: the wall torches
+  // facing +u, -u and -v) and none on the middle line, under the jet.
+  // Worked out once per site, when first needed (its chunks or its parking
+  // slots), so the many sites only planned for a survey don't pay.
   _ensureJetHangars(site) {
     if (site._jets) return;
     site._jets = true;
@@ -415,10 +415,11 @@ export class SiteGrower {
     for (const h of site.hangars) {
       h.jet = false;
       if (hash2((site.seed ^ JET_HANGAR_SALT) >>> 0, h.id, 7) >= JET_HANGAR_CHANCE) continue;
-      // The lane: the doorway's width (and a little more), from the taxiway to the door.
-      const l = [h.uc - 7, h.uc + 7, site.rw + 6, h.v0 - 1];
-      if (boxes.some((b) => b[0] <= l[1] && b[1] >= l[0] && b[2] <= l[3] && b[3] >= l[2])) continue;
-      lanes.push(l);
+      // The way out, from the door to the taxiway: the doorway's width clear
+      // of buildings; in the parking row, the jet's wingspan and a little
+      // more (a parked jet's slot keeps its own room around it).
+      if (boxes.some((b) => b[0] <= h.uc + 9 && b[1] >= h.uc - 9 && b[2] < h.v0 && b[3] >= site.rw + 6)) continue;
+      lanes.push([h.uc - 7, h.uc + 7, site.rw + 6, h.v0 - 1]);
       const row = this._row(site, lanes);
       if (row.fighters + lanes.length < Math.min(room, MIN_ROOM)) {
         lanes.pop();
@@ -856,10 +857,11 @@ export class SiteGrower {
           return y <= 2 ? BLOCK.COBBLESTONE : BLOCK.STONE;
         }
         if (o.jet) {
-          // (Round 10) A fighter's hangar: the lights on the walls, the floor clear for the jet.
+          // (Round 10) A fighter's hangar: more lights on the walls, none on
+          // the middle line (under the jet and its way out).
           if (y === 4 && (u === o.u0 + 1 || u === o.u1 - 1) && (v - o.v0) % 6 === 4) return o.wt[u === o.u0 + 1 ? 0 : 1];
           if (y === 4 && v === o.v1 - 1 && Math.abs(u - o.uc) === 8) return o.wt[2];
-          return 0;
+          if (u === o.uc) return 0;
         }
         if (y === 1 && (u - o.uc) % 8 === 0 && (v - o.v0) % 6 === 3) return BLOCK.TORCH;
         return 0;

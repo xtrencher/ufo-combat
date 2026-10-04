@@ -86,7 +86,7 @@ export class AirportManager {
     for (let i = jets.length - 1; i >= 0; i--) if (jets[i].type === "jet" && !veh.vehicles.includes(jets[i])) jets.splice(i, 1);
     const slots = this.sites.parkingSlots(s);
     // (Round 10) Some of the fighters stand in the hangars that have room for
-    // one (sites.js jetHangars), at least one out on the apron; the hangars
+    // one (sites.js _ensureJetHangars), at least one out on the apron; the hangars
     // take the ones the apron has no room for. The same total as before.
     const total = this.fighterCount(s);
     const inHangars = slots.hangars || [];
