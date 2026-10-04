@@ -472,7 +472,7 @@ playerJoined, playerLeft })` runs alongside the game's own modules (`mp` is
 UFOs roam the skies anywhere from treetop height to high overhead. They are
 **plain, clean shapes** (they look real because they are simple: no
 lights, panels or portholes): **smooth saucers** are the most common (lens,
-flat disc and gently domed, each with its own proportions), then the **BAL UFO** (a
+flat disc and gently domed, each with its own proportions), then the **BALL UFO** (a
 gray-black sphere with a grainy surface), **white tic-tacs**, **tori** (rings), rounded
 a large flat black **triangle** with dim lights at the corners, plus the
 odd **boomerang** and **cylinder** (real-sighting shapes: they fly along their

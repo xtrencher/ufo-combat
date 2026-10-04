@@ -2504,7 +2504,7 @@ The owner's requests after the audit (all must work for the host and for guests 
 - [ ] 10.4 Weapons: the machine gun fires real bullets like the pistol (no instant hits); lasers much faster than bullets.
 - [ ] 10.5 Villages: wall torches (Minecraft style) and chests with random loot (weapons too); chests in cities as well.
 - [ ] 10.6 Aircraft hit boxes that follow the model (no damage from a near miss; a wing far above you no longer takes the shots meant for you).
-- [x] 10.7 The sphere UFO is called the BAL UFO.
+- [x] 10.7 The sphere UFO is called the BALL UFO.
 - [ ] 10.8 Aircraft sometimes parked inside hangars.
 - [ ] 10.9 UFO dash: no more far teleports and broken visuals; in ghost mode a dash damages what it flies through.
 - [ ] 10.10 Aircraft colliding (runway or air) take damage by their speed, up to exploding.

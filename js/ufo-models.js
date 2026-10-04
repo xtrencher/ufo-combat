@@ -32,7 +32,7 @@ export const UFO_DESIGN_NAMES = {
   saucer: "Lens saucer",
   saucer_disc: "Disc saucer",
   saucer_domed: "Domed saucer",
-  sphere: "BAL UFO",
+  sphere: "BALL UFO",
   tictac: "Tic-tac",
   torus: "Torus",
   triangle: "Black triangle",
