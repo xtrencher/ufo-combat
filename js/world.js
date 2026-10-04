@@ -109,7 +109,8 @@ export class World {
     this.meshQueued = new Set();
     this.remeshQueue = new Set(); // rebuilds from background light changes (budgeted)
     this.editRemeshQueue = new Set(); // rebuilds from block edits (next frame, unbudgeted)
-    this.stats = { lastEditRemeshCount: 0, lastEditRemeshMs: 0, meshes: 0, generated: 0 };
+    // (firstMeshes: chunks meshed for the first time; lod.js redraws on those only)
+    this.stats = { lastEditRemeshCount: 0, lastEditRemeshMs: 0, meshes: 0, firstMeshes: 0, generated: 0 };
     this._nb = new Array(9).fill(null);
     // (Perf) Chunk generation in workers (enableGenWorkers): the chunks being
     // generated there, and the finished ones waiting to be taken in.
@@ -129,6 +130,7 @@ export class World {
     this._meshSet = new Set(); // numKeys of the chunks the current plan meshes
     this._keep = null; // chunks the current plan keeps loaded
     this.keepChunk = null; // (chunk) => true to keep a chunk loaded outside the plan
+    this.extraWanted = null; // (cx, cz) => true to generate a chunk outside the plan (requestGen)
     this.chunksHidden = false; // new chunks start hidden (the LOD system shows them)
 
     this.onEdit = null; // () => void, after any recorded edit
@@ -329,10 +331,11 @@ export class World {
     this._keep = { grid: keep, flag };
     const dist2 = (cx, cz) => (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz);
 
-    this._genWanted = (cx, cz) => flag(data, cx, cz);
+    // (chunks asked for outside the plan by requestGen stay wanted too)
+    this._genWanted = (cx, cz) => flag(data, cx, cz) || !!this.extraWanted?.(cx, cz);
     this.genQueue = this.genQueue.filter((e) => {
       e.dist = dist2(e.cx, e.cz);
-      if (!flag(data, e.cx, e.cz)) {
+      if (!this._genWanted(e.cx, e.cz)) {
         this.genQueued.delete(numKey(e.cx, e.cz));
         return false;
       }
@@ -362,6 +365,15 @@ export class World {
       }
     }
     this.meshQueue.sort((a, b) => dist2(a.cx, a.cz) - dist2(b.cx, b.cz));
+  }
+
+  // Queues one chunk outside the plan for generation (in the workers when
+  // they run; extraWanted must keep wanting it, or it is dropped).
+  requestGen(cx, cz) {
+    const k = numKey(cx, cz);
+    if (this.chunks.has(k) || this.genQueued.has(k) || this._genInflight.has(k)) return;
+    this.genQueue.push({ cx, cz, dist: this._planCx === null ? 0 : (cx - this._planCx) ** 2 + (cz - this._planCz) ** 2 });
+    this.genQueued.add(k);
   }
 
   // Unloads chunks well outside the meshed area (unless keepChunk still
@@ -608,6 +620,7 @@ export class World {
       return;
     }
     chunk.applyMesh(m.buffers, this.materials);
+    if (!chunk.meshed) this.stats.firstMeshes++;
     chunk.meshed = true;
     chunk.meshCount = (chunk.meshCount || 0) + 1;
     this.meshQueued.delete(chunk);
@@ -693,6 +706,7 @@ export class World {
     }
     chunk.applyMesh(meshChunk(nb, this.meshOptions), this.materials);
     chunk._meshToken = ++this._meshSeq; // (a mesh still in a worker is older: dropped)
+    if (!chunk.meshed) this.stats.firstMeshes++;
     chunk.meshed = true;
     chunk.meshCount = (chunk.meshCount || 0) + 1; // lets caches of chunk contents (grass.js) notice rebuilds
     this.meshQueued.delete(chunk);

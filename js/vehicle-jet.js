@@ -116,6 +116,14 @@ const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const Z = new THREE.Vector3(0, 0, 1);
 const _a = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
+// (Scratch for update, _aero and _groundAndCrash only: every jet, parked ones
+// too, runs them every frame.)
+const _stick = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _acc = new THREE.Vector3();
+const _probes = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
 
 // (Shared by every jet's missiles and bombs: made once, never per jet or per drop.)
 let _missileGeo = null;
@@ -332,9 +340,9 @@ export class Jet extends Vehicle {
     const cfg = this.cfg;
     const maxSpeed = Math.max(60, cfg.maxSpeed);
     const vStall = Math.max(15, cfg.stallSpeed);
-    const fwd = this.forward(new THREE.Vector3());
-    const up = this.up(new THREE.Vector3());
-    const right = this.right(new THREE.Vector3());
+    const fwd = this.forward(_fwd);
+    const up = this.up(_up);
+    const right = this.right(_right);
     const speed = this.vel.length();
     const vF = this.vel.dot(fwd);
     // Angle of attack (nose above the flight path = positive).
@@ -359,7 +367,7 @@ export class Jet extends Vehicle {
       const vd = _w.copy(this.vel).divideScalar(speed);
       liftDir.addScaledVector(vd, -liftDir.dot(vd)).normalize();
     }
-    const acc = new THREE.Vector3().addScaledVector(liftDir, lift);
+    const acc = _acc.set(0, 0, 0).addScaledVector(liftDir, lift);
     // Thrust grows with the square of the throttle, so the speed you settle
     // at is in proportion to it (50% throttle: half the speed); the
     // afterburner adds to it. On the wheels only part of the thrust gets the
@@ -517,7 +525,7 @@ export class Jet extends Vehicle {
       return;
     }
     const cfg = this.cfg;
-    const stick = new THREE.Vector3();
+    const stick = _stick.set(0, 0, 0);
     this.brake = false;
     this.reversing = false;
     if (input) {
@@ -803,9 +811,9 @@ export class Jet extends Vehicle {
     const mgr = this.manager;
     const w = mgr.world;
     const cfg = this.cfg;
-    const fwd = this.forward(new THREE.Vector3());
-    const up = this.up(new THREE.Vector3());
-    const right = this.right(new THREE.Vector3());
+    const fwd = this.forward(_fwd);
+    const up = this.up(_up);
+    const right = this.right(_right);
     const pitch = Math.asin(clamp(fwd.y, -1, 1));
     const bank = Math.atan2(-right.y, up.y);
     const yaw = Math.atan2(-fwd.x, -fwd.z);
@@ -902,14 +910,13 @@ export class Jet extends Vehicle {
     // Any other part of the airframe hitting the terrain: nose, wingtips, tails.
     const right2 = this.right(_w);
     const pr = this.spec.probes;
-    const probes = [
-      [fwd, pr.nose],
-      [fwd, 3],
-    ];
-    const pts = probes.map(([d, l]) => this.pos.clone().addScaledVector(d, l));
-    pts.push(this.pos.clone().addScaledVector(right2, pr.wing), this.pos.clone().addScaledVector(right2, -pr.wing));
-    pts.push(this.pos.clone().addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2));
-    pts.push(this.pos.clone().addScaledVector(up, this.onGround ? 1.2 : -0.6));
+    const pts = _probes;
+    pts[0].copy(this.pos).addScaledVector(fwd, pr.nose);
+    pts[1].copy(this.pos).addScaledVector(fwd, 3);
+    pts[2].copy(this.pos).addScaledVector(right2, pr.wing);
+    pts[3].copy(this.pos).addScaledVector(right2, -pr.wing);
+    pts[4].copy(this.pos).addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2);
+    pts[5].copy(this.pos).addScaledVector(up, this.onGround ? 1.2 : -0.6);
     for (const p of pts) {
       if (p.y < 0 || p.y >= WORLD_HEIGHT) continue;
       if (IS_SOLID[w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))]) {

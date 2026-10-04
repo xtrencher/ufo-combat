@@ -1810,8 +1810,14 @@ export class MobManager {
     let best = null;
     const min = this._rmin || (this._rmin = new THREE.Vector3());
     const max = this._rmax || (this._rmax = new THREE.Vector3());
+    // (a cheap reject first: the segment's midpoint and half-length; laser
+    // bolts ask about every creature every frame)
+    const R = (reach * Math.hypot(dir.x, dir.y, dir.z)) / 2;
+    const cx = origin.x + dir.x * reach / 2, cy = origin.y + dir.y * reach / 2, cz = origin.z + dir.z * reach / 2;
     for (const m of this.mobs) {
       if (m.dead || (filter && !filter(m))) continue;
+      const dx = m.pos.x - cx, dz = m.pos.z - cz, lim = R + m.spec.r * 1.5 + 1;
+      if (dx * dx + dz * dz > lim * lim || m.pos.y + m.spec.h + 1 < cy - R || m.pos.y - 1 > cy + R) continue;
       const r = m.spec.r + 0.08;
       min.set(m.pos.x - r, m.pos.y, m.pos.z - r);
       max.set(m.pos.x + r, m.pos.y + m.spec.h + 0.05, m.pos.z + r);

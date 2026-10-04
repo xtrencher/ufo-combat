@@ -29,6 +29,7 @@ const MAX_IN_FLIGHT = 3; // requests at once per worker (few, so re-planning can
 const POOL_SIZE = Math.max(1, Math.min(4, ((typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4) - 2));
 const UPLOAD_BUDGET_MS = 3; // main-thread time per frame for turning results into meshes
 const LOCAL_BUILD_BUDGET_MS = 5; // per frame, when tiles are built on the main thread
+const EDIT_FLUSH_MS = 500; // edits go to the builders at most this often (flowing water edits every frame)
 
 function tileKey(level, tx, tz) {
   return `${level}:${tx}:${tz}`;
@@ -42,6 +43,11 @@ function flattenEdits(map) {
     list[i++] = id;
   }
   return list;
+}
+
+// A chunk's numeric key for the edit set (decoded in _flushEdits).
+function editKey(cx, cz) {
+  return cx * 65536 + cz;
 }
 
 export class LodSystem {
@@ -76,7 +82,8 @@ export class LodSystem {
     this._lastMeshCount = -1;
     this._shownChunks = new Set();
     this._shownTiles = new Set();
-    this._editedChunks = new Set();
+    this._editedChunks = new Set(); // numeric chunk keys (editKey)
+    this._editsFlushedAt = -Infinity;
     // maxUpdateMs: the longest main-thread update so far (tests reset it).
     this.stats = { built: 0, tiles: 0, shownTiles: 0, shownChunks: 0, vertices: 0, plans: 0, lastUpdateMs: 0, maxUpdateMs: 0 };
 
@@ -86,7 +93,7 @@ export class LodSystem {
     for (const chunk of world.chunks.values()) chunk.group.visible = false;
     world.keepChunk = (chunk) => this._shownChunks.has(chunk);
     world.changeListeners.push((changed) => {
-      for (let i = 0; i < changed.length; i += 3) this._editedChunks.add(`${changed[i] >> 4},${changed[i + 2] >> 4}`);
+      for (let i = 0; i < changed.length; i += 3) this._editedChunks.add(editKey(changed[i] >> 4, changed[i + 2] >> 4));
     });
 
     this.worker = null;
@@ -155,19 +162,29 @@ export class LodSystem {
 
   // Sends changed chunk edits to the builder and marks the tiles over those
   // chunks stale (rebuilt when needed; the old mesh shows until then).
-  _flushEdits() {
+  // (Perf) At most every EDIT_FLUSH_MS unless forced (a tile over an edited
+  // chunk about to be built): each flush sends a chunk's whole edit list.
+  _flushEdits(force = false) {
     // (Chunks edited while they were not loaded: a blast far out in the LOD terrain.)
     if (this.world.lodDirty.size) {
-      for (const k of this.world.lodDirty) this._editedChunks.add(k);
+      for (const k of this.world.lodDirty) {
+        const [cx, cz] = k.split(",").map(Number);
+        this._editedChunks.add(editKey(cx, cz));
+      }
       this.world.lodDirty.clear();
     }
     if (this._editedChunks.size === 0) return;
-    for (const key of this._editedChunks) {
+    const now = performance.now();
+    if (!force && now - this._editsFlushedAt < EDIT_FLUSH_MS) return;
+    this._editsFlushedAt = now;
+    for (const ek of this._editedChunks) {
+      const cx = Math.round(ek / 65536);
+      const cz = ek - cx * 65536;
+      const key = `${cx},${cz}`; // (world.edits is keyed by these strings)
       const map = this.world.edits.get(key);
       const list = map ? flattenEdits(map) : [];
       for (const w of this.workers || []) w.postMessage({ type: "edits", key, list });
       if (this.local) this.local.terrain.setChunkEdits(key, list);
-      const [cx, cz] = key.split(",").map(Number);
       for (let level = 1; level <= MAX_LEVEL; level++) {
         const c = tileChunks(level);
         const tile = this.tiles.get(tileKey(level, Math.floor(cx / c), Math.floor(cz / c)));
@@ -191,6 +208,18 @@ export class LodSystem {
     this._queue = q;
   }
 
+  // True if the tile covers a chunk whose edits the builders don't have yet.
+  _overEdits(tile) {
+    if (this._editedChunks.size === 0) return false;
+    const c = tileChunks(tile.level);
+    for (const ek of this._editedChunks) {
+      const cx = Math.round(ek / 65536);
+      const cz = ek - cx * 65536;
+      if (Math.floor(cx / c) === tile.tx && Math.floor(cz / c) === tile.tz) return true;
+    }
+    return false;
+  }
+
   _dispatch() {
     if (this.worker) {
       const pool = this.workers;
@@ -201,6 +230,7 @@ export class LodSystem {
         if (w.busy >= MAX_IN_FLIGHT) break;
         const tile = this._queue.shift();
         if (!this._wantsBuild(tile)) continue;
+        if (this._overEdits(tile)) this._flushEdits(true);
         tile.building = true;
         tile.stale = false;
         const id = ++this._requestId;
@@ -213,6 +243,7 @@ export class LodSystem {
       while (this._queue.length > 0 && performance.now() - start < LOCAL_BUILD_BUDGET_MS) {
         const tile = this._queue.shift();
         if (!this._wantsBuild(tile)) continue;
+        if (this._overEdits(tile)) this._flushEdits(true);
         tile.stale = false;
         const mesh = buildLodTile(this.local.terrain, tile.level, tile.tx, tile.tz, this.local.palette);
         this._results.push({ tile, mesh });
@@ -519,7 +550,9 @@ export class LodSystem {
     this._applyResults();
     if (this._queueDirty) this._rebuildQueue();
     this._dispatch();
-    const meshes = this.world.stats.meshes;
+    // (Perf) Only first meshes can change what is shown: an edit or light
+    // rebuild of a meshed chunk does not.
+    const meshes = this.world.stats.firstMeshes;
     if (this._dirty || meshes !== this._lastMeshCount) {
       this._lastMeshCount = meshes;
       this._display();
@@ -531,7 +564,7 @@ export class LodSystem {
 
   // True when every planned tile is built, current, and shown.
   get isIdle() {
-    if (this._results.length > 0 || this._inFlight.size > 0) return false;
+    if (this._results.length > 0 || this._inFlight.size > 0 || this._editedChunks.size > 0 || this.world.lodDirty.size > 0) return false;
     for (const key of this._leafKeys) {
       const tile = this.tiles.get(key);
       if (!tile || !tile.mesh || tile.stale || !tile.mesh.visible) return false;

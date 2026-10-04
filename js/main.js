@@ -368,11 +368,15 @@ const lasers = new LaserBolts({ scene, world, effects, decals: scorches, audio }
 lasers.listener = () => effects.listener;
 lasers.holes = decals; // (the pistol's bullets leave bullet holes)
 const bloodColor = new THREE.Color(0.45, 0.04, 0.04);
+// (one reused filter for the creature test below, reading the bolt being cast)
+let castBolt = null;
+const boltHitsMob = (m) => !m.isRemotePlayer && m !== castBolt.source && !(castBolt.owner === "alien" && (m.spec.alien || m.spec.sentry));
 lasers.addProvider({
   // (Online, a bolt fired on another machine never hits creatures here: its shooter or the host judged that.)
   ignores: (b) => b.mirror,
   raycast(origin, dir, maxDist, bolt) {
-    const hit = mobs.raycast(origin, dir, maxDist, (m) => !m.isRemotePlayer && m !== bolt.source && !(bolt.owner === "alien" && (m.spec.alien || m.spec.sentry)));
+    castBolt = bolt;
+    const hit = mobs.raycast(origin, dir, maxDist, boltHitsMob);
     if (!hit) return null;
     return {
       distance: hit.distance,
@@ -1406,10 +1410,23 @@ function playerState() {
     stats: stats.world,
     blastZones: nuke.serializeZones(),
     // (Flowing water's cells: without them a reload turns each into a source.)
-    water: waterSim.meta.size ? waterSim.serializeMeta(3000) : undefined,
+    water: waterSim.meta.size ? savedWaterMeta() : undefined,
     leaderDrops: progress.mission?.squad ? missionDirector.serializeDrops() : undefined,
     missionsOff: progressOffAt || undefined, // (saved in Creative: what the mission counts had reached)
   };
+}
+
+// (The flow cells' list is rebuilt only when WaterSim's metaVersion moved, not
+// with every 5 s save; without that counter it is rebuilt each time.)
+let waterMetaList = null;
+let waterMetaVersion;
+function savedWaterMeta() {
+  const ver = waterSim.metaVersion;
+  if (!waterMetaList || ver === undefined || ver !== waterMetaVersion) {
+    waterMetaList = waterSim.serializeMeta(3000);
+    waterMetaVersion = ver;
+  }
+  return waterMetaList;
 }
 
 function round3(v) {

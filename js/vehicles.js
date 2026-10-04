@@ -599,12 +599,14 @@ export class VehicleManager {
     const rows = h.rows.map(([k, val]) => `<div class="vh-row"><span>${k}</span><b>${val}</b></div>`).join("");
     const bars = (h.bars || []).map((b) => `<div class="vh-bar-row"><span>${b.label}</span><div class="vh-bar"><div class="${b.hot ? "hot" : ""}" style="width:${Math.round(Math.max(0, Math.min(1, b.value)) * 100)}%"></div></div></div>`).join("");
     const hp = Math.max(0, Math.min(1, h.health));
-    this.hudEl.innerHTML =
+    const html =
       `<div class="vh-title">${h.title}</div>${rows}${bars}` +
       `<div class="vh-health"><div style="width:${(hp * 100).toFixed(0)}%;background:${hp > 0.5 ? "#4fdc8a" : hp > 0.25 ? "#ffc94a" : "#ff4a3a"}"></div></div>` +
       (h.weapon ? `<div class="vh-weapon">${h.weapon}</div>` : "") +
       (h.warning ? `<div class="vh-warning">${h.warning}</div>` : "") +
       (h.help ? `<div class="vh-help">${this.exitLocked?.() ? h.help.replace(/F (EJECT|get out|exit)/i, "F: no getting out") : h.help}</div>` : "");
+    // (Written only when it changes: no rebuild of the panel 10 times a second.)
+    if (html !== this._hudHtml) this.hudEl.innerHTML = this._hudHtml = html;
   }
 
   // The vehicle info panel (I): stats and controls of the vehicle you are in.

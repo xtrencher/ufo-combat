@@ -405,7 +405,10 @@ export class PostFX {
       r.autoClear = false;
       const autoShadow = r.shadowMap.autoUpdate;
       r.shadowMap.autoUpdate = false; // reuse this frame's shadow maps
+      const autoMatrix = scene.matrixWorldAutoUpdate;
+      scene.matrixWorldAutoUpdate = false; // (the first pass already updated every matrix this frame)
       r.render(scene, camera);
+      scene.matrixWorldAutoUpdate = autoMatrix;
       r.shadowMap.autoUpdate = autoShadow;
       camera.layers.mask = mask;
     } else {

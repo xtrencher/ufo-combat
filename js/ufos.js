@@ -1226,7 +1226,13 @@ export class UfoManager {
     const disguised = pv?.type === "ufo";
     if (disguised) return;
     // The camera kept on it for a while: it doesn't like being watched.
-    if (dist < this.range && this._stared(u, dist) && (this.camera ? this._canSee(u, this.camera.position) : true)) {
+    // (the sight ray kept for 0.2 s: it is cast every frame while stared at)
+    const stared = dist < this.range && this._stared(u, dist);
+    if (stared && this.camera && this.time >= (u.stareLosT ?? 0)) {
+      u.stareLosT = this.time + 0.2;
+      u.stareLos = this._canSee(u, this.camera.position);
+    }
+    if (stared && (this.camera ? u.stareLos : true)) {
       u.stare += dt * (this.player.zoomFov || this.player.binocularFov ? 2 : 1);
     } else {
       u.stare = Math.max(0, u.stare - dt * 0.6);
@@ -1895,7 +1901,13 @@ export class UfoManager {
       this._steer(u, goal, u.S.top * 0.7, dt, 2.6);
     }
     // Fire on the way in and while it holds position.
-    if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, tgt.pos)) {
+    // (the sight ray kept for 0.2 s: while the target hides, shotT stays due
+    // and the long ray would be cast every frame)
+    if (u.shotT <= 0 && dist < this.engageRange && this.time >= (u.losT ?? 0)) {
+      u.losT = this.time + 0.2;
+      u.los = this._canSee(u, tgt.pos);
+    }
+    if (u.shotT <= 0 && dist < this.engageRange && u.los) {
       const st = STYLES[u.style] || STYLES.volley;
       u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this._agg() * 0.5);
       if (u.style === "abductor") u.shotT *= 1.6;
@@ -2052,7 +2064,11 @@ export class UfoManager {
     const goal = _w.copy(v.pos).add(u.pass);
     const topSpeed = jet ? jetTop * 0.9 : u.S.top;
     this._steer(u, goal, topSpeed, dt, 2.2);
-    if (u.shotT <= 0 && dist < this.engageRange && this._canSee(u, v.pos)) {
+    if (u.shotT <= 0 && dist < this.engageRange && this.time >= (u.losT ?? 0)) {
+      u.losT = this.time + 0.2; // (kept for 0.2 s, as on foot)
+      u.los = this._canSee(u, v.pos);
+    }
+    if (u.shotT <= 0 && dist < this.engageRange && u.los) {
       const st = STYLES[u.style] || STYLES.volley;
       u.shotT = rand(st.rate[0], st.rate[1]) / (0.5 + this._agg() * 0.5);
       this._attack(u, v, u.S.idx >= 3);

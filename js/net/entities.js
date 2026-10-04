@@ -488,6 +488,9 @@ export class EntitySync {
     const w = this.game.world;
     const before = this._keepSet;
     const keep = (this._keepSet = new Set());
+    // (Perf) With generation workers the chunks are made there (taken in
+    // within the streaming budget); without, a couple per call here.
+    const inWorkers = w.genInWorkers;
     let budget = 2; // new chunks per call
     for (const r of this.mp.players.active()) {
       if (r.vehicle || r.dead) continue;
@@ -496,7 +499,9 @@ export class EntitySync {
       for (let dz = -KEEP_RADIUS; dz <= KEEP_RADIUS; dz++) {
         for (let dx = -KEEP_RADIUS; dx <= KEEP_RADIUS; dx++) {
           keep.add(w.key(cx + dx, cz + dz));
-          if (budget > 0 && !w.getChunk(cx + dx, cz + dz) && Math.abs(dx) < KEEP_RADIUS && Math.abs(dz) < KEEP_RADIUS) {
+          if (Math.abs(dx) >= KEEP_RADIUS || Math.abs(dz) >= KEEP_RADIUS) continue;
+          if (inWorkers) w.requestGen(cx + dx, cz + dz);
+          else if (budget > 0 && !w.getChunk(cx + dx, cz + dz)) {
             w._generate(cx + dx, cz + dz);
             budget--;
           }
@@ -507,6 +512,8 @@ export class EntitySync {
       this._keepHooked = true;
       const prev = w.keepChunk;
       w.keepChunk = (chunk) => (prev ? prev(chunk) : false) || (!!this._keepSet && this._keepSet.has(w.key(chunk.cx, chunk.cz)));
+      // (chunks asked for by requestGen stay wanted while they are kept)
+      w.extraWanted = (cx, cz) => !!this._keepSet?.has(w.key(cx, cz));
     }
     // Ground a player has walked away from goes again (only the host's own
     // moves used to free it: an idle host piled up chunks without end).
