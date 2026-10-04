@@ -103,6 +103,8 @@ const SUPER_DIG_SPEED = 55; // blocks per second the shaft deepens
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _x1 = new THREE.Vector3();
+const _x2 = new THREE.Vector3();
+const _x3 = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 function sizeName(radius) {
@@ -1310,7 +1312,8 @@ export class PilotUfo extends Vehicle {
     for (const v of mgr.vehicles ?? []) {
       if (v === this || !v.alive || done.has(v)) continue;
       const vr = (v.hitRadius ?? v.radius) * 0.7;
-      if (!touches(v.pos.x, v.pos.y, v.pos.z, vr, Math.max(1.2, vr * 0.4))) continue;
+      // (An aircraft by its real shape, the ship's path grown by its size.)
+      if (v.hull ? !v.segmentHit(_x2.set(ax, ay, az), _x3.set(b.x, b.y + lift, b.z), R * 0.8) : !touches(v.pos.x, v.pos.y, v.pos.z, vr, Math.max(1.2, vr * 0.4))) continue;
       done.add(v);
       if (!v.damage(dmg, "player", true)) continue;
       knocks++;
@@ -1526,7 +1529,8 @@ export class PilotUfo extends Vehicle {
     }
     for (const v of mgr.vehicles) {
       if (v === this || !v.alive) continue;
-      if (Math.hypot(v.pos.x - top.x, v.pos.z - top.z) < R + v.radius * 0.5 && v.pos.y < top.y && v.pos.y > bottomY - 5) v.damage(120, "player", true);
+      const inShaft = v.hull ? v.pos.y < top.y && v.segmentHit(top, _x2.set(top.x, bottomY - 2, top.z), R) : Math.hypot(v.pos.x - top.x, v.pos.z - top.z) < R + v.radius * 0.5 && v.pos.y < top.y && v.pos.y > bottomY - 5;
+      if (inShaft) v.damage(120, "player", true);
     }
     // A blast ring where it meets the ground, now and then.
     if (Math.random() < 0.35) mgr.effects.explode(new THREE.Vector3(top.x, Math.max(bottomY + 2, 3), top.z), { radius: Math.min(9, 3 + R * 0.3), source: "ufocannon" });

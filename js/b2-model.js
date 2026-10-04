@@ -818,7 +818,8 @@ export function createB2Model({ paint = "gray" } = {}) {
         h.visible = throttle > 0.05;
         const k = 0.3 + throttle * 0.7;
         h.scale.set(2.6 * k, 0.9 * k, 1);
-        h.material.color.setRGB(0.9 * k + Math.sin(t * 23) * 0.05, 0.5 * k, 0.3 * k);
+        // (faint: a real B-2's exhaust shows no glow, only a little heat haze)
+        h.material.color.setRGB(0.32 * k + Math.sin(t * 23) * 0.02, 0.18 * k, 0.1 * k);
       }
     },
     // Elevons: pitch together, roll against each other (the inboard ones

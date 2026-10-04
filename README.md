@@ -749,6 +749,29 @@ ailerons, elevators and rudders on the model move with your inputs. A jet
 destroyed in the air blows up in a **big fireball** and its burning wreck
 falls and explodes again on impact. The engine sound is much quieter now.
 
+**Hit where it is** (Round 10): every aircraft is hit by its real shape, not
+a ball around it: the F-22 and the F-16 by their fuselage, cockpit, intakes,
+wings, tailplanes and fins, the B-2 by its own planform and thickness, out to
+its wing tips. A shot that passes beside the nose or just over the back
+misses; one that clips a wing tip hits. A blast counts from the nearest part
+of the airframe (one under the wing hurts, one well off the nose or above the
+back doesn't), missiles go off a couple of blocks from the airframe, and the
+same goes for parked aircraft and other players' aircraft online. Standing
+under a parked aircraft's wing no longer shields you: shots that pass under
+the wing reach you, and only the ones that meet the wing hit it. UFOs (yours
+and the enemy's) keep their shapes.
+
+**Collisions** (Round 10): aircraft that touch, on the runway or in the air,
+are hurt by how fast they meet: a gentle bump (under about 4 blocks/s) just
+stops them with a knock, a taxiing scrape dents both, and a real crash (about
+28 blocks/s or more between them, such as head-on in the air) destroys both,
+with the usual explosion: eject in time. The heavier one takes less: a B-2
+shrugs off a bump that would wreck a fighter. Your UFO counts too (except
+mid-dash: the dash rams as before). Online every player's aircraft, the
+patrol fighters and the parked ones collide alike, and each collision is
+counted once.
+
+
 | Action | Key |
 | --- | --- |
 | Steer | Mouse (with **flight assist**, the default: fly toward the crosshair; the little nose marker shows where the jet points) |
@@ -785,7 +808,8 @@ yours, and **hunt UFOs** (only UFOs: they help, but never clear the sky for
 you: weaker against UFOs, long pauses, at most three kills, and their kills
 don't count as yours). They leave you alone, whatever you shoot, unless you
 attack one of them: **only that fighter** turns on you (a message says so),
-with missiles from a distance and then its cannon, flares and breaks. The
+with missiles from a distance and then its cannon, flares and breaks (Round 10: it breaks off rather than ram you; aircraft that
+touch now crash). The
 one exception is the hijacked fighter of Air superiority, in a darker paint.
 **Settings > Vehicles:** how many patrol at once (0-3, default 1).
 
@@ -1039,7 +1063,7 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has twenty test suites (`cd tools && npm install && npm test`
+`/tools` has twenty-one test suites (`cd tools && npm install && npm test`
 runs them all; `npm run test:r10` just the Round 10 ones; the browser tests
 need a Chromium binary, set with the `CHROMIUM_PATH` environment variable).
 `chaos-tests.mjs` takes 400 random steps (missions, modes, vehicles, blasts,
@@ -1132,6 +1156,19 @@ thread's byte for byte:
   frame) never passes through a wall or a creature and strikes the nearest
   thing first, and bolts are reused (no garbage per shot). Each check runs
   in one step of the page, so the machine's frame rate doesn't matter.
+
+- `r10-planes-tests.mjs` (Round 10): the aircraft's hit shapes and
+  collisions. In Node, the shapes themselves (a ray beside a fighter's nose
+  or over its back misses, one through a wing tip or a fin hits, the F-16's
+  wingtip missile and the B-2's wing tips count, a block under the B-2's wing
+  is clear, distances to the airframe, two fighters passing through each
+  other in one long frame touch). In the game: a player's bolt beside a
+  fighter's nose or over its back misses and one through the wing tip hits;
+  an alien's shot at a player standing under a B-2's wing reaches the player
+  and one from above meets the wing; a blast under a fighter's wing hurts it
+  and one well over its back doesn't; two jets meeting head-on both blow up;
+  a gentle bump on the runway stops the jet and leaves both nearly intact; a
+  taxiing scrape dents both and destroys neither. About a minute.
 
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client

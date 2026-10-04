@@ -215,8 +215,9 @@ export class EnemyJet extends Jet {
       wantPitch = Math.asin(clamp(aim.y, -1, 1));
       throttle = 1;
       ab = ai.run === "attack" ? angle > 0.7 : dist > 350;
-      if (!lowTarget && dist < 90 && angle > 0.5) {
-        // (Air to air: break off rather than ram.)
+      if (!lowTarget && dist < 90 && (angle > 0.5 || dist < 45)) {
+        // (Air to air: break off rather than ram. Round 10: also straight
+        // ahead and close, as aircraft that touch now crash.)
         wantYaw += 1.2;
         wantPitch = 0.4;
       }
@@ -384,7 +385,10 @@ export class EnemyJet extends Jet {
     const onFoot = !this.foe.vehicle;
     if (onFoot) target.y += 1; // (the chest)
     const aim = target.sub(from).normalize();
-    return onFoot ? aim.clone() : fwd.clone().lerp(aim, 0.7).normalize(); // (on foot: short bursts, see _autopilot; moving makes them miss)
+    // (On foot: short bursts, see _autopilot; moving makes them miss. An
+    // aircraft: Round 10, its shots meet the real shape, not a 5.5-block
+    // sphere, so the guns lean further onto it to land about as often.)
+    return onFoot ? aim.clone() : fwd.clone().lerp(aim, 0.87).normalize();
   }
 
   onDestroyed(cause) {

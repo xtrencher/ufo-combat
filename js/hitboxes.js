@@ -408,6 +408,7 @@ const Q0 = { x: 0, y: 0, z: 0, w: 1 };
 
 export function hullRay(shape, pos, q, origin, dir, len, pad = 0, vel = null, dt = 0) {
   q = q || Q0;
+  if (!(len < 1e5)) len = 1e5; // (an endless ray: far enough)
   let ox = origin.x - pos.x;
   let oy = origin.y - pos.y;
   let oz = origin.z - pos.z;

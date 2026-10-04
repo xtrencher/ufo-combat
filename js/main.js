@@ -28,7 +28,7 @@ import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
-import { LaserBolts, sweptSphere, sweptBox } from "./lasers.js";
+import { LaserBolts, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
 import { LodSystem } from "./lod.js";
@@ -475,7 +475,7 @@ nuke.onDetonate = (center, R, info = {}) => {
     // (Only within the blast's reach on it, as explosionOn measures it: a
     // nuke far away doesn't make the bomber the one who brought you down.)
     const v = vehicles.active;
-    if (info.by && info.by !== net.pid && v.pos.distanceTo(center) - v.radius * 0.6 < Rd * 1.6 * 1.8) {
+    if (info.by && info.by !== net.pid && vehicles.blastDistance(v, center) < Rd * 1.6 * 1.8) {
       vehicles.active.lastHitByPid = info.by;
       vehicles.active.lastHitByT = performance.now();
     }
@@ -638,8 +638,8 @@ lasers.addProvider({
     for (const v of vehicles.vehicles) {
       if (!v.alive || v === bolt.source) continue;
       if (bolt.mirror ? v !== vehicles.active : v.puppet && !fromPlayer(bolt.owner)) continue;
-      const r = (v.hitRadius ?? v.radius) + bolt.radius * 2;
-      const t = sweptSphere(origin, dir, step, v.pos, r, v.vel, dt);
+      // (An aircraft by its real shape, hitboxes.js; a ship by a sphere.)
+      const t = v.sweptRaycast(origin, dir, step, bolt.radius * 2, dt);
       if (t !== null && t <= maxDist && (!best || t < best.distance)) best = { vehicle: v, distance: t };
     }
     if (!best) return null;

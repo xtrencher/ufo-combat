@@ -5,7 +5,7 @@
   "description": "Headless browser test tooling for UFO COMBAT (not part of the shipped game).",
   "type": "module",
   "scripts": {
-    "test": "node unit-tests.mjs && node mp-tests.mjs && node mp-round9-tests.mjs && node mp-damage-tests.mjs && node round9-tests.mjs && node round6-tests.mjs && node round5-tests.mjs && node round4-tests.mjs && node settings-tests.mjs && node round3-tests.mjs && node round2-tests.mjs && node ufo-tests.mjs && node chaos-tests.mjs && node perf-tests.mjs && node r10-missions-tests.mjs && node r10-villages-tests.mjs && node r10-weapons-tests.mjs && node r10-dash-tests.mjs && node r10-hangars-tests.mjs && node smoke-test.mjs",
+    "test": "node unit-tests.mjs && node mp-tests.mjs && node mp-round9-tests.mjs && node mp-damage-tests.mjs && node round9-tests.mjs && node round6-tests.mjs && node round5-tests.mjs && node round4-tests.mjs && node settings-tests.mjs && node round3-tests.mjs && node round2-tests.mjs && node ufo-tests.mjs && node chaos-tests.mjs && node perf-tests.mjs && node r10-missions-tests.mjs && node r10-villages-tests.mjs && node r10-weapons-tests.mjs && node r10-dash-tests.mjs && node r10-hangars-tests.mjs && node r10-planes-tests.mjs && node smoke-test.mjs",
     "test:unit": "node unit-tests.mjs",
     "test:ufo": "node ufo-tests.mjs",
     "test:smoke": "node smoke-test.mjs",
@@ -21,7 +21,7 @@
     "test:damage": "node mp-damage-tests.mjs",
     "test:chaos": "node chaos-tests.mjs",
     "test:perf": "node perf-tests.mjs",
-    "test:r10": "node r10-missions-tests.mjs && node r10-villages-tests.mjs && node r10-weapons-tests.mjs && node r10-dash-tests.mjs && node r10-hangars-tests.mjs"
+    "test:r10": "node r10-missions-tests.mjs && node r10-villages-tests.mjs && node r10-weapons-tests.mjs && node r10-dash-tests.mjs && node r10-hangars-tests.mjs && node r10-planes-tests.mjs"
   },
   "devDependencies": {
     "express": "^4.22.3",

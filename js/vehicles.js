@@ -307,6 +307,7 @@ export class VehicleManager {
     this.night = 0;
     this._hudTimer = 0;
     this._seat = new THREE.Vector3();
+    this.contacts = 0; // aircraft that touched (tests)
   }
 
   // ---------- World helpers ----------
@@ -583,16 +584,18 @@ export class VehicleManager {
   // other player's share sent through collisionHit.
   _collide(dt) {
     const list = this.vehicles;
-    const n = list.length;
-    if (n < 2 || dt <= 0) return;
+    if (list.length < 2 || dt <= 0) return;
     this._colT = (this._colT || 0) + dt;
-    for (let i = 0; i < n; i++) {
+    // (The list is read afresh each time: a crash's blast can take a vehicle out of it.)
+    for (let i = 0; i < list.length; i++) {
       const a = list[i];
-      const sa = a.alive && !a.dashing ? a.collider : null;
+      // (Not a ship mid-dash: its ram is its own, vehicle-ufo.js; nor a jet a
+      // tractor beam is drawing up: the beam swallows it.)
+      const sa = a.alive && !a.dashing && !(a.beamHeld > 0) ? a.collider : null;
       if (!sa) continue;
-      for (let j = i + 1; j < n; j++) {
+      for (let j = i + 1; j < list.length && a.alive; j++) {
         const b = list[j];
-        const sb = b.alive && !b.dashing ? b.collider : null;
+        const sb = b.alive && !b.dashing && !(b.beamHeld > 0) ? b.collider : null;
         // (Both another machine's: theirs to judge. An aircraft still parked
         // at an airport is every peer's own copy: only against our own.)
         if (!sb || (a.puppet && b.puppet) || (a.puppet && b.parkedAt) || (b.puppet && a.parkedAt)) continue;
@@ -608,7 +611,7 @@ export class VehicleManager {
         const dz = b.pos.z - a.pos.z;
         if (dx * dx + dy * dy + dz * dz > reach * reach) continue;
         if (!hullContact(sa, this._colPose(a, _pose), sb, this._colPose(b, _pose2), dt)) continue;
-        this._contact(a, b, dt);
+        this._contact(a, b);
       }
     }
   }
@@ -651,6 +654,7 @@ export class VehicleManager {
       else if ((p.a === a && p.b === b) || (p.a === b && p.b === a)) return;
     }
     pairs.push({ a, b, t: now });
+    this.contacts++;
     // The knock, felt and heard by a pilot in either.
     const mine = a === this.active || b === this.active;
     if (mine) this.effects?.shake?.add?.(Math.min(0.6, 0.12 + closing * 0.015));

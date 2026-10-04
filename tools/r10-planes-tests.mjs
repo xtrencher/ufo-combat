@@ -289,6 +289,7 @@ async function taxi(speed) {
       const A = g.vehicles.create("jet", { jetType: "f16", pos: [c.x, c.y + 1.35, c.z - 10], yaw: 0, airborne: false });
       const B = g.vehicles.create("jet", { jetType: "f22", pos: [c.x, c.y + 1.35, c.z - 10 + 15.2 + a.speed * 0.15], yaw: 0, airborne: false });
       g.vehicles.enter(B);
+      window.__contacts = g.vehicles.contacts;
       B.throttle = 0;
       B.vel.set(0, 0, -a.speed);
       window.__pair = [A, B];
@@ -304,19 +305,20 @@ async function taxi(speed) {
   await frames(4);
   return v(() => {
     const [A, B] = window.__pair;
-    return { a: A.health / A.maxHealth, b: B.health / B.maxHealth, alive: A.alive && B.alive, gap: B.pos.z - A.pos.z, speed: B.vel.length() };
+    return { a: A.health / A.maxHealth, b: B.health / B.maxHealth, alive: A.alive && B.alive, gap: B.pos.z - A.pos.z, speed: B.vel.length(), touched: window.__ufo.vehicles.contacts - window.__contacts };
   });
 }
 
 await check("A gentle bump on the runway (3 blocks/s) stops the jet and leaves both nearly intact", async () => {
   const r = await taxi(3);
   assert(r.alive && r.a > 0.97 && r.b > 0.97, `hurt: ${JSON.stringify(r)}`);
+  assert(r.touched === 1, `they didn't touch (once): ${JSON.stringify(r)}`);
   assert(r.gap > 14, `they ended up inside each other: ${JSON.stringify(r)}`);
 });
 
 await check("A taxiing scrape (14 blocks/s) dents both, destroys neither", async () => {
   const r = await taxi(14);
-  assert(r.alive, `destroyed: ${JSON.stringify(r)}`);
+  assert(r.alive && r.touched >= 1, `destroyed, or never touched: ${JSON.stringify(r)}`);
   assert(r.a < 0.95 && r.b < 0.95, `no damage: ${JSON.stringify(r)}`);
 });
 
