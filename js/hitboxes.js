@@ -32,7 +32,7 @@ import { S as B2_S, A1, A2, A3, A4, leZ, teZ, b2Section, intakeHood } from "./b2
 // every point, even if the outline isn't quite convex). The last `caps`
 // directions are the two ends (a plate's top and bottom, a loft's ends):
 // the distance to a piece treats them apart from the sides.
-function piece(pts, normals, caps, edges) {
+function piece(pts, normals, caps, edges, ring = null) {
   const n = [];
   const d = [];
   for (const nn of normals) {
@@ -56,7 +56,8 @@ function piece(pts, normals, caps, edges) {
   }
   let r = 0;
   for (const p of pts) r = Math.max(r, Math.hypot(p[0] - cx, p[1] - cy, p[2] - cz));
-  return { n: Float64Array.from(n), d: Float64Array.from(d), k: d.length, side: d.length - caps, pts, c: [cx, cy, cz], r, edges };
+  // (A plate's outline round its middle, for exact distances: see pieceDist.)
+  return { n: Float64Array.from(n), d: Float64Array.from(d), k: d.length, side: d.length - caps, pts, c: [cx, cy, cz], r, edges, ring: ring ? Float64Array.from(ring.flat()) : null };
 }
 
 // A rigid transform (a turn about Z, then a move) for the fins.
@@ -99,8 +100,8 @@ function plate(outline, y0, y1, M = null) {
   }
   normals.push([0, -1, 0], [0, 1, 0]);
   for (let i = 0; i < m; i++) edges.push([mid[i], mid[(i + 1) % m]]);
-  if (M) return piece(pts.map(M.p), normals.map(M.n), 2, edges.map(([a, b]) => [M.p(a), M.p(b)]));
-  return piece(pts, normals, 2, edges);
+  if (M) return piece(pts.map(M.p), normals.map(M.n), 2, edges.map(([a, b]) => [M.p(a), M.p(b)]), mid.map(M.p));
+  return piece(pts, normals, 2, edges, mid);
 }
 
 function box(x0, x1, y0, y1, z0, z1) {
@@ -148,7 +149,10 @@ function loft(A, B) {
     edges.push([a0, b0]);
   }
   normals.push([0, 0, -1], [0, 0, 1]);
-  return piece(pts, normals, 2, edges);
+  const part = piece(pts, normals, 2, edges);
+  // (Its two sections, for distances: see pieceDist.)
+  part.loft = { za: A.z, zb: B.z, a: Float64Array.from(A.pts.flat()), b: Float64Array.from(B.pts.flat()) };
+  return part;
 }
 
 function loftAll(sections) {
@@ -443,10 +447,49 @@ export function hullRay(shape, pos, q, origin, dir, len, pad = 0, vel = null, dt
   return t * len;
 }
 
-// The distance from a local point to one piece: past its side faces and its
-// end faces taken apart (exact for a box's faces and edges along its
-// length; a little short at the corners of an outline, never long).
+// The distance from a point (x, y) to a polygon given as flat [x, y, ...]
+// pairs, blended between two such (`a` and `b`, by t): 0 inside.
+function polyDist(a, b, t, x, y) {
+  const m = a.length;
+  let best = Infinity;
+  let area = 0;
+  let pos = 0;
+  let neg = 0;
+  for (let i = 0; i < m; i += 2) {
+    const k = (i + 2) % m;
+    const ax = a[i] + (b[i] - a[i]) * t;
+    const ay = a[i + 1] + (b[i + 1] - a[i + 1]) * t;
+    const bx = a[k] + (b[k] - a[k]) * t;
+    const by = a[k + 1] + (b[k + 1] - a[k + 1]) * t;
+    const ex = bx - ax;
+    const ey = by - ay;
+    const cr = ex * (y - ay) - ey * (x - ax);
+    if (cr > 0) pos++;
+    else if (cr < 0) neg++;
+    area += ax * by - bx * ay;
+    const ll = ex * ex + ey * ey;
+    let u = ll > 1e-12 ? ((x - ax) * ex + (y - ay) * ey) / ll : 0;
+    u = u < 0 ? 0 : u > 1 ? 1 : u;
+    const dx = ax + ex * u - x;
+    const dy = ay + ey * u - y;
+    best = Math.min(best, dx * dx + dy * dy);
+  }
+  // (Inside: on the inner side of every edge, whichever way round it goes.)
+  if ((area > 0 && neg === 0) || (area < 0 && pos === 0)) return 0;
+  return Math.sqrt(best);
+}
+
+// The distance from a local point to one piece (nearly exact). A plate: how
+// far outside its outline in its own plane, and past its top or bottom. A
+// loft: how far outside its cross section there, and past its ends.
 function pieceDist(part, x, y, z) {
+  const L = part.loft;
+  if (L) {
+    const t = (z - L.za) / (L.zb - L.za);
+    const dz = t < 0 ? L.za - z : t > 1 ? z - L.zb : 0;
+    const d2 = polyDist(L.a, L.b, t < 0 ? 0 : t > 1 ? 1 : t, x, y);
+    return dz > 0 ? Math.hypot(d2, dz) : d2;
+  }
   const n = part.n;
   const d = part.d;
   let side = -Infinity;
@@ -458,6 +501,21 @@ function pieceDist(part, x, y, z) {
     } else if (e > cap) cap = e;
   }
   if (side <= 0 && cap <= 0) return 0;
+  if (side > 0 && part.ring) {
+    // Outside the outline: to the nearest of its edges, in the plate's plane.
+    const R = part.ring;
+    const j = (part.k - 1) * 3;
+    const cx = n[j], cy = n[j + 1], cz = n[j + 2];
+    const h = (x - R[0]) * cx + (y - R[1]) * cy + (z - R[2]) * cz;
+    const px = x - h * cx, py = y - h * cy, pz = z - h * cz;
+    let best = Infinity;
+    const m = R.length;
+    for (let i = 0; i < m; i += 3) {
+      const k = (i + 3) % m;
+      best = Math.min(best, segDist2(px, py, pz, R[i], R[i + 1], R[i + 2], R[k] - R[i], R[k + 1] - R[i + 1], R[k + 2] - R[i + 2]));
+    }
+    side = Math.sqrt(best);
+  }
   if (side <= 0) return cap;
   if (cap <= 0) return side;
   return Math.hypot(side, cap);
