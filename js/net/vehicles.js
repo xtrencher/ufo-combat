@@ -20,10 +20,13 @@ import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { RATES } from "./config.js";
 import { HOST_PID } from "./session.js";
 import { isPlayerCause } from "../damage.js";
+import { LASER_COLORS } from "../lasers.js";
 
 const IDLE_SEND = 1.0; // seconds between states of a vehicle that stands still
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
 
 export class VehicleSync {
   constructor(mp) {
@@ -58,16 +61,25 @@ export class VehicleSync {
 
   start() {
     if (!this._hooked) this._hook();
+    // (Remembered: in stop() the role already reads "offline".)
+    this._wasHost = this.net.isHost;
     // Host: what is already in the world is shared from now on.
     if (this.net.isHost) for (const v of this.vehicles.vehicles) this._adopt(v, false);
   }
 
   stop() {
-    // The session is over: puppets go, our own vehicles stay ours.
+    // The session is over: puppets go, our own vehicles stay ours. (The
+    // host keeps the empty ones a guest had, e.g. its own B-2 a guest
+    // borrowed: they stay in its world and save, as when a guest leaves.)
     for (const v of [...this.vehicles.vehicles]) {
-      if (v.puppet) this._removeLocal(v);
+      // (Not in a Dogfight: a guest's empty match jet is no part of the host's world.)
+      if (v.puppet && this._wasHost && this.mp.mode !== "dogfight" && !v.isEnemyJet && v.alive && !v.wreck && !v.netOcc) {
+        this._makeOwned(v);
+        v.net = null;
+      } else if (v.puppet) this._removeLocal(v);
       else v.net = null;
     }
+    this._wasHost = false;
     this.byId.clear();
     this.pendingClaim = null;
   }
@@ -78,7 +90,8 @@ export class VehicleSync {
     for (const v of [...this.byId.values()]) {
       if (!v.net || v.net.owner !== p.pid) continue;
       const occupiedByIt = v.netOcc === p.pid;
-      if (occupiedByIt || !v.alive) {
+      // (A Dogfight's match jets go with their pilot too.)
+      if (occupiedByIt || !v.alive || this.mp.mode === "dogfight") {
         this.byId.delete(v.net.nid);
         this._removeLocal(v);
       } else if (this.net.isHost) {
@@ -107,9 +120,11 @@ export class VehicleSync {
     const prevRemoved = vm.onRemoved;
     vm.onRemoved = (v) => {
       prevRemoved?.(v);
+      // (Another player's aircraft taken from an airport is gone: its slot is free again here too.
+      // Also once the room is closed, and only if no other copy still holds it: two players
+      // who boarded it at once each had one here.)
+      if (v.tookKey && !this.vehicles.vehicles.some((o) => o !== v && o.tookKey === v.tookKey)) this.game.airports.taken.delete(v.tookKey);
       if (!this.mp.active || !v.net) return;
-      // (Another player's aircraft taken from an airport is gone: its slot is free again here too.)
-      if (v.tookKey) this.game.airports.taken.delete(v.tookKey);
       if (!v.puppet && v.net.owner === this.net.pid) this.net.toAll({ t: "vrem", nid: v.net.nid });
       if (this.byId.get(v.net.nid) === v) this.byId.delete(v.net.nid);
     };
@@ -166,6 +181,11 @@ export class VehicleSync {
       // no longer the airport's; this used to leave it "parked" in all but name.)
       this.game.airports.boarded(v);
       v.tookAt = performance.now();
+      // (Taken here as on every other peer: its slot stays empty until it's gone, see onRemoved.)
+      if (key) {
+        v.tookKey = key;
+        this.game.airports.taken.add(key);
+      }
       this._adopt(v, false);
       this.net.toAll({ t: "vadd", nid: v.net.nid, owner: this.net.pid, type: v.type, data: v.serialize(), took: key || null });
     }
@@ -254,6 +274,8 @@ export class VehicleSync {
         v.brake = !!(st.f & 4);
         v.gearT = st.g ?? v.gearT;
         v.airbrake = st.ab ?? 0;
+        // (The host's fighter: attacking someone, first for the missile lock.)
+        if (v.isEnemyJet) v.hostile = !!(st.f & 8);
         if (st.s) {
           v.surf.pitch = st.s[0];
           v.surf.roll = st.s[1];
@@ -302,6 +324,7 @@ export class VehicleSync {
           v.model.setDead(true);
         }
         v.crashed = !!(st.f & 8);
+        this._ufoWeapons(v, st);
       }
       v.beam.update(dt, this.game.effects);
       v._place();
@@ -310,6 +333,68 @@ export class VehicleSync {
     } else {
       v.root.position.copy(v.pos);
     }
+  }
+
+  // Another player's UFO: its superweapon and sweeping beam, drawn only (the
+  // damage is done on the pilot's machine). As vehicle-ufo.js draws them.
+  _ufoWeapons(v, st) {
+    const f = st.f | 0;
+    const au = this.game.audio;
+    const ears = this.game.effects.listener;
+    const sw = v.sw;
+    if (sw && f & 16 && Array.isArray(st.sw) && v.alive) {
+      v._superMeshes();
+      const top = _a.copy(v.pos);
+      top.y -= v.bottom;
+      // (The whine and the blast, once: vehicle-ufo.js SUPER_CHARGE and SUPER_TIME.)
+      if (!v._netSw) au.playDistant?.(top.distanceTo(ears), () => au.playSuperLaser?.(1.3, 2.6));
+      v._netSw = true;
+      sw.orb.visible = true;
+      sw.orb.position.copy(top);
+      sw.orb.scale.setScalar(Math.max(0.1, st.sw[0]));
+      const fire = !!(f & 64);
+      sw.mesh.visible = fire;
+      if (fire) {
+        const R = v.superRadius;
+        const bottomY = st.sw[1];
+        const fade = Math.max(0, Math.min(1, st.sw[2]));
+        const flick = 0.92 + 0.08 * Math.sin(v.time * 90);
+        sw.mesh.position.set(top.x, (top.y + bottomY) / 2, top.z);
+        sw.mesh.scale.set(1, Math.max(1, top.y - bottomY), 1);
+        sw.core.scale.set(R * 0.5 * flick * fade, 1, R * 0.5 * flick * fade);
+        sw.halo.scale.set(R * 1.15 * fade, 1, R * 1.15 * fade);
+        sw.core.material.opacity = fade;
+        sw.halo.material.opacity = 0.55 * fade;
+      }
+    } else {
+      v._netSw = false;
+      if (sw?.mesh) {
+        sw.mesh.visible = false;
+        sw.orb.visible = false;
+      }
+    }
+    const g = v.gun;
+    if (g && f & 32 && Array.isArray(st.se) && v.alive) {
+      if (!g.beam) {
+        g.beam = this.game.ufos._sweepMesh();
+        this.game.scene.add(g.beam);
+      }
+      const from = _a.copy(v.pos);
+      from.y -= v.bottom * 0.8;
+      const end = _b.set(st.se[0], st.se[1], st.se[2]);
+      const col = LASER_COLORS.red;
+      g.beam.visible = true;
+      g.beam.position.copy(from);
+      g.beam.lookAt(end);
+      g.beam.scale.set(st.se[3], st.se[3], Math.max(0.5, from.distanceTo(end)));
+      g.beam.material.color.copy(col).multiplyScalar(0.3).addScalar(1.2);
+      g.beam.children[0].material.color.copy(col);
+      this.game.effects.glow.spawn({ x: end.x, y: end.y, z: end.z, life: 0.08, size0: 1.3, size1: 0.3, color0: col, alpha: 0.8 });
+      if (!v._sweepSoundT || v.time - v._sweepSoundT > 1.5) {
+        v._sweepSoundT = v.time;
+        au.playUfoShot?.("sweep", from.distanceTo(ears));
+      }
+    } else if (g?.beam) g.beam.visible = false;
   }
 
   _wreckFx(v, dt) {
@@ -342,7 +427,8 @@ export class VehicleSync {
     if (mine && v.netOcc && !this.mp.pvpAllowed()) return false;
     v.hurtTime = 0;
     this.net.toAll({ t: "vhit", nid: v.net.nid, dmg: Math.round(amount * 10) / 10, cause, by: this.net.pid });
-    this.game.hud?.hitMarker?.();
+    // (Only this player's own hits: not the host's AI hitting a guest's aircraft.)
+    if (mine) this.game.hud?.hitMarker?.();
     return true;
   }
 
@@ -505,7 +591,7 @@ export class VehicleSync {
     if (v.type === "jet" || v.isEnemyJet) {
       s.q = v.q.toArray().map(r3);
       s.th = r2(v.throttle);
-      s.f = (v.afterburner ? 1 : 0) | (v.onGround ? 2 : 0) | (v.brake ? 4 : 0);
+      s.f = (v.afterburner ? 1 : 0) | (v.onGround ? 2 : 0) | (v.brake ? 4 : 0) | (v.isEnemyJet && v.hostile ? 8 : 0);
       s.g = r2(v.gearT);
       s.ab = r2(v.airbrake || 0);
       s.s = [r2(v.surf.pitch), r2(v.surf.roll), r2(v.surf.yaw)];
@@ -516,6 +602,20 @@ export class VehicleSync {
       if (v.beam?.on) {
         s.bb = r2(v.beam.bottomY);
         s.br = r2(v.beam.radius ?? v.radius);
+      }
+      // Its superweapon (16; 64 while it fires): the orb's size, the shaft's
+      // bottom and the fade-out. Its sweeping beam (32): where it burns, and its width.
+      const sw = v.sw;
+      if (sw?.mesh && sw.state !== "idle") {
+        const fire = sw.state === "fire";
+        s.f |= 16 | (fire ? 64 : 0);
+        s.sw = [r2(sw.orb.scale.x), r2(fire ? sw.mesh.position.y - sw.mesh.scale.y / 2 : v.pos.y - v.bottom), r2(fire ? sw.halo.material.opacity / 0.55 : 1)];
+      }
+      const gb = v.gun?.beam;
+      if (gb?.visible) {
+        s.f |= 32;
+        _a.set(0, 0, 1).applyQuaternion(gb.quaternion).multiplyScalar(gb.scale.z).add(gb.position);
+        s.se = [r2(_a.x), r2(_a.y), r2(_a.z), r2(gb.scale.x)];
       }
     }
     return s;
@@ -557,7 +657,10 @@ export class VehicleSync {
       // (A puppet's data is where it is drawn now.)
       // (Round 9: which parking spot it was taken from, the host's own boarded
       // aircraft too: the joiner's airport doesn't set out a second copy.)
-      const took = v.tookKey || (v.parkKey && !v.parkedAt ? v.parkKey : null);
+      // (Only a slot the host itself holds taken: a ship restored from a save
+      // whose slot this session never took keeps the joiner's copy too.)
+      const k = v.tookKey || (v.parkKey && !v.parkedAt ? v.parkKey : null);
+      const took = k && this.game.airports.taken.has(k) ? k : null;
       out.push({ nid: v.net.nid, owner: v.net.owner, type: v.type, data, occ: v.puppet ? v.netOcc : v === this.vehicles.active ? HOST_PID : 0, took });
     }
     return { list: out, taken: [...this.game.airports.taken] };

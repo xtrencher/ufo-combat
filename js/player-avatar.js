@@ -105,7 +105,13 @@ export class PlayerAvatar {
   // every shot fired (a muzzle flash and the recoil each time it changes).
   update(dt, player, light, { visible, swing = 1, heldId = 0, bowDraw = 0, shots = null }) {
     this.root.visible = visible && !player.dead;
-    if (!this.root.visible) return;
+    if (!this.root.visible) {
+      // (The count kept current while hidden: no flash for shots fired in first person.)
+      this._shots = shots;
+      this._kick = 0;
+      this._flashT = 9;
+      return;
+    }
     this.light = light;
     this.setItem(heldId);
     const p = player.position;

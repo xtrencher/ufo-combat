@@ -228,7 +228,8 @@ export class Hud {
     for (let i = 0; i < HOTBAR_SIZE; i++) this.slots[i].set(inv.slots[i]);
     // The armor bar: ten chestplates, two defense points each.
     const pts = inv.armorPoints();
-    const sig = `${pts}:${inv.armor.map((a) => (a ? Math.ceil(a.dur / 8) : 0)).join(",")}`;
+    let sig = pts; // (a number built in a loop: this runs every frame)
+    for (const a of inv.armor) sig = sig * 256 + (a ? Math.ceil(a.dur / 8) % 256 : 0);
     if (sig !== this._shownArmor) {
       this._shownArmor = sig;
       this.armorEl.classList.toggle("hidden", pts <= 0);
@@ -247,11 +248,11 @@ export class Hud {
       this.slots[this._selected].el.classList.add("selected");
     }
     // Show the item's name briefly whenever the held item changes.
-    const name = stackLabel(inv.selectedStack);
     const id = inv.selectedStack ? inv.selectedStack.id : 0;
     const key = `${this._selected}:${id}`;
     if (key !== this._lastName) {
       this._lastName = key;
+      const name = stackLabel(inv.selectedStack);
       if (name) {
         this.itemNameEl.textContent = name;
         this._nameTimer = 2.2;
@@ -287,7 +288,11 @@ export class Hud {
   update(dt, player) {
     this.refreshHotbar();
     this._nameTimer -= dt;
-    this.itemNameEl.style.opacity = String(Math.max(0, Math.min(1, this._nameTimer / 0.4)));
+    const nameOpacity = String(Math.max(0, Math.min(1, this._nameTimer / 0.4)));
+    if (nameOpacity !== this._nameOpacity) {
+      this._nameOpacity = nameOpacity; // (written only on a change: mostly it stays "0")
+      this.itemNameEl.style.opacity = nameOpacity;
+    }
 
     if (player.mode !== this._mode) {
       this._mode = player.mode;

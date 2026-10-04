@@ -134,7 +134,7 @@ export class LaserBolts {
   addDecoy(pos, vel, life = 6) {
     const d = { pos: pos.clone(), vel: vel.clone(), life, maxLife: life };
     this.decoys.push(d);
-    if (this.decoys.length > 40) this.decoys.shift();
+    if (this.decoys.length > 40) this.decoys.shift().life = 0; // (burnt out: its jet drops it too)
     return d;
   }
 
@@ -287,7 +287,7 @@ export class LaserBolts {
       }
       b.pos.addScaledVector(b.dir, step);
       b.traveled += step;
-      if (b.traveled > b.range || b.pos.y < -20 || b.pos.y > 900) continue;
+      if (b.traveled > b.range || b.pos.y < -20) continue; // (no ceiling: the range bounds a bolt)
       list[n++] = b;
     }
     list.length = n;
@@ -318,6 +318,7 @@ export class LaserBolts {
   // Removes every bolt (e.g. mods switched off).
   clear() {
     this.bolts.length = 0;
+    for (const d of this.decoys) d.life = 0; // (the jets' own flare lists drop them)
     this.decoys.length = 0;
     this.core.count = 0;
     this.halo.count = 0;

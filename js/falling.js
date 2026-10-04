@@ -102,18 +102,30 @@ export class FallingBlocks {
     const w = this.world;
     const clear = [];
     const place = [];
+    const broken = [];
     for (const [x, y, z, ids] of columns) {
       let floor = y - 1;
       while (floor >= 0 && !IS_SOLID[w.getBlock(x, floor, z)]) floor--;
       const land = floor + 1;
       if (land === y) continue;
       for (let k = 0; k < ids.length; k++) clear.push(x, y + k, z, BLOCK.AIR);
-      for (let k = 0; k < ids.length; k++) place.push(x, land + k, z, ids[k]);
+      for (let k = 0; k < ids.length; k++) {
+        const t = land + k;
+        // (The column's own cells are cleared first. A torch or flower in the
+        // way stays and the rest of the column breaks on it, as in _land.)
+        const here = t >= y ? BLOCK.AIR : w.getBlock(x, t, z);
+        if (here === BLOCK.AIR || IS_REPLACEABLE[here]) place.push(x, t, z, ids[k]);
+        else {
+          for (let r = k; r < ids.length; r++) broken.push([x, t, z, ids[r]]);
+          break;
+        }
+      }
       this.settledInstantly += ids.length;
     }
     // Clear first, then place, so a column that drops less than its own
     // height ends up correct.
     w.setBlocks(clear.concat(place));
+    if (this.onBreak) for (const [x, t, z, id] of broken) this.onBreak(x, t, z, id);
   }
 
   _spawn(id, x, y, z) {

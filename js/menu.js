@@ -50,18 +50,19 @@ export const CONTROLS = [
     ["A / D", "Sideways"],
     ["Space / Shift", "Up / down"],
     ["Mouse wheel", "Cruising speed (slow hover to extremely fast)"],
-    ["Ctrl", "Boost"],
+    ["Ctrl or double-tap W (hold)", "Boost"],
     ["Left click", "The ship's own weapon, the way its kind fights (rapid bursts, heavy plasma, a spread fan, charged shots, a sweeping beam, seekers or pulse bolts; all aimed at the crosshair)"],
     ["Right click (hold)", "Tractor beam: any altitude; a bigger ship also pulls in and swallows smaller UFOs and enemy jets"],
     ["T (hold)", "Lock-on: after 3 s a salvo of homing laser bolts leaves the ship (let go earlier to cancel)"],
     ["R", "Teleport dash: the ship streaks along the view in a split second; hold R to keep streaking (no distance limit). Distance and travel time, or off, in Settings > Vehicles"],
     ["B", "Superweapon: after a short charge, a huge laser straight down"],
+    ["G", "Ghost mode on / off: fly through terrain, burning a tunnel"],
   ]],
   ["Fighter jet and B-2 bomber", [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
-    ["W / S", "Throttle up / down (a takeoff roll takes about 160 blocks, 125 in the F-16, 300 in the B-2: use a runway)"],
+    ["W / S", "Throttle up / down (a takeoff roll takes about 175 blocks, 130 in the F-16, 270 in the B-2: use a runway)"],
     ["Shift", "Afterburner"],
-    ["A / D", "Bank harder (flight assist; without it: roll)"],
+    ["A / D", "Roll (hold for a full 360; let go and it stops cleanly)"],
     ["Q / E", "Rudder (yaw)"],
     ["Space (hold)", "Air brakes: panels (F-16) or control surfaces (F-22) open, the jet sheds speed very fast and turns much tighter; too slow and it stalls. On the ground: wheel brakes"],
     ["Left click", "Autocannon (aims a little for you; overheats: watch the heat bar). The B-2 has none. While a lock is building or locked: cancels it (nothing fires)"],
@@ -79,6 +80,7 @@ export const CONTROLS = [
     ["F1", "Hide the HUD"],
     ["F3", "Debug info"],
     ["F5", "Camera: first person / behind / in front"],
+    ["Tab (hold, online)", "Scoreboard: players, pings, Dogfight kills"],
   ]],
 ];
 
@@ -144,7 +146,7 @@ export const MENU_TIPS = [
   "Supply crates drop by parachute with orange smoke: walk up to open one.",
   "Hold the right mouse button with the bazooka to lock on; release for a homing rocket.",
   "The railgun's beam goes through everything: blocks, creatures and UFOs.",
-  "Press J to call a fighter jet (1: F-22, 2: F-16). Airports have long runways: much easier to take off from.",
+  "Jets wait at airports: walk up to one and press F (F3 shows the nearest). In Creative, Esc > Call in puts you straight in the air.",
   "In the jet, tap right click for an unguided missile, or hold it to lock: 1 second for one, until the spiral closes for a salvo. Left click cancels a lock.",
   "Only the B-2 bomber carries the nuke: find one at an airport (it is the big flying wing).",
   "Press C in the jet for flares: they fool missiles and seeking shots.",
@@ -173,7 +175,11 @@ export class MenuPerf {
     this.reset();
     this._tip = Math.floor(Math.random() * MENU_TIPS.length);
     this._tipT = 0;
-    if (recBtn) recBtn.addEventListener("click", () => this.suggest && this.onApply && this.onApply(this.suggest));
+    // (the Low notice has no preset to apply: its OK just closes it)
+    if (recBtn) recBtn.addEventListener("click", () => {
+      if (this.suggest) this.onApply?.(this.suggest);
+      else this.recEl?.classList.add("hidden");
+    });
   }
 
   reset() {
@@ -183,6 +189,7 @@ export class MenuPerf {
     this.samples = [];
     this.fps = 0;
     this.suggest = null;
+    this.judged = false; // (judged once per preset; a dismissed notice stays closed)
     if (this.recEl) this.recEl.classList.add("hidden");
   }
 
@@ -215,8 +222,9 @@ export class MenuPerf {
         this.fpsEl.classList.toggle("bad", f < 24);
       }
       // After a warm-up (shaders and chunks settling), measure for a few seconds.
-      if (this.time > 3) this.samples.push(this.fps);
-      if (this.samples.length === 8 && !this.suggest && this.recEl) {
+      if (this.time > 3 && !this.judged && this.samples.length < 8) this.samples.push(this.fps);
+      if (!this.judged && this.samples.length === 8 && this.recEl) {
+        this.judged = true;
         const avg = this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
         const rec = MenuPerf.recommend(this.preset, avg);
         if (rec) {

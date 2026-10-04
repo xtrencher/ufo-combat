@@ -94,8 +94,8 @@ export const SCHEMA = [
   { key: "weapons.airstrike.angle", creativeOnly: true, group: "weapons", type: "range", label: "Fall angle (from vertical)", min: 0, max: 70, step: 1, def: 35, fmt: deg },
   { key: "weapons.airstrike.speed", creativeOnly: true, group: "weapons", type: "range", label: "Fall speed (blocks/s)", min: 30, max: 250, step: 5, def: 95, fmt: int },
   { key: "explosionScale.airstrike", creativeOnly: true, id: "explosion-airstrike", group: "weapons", type: "range", label: "Meteor explosion size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },
-  { key: "weapons.nukeSize", creativeOnly: true, group: "weapons", type: "range", label: "Nuke size (crater radius)", min: 12, max: 200, step: 1, def: 96, fmt: int, sub: "Jet nuke", hint: "The default (96) wipes out everything within about 125 blocks: land, trees, buildings, runways.", note: (v) => (v > 120 ? "A crater this size takes a few seconds to carve and rebuild, even on a fast PC. Chunks beyond your render distance are cleared as they load." : v > 96 ? "Bigger than the default: the blast takes a moment to carve and rebuild on slower PCs." : "") },
-  { key: "weapons.nukeIntensity", group: "weapons", type: "select", label: "Nuke effects intensity", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "How much smoke and fire the mushroom cloud uses." },
+  { key: "weapons.nukeSize", creativeOnly: true, group: "weapons", late: true, type: "range", label: "Nuke size (crater radius)", min: 12, max: 200, step: 1, def: 96, fmt: int, sub: "Jet nuke", hint: "The default (96) wipes out everything within about 125 blocks: land, trees, buildings, runways.", note: (v) => (v > 120 ? "A crater this size takes a few seconds to carve and rebuild, even on a fast PC. Chunks beyond your render distance are cleared as they load." : v > 96 ? "Bigger than the default: the blast takes a moment to carve and rebuild on slower PCs." : "") },
+  { key: "weapons.nukeIntensity", group: "weapons", late: true, type: "select", label: "Nuke effects intensity", choices: [["low", "Low"], ["medium", "Medium"], ["high", "High"]], def: "high", hint: "How much smoke and fire the mushroom cloud uses." },
 
   // ----- Mobs -----
   { key: "zombies.spawnRate", creativeOnly: true, group: "mobs", type: "range", label: "Zombie spawn rate", values: [0, 0.25, 0.5, 1, 1.5, 2, 3, 5, 8, 12, 20, 30, 50], min: 0, max: 50, def: 1, fmt: spawnRateLabel, sub: "Zombies", note: (v) => (v >= 10 ? "Zombie apocalypse: far zombies are drawn as simple crowds and think less, but a slow CPU will feel it." : "") },
@@ -411,13 +411,15 @@ export class SettingsPanel {
           if (row) this._creativeOnly.push(row);
         }
       } else {
-        const container = page.querySelector(e.advanced ? ".auto-rows-advanced" : ".auto-rows") || page;
-        if (e.sub && lastSub.get(e.group + !!e.advanced) !== e.sub) {
+        // (late: after the page's static rows, e.g. the nuke's after the meteors' blast size.)
+        const container = page.querySelector(e.late ? ".auto-rows-late" : e.advanced ? ".auto-rows-advanced" : ".auto-rows") || page;
+        const subKey = e.group + !!e.advanced + !!e.late;
+        if (e.sub && lastSub.get(subKey) !== e.sub) {
           const h = document.createElement("div");
           h.className = "subhead";
           h.textContent = e.sub;
           container.appendChild(h);
-          lastSub.set(e.group + !!e.advanced, e.sub);
+          lastSub.set(subKey, e.sub);
         }
         const id = e.id || e.key.replace(/\./g, "-");
         const row = document.createElement("div");

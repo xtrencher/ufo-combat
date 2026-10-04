@@ -135,9 +135,14 @@ export function loadEdits(seed) {
   }
 }
 
+// The size of the last edits blob written (characters): a big one is slow to
+// rewrite, so the game can save it less often.
+export let lastEditsBytes = 0;
 export function saveEdits(seed, edits, cache = null, dirtyKeys = null) {
   try {
-    localStorage.setItem(editsKey(seed), JSON.stringify(serializeEdits(edits, cache, dirtyKeys)));
+    const json = JSON.stringify(serializeEdits(edits, cache, dirtyKeys));
+    localStorage.setItem(editsKey(seed), json);
+    lastEditsBytes = json.length;
     return true;
   } catch (err) {
     console.warn("UFO COMBAT: failed to save world edits (storage full or unavailable)", err);

@@ -112,7 +112,10 @@ export class Vehicle {
   }
 
   serialize() {
-    return { type: this.type, pos: this.pos.toArray().map((v) => Math.round(v * 100) / 100), health: this.health };
+    const data = { type: this.type, pos: this.pos.toArray().map((v) => Math.round(v * 100) / 100), health: this.health };
+    // (A Creative call-in stays one after a reload: the next call-in removes it.)
+    if (this.calledIn) data.calledIn = true;
+    return data;
   }
 
   dispose() {
@@ -219,6 +222,7 @@ export class VehicleManager {
     this.active = null;
     this.nextId = 1;
     this.enabled = true;
+    this.restoring = false; // true while load() puts the player back in a saved seat
     this.config = {}; // per-type settings (Vehicles tab), filled in by main.js
     this.parachute = new Parachute(scene);
     this.input = { dx: 0, dy: 0, buttons: [false, false, false], wheel: 0, pressed: new Set(), keys: player.keys };
@@ -304,9 +308,11 @@ export class VehicleManager {
     this.vehicles.push(vehicle);
     this.scene.add(vehicle.root);
     vehicle.root.visible = this.enabled;
-    // Too many parked / wrecked vehicles: the oldest unused one goes.
-    if (this.vehicles.length > MAX_VEHICLES) {
-      const old = this.vehicles.find((v) => v !== this.active && !v.keep);
+    // Too many parked / wrecked vehicles: the oldest unused one goes (never
+    // the one being added, a living fighter or another peer's puppet; only
+    // this peer's own vehicles count, so puppets don't push them out).
+    if (this.vehicles.reduce((n, v) => n + (v.puppet ? 0 : 1), 0) > MAX_VEHICLES) {
+      const old = this.vehicles.find((v) => v !== vehicle && v !== this.active && !v.keep && !v.puppet && !(v.isEnemyJet && v.alive));
       if (old) this.remove(old);
     }
     this.onAdded?.(vehicle);
@@ -578,20 +584,29 @@ export class VehicleManager {
     const near = playing && !v ? this.nearestEnterable() : null;
     if (this.promptEl) {
       this.promptEl.classList.toggle("hidden", !near);
-      if (near) this.promptEl.textContent = this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : `Press F to board the ${near.name}`;
+      // (Written only when it changes: no DOM work every frame.)
+      const text = near ? (this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : `Press F to board the ${near.name}`) : "";
+      if (text !== this._promptText) {
+        this._promptText = text;
+        if (text) this.promptEl.textContent = text;
+      }
     }
     if (!v || !playing || this._hudTimer > 0 || !this.hudEl) return;
     this._hudTimer = 0.1;
+    // (Live rows such as hull and ghost mode stay current while I is open.)
+    if (this.infoOpen) this.refreshInfo();
     const h = v.hud();
     const rows = h.rows.map(([k, val]) => `<div class="vh-row"><span>${k}</span><b>${val}</b></div>`).join("");
     const bars = (h.bars || []).map((b) => `<div class="vh-bar-row"><span>${b.label}</span><div class="vh-bar"><div class="${b.hot ? "hot" : ""}" style="width:${Math.round(Math.max(0, Math.min(1, b.value)) * 100)}%"></div></div></div>`).join("");
     const hp = Math.max(0, Math.min(1, h.health));
-    this.hudEl.innerHTML =
+    const html =
       `<div class="vh-title">${h.title}</div>${rows}${bars}` +
       `<div class="vh-health"><div style="width:${(hp * 100).toFixed(0)}%;background:${hp > 0.5 ? "#4fdc8a" : hp > 0.25 ? "#ffc94a" : "#ff4a3a"}"></div></div>` +
       (h.weapon ? `<div class="vh-weapon">${h.weapon}</div>` : "") +
       (h.warning ? `<div class="vh-warning">${h.warning}</div>` : "") +
       (h.help ? `<div class="vh-help">${this.exitLocked?.() ? h.help.replace(/F (EJECT|get out|exit)/i, "F: no getting out") : h.help}</div>` : "");
+    // (Written only when it changes: no rebuild of the panel 10 times a second.)
+    if (html !== this._hudHtml) this.hudEl.innerHTML = this._hudHtml = html;
   }
 
   // The vehicle info panel (I): stats and controls of the vehicle you are in.
@@ -610,7 +625,8 @@ export class VehicleManager {
     const info = v.infoPanel();
     const stats = info.stats.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join("");
     const controls = info.controls.map(([k, val]) => `<tr><td><kbd>${k}</kbd></td><td>${val}</td></tr>`).join("");
-    el.innerHTML = `<h3>${info.title}</h3><h4>Stats</h4><table>${stats}</table><h4>Controls</h4><table>${controls}</table><div class="vi-close">Press I to close</div>`;
+    const html = `<h3>${info.title}</h3><h4>Stats</h4><table>${stats}</table><h4>Controls</h4><table>${controls}</table><div class="vi-close">Press I to close</div>`;
+    if (html !== this._infoHtml) el.innerHTML = this._infoHtml = html;
   }
 
   // Mods switched off: a seated player is set down safely (on the ground
@@ -637,7 +653,10 @@ export class VehicleManager {
     }
     if (!on) this.parachute.close(this.player);
     this.enabled = on;
-    for (const v of this.vehicles) v.root.visible = on;
+    for (const v of this.vehicles) {
+      v.root.visible = on;
+      if (!on) v.onDisabled?.();
+    }
     this.releaseAll();
   }
 
@@ -659,7 +678,23 @@ export class VehicleManager {
     data.list.forEach((d, i) => {
       if (!d || typeof d.type !== "string" || !Array.isArray(d.pos) || !d.pos.every(Number.isFinite)) return;
       const v = this.create(d.type, d);
-      if (v && i === data.active) this.enter(v);
+      if (v && d.calledIn) {
+        v.calledIn = true;
+        v.keep = true;
+        if (v.type === "jet") v.isPlayerJet = true;
+      }
+      if (v && i === data.active) {
+        // (Back in the seat, not boarded anew: onEnter's stats skip it.)
+        this.restoring = true;
+        try {
+          this.enter(v);
+        } finally {
+          this.restoring = false;
+        }
+      }
     });
+    // (Saved seated, loaded with mods off: on the ground below, as switching
+    // mods off does, not stuck in a hidden vehicle that won't let you out.)
+    if (!this.enabled && this.active) this.setEnabled(false);
   }
 }

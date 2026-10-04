@@ -789,9 +789,11 @@ try {
       player.flying = true;
       player.velocity.set(0, 0, 0);
       player.position.set(x0 + 0.5, y + 3, z0 + 0.5);
-      // Tree species growing near spawn (the world generator's plan).
+      // Tree species growing near spawn (the world generator's plan). (Round 9:
+      // within 400 blocks: the flatter land moved seed 42's spawn, and the
+      // nearest birches now stand 200-400 blocks off.)
       const kinds = new Set();
-      for (let x = spawn.x - 200; x < spawn.x + 200; x += 2) for (let z = spawn.z - 200; z < spawn.z + 200; z += 2) {
+      for (let x = spawn.x - 400; x < spawn.x + 400; x += 3) for (let z = spawn.z - 400; z < spawn.z + 400; z += 3) {
         const root = v.world.terrain.trees.rootAt(x, z);
         if (root) kinds.add(root.species);
       }
@@ -1951,6 +1953,8 @@ try {
       v.player.pitch = 0;
     }, a);
     await page.waitForTimeout(300);
+    // (Just respawned by the check before: the spawn protection runs out first.)
+    await page.waitForFunction(() => !(window.__voxelands.player._invulnerable > 0), null, { timeout: 20000, polling: 50 });
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
     await page.waitForFunction(() => window.__voxelands.gameState === "dead", null, { timeout: 60000, polling: 30 });
@@ -1971,7 +1975,9 @@ try {
       world.setBlocks(edits);
       player.air = 0.3;
     }, site);
-    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 30000, polling: 30 });
+    // (About 1.5 s of game time: under water at 1280x800 the software renderer
+    // can drop below one frame a second, so a minute or more.)
+    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 150000, polling: 30 });
     const s = await page.evaluate(() => ({ air: window.__voxelands.player.air, bubbles: !document.getElementById("bubbles").classList.contains("hidden") }));
     assert(s.air === 0 && s.bubbles, `expected empty breath and visible bubbles: ${JSON.stringify(s)}`);
     await page.evaluate(({ x, y, z }) => {
@@ -2177,7 +2183,9 @@ try {
     }, a);
     // Give it plenty of game time to reach the moat and look for a way around.
     await page.evaluate(() => (window.__t0 = window.__voxelands.mobs.time));
-    await page.waitForFunction(() => window.__voxelands.mobs.time > window.__t0 + 10, null, { timeout: 180000, polling: 200 });
+    // (10 s of game time: up to 7 minutes with the software renderer below one
+    // frame a second at 1280x800 over this much water.)
+    await page.waitForFunction(() => window.__voxelands.mobs.time > window.__t0 + 10, null, { timeout: 600000, polling: 200 });
     const s = await page.evaluate(({ z }) => {
       clearInterval(window.__wetTimer);
       return { wet: window.__wet, zz: window.__zombie.pos.z, edge: z - 3, hp: window.__voxelands.player.health, target: window.__zombie.ai.target };
@@ -2227,7 +2235,9 @@ try {
     await page.waitForTimeout(150);
     const vy1 = await page.evaluate(() => window.__voxelands.mobs.arrows[0]?.vel.y ?? null);
     if (vy0 !== null && vy1 !== null) assert(vy1 < vy0, `the arrow's vertical velocity should decay under gravity: ${vy0} -> ${vy1}`);
-    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 15000, polling: 50 });
+    // (Its aim scatters: a few arrows can miss before one lands. Generous:
+    // by now the software renderer can run the game at a frame or two a second.)
+    await page.waitForFunction(() => window.__voxelands.player.health < 20, null, { timeout: 90000, polling: 50 });
     const hpAfter = await page.evaluate(() => window.__voxelands.player.health);
     console.log(`        skeleton shot an arrow (vel.y ${vy0?.toFixed(2)} -> ${vy1?.toFixed(2)}); player health ${r.hpBefore} -> ${hpAfter}`);
     assert(hpAfter < 20, "the skeleton's arrow should have hurt the player");

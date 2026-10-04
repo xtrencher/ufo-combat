@@ -34,6 +34,7 @@ const MOB_RANGE = 120; // creatures within this of a client: every snapshot
 const FAR_MOB_RANGE = 320;
 const FAR_MOB_RANGE_AIR = 420;
 const FAR_MOB_MAX = 48;
+const SNAP_MOBS_PER_MSG = 250; // (about 16k characters: under a fast message's limit, see session.js)
 const JET_RANGE = 2600;
 const KEEP = 1.2; // hysteresis: already sent ones are kept a little farther
 const EYE = 1.62;
@@ -123,6 +124,13 @@ export class EntitySync {
     net.on("loot", (m) => this._onLoot(m));
     net.on("mobdie", (m) => this._onMobDie(m));
     net.on("abd", (m) => this._onAbducted(m));
+    // Warnings the host's AI meant for this player (see _hook and start).
+    net.on("alarm", () => {
+      const now = performance.now() / 1000;
+      if (now - (this._alarmT ?? -99) > 20) this.game.toast?.("Restricted area! Guards are firing!", 3);
+      this._alarmT = now;
+    });
+    net.on("dashw", () => this.game.ufos.onMessage?.("A UFO is right above you! Shoot it to break the beam!"));
   }
 
   // ---------- Lifecycle ----------
@@ -135,6 +143,8 @@ export class EntitySync {
       g.ufos.targets = () => this.targets();
       g.enemyJets.targets = () => this.targets();
       g.airports.positions = () => this.targets().filter((t) => !t.dead).map((t) => (t.vehicle ? t.vehicle.pos : t.position));
+      // A guest a UFO dashes in on is warned on their own screen (ufos.js toasts the host's own).
+      g.ufos.onDashWarn = (t) => t?.isRemote && this.net.send(t.pid, { t: "dashw" });
     } else {
       // A guest: the host's world, drawn from its states.
       g.mobs.puppets = true;
@@ -155,6 +165,7 @@ export class EntitySync {
     g.ufos.targets = null;
     g.enemyJets.targets = null;
     g.airports.positions = null;
+    g.ufos.onDashWarn = null;
     g.mobs.puppets = false;
     g.ufos.puppets = false;
     g.airports.guardsEnabled = true;
@@ -169,6 +180,11 @@ export class EntitySync {
     this.known.clear();
     this.proxies.clear();
     this.claims.length = 0;
+    // (The ground kept around the guests goes too.)
+    if (this._keepSet) {
+      this._keepSet = null;
+      g.world.releaseChunks();
+    }
   }
 
   playerLeft(p) {
@@ -239,12 +255,24 @@ export class EntitySync {
     // (A creature's own drops fall where it died, on the host, for everyone:
     // items are shared online, see items.js. A guest's copies drop nothing.)
     g.mobs.keepDrops = (m) => !m.net;
+    // The guards' alarm a guest set off: the warning is theirs, not the host's.
+    const onAlarm = g.mobs.onAlarm;
+    g.mobs.onAlarm = (o, who) => {
+      if (!this.mp.active || !this.net.isHost || !who?.isRemote) {
+        onAlarm?.(o, who);
+        return;
+      }
+      const now = performance.now() / 1000;
+      if (now - (who._alarmT ?? -99) > 20) this.net.send(who.pid, { t: "alarm" });
+      who._alarmT = now;
+    };
     // Kills: the killer rolls the loot, which drops for everyone to pick up
     // (Round 8: one shared world, no personal loot).
     const onKill = g.mobs.onKill;
     g.mobs.onKill = (m, byPlayer) => {
       if (!this.mp.active || !this.net.isHost || !byPlayer || !m.lastHitPid || m.lastHitPid === HOST_PID) {
         onKill?.(m, byPlayer);
+        if (byPlayer) this._hostKill("mob", m);
         return;
       }
       g.mobKilled(m, { mine: false });
@@ -255,6 +283,7 @@ export class EntitySync {
       const pid = u.lastHitPid;
       if (!this.mp.active || !this.net.isHost || !byPlayer || !pid || pid === HOST_PID) {
         onShotDown?.(u, byPlayer);
+        if (byPlayer) this._hostKill("ufo", u);
         return;
       }
       const killer = this.mp.players.get(pid);
@@ -266,9 +295,11 @@ export class EntitySync {
       const pid = jet.lastHitByPid;
       if (!this.mp.active || !this.net.isHost || !pid || pid === HOST_PID || jet.downedByOther) {
         onJetDown?.(jet, cause);
+        if (!jet.downedByOther) this._hostKill("jet", jet);
         return;
       }
       g.stats.addWorld("enemyJetsDown");
+      if (jet.hijacked) g.stats.addWorld("hijackedDown");
       this._killFor(pid, "jet", jet);
     };
   }
@@ -377,7 +408,8 @@ export class EntitySync {
       const d = Math.hypot(m.pos.x - c.x, m.pos.z - c.z);
       const was = k.m.has(m.id);
       if (d > MOB_RANGE * (was ? KEEP : 1)) {
-        if ((m.spec.hostile || m.missionTarget) && d <= farRange * (was ? KEEP : 1)) far.push([d, m]);
+        // (Ranked with the same hysteresis: one already sent isn't swapped out and back for a nearer one.)
+        if ((m.spec.hostile || m.missionTarget) && d <= farRange * (was ? KEEP : 1)) far.push([d / (was ? KEEP : 1), m]);
         continue;
       }
       this._mobOut(m, k, add, snap, seenM, true);
@@ -417,7 +449,12 @@ export class EntitySync {
     }
     if (add.u.length || add.m.length || add.j.length) this.net.send(pid, { t: "eadd", ...add });
     if (rem.u.length || rem.m.length || rem.j.length) this.net.send(pid, { t: "erem", ...rem });
-    if (snap.u.length || snap.m.length || snap.j.length) this.net.send(pid, snap, { fast: true });
+    if (snap.u.length || snap.m.length || snap.j.length) {
+      // (A fast message too big for one part would be dropped: a big crowd of
+      // creatures goes in several, all with the same time stamp.)
+      if (snap.m.length <= SNAP_MOBS_PER_MSG) this.net.send(pid, snap, { fast: true });
+      else for (let i = 0; i < snap.m.length; i += SNAP_MOBS_PER_MSG) this.net.send(pid, { t: "es", ts: snap.ts, u: i ? [] : snap.u, m: snap.m.slice(i, i + SNAP_MOBS_PER_MSG), j: i ? [] : snap.j }, { fast: true });
+    }
   }
 
   // One creature for one client: added the first time, its state in this
@@ -450,7 +487,11 @@ export class EntitySync {
   // drawn): their creatures need it to walk on.
   _keepGround() {
     const w = this.game.world;
+    const before = this._keepSet;
     const keep = (this._keepSet = new Set());
+    // (Perf) With generation workers the chunks are made there (taken in
+    // within the streaming budget); without, a couple per call here.
+    const inWorkers = w.genInWorkers;
     let budget = 2; // new chunks per call
     for (const r of this.mp.players.active()) {
       if (r.vehicle || r.dead) continue;
@@ -459,7 +500,9 @@ export class EntitySync {
       for (let dz = -KEEP_RADIUS; dz <= KEEP_RADIUS; dz++) {
         for (let dx = -KEEP_RADIUS; dx <= KEEP_RADIUS; dx++) {
           keep.add(w.key(cx + dx, cz + dz));
-          if (budget > 0 && !w.getChunk(cx + dx, cz + dz) && Math.abs(dx) < KEEP_RADIUS && Math.abs(dz) < KEEP_RADIUS) {
+          if (Math.abs(dx) >= KEEP_RADIUS || Math.abs(dz) >= KEEP_RADIUS) continue;
+          if (inWorkers) w.requestGen(cx + dx, cz + dz);
+          else if (budget > 0 && !w.getChunk(cx + dx, cz + dz)) {
             w._generate(cx + dx, cz + dz);
             budget--;
           }
@@ -470,6 +513,17 @@ export class EntitySync {
       this._keepHooked = true;
       const prev = w.keepChunk;
       w.keepChunk = (chunk) => (prev ? prev(chunk) : false) || (!!this._keepSet && this._keepSet.has(w.key(chunk.cx, chunk.cz)));
+      // (chunks asked for by requestGen stay wanted while they are kept)
+      w.extraWanted = (cx, cz) => !!this._keepSet?.has(w.key(cx, cz));
+    }
+    // Ground a player has walked away from goes again (only the host's own
+    // moves used to free it: an idle host piled up chunks without end).
+    if (before) {
+      for (const k of before) {
+        if (keep.has(k)) continue;
+        w.releaseChunks();
+        break;
+      }
     }
   }
 
@@ -555,10 +609,18 @@ export class EntitySync {
   _killFor(pid, kind, obj) {
     if (kind === "ufo") this.net.send(pid, { t: "kill", k: "ufo", size: obj.size, idx: obj.S?.idx ?? 0, at: vec1(obj.pos), into: obj.absorbed ? 1 : 0 });
     else if (kind === "mob") this.net.send(pid, { t: "kill", k: "mob", kind: obj.kind, at: vec1(obj.pos), lead: obj.leaderDrop || 0 });
-    else if (kind === "jet") this.net.send(pid, { t: "kill", k: "jet", at: vec1(obj.pos), into: obj.absorbedBy ? 1 : 0 });
-    const what = kind === "ufo" ? `a ${obj.size} UFO` : kind === "jet" ? "an enemy fighter" : obj.spec?.alien ? "an alien" : `a ${obj.kind}`;
-    if (kind !== "mob" || obj.spec?.alien) this.mp.feed(`${this.mp.playerName(pid)} downed ${what}`);
-    this.net.broadcast({ t: "feed", text: `${this.mp.playerName(pid)} downed ${what}` }, { except: pid });
+    else if (kind === "jet") this.net.send(pid, { t: "kill", k: "jet", at: vec1(obj.pos), into: obj.absorbedBy ? 1 : 0, hj: obj.hijacked ? 1 : 0 });
+    // (UFOs, fighters and aliens only: not every zombie or cow, on any screen.)
+    if (kind === "mob" && !obj.spec?.alien) return;
+    const text = `${this.mp.playerName(pid)} downed ${killWhat(kind, obj)}`;
+    this.mp.feed(text);
+    this.net.broadcast({ t: "feed", text }, { except: pid });
+  }
+
+  // The host's own kills: in the guests' feeds too (the same ones as theirs).
+  _hostKill(kind, obj) {
+    if (!this.mp.active || !this.net.isHost || (kind === "mob" && !obj.spec?.alien)) return;
+    this.net.broadcast({ t: "feed", text: `${this.mp.playerName(HOST_PID)} downed ${killWhat(kind, obj)}` });
   }
 
   // ---------- Client: messages ----------
@@ -580,7 +642,9 @@ export class EntitySync {
     if (m.k === "ufo") {
       const st = g.stats;
       st.add("ufosDown");
+      if (!g.player.creative && g.progress.enabled) st.add("ufosDownSurvival");
       if (m.size === "mothership" || m.size === "giant") st.add("ufosDownBig");
+      if (m.size === "giant") st.add("titansDown"); // (a mothership doesn't count, see missions.js)
       if ((m.idx ?? 0) >= 2) st.add("ufosDownLarge");
       if (g.vehicles.active?.type === "jet") st.add("ufosDownByJet");
       g.audio.playNotice?.();
@@ -592,6 +656,7 @@ export class EntitySync {
       if (lk) g.lootFor(lk[0], lk[1], at.clone().setY(at.y + 0.6), { leaderDrop: fake.leaderDrop });
     } else if (m.k === "jet") {
       g.stats.add("enemyJetsDown");
+      if (m.hj) g.stats.add("hijackedDown");
       g.lootFor("enemyjet", null, at, { into: !!m.into });
     }
   }
@@ -658,6 +723,7 @@ export class EntitySync {
       if (!j) continue;
       j.netEJ = e.id;
       j.puppet = true;
+      j.keep = true; // (the host's: never evicted by this page's vehicle cap; "erem" removes it)
       j.interp = new Interp({ angles: [], quats: ["q"], snap: 300 });
       j.update = (dt) => this.mp.vehicles._drivePuppet(j, dt);
       j._realDamage = j.damage;
@@ -834,4 +900,8 @@ export class EntitySync {
 
 function r1(v) {
   return Math.round(v * 10) / 10;
+}
+
+function killWhat(kind, obj) {
+  return kind === "ufo" ? `a ${obj.size} UFO` : kind === "jet" ? "an enemy fighter" : obj.spec?.alien ? "an alien" : `a ${obj.kind}`;
 }

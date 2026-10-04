@@ -50,6 +50,9 @@ export const TIMEOUTS = {
   connect: 20, // opening the data channel to the host
   welcome: 15, // the host answering the hello
   silent: 12, // a peer that sent nothing for this long is gone
+  // ...but a player still joining gets longer: building the world and
+  // compiling the shaders can freeze a slow computer's page for a while.
+  loading: 90,
 };
 
 // Interpolation: remote things are drawn this far in the past (seconds),

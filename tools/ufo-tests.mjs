@@ -520,6 +520,9 @@ await check("escape: walking out of the beam breaks free (counted as an abductio
 await check("shot on foot, a UFO reacts (counter-fire, beam run or evasive moves) and fires lasers", async () => {
   await arena();
   const r = await v((g) => {
+    // (Not the respawn grace an earlier check's abduction left: this is about the reaction.)
+    g.ufos.graceT = 0;
+    g.player.graceUntil = 0;
     const states = new Set();
     for (let k = 0; k < 12; k++) {
       const u = g.ufos.spawn({ size: "medium", pos: g.player.position.clone().add(new g.THREE.Vector3(30, 25, 0)) });

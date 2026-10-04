@@ -284,8 +284,10 @@ export class InventoryScreen {
     for (let i = 0; i < INVENTORY_SIZE; i++) this.invViews[i].set(this.inventory.slots[i]);
     this.armorViews.forEach((v, i) => v.set(this.inventory.armor[i]));
     const pts = this.inventory.armorPoints();
-    this.armorPointsEl.textContent = pts > 0 ? `${pts} defense (${Math.round(this.inventory.armorReduction() * 100)}% less damage)` : "no armor";
+    const text = pts > 0 ? `${pts} defense (${Math.round(this.inventory.armorReduction() * 100)}% less damage)` : "no armor";
+    // (Every frame while open: the DOM only when something changed.)
+    if (text !== this._armorText) this.armorPointsEl.textContent = this._armorText = text;
     this.cursorView.set(this.cursor);
-    this.cursorView.el.classList.toggle("hidden", !this.cursor);
+    if (!this.cursor !== this._cursorHidden) this.cursorView.el.classList.toggle("hidden", (this._cursorHidden = !this.cursor));
   }
 }

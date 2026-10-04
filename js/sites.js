@@ -130,6 +130,13 @@ export class SiteGrower {
     const hs = [];
     let wet = 0;
     let mountain = 0;
+    // (the sample count up front, so a try that is too wet or too mountainous
+    // stops as soon as that is certain: the same answer, sooner)
+    let nu = 0;
+    let nv = 0;
+    for (let u = rect.u0; u <= rect.u1; u += 25 * coarse) nu++;
+    for (let v = rect.v0; v <= rect.v1; v += 24 * coarse) nv++;
+    const total = nu * nv;
     for (let u = rect.u0; u <= rect.u1; u += 25 * coarse) {
       for (let v = rect.v0; v <= rect.v1; v += 24 * coarse) {
         const [wx, wz] = this.toWorld(site, u, v);
@@ -137,6 +144,7 @@ export class SiteGrower {
         if (info.height <= SEA_LEVEL + 1) wet++;
         if (info.mountainT > 0.5) mountain++;
         hs.push(info.height);
+        if (wet / total > 0.3 || mountain / total > 0.3) return false;
       }
     }
     hs.sort((a, b) => a - b);
@@ -438,6 +446,34 @@ export class SiteGrower {
   }
 
   // Every site within maxDist of (wx, wz) (the radar).
+  // Like within(), but plans at most `ms` milliseconds' worth of new cells
+  // per call (at least one) and leaves the rest for later calls: for queries
+  // made every frame over a wide area (the radar), so a fast flight into new
+  // cells does not stall a frame on many terrain surveys.
+  withinCached(wx, wz, maxDist, ms = 3) {
+    const out = [];
+    const c0x = Math.floor((wx - maxDist) / SITE_CELL);
+    const c1x = Math.floor((wx + maxDist) / SITE_CELL);
+    const c0z = Math.floor((wz - maxDist) / SITE_CELL);
+    const c1z = Math.floor((wz + maxDist) / SITE_CELL);
+    this._ensureHome();
+    const hx = this.home ? Math.floor(this.home.x / SITE_CELL) : NaN;
+    const hz = this.home ? Math.floor(this.home.z / SITE_CELL) : NaN;
+    const t0 = performance.now();
+    let made = 0;
+    for (let cz = c0z; cz <= c1z; cz++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        if (!(cx === hx && cz === hz) && !this._cells.has(this._key(cx, cz))) {
+          if (made > 0 && performance.now() - t0 > ms) continue;
+          made++;
+        }
+        const s = this._site(cx, cz);
+        if (s && Math.hypot(s.x - wx, s.z - wz) < maxDist) out.push(s);
+      }
+    }
+    return out;
+  }
+
   within(wx, wz, maxDist) {
     const out = [];
     const c0x = Math.floor((wx - maxDist) / SITE_CELL);
@@ -923,7 +959,7 @@ export class SiteGrower {
 
   // Places every site overlapping chunk (cx, cz) into its block array: a
   // cleared, levelled top, the runway/apron/street surfaces and structures.
-  placeInChunk(blocks, cx, cz) {
+  placeInChunk(blocks, cx, cz, hAt = null) {
     const S = CHUNK_SIZE;
     const bx = cx * S;
     const bz = cz * S;
@@ -940,7 +976,7 @@ export class SiteGrower {
         const y0 = site.y;
         if (y0 + 2 >= WORLD_HEIGHT) continue;
         // Clear whatever stood there (trees, plants) above the natural surface.
-        const h = this.terrain.heightAt(wx, wz);
+        const h = hAt ? hAt(lx, lz) : this.terrain.heightAt(wx, wz);
         const top = Math.min(WORLD_HEIGHT - 1, h + 40);
         for (let y = Math.max(1, h + 1); y <= top; y++) blocks[idx(lx, y, lz)] = BLOCK.AIR;
         if (out > 0) continue;

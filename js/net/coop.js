@@ -46,6 +46,7 @@ export class CoopSync {
     net.on("summon", (m, from) => this._onSummon(m, from));
     net.on("own", (m, from) => this._onOwn(m, from));
     net.on("gown", (m) => this.net.isClient && Array.isArray(m.l) && (this.groupOwned = new Set(m.l)));
+    net.on("mtoast", (m) => this.net.isClient && typeof m.text === "string" && this.game.toast?.(m.text.slice(0, 200), Math.max(1, Math.min(8, Number(m.s) || 3))));
     // (Round 9) A guest came back from a death: the host's UFOs leave them be a moment.
     net.on("rsp", (m, from) => {
       if (!this.net.isHost) return;
@@ -81,16 +82,34 @@ export class CoopSync {
       };
       g.missions.nightDeaths = () => host.teamWipes;
       g.missions.onUntake = (k) => this.mp.active && this.net.broadcast({ t: "untake", k });
+      // (Who flies a ship: the director's "it's yours" goes to everyone.)
+      g.missions.pilotName = (v) => (this.mp.active ? this.mp.playerName(v.puppet ? v.netOcc : this.net.pid) : null);
       this.guestData = loadJSON(`guests_${g.SEED}`) || {};
-      g.progress.onChange = ((prev) => () => {
-        prev?.();
-        this._sig = "";
-      })(g.progress.onChange);
-      const done = g.progress.onComplete;
-      g.progress.onComplete = (m) => {
-        done?.(m);
-        if (this.mp.active) this.net.broadcast({ t: "misdone", id: m.id });
-      };
+      // (Once a page: a room opened again must not wrap these twice, or every
+      // guest got each mission's reward once per room opened.)
+      if (!this._progHooked) {
+        this._progHooked = true;
+        g.progress.onChange = ((prev) => () => {
+          prev?.();
+          this._sig = "";
+        })(g.progress.onChange);
+        const done = g.progress.onComplete;
+        g.progress.onComplete = (m) => {
+          done?.(m);
+          if (this.mp.active && this.net.isHost) this.net.broadcast({ t: "misdone", id: m.id });
+        };
+        // The director's messages ("Night falls...", "SHIELD DOWN!"): the guests' too.
+        const toast = g.missions.toast;
+        g.missions.toast = (text, s) => {
+          toast?.(text, s);
+          if (!this.mp.active || !this.net.isHost || typeof text !== "string") return;
+          const now = performance.now();
+          if (text === this._mtText && now - this._mtT < 2000) return; // (the same one again at once)
+          this._mtText = text;
+          this._mtT = now;
+          this.net.broadcast({ t: "mtoast", text: text.slice(0, 200), s: Number(s) || 3 });
+        };
+      }
     } else {
       g.progress.mirror = true;
     }
@@ -104,6 +123,7 @@ export class CoopSync {
     g.missions.pilotJets = null;
     g.missions.nightDeaths = null;
     g.missions.onUntake = null;
+    g.missions.pilotName = null;
     g.progress.mirror = false;
     g.progress.mirrorObjectives = null;
     g.ufos.groupScale = 1;
@@ -111,7 +131,9 @@ export class CoopSync {
     g.mobs.groupHealth = 1;
     g.progress.groupN = 1;
     if (this.net.isHost || this._wasHost) this._saveGuests();
-    if (!this.net.isHost && g.missions && !g.GUEST) g.missions.enabled = true;
+    // (Back on: as the mode and mods say, not always. By now the host's role
+    // reads "offline" too, so this runs on its page as well.)
+    if (!g.GUEST) g.setSurvivalPaused?.(false);
     document.getElementById("respawn-near-btn")?.classList.add("hidden");
   }
 
@@ -230,7 +252,7 @@ export class CoopSync {
     }
     this._lastStep = p.step;
     if (Number.isInteger(m.gs)) g.airports.groupSize = Math.max(1, Math.min(8, m.gs));
-    p.mirrorObjectives = (m.obj || []).map(([label, value, goal]) => ({ label, value, goal }));
+    p.mirrorObjectives = (Array.isArray(m.obj) ? m.obj : []).filter(Array.isArray).map(([label, value, goal]) => ({ label: String(label ?? "").slice(0, 80), value: Number(value) || 0, goal: Math.max(1, Number(goal) || 1) }));
     const d = g.missions;
     d.target = m.tgt ? { pos: new g.THREE.Vector3(m.tgt[0], m.tgt[1], m.tgt[2]), label: m.tgt[3], follow: null } : null;
     d.bossInfo = m.boss || null;
@@ -325,6 +347,9 @@ export class CoopSync {
   // This player died (main.js): everyone hears of it.
   died(cause, text) {
     if (!this.mp.active) return;
+    // (A Dogfight's death: the match's own feed line says it, see dogfight.js.)
+    const df = this.mp.dogfight;
+    if (df?.on && df.phase === "live") return;
     // (Told about someone else: "their own grenade", not "your own".)
     const third = String(text).replace(/\byour own\b/g, "their own").replace(/\byour\b/g, "their");
     this.net.toAll({ t: "died", text: third.slice(0, 80), cause: String(cause).slice(0, 40) });
@@ -408,13 +433,15 @@ export class CoopSync {
     const p = this.net.players.get(pid);
     const you = p && this.guestData ? this.guestData[p.nick.toLowerCase()] || null : null;
     const hp = g.player.position;
-    return { you, host: g.player.dead || g.vehicles.active ? null : vec1(hp), mis: this._missionState() };
+    // (What every player has: a joiner who has more leaves it unchanged, so no "gown" would follow.)
+    return { you, host: g.player.dead || g.vehicles.active ? null : vec1(hp), mis: this._missionState(), gown: this.groupOwned ? [...this.groupOwned] : null };
   }
 
   _loadJoinState(s) {
     if (!s) return;
     const g = this.game;
     if (s.mis) this._onMission(s.mis);
+    if (Array.isArray(s.gown)) this.groupOwned = new Set(s.gown);
     if (s.you) {
       g.applyPlayerData(s.you);
       this._returning = true;

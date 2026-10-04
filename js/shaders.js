@@ -497,7 +497,15 @@ void main() {
   // Natural color variation of leaves and grass (see mesher.js; 0.5 = none):
   // warmer, yellower one way, cooler and darker the other.
   albedo *= 1.0 + (vTint - 0.502) * vec3(0.34, 0.16, -0.3);
-  float shadow = sunShadow();
+  #ifdef USE_NORMALMAP
+    float shadow = sunShadow();
+  #else
+    // (Perf) A face turned away from the sun gets no direct sunlight, the
+    // only thing the shadow changes here: its shadow lookups (6-16 texture
+    // reads a pixel) are skipped. Not for leaves and plants (lit through
+    // from behind) or surfaces under water (caustics). Same picture.
+    float shadow = (dot(vNormal, uLightDir) > 0.0 || (flags & 24) != 0) ? sunShadow() : 1.0;
+  #endif
   #ifdef USE_NORMALMAP
     // Per-pixel relief: bumps catch and lose the light, with a specular
     // highlight whose sharpness follows the material's roughness.
@@ -1045,7 +1053,7 @@ varying vec3 vDir;
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vDir = wp.xyz - cameraPosition;
-  gl_Position = projectionMatrix * viewMatrix * wp;
+  gl_Position = (projectionMatrix * viewMatrix * wp).xyww; // on the far plane, behind everything
 }
 `;
 
@@ -1105,6 +1113,14 @@ float stars(vec3 dir) {
 
 void main() {
   vec3 dir = normalize(vDir);
+  if (uUnderwater > 0.5) {
+    // Seen from under water, the sky is just a brighter patch of murk above
+    // (opaque in both mask modes).
+    gl_FragColor = vec4(uWaterFogColor * (1.0 + 2.5 * smoothstep(-0.1, 0.9, dir.y)), 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    return;
+  }
   vec3 col = skyColor(dir);
   float horizonFade = smoothstep(-0.02, 0.03, dir.y);
 
@@ -1113,12 +1129,15 @@ void main() {
   float moonUp = smoothstep(-0.05, 0.05, uMoonDir.y);
   float moonDisc = smoothstep(0.99935, 0.9996, mm);
   vec3 md = dir - uMoonDir * mm;
-  float crater = vnoise(md.xy * 900.0 + md.z * 300.0) * 0.5 + vnoise(md.yz * 2200.0) * 0.5;
-  vec3 moonCol = vec3(1.0, 1.02, 1.08) * (0.55 + 0.45 * crater) * 2.2;
+  vec3 moonCol = vec3(0.0);
+  if (moonDisc > 0.0) { // (craters only matter inside the disc)
+    float crater = vnoise(md.xy * 900.0 + md.z * 300.0) * 0.5 + vnoise(md.yz * 2200.0) * 0.5;
+    moonCol = vec3(1.0, 1.02, 1.08) * (0.55 + 0.45 * crater) * 2.2;
+  }
 
   // Stars fade in as the sky darkens.
   float starAmt = uNight * horizonFade * (1.0 - moonDisc);
-  col += vec3(0.9, 0.95, 1.1) * stars(dir) * starAmt;
+  if (starAmt > 0.0) col += vec3(0.9, 0.95, 1.1) * stars(dir) * starAmt;
 
   col = mix(col, moonCol, moonDisc * moonUp * horizonFade);
   col += vec3(0.08, 0.1, 0.16) * pow(max(mm, 0.0), 400.0) * moonUp * 2.0;
@@ -1131,7 +1150,10 @@ void main() {
   // Clouds: a layer of soft fbm clouds at uCloudHeight, lit from the sun side.
   float cloudA = 0.0;
   #if CLOUD_OCTAVES > 0
-  if (dir.y > 0.005) {
+  // Drawn only from below the layer: near it every direction samples the same
+  // spot, and above it the plane would be traced behind the viewer.
+  float below = 1.0 - smoothstep(uCloudHeight - 20.0, uCloudHeight - 2.0, cameraPosition.y);
+  if (dir.y > 0.005 && below > 0.0) {
     float t = (uCloudHeight - cameraPosition.y) / dir.y;
     vec2 p = cameraPosition.xz + dir.xz * t;
     vec2 q = p * 0.0028 + vec2(uTime * 0.006, uTime * 0.0021);
@@ -1143,16 +1165,11 @@ void main() {
     // Silver lining near the sun.
     cloudCol += uSunGlowColor * pow(max(mu, 0.0), 12.0) * 0.6 * (1.0 - cover);
     float fade = smoothstep(0.005, 0.25, dir.y);
-    cloudA = cover * fade * 0.94;
+    cloudA = cover * fade * 0.94 * below;
     col = mix(col, cloudCol, cloudA);
   }
   #endif
 
-  if (uUnderwater > 0.5) {
-    // Seen from under water, the sky is just a brighter patch of murk above.
-    col = uWaterFogColor * (1.0 + 2.5 * smoothstep(-0.1, 0.9, dir.y));
-    cloudA = 1.0;
-  }
   // Alpha marks sky visibility for the light-shaft pass (0 = open sky). When
   // drawing straight to the canvas it must stay opaque: three.js creates the
   // WebGL context with an alpha channel, so alpha 0 would make the page show
@@ -1230,7 +1247,8 @@ export function createSkyMaterial() {
     fragmentShader: skyFragment,
     side: THREE.BackSide,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true, // drawn last among opaque objects (see Sky): covered pixels fail early
+    depthFunc: THREE.LessEqualDepth,
     defines: { CLOUD_OCTAVES: 4 },
   });
 }

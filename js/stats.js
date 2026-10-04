@@ -6,6 +6,7 @@ import { loadJSON, saveJSON } from "./storage.js";
 
 export const STAT_LABELS = [
   ["ufosDown", "UFOs shot down"],
+  ["ufosDownSurvival", "UFOs shot down in Survival"],
   ["playTime", "Play time"],
   ["aliensKilled", "Aliens killed"],
   ["zombiesKilled", "Zombies killed"],
@@ -21,7 +22,9 @@ export const STAT_LABELS = [
   ["missilesHit", "Missile hits"],
   ["nukes", "Nukes dropped"],
   ["enemyJetsDown", "Fighters shot down (hijacked or patrol)"],
+  ["hijackedDown", "Hijacked fighters shot down"],
   ["ufosDownBig", "Motherships and giants shot down"],
+  ["titansDown", "Titans shot down"],
   ["cratesOpened", "Supply crates opened"],
   ["missionsDone", "Missions completed"],
   ["nightsSurvived", "Nights survived"],
@@ -60,6 +63,7 @@ export class Stats {
     const saved = loadJSON("stats_total");
     this.total = blank();
     if (saved) for (const k in this.total) if (Number.isFinite(saved[k])) this.total[k] = saved[k];
+    this._delta = blank(); // (added since the last save: another tab of the game may have saved its own meanwhile)
     this._dirty = false;
     this._saveT = 0;
   }
@@ -67,12 +71,15 @@ export class Stats {
   loadWorld(data) {
     this.world = blank();
     if (data && typeof data === "object") for (const k in this.world) if (Number.isFinite(data[k])) this.world[k] = data[k];
+    // (A world saved before the Survival count starts it at all its kills: it keeps its loot tier.)
+    if (data && typeof data === "object" && !Number.isFinite(data.ufosDownSurvival)) this.world.ufosDownSurvival = this.world.ufosDown;
   }
 
   add(key, n = 1) {
     if (!(key in this.world)) return;
     this.world[key] += n;
     this.total[key] += n;
+    this._delta[key] += n;
     this._dirty = true;
   }
 
@@ -95,7 +102,12 @@ export class Stats {
   save() {
     this._saveT = 0;
     this._dirty = false;
-    saveJSON("stats_total", this.total);
+    // Adds this tab's counts to the saved record rather than overwriting it.
+    const saved = loadJSON("stats_total");
+    const cur = blank();
+    for (const k in cur) cur[k] = (saved && Number.isFinite(saved[k]) ? saved[k] : 0) + this._delta[k];
+    this.total = cur;
+    if (saveJSON("stats_total", cur)) this._delta = blank(); // (a failed write keeps them for the next try)
   }
 
   format(key, value) {

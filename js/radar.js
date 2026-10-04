@@ -23,12 +23,17 @@ export class Radar {
     this.sweep = 0;
     this._t = 0;
     this.range = RANGE;
+    // The scope's CSS size, read once (reading it every draw, after the HUD's
+    // style writes, forced a layout 30 times a second): again after a resize.
+    this._css = 0;
+    window.addEventListener("resize", () => (this._css = 0));
   }
 
   show(on) {
     if (on === this.visible) return;
     this.visible = on;
     this.canvas.classList.toggle("hidden", !on);
+    this._css = 0;
   }
 
   // state: { pos, heading (radians, 0 = -Z), contacts: [{ kind, x, z, heading?, size?, color?, label? }] }
@@ -37,7 +42,7 @@ export class Radar {
     this.sweep = (this.sweep + dt * 1.6) % (Math.PI * 2);
     const c = this.canvas;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const css = c.clientWidth || 190;
+    const css = this._css || (this._css = c.clientWidth) || 190;
     if (c.width !== Math.round(css * dpr)) {
       c.width = c.height = Math.round(css * dpr);
     }

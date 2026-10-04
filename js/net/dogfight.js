@@ -101,7 +101,11 @@ export class Dogfight {
     g.vehicles.pvp = true;
     g.vehicles.exitLocked = () => (this.live ? "No getting out in a dogfight!" : null);
     g.setSurvivalPaused(true);
-    if (!g.mods.enabled && this.net.isHost) g.setModsEnabled(true);
+    // (Put back in _leave: the host's own setting, which this persists.)
+    if (!g.mods.enabled && this.net.isHost) {
+      this._modsWas = false;
+      g.setModsEnabled(true, false); // (not saved: a tab closed mid-match leaves the player's own setting)
+    }
     if (this.net.isHost) {
       // The sky is the players' alone.
       this._ufoWas = g.ufos.enabled;
@@ -119,19 +123,38 @@ export class Dogfight {
     this.phase = "off";
     g.vehicles.pvp = false;
     g.vehicles.exitLocked = null;
+    // (A match jet still flown when the room's mode changes is an ordinary
+    // aircraft from now on: saved with the world like any other.)
+    const kept = g.vehicles.active;
+    if (kept?.dogfightJet) {
+      kept.dogfightJet = false;
+      kept.transient = false;
+    }
+    // A watcher (out of the match) gets their own mode back (before the
+    // survival systems are switched on again, which look at the mode).
+    if (this.watching) this._unwatch();
     g.setSurvivalPaused(false);
+    // (The stored flag: from stop() the role already reads offline.)
+    if (this._modsWas === false) {
+      this._modsWas = undefined;
+      g.setModsEnabled(false, false);
+    }
     if (this.net.isHost || this._ufoWas !== undefined) {
       g.ufos.enabled = g.mods.enabled;
       g.enemyJets.enabled = true;
     }
-    // A watcher (out of the match) gets their own mode back.
-    if (this.watching) this._unwatch();
     this._respawnAt = null;
     this.scores.clear();
     document.getElementById("mp-countdown").classList.add("hidden");
-    document.getElementById("mp-results").classList.add("hidden");
+    const res = document.getElementById("mp-results");
+    const wasShown = !res.classList.contains("hidden");
+    res.classList.add("hidden");
     this._renderBoard();
     this._deathScreen(false);
+    // (Results up when the room's mode changed: they were the only screen,
+    // so one click back into the game, as in _newMatch. Not when the session
+    // ended: its own screen goes up.)
+    if (wasShown && !this.mp.ended) this.game.showClickToPlay?.();
   }
 
   // ---------- Host ----------
@@ -153,6 +176,7 @@ export class Dogfight {
     this.match++;
     this.scores.clear();
     for (const p of this.net.players.values()) this.scores.set(p.pid, { k: 0, d: 0, out: false });
+    this._peak = this.scores.size;
     const c = g.vehicles.active ? g.vehicles.active.pos : g.player.position;
     this.center = [Math.round(c.x), Math.round(c.y), Math.round(c.z)];
     this.phase = "countdown";
@@ -187,6 +211,7 @@ export class Dogfight {
   playerJoined(p) {
     if (!this.net.isHost || !this.on) return;
     if (!this.scores.has(p.pid)) this.scores.set(p.pid, { k: 0, d: 0, out: this.phase === "over" });
+    this._peak = Math.max(this._peak || 0, this.scores.size);
     this._broadcast();
   }
 
@@ -219,7 +244,9 @@ export class Dogfight {
   _checkEnd() {
     if (this.phase !== "live") return;
     const all = [...this.scores.entries()];
-    if (all.length < 2) return;
+    // (Alone from the start: no match yet. Alone because the others left: a win.)
+    if (all.length < 2 && (this._peak || 0) < 2) return;
+    if (!all.length) return;
     const alive = all.filter(([, s]) => !s.out);
     if (alive.length > 1) return;
     // The last one in; if nobody is (both went down at once), the most kills.
@@ -248,6 +275,8 @@ export class Dogfight {
     for (const [pid, k, d, out] of m.scores || []) this.scores.set(pid, { k, d, out: !!out });
     if (this.mp.mode !== "dogfight") return;
     if (newMatch && before !== "off" && !this.net.isHost) this._newMatch();
+    // (A guest joining while the results are up: not a match they played.)
+    if (!this.net.isHost && !this.mp.stateLoaded && this.phase === "over") this._resultsShown = this.match;
     if (this.me?.out && !this.watching && this.phase === "live") this._watch();
     this._renderBoard();
     this.mp.ui.refresh();
@@ -276,6 +305,7 @@ export class Dogfight {
     // Host: the countdown ends.
     if (this.net.isHost && this.phase === "countdown" && now >= this.startAt) {
       this.phase = "live";
+      this._checkEnd(); // (the others may have left during the countdown)
       this._broadcast();
     }
     // The countdown on screen.
@@ -289,6 +319,9 @@ export class Dogfight {
       cd.classList.remove("hidden");
       if (cd.textContent !== "FIGHT!") cd.textContent = "FIGHT!";
     } else cd.classList.add("hidden");
+    // Out: watching (a guest from the host's state; the host gets no state
+    // of its own, so this is where it starts watching).
+    if (this.phase === "live" && this.me?.out && !this.watching && g.gameState !== "start") this._watch();
     // In a jet, always (unless out, or watching the results).
     if ((this.phase === "countdown" || this.phase === "live") && !this.me?.out && g.gameState !== "start") {
       if (g.player.dead) {
@@ -319,23 +352,25 @@ export class Dogfight {
   _putInJet(fresh) {
     const g = this.game;
     if (g.gameState === "start") return;
-    if (g.player.dead) {
-      if (g.gameState !== "dead") return;
-      g.respawn();
-    }
-    if (g.player.dead) return;
-    const old = g.vehicles.active;
-    if (old) {
-      if (!fresh) return;
-      g.vehicles.exit({ force: true });
-      if (old.alive) g.vehicles.remove(old);
-    }
     const c = this.center || [g.player.position.x, g.player.position.y, g.player.position.z];
     const ids = [...this.scores.keys()].sort((a, b) => a - b);
     const slot = Math.max(0, ids.indexOf(this.net.pid));
     const a = (slot / Math.max(2, ids.length)) * Math.PI * 2 + (fresh ? 0 : Math.random() * 0.8);
     const x = c[0] + Math.cos(a) * ARENA_RADIUS;
     const z = c[2] + Math.sin(a) * ARENA_RADIUS;
+    if (g.player.dead) {
+      if (g.gameState !== "dead") return;
+      // (At the jet's spot: the ground around the world spawn is not built for nothing.)
+      g.respawn([x, z]);
+    }
+    if (g.player.dead) return;
+    const old = g.vehicles.active;
+    if (old) {
+      if (!fresh) return;
+      g.vehicles.exit({ force: true });
+      // (Only a Dogfight jet goes: anything else, e.g. a saved ship, stays where it is.)
+      if (old.alive && old.dogfightJet) g.vehicles.remove(old);
+    }
     const ground = Math.max(g.world.heightAt(Math.floor(x), Math.floor(z)), 64);
     const y = ground + ARENA_ALT + Math.random() * 30;
     const yaw = Math.atan2(-(c[0] - x), -(c[2] - z)); // toward the middle
@@ -343,6 +378,8 @@ export class Dogfight {
     g.player.health = MAX_HEALTH;
     const jet = g.vehicles.create("jet", { jetType: "f22", pos: [x, y, z], yaw, airborne: true, speed: 150, throttle: 0.85 });
     if (!jet) return;
+    jet.dogfightJet = true;
+    jet.transient = true; // (never saved: a match's jet is not part of the world)
     g.vehicles.enter(jet);
     this._deathScreen(false);
   }
@@ -352,24 +389,42 @@ export class Dogfight {
   _watch() {
     const g = this.game;
     this.watching = true;
-    if (g.player.dead && g.gameState === "dead") g.respawn();
+    const c = this.center;
+    if (g.player.dead && g.gameState === "dead") g.respawn(c ? [c[0], c[2]] : null);
     if (g.vehicles.active) g.vehicles.exit({ force: true });
+    // (Creative for the flight: what is taken from its palette goes again in _unwatch.)
+    const inv = g.inventory;
+    this._inv = { slots: inv.serialize(), armor: inv.serializeArmor(), sel: inv.selected };
     g.player.setMode("creative");
     g.weapons.enabled = false;
     g.weapons.cancel?.();
     g.player.flying = true;
-    const c = this.center;
     if (c) g.teleport(c[0], Math.max(g.world.heightAt(Math.floor(c[0]), Math.floor(c[2])), 64) + 60, c[2]);
     g.player.flying = true;
     g.toast?.(`You're out (${this.deathLimit} deaths). Watching the rest of the match: hold Tab for the scores.`, 6);
     this._deathScreen(false);
   }
 
+  // While watching: the player's own things (the watcher's Creative palette
+  // picks are not theirs), for a save made meanwhile; else null.
+  get keptInventory() {
+    return this.watching ? this._inv || null : null;
+  }
+
   _unwatch() {
     const g = this.game;
     this.watching = false;
     g.weapons.enabled = g.mods.enabled;
-    g.player.setMode(this.mp.mode === "creative" ? "creative" : "survival");
+    if (this._inv) {
+      const inv = g.inventory;
+      inv.load(this._inv.slots);
+      inv.loadArmor(this._inv.armor);
+      inv.selected = this._inv.sel;
+      this._inv = null;
+      g.markInventoryChanged();
+    }
+    // (The game's own switch: the survival systems, the mode shown and the call-ins follow.)
+    g.setMode(this.mp.mode === "creative" ? "creative" : "survival");
     g.player.flying = false;
   }
 
@@ -415,7 +470,9 @@ export class Dogfight {
     let html = `<table class="mp-score"><tr><th>Player</th>${df ? "<th>Kills</th><th>Deaths</th>" : ""}${ping ? "<th>Ping</th>" : ""}</tr>`;
     for (const r of rows) {
       const cls = [r.pid === this.net.pid ? "me" : "", r.out ? "out" : ""].join(" ").trim();
-      html += `<tr class="${cls}"><td><span style="color:${r.color}">&#9679;</span> ${esc(r.nick)}${r.pid === HOST_PID ? " <small style=\"opacity:.6\">(host)</small>" : ""}${r.out ? " <small style=\"opacity:.6\">(out)</small>" : ""}</td>${df ? `<td>${r.k}</td><td>${r.d}/${this.deathLimit}</td>` : ""}${ping ? `<td>${r.pid === this.net.pid ? "-" : `${r.ping} ms`}</td>` : ""}</tr>`;
+      // (Numbers and colours from the host's state: only as numbers and colours.)
+      const color = /^#[0-9a-f]{3,8}$/i.test(String(r.color)) ? r.color : "#ffffff";
+      html += `<tr class="${cls}"><td><span style="color:${color}">&#9679;</span> ${esc(r.nick)}${r.pid === HOST_PID ? " <small style=\"opacity:.6\">(host)</small>" : ""}${r.out ? " <small style=\"opacity:.6\">(out)</small>" : ""}</td>${df ? `<td>${Number(r.k) | 0}</td><td>${Number(r.d) | 0}/${Number(this.deathLimit) | 0}</td>` : ""}${ping ? `<td>${r.pid === this.net.pid ? "-" : `${Number(r.ping) | 0} ms`}</td>` : ""}</tr>`;
     }
     return html + "</table>";
   }
@@ -426,7 +483,7 @@ export class Dogfight {
     el.classList.toggle("hidden", !show);
     if (!show) return;
     const mode = this.on ? `Dogfight · out at ${this.deathLimit} deaths` : this.mp.mode === "creative" ? "Creative" : "Survival";
-    el.innerHTML = `<div class="mp-score-title">Room ${this.net.code}<span>${mode}</span></div>${this._table(this._rows())}`;
+    el.innerHTML = `<div class="mp-score-title">Room ${String(this.net.code ?? "").replace(/[^A-Z0-9]/gi, "")}<span>${mode}</span></div>${this._table(this._rows())}`;
   }
 
   _showResults() {
@@ -444,7 +501,7 @@ export class Dogfight {
     document.getElementById("mp-result-table").innerHTML = this._table(this._rows(), false);
     document.getElementById("mp-result-again").classList.toggle("hidden", !this.net.isHost);
     document.getElementById("mp-results").classList.remove("hidden");
-    g.audio?.playMission?.();
+    g.audio?.playMissionDone?.();
     // The mouse is for the buttons now: no more flying, no pause menu over the results.
     g.vehicles.releaseAll?.();
     if (document.pointerLockElement) document.exitPointerLock();

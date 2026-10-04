@@ -68,7 +68,9 @@ export class VillageGrower {
       }
     }
     this._centers.set(key, center);
-    if (this._centers.size > 400) this._centers.clear();
+    // (the oldest goes, not the lot: distant.js asks for up to ~730 cells a
+    // second at the longest view, and a wholesale clear re-surveyed them all)
+    if (this._centers.size > 2048) this._centers.delete(this._centers.keys().next().value);
     return center;
   }
 

@@ -116,6 +116,22 @@ const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const Z = new THREE.Vector3(0, 0, 1);
 const _a = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
+// (Scratch for update, _aero and _groundAndCrash only: every jet, parked ones
+// too, runs them every frame.)
+const _stick = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _acc = new THREE.Vector3();
+const _probes = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
+
+// (Shared by every jet's missiles and bombs: made once, never per jet or per drop.)
+let _missileGeo = null;
+let _nukeGeo = null;
+let _missileMat = null;
+function missileMaterial() {
+  return _missileMat || (_missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
 
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v;
@@ -324,9 +340,9 @@ export class Jet extends Vehicle {
     const cfg = this.cfg;
     const maxSpeed = Math.max(60, cfg.maxSpeed);
     const vStall = Math.max(15, cfg.stallSpeed);
-    const fwd = this.forward(new THREE.Vector3());
-    const up = this.up(new THREE.Vector3());
-    const right = this.right(new THREE.Vector3());
+    const fwd = this.forward(_fwd);
+    const up = this.up(_up);
+    const right = this.right(_right);
     const speed = this.vel.length();
     const vF = this.vel.dot(fwd);
     // Angle of attack (nose above the flight path = positive).
@@ -351,7 +367,7 @@ export class Jet extends Vehicle {
       const vd = _w.copy(this.vel).divideScalar(speed);
       liftDir.addScaledVector(vd, -liftDir.dot(vd)).normalize();
     }
-    const acc = new THREE.Vector3().addScaledVector(liftDir, lift);
+    const acc = _acc.set(0, 0, 0).addScaledVector(liftDir, lift);
     // Thrust grows with the square of the throttle, so the speed you settle
     // at is in proportion to it (50% throttle: half the speed); the
     // afterburner adds to it. On the wheels only part of the thrust gets the
@@ -509,7 +525,7 @@ export class Jet extends Vehicle {
       return;
     }
     const cfg = this.cfg;
-    const stick = new THREE.Vector3();
+    const stick = _stick.set(0, 0, 0);
     this.brake = false;
     this.reversing = false;
     if (input) {
@@ -607,8 +623,15 @@ export class Jet extends Vehicle {
     this._groundAndCrash(dt, aero);
     if (!this.alive) return;
     if (this.onGround && !wasGround) this._touchdown();
-    if (!this.onGround && wasGround && this.occupied && !this.isEnemyJet) this.manager.onTakeoff?.(this);
+    if (!this.onGround && wasGround && this.occupied && !this.isEnemyJet) this._takeoffPending = true;
     this.sinceLiftoff = this.onGround ? 0 : wasGround ? 0.0001 : this.sinceLiftoff > 0 ? this.sinceLiftoff + dt : 99;
+    // A takeoff counts once the jet is really flying (a second up, past the
+    // stall), not when it rolls off a step or a pad's edge and drops back.
+    if (this.onGround) this._takeoffPending = false;
+    else if (this._takeoffPending && this.sinceLiftoff > 1 && this.speed > cfg.stallSpeed) {
+      this._takeoffPending = false;
+      if (this.occupied) this.manager.onTakeoff?.(this);
+    }
     if (this.onGround) this.rolled += Math.hypot(this.vel.x, this.vel.z) * dt;
     else this.rolled = 0;
     this.pos.addScaledVector(this.vel, dt);
@@ -788,9 +811,9 @@ export class Jet extends Vehicle {
     const mgr = this.manager;
     const w = mgr.world;
     const cfg = this.cfg;
-    const fwd = this.forward(new THREE.Vector3());
-    const up = this.up(new THREE.Vector3());
-    const right = this.right(new THREE.Vector3());
+    const fwd = this.forward(_fwd);
+    const up = this.up(_up);
+    const right = this.right(_right);
     const pitch = Math.asin(clamp(fwd.y, -1, 1));
     const bank = Math.atan2(-right.y, up.y);
     const yaw = Math.atan2(-fwd.x, -fwd.z);
@@ -887,14 +910,13 @@ export class Jet extends Vehicle {
     // Any other part of the airframe hitting the terrain: nose, wingtips, tails.
     const right2 = this.right(_w);
     const pr = this.spec.probes;
-    const probes = [
-      [fwd, pr.nose],
-      [fwd, 3],
-    ];
-    const pts = probes.map(([d, l]) => this.pos.clone().addScaledVector(d, l));
-    pts.push(this.pos.clone().addScaledVector(right2, pr.wing), this.pos.clone().addScaledVector(right2, -pr.wing));
-    pts.push(this.pos.clone().addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2));
-    pts.push(this.pos.clone().addScaledVector(up, this.onGround ? 1.2 : -0.6));
+    const pts = _probes;
+    pts[0].copy(this.pos).addScaledVector(fwd, pr.nose);
+    pts[1].copy(this.pos).addScaledVector(fwd, 3);
+    pts[2].copy(this.pos).addScaledVector(right2, pr.wing);
+    pts[3].copy(this.pos).addScaledVector(right2, -pr.wing);
+    pts[4].copy(this.pos).addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2);
+    pts[5].copy(this.pos).addScaledVector(up, this.onGround ? 1.2 : -0.6);
     for (const p of pts) {
       if (p.y < 0 || p.y >= WORLD_HEIGHT) continue;
       if (IS_SOLID[w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))]) {
@@ -995,8 +1017,23 @@ export class Jet extends Vehicle {
     dir.z += (Math.random() - 0.5) * 0.008;
     dir.normalize();
     mgr.lasers.fire({ from, dir, color: this._tracer || (this._tracer = new THREE.Color(5, 3.4, 1.1)), speed, damage: this.spec.cannonDamage * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: 1100, radius: 0.07, length: 9, scorch: true, sound: false });
-    mgr.audio?.playCannon?.();
+    this._sound(() => mgr.audio?.playCannon?.());
     mgr.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.05, size0: 1.4, size1: 0.3, color0: this._tracer, alpha: 0.9 });
+  }
+
+  // A sound of this jet's guns, missiles or flares: full volume from our own
+  // jet, by distance from any other (an enemy fighter far off is faint). Never
+  // quite silent: online the hooked sound must still go out to the others,
+  // from `soundAt` (net/fx.js).
+  _sound(fn) {
+    const mgr = this.manager;
+    if (this === mgr.active || !mgr.audio?.playDistant) return fn();
+    mgr.soundAt = this.pos;
+    try {
+      mgr.audio.playDistant(Math.min(320, this.pos.distanceTo(mgr.effects.listener)), fn);
+    } finally {
+      mgr.soundAt = null;
+    }
   }
 
   // How far ahead of the nose the guns converge: on the ground, a building or
@@ -1294,7 +1331,8 @@ export class Jet extends Vehicle {
     if (!t) return false;
     const r = t.ref;
     if (t.kind === "ufo") return !r.falling && r.state !== "gone";
-    if (t.kind === "jet" || t.kind === "vehicle") return r.alive;
+    // (A jet taken out of the world, not shot down, keeps `alive`: no homing on where it was.)
+    if (t.kind === "jet" || t.kind === "vehicle") return r.alive && this.manager.vehicles.includes(r);
     if (t.kind === "player") return !r.dead;
     if (t.kind === "decoy") return r.life > 0;
     return !r.dead && this.manager.mobs.mobs.includes(r);
@@ -1320,7 +1358,7 @@ export class Jet extends Vehicle {
     const right = this.right(new THREE.Vector3());
     this.rail = -this.rail;
     const pos = this.pos.clone().addScaledVector(right, this.rail * 2.4).addScaledVector(this.up(_v), -0.7);
-    const mesh = new THREE.Mesh(this._missileGeo || (this._missileGeo = missileGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
+    const mesh = new THREE.Mesh(_missileGeo || (_missileGeo = missileGeometry()), missileMaterial());
     mesh.castShadow = true;
     mgr.scene.add(mesh);
     // A target behind the jet: the missile makes a hard turn to get around.
@@ -1331,7 +1369,7 @@ export class Jet extends Vehicle {
     }
     const m = { pos, vel: this.vel.clone().addScaledVector(fwd, 12), dir: fwd.clone(), target, age: 0, mesh, trail: 0, hostile, rogue, behind, lostT: 0, launcher: this, decoyed: false };
     this.missiles.push(m);
-    mgr.audio?.playRocketLaunch?.();
+    this._sound(() => mgr.audio?.playRocketLaunch?.());
     if (target?.kind === "player" || target?.kind === "vehicle") this.manager.onMissileLaunched?.(m, this);
     return m;
   }
@@ -1529,8 +1567,9 @@ export class Jet extends Vehicle {
     m.evaded = { jet, passed: false, t: 0 };
     m.target = null;
     const mgr = this.manager;
-    if (jet.occupied) mgr.onMessage?.("MISSILE EVADED!");
-    if (jet.occupied) mgr.effects?.shake?.add?.(0.12);
+    // (Only for our own pilot: online a guest's puppet jet is `occupied` too.)
+    if (jet === mgr.active) mgr.onMessage?.("MISSILE EVADED!");
+    if (jet === mgr.active) mgr.effects?.shake?.add?.(0.12);
   }
 
   // ---------- Flares ----------
@@ -1549,8 +1588,9 @@ export class Jet extends Vehicle {
       d.owner = this;
       this.flares.push(d);
     }
-    mgr.audio?.playFlare?.();
-    mgr.onMessage?.("FLARES!");
+    this._sound(() => mgr.audio?.playFlare?.());
+    // (The pilot's own flares only: an enemy fighter's are not news to the player.)
+    if (this === mgr.active) mgr.onMessage?.("FLARES!");
   }
 
   _updateFlares(dt) {
@@ -1612,7 +1652,7 @@ export class Jet extends Vehicle {
     const mgr = this.manager;
     const pos = this.pos.clone().addScaledVector(this.up(_v), -1.6);
     const group = new THREE.Group();
-    const body = new THREE.Mesh(nukeGeometry(), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
+    const body = new THREE.Mesh(_nukeGeo || (_nukeGeo = nukeGeometry()), missileMaterial());
     body.castShadow = true;
     group.add(body);
     const chute = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2.4), new THREE.MeshLambertMaterial({ color: 0xd8d2c0, side: THREE.DoubleSide }));
@@ -1627,33 +1667,7 @@ export class Jet extends Vehicle {
   }
 
   _updateBombs(dt) {
-    const mgr = this.manager;
-    for (let i = this.bombs.length - 1; i >= 0; i--) {
-      const b = this.bombs[i];
-      b.age += dt;
-      b.vel.y -= 20 * dt;
-      if (b.age > 0.8) {
-        // Drogue chute: horizontal speed bleeds off, falls at ~18 blocks/s.
-        b.chute.visible = true;
-        b.vel.x *= Math.exp(-1.2 * dt);
-        b.vel.z *= Math.exp(-1.2 * dt);
-        b.vel.y = Math.max(b.vel.y, -18);
-      }
-      const len = b.vel.length() * dt;
-      const dir = b.vel.clone().normalize();
-      const hit = mgr.world.raycast(b.pos, dir, len + 0.5, { solidOnly: true });
-      const water = IS_WET[mgr.world.getBlock(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z))];
-      if (hit || water || b.pos.y < 1 || b.age > 60) {
-        const at = hit ? b.pos.clone().addScaledVector(dir, hit.distance) : b.pos.clone();
-        mgr.scene.remove(b.group);
-        this.bombs.splice(i, 1);
-        mgr.nuke?.detonate(at);
-        continue;
-      }
-      b.pos.addScaledVector(b.vel, dt);
-      b.group.position.copy(b.pos);
-      b.group.rotation.set(0, b.age * 0.8, 0);
-    }
+    stepBombs(this.manager, this.bombs, dt);
   }
 
   // Seconds until the next nuke is ready (0 = ready).
@@ -1965,10 +1979,54 @@ export class Jet extends Vehicle {
 
   dispose() {
     super.dispose();
+    this.model.dispose?.();
     for (const m of this.missiles) this.manager.scene.remove(m.mesh);
-    for (const b of this.bombs) this.manager.scene.remove(b.group);
+    // A bomb already falling still goes off when its jet is removed (crashed,
+    // ejected from, called away): the manager carries it on.
+    if (this.bombs.length) (this.manager.strayBombs ||= []).push(...this.bombs);
+    this.bombs.length = 0;
   }
 }
+
+// Moves falling nukes (a jet's own, or the manager's strays) and sets them off on impact.
+function stepBombs(mgr, list, dt) {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const b = list[i];
+    b.age += dt;
+    b.vel.y -= 20 * dt;
+    if (b.age > 0.8) {
+      // Drogue chute: horizontal speed bleeds off, falls at ~18 blocks/s.
+      b.chute.visible = true;
+      b.vel.x *= Math.exp(-1.2 * dt);
+      b.vel.z *= Math.exp(-1.2 * dt);
+      b.vel.y = Math.max(b.vel.y, -18);
+    }
+    const len = b.vel.length() * dt;
+    const dir = b.vel.clone().normalize();
+    const hit = mgr.world.raycast(b.pos, dir, len + 0.5, { solidOnly: true });
+    const water = IS_WET[mgr.world.getBlock(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z))];
+    if (hit || water || b.pos.y < 1 || b.age > 60) {
+      const at = hit ? b.pos.clone().addScaledVector(dir, hit.distance) : b.pos.clone();
+      mgr.scene.remove(b.group);
+      b.chute.geometry.dispose();
+      b.chute.material.dispose();
+      list.splice(i, 1);
+      mgr.nuke?.detonate(at);
+      continue;
+    }
+    b.pos.addScaledVector(b.vel, dt);
+    b.group.position.copy(b.pos);
+    b.group.rotation.set(0, b.age * 0.8, 0);
+  }
+}
+
+// The strays are moved once per frame after the vehicles (hooked here:
+// vehicles.js can't import this module).
+const _vmUpdate = VehicleManager.prototype.update;
+VehicleManager.prototype.update = function (dt) {
+  _vmUpdate.call(this, dt);
+  if (this.enabled && this.strayBombs?.length) stepBombs(this, this.strayBombs, dt);
+};
 
 // A missile: white body, grey fins, dark seeker head (along -Z).
 export function missileGeometry() {

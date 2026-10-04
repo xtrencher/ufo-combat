@@ -1213,7 +1213,8 @@ function structureHeight(name, t) {
   const h = new Float32Array(TEX * TEX);
   const wrap = (d) => (d > TEX / 2 ? d - TEX : d < -TEX / 2 ? d + TEX : d);
   if (name === "stone" || name.endsWith("_ore")) {
-    t.forEach((x, y) => (h[y * TEX + x] = t.fbm(x, y, 2, 4, 0) * 0.8 + t.noise(x, y, 16, 5) * 0.2));
+    const salt = name.endsWith("_ore") ? 17 : 0; // (the salt paintOre's stone base uses)
+    t.forEach((x, y) => (h[y * TEX + x] = t.fbm(x, y, 2, 4, salt) * 0.8 + t.noise(x, y, 16, salt + 5) * 0.2));
   } else if (name === "cobblestone" || name === "gravel") {
     const vor = name === "cobblestone" ? t.voronoi(13, 1) : t.voronoi(30, 2);
     const size = name === "cobblestone" ? 4.5 : 2.6;

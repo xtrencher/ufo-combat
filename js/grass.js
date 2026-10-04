@@ -25,6 +25,9 @@ import { createGrassMaterial } from "./shaders.js";
 import { grassTint } from "./mesher.js";
 
 const REGROW = 150; // seconds a cut or burnt patch stays bare
+// Numeric key of a block column for the cut/burn map (no string per lookup;
+// unique while |z| < 2M blocks).
+const _key = (x, z) => x * 4194304 + z;
 const REBUILD_DISTANCE = 1.5; // blocks moved before the plants are refilled
 
 // Spot kinds (bit flags) found by the chunk scan.
@@ -219,7 +222,7 @@ export class GrassField {
     this._cache = new WeakMap(); // chunk -> { version, spots: Float32Array [x, y, z, sky, block, kind, depth, ...] }
     this._builtAt = new THREE.Vector3(Infinity, 0, 0);
     this._versions = new Map(); // chunk -> mesh count at the last fill
-    this.cleared = new Map(); // "x,z" -> time (s) it grows back
+    this.cleared = new Map(); // column key (_key) -> time (s) it grows back
     this.count = 0;
     this.counts = {}; // plants per kind at the last fill (stats / tests)
   }
@@ -243,7 +246,7 @@ export class GrassField {
     for (let dz = -ri; dz <= ri; dz++) {
       for (let dx = -ri; dx <= ri; dx++) {
         if (dx * dx + dz * dz > r * r + 0.5) continue;
-        this.cleared.set(`${Math.floor(x) + dx},${Math.floor(z) + dz}`, now + REGROW);
+        this.cleared.set(_key(Math.floor(x) + dx, Math.floor(z) + dz), now + REGROW);
         n++;
       }
     }
@@ -326,11 +329,22 @@ export class GrassField {
     return list;
   }
 
-  update(playerPos) {
+  // opts.suspended: the plants are hidden and not refilled (for the caller:
+  // high up or fast in a vehicle, where they can't be seen anyway).
+  update(playerPos, { suspended = false } = {}) {
     if (this.density <= 0) return;
+    if (suspended) {
+      this.mesh.visible = false;
+      this._suspended = true;
+      return;
+    }
+    if (this._suspended) {
+      this._suspended = false;
+      this.mesh.visible = true;
+    }
     this.material.uniforms.uPlayer.value.copy(playerPos);
     const chunks = this._chunksInRange(playerPos.x, playerPos.z);
-    let changed = this._builtAt.distanceTo(playerPos) > REBUILD_DISTANCE || chunks.length !== this._versions.size;
+    let changed = chunks.length !== this._versions.size;
     if (!changed) {
       for (const chunk of chunks) {
         if (this._versions.get(chunk) !== (chunk.meshCount || 0)) {
@@ -339,12 +353,28 @@ export class GrassField {
         }
       }
     }
+    // (a remesh refills at once, but then at most 5 times a second: flowing
+    // water remeshes its chunk every frame, and a refill rescans the chunk)
+    if (changed && performance.now() - (this._fillT ?? -Infinity) < 200) {
+      this._pendingFill = true;
+      changed = false;
+    } else if (!changed && this._pendingFill) {
+      changed = performance.now() - this._fillT >= 200;
+    }
+    // (a refill for moving alone at most 5 times a second: in a jet the player
+    // moves 1.5 blocks every frame, and a refill walks every spot in range;
+    // on foot it is never that fast, and a forced refill (Infinity) goes at once)
+    if (!changed && this._builtAt.distanceTo(playerPos) > REBUILD_DISTANCE) {
+      changed = this._builtAt.x === Infinity || performance.now() - (this._fillT ?? -Infinity) >= 200;
+    }
     if (changed) this._fill(chunks, playerPos);
   }
 
   _fill(chunks, playerPos) {
     const cfg = LEVELS[this.density];
     this._builtAt.copy(playerPos);
+    this._fillT = performance.now();
+    this._pendingFill = false;
     this._versions.clear();
     for (const layer of Object.values(this.layers)) layer.count = 0;
     const { tuft, cross, reed, pad } = this.layers;
@@ -352,7 +382,11 @@ export class GrassField {
     const r = this.radius;
     const now = performance.now() / 1000;
     const cleared = this.cleared;
-    if (cleared.size) for (const [k, t] of cleared) if (t < now) cleared.delete(k);
+    // (expired patches are swept at most once a second: the map can hold thousands)
+    if (cleared.size && now >= (this._expireT ?? 0)) {
+      this._expireT = now + 1;
+      for (const [k, t] of cleared) if (t < now) cleared.delete(k);
+    }
     for (const chunk of chunks) {
       this._versions.set(chunk, chunk.meshCount || 0);
       const spots = this._spots(chunk);
@@ -364,7 +398,7 @@ export class GrassField {
         const dz = z + 0.5 - playerPos.z;
         const d = Math.sqrt(dx * dx + dz * dz);
         if (d > r) continue;
-        if (cleared.size && cleared.has(`${x},${z}`)) continue;
+        if (cleared.size && (cleared.get(_key(x, z)) ?? 0) >= now) continue;
         // Thinner toward the edge (the shader also shrinks what's left).
         const t = Math.min(1, Math.max(0, (d - r * 0.45) / (r * 0.55)));
         const keep = 1 - t * t * (3 - 2 * t);

@@ -119,6 +119,19 @@ export class SupplyCrates {
     canopy.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     this._canopyGeo = canopy;
     this._canopyMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    // Cords: from each lifting eye on the crate up to two points on the
+    // canopy's rim (eight cords), so the crate hangs from the parachute.
+    // (The same for every crate: shared, nothing to dispose per crate.)
+    const pts = [];
+    EYES.forEach(([ex, ez]) => {
+      for (const da of [-1, 1]) {
+        const ang = Math.atan2(ez, ex) + da * 0.4;
+        pts.push(ex, 0.74, ez, Math.cos(ang) * RIM_R, RIM_Y, Math.sin(ang) * RIM_R);
+      }
+    });
+    this._cordGeo = new THREE.BufferGeometry();
+    this._cordGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    this._cordMat = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
   }
 
   get active() {
@@ -148,18 +161,7 @@ export class SupplyCrates {
     const canopy = new THREE.Mesh(this._canopyGeo, this._canopyMat);
     canopy.position.y = CANOPY_Y;
     group.add(box, canopy);
-    // Cords: from each lifting eye on the crate up to two points on the
-    // canopy's rim (eight cords), so the crate hangs from the parachute.
-    const pts = [];
-    EYES.forEach(([ex, ez], i) => {
-      for (const da of [-1, 1]) {
-        const ang = Math.atan2(ez, ex) + da * 0.4;
-        pts.push(ex, 0.74, ez, Math.cos(ang) * RIM_R, RIM_Y, Math.sin(ang) * RIM_R);
-      }
-    });
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    const cords = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2a2a2a }));
+    const cords = new THREE.LineSegments(this._cordGeo, this._cordMat);
     cords.name = "cords";
     group.add(cords);
     group.position.set(x, y, z);
@@ -171,7 +173,7 @@ export class SupplyCrates {
     const me = this.player.position;
     if (Math.hypot(me.x - x, me.z - z) < 260) {
       this.onMessage?.("SUPPLY CRATE dropping nearby! Follow the orange smoke.");
-      this.audio?.playSupply?.();
+      this.audio?.playSupplyDrop?.();
     }
     if (!opts.net) this.onDropped?.(crate);
     return crate;
@@ -294,7 +296,7 @@ export class SupplyCrates {
     // A burst of light and sparks; the items go straight into the inventory
     // (or fall at your feet if it is full).
     for (let i = 0; i < 14; i++) this.effects.glow.spawn({ x: c.pos.x, y: c.pos.y + 0.8, z: c.pos.z, vx: (Math.random() - 0.5) * 8, vy: 2 + Math.random() * 6, vz: (Math.random() - 0.5) * 8, life: 0.6, size0: 0.5, size1: 0.1, color0: this._smoke[0], gravity: 0.8, drag: 1 });
-    this.audio?.playCrate?.();
+    this.audio?.playCrateLand?.();
     const names = [];
     for (const [id, n] of loot) {
       const left = this.inventory.add(id, n);

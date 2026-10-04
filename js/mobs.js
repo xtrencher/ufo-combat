@@ -118,7 +118,7 @@ export const SPECIES = {
   // logic runs since they have no `sight`.
   villager: {
     name: "Villager", hostile: false, health: 10, r: 0.3, h: 1.85, eye: 1.6,
-    speed: 0.9, fleeSpeed: 2, maxDrop: 0, weight: 0,
+    speed: 0.9, fleeSpeed: 2, maxDrop: 1, weight: 0,
     drops: [],
   },
   // Flying/swimming ambient critters: no combat AI (see _thinkFly), spawned
@@ -278,6 +278,12 @@ export class MobManager {
     this._flashColor = new THREE.Color();
     this._c0 = new THREE.Color();
     this._c1 = new THREE.Color();
+    // (particles keep their colours by reference, so each effect has its own)
+    this._smokeGrey = new THREE.Color(0.85, 0.85, 0.85);
+    this._smokeGrey2 = new THREE.Color(0.5, 0.5, 0.5);
+    this._critC = new THREE.Color(3, 2.4, 0.9);
+    this._burnC = new THREE.Color(3.2, 1.2, 0.25);
+    this._burnC2 = new THREE.Color(0.6, 0.12, 0.02);
   }
 
   get count() {
@@ -286,7 +292,15 @@ export class MobManager {
 
   countOf(hostile) {
     let n = 0;
-    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile && m.kind !== "zombie") n++;
+    // (Guards and aliens are special: they do not take up the skeleton/spider cap.)
+    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile && m.kind !== "zombie" && !m.spec.special) n++;
+    return n;
+  }
+
+  // Land animals only, for the passive cap (flyers and villagers have caps of their own).
+  countAnimals() {
+    let n = 0;
+    for (const m of this.mobs) if (!m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager") n++;
     return n;
   }
 
@@ -423,7 +437,7 @@ export class MobManager {
     return this.targets && this.player !== this.localPlayer ? Math.min(max, REMOTE_REACH) : max;
   }
 
-  _trySpawnPassive(minDist, maxDist, room = MAX_PASSIVE - this.countOf(false)) {
+  _trySpawnPassive(minDist, maxDist, room = MAX_PASSIVE - this.countAnimals()) {
     if (room <= 0) return 0;
     const p = this.player.position;
     const a = Math.random() * Math.PI * 2;
@@ -584,6 +598,7 @@ export class MobManager {
       if (m.pos.y + m.spec.h >= topY) {
         took.push(m);
         this._abductFx(m);
+        if (m.leaderDrop) this.onLeaderDown?.(m); // (its weapon is not lost with it)
         this._remove(i);
       }
     }
@@ -593,7 +608,7 @@ export class MobManager {
   // One step of a creature held by a UFO: it rises to the ship (drifting to
   // the middle of its beam) and disappears inside. If the ship is shot down,
   // or leaves, it disappears at once (never a fall). True while it is held.
-  _abductStep(m, i, dt) {
+  _abductStep(m, i, dt, drawDist, crowdDist) {
     const u = m.abductedBy;
     const gone = !u || u.falling || u.state === "gone" || u.state === "leave";
     const under = u ? u.pos.y - (u.info?.bottom ?? 0) * (u.radius ?? 1) : 0;
@@ -610,11 +625,13 @@ export class MobManager {
       m.stagger = 1;
       m.walk = 0.8;
       m.walkPhase += dt * 9;
-      this._place(m);
+      // (Light and the crowd too: a far zombie, drawn in the crowd, was not drawn at all.)
+      this._afterMove(m, drawDist, crowdDist);
     }
     if (gone || m.pos.y + m.spec.h >= under - 0.3) {
       this._abductFx(m);
       if (u && !gone) u.abductDone = true;
+      if (m.leaderDrop && !m.net) this.onLeaderDown?.(m);
       this._remove(i);
     }
     return true;
@@ -629,8 +646,9 @@ export class MobManager {
 
   // Lowering the zombie cap removes the farthest zombies over it.
   trimZombies() {
+    if (this.puppets) return; // (a guest: the host trims its zombies and its erem removes them here)
     const p = this.player.position;
-    const zombies = this.mobs.filter((m) => m.kind === "zombie" && !m.dead).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
+    const zombies = this.mobs.filter((m) => m.kind === "zombie" && !m.dead && !m.net).sort((a, b) => b.pos.distanceToSquared(p) - a.pos.distanceToSquared(p));
     for (let k = 0; k < zombies.length - this.zombies.max; k++) this._remove(this.mobs.indexOf(zombies[k]));
   }
 
@@ -661,7 +679,7 @@ export class MobManager {
     if (!this._seeded && this._chunkReady(this.player.position.x, this.player.position.z)) {
       // Start the world with some animals around.
       this._seeded = true;
-      for (let i = 0; i < 40 && this.countOf(false) < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countOf(false));
+      for (let i = 0; i < 40 && this.countAnimals() < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countAnimals());
     }
     // Zombies: their own rate (a setting, up to an apocalypse) and cap.
     // (Online they spawn around every player, on the host only.)
@@ -684,7 +702,7 @@ export class MobManager {
     const zombieCount = this.countKind("zombie");
     if (this.mobs.length - zombieCount >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
     const passiveCap = MAX_PASSIVE * (this.targets ? Math.min(3, this.targets().length) : 1);
-    if (this.countOf(false) < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countOf(false)));
+    if (this.countAnimals() < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countAnimals()));
     if (this.countOf(true) < MAX_HOSTILE * (this.targets ? Math.min(3, this.targets().length) : 1) && this.hostileSpawning !== false && !this.puppets && Math.random() < 0.67) this._aroundAnyone(() => this._trySpawnHostile());
     this._aroundAnyone(() => this._trySpawnVillagers());
     if (Math.random() < 0.4) this._trySpawnFlyers();
@@ -836,7 +854,7 @@ export class MobManager {
       if (m.spec.sentry) {
         const z = m.zone;
         if (z && !this.player.dead && !this.player.creative && Math.hypot(p.x - z.x, p.z - z.z) < z.r && Math.abs(p.y - m.pos.y) < 40) {
-          if (!m.alerted) this.alarm(m, 60);
+          if (!m.alerted) this.alarm(m, 60, this.player);
           m.alertT = 25;
         } else m.alertT = (m.alertT ?? 0) - dt;
         if (m.alertT <= 0) m.alerted = false;
@@ -932,8 +950,9 @@ export class MobManager {
         speed = m.spec.speed;
       } else if (ai.timer <= 0) {
         ai.timer = 3 + Math.random() * 4;
-        ai.dirX = Math.sin(Math.random() * Math.PI * 2);
-        ai.dirZ = Math.cos(Math.random() * Math.PI * 2);
+        const a = Math.random() * Math.PI * 2;
+        ai.dirX = Math.sin(a);
+        ai.dirZ = Math.cos(a);
       }
       lookAtPlayer = distH < 12;
     } else if (!ai.target) {
@@ -998,6 +1017,8 @@ export class MobManager {
 
     // Head and body orientation.
     let moveYaw = speed > 0 ? Math.atan2(goalX, goalZ) : m.yaw;
+    // (A guard standing watch turns to look the way he picked.)
+    if (speed === 0 && !ai.target && m.spec.sentry && m.post) moveYaw = Math.atan2(ai.dirX, ai.dirZ);
     if (faceTarget && !this.player.dead) moveYaw = Math.atan2(dx, dz);
     const turnRate = faceTarget ? 9 : 6;
     m.yaw += THREE.MathUtils.clamp(angleDiff(moveYaw, m.yaw), -turnRate * dt, turnRate * dt);
@@ -1116,11 +1137,11 @@ export class MobManager {
   }
 
   // Raises the alarm among the posted guards around `m`: they fight for a while.
-  alarm(m, radius = 45) {
+  alarm(m, radius = 45, who = null) {
     for (const o of this.mobs) {
       if (o.dead || !o.spec.sentry) continue;
       if (o !== m && o.pos.distanceTo(m.pos) > radius) continue;
-      if (!o.alerted) this.onAlarm?.(o);
+      if (!o.alerted) this.onAlarm?.(o, who);
       o.alerted = true;
       o.alertT = 25;
     }
@@ -1138,6 +1159,8 @@ export class MobManager {
     m.alerted = false;
     m.alertT = 0;
     m.yaw = Math.random() * Math.PI * 2;
+    m.ai.dirX = Math.sin(m.yaw);
+    m.ai.dirZ = Math.cos(m.yaw);
     return m;
   }
 
@@ -1154,6 +1177,7 @@ export class MobManager {
       const cell = this.paths.groundCell(x, P.y, z, Math.ceil(m.spec.h), false);
       if (!cell) continue;
       if (!this._rayClear(cell[0] + 0.5, cell[1] + m.spec.eye - 0.1, cell[2] + 0.5, P.x, P.y + 1.1, P.z)) continue;
+      const heard = this._audioDist(m) < 30;
       this._abductFx(m);
       m.pos.set(cell[0] + 0.5, cell[1], cell[2] + 0.5);
       m.vel.set(0, 0, 0);
@@ -1162,7 +1186,7 @@ export class MobManager {
       m.ai.los = true;
       m.ai.losT = this.time + 0.3;
       this._abductFx(m);
-      this.audio?.playTeleport?.();
+      if (heard || this._audioDist(m) < 30) this.audio?.playTeleport?.();
       return true;
     }
     return false;
@@ -1203,11 +1227,16 @@ export class MobManager {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
     }
-    this.audio.playMob(m.kind, "attack", this._distTo(m));
+    this.audio.playMob(m.kind, "attack", this._audioDist(m));
   }
 
   _distTo(m) {
     return m.pos.distanceTo(this.player.position);
+  }
+
+  // For sounds: from this machine's player (online, this.player may be a guest's proxy).
+  _audioDist(m) {
+    return m.pos.distanceTo(this.localPlayer.position);
   }
 
   // ---------- Ranged combat (skeleton arrows) ----------
@@ -1235,16 +1264,28 @@ export class MobManager {
     // The arrow leaves the bow (held out in the left hand), aimed from there.
     const guess = new THREE.Vector3(dx, dy + 0.9 - m.spec.eye, dz).normalize();
     const start = this._muzzle(m, guess);
-    const vdx = m.pos.x + dx - start.x;
-    const vdz = m.pos.z + dz - start.z;
-    const vdy = m.pos.y + dy + 0.9 - start.y;
+    let vdx = m.pos.x + dx - start.x;
+    let vdz = m.pos.z + dz - start.z;
+    let vdy = m.pos.y + dy + 0.9 - start.y;
     const dist = Math.hypot(vdx, vdy, vdz) || 1;
     const t = dist / ARROW_SPEED;
-    // Aims a little high to help compensate for the drop over the flight. The
-    // flight time is not floored: the drop grows with t squared, so at point
-    // blank (t ~ 0.1 s) there is next to no lift (a floor of 0.35 s used to
-    // send the arrow a block and a half over the player's head).
-    const riseComp = -0.5 * ARROW_GRAVITY * t * Math.min(t, 1) * 0.55;
+    // A little scatter, wider the farther the shot (about a body width at 15
+    // blocks): close shots land, long ones sometimes miss.
+    const spread = 0.04 * dist;
+    const sa = Math.random() * Math.PI * 2;
+    const sr = Math.sqrt(Math.random()) * spread;
+    const hd = Math.hypot(vdx, vdz) || 1;
+    const side = Math.cos(sa) * sr; // (sideways, across the line of fire)
+    const px = -vdz / hd;
+    const pz = vdx / hd;
+    vdx += px * side;
+    vdz += pz * side;
+    vdy += Math.sin(sa) * sr * 0.7;
+    // Aimed high by the drop over the flight (it grows with t squared, so at
+    // point blank, t ~ 0.1 s, there is next to no lift). (Fix: only 55% of
+    // the drop was made up, so from about 10 blocks on every arrow landed at
+    // the player's feet, though skeletons shoot from up to 22.)
+    const riseComp = -0.5 * ARROW_GRAVITY * t * t;
     const dir = new THREE.Vector3(vdx, vdy + riseComp, vdz).normalize();
     // (Inside a wall at point blank: from the archer's eyes instead.)
     if (IS_SOLID[this.world.getBlock(Math.floor(start.x), Math.floor(start.y), Math.floor(start.z))]) start.set(m.pos.x, m.pos.y + m.spec.eye, m.pos.z).addScaledVector(dir, m.spec.r + 0.3);
@@ -1255,7 +1296,7 @@ export class MobManager {
     bindEntityLight(mesh, () => a.light);
     mesh.position.copy(start);
     this.arrows.push(a);
-    this.audio.playSwing?.();
+    if (this._audioDist(m) < 30) this.audio.playSwing?.();
   }
 
   // Aliens: a laser bolt at the player's chest (or the vehicle the player
@@ -1314,18 +1355,31 @@ export class MobManager {
 
   // Whether the player's body is hit somewhere along the arrow's step this
   // frame; returns the distance along the step, or null.
+  // Where along this frame's flight (0..maxDist) the arrow enters the
+  // player's body box, or null. (Exact: a slow frame's long step used to be
+  // sampled at four points, which skipped right past a 0.7-wide body.)
   _arrowHitsPlayer(pos, dir, maxDist) {
     if (this.player.dead || this.player.creative) return null;
     const p = this.player.position;
-    const samples = 4;
-    for (let s = 1; s <= samples; s++) {
-      const t = (maxDist * s) / samples;
-      const x = pos.x + dir.x * t;
-      const y = pos.y + dir.y * t;
-      const z = pos.z + dir.z * t;
-      if (Math.abs(x - p.x) < 0.35 && Math.abs(z - p.z) < 0.35 && y > p.y - 0.1 && y < p.y + 1.9) return t;
+    let t0 = 0;
+    let t1 = maxDist;
+    const o = [pos.x, pos.y, pos.z];
+    const d = [dir.x, dir.y, dir.z];
+    const lo = [p.x - 0.35, p.y - 0.1, p.z - 0.35];
+    const hi = [p.x + 0.35, p.y + 1.9, p.z + 0.35];
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(d[k]) < 1e-9) {
+        if (o[k] < lo[k] || o[k] > hi[k]) return null;
+        continue;
+      }
+      let a = (lo[k] - o[k]) / d[k];
+      let b = (hi[k] - o[k]) / d[k];
+      if (a > b) [a, b] = [b, a];
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return null;
     }
-    return null;
+    return t0;
   }
 
   _updateArrows(dt) {
@@ -1514,9 +1568,9 @@ export class MobManager {
     } else if (m.inWater) {
       m.vel.y += (waterBody ? 16 : -12) * dt;
       m.vel.y = THREE.MathUtils.clamp(m.vel.y, -3, 2.4);
-    } else if (spec.climbs && m.blocked && speed > 0 && !m.onGround) {
-      // Pressed against a wall while trying to move: climb it instead of
-      // falling (m.blocked is last frame's result, so this lags one frame
+    } else if (spec.climbs && m.blocked && speed > 0) {
+      // Pressed against a wall while trying to move: climb it, from the
+      // ground too, instead of falling (m.blocked is last frame's result, so this lags one frame
       // behind actually touching the wall, close enough for a spider).
       m.vel.y = 3.4;
     } else {
@@ -1623,7 +1677,7 @@ export class MobManager {
       m.hurtTime = 0;
       m.invulnerable = MOB_INVULNERABLE;
       this.onPuppetHit?.(m, amount, dir, kb, byPlayer);
-      this.audio.playMob(m.kind, "hurt", this._distTo(m));
+      this.audio.playMob(m.kind, "hurt", this._audioDist(m));
       return true;
     }
     if (byPlayer) {
@@ -1632,7 +1686,7 @@ export class MobManager {
       // Hit by the player: a spider is provoked (they are neutral in daylight
       // otherwise); a guard (and the guards near him) raise the alarm.
       if (m.kind === "spider") m.provokedT = 30;
-      if (m.spec.sentry) this.alarm(m, 40);
+      if (m.spec.sentry) this.alarm(m, 40, this.player);
     }
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
@@ -1648,7 +1702,7 @@ export class MobManager {
       m.knock.z += dir.z * kb;
       m.vel.y = Math.max(m.vel.y, Math.min(4.2, kb * 0.8));
     }
-    const dist = this._distTo(m);
+    const dist = this._audioDist(m);
     if (m.health <= 0) {
       m.dead = true;
       m.deathTime = 0;
@@ -1677,8 +1731,8 @@ export class MobManager {
     const m = this.mobs[i];
     const c = m.pos;
     // A puff of smoke, then the drops.
-    const grey = this._c0.setRGB(0.85, 0.85, 0.85);
-    const grey2 = this._c1.setRGB(0.5, 0.5, 0.5);
+    const grey = this._smokeGrey;
+    const grey2 = this._smokeGrey2;
     for (let k = 0; k < 10; k++) {
       this.effects.smoke.spawn({
         x: c.x + (Math.random() - 0.5) * m.spec.r * 2,
@@ -1757,8 +1811,14 @@ export class MobManager {
     let best = null;
     const min = this._rmin || (this._rmin = new THREE.Vector3());
     const max = this._rmax || (this._rmax = new THREE.Vector3());
+    // (a cheap reject first: the segment's midpoint and half-length; laser
+    // bolts ask about every creature every frame)
+    const R = (reach * Math.hypot(dir.x, dir.y, dir.z)) / 2;
+    const cx = origin.x + dir.x * reach / 2, cy = origin.y + dir.y * reach / 2, cz = origin.z + dir.z * reach / 2;
     for (const m of this.mobs) {
       if (m.dead || (filter && !filter(m))) continue;
+      const dx = m.pos.x - cx, dz = m.pos.z - cz, lim = R + m.spec.r * 1.5 + 1;
+      if (dx * dx + dz * dz > lim * lim || m.pos.y + m.spec.h + 1 < cy - R || m.pos.y - 1 > cy + R) continue;
       const r = m.spec.r + 0.08;
       min.set(m.pos.x - r, m.pos.y, m.pos.z - r);
       max.set(m.pos.x + r, m.pos.y + m.spec.h + 0.05, m.pos.z + r);
@@ -1792,7 +1852,7 @@ export class MobManager {
   }
 
   _critSparks(m) {
-    const c = this._c0.setRGB(3, 2.4, 0.9);
+    const c = this._critC;
     for (let i = 0; i < 12; i++) {
       this.effects.glow.spawn({
         x: m.pos.x, y: m.pos.y + m.spec.h * 0.7, z: m.pos.z,
@@ -1887,7 +1947,7 @@ export class MobManager {
           return;
         }
       } else {
-        if (m.abductedBy && this._abductStep(m, i, dt)) return;
+        if (m.abductedBy && this._abductStep(m, i, dt, drawDist, crowdDist)) return;
         // Held in another player's tractor beam (online, Round 9): it rises to
         // their ship like under this player's own beam; aboard, it is theirs.
         if (m.remoteBeam) {
@@ -1901,6 +1961,7 @@ export class MobManager {
             if (m.pos.y + m.spec.h >= rb.topY) {
               this._abductFx(m);
               this.onRemoteAbduct?.(m, rb.by);
+              if (m.leaderDrop && !m.net) this.onLeaderDown?.(m);
               this._remove(i);
               return;
             }
@@ -1912,6 +1973,7 @@ export class MobManager {
         const keep = m.persist || m.missionTarget;
         const loaded = !!this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4);
         if (keep && !loaded && m.pos.y >= -10) {
+          m.knock.set(0, 0, 0); // (_separate still pushes frozen mobs; never let it build up)
           this._place(m);
           return;
         }
@@ -1961,7 +2023,9 @@ export class MobManager {
       m.model.root.visible = !crowd;
     }
     if (crowd) {
-      const bright = Math.max(l.block / 15, (l.sky / 15) * (0.25 + 0.75 * this.sky.daylight));
+      // (Sky light as is: the crowd's shader already dims it at night, as for
+      // the full models; dimmed here too, they went dark at the hand-over.)
+      const bright = Math.max(l.block / 15, l.sky / 15);
       const hurt = Math.max(0, 1 - m.hurtTime / 0.3);
       if (!this.crowd.add(m.pos, m.yaw, m.walk > 0.2 ? m.walkPhase : Math.PI / 2, 0.35 + bright * 0.65, hurt)) {
         m.crowd = false; // crowd full: draw it normally
@@ -1977,7 +2041,7 @@ export class MobManager {
     m.soundTimer -= dt;
     if (m.soundTimer > 0) return;
     m.soundTimer = (m.spec.hostile ? 4 : 7) + Math.random() * 9;
-    const d = this._distTo(m);
+    const d = this._audioDist(m);
     if (d < 24) this.audio.playMob(m.kind, "idle", d);
   }
 
@@ -1992,8 +2056,8 @@ export class MobManager {
       this._hurt(m, 2, null, 0);
     }
     if (Math.random() < dt * 14) {
-      const c = this._c0.setRGB(3.2, 1.2, 0.25);
-      const c2 = this._c1.setRGB(0.6, 0.12, 0.02);
+      const c = this._burnC;
+      const c2 = this._burnC2;
       this.effects.glow.spawn({
         x: m.pos.x + (Math.random() - 0.5) * 0.5, y: m.pos.y + Math.random() * m.spec.h, z: m.pos.z + (Math.random() - 0.5) * 0.5,
         vy: 1 + Math.random(), life: 0.5, size0: 0.35, size1: 0.1, color0: c, color1: c2,

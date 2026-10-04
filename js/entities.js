@@ -141,11 +141,22 @@ export class ItemEntities {
       if (this._solid(p.x, p.y + 0.05, nz + Math.sign(it.vel.z) * SIZE)) it.vel.z *= -0.3;
       else p.z = nz;
       const ny = p.y + it.vel.y * dt;
-      if (it.vel.y <= 0 && this._solid(p.x, ny, p.z)) {
-        p.y = Math.floor(ny) + 1;
-        it.vel.y = 0;
-        it.onGround = true;
-      } else if (it.vel.y > 0 && this._solid(p.x, ny + SIZE * 2, p.z)) {
+      if (it.vel.y <= 0) {
+        // (Every cell passed, not just the one landed in: at 30 blocks/s a
+        // slow frame moves more than a block, through a thin roof.)
+        let land = null;
+        for (let c = Math.floor(p.y); c >= Math.floor(ny); c--) {
+          if (this._solid(p.x, c + 0.5, p.z)) {
+            land = c + 1;
+            break;
+          }
+        }
+        if (land !== null) {
+          p.y = land;
+          it.vel.y = 0;
+          it.onGround = true;
+        } else p.y = ny;
+      } else if (this._solid(p.x, ny + SIZE * 2, p.z)) {
         it.vel.y = 0;
       } else {
         p.y = ny;

@@ -137,6 +137,7 @@ export const GFX_OPTIONS = {
     get: (p) => String(p.post ? p.msaa : 0),
     apply: (p, v) => {
       p.msaa = Number(v) || 0;
+      if (p.msaa > 0) p.post = true; // (MSAA lives in the post-processing target)
     },
   },
   bloom: {

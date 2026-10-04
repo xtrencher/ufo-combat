@@ -328,6 +328,7 @@ export class DistantStructures {
         m.mesh.geometry.dispose();
       }
       e.meshes = [];
+      e.built = false;
       if (!w) {
         if (e.lights) {
           this.group.remove(e.lights);
@@ -339,8 +340,12 @@ export class DistantStructures {
     }
     for (const [id, w] of want) {
       let e = this.entries.get(id);
-      if (!e) this.entries.set(id, (e = { meshes: [], lights: null, x: w.o.x, z: w.o.z, reach: (w.o.half || 0) + 120 }));
-      if (w.shapes && !e.meshes.length) e.meshes = this._meshes(w.kind === "site" ? this._buildSite(w.o) : this._buildVillage(w.o));
+      if (!e) this.entries.set(id, (e = { meshes: [], lights: null, built: false, x: w.o.x, z: w.o.z, reach: (w.o.half || 0) + 120 }));
+      // (built once: one with no shapes at all, say inside a blast zone, is not rebuilt every refresh)
+      if (w.shapes && !e.built) {
+        e.meshes = this._meshes(w.kind === "site" ? this._buildSite(w.o) : this._buildVillage(w.o));
+        e.built = true;
+      }
       if (w.lights && !e.lights) e.lights = this._buildLights(w.o);
     }
   }

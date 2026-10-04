@@ -93,8 +93,8 @@ const SNIPER_ZOOM_FOV = 15;
 const AIRSTRIKE_AIM_RANGE = 500;
 
 // Laser blaster (the "laser pistol"): short glowing bolts, one per click (held:
-// about 4.5 per second, for as long as you like: no magazine, no reload). It is
-// weaker than the pistol: 3 a bolt against the pistol's 5.
+// about 4.5 per second, for as long as you like: no magazine, no reload). 6 a
+// bolt (~27/s): with no reload it out-damages the pistol in sustained fire.
 export const BLASTER_DAMAGE = 6;
 const BLASTER_SPEED = 130;
 const BLASTER_RANGE = 240;
@@ -135,7 +135,7 @@ export class WeaponSystem {
     this.charging = false;
     this.chargeTime = 0;
     // One cooldown per weapon: they never block each other.
-    this._cooldowns = { grenade: 0, pistol: 0, bazooka: 0, airstrike: 0, blaster: 0, railgun: 0 };
+    this._cooldowns = { grenade: 0, pistol: 0, bazooka: 0, airstrike: 0, blaster: 0, railgun: 0, machinegun: 0 };
     this._queued = null; // a pistol/bazooka click that came in during the cooldown
     this._blasterFiring = false;
     this.blasterColor = "red";
@@ -167,6 +167,7 @@ export class WeaponSystem {
     this.bow = { drawing: false, t: 0 };
     this.arrows = [];
     this.onMessage = null; // (text) => void: a short HUD notice
+    this.onHit = null; // () => void: a gun, rail or arrow hit a creature (the HUD's hit marker)
     // Bazooka lock-on: { target, progress, locked }.
     this.lock = { held: false, target: null, progress: 0, locked: false, scanT: 0, beepT: 0 };
     this.getLockables = null; // () => [{ pos, vel, radius, ref, alive() }] (UFOs, creatures, vehicles)
@@ -327,6 +328,14 @@ export class WeaponSystem {
       case "machinegun":
         if (!this._ready("machinegun")) return;
         this._mgFiring = true;
+        // (the first round goes at once: a quick click can be released
+        // before update() sees the trigger held)
+        if ((cd.machinegun ?? 0) <= 0) {
+          this._spend("machinegun");
+          this.fireMachineGun();
+          cd.machinegun = 1 / MACHINEGUN_RATE;
+          this._mgTimer = 1 / MACHINEGUN_RATE;
+        } else this._mgTimer = cd.machinegun;
         return;
       case "sniper":
         this.scoped = !this.scoped;
@@ -478,7 +487,7 @@ export class WeaponSystem {
     const endPoint = eye.clone().addScaledVector(dir, dist);
     this._spawnTracer(muzzle, endPoint);
     if (isMob) {
-      this.mobs.shoot(mobHit.mob, SNIPER_DAMAGE, dir, 6);
+      if (this.mobs.shoot(mobHit.mob, SNIPER_DAMAGE, dir, 6)) this.onHit?.();
       this._burst(endPoint, dir.clone().negate(), this._c.blood, 12, 4.5);
       return { type: "mob", mob: mobHit.mob, point: endPoint };
     }
@@ -521,7 +530,7 @@ export class WeaponSystem {
     const endPoint = eye.clone().addScaledVector(dir, dist);
     this._spawnTracer(muzzle, endPoint);
     if (isMob) {
-      this.mobs.shoot(mobHit.mob, MACHINEGUN_DAMAGE, dir, 2);
+      if (this.mobs.shoot(mobHit.mob, MACHINEGUN_DAMAGE, dir, 2)) this.onHit?.();
       this._burst(endPoint, dir.clone().negate(), this._c.blood, 5, 2.5);
       return;
     }
@@ -895,7 +904,7 @@ export class WeaponSystem {
     r.light = this.world.lightAt(r.pos.x, r.pos.y, r.pos.z);
     // Keeps flying over distant/unloaded terrain (its raycast above already
     // hit-tests the height map out there) rather than vanishing unexploded.
-    if (r.age > ROCKET_LIFE || r.pos.y < -20 || r.pos.y > 300) return false;
+    if (r.age > ROCKET_LIFE || r.pos.y < -20) return false; // (no ceiling: its life bounds it, also fired from high up)
     return null;
   }
 
@@ -987,7 +996,11 @@ export class WeaponSystem {
     const R2 = R * R;
     const ri = Math.ceil(R);
     const step = 0.9;
-    for (let d = 0; d < range; d += step) {
+    // (fired from above the world, the march starts where the beam comes down
+    // into it, so the break below only means leaving the world)
+    let d0 = 0;
+    if (eye.y > WORLD_HEIGHT + 4) d0 = dir.y < -1e-4 ? (eye.y - (WORLD_HEIGHT + 3.99)) / -dir.y : range;
+    for (let d = d0; d < range; d += step) {
       const cx = eye.x + dir.x * d;
       const cy = eye.y + dir.y * d;
       const cz = eye.z + dir.z * d;
@@ -1040,7 +1053,7 @@ export class WeaponSystem {
       if (!h) break;
       seen.add(h.mob);
       const at = eye.clone().addScaledVector(dir, h.distance);
-      this.mobs.shoot(h.mob, RAIL_DAMAGE, dir, 14);
+      if (this.mobs.shoot(h.mob, RAIL_DAMAGE, dir, 14)) this.onHit?.();
       this._burst(at, dir.clone().negate(), this._c.blood, 10, 4);
     }
     // UFOs, vehicles and other piercable things.
@@ -1195,7 +1208,7 @@ export class WeaponSystem {
         continue;
       }
       if (mobHit) {
-        this.mobs.shoot(mobHit.mob, dmg, dir, 2 + a.power * 2);
+        if (this.mobs.shoot(mobHit.mob, dmg, dir, 2 + a.power * 2)) this.onHit?.();
         this._burst(a.pos.clone().addScaledVector(dir, mobHit.distance), dir.clone().negate(), this._c.blood, 5, 2.5);
         this.audio.playArrowHit?.(0);
         this.scene.remove(a.mesh);
@@ -1253,7 +1266,7 @@ export class WeaponSystem {
         const dot = (dx * fwd.x + dy * fwd.y + dz * fwd.z) / dist;
         if (dot < 0.9) continue;
         const ang = Math.acos(Math.min(1, dot)) - Math.atan((t.radius || 1) / dist);
-        const score = Math.max(0, ang) + (t === l.target ? -0.02 : 0);
+        const score = Math.max(0, ang) + (l.target && t.ref === l.target.ref ? -0.02 : 0); // (by referent: the list is new objects each scan)
         if (ang > LOCK_CONE) continue;
         if (score < bestScore) {
           // The target must be in the open, not behind a hill.
@@ -1381,6 +1394,8 @@ export class WeaponSystem {
         this._spend("machinegun");
         this.fireMachineGun();
       }
+      // (so a release and a quick re-press can't beat the rate)
+      this._cooldowns.machinegun = Math.max(0, this._mgTimer);
     } else {
       this._mgTimer = 0;
       this._mgHeat = Math.max(0, this._mgHeat - dt * 2.5);
@@ -1405,7 +1420,7 @@ export class WeaponSystem {
     this.airstrike.update(dt, this.effects.listener);
 
     // The laser sight tracks the aim point while the designator is held.
-    this._updateLaser(activeKind === "airstrike" && this.enabled);
+    this._updateLaser(activeKind === "airstrike" && this.enabled && !this.player.vehicle && !this.player.dead);
 
     // Tracer lines fade quickly.
     for (const t of this._tracers) {

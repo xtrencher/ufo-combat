@@ -70,6 +70,7 @@ export class Interp {
     this.snap = snap; // blocks: a jump this much beyond what the speed explains snaps
     this.lag = INTERP_DELAY; // how late states arrive (s), smoothed
     this.last = null; // the newest state
+    this.gap = 0; // seconds between states, smoothed
     this.out = {};
   }
 
@@ -87,6 +88,12 @@ export class Interp {
       this.buf.push(state);
       this.buf.sort((a, b) => a.ts - b.ts);
     } else {
+      // How far apart the states come (far creatures: a third as often).
+      // (A pause in the stream, e.g. an idle vehicle's, is not its rate.)
+      if (this.last) {
+        const g = ts - this.last.ts;
+        if (g < 0.35) this.gap = this.gap ? this.gap * 0.9 + g * 0.1 : g;
+      }
       this.buf.push(state);
       this.last = state;
     }
@@ -96,9 +103,10 @@ export class Interp {
     this.lag = late > this.lag ? this.lag * 0.6 + late * 0.4 : this.lag * 0.98 + late * 0.02;
   }
 
-  // The delay states are drawn behind the clock.
+  // The delay states are drawn behind the clock (always behind the next
+  // state to come: past the newest one a state without a velocity holds).
   get delay() {
-    return Math.min(0.6, Math.max(INTERP_DELAY, this.lag + 0.035));
+    return Math.min(0.6, Math.max(INTERP_DELAY, this.lag + 0.035, (this.gap || 0) * 1.2 + 0.02));
   }
 
   // The state to draw at host time `now` (null before the first one).

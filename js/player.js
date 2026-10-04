@@ -61,6 +61,7 @@ export class Player {
     this.health = MAX_HEALTH;
     this.absorption = 0; // golden half-hearts (golden apples): soaked up before health
     this.damageFilter = null; // (amount, cause, from) -> amount: the armor worn
+    this.armorWear = null; // (amount, cause): wears the armor, only for hits that land
     this.air = MAX_AIR;
     this.dead = false;
     this.hurtTime = 99; // seconds since the last damage (drives hurt effects)
@@ -145,12 +146,18 @@ export class Player {
     // The event's own timestamp, so a slow frame between two taps doesn't
     // break a double-tap.
     const now = (e.timeStamp || performance.now()) / 1000;
+    this.keys.add(e.code);
+    // Seated, W and Space are the vehicle's (it reads the held keys): no
+    // sprint or flight toggle, and a tap just before boarding pairs with nothing.
+    if (this.vehicle) {
+      this._lastWTime = this._lastSpaceTime = -10;
+      return;
+    }
     if (e.code === "KeyW" && !e.repeat) {
       // Double-tap W to sprint.
       if (now - this._lastWTime < DOUBLE_TAP_WINDOW) this.sprinting = true;
       this._lastWTime = now;
     }
-    this.keys.add(e.code);
     if (e.code === "Space" && !e.repeat) {
       if (this.creative && now - this._lastSpaceTime < DOUBLE_TAP_WINDOW) {
         this.flying = !this.flying;
@@ -200,7 +207,7 @@ export class Player {
     this.hurtTime = 99;
     this._deathTime = 0;
     this._invulnerable = 1.5;
-    this._lastDamage = 0;
+    this._lastDamage = Infinity; // (spawn protection: no hit but a projectile counts until it runs out)
     this._eyeOffset = 0;
     this._sinceDamage = 99;
     this.flying = false;
@@ -235,6 +242,7 @@ export class Player {
       amount = Math.max(1, Math.round(amount * this.mobDamageScale));
     }
     if (this.dead || this.creative || amount <= 0) return false;
+    const raw = amount;
     if (this.damageFilter && !pierce) {
       amount = this.damageFilter(amount, cause, from);
       if (amount <= 0) return false;
@@ -245,7 +253,9 @@ export class Player {
     let applied = amount;
     if (projectile) {
       // no grace time
-    } else if (this._invulnerable > 0) {
+    } else if (this._invulnerable > 0 && !pierce) {
+      // (A pierce, the vehicle destroyed with you inside or the beam's end,
+      // always lands: the spawn protection is no seat belt.)
       if (amount <= this._lastDamage) return false;
       applied = amount - this._lastDamage;
       this._lastDamage = amount;
@@ -253,6 +263,7 @@ export class Player {
       this._invulnerable = INVULNERABLE_TIME;
       this._lastDamage = amount;
     }
+    if (this.armorWear && !pierce) this.armorWear(raw, cause);
     if (this.absorption > 0) {
       const soak = Math.min(this.absorption, applied);
       this.absorption -= soak;

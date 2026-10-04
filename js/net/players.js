@@ -132,7 +132,14 @@ export class RemotePlayer {
     const extra = d > 40 ? `${d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d / 10) * 10} m`}` : "";
     const showHealth = !this.creative && !inVehicle && !this.dead && this.sync.mp.mode !== "dogfight";
     const hp = showHealth ? Math.round((this.health / MAX_HEALTH) * 20) / 20 : -1;
-    this.plate.set(this.nick, this.color, this.dead ? "(down)" : extra, hp);
+    // (A change of distance alone redraws the plate 4 times a second at most:
+    // each redraw re-uploads its texture, every frame for a fast jet.)
+    const text = this.dead ? "(down)" : extra;
+    const pl = this.plate;
+    if (text === pl.extra || pl.nick !== this.nick || pl.color !== this.color || pl.health !== hp || this.dead || now - (this._plateT ?? -9) > 0.25) {
+      if (text !== pl.extra) this._plateT = now;
+      pl.set(this.nick, this.color, text, hp);
+    }
     this.plate.place(px, py, pz, !this.dead || d < 200);
   }
 
@@ -140,9 +147,19 @@ export class RemotePlayer {
     const g = this.sync.game;
     g.scene.remove(this.avatar.root);
     this.plate.dispose();
+    // (Its own materials: the flash texture and the atlas are shared.)
+    const a = this.avatar;
+    a.materials.array.dispose();
+    a.materials.color.dispose();
+    a.flash.material.dispose();
     if (this.chute) {
       this.chute.close(null);
       g.scene.remove(this.chute.group);
+      const c = this.chute;
+      c.canopy.geometry.dispose();
+      c.canopy.material.dispose();
+      c.lines.geometry.dispose();
+      c.lines.material.dispose();
     }
   }
 }

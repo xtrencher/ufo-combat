@@ -129,7 +129,7 @@ export class Pathfinder {
     };
     while (heap.size && nodes < maxNodes) {
       const n = heap.pop();
-      if (n.closed) continue;
+      if (n.closed || best.get(key(n.x, n.y, n.z)) !== n) continue; // (stale: a cheaper node for this cell replaced it)
       n.closed = true;
       nodes++;
       if (isGoal(n)) {

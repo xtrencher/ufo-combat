@@ -7,11 +7,12 @@ import { LAYER_WATER } from "./layers.js";
 export { CHUNK_SIZE, WORLD_HEIGHT, blockIndex };
 
 export class Chunk {
-  constructor(cx, cz) {
+  // (blocks: already generated, e.g. by a worker: see world.js.)
+  constructor(cx, cz, blocks = null) {
     this.cx = cx;
     this.cz = cz;
     this.key = chunkKey(cx, cz);
-    this.blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+    this.blocks = blocks || new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     // High nibble: sky light, low nibble: block light (see light.js).
     this.light = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     this.generated = false;

@@ -1,13 +1,13 @@
 // Magazines, reloads and cooldowns of the hand weapons (pure data, shared by
 // weapons.js, the HUD and the tests). The laser blaster has none: it never
-// runs dry and can fire continuously (3 a bolt, weaker than the pistol).
+// runs dry and can fire continuously (6 a bolt, ~27/s: no magazine).
 // Balanced by damage: the harder a
 // weapon hits, the longer the wait. Sustained damage per second in
 // brackets (damage x shots in a magazine / (time to fire it + reload)).
 //   mag: shots before a reload; reload: seconds to reload (or recharge);
 //   heat / cool: seconds of fire before it overheats, seconds to cool.
 export const WEAPON_STATS = {
-  bow: { mag: 1, reload: 0.35, label: "Nocking" }, // 9 per full draw (~6.5/s)
+  bow: { mag: 1, reload: 0.35, label: "Nocking" }, // 10 per full draw (~7.4/s)
   pistol: { mag: 12, reload: 1.5, label: "Reloading" }, // 5 per shot (~15/s)
   machinegun: { mag: 30, reload: 2.2, label: "Reloading" }, // 3 x 12/s (~19/s)
   sniper: { mag: 1, reload: 1.8, label: "Reloading" }, // 34, one round (~19/s, at 400 blocks)

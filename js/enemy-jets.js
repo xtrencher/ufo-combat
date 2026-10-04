@@ -78,7 +78,11 @@ export class EnemyJet extends Jet {
     const ok = super.damage(amount, cause, byPlayer);
     if (ok && !this.alive && other) this.downedByOther = true;
     if (ok && this.alive && !other) {
-      if (this.provoked <= 0 && !this.hijacked) this.manager.onMessage?.("You attacked a patrol fighter: it's coming after you!");
+      // (The host's own hit: no attacker pid. It goes after the host now, not a
+      // guest who angered it before; a guest's claim sets its own foe.)
+      const byHost = this.manager.currentAttacker == null;
+      if (byHost && !this.hijacked) this._foe = null;
+      if (this.provoked <= 0 && !this.hijacked && byHost) this.manager.onMessage?.("You attacked a patrol fighter: it's coming after you!");
       this.provoked = HOSTILE_TIME;
       this.hunt.ufo = null;
     }
@@ -88,10 +92,11 @@ export class EnemyJet extends Jet {
   get cfg() {
     // A little faster than the player's jet at the same settings.
     const base = this.manager.config.jet || { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true };
-    if (this._cfgBase !== base || this._cfgMax !== base.maxSpeed || this._cfgAccel !== base.accel) {
+    if (this._cfgBase !== base || this._cfgMax !== base.maxSpeed || this._cfgAccel !== base.accel || this._cfgStall !== base.stallSpeed) {
       this._cfgBase = base;
       this._cfgMax = base.maxSpeed;
       this._cfgAccel = base.accel;
+      this._cfgStall = base.stallSpeed;
       this._cfg = { ...base, maxSpeed: Math.min(base.maxSpeed, 330) * SPEED, stallSpeed: base.stallSpeed ?? 42, turnRate: 1.05, accel: base.accel * 1.25, assist: true, aimAssist: true };
     }
     return this._cfg;
@@ -151,6 +156,8 @@ export class EnemyJet extends Jet {
       if (!v.missiles || v === this) continue;
       for (const m of v.missiles) if (m.target && m.target.ref === this && !m.hostile && m.pos.distanceTo(this.pos) < 900) threat = m;
     }
+    // (Online, on the host: a guest's missiles at this fighter are only remote projectiles here.)
+    if (!threat && mgr.remoteMissilesAt) for (const pos of mgr.remoteMissilesAt(`j:${this.id}`)) if (pos.distanceTo(this.pos) < 900) threat = { pos };
     this.warn = threat ? { dist: threat.pos.distanceTo(this.pos), kind: "missile" } : null;
     if (threat && ai.breakT <= 0) {
       ai.breakT = 2.6;
@@ -172,7 +179,9 @@ export class EnemyJet extends Jet {
     } else if (hostile) {
       const speed = Math.max(60, this.speed);
       const lead = dist / (speed + 100);
-      const lowTarget = P.pos.y < this.pos.y + 80;
+      // (On or near the ground: strafing runs. A foe in the air, at any height, gets a dogfight.)
+      const fv = this.foe.vehicle;
+      const lowTarget = !fv || fv.onGround || P.pos.y - mgr.groundBelow(P.pos.x, WORLD_HEIGHT, P.pos.z) < 30;
       const angle = _q2.copy(P.pos).sub(this.pos).normalize().angleTo(fwd); // to the target itself
       const aim = _w.copy(P.pos).addScaledVector(P.vel, lead * 0.6);
       const flat = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
@@ -228,7 +237,7 @@ export class EnemyJet extends Jet {
         ai.missileT = MISSILE_INTERVAL + Math.random() * 5;
         this.missileT = 1;
         this._launchMissile({ kind: "player", ref: this.foe }, { hostile: true });
-        mgr.onMessage?.("ENEMY MISSILE LAUNCH!");
+        if (this.foe === mgr.player) mgr.onMessage?.("ENEMY MISSILE LAUNCH!"); // (not when it's at a guest)
       }
     } else if (this._hunting(dt)) {
       // Hunting a UFO.

@@ -31,6 +31,8 @@ export class CrateSync {
   start() {
     const c = this.game.crates;
     if (!this._hooked) this._hook();
+    // (Kept for stop(): by then the session reads "offline" on the host too.)
+    this._host = this.net.isHost;
     if (this.net.isHost) {
       c.targets = () => this.mp.entities.targets();
       c.spawning = true;
@@ -44,8 +46,9 @@ export class CrateSync {
     const c = this.game.crates;
     c.targets = null;
     c.spawning = true;
-    // (A guest's copies of the host's crates go with the session.)
-    if (!this.net.isHost) c.clear();
+    // (A guest's copies of the host's crates go with the session; the host's own stay.)
+    if (!this._host) c.clear();
+    this._host = false;
   }
 
   _info(c) {
