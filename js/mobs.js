@@ -118,7 +118,7 @@ export const SPECIES = {
   // logic runs since they have no `sight`.
   villager: {
     name: "Villager", hostile: false, health: 10, r: 0.3, h: 1.85, eye: 1.6,
-    speed: 0.9, fleeSpeed: 2, maxDrop: 0, weight: 0,
+    speed: 0.9, fleeSpeed: 2, maxDrop: 1, weight: 0,
     drops: [],
   },
   // Flying/swimming ambient critters: no combat AI (see _thinkFly), spawned
@@ -286,7 +286,15 @@ export class MobManager {
 
   countOf(hostile) {
     let n = 0;
-    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile && m.kind !== "zombie") n++;
+    // (Guards and aliens are special: they do not take up the skeleton/spider cap.)
+    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile && m.kind !== "zombie" && !m.spec.special) n++;
+    return n;
+  }
+
+  // Land animals only, for the passive cap (flyers and villagers have caps of their own).
+  countAnimals() {
+    let n = 0;
+    for (const m of this.mobs) if (!m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager") n++;
     return n;
   }
 
@@ -423,7 +431,7 @@ export class MobManager {
     return this.targets && this.player !== this.localPlayer ? Math.min(max, REMOTE_REACH) : max;
   }
 
-  _trySpawnPassive(minDist, maxDist, room = MAX_PASSIVE - this.countOf(false)) {
+  _trySpawnPassive(minDist, maxDist, room = MAX_PASSIVE - this.countAnimals()) {
     if (room <= 0) return 0;
     const p = this.player.position;
     const a = Math.random() * Math.PI * 2;
@@ -584,6 +592,7 @@ export class MobManager {
       if (m.pos.y + m.spec.h >= topY) {
         took.push(m);
         this._abductFx(m);
+        if (m.leaderDrop) this.onLeaderDown?.(m); // (its weapon is not lost with it)
         this._remove(i);
       }
     }
@@ -615,6 +624,7 @@ export class MobManager {
     if (gone || m.pos.y + m.spec.h >= under - 0.3) {
       this._abductFx(m);
       if (u && !gone) u.abductDone = true;
+      if (m.leaderDrop && !m.net) this.onLeaderDown?.(m);
       this._remove(i);
     }
     return true;
@@ -661,7 +671,7 @@ export class MobManager {
     if (!this._seeded && this._chunkReady(this.player.position.x, this.player.position.z)) {
       // Start the world with some animals around.
       this._seeded = true;
-      for (let i = 0; i < 40 && this.countOf(false) < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countOf(false));
+      for (let i = 0; i < 40 && this.countAnimals() < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countAnimals());
     }
     // Zombies: their own rate (a setting, up to an apocalypse) and cap.
     // (Online they spawn around every player, on the host only.)
@@ -684,7 +694,7 @@ export class MobManager {
     const zombieCount = this.countKind("zombie");
     if (this.mobs.length - zombieCount >= MAX_TOTAL_MOBS) return; // an overall cap on top of the per-category ones
     const passiveCap = MAX_PASSIVE * (this.targets ? Math.min(3, this.targets().length) : 1);
-    if (this.countOf(false) < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countOf(false)));
+    if (this.countAnimals() < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countAnimals()));
     if (this.countOf(true) < MAX_HOSTILE * (this.targets ? Math.min(3, this.targets().length) : 1) && this.hostileSpawning !== false && !this.puppets && Math.random() < 0.67) this._aroundAnyone(() => this._trySpawnHostile());
     this._aroundAnyone(() => this._trySpawnVillagers());
     if (Math.random() < 0.4) this._trySpawnFlyers();
@@ -836,7 +846,7 @@ export class MobManager {
       if (m.spec.sentry) {
         const z = m.zone;
         if (z && !this.player.dead && !this.player.creative && Math.hypot(p.x - z.x, p.z - z.z) < z.r && Math.abs(p.y - m.pos.y) < 40) {
-          if (!m.alerted) this.alarm(m, 60);
+          if (!m.alerted) this.alarm(m, 60, this.player);
           m.alertT = 25;
         } else m.alertT = (m.alertT ?? 0) - dt;
         if (m.alertT <= 0) m.alerted = false;
@@ -932,8 +942,9 @@ export class MobManager {
         speed = m.spec.speed;
       } else if (ai.timer <= 0) {
         ai.timer = 3 + Math.random() * 4;
-        ai.dirX = Math.sin(Math.random() * Math.PI * 2);
-        ai.dirZ = Math.cos(Math.random() * Math.PI * 2);
+        const a = Math.random() * Math.PI * 2;
+        ai.dirX = Math.sin(a);
+        ai.dirZ = Math.cos(a);
       }
       lookAtPlayer = distH < 12;
     } else if (!ai.target) {
@@ -998,6 +1009,8 @@ export class MobManager {
 
     // Head and body orientation.
     let moveYaw = speed > 0 ? Math.atan2(goalX, goalZ) : m.yaw;
+    // (A guard standing watch turns to look the way he picked.)
+    if (speed === 0 && !ai.target && m.spec.sentry && m.post) moveYaw = Math.atan2(ai.dirX, ai.dirZ);
     if (faceTarget && !this.player.dead) moveYaw = Math.atan2(dx, dz);
     const turnRate = faceTarget ? 9 : 6;
     m.yaw += THREE.MathUtils.clamp(angleDiff(moveYaw, m.yaw), -turnRate * dt, turnRate * dt);
@@ -1116,11 +1129,11 @@ export class MobManager {
   }
 
   // Raises the alarm among the posted guards around `m`: they fight for a while.
-  alarm(m, radius = 45) {
+  alarm(m, radius = 45, who = null) {
     for (const o of this.mobs) {
       if (o.dead || !o.spec.sentry) continue;
       if (o !== m && o.pos.distanceTo(m.pos) > radius) continue;
-      if (!o.alerted) this.onAlarm?.(o);
+      if (!o.alerted) this.onAlarm?.(o, who);
       o.alerted = true;
       o.alertT = 25;
     }
@@ -1138,6 +1151,8 @@ export class MobManager {
     m.alerted = false;
     m.alertT = 0;
     m.yaw = Math.random() * Math.PI * 2;
+    m.ai.dirX = Math.sin(m.yaw);
+    m.ai.dirZ = Math.cos(m.yaw);
     return m;
   }
 
@@ -1154,6 +1169,7 @@ export class MobManager {
       const cell = this.paths.groundCell(x, P.y, z, Math.ceil(m.spec.h), false);
       if (!cell) continue;
       if (!this._rayClear(cell[0] + 0.5, cell[1] + m.spec.eye - 0.1, cell[2] + 0.5, P.x, P.y + 1.1, P.z)) continue;
+      const heard = this._audioDist(m) < 30;
       this._abductFx(m);
       m.pos.set(cell[0] + 0.5, cell[1], cell[2] + 0.5);
       m.vel.set(0, 0, 0);
@@ -1162,7 +1178,7 @@ export class MobManager {
       m.ai.los = true;
       m.ai.losT = this.time + 0.3;
       this._abductFx(m);
-      this.audio?.playTeleport?.();
+      if (heard || this._audioDist(m) < 30) this.audio?.playTeleport?.();
       return true;
     }
     return false;
@@ -1203,11 +1219,16 @@ export class MobManager {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
     }
-    this.audio.playMob(m.kind, "attack", this._distTo(m));
+    this.audio.playMob(m.kind, "attack", this._audioDist(m));
   }
 
   _distTo(m) {
     return m.pos.distanceTo(this.player.position);
+  }
+
+  // For sounds: from this machine's player (online, this.player may be a guest's proxy).
+  _audioDist(m) {
+    return m.pos.distanceTo(this.localPlayer.position);
   }
 
   // ---------- Ranged combat (skeleton arrows) ----------
@@ -1255,7 +1276,7 @@ export class MobManager {
     bindEntityLight(mesh, () => a.light);
     mesh.position.copy(start);
     this.arrows.push(a);
-    this.audio.playSwing?.();
+    if (this._audioDist(m) < 30) this.audio.playSwing?.();
   }
 
   // Aliens: a laser bolt at the player's chest (or the vehicle the player
@@ -1514,9 +1535,9 @@ export class MobManager {
     } else if (m.inWater) {
       m.vel.y += (waterBody ? 16 : -12) * dt;
       m.vel.y = THREE.MathUtils.clamp(m.vel.y, -3, 2.4);
-    } else if (spec.climbs && m.blocked && speed > 0 && !m.onGround) {
-      // Pressed against a wall while trying to move: climb it instead of
-      // falling (m.blocked is last frame's result, so this lags one frame
+    } else if (spec.climbs && m.blocked && speed > 0) {
+      // Pressed against a wall while trying to move: climb it, from the
+      // ground too, instead of falling (m.blocked is last frame's result, so this lags one frame
       // behind actually touching the wall, close enough for a spider).
       m.vel.y = 3.4;
     } else {
@@ -1623,7 +1644,7 @@ export class MobManager {
       m.hurtTime = 0;
       m.invulnerable = MOB_INVULNERABLE;
       this.onPuppetHit?.(m, amount, dir, kb, byPlayer);
-      this.audio.playMob(m.kind, "hurt", this._distTo(m));
+      this.audio.playMob(m.kind, "hurt", this._audioDist(m));
       return true;
     }
     if (byPlayer) {
@@ -1632,7 +1653,7 @@ export class MobManager {
       // Hit by the player: a spider is provoked (they are neutral in daylight
       // otherwise); a guard (and the guards near him) raise the alarm.
       if (m.kind === "spider") m.provokedT = 30;
-      if (m.spec.sentry) this.alarm(m, 40);
+      if (m.spec.sentry) this.alarm(m, 40, this.player);
     }
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
@@ -1648,7 +1669,7 @@ export class MobManager {
       m.knock.z += dir.z * kb;
       m.vel.y = Math.max(m.vel.y, Math.min(4.2, kb * 0.8));
     }
-    const dist = this._distTo(m);
+    const dist = this._audioDist(m);
     if (m.health <= 0) {
       m.dead = true;
       m.deathTime = 0;
@@ -1901,6 +1922,7 @@ export class MobManager {
             if (m.pos.y + m.spec.h >= rb.topY) {
               this._abductFx(m);
               this.onRemoteAbduct?.(m, rb.by);
+              if (m.leaderDrop && !m.net) this.onLeaderDown?.(m);
               this._remove(i);
               return;
             }
@@ -1912,6 +1934,7 @@ export class MobManager {
         const keep = m.persist || m.missionTarget;
         const loaded = !!this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4);
         if (keep && !loaded && m.pos.y >= -10) {
+          m.knock.set(0, 0, 0); // (_separate still pushes frozen mobs; never let it build up)
           this._place(m);
           return;
         }
@@ -1977,7 +2000,7 @@ export class MobManager {
     m.soundTimer -= dt;
     if (m.soundTimer > 0) return;
     m.soundTimer = (m.spec.hostile ? 4 : 7) + Math.random() * 9;
-    const d = this._distTo(m);
+    const d = this._audioDist(m);
     if (d < 24) this.audio.playMob(m.kind, "idle", d);
   }
 

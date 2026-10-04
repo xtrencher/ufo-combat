@@ -402,7 +402,8 @@ export class UfoManager {
     const p = this.player.position;
     const cam = this.camera;
     const eye = _x.copy(cam ? cam.position : p);
-    const camDir = cam ? cam.getWorldDirection(this._camDir) : this._camDir;
+    // (Around a remote player: hidden from where that player looks.)
+    const camDir = cam ? cam.getWorldDirection(this._camDir) : (this.player.getForwardVector?.() ?? this._camDir);
     const view = Math.max(96, this.viewDistance);
     const maxD = this.range;
     const minD = Math.min(maxD * 0.6, Math.max(110, view * 0.5));
@@ -480,8 +481,10 @@ export class UfoManager {
   // this one).
   _aroundAnyone(fn) {
     const list = this.targets ? this.targets().filter((t) => !t.dead) : null;
-    if (!list || list.length < 2) return fn();
+    // (A lone remote player too: the host on the menu is not in the list.)
+    if (!list || !list.length) return fn();
     const t = list[Math.floor(Math.random() * list.length)];
+    if (t === this.localPlayer) return fn();
     this.player = t;
     this.camera = t === this.localPlayer ? this.localCamera : null;
     try {
@@ -612,7 +615,7 @@ export class UfoManager {
 
   _dashAbduct(u) {
     if (u.dash || u.falling || u.S.idx >= 3 || (u.dashCool ?? 0) > 0) return false;
-    const list = (this.targets ? this.targets() : [this.localPlayer]).filter((t) => !t.dead && !t.vehicle && !t.creative);
+    const list = (this.targets ? this.targets() : [this.localPlayer]).filter((t) => !t.dead && !t.vehicle && !t.creative && !(t.graceUntil > this.time) && !(t === this.localPlayer && this.graceT > 0));
     if (!list.length) return false;
     const victim = list[Math.floor(Math.random() * list.length)];
     const p = victim.position;
@@ -631,7 +634,9 @@ export class UfoManager {
     u.hostileT = Math.max(u.hostileT || 0, 30);
     u.tgtPlayer = victim;
     if (this.audio?.playUfoDash) this.audio.playUfoDash(u.pos.distanceTo(this._ears()));
-    this.onMessage?.(victim === this.localPlayer ? "A UFO is right above you! Shoot it to break the beam!" : "A UFO dashed in to beam someone up!");
+    // (Online: only a player's own, or one in sight, makes a toast on the host.)
+    if (victim === this.localPlayer) this.onMessage?.("A UFO is right above you! Shoot it to break the beam!");
+    else if (to.distanceTo(this._ears()) < Math.max(150, this.viewDistance)) this.onMessage?.("A UFO dashed in to beam someone up!");
     return true;
   }
 
@@ -678,6 +683,7 @@ export class UfoManager {
     u.alert = 8;
     u.stare = 0;
     if (u.state === "attack" || u.state === "react" || u.state === "beam") return; // already fighting
+    this._dropTarget(u); // (off to fight: it lets go of any creature it was after)
     if (!slot) {
       u.state = "circle"; // angry, but waiting for a free slot
       return;
@@ -764,6 +770,9 @@ export class UfoManager {
       this._updatePuppets(dt);
       return;
     }
+    // (A frame count, not the clock, picks the far UFOs' thinking frames: at
+    // 30 fps floor(time * 60) only ever lands on every other value.)
+    this._frame = ((this._frame ?? 0) + 1) | 0;
     this._updateSpawning(dt);
     this._updateCrews(dt);
     const p = this.player.position;
@@ -825,7 +834,8 @@ export class UfoManager {
         this.player = this.localPlayer;
         this._cur = null;
       }
-      if (localDist < humD && this.ufos.includes(u)) humD = localDist;
+      // (Removed in its step: _remove(i) splices its slot.)
+      if (localDist < humD && this.ufos[i] === u) humD = localDist;
     }
     this._attackCap = 0;
     this._updatePlayerBeam(dt, beamOnPlayer);
@@ -854,7 +864,7 @@ export class UfoManager {
       let step = dt;
       if (near > 380 && !u.falling && u.state !== "leave" && !u.sweep && !u.charge && !u.dash && !(u.queue && u.queue.length)) {
         u.lazy += dt;
-        if ((Math.floor(this.time * 60) + u.id) % 4 !== 0) {
+        if ((this._frame + u.id) % 4 !== 0) {
           this._place(u, 0, localDist, night);
           return false;
         }
@@ -924,6 +934,7 @@ export class UfoManager {
     if (!c.by.alive || c.by.beam.strength < 0.3 || this.time - c.last > 0.4 || u.falling || u.state === "gone") {
       u.captured = null;
       u.pullVel = null;
+      u.heldFlag = false;
       if (!u.falling && u.state !== "gone") this.anger(u, 60);
       return false;
     }
@@ -956,6 +967,7 @@ export class UfoManager {
     u.byPlayer = true;
     u.lastHitPid = this.currentAttacker ?? 1;
     u.captured = null;
+    this._dropTarget(u);
     u.state = "gone";
     this.onMessage?.(`Swallowed a ${u.size} UFO!`);
     if (this.onShotDown) this.onShotDown(u, true);
@@ -964,6 +976,7 @@ export class UfoManager {
   _remove(i) {
     const u = this.ufos[i];
     this._stopWeapons(u);
+    this._dropTarget(u);
     if (this.beamingPlayer === u) this.beamingPlayer = null;
     this._freeBeam(u, true);
     this.scene.remove(u.model.root);
@@ -983,6 +996,13 @@ export class UfoManager {
     u.beam.update(0, null);
     this.beams.push(u.beam);
     u.beam = null;
+  }
+
+  // Lets go of the creature it was after (and out of its beam, so another
+  // ship, or a mission, can pick it again).
+  _dropTarget(u) {
+    if (u.target && u.target.beamedBy === u) u.target.beamedBy = null;
+    u.target = null;
   }
 
   // Steers toward `goal` at `speed` (with some acceleration).
@@ -1063,7 +1083,8 @@ export class UfoManager {
       // (A dash abduction stops dead over its victim.)
       if (u.dashAbduct) u.vel.set(0, 0, 0);
       else u.vel.multiplyScalar(0.05);
-      u.waypoint = null;
+      // (A trick keeps its waypoint: a dive or burrow goes on to the same spot.)
+      if (u.state !== "trick") u.waypoint = null;
     }
   }
 
@@ -1077,10 +1098,11 @@ export class UfoManager {
   }
 
   _startTrick(u) {
+    this._dropTarget(u);
     let trick = TRICKS[Math.floor(Math.random() * TRICKS.length)];
-    // (Round 9: no hiding in a lake or a mountain, no long hops, for a
-    // mission's target or a ship in a fight.)
-    if ((u.missionTarget || u.byPlayer) && (trick === "burrow" || trick === "hover_lake" || trick === "blink_hop")) trick = ["hover", "zigzag", "follow"][Math.floor(Math.random() * 3)];
+    // (Round 9: no hiding in a lake, the sea or a mountain, no long hops, for
+    // a mission's target or a ship in a fight.)
+    if ((u.missionTarget || u.byPlayer) && (trick === "burrow" || trick === "hover_lake" || trick === "dive" || trick === "blink_hop")) trick = ["hover", "zigzag", "follow"][Math.floor(Math.random() * 3)];
     if (trick === "blink_hop") {
       this._blink(u, 240);
       u.state = "roam";
@@ -1089,7 +1111,6 @@ export class UfoManager {
     }
     u.trick = trick;
     u.state = "trick";
-    u.target = null;
     if (trick === "hover_lake" || trick === "dive") {
       // Find open water nearby.
       for (let k = 0; k < 24; k++) {
@@ -1160,10 +1181,9 @@ export class UfoManager {
     u.timer = 6;
     const a = Math.random() * Math.PI * 2;
     u.leaveDir = new THREE.Vector3(Math.cos(a) * 0.6, rand(0.45, 0.95), Math.sin(a) * 0.6).normalize();
-    if (u.target) u.target.beamedBy = null;
-    u.target = null;
+    this._dropTarget(u);
     if (u.beam) u.beam.set(false);
-    if (this.audio?.playUfoLeave) this.audio.playUfoLeave(u.pos.distanceTo(this.player.position));
+    if (this.audio?.playUfoLeave) this.audio.playUfoLeave(u.pos.distanceTo(this._ears()));
   }
 
   // Is the player's camera pointing at this UFO? (a wider cone for a bigger
@@ -1262,7 +1282,9 @@ export class UfoManager {
     }
 
     // A sudden blink to a spot nearby, when it's calm, or to dodge when angry.
-    if (u.blinkT <= 0 && u.state !== "leave" && u.state !== "beam" && u.state !== "emerge" && u.trick !== "abduct" && u.trick !== "dive" && u.trick !== "burrow") {
+    // (u.trick can outlast the trick state: only the current trick counts.)
+    let tr = u.state === "trick" ? u.trick : null;
+    if (u.blinkT <= 0 && u.state !== "leave" && u.state !== "beam" && u.state !== "emerge" && tr !== "abduct" && tr !== "dive" && tr !== "burrow") {
       if (u.state === "roam" || u.state === "trick" || u.state === "circle" || (u.state === "attack" && Math.random() < 0.5)) {
         if (!this._blink(u, u.state === "attack" ? 90 : 220)) u.blinkT = rand(15, 60);
       } else u.blinkT = rand(5, 12);
@@ -1282,10 +1304,10 @@ export class UfoManager {
             u.state = "attack";
             u.timer = 0;
             this.attackers++;
-            if (u.trick === "abduct" && u.target) u.target.beamedBy = null;
-            u.target = null;
+            this._dropTarget(u);
             if (u.beam) u.beam.set(false);
           } else if (u.state !== "circle") {
+            this._dropTarget(u);
             u.state = "circle";
           }
         }
@@ -1375,7 +1397,8 @@ export class UfoManager {
     // Stay above the ground and below the ceiling (not while leaving, or
     // while it is allowed to pass through terrain: diving, burrowing).
     if (u.state !== "leave" && u.state !== "emerge" && u.ghostT <= 0) {
-      const minY = this._minAltitude(u, u.trick === "land" ? 0.3 : u.state === "beam" || u.trick === "hover_lake" || u.trick === "abduct" ? 2 : 4);
+      tr = u.state === "trick" ? u.trick : null; // (the state may have changed since)
+      const minY = this._minAltitude(u, tr === "land" ? 0.3 : u.state === "beam" || tr === "hover_lake" || tr === "abduct" ? 2 : 4);
       if (u.pos.y < minY) {
         u.pos.y += (minY - u.pos.y) * Math.min(1, dt * 4);
         if (u.vel.y < 0) u.vel.y = 0;
@@ -1397,7 +1420,7 @@ export class UfoManager {
       const a = (i / n) * Math.PI * 2;
       fx.smoke.spawn({ x: u.pos.x + Math.cos(a) * r, y: SEA_LEVEL + 1.2, z: u.pos.z + Math.sin(a) * r, vx: Math.cos(a) * rand(2, 6) * scale, vy: rand(3, 9) * Math.sqrt(scale), vz: Math.sin(a) * rand(2, 6) * scale, life: rand(0.8, 1.6) * Math.sqrt(scale), size0: 0.8 + r * 0.06, size1: 2.2 + r * 0.15, color0: WATER_C[0], color1: WATER_C[1], alpha: 0.55, drag: 1.4, gravity: 0.5 });
     }
-    if (this.audio?.playSplash && u.pos.distanceTo(this.player.position) < 120) this.audio.playSplash();
+    if (this.audio?.playSplash && u.pos.distanceTo(this._ears()) < 120) this.audio.playSplash();
   }
 
   _trick(u, dt) {
@@ -1414,6 +1437,10 @@ export class UfoManager {
         // Down into the sea, a slow cruise below the surface, then back up.
         u.ghostT = Math.max(u.ghostT, 0.6);
         if (u.diveStage === 0) {
+          if (!u.waypoint) {
+            u.timer = 0;
+            break;
+          }
           if (this._steer(u, u.waypoint, cruise * 1.6, dt, 2.2) < 4) {
             u.diveStage = 1;
             u.diveT = rand(5, 10);
@@ -1436,6 +1463,10 @@ export class UfoManager {
         // Through the side of a mountain, and out again.
         u.ghostT = Math.max(u.ghostT, 0.6);
         if (u.diveStage === 0) {
+          if (!u.waypoint) {
+            u.timer = 0;
+            break;
+          }
           if (this._steer(u, u.waypoint, cruise * 1.8, dt, 2.2) < 5) {
             u.diveStage = 1;
             u.diveT = rand(4, 8);
@@ -1464,6 +1495,10 @@ export class UfoManager {
       case "land": {
         // A mission's landing: down to just above the ground, slowly, and
         // sits there (the director sends it off again).
+        if (!u.waypoint) {
+          u.vel.multiplyScalar(Math.exp(-5 * dt));
+          break;
+        }
         const d = this._steer(u, u.waypoint, Math.max(4, cruise * 0.9), dt, 1.6);
         if (d < 0.8) {
           u.vel.multiplyScalar(Math.exp(-5 * dt));
@@ -1514,10 +1549,9 @@ export class UfoManager {
         break;
     }
     if (u.timer <= 0 && u.state === "trick") {
-      if (u.target) u.target.beamedBy = null;
+      this._dropTarget(u);
       if (u.beam) u.beam.set(false);
       u.trick = null;
-      u.target = null;
       u.state = "roam";
       this._newWaypoint(u);
     }
@@ -2033,7 +2067,7 @@ export class UfoManager {
     u.hostile = false;
     if (u.beam) u.beam.set(false);
     if (this.beamingPlayer === u) this.beamingPlayer = null;
-    if (u.target) u.target.beamedBy = null;
+    this._dropTarget(u);
     u.fallSpin = rand(1.5, 3.5) * (Math.random() < 0.5 ? -1 : 1);
     u.vel.y = Math.min(u.vel.y, 2);
     u.fallFrom = u.pos.y; // (the crash's blast grows with the height it fell from)
@@ -2045,8 +2079,10 @@ export class UfoManager {
     for (let i = 0; i < 20 * effectsQuality.scale; i++) {
       fx.glow.spawn({ x: u.pos.x, y: u.pos.y, z: u.pos.z, vx: rand(-8, 8), vy: rand(-2, 8), vz: rand(-8, 8), life: rand(0.4, 0.9), size0: u.radius * 0.5, size1: u.radius * 0.9, color0: c[0], color1: c[1], alpha: 0.5, drag: 2.5 });
     }
-    if (this.audio?.playUfoHit) this.audio.playUfoHit(u.pos.distanceTo(this.player.position), true);
-    this.onMessage?.(u.byPlayer ? "UFO hit! It's going down!" : "A UFO is going down!");
+    if (this.audio?.playUfoHit) this.audio.playUfoHit(u.pos.distanceTo(this._ears()), true);
+    // (Online: a guest's kill far away, or a patrol jet's anywhere, is no news here.)
+    const mine = u.byPlayer && (u.lastHitPid ?? 1) === 1;
+    if (mine || u.pos.distanceTo(this._ears()) < Math.max(150, this.viewDistance)) this.onMessage?.(mine ? "UFO hit! It's going down!" : "A UFO is going down!");
   }
 
   _fall(u, dt) {
@@ -2108,7 +2144,7 @@ export class UfoManager {
       const d = Math.random() * r;
       fx.smoke.spawn({ x: u.pos.x + Math.cos(a) * d, y: SEA_LEVEL + 1, z: u.pos.z + Math.sin(a) * d, vx: Math.cos(a) * rand(0, 5), vy: rand(10, 26) * Math.sqrt(size / 8), vz: Math.sin(a) * rand(0, 5), life: rand(1.2, 2.4), size0: 1 + r * 0.08, size1: 3 + r * 0.25, color0: WATER_C[0], color1: WATER_C[1], alpha: 0.6, drag: 0.6, gravity: 0.8 });
     }
-    if (this.audio?.playSplash && u.pos.distanceTo(this.player.position) < 200) this.audio.playSplash();
+    if (this.audio?.playSplash && u.pos.distanceTo(this._ears()) < 200) this.audio.playSplash();
   }
 
   _crash(u) {
@@ -2192,10 +2228,14 @@ export class UfoManager {
       const c = this.pendingCrews[i];
       c.delay -= dt;
       if (c.delay > 0) continue;
-      if (this._nearestPlayer(c.pos)[1] > Math.max(150, this.viewDistance)) continue;
+      const [near, nd] = this._nearestPlayer(c.pos);
+      if (nd > Math.max(150, this.viewDistance)) continue;
       const bx = Math.floor(c.pos.x);
       const bz = Math.floor(c.pos.z);
-      if (!this.world.getChunk(bx >> 4, bz >> 4)?.meshed) continue;
+      // (Online the host keeps the ground around the other players generated
+      // but not drawn: a crew can climb out there too, as in mobs.js.)
+      const ch = this.world.getChunk(bx >> 4, bz >> 4);
+      if (!ch || !(ch.meshed || (this.targets && near !== this.localPlayer))) continue;
       let spawned = 0;
       // (Beside a wreck in the sea they come up in the water around it, and
       // swim (or wade) toward the player: they are not sent to the nearest shore.)
@@ -2321,6 +2361,10 @@ export class UfoManager {
   clear() {
     while (this.ufos.length) this._remove(this.ufos.length - 1);
     this.trail.clear();
+    // (update() may not run again to quiet the hum: a Dogfight disables it.)
+    this.pendingCrews.length = 0;
+    this.beamingPlayer = null;
+    if (this.audio?.setUfoHum) this.audio.setUfoHum(0, 0);
   }
 
   // A moment's peace after a respawn: for everyone offline (graceT), online

@@ -51,11 +51,15 @@ class Skin {
     let y = 0;
     let rowH = 0;
     this.regions = {};
+    // (Wider than ATLAS_W when one part needs it, e.g. the cow's body.)
+    const need = Math.max(...parts.map((p) => Math.round(2 * (p.size[0] + p.size[2]) * TS)));
+    let W = ATLAS_W;
+    while (W < need) W *= 2;
     for (const p of parts) {
       const [w, h, d] = p.size;
       const rw = Math.round(2 * (w + d) * TS);
       const rh = Math.round((h + d) * TS);
-      if (x + rw > ATLAS_W) {
+      if (x + rw > W) {
         x = 0;
         y += rowH;
         rowH = 0;
@@ -66,7 +70,7 @@ class Skin {
     }
     let H = 16;
     while (H < y + rowH) H *= 2;
-    this.W = ATLAS_W;
+    this.W = W;
     this.H = H;
     this.data = new Uint8ClampedArray(this.W * H * 4);
   }
