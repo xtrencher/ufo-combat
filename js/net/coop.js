@@ -14,15 +14,22 @@
 //    own world save, by nickname, so a guest who comes back has them again;
 //    a new guest starts next to the host;
 //  - a guest's Creative "summon a UFO" asks the host (the UFOs are the host's).
-import { MISSIONS } from "../progression.js";
+//  - (Round 10) the run is the host's too: its missions and their order go
+//    to the guests (with the mission state), and a dusk the host's clock
+//    eases toward runs the same curve on the guests' skies.
+import { CLASSIC_IDS } from "../progression.js";
 import { saveJSON, loadJSON } from "../storage.js";
+import { DAY_LENGTH } from "../sky.js";
+import { warpTime } from "../missions.js";
 import { HOST_PID } from "./session.js";
 import { vec1 } from "./interp.js";
 
-// Stats a guest's own actions add to the shared missions.
-const REPORTED = new Set(["cratesOpened", "takeoffs", "ufosBoarded", "jetsCalled"]);
+// Stats a guest's own actions add to the shared missions. (Round 10: a
+// guest taken by a UFO too: "Don't look up" sets its clock back for it.)
+const REPORTED = new Set(["cratesOpened", "takeoffs", "ufosBoarded", "jetsCalled", "abducted"]);
 const STATE_INTERVAL = 0.5;
 const PDATA_INTERVAL = 8;
+const CHAIN_RESEND = 15; // (seconds: the run goes along with a mission state at least this often)
 
 export class CoopSync {
   constructor(mp) {
@@ -84,6 +91,8 @@ export class CoopSync {
       g.missions.onUntake = (k) => this.mp.active && this.net.broadcast({ t: "untake", k });
       // (Who flies a ship: the director's "it's yours" goes to everyone.)
       g.missions.pilotName = (v) => (this.mp.active ? this.mp.playerName(v.puppet ? v.netOcc : this.net.pid) : null);
+      // (Round 10) A player's name (the director's player-likes: this player, or a stand-in for a guest).
+      g.missions.nameOf = (q) => (this.mp.active ? this.mp.playerName(q?.isRemote ? q.pid : this.net.pid) : null);
       this.guestData = loadJSON(`guests_${g.SEED}`) || {};
       // (Once a page: a room opened again must not wrap these twice, or every
       // guest got each mission's reward once per room opened.)
@@ -96,7 +105,7 @@ export class CoopSync {
         const done = g.progress.onComplete;
         g.progress.onComplete = (m) => {
           done?.(m);
-          if (this.mp.active && this.net.isHost) this.net.broadcast({ t: "misdone", id: m.id });
+          if (this.mp.active && this.net.isHost) this.net.broadcast({ t: "misdone", id: m.id, ...(m.final ? { fin: true } : {}) });
         };
         // The director's messages ("Night falls...", "SHIELD DOWN!"): the guests' too.
         const toast = g.missions.toast;
@@ -112,6 +121,10 @@ export class CoopSync {
       }
     } else {
       g.progress.mirror = true;
+      // (Until the host's run comes: the classic chain, which is also what a
+      // host from before Round 10 plays and never sends.)
+      g.progress.setChain(CLASSIC_IDS);
+      g.progress.seed = null;
     }
     this._groupRules();
     this._deathButton();
@@ -124,8 +137,13 @@ export class CoopSync {
     g.missions.nightDeaths = null;
     g.missions.onUntake = null;
     g.missions.pilotName = null;
+    g.missions.nameOf = null;
     g.progress.mirror = false;
     g.progress.mirrorObjectives = null;
+    if (this._dusk) {
+      this._dusk = false;
+      g.sky.timeScale = 1;
+    }
     g.ufos.groupScale = 1;
     g.ufos.groupHealth = 1;
     g.mobs.groupHealth = 1;
@@ -179,6 +197,14 @@ export class CoopSync {
         const sig = JSON.stringify(s);
         if (sig !== this._sig) {
           this._sig = sig;
+          // (The run itself only when it changed, and now and then: it is long.)
+          const cs = this._chainSig();
+          const now = performance.now();
+          if (cs !== this._chSent || !(now < this._chNext)) {
+            this._chSent = cs;
+            this._chNext = now + CHAIN_RESEND * 1000;
+            Object.assign(s, this._chainState());
+          }
           this.net.broadcast(s);
         }
         // A whole team down at once (the long night starts over).
@@ -188,6 +214,7 @@ export class CoopSync {
         this._wiped = down;
       }
     } else if (this.mp.stateLoaded) {
+      this._guestDusk(dt);
       // A guest: its things, now and then, for the host to keep.
       this._pdT -= dt;
       if (this._pdT <= 0 && g.gameState !== "start") {
@@ -222,7 +249,21 @@ export class CoopSync {
       gs: g.airports.groupSize || 1,
       // (Round 9) Where a player who dies now comes back (around the mission's location).
       rp: ((r) => (r ? [Math.round(r.x / 4) * 4, Math.round(r.z / 4) * 4, Math.round(r.r)] : null))(g.missions.respawnPlace?.()),
+      // (Round 10) A dusk the clock is easing toward: [t0, dist, D, when it began on the room's clock].
+      dk: ((w) => (w ? [Math.round(w[0] * 100) / 100, Math.round(w[1] * 100) / 100, w[2], Math.round((this.net.time - w[3]) * 10) / 10] : null))(g.missions.warpInfo?.()),
+      cs: this._chainSig(),
     };
+  }
+
+  // (Round 10) The run's signature (in every mission state), and the run
+  // itself, compactly: ids in order, the variants as digits.
+  _chainSig() {
+    return this.game.progress.key || "";
+  }
+
+  _chainState() {
+    const p = this.game.progress;
+    return { ch: p.chain.join(","), cv: p.vars.join("") };
   }
 
   // (Round 9) A guest respawned: the host's UFOs give them a moment.
@@ -243,12 +284,23 @@ export class CoopSync {
     const g = this.game;
     const p = g.progress;
     this.mission = m;
+    // (Round 10) The host's run: this guest's missions, their order, their rewards.
+    if (typeof m.ch === "string" && m.ch.length < 4000) {
+      const ids = m.ch.split(",");
+      const vars = typeof m.cv === "string" ? [...m.cv].map(Number) : null;
+      if (ids.join() !== p.chain.join() || (vars && vars.join() !== p.vars.join())) {
+        p.setChain(ids, vars);
+        p.seed = null;
+        p.done = p.chain.slice(0, p.step);
+        this._lastStep = -1; // (a new run: no "NEW MISSION" for the step it is at)
+      }
+    }
     if (Number.isInteger(m.step) && m.step !== p.step) {
       const first = this._lastStep < 0;
-      p.step = Math.max(0, Math.min(MISSIONS.length, m.step));
-      p.done = MISSIONS.slice(0, p.step).map((x) => x.id);
+      p.step = Math.max(0, Math.min(p.total, m.step));
+      p.done = p.chain.slice(0, p.step);
       // A new mission (not when just joining).
-      if (!first && p.mission) g.toast?.(`NEW MISSION ${p.step + 1}/${MISSIONS.length}: ${p.mission.title}. ${p.mission.text}`, 7);
+      if (!first && p.mission) g.toast?.(`NEW MISSION ${p.step + 1}/${p.total}: ${p.mission.title}. ${p.mission.text}`, 7);
     }
     this._lastStep = p.step;
     if (Number.isInteger(m.gs)) g.airports.groupSize = Math.max(1, Math.min(8, m.gs));
@@ -260,11 +312,40 @@ export class CoopSync {
   }
 
   _onMissionDone(m) {
-    if (this.net.isHost) return;
-    const mission = MISSIONS.find((x) => x.id === m.id);
+    if (this.net.isHost || typeof m.id !== "string") return;
+    // (The run's mission: its place's reward. The run is the host's, mirrored.)
+    const mission = this.game.progress.missionById(m.id);
     if (mission && !this.game.player.creative) this.game.giveMissionReward(mission);
-    // (Round 9) The finale: the war is won for everyone.
-    if (mission && mission.id === MISSIONS[MISSIONS.length - 1].id) setTimeout(() => this.game.showVictory?.(), 2500);
+    // (Round 9) The finale: the war is won for everyone. (Round 10: the
+    // mission flagged final; the host says so too, for a run this guest
+    // hasn't got yet.)
+    if ((mission && mission.final) || m.fin === true) setTimeout(() => this.game.showVictory?.(), 2500);
+  }
+
+  // (Round 10) The host's clock is easing toward dusk (the director's
+  // time-lapse): this sky runs the same curve, from the host's plan and the
+  // room's clock, setting its speed for the next frame (sky.update runs
+  // before this). The host's "time" messages agree with it.
+  _guestDusk(dt) {
+    const sky = this.game.sky;
+    const dk = this.mission?.on ? this.mission.dk : null;
+    if (Array.isArray(dk) && dk.length === 4 && dk.every(Number.isFinite) && dk[2] > 0) {
+      const [t0, dist, D, start] = dk;
+      const tau = this.net.time - start + dt;
+      if (tau < D + 1) {
+        const len = DAY_LENGTH;
+        let d = warpTime(t0, dist, D, tau) - sky.time;
+        d = (((d % len) + len * 1.5) % len) - len / 2;
+        this._dusk = true;
+        // (Far off: the host's own clock messages put it right.)
+        if (Math.abs(d) < 120 && dt > 0) sky.timeScale = Math.max(0, Math.min(400, d / dt));
+        return;
+      }
+    }
+    if (this._dusk) {
+      this._dusk = false;
+      sky.timeScale = 1;
+    }
   }
 
   // A guest's marker: the mission's target nearest to this player (a crate,
@@ -434,7 +515,7 @@ export class CoopSync {
     const you = p && this.guestData ? this.guestData[p.nick.toLowerCase()] || null : null;
     const hp = g.player.position;
     // (What every player has: a joiner who has more leaves it unchanged, so no "gown" would follow.)
-    return { you, host: g.player.dead || g.vehicles.active ? null : vec1(hp), mis: this._missionState(), gown: this.groupOwned ? [...this.groupOwned] : null };
+    return { you, host: g.player.dead || g.vehicles.active ? null : vec1(hp), mis: { ...this._missionState(), ...this._chainState() }, gown: this.groupOwned ? [...this.groupOwned] : null };
   }
 
   _loadJoinState(s) {

@@ -44,7 +44,7 @@ import { JET_TYPES } from "./vehicle-jet.js";
 import { Radar } from "./radar.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
-import { Progress, MISSIONS, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
+import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
@@ -862,29 +862,32 @@ function findRunway() {
   }
 }
 // Survival: fighter jets (calling one, and the ones parked at airports) are
-// part of the mission chain: they become available with mission 10, "Take to
-// the air" (a jet on day one would skip the whole curve). Creative: always.
-const JET_MISSION = MISSIONS.findIndex((m) => m.id === "wings");
+// part of the mission chain: they become available with "Take to the air"
+// (a jet on day one would skip the whole curve). Creative: always.
+// (Round 10: by mission id: each run has its own order, see progression.js.)
 function jetLocked() {
-  return !player.creative && progress.enabled && progress.step < JET_MISSION;
+  return !player.creative && progress.enabled && !progress.reached("wings");
 }
-const JET_LOCKED_TEXT = `Fighter jets join the fight with mission ${JET_MISSION + 1} ("${MISSIONS[JET_MISSION].title}"). Esc > Missions shows the way there.`;
+// "...mission 12 ("Take to the air")": where it is in this run.
+const missionRef = (id) => {
+  const m = progress.missionById(id);
+  return m ? `mission ${m.n + 1} ("${m.title}")` : "a later mission";
+};
+const jetLockedText = () => `Fighter jets join the fight with ${missionRef("wings")}. Esc > Missions shows the way there.`;
 // UFOs (wrecks and the ones in airport hangars) can be boarded from the
 // "Salvage" mission on; before that the player fights on foot.
-const UFO_MISSION = MISSIONS.findIndex((m) => m.id === "salvage");
 function ufoLocked() {
-  return !player.creative && progress.enabled && progress.step < UFO_MISSION;
+  return !player.creative && progress.enabled && !progress.reached("salvage");
 }
-const UFO_LOCKED_TEXT = `You can't fly alien ships yet: that comes with mission ${UFO_MISSION + 1} ("${MISSIONS[UFO_MISSION].title}").`;
+const ufoLockedText = () => `You can't fly alien ships yet: that comes with ${missionRef("salvage")}.`;
 // The B-2 (and so the nuke) is Operation Sunburn's: before it the bomber
 // stays parked (a nuke on any squad would skip the missions in between).
-const B2_MISSION = MISSIONS.findIndex((m) => m.id === "sunburn");
 function b2Locked() {
-  return !player.creative && progress.enabled && progress.step < B2_MISSION;
+  return !player.creative && progress.enabled && !progress.reached("sunburn");
 }
-const B2_LOCKED_TEXT = `The B-2 bomber and its nuke come with mission ${B2_MISSION + 1} ("${MISSIONS[B2_MISSION].title}").`;
+const b2LockedText = () => `The B-2 bomber and its nuke come with ${missionRef("sunburn")}.`;
 vehicles.canBoard = (v) =>
-  v.type === "jet" && jetLocked() ? JET_LOCKED_TEXT : v.type === "jet" && v.jetType === "b2" && b2Locked() ? B2_LOCKED_TEXT : v.type === "ufo" && ufoLocked() ? UFO_LOCKED_TEXT : null;
+  v.type === "jet" && jetLocked() ? jetLockedText() : v.type === "jet" && v.jetType === "b2" && b2Locked() ? b2LockedText() : v.type === "ufo" && ufoLocked() ? ufoLockedText() : null;
 // Patrol fighters (they hunt UFOs) join the sky with the player's own jets.
 enemyJets.allowed = () => !jetLocked();
 // (Round 6: there is no calling in a jet any more. Jets are taken from the
@@ -894,7 +897,7 @@ let lastJetType = "f22";
 function callJet(force = false, type = lastJetType) {
   if (!mods.enabled || player.dead || gameState !== "playing") return;
   if (!force && jetLocked()) {
-    toast(JET_LOCKED_TEXT, 4);
+    toast(jetLockedText(), 4);
     return;
   }
   if (vehicles.active) {
@@ -1144,12 +1147,16 @@ hooks.onEnemyJetDown = (jet) => {
 const crates = new SupplyCrates({ scene, world, player, effects, audio, inventory, entities, progress, stats });
 crates.getTier = progressTier;
 // (The first crate is the "Supply drop" mission's; after that they come by themselves.)
-const SUPPLY_MISSION = MISSIONS.findIndex((m) => m.id === "supply");
-crates.randomAllowed = () => !progress.enabled || progress.step > SUPPLY_MISSION;
+crates.randomAllowed = () => !progress.enabled || progress.isDone("supply");
 crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast, weapons, effects, audio, world });
 missionDirector.entities = entities;
+// (Round 10) A mission's loot (the crash site's wreck): what a wreck of that
+// size gives, at the spot, for whoever gets there (online the host's items are everyone's).
+missionDirector.dropLoot = (kind, detail, at) => {
+  if (mods.enabled && !player.creative) dropLoot(rollLoot(kind, detail, progressTier(), ownedItems()), at);
+};
 progress.hold = () => !!progress.mission?.squad && missionDirector.holding();
 // (A leader's weapon still on the ground when the game was saved: set out
 // again, and the mission waits for it as before.)
@@ -1163,7 +1170,7 @@ mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
-  setTimeout(() => toast(`NEW MISSION ${progress.completed + 1}/${MISSIONS.length}: ${m.title}. ${m.text}`, 7), 6500);
+  setTimeout(() => toast(`NEW MISSION ${m.n + 1}/${progress.total}: ${m.title}. ${m.text}`, 7), 6500);
 };
 // (testFlags.noMissions: the older test suites check UFO features without the mission chain.)
 const testFlags = { noMissions: false };
@@ -1196,7 +1203,8 @@ if (progressOffAt && savedPlayer?.missionsOff && typeof savedPlayer.missionsOff 
 }
 progress.onComplete = (m) => {
   giveMissionReward(m);
-  if (m.id === MISSIONS[MISSIONS.length - 1].id) setTimeout(showVictory, 2500);
+  // (Round 10: the mission flagged final, wherever the run has it: always last.)
+  if (m.final) setTimeout(showVictory, 2500);
 };
 // (Round 9) The last mission won: the victory screen (online, for everyone:
 // js/net/coop.js), with this world's numbers. The game goes on behind it.
@@ -3338,8 +3346,9 @@ function updateMissions(dt) {
   // (Online the host's missions go on while its pause menu is open.)
   // (A guest's tracker shows the host's director: js/net/coop.js.)
   // (Also behind the inventory and the death screen, where the world goes
-  // on: the night mission's 30x clock must see dusk come.)
+  // on: the night mission's time-lapse to dusk must go on.)
   if (!GUEST && (gameState === "playing" || gameState === "inventory" || gameState === "dead" || (mp.active && mp.isHost && gameState !== "start"))) missionDirector.update(dt);
+  else if (!GUEST) missionDirector.idle(); // (a dusk's time-lapse waits at normal speed behind the menu)
   updateMissionMarker(show);
   updateBossBar(show);
   // (Missions complete even with the HUD hidden.)
@@ -3357,7 +3366,7 @@ function updateMissions(dt) {
   const m = progress.mission;
   const parts = [];
   if (m) {
-    parts.push(`<div class="mt-head"><span class="mt-title">${escHtml(m.title)}</span><span class="mt-step">MISSION ${progress.completed + 1}/${MISSIONS.length}</span></div><div class="mt-text">${escHtml(m.text)}</div>`);
+    parts.push(`<div class="mt-head"><span class="mt-title">${escHtml(m.title)}</span><span class="mt-step">MISSION ${progress.completed + 1}/${progress.total}</span></div><div class="mt-text">${escHtml(m.text)}</div>`);
     for (const o of progress.objectives(stats.world)) {
       const val = Number(o.value) || 0;
       const goal = Number(o.goal) || 1;
@@ -3373,8 +3382,9 @@ function updateMissions(dt) {
     }
     const note = missionDirector.note();
     if (note) parts.push(`<div class="mt-note">${escHtml(note)}</div>`);
-    const next = MISSIONS[progress.completed + 1];
-    if (next) parts.push(`<div class="mt-next">Next: ${escHtml(next.title)} (Esc > Missions for the list)</div>`);
+    // (Round 10: what comes next is a surprise; only a new act is announced.)
+    const next = progress.missionAt(progress.completed + 1);
+    if (next) parts.push(`<div class="mt-next">Next: ${next.act > m.act ? `classified (${escHtml(ACT_NAMES[next.act] || "")})` : "classified"} (Esc > Missions for the list)</div>`);
   } else {
     parts.push(`<div class="mt-title">ALL MISSIONS COMPLETE</div><div class="mt-text">The invasion is over: the sky stays as tough as it gets. Esc > Missions shows what you did.</div>`);
   }
@@ -3433,24 +3443,36 @@ hud.hitMarker = () => {
   }, 90);
 };
 screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById("stats-table"));
-// The mission list (pause menu): every mission, done, current (with its
-// progress) or still to come, and what each one gives.
+// The mission list (pause menu): the run so far, done and current (with its
+// progress) in full, and what each one gave. (Round 10) The missions still
+// to come are classified: how many there are, and the next act's name when
+// the current act is about to end.
 screens.onOpen["missions-screen"] = () => {
   const el = document.getElementById("missions-list");
   const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   const reward = (r) => r.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ");
   const intro = player.creative ? `<p class="hint">Missions run in Survival (switch the game mode in the pause menu). Creative is free play.</p>` : "";
-  el.innerHTML =
-    intro +
-    progress
-      .list(stats.world)
-      .map((m) => {
-        const mark = m.state === "done" ? "\u2714" : m.n;
-        const obj = m.objectives ? m.objectives.map((o) => `<div class="ml-obj">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${esc(o.label)}: ${o.value}/${o.goal}</div>`).join("") : "";
-        const state = m.state === "current" ? " (current)" : m.state === "done" ? " (done)" : "";
-        return `<div class="ml-item ${m.state}"><div class="ml-n">${mark}</div><div class="ml-title">${esc(m.title)}${state}</div><div class="ml-text">${esc(m.text)}</div><div class="ml-reward">Reward: ${esc(reward(m.reward))}</div>${obj}</div>`;
-      })
-      .join("");
+  const list = progress.list(stats.world);
+  let act = 0;
+  const rows = [];
+  for (const m of list) {
+    if (m.state === "locked") continue;
+    if (m.act !== act) {
+      act = m.act;
+      rows.push(`<div class="ml-act" style="margin:10px 0 4px;font-weight:700;color:#ffd45a;letter-spacing:0.5px">${esc(ACT_NAMES[act] || "")}</div>`);
+    }
+    const mark = m.state === "done" ? "\u2714" : m.n;
+    const obj = m.objectives ? m.objectives.map((o) => `<div class="ml-obj">${o.value >= o.goal ? "\u2714" : "\u25CB"} ${esc(o.label)}: ${o.value}/${o.goal}</div>`).join("") : "";
+    const state = m.state === "current" ? " (current)" : " (done)";
+    rows.push(`<div class="ml-item ${m.state}"><div class="ml-n">${mark}</div><div class="ml-title">${esc(m.title)}${state}</div><div class="ml-text">${esc(m.text)}</div><div class="ml-reward">Reward: ${esc(reward(m.reward))}</div>${obj}</div>`);
+  }
+  const left = list.filter((m) => m.state === "locked");
+  if (left.length) {
+    const cur = list.find((m) => m.state === "current");
+    const nextAct = cur && left[0].act > cur.act ? ACT_NAMES[left[0].act] : "";
+    rows.push(`<div class="ml-item locked"><div class="ml-n">?</div><div class="ml-title">${left.length} more mission${left.length === 1 ? "" : "s"}: classified</div><div class="ml-text">${nextAct ? `Coming up next: ${esc(nextAct)}.` : "Each playthrough has its own: you'll find out as you go."}</div></div>`);
+  }
+  el.innerHTML = intro + rows.join("");
 };
 
 // Altitude-aware view distance: flying a jet or UFO high above the ground you

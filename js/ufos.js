@@ -606,7 +606,7 @@ export class UfoManager {
     // player's kill. An assist window, as for the creatures.)
     if (u.health <= 0 && !byPlayer && u.byPlayer && this.time - (u.lastPlayerHitT ?? -1e9) > 8) u.byPlayer = false;
     if (u.health <= 0) this._shotDown(u);
-    else if (u.state === "beam" && u.dashAbduct) this._breakOff(u);
+    else if (u.state === "beam" && (u.dashAbduct || u.hunter)) this._breakOff(u);
     else if (byPlayer) this._dodge(u, 1);
     return true;
   }
@@ -668,6 +668,7 @@ export class UfoManager {
   }
 
   _provoked(u) {
+    if (u.errand) return; // (a mission's ship on an errand, a beacon on the ground or a fleeing carrier: shots don't turn it to fight)
     const pv = this._playerVehicle();
     // A slot among the (at most MAX_ATTACKERS) attackers, decided before
     // its state changes.
@@ -1515,7 +1516,7 @@ export class UfoManager {
           u.vel.multiplyScalar(Math.exp(-5 * dt));
           break;
         }
-        const d = this._steer(u, u.waypoint, Math.max(4, cruise * 0.9), dt, 1.6);
+        const d = this._steer(u, u.waypoint, u.tripSpeed || Math.max(4, cruise * 0.9), dt, 1.6); // (tripSpeed: a mission's carrier, at its own pace)
         if (d < 0.8) {
           u.vel.multiplyScalar(Math.exp(-5 * dt));
           u.landed = true;
@@ -1882,7 +1883,9 @@ export class UfoManager {
     const p = this.player.position;
     const hover = u.info.bottom * u.radius + u.S.hover;
     const horiz = Math.hypot(u.pos.x - p.x, u.pos.z - p.z);
-    const abduct = u.style === "abductor" && !this.player.creative && !this.player.isRemote; // (online: only this player can be abducted)
+    // (Online: only this player can be abducted; a mission's hunter goes for
+    // anyone: a guest in its beam is lifted on their own machine.)
+    const abduct = u.style === "abductor" && !this.player.creative && (!this.player.isRemote || u.hunter);
     if (abduct) {
       const goal = new THREE.Vector3(p.x, Math.max(p.y + hover, this._minAltitude(u, 3)), p.z);
       // Fly in very fast, slowing near the spot above the player.
