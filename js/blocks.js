@@ -40,6 +40,16 @@ export const BLOCK = Object.freeze({
   CORAL: 34,
   SEAGRASS: 35,
   KELP: 36,
+  // (Round 10) Wall torches and chests face one of four ways: one id per
+  // facing (the block system has no metadata). See wallTorch() / chest().
+  WALL_TORCH_PX: 37,
+  WALL_TORCH_NX: 38,
+  WALL_TORCH_PZ: 39,
+  WALL_TORCH_NZ: 40,
+  CHEST: 41, // (the item; its front faces +Z)
+  CHEST_NZ: 42,
+  CHEST_PX: 43,
+  CHEST_NX: 44,
 });
 
 // Texture layers of the block texture array, in order. Painted procedurally
@@ -102,12 +112,18 @@ export const TILE_NAMES = [
   "flower_blue",
   "flower_white",
   "flower_pink",
+  // (Round 10) The chest: lid, sides and the front with its latch.
+  "chest_top",
+  "chest_side",
+  "chest_front",
 ];
 export const TILE = Object.freeze(Object.fromEntries(TILE_NAMES.map((name, i) => [name, i])));
 
 // Render buckets and shapes (numeric for use in hot loops).
 export const RENDER = Object.freeze({ NONE: 0, OPAQUE: 1, CUTOUT: 2, WATER: 3 });
-export const SHAPE = Object.freeze({ CUBE: 0, CROSS: 1, TORCH: 2 });
+// WALL_TORCH: a torch leaning out from the wall it hangs on; CHEST: a box a
+// little smaller than a block (CHEST_BOX).
+export const SHAPE = Object.freeze({ CUBE: 0, CROSS: 1, TORCH: 2, WALL_TORCH: 3, CHEST: 4 });
 
 const DEFAULTS = {
   render: RENDER.OPAQUE,
@@ -121,7 +137,9 @@ const DEFAULTS = {
   wave: false, // sways in the wind
   selectable: true, // can be targeted by the crosshair
   replaceable: false, // placing a block into this cell just replaces it
-  support: null, // "solid": needs a solid block below; "soil": needs grass/dirt below
+  support: null, // "solid": needs a solid block below; "soil": needs grass/dirt below; "wall": needs a solid block behind it (see `facing`)
+  facing: null, // [dx, dz]: where the block's front points (wall torches, chests)
+  item: null, // the item it counts as when broken or picked (wall torches: a torch), if not itself
   liquid: false,
   gravity: false, // falls when nothing solid is underneath (sand, gravel)
   waterlogged: false, // an underwater plant: its cell is also full of water (breaking it leaves water)
@@ -287,6 +305,34 @@ const DEFS = {
 // Face order used everywhere: +X, -X, +Y (top), -Y (bottom), +Z, -Z.
 export const FACE = Object.freeze({ PX: 0, NX: 1, PY: 2, NY: 3, PZ: 4, NZ: 5 });
 
+// (Round 10) The four-way blocks. Facing convention, for structure
+// generators too: `facing` [dx, dz] is where the front points. A wall torch
+// at (x, y, z) facing [dx, dz] hangs on the block at (x - dx, y, z - dz) and
+// leans out toward (x + dx, z + dz); a chest's latch looks toward (x + dx,
+// z + dz). wallTorch(dx, dz) / chest(dx, dz) give the ids.
+const FOUR_WAYS = [
+  // [dx, dz, the face that points that way, wall torch id, chest id]
+  [1, 0, FACE.PX, BLOCK.WALL_TORCH_PX, BLOCK.CHEST_PX],
+  [-1, 0, FACE.NX, BLOCK.WALL_TORCH_NX, BLOCK.CHEST_NX],
+  [0, 1, FACE.PZ, BLOCK.WALL_TORCH_PZ, BLOCK.CHEST],
+  [0, -1, FACE.NZ, BLOCK.WALL_TORCH_NZ, BLOCK.CHEST_NZ],
+];
+for (const [dx, dz, face, torchId, chestId] of FOUR_WAYS) {
+  DEFS[torchId] = { ...DEFS[BLOCK.TORCH], shape: SHAPE.WALL_TORCH, support: "wall", facing: [dx, dz], item: BLOCK.TORCH };
+  DEFS[chestId] = {
+    name: "Chest",
+    faces: { top: "chest_top", bottom: "chest_top", side: "chest_side", front: "chest_front" },
+    frontFace: face,
+    shape: SHAPE.CHEST,
+    opaque: false, // (smaller than its cell: the faces around it stay drawn, light passes)
+    facing: [dx, dz],
+    item: BLOCK.CHEST,
+    hardness: 2.5,
+    tool: "axe",
+    sound: "wood",
+  };
+}
+
 export const BLOCK_INFO = {};
 for (const [idStr, def] of Object.entries(DEFS)) {
   const id = Number(idStr);
@@ -294,9 +340,14 @@ for (const [idStr, def] of Object.entries(DEFS)) {
   const f = typeof def.faces === "string" ? { top: def.faces, bottom: def.faces, side: def.faces } : def.faces;
   const side = TILE[f.side];
   // Per-face tile layer in FACE order. A "front" face (crafting table) is
-  // shown on +Z and -Z; the other sides use "side".
+  // shown on +Z and -Z, or only on `frontFace` (a chest); the other sides
+  // use "side".
   const front = f.front ? TILE[f.front] : side;
   info.faceTiles = [side, side, TILE[f.top], TILE[f.bottom], front, front];
+  if (def.frontFace !== undefined) {
+    info.faceTiles[4] = info.faceTiles[5] = side;
+    info.faceTiles[def.frontFace] = front;
+  }
   info.faces = { top: TILE[f.top], bottom: TILE[f.bottom], side };
   for (const t of info.faceTiles) {
     if (t === undefined) throw new Error(`Block ${info.name}: unknown texture tile in ${JSON.stringify(def.faces)}`);
@@ -330,8 +381,13 @@ export const IS_WATERLOGGED = table((b) => (b.waterlogged ? 1 : 0));
 // Water, or a waterlogged plant standing in water: swims, drowns and renders as water.
 export const IS_WET = table((b) => (b.liquid || b.waterlogged ? 1 : 0));
 export const IS_LOG = table((b) => (b.log ? 1 : 0));
+export const IS_CHEST = table((b) => (b.shape === SHAPE.CHEST ? 1 : 0));
+export const IS_WALL_TORCH = table((b) => (b.shape === SHAPE.WALL_TORCH ? 1 : 0));
+// The item a block counts as (its own id, or e.g. a torch for a wall torch).
+export const ITEM_OF = table((b) => b.item ?? b.id);
 for (let id = 0; id < 256; id++) {
   if (!BLOCK_INFO[id]) {
+    ITEM_OF[id] = id;
     IS_OPAQUE[id] = 1;
     IS_SOLID[id] = 1;
     RENDER_TYPE[id] = RENDER.OPAQUE;
@@ -362,13 +418,42 @@ export function blockName(id) {
 }
 
 // Whether block `id` placed at a cell is supported by `belowId` underneath.
+// (A wall torch rests on its wall, not the floor: see isWallSupportedBy.)
 export function isSupportedBy(id, belowId) {
   const support = BLOCK_INFO[id]?.support;
-  if (!support) return true;
+  if (!support || support === "wall") return true;
   // "soil": grass, dirt or sand (so seagrass/kelp can root on a sandy sea
   // floor too), or the same block again (so kelp can stack on itself).
   if (support === "soil") return belowId === BLOCK.GRASS || belowId === BLOCK.DIRT || belowId === BLOCK.SAND || belowId === id;
   return IS_SOLID[belowId] === 1 && IS_OPAQUE[belowId] === 1;
+}
+
+// Whether `wallId` can hold a wall torch (or anything hung on a wall).
+export function isWallSupportedBy(wallId) {
+  return IS_SOLID[wallId] === 1 && IS_OPAQUE[wallId] === 1;
+}
+
+// The id of the wall torch facing [dx, dz] (hanging on the block at
+// (x - dx, z - dz)), and of the chest whose front faces [dx, dz]. dx, dz:
+// one of them 0, the other +-1 (the larger one wins otherwise).
+function fourWay(dx, dz, k) {
+  const row = Math.abs(dx) >= Math.abs(dz) ? (dx >= 0 ? 0 : 1) : dz >= 0 ? 2 : 3;
+  return FOUR_WAYS[row][k];
+}
+export const wallTorch = (dx, dz) => fourWay(dx, dz, 3);
+export const chest = (dx, dz) => fourWay(dx, dz, 4);
+
+// Selection boxes ([minX, minY, minZ, maxX, maxY, maxZ] within the cell) of
+// blocks whose box depends on more than their shape (a wall torch's on its
+// facing), by id; null for the rest (world.js selectionBox).
+export const CHEST_BOX = [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
+export const BLOCK_BOX = new Array(256).fill(null);
+for (const [dx, dz, , torchId, chestId] of FOUR_WAYS) {
+  // (from the wall out to the leaning flame, 3/16 up to 13/16)
+  const a = [dx > 0 ? 0 : dx < 0 ? 11 / 16 : 5.5 / 16, 3 / 16, dz > 0 ? 0 : dz < 0 ? 11 / 16 : 5.5 / 16];
+  const b = [dx > 0 ? 5 / 16 : dx < 0 ? 1 : 10.5 / 16, 13 / 16, dz > 0 ? 5 / 16 : dz < 0 ? 1 : 10.5 / 16];
+  BLOCK_BOX[torchId] = [a[0], a[1], a[2], b[0], b[1], b[2]];
+  BLOCK_BOX[chestId] = CHEST_BOX;
 }
 
 // Blocks placeable from the (pre-inventory) hotbar.

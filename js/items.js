@@ -2,7 +2,7 @@
 // (same id as the block, placeable); ids from 256 up are plain items: tools,
 // materials and food. Like block ids, item ids are saved with the player's
 // inventory, so existing ids must never change meaning.
-import { BLOCK, BLOCK_INFO } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, ITEM_OF } from "./blocks.js";
 
 export const ITEM = Object.freeze({
   STICK: 256,
@@ -156,7 +156,8 @@ const itemCache = new Map();
 export function itemInfo(id) {
   if (itemCache.has(id)) return itemCache.get(id);
   let info = null;
-  if (id > 0 && id < 256 && BLOCK_INFO[id] && id !== BLOCK.AIR) {
+  // (A block that counts as another item, e.g. a wall torch, is no item itself.)
+  if (id > 0 && id < 256 && BLOCK_INFO[id] && id !== BLOCK.AIR && ITEM_OF[id] === id) {
     const b = BLOCK_INFO[id];
     info = { id, name: b.name, stack: 64, block: id, icon: null };
   } else if (ITEM_DEFS[id]) {
@@ -225,7 +226,7 @@ export function blockDrops(blockId, tool, rand = Math.random) {
     case BLOCK.PINE_LEAVES:
       return rand() < 0.05 ? [[ITEM.STICK, 1]] : [];
     default:
-      return [[blockId, 1]];
+      return [[ITEM_OF[blockId] ?? blockId, 1]]; // (a wall torch gives a torch, any chest the chest)
   }
 }
 
@@ -236,7 +237,7 @@ export function meleeDamage(tool) {
 // Everything offered in the creative inventory, in display order.
 export const CREATIVE_ITEMS = [
   BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.COBBLESTONE, BLOCK.SAND, BLOCK.GRAVEL, BLOCK.WOOD, BLOCK.PLANKS,
-  BLOCK.LEAVES, BLOCK.OAK_BARK, BLOCK.BIRCH_LOG, BLOCK.BIRCH_LEAVES, BLOCK.PINE_LOG, BLOCK.PINE_LEAVES, BLOCK.GLASS, BLOCK.BRICKS, BLOCK.WOOL, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.BEDROCK,
+  BLOCK.LEAVES, BLOCK.OAK_BARK, BLOCK.BIRCH_LOG, BLOCK.BIRCH_LEAVES, BLOCK.PINE_LOG, BLOCK.PINE_LEAVES, BLOCK.GLASS, BLOCK.BRICKS, BLOCK.WOOL, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.CHEST, BLOCK.BEDROCK,
   BLOCK.COAL_ORE, BLOCK.GOLD_ORE, BLOCK.TALL_GRASS, BLOCK.FLOWER_RED, BLOCK.FLOWER_YELLOW,
   BLOCK.SNOW, BLOCK.TERRACOTTA, BLOCK.CACTUS, BLOCK.DEAD_BUSH, BLOCK.CORAL, BLOCK.SEAGRASS, BLOCK.KELP,
   ITEM.STICK, ITEM.COAL, ITEM.GOLD_INGOT, ITEM.FLUFF,

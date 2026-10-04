@@ -12,9 +12,9 @@
 //
 // How it plugs in: the other players on foot are handed to the creature
 // system as stand-ins (`isRemotePlayer`), so every weapon that already hits
-// creatures (the sniper, the machine gun, arrows, the rail, melee) hits
-// players too; bolts (the pistol, the blaster, the minigun, the UFO cannon)
-// get a hit provider of their own.
+// creatures (arrows, the rail, melee) hits players too; bolts and bullets
+// (the pistol, the machine gun, the sniper, the blaster, the minigun, the UFO
+// cannon) get a hit provider of their own.
 import * as THREE from "three";
 import { r1, r2 } from "./interp.js";
 
@@ -131,7 +131,8 @@ export class PvpSync {
       this.hit(m.pid, amount, "pk", dir ? [dir.x * kb, dir.z * kb] : null);
       return true;
     };
-    // Bolts (pistol, blaster, minigun, UFO cannon) fired here hit the other players.
+    // Bolts and bullets (pistol, machine gun, sniper, blaster, minigun, UFO
+    // cannon) fired here hit the other players.
     g.lasers.addProvider({
       ignores: (b) => b.mirror || !(b.owner === "player" || b.owner === "playerufo" || b.owner === "jet"),
       raycast: (origin, dir, maxDist, bolt) => {

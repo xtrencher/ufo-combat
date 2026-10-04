@@ -16,6 +16,7 @@ import {
   SHAPE_OF,
   SHAPE,
   TILE,
+  BLOCK_BOX,
   isSupportedBy,
 } from "./blocks.js";
 import { Chunk } from "./chunk.js";
@@ -74,7 +75,7 @@ const SELECTION = {
 };
 
 export function selectionBox(id) {
-  return SELECTION[SHAPE_OF[id]] || SELECTION[SHAPE.CUBE];
+  return BLOCK_BOX[id] || SELECTION[SHAPE_OF[id]] || SELECTION[SHAPE.CUBE];
 }
 
 const EDIT_REMESH_AT_ONCE = 8; // chunks rebuilt immediately after an edit

@@ -565,9 +565,11 @@ await check("every weapon damages UFOs: pistol, machine gun, sniper, blaster, ba
     hurt.pistol = h0 - u.health;
     let h = u.health;
     g.weapons.fireMachineGun();
+    for (let i = 0; i < 40; i++) g.lasers.update(0.025); // (a real bullet: it needs a moment to get there)
     hurt.mg = h - u.health;
     h = u.health;
     g.weapons.fireSniper();
+    for (let i = 0; i < 40; i++) g.lasers.update(0.025); // (a real bullet: it needs a moment to get there)
     hurt.sniper = h - u.health;
     // Explosions next to it.
     h = u.health;

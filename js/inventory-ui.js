@@ -4,9 +4,14 @@
 // moved with the mouse like in classic voxel games: left click picks up /
 // puts down a stack, right click splits or places one, shift-click moves
 // between the hotbar and the main area, number keys swap with the hotbar.
+// (Round 10) The chest screen is this screen too: the chest's 27 slots
+// above the inventory, with the same clicks (shift-click moves between the
+// chest and the inventory). Its clicks go through js/chests.js, which online
+// asks the host first: until it answers, the screen takes no more clicks.
 import { itemInfo, maxStack, CREATIVE_ITEMS, ALL_WEAPONS, itemAllowed, ARMOR_SLOTS } from "./items.js";
 import { HOTBAR_SIZE, INVENTORY_SIZE, makeStack, clickSlot, quickMove, addToRange, Inventory } from "./inventory.js";
 import { SlotView, stackLabel } from "./slot-view.js";
+import { CHEST_SLOTS, sameStack } from "./chests.js";
 
 function el(tag, className, parent) {
   const e = document.createElement(tag);
@@ -32,6 +37,9 @@ export class InventoryScreen {
     this.audio = audio;
     this.onDrop = null; // (stack) => void: throw items out into the world
     this.onChange = null; // () => void: inventory contents changed
+    this.chests = null; // the chests (js/chests.js), for the chest screen
+    this.chestPos = null; // [x, y, z] of the chest the next open("chest") shows
+    this.onCloseRequest = null; // () => void: the chest went (broken): close the screen
 
     this.root = document.getElementById("inventory-screen");
     this.root.innerHTML = "";
@@ -54,11 +62,24 @@ export class InventoryScreen {
       return b;
     });
 
+    // (Round 10) The chest's slots (the chest screen only).
+    this.chestEl = el("div", "inv-chest hidden", left);
+    const chestGrid = el("div", "inv-grid", this.chestEl);
+    this.chestViews = [];
+    for (let i = 0; i < CHEST_SLOTS; i++) {
+      const v = new SlotView(icons);
+      chestGrid.appendChild(v.el);
+      this._bindSlot(v.el, { area: "chest", index: i });
+      this.chestViews.push(v);
+    }
+    this.chestView = null; // the open chest (js/chests.js openView)
+    this.busy = false; // a chest click waiting for the host
+
     el("div", "inv-label", left).textContent = "Inventory";
     this.mainEl = el("div", "inv-grid", left);
     this.hotbarEl = el("div", "inv-grid inv-hotbar", left);
     // The armor worn: head, chest, legs and feet, in a row under the hotbar.
-    const armorRow = el("div", "inv-armor", left);
+    const armorRow = (this.armorRow = el("div", "inv-armor", left));
     el("span", "inv-label", armorRow).textContent = "Armor";
     this.armorViews = ARMOR_SLOTS.map((name, i) => {
       const v = new SlotView(icons);
@@ -118,13 +139,26 @@ export class InventoryScreen {
     });
   }
 
-  // kind: "inventory" (the only kind now). In creative the item palette shows.
+  // kind: "inventory", or "chest" (the chest at chestPos, above the
+  // inventory). In creative the item palette shows (not with a chest).
   open(kind, creative) {
     this.kind = kind || "inventory";
+    const chest = this.kind === "chest" && !!this.chests && !!this.chestPos;
+    if (this.kind === "chest" && !chest) this.kind = "inventory";
     this.creative = creative;
-    this.titleEl.textContent = creative ? "Creative Inventory" : "Inventory";
-    this.tabsEl.classList.toggle("hidden", !creative);
-    this.paletteEl.classList.toggle("hidden", !creative);
+    const palette = creative && !chest;
+    this.tabsEl.classList.toggle("hidden", !palette);
+    this.paletteEl.classList.toggle("hidden", !palette);
+    this.chestEl.classList.toggle("hidden", !chest);
+    this.armorRow.classList.toggle("hidden", chest);
+    if (chest) {
+      const [x, y, z] = this.chestPos;
+      this.chestView = this.chests.openView(x, y, z, () => this._chestUpdated());
+    } else if (this.chestView) {
+      this.chests.closeView();
+      this.chestView = null;
+    }
+    this._title();
     this.setTab(this.tab);
     this.root.classList.remove("hidden");
     this.refresh();
@@ -145,8 +179,31 @@ export class InventoryScreen {
     this.hover = null;
     this.root.classList.add("hidden");
     this.tooltipEl.classList.add("hidden");
+    if (this.chestView) {
+      this.chestView = null;
+      this.chests.closeView();
+    }
     for (const s of leftovers) if (this.onDrop) this.onDrop(s);
     this._changed();
+  }
+
+  _title() {
+    const v = this.chestView;
+    const text = v ? (v.ready ? "Chest" : "Chest (opening...)") : this.creative ? "Creative Inventory" : "Inventory";
+    if (this.titleEl.textContent !== text) this.titleEl.textContent = text;
+  }
+
+  // The open chest changed (someone else's click, the host's answer), or is gone.
+  _chestUpdated() {
+    const v = this.chestView;
+    if (!v) return;
+    if (v.gone) {
+      if (this.onCloseRequest) this.onCloseRequest();
+      else this.refresh();
+      return;
+    }
+    this.refresh();
+    this._showTooltip();
   }
 
   _changed() {
@@ -173,6 +230,7 @@ export class InventoryScreen {
     if (ref.area === "inv") return this.inventory.slots[ref.index];
     if (ref.area === "armor") return this.inventory.armor[ref.index];
     if (ref.area === "palette") return makeStack(CREATIVE_ITEMS[ref.index], 1);
+    if (ref.area === "chest") return this.chestView?.ready ? this.chestView.slots[ref.index] : null;
     return null;
   }
 
@@ -192,9 +250,14 @@ export class InventoryScreen {
 
   _click(ref, button, shift) {
     if (button !== 0 && button !== 2) return;
+    if (this.busy) return; // (a chest click is still with the host)
     const inv = this.inventory;
     let sound = true;
-    if (ref.area === "inv") {
+    if (ref.area === "chest") {
+      sound = this._chestClick(ref.index, button, shift);
+    } else if (ref.area === "inv" && shift && !this.cursor && this.chestView) {
+      sound = this._moveToChest(ref.index);
+    } else if (ref.area === "inv") {
       const st = inv.slots[ref.index];
       const slot = st && !this.cursor ? Inventory.armorSlotOf(st.id) : -1;
       if (shift && slot >= 0) {
@@ -231,6 +294,114 @@ export class InventoryScreen {
     this._showTooltip();
   }
 
+  // ---------- The chest ----------
+
+  // Sends a change of the chest's slots ([[slot, before, after], ...]);
+  // onOk() makes this player's side of it (the cursor, the inventory) once
+  // it is applied. Refused: nothing changes here (the chest shows what it
+  // holds now).
+  _submit(changes, onOk) {
+    this.busy = true;
+    this.chests.submit(changes, (ok) => {
+      this.busy = false;
+      if (ok) onOk();
+      this.refresh();
+      this._changed();
+      this._showTooltip();
+    });
+  }
+
+  _chestOpen() {
+    const v = this.chestView;
+    return v && v.ready && !v.gone ? v : null;
+  }
+
+  // A click on chest slot i: the inventory's rules, worked out on copies.
+  _chestClick(i, button, shift) {
+    const v = this._chestOpen();
+    if (!v) return false;
+    const before = v.slots[i] ? { ...v.slots[i] } : null;
+    if (shift) {
+      // Into the inventory, as much as fits.
+      if (!before || this.cursor) return false;
+      const moving = { ...before };
+      addToRange(this.inventory.slots.map((s) => (s ? { ...s } : null)), moving, 0, INVENTORY_SIZE);
+      if (moving.count === before.count) return false;
+      const taken = { ...before, count: before.count - moving.count };
+      this._submit([[i, before, moving.count > 0 ? { ...before, count: moving.count } : null]], () => this._give(taken));
+      return true;
+    }
+    const copy = v.slots.map((s) => (s ? { ...s } : null));
+    const cursor = clickSlot(copy, i, this.cursor ? { ...this.cursor } : null, button);
+    if (sameStack(before, copy[i])) return false;
+    this._submit([[i, before, copy[i]]], () => (this.cursor = cursor));
+    return true;
+  }
+
+  // Shift-click on inventory slot `index` with a chest open: into the chest.
+  _moveToChest(index) {
+    const v = this._chestOpen();
+    const st = this.inventory.slots[index];
+    if (!v || !st) return false;
+    const copy = v.slots.map((s) => (s ? { ...s } : null));
+    const moving = { ...st };
+    addToRange(copy, moving, 0, CHEST_SLOTS);
+    const moved = st.count - moving.count;
+    if (moved <= 0) return false;
+    const changes = [];
+    for (let i = 0; i < CHEST_SLOTS; i++) if (!sameStack(v.slots[i], copy[i])) changes.push([i, v.slots[i] ? { ...v.slots[i] } : null, copy[i]]);
+    const { id, dur } = st;
+    this._submit(changes, () => this._take(index, id, dur, moved));
+    return true;
+  }
+
+  // Into the inventory (what doesn't fit is thrown out).
+  _give(stack) {
+    const left = { ...stack };
+    addToRange(this.inventory.slots, left, 0, INVENTORY_SIZE);
+    if (left.count > 0) this.onDrop?.(left);
+  }
+
+  // Takes n of item id (with that wear) out of the inventory, slot `index` first.
+  _take(index, id, dur, n) {
+    const slots = this.inventory.slots;
+    for (let k = -1; k < INVENTORY_SIZE && n > 0; k++) {
+      const j = k < 0 ? index : k;
+      if (k === index) continue;
+      const s = slots[j];
+      if (!s || s.id !== id || (s.dur ?? -1) !== (dur ?? -1)) continue;
+      const t = Math.min(n, s.count);
+      s.count -= t;
+      n -= t;
+      if (s.count <= 0) slots[j] = null;
+    }
+  }
+
+  // Keys over a chest slot: 1-9 swaps it with that hotbar slot, Q drops from it.
+  _chestKey(i, code, ctrl) {
+    const v = this._chestOpen();
+    if (!v || this.busy) return;
+    const before = v.slots[i] ? { ...v.slots[i] } : null;
+    const m = /^Digit([1-9])$/.exec(code);
+    if (m) {
+      const h = Number(m[1]) - 1;
+      const sent = this.inventory.slots[h] ? { ...this.inventory.slots[h] } : null;
+      if (!before && !sent) return;
+      this._submit([[i, before, sent]], () => {
+        const slots = this.inventory.slots;
+        const cur = slots[h];
+        // (picked something up meanwhile into that slot: only what was sent leaves it)
+        if (cur && sent && cur.id === sent.id && cur.count > sent.count) {
+          cur.count -= sent.count;
+          if (before) this._give(before);
+        } else slots[h] = before;
+      });
+    } else if (code === "KeyQ" && before) {
+      const n = ctrl ? before.count : 1;
+      this._submit([[i, before, before.count > n ? { ...before, count: before.count - n } : null]], () => this.onDrop?.({ ...before, count: n }));
+    }
+  }
+
   // Throws the carried stack (or one item of it) out of the screen.
   _dropCursor(one) {
     if (!this.cursor) return;
@@ -249,6 +420,11 @@ export class InventoryScreen {
   // Keyboard while the screen is open: 1-9 swaps the hovered slot with that
   // hotbar slot, Q drops from the hovered slot. Returns true if handled.
   handleKey(code, ctrl) {
+    if (this.busy) return /^Digit[1-9]$/.test(code) || code === "KeyQ";
+    if (this.hover && this.hover.area === "chest" && (/^Digit[1-9]$/.test(code) || code === "KeyQ")) {
+      this._chestKey(this.hover.index, code, ctrl);
+      return true;
+    }
     const m = /^Digit([1-9])$/.exec(code);
     if (m && this.hover && this.hover.area === "inv") {
       const h = Number(m[1]) - 1;
@@ -282,6 +458,11 @@ export class InventoryScreen {
   refresh() {
     if (!this.isOpen) return;
     for (let i = 0; i < INVENTORY_SIZE; i++) this.invViews[i].set(this.inventory.slots[i]);
+    const cv = this.chestView;
+    if (cv) {
+      for (let i = 0; i < CHEST_SLOTS; i++) this.chestViews[i].set(cv.ready && !cv.gone ? cv.slots[i] : null);
+      this._title();
+    }
     this.armorViews.forEach((v, i) => v.set(this.inventory.armor[i]));
     const pts = this.inventory.armorPoints();
     const text = pts > 0 ? `${pts} defense (${Math.round(this.inventory.armorReduction() * 100)}% less damage)` : "no armor";

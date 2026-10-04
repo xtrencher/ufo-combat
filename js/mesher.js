@@ -22,6 +22,8 @@ import {
   IS_LEAVES,
   IS_WET,
   IS_WATERLOGGED,
+  BLOCK_INFO,
+  CHEST_BOX,
 } from "./blocks.js";
 
 // FOLIAGE: leaves and plants (sunlight shines through them).
@@ -77,7 +79,7 @@ const FACES = FACE_DEFS.map((def, f) => {
       corner: offsetOf(nx + t1[0] + t2[0], ny + t1[1] + t2[1], nz + t1[2] + t2[2]),
     };
   });
-  return { index: f, n: def.n, neighbor: offsetOf(nx, ny, nz), corners };
+  return { index: f, n: def.n, neighbor: offsetOf(nx, ny, nz), corners, uvOf: def.uv };
 });
 
 // ---------- Growable vertex buffer builder (reused between chunks) ----------
@@ -425,6 +427,85 @@ function emitTorch(b, x, y, z, id, pi) {
   }
 }
 
+// (Round 10) Wall torch: the standing torch's stick, leaned 22.5 degrees out
+// from the wall with its foot against it, 3.5/16 up (as in classic block
+// games). The geometry of each facing is worked out once here: the same
+// numbers on the main thread and in the workers.
+const WALL_TORCH_TILT = Math.PI / 8;
+const WALL_TORCH_GEOM = [];
+for (let id = 0; id < 256; id++) {
+  const facing = SHAPE_OF[id] === SHAPE.WALL_TORCH ? BLOCK_INFO[id].facing : null;
+  if (!facing) continue;
+  const [dx, dz] = facing;
+  // Local frame: x out from the wall, y up, z along the wall (px, pz: x and
+  // z in the block); the stick is 2/16 square and 10/16 tall about its foot.
+  const cos = Math.cos(WALL_TORCH_TILT);
+  const sin = Math.sin(WALL_TORCH_TILT);
+  const footX = 0.5 - dx * (0.5 - 1 / 16);
+  const footZ = 0.5 - dz * (0.5 - 1 / 16);
+  const toBlock = (lx, ly, lz) => {
+    const rx = lx * cos + ly * sin; // (leaning out: the top moves away from the wall)
+    const ry = -lx * sin + ly * cos;
+    return [footX + rx * dx - lz * dz, 3.5 / 16 + ry, footZ + rx * dz + lz * dx];
+  };
+  // A local face normal, in block axes: the face index lighting uses.
+  const faceOf = (n) => {
+    const w = [n[0] * dx - n[2] * dz, n[1], n[0] * dz + n[2] * dx];
+    return w[0] > 0.5 ? 0 : w[0] < -0.5 ? 1 : w[1] > 0.5 ? 2 : w[1] < -0.5 ? 3 : w[2] > 0.5 ? 4 : 5;
+  };
+  const faces = [];
+  for (const face of FACES) {
+    const fi = face.index;
+    const corners = [];
+    for (let c = 0; c < 4; c++) {
+      const p = face.corners[c].pos;
+      const [fu, fv] = face.corners[c].uv;
+      const u = TU0 + fu * (TU1 - TU0);
+      const v = fi === 2 ? 16 / 32 + fv * (4 / 32) : fi === 3 ? fv * (4 / 32) : fv * (20 / 32);
+      corners.push([...toBlock(p[0] ? 1 / 16 : -1 / 16, p[1] * TORCH_H, p[2] ? 1 / 16 : -1 / 16), u, v]);
+    }
+    faces.push({ normal: faceOf(face.n), corners });
+  }
+  WALL_TORCH_GEOM[id] = faces;
+}
+
+function emitWallTorch(b, x, y, z, id, pi) {
+  const layer = FACE_TILES[id * 6 + 2];
+  const l = padLight[pi];
+  const sky = (l >> 4) * 17;
+  const blk = (l & 15) * 17;
+  for (const face of WALL_TORCH_GEOM[id]) {
+    for (const c of face.corners) b.vertex(x + c[0], y + c[1], z + c[2], c[3], c[4], face.normal * 4 + 3, sky, blk, FLAG.EMISSIVE, layer, 0);
+    b.quad(false);
+  }
+}
+
+// (Round 10) Chest: a box a little smaller than the block (CHEST_BOX), its
+// faces lit and shaded like a cube's from the cells around it. Its textures
+// are painted to that size, so the uv is the corner's place in the block.
+const CHEST_LO = [CHEST_BOX[0], CHEST_BOX[1], CHEST_BOX[2]];
+const CHEST_HI = [CHEST_BOX[3], CHEST_BOX[4], CHEST_BOX[5]];
+const chestCorner = [0, 0, 0];
+function emitChest(b, x, y, z, id, pi) {
+  for (let f = 0; f < 6; f++) {
+    const face = FACES[f];
+    const nid = padBlocks[pi + face.neighbor];
+    if (f === 3 && IS_OPAQUE[nid]) continue; // (standing on the floor)
+    shadeCorners(pi, face);
+    const flags = IS_WET[nid] ? FLAG.UNDERWATER : 0;
+    const layer = FACE_TILES[id * 6 + f];
+    for (let c = 0; c < 4; c++) {
+      const p = face.corners[c].pos;
+      for (let a = 0; a < 3; a++) chestCorner[a] = p[a] ? CHEST_HI[a] : CHEST_LO[a];
+      const [u, v] = face.uvOf(chestCorner);
+      b.vertex(x + chestCorner[0], y + chestCorner[1], z + chestCorner[2], u, v, f * 4 + aoVals[c], skyVals[c], blkVals[c], flags, layer, 0);
+    }
+    const a02 = aoVals[0] + aoVals[2];
+    const a13 = aoVals[1] + aoVals[3];
+    b.quad(a02 < a13 || (a02 === a13 && skyVals[0] + skyVals[2] + blkVals[0] + blkVals[2] < skyVals[1] + skyVals[3] + blkVals[1] + blkVals[3]));
+  }
+}
+
 // neighbors: 9 chunks as described in fillPadded (center at index 4).
 // options: { fancyLeaves } (see emitLeafCards).
 // Returns { opaque, cutout, water } where each is null or a buffer set.
@@ -474,6 +555,14 @@ function meshBody(cx, cz, maxY, options) {
         }
         if (shape === SHAPE.TORCH) {
           emitTorch(b, x, y, z, id, pi);
+          continue;
+        }
+        if (shape === SHAPE.WALL_TORCH) {
+          emitWallTorch(b, x, y, z, id, pi);
+          continue;
+        }
+        if (shape === SHAPE.CHEST) {
+          emitChest(b, x, y, z, id, pi);
           continue;
         }
         emitCube(b, id, rt, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);

@@ -4,11 +4,13 @@
 //               to this player and this player's vehicle (the blocks it blew
 //               away arrive as block edits);
 //   bolts       laser bolts (blasters, the minigun, UFO cannons, aliens,
-//               UFOs, enemy fighters, the jets' cannon): flown here too. A
-//               bolt fired somewhere else only ever hurts this player and
-//               this player's own vehicle (the AI's shots are judged by the
-//               player they are aimed at, a player's shots by the shooter);
-//   tracers     the pistol, machine gun and sniper rifle, with their sounds;
+//               UFOs, enemy fighters, the jets' cannon) and bullets (the
+//               pistol, the machine gun, the sniper rifle, with their
+//               sounds): flown here too. A bolt fired somewhere else only
+//               ever hurts this player and this player's own vehicle (the
+//               AI's shots are judged by the player they are aimed at, a
+//               player's shots by the shooter);
+//   tracers     an older version's hitscan machine gun and sniper rifle;
 //   rail beams, the nuke (flash, fireball, cloud), airstrike meteors, flares;
 //   projectiles rockets, grenades, arrows, missiles and nuke bombs in flight,
 //               15 times a second from their owner, drawn here in between.
@@ -143,7 +145,11 @@ export class FxSync {
     for (const b of this.bolts) {
       const c = colorKeys.get(b.color) ?? this._colorKey(b.color);
       const h = b.homing?.target ? this.mp.refOf?.(b.homing.target) || 0 : 0;
-      this.out.push(["b", r2(b.pos.x), r2(b.pos.y), r2(b.pos.z), Math.round(b.dir.x * 1e4) / 1e4, Math.round(b.dir.y * 1e4) / 1e4, Math.round(b.dir.z * 1e4) / 1e4, c, r1(b.speed), r1(b.damage), b.owner, r1(b.range), Math.round(b.radius * 1000) / 1000, r2(b.length), r2(b.blast || 0), (b.hole ? 1 : 0) | (b.scorch ? 2 : 0) | (b.sound ? 4 : 0) | (b.tracer ? 8 : 0), h, b.homing ? r2(b.homing.turn) : 0, b.homing ? r1(b.homing.life) : 0, b.cause || 0]);
+      // (From where it was fired, its whole range: a fast bolt may already be
+      // a long step out, or have struck, by the end of the frame. The last
+      // field, the gun that fired a bullet, is new: older versions ignore it.)
+      const o = b.origin || b.pos;
+      this.out.push(["b", r2(o.x), r2(o.y), r2(o.z), Math.round(b.dir.x * 1e4) / 1e4, Math.round(b.dir.y * 1e4) / 1e4, Math.round(b.dir.z * 1e4) / 1e4, c, r1(b.speed), r1(b.damage), b.owner, r1(b.range), Math.round(b.radius * 1000) / 1000, r2(b.length), r2(b.blast || 0), (b.hole ? 1 : 0) | (b.scorch ? 2 : 0) | (b.sound ? 4 : 0) | (b.tracer ? 8 : 0), h, b.homing ? r2(b.homing.turn) : 0, b.homing ? r1(b.homing.life) : 0, b.cause || 0, b.gun || 0]);
     }
     this.bolts.length = 0;
     if (this.out.length && this.mp.stateLoaded) this.net.toAll({ t: "fx", l: this.out });
@@ -228,7 +234,13 @@ export class FxSync {
         }
         // The shot's sound, from where it was fired (a UFO's volley once per batch).
         const d = from3.distanceTo(ears);
-        if (e[15] & 4) {
+        const gun = e[20];
+        if (gun === "pistol" || gun === "machinegun" || gun === "sniper") {
+          // A player's bullet: the gun's report and a muzzle flash.
+          g.effects.glow.spawn({ x: from3.x, y: from3.y, z: from3.z, life: 0.06, size0: gun === "sniper" ? 0.9 : 0.6, size1: 0.2, color0: this._muzzleC || (this._muzzleC = new THREE.Color(3, 2, 0.8)), alpha: 0.9 });
+          const au = g.audio;
+          au.playDistant(d, () => (gun === "sniper" ? au.playSniperShot() : gun === "machinegun" ? au.playMachineGun() : au.playGunshot()));
+        } else if (e[15] & 4) {
           if (d < 160) g.audio.playDistant(d, () => g.audio.playBlaster?.(0, e[10]));
         } else if (e[10] === "ufo" && this._ufoShotFrame !== this._frame) {
           this._ufoShotFrame = this._frame;

@@ -4,7 +4,7 @@
 // one once the player gets close). One village per world grid cell, at most,
 // decided by a hash so no chunk needs to generate to know where they are.
 import { hash2, mulberry32 } from "./noise.js";
-import { BLOCK } from "./blocks.js";
+import { BLOCK, wallTorch, chest } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
 
@@ -143,8 +143,24 @@ export class VillageGrower {
     }
     for (const [px, pz] of [[-1, -1], [1, 1]]) for (let dy = 2; dy <= 3; dy++) out.push(px, dy, pz, BLOCK.WOOD);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) out.push(dx, 4, dz, BLOCK.PLANKS);
-    // Houses, doors on the street.
-    for (const h of lay.houses) house(out, h);
+    // Houses, doors on the street. (Round 10) Wall torches inside and beside
+    // every door, and chests in about half the houses, one more in the
+    // biggest: from a generator of their own, so the village's other random
+    // choices (and old saves' villages) stay as they were.
+    const furnish = mulberry32((this.seed ^ Math.imul(center.x, 0x632be5ab) ^ Math.imul(center.z, 0x2c1b3c6d) ^ 0x3c6ef3) >>> 0);
+    let biggest = 0;
+    lay.houses.forEach((h, i) => {
+      const b = lay.houses[biggest];
+      if (h.w * h.d > b.w * b.d) biggest = i;
+    });
+    // (a door torch with a lamp post right in front of it is left out: the lamp lights the door)
+    const lampAt = new Set(lay.lamps.map(([lx, lz]) => `${lx},${lz}`));
+    const blocked = (dx, dz) => lampAt.has(`${dx},${dz}`);
+    lay.houses.forEach((h, i) => {
+      const chestRoll = furnish();
+      const torchRoll = furnish();
+      house(out, h, { chests: (chestRoll < 0.5 ? 1 : 0) + (i === biggest ? 1 : 0), torches: torchRoll < 0.5 || h.w * h.d >= 48 ? 2 : 1, blocked });
+    });
     // Farm plots: tilled rows of crops with a water channel down the middle.
     for (const f of lay.farms) {
       for (let dz = f.z; dz < f.z + f.d; dz++) {
@@ -254,11 +270,31 @@ export class VillageGrower {
 
 // A house: footprint w x d with its corner at (x, z) relative to the village
 // center, walls y 1..h (a cobblestone footing, plank walls with log corners
-// and glass windows), a doorway on the `door` side and a stepped roof above;
-// a torch beside the door.
-function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }) {
+// and glass windows), a doorway on the `door` side and a stepped roof above.
+// (Round 10) Furnished: a wall torch beside the doorway on each side, one or
+// two inside at head height (on the back wall, and a side wall), and
+// `chests` chests (0-2) in the back corners, their latches toward the room.
+// blocked(dx, dz): whether something else of the village stands in that column.
+function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torches = 1, blocked = null } = {}) {
   const midX = Math.floor((W - 1) / 2);
   const midZ = Math.floor((D - 1) / 2);
+  const isDoor = (x, z) =>
+    (door === "z+" && z === D - 1 && (x === midX || x === midX + 1)) ||
+    (door === "z-" && z === 0 && (x === midX || x === midX + 1)) ||
+    (door === "x+" && x === W - 1 && (z === midZ || z === midZ + 1)) ||
+    (door === "x-" && x === 0 && (z === midZ || z === midZ + 1));
+  // The wall's block at (x, y, z) of the footprint (0: the doorway, or no wall there).
+  const wallAt = (x, y, z) => {
+    const ex = x === 0 || x === W - 1;
+    const ez = z === 0 || z === D - 1;
+    if ((!ex && !ez) || x < 0 || x >= W || z < 0 || z >= D || y < 1 || y > H) return 0;
+    const dr = isDoor(x, z);
+    if (dr && y <= 2) return 0;
+    if (ex && ez) return BLOCK.WOOD;
+    if (y === 1) return BLOCK.COBBLESTONE;
+    if (y === 2 && !dr && ((ex && z % 3 === 1 && z < D - 1) || (ez && x % 3 === 1 && x < W - 1))) return BLOCK.GLASS;
+    return BLOCK.PLANKS;
+  };
   for (let x = 0; x < W; x++) {
     for (let z = 0; z < D; z++) {
       const ex = x === 0 || x === W - 1;
@@ -268,19 +304,9 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }) {
         out.push(ox + x, 0, oz + z, BLOCK.PLANKS);
         continue;
       }
-      const corner = ex && ez;
-      const isDoor =
-        (door === "z+" && z === D - 1 && (x === midX || x === midX + 1)) ||
-        (door === "z-" && z === 0 && (x === midX || x === midX + 1)) ||
-        (door === "x+" && x === W - 1 && (z === midZ || z === midZ + 1)) ||
-        (door === "x-" && x === 0 && (z === midZ || z === midZ + 1));
       for (let y = 1; y <= H; y++) {
-        if (isDoor && y <= 2) continue;
-        let id = BLOCK.PLANKS;
-        if (corner) id = BLOCK.WOOD;
-        else if (y === 1) id = BLOCK.COBBLESTONE;
-        else if (y === 2 && !isDoor && ((ex && z % 3 === 1 && z < D - 1) || (ez && x % 3 === 1 && x < W - 1))) id = BLOCK.GLASS;
-        out.push(ox + x, y, oz + z, id);
+        const id = wallAt(x, y, z);
+        if (id) out.push(ox + x, y, oz + z, id);
       }
     }
   }
@@ -295,16 +321,37 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }) {
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) out.push(ox + x, y, oz + z, BLOCK.OAK_BARK);
     if (k >= 2) break;
   }
-  // A torch beside the doorway, standing on the pad just outside it.
-  let tx = midX - 1;
-  let tz = -1;
-  if (door === "z+") tz = D;
-  else if (door === "x+") {
-    tx = W;
-    tz = midZ - 1;
-  } else if (door === "x-") {
-    tx = -1;
-    tz = midZ - 1;
+  // A wall torch at (x, y, z) facing (dx, dz), only on a real wall block
+  // (never on glass or in a doorway: no floating torches).
+  const torch = (x, y, z, dx, dz) => {
+    const wall = wallAt(x - dx, y, z - dz);
+    if (!wall || wall === BLOCK.GLASS || blocked?.(ox + x + dx, oz + z + dz)) return;
+    out.push(ox + x, y, oz + z, wallTorch(dx, dz));
+  };
+  // The door's side: (fx, fz) points out through it. Beside the doorway, on
+  // the outside, at the doorway's height (above it where a window is).
+  const fx = door === "x+" ? 1 : door === "x-" ? -1 : 0;
+  const fz = door === "z+" ? 1 : door === "z-" ? -1 : 0;
+  const beside = fx ? [[fx > 0 ? W : -1, midZ - 1], [fx > 0 ? W : -1, midZ + 2]] : [[midX - 1, fz > 0 ? D : -1], [midX + 2, fz > 0 ? D : -1]];
+  for (const [bx, bz] of beside) {
+    const y = wallAt(bx - fx, 2, bz - fz) === BLOCK.GLASS ? 3 : 2;
+    torch(bx, y, bz, fx, fz);
   }
-  out.push(ox + tx, 1, oz + tz, BLOCK.TORCH);
+  // Inside: the back wall's cells (along it, from one corner to the other),
+  // facing the door.
+  const back = [];
+  if (fx) for (let z = 1; z <= D - 2; z++) back.push([fx > 0 ? 1 : W - 2, z]);
+  else for (let x = 1; x <= W - 2; x++) back.push([x, fz > 0 ? 1 : D - 2]);
+  const [cx, cz] = back[(back.length - 1) >> 1];
+  torch(cx, 3, cz, fx, fz);
+  // A second one on a side wall, facing across the room.
+  if (torches > 1) {
+    if (fx) torch(midX, 3, 1, 0, 1);
+    else torch(1, 3, midZ, 1, 0);
+  }
+  // Chests in the back corners, on the floor against the back wall.
+  for (let i = 0; i < Math.min(2, chests); i++) {
+    const [qx, qz] = back[i === 0 ? 0 : back.length - 1];
+    out.push(ox + qx, 1, oz + qz, chest(fx, fz));
+  }
 }
