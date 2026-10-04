@@ -2490,3 +2490,8 @@ A second round of readers, on what the first pass covered least: balance against
 - `chaos-tests.mjs`: 400 random steps (missions, modes, vehicles, blasts, screens, saves, respawns), 0 problems.
 - New: `perf-tests.mjs` 5/5 (worker-made chunks and meshes identical to the main thread's, streaming inside its budget, one-draw-call bullet holes).
 - Software rendering runs these at a few frames a second; several waits were made more generous for it, never weaker in what they check.
+
+### Test status (after the second pass)
+- Everything green on the final code: `unit-tests.mjs` 61/61, `perf-tests.mjs` 5/5, `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `settings-tests.mjs` 7/7, `ufo-tests.mjs` 35/35, `check-mob-models.mjs` OK, `chaos-tests.mjs` 400 steps / 0 problems.
+- `smoke-test.mjs`: 65/67 in the full run, then the two water checks (drowning, zombies at the moat) passed on their own with longer waits. They had timed out, not failed: the session moved to a slower test machine, where the software renderer draws a 1280x800 frame over that much water in more than a second (the same code from before this pass measured the same: 426 s for the moat's 10 s of game time). The unit test's hand-built stats needed the two new stat keys.
+- Multiplayer: `mp-tests.mjs` 23/23, `mp-round9-tests.mjs` 8/8, `mp-damage-tests.mjs` 444/444 applicable cells.
