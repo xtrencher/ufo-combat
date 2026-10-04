@@ -114,7 +114,7 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   faster (apples, cooked meat). A **golden apple** heals fully and adds four
   golden hearts on top that soak damage first.
 - **Mining:** harder blocks take longer; the right tool is much faster.
-  Stone and coal need a pickaxe; gold needs a stone pickaxe or better. Tools wear
+  Stone and coal need a pickaxe; gold needs an iron pickaxe or better. Tools wear
   out. There is **no crafting**: tools drop from UFOs, aliens and supply crates.
 - **Caves and ores:** caves wind underground with coal and gold (iron and
   diamonds are gone: nothing uses them any more; old iron and diamond ore
@@ -128,7 +128,8 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   inventory. Aliens, UFOs, supply crates and bunker guards drop armor, better
   the further the mission chain has got. Falls, drowning and fire go through.
 - **Dying** shows a big red **NOOB!** with the cause. You drop everything
-  where you died and respawn at the world spawn with full health.
+  where you died and respawn with full health around the current mission's
+  location (at the world spawn when no mission is running).
 
 ### Missions, loot and supply crates (Survival)
 
@@ -160,14 +161,14 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   | 18 | Big game | Bring down a large UFO | 4 golden apples |
   | 19 | Operation Sunburn | Take the **B-2 bomber** from your airport, fly to the far-off airport the aliens turned into a base and drop the nuke on it (`B`); guard UFOs and a fighter defend it. A lost B-2 is replaced at its airport | 8 golden apples |
   | 20 | Steal the ship | Soldiers keep a captured alien ship in the underground bunker of an airport: fight your way past the armed guards, board it (`F`), and when they seal the blast doors switch on **ghost mode** (`G`) and burn your way out through the rock; get 150 blocks clear | 8 golden apples |
-  | 21 | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: three shield rounds, an escort, and a red squad dropped on you. Doable on foot | 12 golden apples |
+  | 21 | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: four shield rounds, an escort, and a red squad dropped on you. Doable on foot | 12 golden apples |
   | 22 | UFO slayer | Shoot down twenty-five more | 10 golden apples |
   | 23 | Scramble! | A wing of hijacked fighters comes at you all at once: shoot down three (take a fighter from the airport, or lock on with the bazooka) | 6 golden apples |
   | 24 | Abductions | Abductor UFOs beam up a village's people and animals: shoot down three of them | 6 golden apples |
   | 25 | Titan | Bring down a **titan**, the biggest alien ship (well over a hundred blocks across); its crew comes out fighting | 10 golden apples |
   | 26 | Night of the swarm | A night of swarms: small, fast UFOs fill the sky while red and blue landing parties hunt you. Survive until dawn and shoot down eight | 8 golden apples |
   | 27 | The fortress | A garrison of red brutes, blue and gray aliens (two leaders) dug in on open ground, heavy UFOs over it: kill ten | 8 golden apples |
-  | 28 | The Armada | **The finale:** the Dreadnought, a titan behind four shields held up by pylons, with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won: a victory screen, and the sky stays busy for free play | 20 golden apples |
+  | 28 | The Armada | **The finale:** the Dreadnought, a titan behind five shields held up by pylons, with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won: a victory screen, and the sky stays busy for free play | 20 golden apples |
 
   Each mission also sets the sky, and in Survival **only the missions do**
   (the UFO activity, spawn chance, max count and size settings are
@@ -214,8 +215,8 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 
 ### Creatures
 
-- **Fluffalo:** a shaggy, humped grazer with a cream mane. Drops fluff (4
-  fluff craft into wool) and raw meat.
+- **Fluffalo:** a shaggy, humped grazer with a cream mane. Drops fluff and raw
+  meat.
 - **Hoplet:** a striped little hopper with tall ears. Quick to flee.
 - **Mossback:** a slow, moss-covered tortoise that hides in its shell when
   hit.
@@ -287,9 +288,8 @@ hold something else.
   left click fires a long-range, high-damage shot.
 - **Laser pistol (blaster):** short glowing sci-fi bolts in red, green or blue
   (**Settings > Weapons**) that glow, spark on impact and leave scorch marks.
-  Hold right click for continuous fire: it never reloads, but each bolt is
-  a little weaker (6) than the pistol's round at full rate (5 per shot, but a
-  magazine to reload).
+  Hold right click for continuous fire: each bolt hits a little harder (6)
+  than a pistol round (5), and it never reloads.
 - **Railgun:** hold right click for about a second (glowing coils, a rising
   whine), then one extremely bright beam that **destroys every block along
   its line** and hits every creature, UFO and vehicle in it, very hard.
@@ -678,7 +678,7 @@ you: weaker against UFOs, long pauses, at most three kills, and their kills
 don't count as yours). They leave you alone, whatever you shoot, unless you
 attack one of them: **only that fighter** turns on you (a message says so),
 with missiles from a distance and then its cannon, flares and breaks. The
-one exception is the hijacked fighter of mission 12, in a darker paint.
+one exception is the hijacked fighter of mission 13 (Air superiority), in a darker paint.
 **Settings > Vehicles:** how many patrol at once (0-3, default 1).
 
 **The nuke** goes off with a blinding white flash, a fireball, a shockwave
@@ -709,7 +709,7 @@ default).
 
 ## Mods
 
-**Mods** (main menu or pause menu) switches all the UFO COMBAT content on
+**Mods** (the button at the top of Settings) switches all the UFO COMBAT content on
 or off. It's on by default. Off gives plain vanilla survival and creative:
 no guns, explosives, vehicles, UFOs or aliens (swords and tools stay).
 Switching mid-game is instant and clean: mod items are put away and come
@@ -718,14 +718,14 @@ aliens and vehicles leave the world.
 
 ## Graphics and performance
 
-**Graphics presets** (start menu, or Settings > Graphics):
+**Graphics presets** (Settings > Graphics):
 
 - **Low:** no shadows or post-processing. For weak laptops.
-- **Medium:** sun shadows and bloom.
+- **Medium** (default): sun shadows and bloom.
 - **High:** two cascades of soft sun shadows, normal-mapped textures with
   specular light, refractive water, light shafts, 3D grass, reeds, ferns
   and flowers, and fuller tree crowns.
-- **Ultra** (default): everything on High, plus a third shadow cascade with
+- **Ultra:** everything on High, plus a third shadow cascade with
   contact-hardening soft shadows, parallax (3D) textures up close, water
   reflections of the world, denser plants, and full resolution on high-DPI
   screens.
@@ -751,7 +751,7 @@ Auto uses the preset's), **far terrain (LOD) quality** (up to Extreme),
 detail** (particles).
 
 **Render distance** (Settings > Graphics) goes up to 256 chunks, about 4 km
-(default 10). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
+(default 25). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
 
@@ -769,15 +769,15 @@ filled up by big world saves can't stop them from being saved.
 
 | Tab | Settings (default) |
 | --- | --- |
-| Graphics | Render distance 2-256 chunks (25), graphics preset Low / Medium / High / **Ultra** with individual options, show FPS (on) |
+| Graphics | Render distance 2-256 chunks (25), graphics preset Low / **Medium** / High / Ultra with individual options, show FPS (on) |
 | Performance | One-click presets Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto), far terrain quality Low-Extreme (Medium), resolution scale 50-200% (100%), effects detail (High) |
-| Controls | Field of view 50-110 (75), mouse sensitivity (1x), invert Y (off), binocular zoom 2-12x (6x) |
+| Controls | Field of view 50-110 (75), mouse sensitivity 0.1-4x (0.6x), invert Y (off), binocular zoom 2-12x (6x) |
 | Audio | Master, blocks and footsteps, weapons and explosions, creatures, player, menus |
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, stats on the HUD (off); **Creative only:** creatures spawn (on), time of day and lock |
 | Weapons | Laser blaster color Red / Green / Blue (Red), nuke effects intensity Low / Medium / **High**. **Creative only:** grenade and bazooka blast size (1x); airstrike: meteors per strike 1-40 (7), spread 0-80 (22), delay 1-20 s (5 s), fall angle 0-70 degrees (35), fall speed 30-250 (95), meteor blast size (1x); nuke size 12-200 (96) |
 | Mobs | **(Creative only)** Zombie spawn rate Off to APOCALYPSE (1x), max zombies 0-400 (8), zombie health and damage 0.25-5x (1x), daylight zombies (off) |
 | UFOs | (**All of this tab is Creative only**: in Survival the mission chain sets the sky.) UFO activity Off to UFO APOCALYPSE (Occasional); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
-| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on; the only one Survival keeps), jet top speed 288-2520 km/h (576), cannon aim assist (on), patrol fighters 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
+| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on; the only one Survival keeps), jet top speed 288-2520 km/h (1080), cannon aim assist (on), patrol fighters 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
 
 **Survival fixes the rules of the game.** Every setting that changes weapon stats, creature or UFO numbers and strength, vehicle performance or the clock (marked *Creative only* above) is hidden in Survival, and in Survival the game uses their defaults whatever was set in Creative (switch modes in the pause menu and your Creative values come back). Survival keeps graphics, performance, controls, audio, difficulty, the stats overlay, the blaster color, the nuke's visual intensity and the jet's flight assist.
 
@@ -845,7 +845,8 @@ generates the same terrain.
 - The seed is shown on the start menu and in the pause menu.
 - To share a world, use **Copy world link** in the pause menu, or add
   `?seed=NUMBER` to the page's URL, e.g. `https://your-deployment-url/?seed=12345`.
-- Opening the game without `?seed=` generates a new random world each time.
+- Opening the game without `?seed=` continues the last world you played (a
+  random new one on the first visit); use **+ New world** for a fresh one.
 
 Your block edits, position, inventory and settings are saved in your
 browser's local storage, per seed, on your device only. Other players who
@@ -886,7 +887,8 @@ wrong it says what and what to try. The most common causes:
 - **Slow first start:** while the shaders compile, the Play button says
   **Preparing graphics…**. On some computers (Windows especially) High and
   Ultra can take a while the first time. If it's too slow, pick a lower
-  **Graphics** setting right on the start menu.
+  preset in **Settings > Graphics** (or **Apply** the FPS suggestion on the
+  start menu).
 - **Graphics card trouble:** if a start never gets as far as showing the
   world, the next start lowers the graphics a step (the start menu says so).
   If the browser loses the graphics card mid-game, the game saves, lowers the

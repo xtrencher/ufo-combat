@@ -10,17 +10,19 @@ import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
 import { itemInfo } from "./items.js";
 import { BLOCK, IS_LEAVES, IS_LOG, IS_WET } from "./blocks.js";
+import { DAY_LENGTH } from "./sky.js";
 
 
 const _v = new THREE.Vector3();
 const STYLE_COLOR = { sweep: "red", heavy: "orange", charged: "white", seeker: "lime" }; // (the bolt colours of the boss's styles: see STYLES in ufos.js)
 const NEAR = [[2, 0], [-2, 0], [0, 2], [0, -2]];
 const CALM_TIME = 35; // seconds a landed crew looks around before it attacks
-// The long night's landing parties (seconds into the night).
+// The long night's landing parties (seconds into the night; dusk 19:30 to
+// dawn 5:30 is about 190 s: the sky's night hours run faster than its day's).
 const NIGHT_WAVES = [
-  { at: 35, kinds: ["alien_gray", "alien_gray", "alien"], text: "Something landed to the east... they are coming for you!" },
-  { at: 105, kinds: ["alien", "alien", "alien_gray", "alien_gray"], text: "A second ship: more aliens are closing in!" },
-  { at: 170, kinds: ["alien", "alien_gray", "alien", "alien_gray", "alien"], text: "The last landing party! Hold out until dawn." },
+  { at: 30, kinds: ["alien_gray", "alien_gray", "alien"], text: "Something landed to the east... they are coming for you!" },
+  { at: 90, kinds: ["alien", "alien", "alien_gray", "alien_gray"], text: "A second ship: more aliens are closing in!" },
+  { at: 145, kinds: ["alien", "alien_gray", "alien", "alien_gray", "alien"], text: "The last landing party! Hold out until dawn." },
 ];
 // The boss fights (the mission's `boss`, progression.js): the Overlord's are
 // the defaults. shieldAt: the health fractions where the shield comes back;
@@ -28,9 +30,9 @@ const NIGHT_WAVES = [
 const OVERLORD = { name: "THE OVERLORD", short: "The Overlord", size: "mothership", design: "saucer", health: 5200, shieldAt: [0.7, 0.4, 0.15], pylons: [3, 4, 4, 4], escorts: [2, 1, 2, 0], squads: { 1: "alien_red" }, jets: {}, stat: "bossesDown" };
 // (Round 9) The swarm's night: red brutes and blue aliens join in.
 const SWARM_WAVES = [
-  { at: 40, kinds: ["alien_gray", "alien_blue", "alien", "alien_gray"], text: "A landing party is down nearby, blue aliens among them!" },
-  { at: 115, kinds: ["alien_red", "alien_gray", "alien_blue", "alien"], text: "Red brutes have landed: keep your distance from the plasma!" },
-  { at: 185, kinds: ["alien_red", "alien_blue", "alien_gray", "alien_blue", "alien"], text: "The last landing party! Hold out until dawn." },
+  { at: 35, kinds: ["alien_gray", "alien_blue", "alien", "alien_gray"], text: "A landing party is down nearby, blue aliens among them!" },
+  { at: 95, kinds: ["alien_red", "alien_gray", "alien_blue", "alien"], text: "Red brutes have landed: keep your distance from the plasma!" },
+  { at: 150, kinds: ["alien_red", "alien_blue", "alien_gray", "alien_blue", "alien"], text: "The last landing party! Hold out until dawn." },
 ];
 
 function rand(a, b) {
@@ -115,6 +117,15 @@ export class MissionDirector {
     return this.progress.mission;
   }
 
+  // Seconds of game time until the clock shows hour h (the sky's hours are
+  // not even: the night's run faster than the day's).
+  _secondsUntil(h) {
+    const sky = this.sky;
+    if (!sky._timeForAngle) return ((h - sky.hours + 24) % 24) * (DAY_LENGTH / 24);
+    const t = sky._timeForAngle((((((h - 6) % 24) + 24) % 24) / 12) * Math.PI);
+    return (((t - sky.time) % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
+  }
+
   // Called every frame (cheap: the checks run a few times a second).
   update(dt) {
     const m = this.enabled ? this.mission : null;
@@ -124,8 +135,22 @@ export class MissionDirector {
     if (!m) {
       this.target = null;
       this.bossInfo = null;
+      // (The chain is over: the finale's leftovers go back to free play, once.
+      // Not when the director is merely off: its state stays.)
+      if (this.enabled && !this.mission && this.missionId) {
+        this._cleanup();
+        this.missionId = null;
+      }
+      // (Creative, mods off, a Dogfight: the mission's global settings go off.
+      // Its state stays, so on resume the night's clock and Salvage set them again.)
+      if (this._wasOn) {
+        this._wasOn = false;
+        if (this.sky) this.sky.timeScale = 1;
+        this.ufos.forceIntact = false;
+      }
       return;
     }
+    this._wasOn = true;
     if (m.event !== "boss") this.bossInfo = null;
     if (m.id !== this.missionId) {
       this.missionId = m.id;
@@ -236,6 +261,7 @@ export class MissionDirector {
     if (this.sky) this.sky.timeScale = 1;
     this.ufos.forceIntact = false;
     for (const u of this.ufos.ufos) {
+      if (u.immune || u.peaceful) this._releaseShip(u); // (only the Visitors' landing ship has these)
       if (u.boss || u.pylon) {
         u.boss = false;
         u.pylon = false;
@@ -255,6 +281,15 @@ export class MissionDirector {
     for (const m of this.mobs.mobs) {
       m.missionTarget = false;
       m.fireproof = false;
+    }
+    // (The steal mission's posted guards: they despawn like other creatures again.)
+    for (const g of this.state.guards || []) if (g.sentry && !g.dead) g.persist = false;
+    // (A mission's fighters left over: the usual distance and number limits apply again.)
+    for (const j of this.enemyJets?.jets || []) {
+      if (j.mission) {
+        j.mission = false;
+        j.provoked = 0;
+      }
     }
     this.target = null;
   }
@@ -513,6 +548,7 @@ export class MissionDirector {
       if (this._remaining() <= 0) return;
       const spot = this._groundSpot(75, 0.2, this._anyone().position);
       if (!spot) return;
+      if (st.ship) this._releaseShip(st.ship); // (the last one, still parked if its crew went fast)
       const a = Math.random() * Math.PI * 2;
       const u = this.ufos.spawn({ size: "small", design: ["saucer", "saucer_disc", "saucer_domed"][Math.floor(Math.random() * 3)], style: "volley", crewKind: "alien", pos: { x: spot.x + Math.cos(a) * 140, y: spot.y + 70, z: spot.z + Math.sin(a) * 140 }, hidden: true });
       u.immune = true;
@@ -524,7 +560,9 @@ export class MissionDirector {
       u.state = "trick";
       u.trick = "land";
       u.timer = 1e9;
-      u.waypoint = new THREE.Vector3(spot.x, spot.y + u.info.bottom * u.radius + 0.3, spot.z);
+      // (Never below the sea surface: the UFOs' floor, ufos._groundAt, on a dry spot down a pit too.)
+      const ground = Math.max(spot.y, this.ufos._groundAt?.(spot.x, spot.z) ?? spot.y);
+      u.waypoint = new THREE.Vector3(spot.x, ground + u.info.bottom * u.radius + 0.3, spot.z);
       st.ship = u;
       st.spot = spot;
       st.landAt = u.waypoint.clone();
@@ -548,7 +586,8 @@ export class MissionDirector {
         st.ship.timer = 1e9;
         st.ship.waypoint = st.landAt.clone();
       }
-      if (st.ship.landed) {
+      // (Or near enough after a long while: something below kept it up.)
+      if (st.ship.landed || (st.t > 40 && Math.hypot(st.ship.pos.x - st.landAt.x, st.ship.pos.z - st.landAt.z) < 4)) {
         st.phase = "landed";
         st.landedT = 0;
       }
@@ -580,16 +619,19 @@ export class MissionDirector {
     }
     // The crew is out: the ship leaves after a moment.
     st.leaveT -= 0.5;
-    if (st.leaveT <= 0 && shipOk && st.ship.state !== "leave") {
-      st.ship.immune = false;
-      st.ship.peaceful = false;
-      st.ship.noLeave = false;
-      st.ship.missionTarget = false;
-      this.ufos._leave(st.ship);
-    }
+    if (st.leaveT <= 0 && shipOk && st.ship.state !== "leave") this._releaseShip(st.ship);
     crew.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
     const calm = crew[0]?.calmT > 0;
     this._setTarget(crew[0], calm ? `Alien (attacks in ${Math.ceil(crew[0].calmT)} s)` : "Alien");
+  }
+
+  // The landing ship is done: it can be hurt and angered again, and leaves.
+  _releaseShip(u) {
+    u.immune = false;
+    u.peaceful = false;
+    u.noLeave = false;
+    u.missionTarget = false;
+    if (this._alive(u) && u.state !== "leave") this.ufos._leave(u);
   }
 
   // Called by the game when a calm crew member wakes up.
@@ -622,7 +664,10 @@ export class MissionDirector {
         return;
       }
     } else st.noneT = 0;
-    this._setTarget(this._nearestOf(aliens), "Alien");
+    // (None left and the goal met: progress completes it on its next tick.)
+    const a = this._nearestOf(aliens);
+    if (a) this._setTarget(a, "Alien");
+    else this.target = null;
   }
 
   _spawnAlien(kind, dist, around = null) {
@@ -712,17 +757,19 @@ export class MissionDirector {
       st.fast = false;
       st.fastDone = true;
       sky.timeScale = 1;
+      // (The night's clock starts at dusk, not with the day's fast-forward.)
+      st.nt = 0;
+      st.wave = 0;
       this.toast?.("Night falls. Stay near light and shelter; things are coming.", 4);
     } else if (!st.fastDone && !st.lateChecked) {
       // (Round 9) Started at night: the night counts from now if most of it is
       // still ahead (the landings need about three minutes); late at night it
       // waits for the next one, fast through the day.
       st.lateChecked = true;
-      const toDawn = ((5.5 - h + 24) % 24) * ((sky.dayLength ?? 600) / 24);
-      if (toDawn >= 200) {
+      if (this._secondsUntil(5.5) >= 170) {
         st.fastDone = true;
         this.toast?.("It's night already. Stay near light and shelter; things are coming.", 4);
-      }
+      } else this.night.clean = false; // (this dawn doesn't count: only the next whole night)
     }
     if (n.active && !n.clean && st.fastDone && this.anyAlive) {
       // The player died in the night: start it over from dusk.
@@ -736,16 +783,12 @@ export class MissionDirector {
     st.nt = (st.nt ?? 0) + (this.anyAlive ? dt : 0);
   }
 
-  // The night's events: three alien landing parties at 35, 105 and 170 s into
-  // the night (the night is about 250 s), small enough for the first tier.
+  // The night's events: three alien landing parties at 30, 90 and 145 s into
+  // the night (the night is about 190 s), small enough for the first tier.
   // (Round 9: the swarm's night has its own, tougher parties: SWARM_WAVES.)
   _night(waves = NIGHT_WAVES) {
     const st = this.state;
-    const sky = this.sky;
     const p = this.player.position;
-    const h = sky.hours;
-    const dayLen = sky.dayLength ?? 600;
-    const toHours = (target) => ((target - h + 24) % 24) * (dayLen / 24);
     this.target = null;
     if (!st.fastDone) {
       this.state.note = "Night is falling...";
@@ -772,7 +815,7 @@ export class MissionDirector {
       st.alive.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
       this._setTarget(st.alive[0], `Landing party (${st.alive.length})`);
     }
-    this.state.note = n_note(this.night.active, toHours(5.5), toHours(19.5), st.wave ?? 0, waves.length);
+    this.state.note = n_note(this.night.active, this._secondsUntil(5.5), this._secondsUntil(19.5), st.wave ?? 0, waves.length);
   }
 
   // 5. Salvage: points at an intact wreck once there is one.
@@ -1145,7 +1188,8 @@ export class MissionDirector {
           }
           st.garrison.push(m);
         }
-        if (st.garrison.length) this.toast?.(`The fortress: ${st.garrison.length} aliens dug in. Storm it!`, 4);
+        const dug = st.garrison.length;
+        if (dug) this.toast?.(`The fortress: ${dug} alien${dug === 1 ? "" : "s"} dug in. Storm it!`, 4);
       }
     }
     // Its guard ships: heavy hitters, kept over it.
@@ -1160,7 +1204,8 @@ export class MissionDirector {
       st.guards.push(u);
     }
     for (const u of st.guards) if (d < 320 && !u.hostile) this.ufos.anger(u, 200);
-    if (d > 150 || !st.garrison.length) this.target = { pos: at, label: st.garrison.length ? `The fortress (${st.garrison.length} aliens)` : "The fortress", follow: null };
+    const gn = st.garrison.length;
+    if (d > 150 || !gn) this.target = { pos: at, label: gn ? `The fortress (${gn} alien${gn === 1 ? "" : "s"})` : "The fortress", follow: null };
     else this._setTarget(this._nearestOf(st.garrison), `Fortress alien (${st.garrison.length} left)`);
   }
 
@@ -1172,13 +1217,24 @@ export class MissionDirector {
     const act = this.vehicles.active;
     const inJet = act?.type === "jet" && !act.isEnemyJet;
     const sites = this.terrain.sites;
+    if (!st.landed && this._remaining(0) <= 0) {
+      // (Landed before a reload: the saved stat says so; the squad is next.)
+      st.landed = true;
+      st.landPos = p.clone();
+    }
     if (!st.landed) {
       // (Online, any player's jet: the host's own and the others'.)
       const jets = this.pilotJets ? this.pilotJets() : inJet ? [act] : [];
+      st.flown = st.flown || new Set();
+      st.upT = st.upT || new Map();
       for (const j of jets) {
-        if (!j.onGround) {
+        // (Up for over a second: rolling off a step and dropping back isn't a flight.)
+        const up = j.onGround ? 0 : (st.upT.get(j) || 0) + 0.5;
+        st.upT.set(j, up);
+        if (up > 1) {
           st.air = true;
           st.airJet = j;
+          st.flown.add(j);
         }
       }
       if (st.airJet && !st.airJet.alive) {
@@ -1186,7 +1242,8 @@ export class MissionDirector {
         st.air = false;
         st.airJet = null;
       }
-      const landed = st.air && jets.find((j) => j.onGround && j.alive && j.vel.length() < 8 && sites.onRunway(j.pos.x, j.pos.z, 2));
+      // (The jet that flew: not one parked on a runway that never took off.)
+      const landed = st.air && jets.find((j) => st.flown.has(j) && j.onGround && j.alive && j.vel.length() < 8 && sites.onRunway(j.pos.x, j.pos.z, 2));
       if (landed) {
         st.landed = true;
         st.landPos = landed.pos.clone();
@@ -1212,7 +1269,7 @@ export class MissionDirector {
         this.stats.add("landingSquad");
       }
     }
-    const need = (this.progress.objectives(this.stats.world)[1]?.goal ?? 3) - st.counted.size;
+    const need = this._remaining(1); // (the saved count: what is left after a reload too)
     if (need <= 0) {
       this.target = null;
       return;
@@ -1354,7 +1411,7 @@ export class MissionDirector {
         f.life = -1;
         if (finder === this.player) this.stats.add("meteorFragments");
         else this.stats.addWorld("meteorFragments");
-        this.audio?.playCrate?.();
+        this.audio?.playCrateLand?.();
         for (let k = 0; k < 16; k++) fx.glow.spawn({ x: f.pos.x, y: f.pos.y, z: f.pos.z, vx: rand(-5, 5), vy: rand(1, 8), vz: rand(-5, 5), life: 0.7, size0: 0.4, size1: 0.05, color0: star, gravity: 0.5, drag: 1.5 });
         const o = this.progress.objectives(this.stats.world)[0];
         this.toast?.(`Star fragment collected (${o?.value ?? 0}/${o?.goal ?? 4})`, 2.5);
@@ -1424,7 +1481,7 @@ export class MissionDirector {
   // at 15% for the last time: the final stretch has no shield, and it fights
   // harder. Killing it ends the mission.
   // (Round 9: the same fight, with the mission's own settings, is the
-  // finale: the Dreadnought, a titan behind four shields.)
+  // finale: the Dreadnought, a titan behind five shields.)
   get _bossCfg() {
     return { ...OVERLORD, ...(this.mission?.boss || {}) };
   }
@@ -1477,7 +1534,8 @@ export class MissionDirector {
     } else if (boss.shield && !st.raise && st.pylons.length === 0) {
       boss.shield = false;
       st.shieldDownT = 60;
-      this.toast?.("SHIELD DOWN! Hit the hull with everything: you have about a minute!", 5);
+      // (The last shield: the "no more shields" toast below says it.)
+      if (boss.shieldRound < boss.shieldAt.length) this.toast?.("SHIELD DOWN! Hit the hull with everything: you have about a minute!", 5);
       this.audio?.playNotice?.();
     } else if (!boss.shield) {
       st.shieldDownT -= 0.5;
@@ -1490,7 +1548,7 @@ export class MissionDirector {
     }
     // Berserk at the end: it fires faster and heavier.
     const frac = boss.health / boss.maxHealth;
-    const phase = boss.shieldRound >= boss.shieldAt.length ? 3 : Math.min(2, boss.shieldRound);
+    const phase = boss.shieldRound >= boss.shieldAt.length && !boss.shield ? 3 : Math.min(2, boss.shieldRound);
     if (phase !== st.phase) {
       st.phase = phase;
       boss.style = ["sweep", "heavy", "charged", "seeker"][phase] || "sweep";
@@ -1503,7 +1561,8 @@ export class MissionDirector {
       st.pylons.sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p));
       this._setTarget(st.pylons[0], `Shield pylon (${st.pylons.length} left)`);
     } else this._setTarget(boss, B.short || B.name);
-    this.state.note = boss.shield ? `Shield up: ${st.pylons.length} pylons` : phase === 3 ? "Last stand: no shield" : `Shield down for ${Math.ceil(st.shieldDownT)} s`;
+    const np = st.pylons.length;
+    this.state.note = boss.shield ? `Shield up: ${np} pylon${np === 1 ? "" : "s"}` : phase === 3 ? "Last stand: no shield" : `Shield down for ${Math.ceil(st.shieldDownT)} s`;
   }
 
   // Called when the boss takes damage: at each threshold the health stops
@@ -1636,11 +1695,19 @@ export class MissionDirector {
 
   // The nearest parked, empty B-2 (as a marker target), or null.
   _parkedB2Target() {
-    const p = this._anyone().position;
+    // (The bomber nearest to any player: a random player per check would make
+    // the marker flip between bombers at different airports.)
+    const people = this._people();
     let jet = null;
+    let bd = Infinity;
     for (const v of this.vehicles.vehicles) {
       if (v.type !== "jet" || v.jetType !== "b2" || !v.alive || v.occupied || v.netOcc || v.isEnemyJet) continue;
-      if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
+      let d = Infinity;
+      for (const q of people) d = Math.min(d, v.pos.distanceTo(q.position));
+      if (d < bd) {
+        bd = d;
+        jet = v;
+      }
     }
     return jet ? { pos: jet.pos.clone(), label: "B-2 bomber: get in (F)", follow: jet } : null;
   }
@@ -1650,7 +1717,18 @@ export class MissionDirector {
   // player flies the bomber, the others escort it in the fighters.
   _airport() {
     const st = this.state;
-    if (!this.base) this.base = this._pickBase();
+    if (!this.base) {
+      // (The base chosen before a reload, saved with the chain: picked afresh
+      // from where the players are now it could be another airport.)
+      const pl = this.progress.place;
+      if (pl?.mission === this.missionId && Number.isFinite(pl.x) && Number.isFinite(pl.z)) {
+        this.base = { x: pl.x, y: Number.isFinite(pl.y) ? pl.y : SEA_LEVEL + 6, z: pl.z, site: this.terrain.sites.siteAt(pl.x, pl.z), home: pl.home || null };
+      } else {
+        this.base = this._pickBase();
+        const nb = this.base;
+        this.progress.place = { mission: this.missionId, x: nb.x, y: nb.y, z: nb.z, home: nb.home };
+      }
+    }
     const b = this.base;
     const center = new THREE.Vector3(b.x, b.y, b.z);
     // (Online: how close the nearest player is.)
@@ -1787,7 +1865,10 @@ export class MissionDirector {
       if (this.mobs.hostileSpawning !== false) {
         for (let i = 0; i < 1 + this.groupN; i++) {
           const g = this.mobs.spawnGuard(spot.zone.x + (Math.random() - 0.5) * 30, site.y + 1, spot.zone.z + (Math.random() - 0.5) * 30, spot.zone);
-          if (g) this.mobs.alarm(g, 10);
+          if (g) {
+            this.mobs.alarm(g, 10);
+            (st.guards = st.guards || []).push(g);
+          }
         }
       }
       this.toast?.("LOCKDOWN! The blast doors are sealed. Ghost mode (G): burn your way out through the rock!", 6);
@@ -1797,7 +1878,8 @@ export class MissionDirector {
       if (away >= 150) {
         if (!st.escaped) {
           st.escaped = true;
-          this.stats.add("shipsStolen");
+          if (ship.puppet) this.stats.addWorld("shipsStolen"); // (a guest flew it out)
+          else this.stats.add("shipsStolen");
           this.toast?.("You got the ship out: it's yours!", 5);
         }
         this.target = null;
@@ -1816,15 +1898,15 @@ export class MissionDirector {
   // (Round 9) The bunker's ship: this peer's own copy (parkKey) or the
   // puppet of the copy another player boarded (tookKey), the one standing
   // in the hall (or someone flying it out). A ship taken from there long
-  // ago (someone's own now, far off) is not it.
+  // ago (someone's own now, parked far off) is not it.
   _bunkerShip(key, hall) {
     let best = null;
     let bd = Infinity;
     for (const v of this.vehicles.vehicles) {
       if (v.type !== "ufo" || !v.alive || (v.parkKey !== key && v.tookKey !== key)) continue;
       const d = v.pos.distanceTo(hall);
-      if (d > 60) continue;
       const busy = v.occupied || (v.puppet && v.netOcc);
+      if (d > 60 && !busy) continue; // (someone flying it out: after a reload too, wherever it is)
       const score = busy ? -1 : d;
       if (score < bd) {
         bd = score;
@@ -1885,7 +1967,11 @@ export class MissionDirector {
             const z = Math.floor(o.z + Math.sin(a) * (14 + k * 2));
             const top = this.world.surfaceY(x, z);
             if (top < 1 || IS_WET[this.world.getBlock(x, top + 1, z)]) continue;
-            if (this.mobs.spawnGuard(x + 0.5, top + 1, z + 0.5, zone)) break;
+            const g = this.mobs.spawnGuard(x + 0.5, top + 1, z + 0.5, zone);
+            if (g) {
+              (st.guards = st.guards || []).push(g);
+              break;
+            }
           }
         }
       }
@@ -1895,7 +1981,8 @@ export class MissionDirector {
       const away = ship.pos.distanceTo(c);
       if (away >= 150 && !st.escaped) {
         st.escaped = true;
-        this.stats.add("shipsStolen");
+        if (ship.puppet) this.stats.addWorld("shipsStolen"); // (a guest flew it out)
+        else this.stats.add("shipsStolen");
         this.toast?.("You got the ship out: it's yours!", 5);
       }
       this.target = away >= 150 ? null : { pos: c.clone(), label: `Escape: get clear (${Math.round(150 - away)} m to go)`, follow: null };
@@ -2009,12 +2096,15 @@ export class MissionDirector {
 
   // A UFO the player shot down: raiders count for the village mission
   // (Round 9: abductors for theirs, the finale's flagship for the finale).
-  ufoDown(u) {
-    if (u.raider) this.stats.add("raidersDown");
-    if (u.abductor) this.stats.add("abductorsDown");
+  // (mine: false for another player's kill, online: it counts for this world only.)
+  ufoDown(u, mine = true) {
+    const add = (k) => (mine ? this.stats.add(k) : this.stats.addWorld(k));
+    if (u.size === "giant") add("titansDown"); // (the Titan mission's: a mothership doesn't count)
+    if (u.raider) add("raidersDown");
+    if (u.abductor) add("abductorsDown");
     if (u.boss) {
-      this.stats.add("bossesDown");
-      if (u.bossStat && u.bossStat !== "bossesDown") this.stats.add(u.bossStat);
+      add("bossesDown");
+      if (u.bossStat && u.bossStat !== "bossesDown") add(u.bossStat);
       this.toast?.(`${u.bossName || "THE OVERLORD"} HAS FALLEN!`, 6);
       this.bossInfo = null;
       // Its pylons and escorts go down with it.

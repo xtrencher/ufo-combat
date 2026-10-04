@@ -290,7 +290,7 @@ const ACTIONS = {
       const id = ids[Math.floor(r * ids.length)];
       const g = window.__ufo;
       if (id === "victory-screen") g.mp.game.showVictory();
-      else if (id === "missions-screen" || id === "stats-screen") g.screens.open?.(id);
+      else if (id === "missions-screen" || id === "stats-screen") g.screens.show(id, g.gameState === "start" ? "start-menu" : "pause-menu");
       else document.getElementById(id)?.classList.remove("hidden");
       return id;
     }, r),

@@ -111,7 +111,9 @@ export class CoopSync {
     g.mobs.groupHealth = 1;
     g.progress.groupN = 1;
     if (this.net.isHost || this._wasHost) this._saveGuests();
-    if (!this.net.isHost && g.missions && !g.GUEST) g.missions.enabled = true;
+    // (Back on: as the mode and mods say, not always. By now the host's role
+    // reads "offline" too, so this runs on its page as well.)
+    if (!g.GUEST) g.setSurvivalPaused?.(false);
     document.getElementById("respawn-near-btn")?.classList.add("hidden");
   }
 
@@ -230,7 +232,7 @@ export class CoopSync {
     }
     this._lastStep = p.step;
     if (Number.isInteger(m.gs)) g.airports.groupSize = Math.max(1, Math.min(8, m.gs));
-    p.mirrorObjectives = (m.obj || []).map(([label, value, goal]) => ({ label, value, goal }));
+    p.mirrorObjectives = (Array.isArray(m.obj) ? m.obj : []).filter(Array.isArray).map(([label, value, goal]) => ({ label: String(label ?? "").slice(0, 80), value: Number(value) || 0, goal: Math.max(1, Number(goal) || 1) }));
     const d = g.missions;
     d.target = m.tgt ? { pos: new g.THREE.Vector3(m.tgt[0], m.tgt[1], m.tgt[2]), label: m.tgt[3], follow: null } : null;
     d.bossInfo = m.boss || null;

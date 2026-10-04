@@ -59,7 +59,7 @@ export const CONTROLS = [
   ]],
   ["Fighter jet and B-2 bomber", [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
-    ["W / S", "Throttle up / down (a takeoff roll takes about 160 blocks, 125 in the F-16, 300 in the B-2: use a runway)"],
+    ["W / S", "Throttle up / down (a takeoff roll takes about 175 blocks, 130 in the F-16, 270 in the B-2: use a runway)"],
     ["Shift", "Afterburner"],
     ["A / D", "Bank harder (flight assist; without it: roll)"],
     ["Q / E", "Rudder (yaw)"],

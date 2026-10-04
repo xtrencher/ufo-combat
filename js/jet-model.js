@@ -609,6 +609,7 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
   if (paint === "gray" || !PAINTS[paint]) paint = "raptor";
   if (type === "f16" && paint === "raptor") paint = "falcon";
   const { hull, canopy, pal, surfaces: surfDefs, navTail, stripPts } = type === "f16" ? buildF16Geometry(paint) : buildGeometry(paint);
+  const shared = new Set([hull, canopy, ...surfDefs.map((d) => d.geo)]);
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.scale.setScalar(scale);
@@ -839,6 +840,14 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
     },
     get lightsOn() {
       return nav[0].visible;
+    },
+    // Frees what this model made for itself (not the geometry cached per
+    // paint, the sprites' common quad or the textures).
+    dispose() {
+      root.traverse((o) => {
+        if (o.geometry && !o.isSprite && !shared.has(o.geometry)) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
     },
   };
 }

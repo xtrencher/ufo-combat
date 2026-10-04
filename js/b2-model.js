@@ -343,22 +343,12 @@ function softGlowTexture() {
 
 export const B2_GEAR_HEIGHT = 2.9; // the centre's height over the wheels' bottom
 
-export function createB2Model({ paint = "gray" } = {}) {
-  const pal = B2_PAINTS[paint] || B2_PAINTS.gray;
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-  const light = { sky: 15, block: 0, flash: new THREE.Color(0, 0, 0) };
-  const hullMat = createEntityMaterial("color", null, { finish: FINISH });
-  hullMat.uniforms.uFill.value = 0.45;
+// The hull, the windscreen and the control surfaces, built once per paint (a
+// B-2 is set out at every airport visit; the models share these).
+const cachedByPaint = {};
+function buildGeometry(key, pal) {
+  if (cachedByPaint[key]) return cachedByPaint[key];
   const hull = merge([wingGeometry(pal), ...intakeGeometry(pal, -1), ...intakeGeometry(pal, 1), ...exhaustGeometry(pal, -1), ...exhaustGeometry(pal, 1)]);
-  const hullMesh = new THREE.Mesh(hull, hullMat);
-  hullMesh.castShadow = true;
-  bindEntityLight(hullMesh, () => light);
-  body.add(hullMesh);
-  // The windscreen.
-  const canopyMesh = new THREE.Mesh(windowsGeometry(), new THREE.MeshStandardMaterial({ color: pal.glass, metalness: 0.9, roughness: 0.18, envMapIntensity: 1 }));
-  body.add(canopyMesh);
   // Control surfaces: two elevons a side on the outer and inner trailing
   // edges (pitch together, roll opposite), split rudders at the tips.
   const defs = [];
@@ -374,6 +364,29 @@ export function createB2Model({ paint = "gray" } = {}) {
     const xi1 = TE[3][0] + 0.5;
     defs.push(teSurface(pal, side * xi0, tz(xi0), side * xi1, tz(xi1), 1.2, "elevon2", side));
   }
+  cachedByPaint[key] = { hull, windows: windowsGeometry(), defs };
+  return cachedByPaint[key];
+}
+
+export function createB2Model({ paint = "gray" } = {}) {
+  const key = B2_PAINTS[paint] ? paint : "gray";
+  const pal = B2_PAINTS[key];
+  const { hull, windows, defs } = buildGeometry(key, pal);
+  const shared = new Set([hull, windows, ...defs.map((d) => d.geo)]);
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const light = { sky: 15, block: 0, flash: new THREE.Color(0, 0, 0) };
+  const hullMat = createEntityMaterial("color", null, { finish: FINISH });
+  hullMat.uniforms.uFill.value = 0.45;
+  const hullMesh = new THREE.Mesh(hull, hullMat);
+  hullMesh.castShadow = true;
+  bindEntityLight(hullMesh, () => light);
+  body.add(hullMesh);
+  // The windscreen.
+  const canopyMesh = new THREE.Mesh(windows, new THREE.MeshStandardMaterial({ color: pal.glass, metalness: 0.9, roughness: 0.18, envMapIntensity: 1 }));
+  body.add(canopyMesh);
+  // The control surfaces (see buildGeometry), hinged at their pivots.
   const surfaces = defs.map((d) => {
     const m = new THREE.Mesh(d.geo, hullMat);
     m.castShadow = true;
@@ -491,6 +504,14 @@ export function createB2Model({ paint = "gray" } = {}) {
     },
     get lightsOn() {
       return nav[0].visible;
+    },
+    // Frees what this model made for itself (not the geometry shared per
+    // paint, the sprites' common quad or the textures).
+    dispose() {
+      root.traverse((o) => {
+        if (o.geometry && !o.isSprite && !shared.has(o.geometry)) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
     },
   };
 }

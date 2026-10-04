@@ -303,7 +303,7 @@ export const MISSIONS = [
   {
     id: "overlord",
     title: "The Overlord",
-    text: "The invasion's flagship has come for you: the Overlord, a mothership with a shield. Its pylons (marked) hold the shield up: shoot them down, then hit the hull with everything you have (the railgun is made for this) before the shield comes back. Three shields, an escort, and a squad that drops in: you can do it on foot.",
+    text: "The invasion's flagship has come for you: the Overlord, a mothership with a shield. Its pylons (marked) hold the shield up: shoot them down, then hit the hull with everything you have (the railgun is made for this) before the shield comes back. Four shields, an escort, and a squad that drops in: you can do it on foot.",
     objectives: [{ stat: "bossesDown", goal: 1, label: "The Overlord destroyed" }],
     reward: [[ITEM.GOLDEN_APPLE, 12]],
     event: "boss",
@@ -345,7 +345,7 @@ export const MISSIONS = [
     id: "titan",
     title: "Titan",
     text: "A titan, the biggest alien ship of all (well over a hundred blocks across), is on its way (marked). Bring it down with everything you have: the railgun, missile salvos, the airstrike, the B-2's nuke. Its crew comes out fighting.",
-    objectives: [{ stat: "ufosDownBig", goal: 1, label: "Titans shot down" }],
+    objectives: [{ stat: "titansDown", goal: 1, label: "Titans shot down" }],
     reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "giant",
     tier: 5,
@@ -377,7 +377,7 @@ export const MISSIONS = [
   {
     id: "armada",
     title: "The Armada",
-    text: "The final battle. The invasion's last fleet has arrived with its flagship, the Dreadnought: a titan behind four shields, each held up by pylons (marked), with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won.",
+    text: "The final battle. The invasion's last fleet has arrived with its flagship, the Dreadnought: a titan behind five shields, each held up by pylons (marked), with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won.",
     objectives: [{ stat: "flagshipDown", goal: 1, label: "The Dreadnought destroyed" }],
     reward: [[ITEM.GOLDEN_APPLE, 20]],
     event: "boss",
@@ -423,6 +423,7 @@ export class Progress {
     this.step = 0; // index of the current mission (MISSIONS.length: all done)
     this.base = {}; // the stat values when the current mission started
     this.done = []; // ids of finished missions
+    this.place = null; // (the current mission's chosen place, if it has one: saved, so a reload keeps it; see missions.js)
     this.onComplete = null; // (mission) => void
     this.onChange = null; // () => void
     this.onStart = null; // (mission) => void: a mission became the current one
@@ -506,6 +507,7 @@ export class Progress {
     if (this.hold?.()) return null;
     this.done.push(m.id);
     this.step++;
+    this.place = null;
     // The next mission starts counting from now.
     this.base = { ...this._pick(stats) };
     if (this.onComplete) this.onComplete(m);
@@ -515,7 +517,7 @@ export class Progress {
   }
 
   serialize() {
-    return { v: 6, step: this.step, base: this.base, done: this.done };
+    return { v: 6, step: this.step, base: this.base, done: this.done, ...(this.place ? { place: this.place } : {}) };
   }
 
   load(data, stats) {
@@ -528,6 +530,8 @@ export class Progress {
         this.step = step;
         this.done = MISSIONS.slice(0, step).map((m) => m.id);
         for (const [k, v] of Object.entries(this._pick(stats))) if (!Number.isFinite(this.base[k])) this.base[k] = v;
+        // (A finished chain goes on at Scramble: its counts start now, not at Slayer.)
+        if (data.step >= V5_IDS.length) this.base = { ...this._pick(stats) };
         return;
       }
       if (data.v !== 6) {
@@ -547,6 +551,7 @@ export class Progress {
       this.step = Math.min(data.step, MISSIONS.length);
       this.base = data.base && typeof data.base === "object" ? { ...data.base } : {};
       this.done = Array.isArray(data.done) ? data.done.filter((x) => typeof x === "string") : [];
+      this.place = data.place && typeof data.place === "object" ? { ...data.place } : null;
       // Stat counters this save didn't have yet start from where they are.
       for (const [k, v] of Object.entries(this._pick(stats))) if (!Number.isFinite(this.base[k])) this.base[k] = v;
     } else {
@@ -685,7 +690,7 @@ const ARMOR_BY_TIER = [
   [0.1, 0.2, 0.45, 0.25],
   [0, 0.15, 0.45, 0.4],
 ];
-// Which creature's armor tends toward which material: a shift of the weights toward the better ones.
+// Which creature's armor tends toward which material: a shift of the tier, toward the better ones.
 const ARMOR_SHIFT = { zombie: -1, skeleton: -1, guard: 1, green: 0, gray: 1, blue: 1, red: 2 };
 
 // What `who` ("zombie", "skeleton", "guard", "green", "gray", "blue", "red")
@@ -693,10 +698,10 @@ const ARMOR_SHIFT = { zombie: -1, skeleton: -1, guard: 1, green: 0, gray: 1, blu
 // (a piece for a free slot is likelier).
 export function rollArmorDrop(who, tier, worn = new Set(), rand = Math.random) {
   if (rand() >= (ARMOR_CHANCE[who] ?? 0)) return [];
-  const row = ARMOR_BY_TIER[Math.max(0, Math.min(ARMOR_BY_TIER.length - 1, tier))];
+  // (A better creature drops like a later stage of the chain: never a
+  // material the table hasn't reached by then.)
   const shift = ARMOR_SHIFT[who] ?? 0;
-  // (A better creature's weights are moved up to the better materials.)
-  const w = row.map((_, i) => row[Math.max(0, Math.min(3, i - shift))]);
+  const w = ARMOR_BY_TIER[Math.max(0, Math.min(ARMOR_BY_TIER.length - 1, tier + shift))];
   const total = w.reduce((a, b) => a + b, 0) || 1;
   let r = rand() * total;
   let t = 0;

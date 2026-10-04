@@ -428,6 +428,7 @@ export class NetSession {
       link.send({ t: "_welcome", pid, token: link.token, code: this.code, now: now(), players: [...this.players.values()], ...(this.welcomeExtra?.(pid) || {}) });
       // Not "ready" (no game traffic) until it asks for the state.
       link.ready = false;
+      link.loadingUntil = now() + TIMEOUTS.loading;
       this.broadcast({ t: "_players", players: [...this.players.values()] }, { except: pid });
       this.onPlayerJoin?.(player);
       this.onPlayersChanged?.();
@@ -640,7 +641,11 @@ export class NetSession {
         }
         return;
       case "_ready":
-        if (this.role === "host") this._sendState(link);
+        if (this.role === "host") {
+          // (Loading the state and drawing the first frames can still freeze it.)
+          link.loadingUntil = now() + TIMEOUTS.loading;
+          this._sendState(link);
+        }
         return;
       case "_state":
         if (this.role === "client") {
@@ -687,12 +692,16 @@ export class NetSession {
 
   _tick() {
     const t = now();
+    // This page froze (e.g. compiling shaders on a slow computer): what the
+    // others sent meanwhile is still queued behind the freeze. That is not
+    // their silence: they get a fresh window.
+    if (this._lastTick && t - this._lastTick > 3) for (const link of this.links.values()) link.lastHeard = Math.max(link.lastHeard, t);
     this._lastTick = t;
     // Host: everyone's ping, now and then (the lobby shows them).
     if (this.role === "host" && (this._pingT = (this._pingT ?? 0) + 1) % 5 === 0 && this.links.size) this.broadcast({ t: "_players", players: [...this.players.values()] });
     for (const [pid, link] of this.links) {
       link.send({ t: "_ping", ts: t });
-      if (t - link.lastHeard > 12) {
+      if (t - link.lastHeard > (t < (link.loadingUntil ?? 0) ? TIMEOUTS.loading : TIMEOUTS.silent)) {
         if (this.role === "host") this._dropClient(pid, "timeout");
         else this._lostHost("host-lost");
       }

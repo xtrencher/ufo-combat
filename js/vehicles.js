@@ -112,7 +112,10 @@ export class Vehicle {
   }
 
   serialize() {
-    return { type: this.type, pos: this.pos.toArray().map((v) => Math.round(v * 100) / 100), health: this.health };
+    const data = { type: this.type, pos: this.pos.toArray().map((v) => Math.round(v * 100) / 100), health: this.health };
+    // (A Creative call-in stays one after a reload: the next call-in removes it.)
+    if (this.calledIn) data.calledIn = true;
+    return data;
   }
 
   dispose() {
@@ -219,6 +222,7 @@ export class VehicleManager {
     this.active = null;
     this.nextId = 1;
     this.enabled = true;
+    this.restoring = false; // true while load() puts the player back in a saved seat
     this.config = {}; // per-type settings (Vehicles tab), filled in by main.js
     this.parachute = new Parachute(scene);
     this.input = { dx: 0, dy: 0, buttons: [false, false, false], wheel: 0, pressed: new Set(), keys: player.keys };
@@ -659,7 +663,23 @@ export class VehicleManager {
     data.list.forEach((d, i) => {
       if (!d || typeof d.type !== "string" || !Array.isArray(d.pos) || !d.pos.every(Number.isFinite)) return;
       const v = this.create(d.type, d);
-      if (v && i === data.active) this.enter(v);
+      if (v && d.calledIn) {
+        v.calledIn = true;
+        v.keep = true;
+        if (v.type === "jet") v.isPlayerJet = true;
+      }
+      if (v && i === data.active) {
+        // (Back in the seat, not boarded anew: onEnter's stats skip it.)
+        this.restoring = true;
+        try {
+          this.enter(v);
+        } finally {
+          this.restoring = false;
+        }
+      }
     });
+    // (Saved seated, loaded with mods off: on the ground below, as switching
+    // mods off does, not stuck in a hidden vehicle that won't let you out.)
+    if (!this.enabled && this.active) this.setEnabled(false);
   }
 }

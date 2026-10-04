@@ -483,7 +483,7 @@ await check("The fortress: a garrison of mixed aliens with two leaders and guard
   });
 });
 
-await check("The Armada (finale): the Dreadnought, a titan behind four shields with pylons; its fall wins the war (victory screen)", async () => {
+await check("The Armada (finale): the Dreadnought, a titan behind five shields with pylons; its fall wins the war (victory screen)", async () => {
   await startMission("armada");
   await tick(8);
   // The boss bar shows the boss's own name (it always read "THE OVERLORD").

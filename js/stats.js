@@ -22,6 +22,7 @@ export const STAT_LABELS = [
   ["nukes", "Nukes dropped"],
   ["enemyJetsDown", "Fighters shot down (hijacked or patrol)"],
   ["ufosDownBig", "Motherships and giants shot down"],
+  ["titansDown", "Titans shot down"],
   ["cratesOpened", "Supply crates opened"],
   ["missionsDone", "Missions completed"],
   ["nightsSurvived", "Nights survived"],
