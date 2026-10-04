@@ -1,45 +1,33 @@
-// The B-2 Spirit stealth bomber (Round 8), built procedurally like the
-// fighters (jet-model.js): a flying wing with no fuselage and no tail.
+// The B-2 Spirit stealth bomber (Round 8; Round 10: rebuilt after the real
+// aircraft), built procedurally like the fighters (jet-model.js): a flying
+// wing with no fuselage and no tail. The shape itself (the twelve-edge
+// planform, the blended section) is in b2-shape.js; this builds it:
 //
-//   - planform: a straight leading edge swept back 33 degrees from the nose
-//     to the small wingtips, and the famous double-W sawtooth trailing edge
-//     (four edges a side, each parallel to the leading edge one way or the
-//     other, the centre a pointed "beaver tail");
-//   - section: a blended body: thick and humped in the middle (the cockpit
-//     at the front of the hump), thinning smoothly out to knife-thin tips;
-//   - on top: the four-pane cockpit windscreen, two raised engine intakes
-//     with jagged lips on either side of the hump, and recessed exhaust
-//     slots near the trailing edge with a light heat-shield deck behind;
-//   - control surfaces: elevons along the outer and inner trailing edges,
-//     split drag rudders at the wingtips (they open for yaw and as air
-//     brakes); tall tricycle gear with four-wheel main bogies; navigation
-//     lights at the wingtips, strobes on the spine and the belly.
+//   - the skin: a grid over the planform with spanwise stations through
+//     every corner and feature and chordwise rows that follow the trailing
+//     edge, smooth-shaded, the dark grey in subtle patches of tone;
+//   - on top: the four-pane windscreen with its dark frame and the crew
+//     hatches behind it, the two intake hoods with jagged lips beside the
+//     hump (the auxiliary inlet doors on them), the recessed exhaust troughs
+//     with their sooty heat-shield decks, sawtooth-edged access panels;
+//   - control surfaces: per side two elevons on the outer segment and one on
+//     the next, the split drag rudders on the outermost segment (the halves
+//     open apart for yaw and as air brakes), the beaver tail in the middle;
+//   - underneath: the sawtooth-edged weapon bay and gear doors; with the
+//     gear down the doors hang open over dark wells, the nose gear (two
+//     wheels, a landing light) and the main gears (four-wheel bogies, braces);
+//   - lights: red and green at the wingtips, white strobes on the spine and
+//     the belly, the cockpit's glow at night, the engines' heat shimmer.
 //
 // The same interface as createJetModel. Model space: nose toward -Z, up +Y,
-// right +X; about 44 blocks of span and 18 of length (the real thing is
-// 52 m by 21 m: the same scale as the fighters).
+// right +X; 44.5 blocks of span and 17.8 of length (the real thing is
+// 52.4 m by 21.0 m: the same scale as the fighters).
 import * as THREE from "three";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { LAYER_FX } from "./layers.js";
+import { B2_SPAN, B2_LENGTH, S, K, TE, A1, A2, A3, A4, TIP_LE_Z, HINGE_Z, XT0, XT1, DN, XI0, XI1, LIP_Z, LIP_TEETH, leZ, teZ, b2Section, b2Surface, lipZ, intakeHood, intakeLipHeight } from "./b2-shape.js";
 
-export const B2_SPAN = 44.5;
-export const B2_LENGTH = 17.6;
-const S = B2_SPAN / 2; // half span
-const NOSE_Z = -9.2;
-const T33 = Math.tan((33 * Math.PI) / 180);
-const TIP_LE_Z = NOSE_Z + S * T33; // the leading edge reaches the tip here
-const TIP_TE_Z = TIP_LE_Z + 1.2; // the wingtip's short chord (~6.5)
-// The sawtooth trailing edge (half, from the tip inward): x, z: the tip,
-// the outer notch, the "W" point behind the engines, the inner notch, and
-// the pointed centre ("beaver tail"). (Round 8 proportions after the real
-// planform: broad outer wings, the notches well forward of the points.)
-const TE = [
-  [S, TIP_TE_Z + 0.15],
-  [14.5, 4.6],
-  [9.5, 7.6],
-  [4.3, 4.6],
-  [0, NOSE_Z + B2_LENGTH],
-];
+export { B2_SPAN, B2_LENGTH, b2Surface };
 
 // The colour schemes (Round 8): the B-2's dark grey, and darker takes on
 // the fighters' schemes.
@@ -51,42 +39,59 @@ export const B2_PAINTS = {
   navy: { base: 0x2f3a4d, dark: 0x222a39, light: 0x45526a, deck: 0x6f7a8c, glass: 0x161c26 },
   arctic: { base: 0x9aa2aa, dark: 0x7b838b, light: 0xb7bec5, deck: 0xc4c9ce, glass: 0x1f262d },
 };
-const FINISH = { spec: 0.22, gloss: 18, env: 0.08, grain: 0.03, panel: 0.22, panelScale: 1.6, livery: 0.08, liveryScale: 0.12, skin: { tone: 0.06, soot: 0.3, sootZ: 2.6, streaks: 0.05 } };
+// (The coating is smooth: faint generic panel lines, the B-2's own sawtooth
+// panels drawn on; the soot is baked in around the exhaust decks.)
+const FINISH = { spec: 0.22, gloss: 18, env: 0.08, grain: 0.03, panel: 0.06, panelScale: 0.8, livery: 0.07, liveryScale: 0.12, skin: { tone: 0.05, soot: 0, sootZ: 99, streaks: 0.04 } };
 
-function teZ(ax) {
-  // The trailing edge's z at |x| = ax (piecewise linear).
-  for (let i = 0; i < TE.length - 1; i++) {
-    const [x0, z0] = TE[i];
-    const [x1, z1] = TE[i + 1];
-    if (ax <= x0 && ax >= x1) return z0 + ((ax - x0) / (x1 - x0)) * (z1 - z0);
+export const B2_GEAR_HEIGHT = 2.6; // the centre's height over the wheels' bottom
+const NOSE_GEAR = [0, -4.6]; // x, z of the gear legs' pivots (vehicle-jet.js GEAR_LAYOUT)
+const MAIN_GEAR = [5.2, 0.6];
+
+// ---------- Building blocks ----------
+
+// Triangles with flat normals and colours; each triangle is wound to face
+// along `hint` (a rough outward direction), so callers needn't care.
+class Builder {
+  constructor() {
+    this.pos = [];
+    this.nor = [];
+    this.col = [];
   }
-  return TE[TE.length - 1][1];
-}
-function leZ(ax) {
-  return NOSE_Z + ax * T33;
-}
-// The section's thickness at |x|: the humped middle blending into thin wings.
-function thick(ax) {
-  return 0.2 + 2.35 * Math.exp(-((ax / 4.3) ** 2)) + 0.5 * Math.max(0, 1 - ax / S);
-}
-// The section's shape (0 at the leading and trailing edges), max 1 near the front third.
-const AMAX = (() => {
-  let m = 0;
-  for (let i = 0; i <= 100; i++) m = Math.max(m, Math.sqrt(i / 100) * (1 - i / 100) ** 1.15);
-  return m;
-})();
-function shape(u) {
-  return (Math.sqrt(u) * (1 - u) ** 1.15) / AMAX;
-}
-// The surface heights at (x, z): { top, bot } (y).
-export function b2Surface(x, z) {
-  const ax = Math.abs(x);
-  const z0 = leZ(ax);
-  const z1 = teZ(ax);
-  if (z < z0 || z > z1 || ax > S) return null;
-  const u = (z - z0) / Math.max(0.01, z1 - z0);
-  const t = thick(ax) * shape(u);
-  return { top: t * 0.72, bot: -t * 0.3 - 0.08 * Math.max(0, 1 - ax / 6) };
+  tri(a, b, c, color, hint) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-9) return;
+    if (nx * hint[0] + ny * hint[1] + nz * hint[2] < 0) {
+      [b, c] = [c, b];
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    for (const p of [a, b, c]) {
+      this.pos.push(p[0], p[1], p[2]);
+      this.nor.push(nx / len, ny / len, nz / len);
+      this.col.push(color.r, color.g, color.b);
+    }
+  }
+  quad(a, b, c, d, color, hint) {
+    this.tri(a, b, c, color, hint);
+    this.tri(a, c, d, color, hint);
+  }
+  // A polygon (star-shaped around its centroid), as a fan.
+  poly(pts, color, hint) {
+    const m = [0, 0, 0];
+    for (const p of pts) for (let k = 0; k < 3; k++) m[k] += p[k] / pts.length;
+    for (let i = 0; i < pts.length; i++) this.tri(m, pts[i], pts[(i + 1) % pts.length], color, hint);
+  }
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(this.col, 3));
+    return g;
+  }
 }
 
 function colorize(geo, hex, shadeFn = null) {
@@ -117,9 +122,15 @@ function merge(list) {
     const nn = g.getAttribute("normal");
     const c = g.getAttribute("color");
     for (let i = 0; i < p.count; i++, o++) {
-      pos.set([p.getX(i), p.getY(i), p.getZ(i)], o * 3);
-      nor.set([nn.getX(i), nn.getY(i), nn.getZ(i)], o * 3);
-      col.set(c ? [c.getX(i), c.getY(i), c.getZ(i)] : [1, 1, 1], o * 3);
+      pos[o * 3] = p.getX(i);
+      pos[o * 3 + 1] = p.getY(i);
+      pos[o * 3 + 2] = p.getZ(i);
+      nor[o * 3] = nn.getX(i);
+      nor[o * 3 + 1] = nn.getY(i);
+      nor[o * 3 + 2] = nn.getZ(i);
+      col[o * 3] = c ? c.getX(i) : 1;
+      col[o * 3 + 1] = c ? c.getY(i) : 1;
+      col[o * 3 + 2] = c ? c.getZ(i) : 1;
     }
   }
   const out = new THREE.BufferGeometry();
@@ -129,200 +140,511 @@ function merge(list) {
   return out;
 }
 
-// The wing: a grid over the planform (spanwise stations through every
-// corner of the sawtooth), top and bottom surfaces.
-function wingGeometry(pal) {
-  const xs = new Set([0]);
-  for (const [x] of TE) xs.add(x);
-  for (let i = 1; i <= 40; i++) xs.add(+(S * (i / 40) ** 1.25).toFixed(3));
-  const stations = [...xs].sort((a, b) => a - b);
-  const all = [...stations.slice(1).map((x) => -x).reverse(), ...stations];
-  const NC = 22;
-  const top = [];
-  const bot = [];
-  const cTop = new THREE.Color(pal.base);
+function hash2(a, b) {
+  const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+// The coating's patches: cells aligned with the two leading edges (like
+// the real panels), each a shade lighter or darker.
+function tone(x, z) {
+  return 1 + (hash2(Math.floor((z - K * x) / 2.6), Math.floor((z + K * x) / 2.6)) - 0.5) * 0.07;
+}
+
+// ---------- The skin ----------
+
+const EC = 1.35; // the elevons' chord (and the hinge row's depth where there are none)
+// The hinge row's depth ahead of the trailing edge at |x|: the beaver
+// tail's straight hinge in the middle, the elevons' chord, tapering over the
+// drag rudders' segment to the cut tip.
+function hingeDepth(ax) {
+  if (ax < A4) return (A4 - ax) * K;
+  if (ax <= A1) return EC;
+  return Math.min(EC - ((EC - 0.6) * (ax - A1)) / (S - A1), 0.55 * (teZ(ax) - leZ(ax)));
+}
+const SEAM = (A2 + 0.3 + A1 - 0.35) / 2; // between the outboard and middle elevons
+// The moving surfaces, by |x| span (the beaver tail spans both sides).
+const SPANS = [
+  { kind: "tail", lo: -(A4 - 0.25), hi: A4 - 0.25 },
+  { kind: "elevon2", lo: A3 + 0.35, hi: A2 - 0.3 },
+  { kind: "elevon", lo: A2 + 0.3, hi: SEAM - 0.03 },
+  { kind: "elevon", lo: SEAM + 0.03, hi: A1 - 0.35 },
+  { kind: "rudder", lo: A1 + 0.45, hi: S - 1.0 },
+];
+// The rows across the chord: fractions of the way from the leading edge to
+// the hinge row (denser at the nose), with rows exactly at the exhaust
+// nozzles (a double row: the colour changes there) and the deck's start;
+// then the hinge row and two behind it.
+const C4 = TE[4][1] - leZ(A4); // the chord along the inner segment (constant)
+const wAt = (d) => (C4 - d) / (C4 - EC);
+const ROWS = (() => {
+  const w = [];
+  const NF = 19;
+  for (let j = 0; j <= NF; j++) w.push((j / NF) ** 1.75);
+  const nozzle = [wAt(DN + 0.002), wAt(DN), wAt(DN - 0.06), wAt(DN - 0.3)];
+  const all = [...w.filter((v) => nozzle.every((n) => Math.abs(v - n) > 0.012)), ...nozzle].sort((a, b) => a - b);
+  return { front: all, nozzle, rear: [0.5, 1] };
+})();
+// The spanwise stations (positive x; mirrored): every corner and feature,
+// filled in between (closer over the body).
+const STATIONS = (() => {
+  const feat = [0, A4 - 0.25, XT0, XT0 + 0.18, XT1 - 0.18, XT1, A3, A2, A1, S - 0.3, S];
+  for (const sp of SPANS) if (sp.lo >= 0) feat.push(sp.lo, sp.hi);
+  feat.push(SEAM);
+  const xs = [...feat];
+  for (let x = 0.45; x < 8; x += 0.45) if (feat.every((f) => Math.abs(f - x) > 0.18)) xs.push(x);
+  for (let x = 8.8; x < S; x += 1.05) if (feat.every((f) => Math.abs(f - x) > 0.35)) xs.push(x);
+  xs.sort((a, b) => a - b);
+  const out = [];
+  for (const x of xs) {
+    // (The inner notch twice: the beaver tail's hinge ends there and the elevons' begins.)
+    if (Math.abs(x - A4) < 1e-6) continue;
+    if (x > A4 && (out.length === 0 || out[out.length - 1].x < A4)) {
+      out.push({ x: A4, dh: 0 }, { x: A4, dh: EC });
+    }
+    out.push({ x, dh: hingeDepth(x) });
+  }
+  const neg = out
+    .slice(1)
+    .reverse()
+    .map((s) => ({ x: -s.x, dh: s.dh }));
+  return [...neg, ...out];
+})();
+function spanOf(x0, x1) {
+  const lo = Math.min(x0, x1);
+  const hi = Math.max(x0, x1);
+  for (const sp of SPANS) {
+    if (lo >= sp.lo - 1e-6 && hi <= sp.hi + 1e-6) return sp;
+    if (sp.lo >= 0 && lo >= -sp.hi - 1e-6 && hi <= -sp.lo + 1e-6) return sp;
+  }
+  return null;
+}
+// The grid's points: [station][row] = { x, z, top, bot, deck, d }.
+const GRID = STATIONS.map(({ x, dh }) => {
+  const ax = Math.abs(x);
+  const z0 = leZ(ax);
+  const z1 = teZ(ax);
+  const zh = z1 - dh;
+  const zs = [...ROWS.front.map((w) => z0 + (zh - z0) * w), ...ROWS.rear.map((r) => zh + dh * r)];
+  return zs.map((z) => {
+    const s = b2Section(x, z);
+    return { x, z, top: s.top, bot: s.bot, deck: s.deck, d: z1 - z };
+  });
+});
+const NR = ROWS.front.length + ROWS.rear.length;
+const JH = ROWS.front.length - 1; // the hinge row
+const JN = ROWS.nozzle.map((w) => ROWS.front.indexOf(w)); // the nozzle rows
+
+function skinGeometry(pal) {
+  const cBase = new THREE.Color(pal.base);
   const cLight = new THREE.Color(pal.light);
   const cDark = new THREE.Color(pal.dark);
+  const cDeck = new THREE.Color(pal.deck);
+  const cSoot = new THREE.Color(0x1e1d1c);
+  const cNozzle = new THREE.Color(0x0b0c0e);
   const tmp = new THREE.Color();
-  for (const x of all) {
-    const ax = Math.abs(x);
-    const z0 = leZ(ax);
-    const z1 = teZ(ax);
-    const rowT = [];
-    const rowB = [];
-    for (let j = 0; j <= NC; j++) {
-      // (Denser near the leading edge, where the section curves most.)
-      const u = (j / NC) ** 1.6;
-      const z = z0 + (z1 - z0) * u;
-      const t = thick(ax) * shape(u);
-      rowT.push([x, t * 0.72, z, u]);
-      rowB.push([x, -t * 0.3 - 0.08 * Math.max(0, 1 - ax / 6), z, u]);
+  const tmp2 = new THREE.Color();
+  const topColor = (p, j) => {
+    const ax = Math.abs(p.x);
+    const u = j / (NR - 1);
+    tmp.copy(cBase).multiplyScalar(tone(p.x, p.z));
+    // A lighter leading edge strip; the aft areas a touch darker.
+    if (j <= 1) tmp.lerp(cLight, j === 0 ? 0.6 : 0.3);
+    else tmp.lerp(cDark, Math.max(0, u - 0.7) * 0.5);
+    if (ax > A4 && ax < A3 && ax >= XT0 && ax <= XT1) {
+      const side = Math.min(1, (ax - XT0) / 0.18, (XT1 - ax) / 0.18);
+      if (j === JN[1] || j === JN[2]) tmp.lerp(cNozzle, side);
+      else if (p.deck > 0) {
+        // The heat-shield deck: sooty by the nozzles, lighter toward the edge, a few streaks.
+        const clean = Math.min(1, Math.max(0, (DN - 0.3 - p.d) / 1.6));
+        tmp2.copy(cSoot).lerp(cDeck, 0.3 + 0.45 * clean);
+        tmp2.multiplyScalar(0.94 + 0.12 * hash2(Math.floor(ax * 2.2), 7));
+        tmp.lerp(tmp2, p.deck);
+      }
     }
-    top.push(rowT);
-    bot.push(rowB);
+    return tmp;
+  };
+  const botColor = (p) => tmp.copy(cDark).multiplyScalar(0.95 * tone(p.x, p.z + 1.3));
+  const parts = [];
+  for (const side of ["top", "bot"]) {
+    const pos = [];
+    const col = [];
+    for (let i = 0; i < GRID.length; i++) {
+      for (let j = 0; j < NR; j++) {
+        const p = GRID[i][j];
+        pos.push(p.x, side === "top" ? p.top : p.bot, p.z);
+        const c = side === "top" ? topColor(p, j) : botColor(p);
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    const idx = [];
+    for (let i = 0; i < GRID.length - 1; i++) {
+      if (GRID[i][0].x === GRID[i + 1][0].x) continue;
+      const moving = spanOf(GRID[i][0].x, GRID[i + 1][0].x);
+      const jEnd = moving ? JH : NR - 1;
+      for (let j = 0; j < jEnd; j++) {
+        const a = i * NR + j, b = (i + 1) * NR + j, c = (i + 1) * NR + j + 1, d = i * NR + j + 1;
+        // (Winding: the top faces up, the bottom down.)
+        if (side === "top") idx.push(a, d, b, b, d, c);
+        else idx.push(a, b, d, b, c, d);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    parts.push(g);
   }
-  const pos = [];
-  const col = [];
-  const push = (p, c) => {
-    pos.push(p[0], p[1], p[2]);
-    col.push(c.r, c.g, c.b);
-  };
-  const shadeTop = (p) => {
-    // A lighter leading edge band, slightly darker trailing areas, the
-    // panelling's two tones in broad spanwise bands.
-    const band = Math.abs(Math.sin(p[0] * 0.21 + p[2] * 0.05)) < 0.12 ? 0.94 : 1;
-    if (p[3] < 0.05) return tmp.copy(cLight).multiplyScalar(band);
-    return tmp.copy(cTop).lerp(cDark, p[3] * 0.25).multiplyScalar(band);
-  };
-  const shadeBot = (p) => tmp.copy(cDark).multiplyScalar(0.92);
-  for (let i = 0; i < all.length - 1; i++) {
-    for (let j = 0; j < NC; j++) {
-      const a = top[i][j], b = top[i + 1][j], c = top[i + 1][j + 1], d = top[i][j + 1];
-      // (Winding: the top faces up.)
-      for (const p of [a, d, b, b, d, c]) push(p, shadeTop(p));
-      const e = bot[i][j], f = bot[i + 1][j], g = bot[i + 1][j + 1], h = bot[i][j + 1];
-      for (const p of [e, f, h, f, g, h]) push(p, shadeBot(p));
+  // Behind the moving surfaces: the hinge wall and the ends of the cut-out, dark.
+  const B = new Builder();
+  const cGap = new THREE.Color(pal.dark).multiplyScalar(0.55);
+  const P = (p, y) => [p.x, y, p.z];
+  for (let i = 0; i < GRID.length - 1; i++) {
+    const g0 = GRID[i], g1 = GRID[i + 1];
+    if (g0[0].x === g1[0].x) continue;
+    const moving = spanOf(g0[0].x, g1[0].x);
+    if (moving) B.quad(P(g0[JH], g0[JH].top), P(g1[JH], g1[JH].top), P(g1[JH], g1[JH].bot), P(g0[JH], g0[JH].bot), cGap, [0, 0, 1]);
+    // An end of a cut-out: the section from the hinge back, facing into it.
+    const prev = i > 0 && GRID[i - 1][0].x !== g0[0].x ? spanOf(GRID[i - 1][0].x, g0[0].x) : null;
+    if (moving !== prev) {
+      const hint = moving ? [1, 0, 0] : [-1, 0, 0];
+      for (let j = JH; j < NR - 1; j++) B.quad(P(g0[j], g0[j].top), P(g0[j + 1], g0[j + 1].top), P(g0[j + 1], g0[j + 1].bot), P(g0[j], g0[j].bot), cGap, hint);
     }
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  return geo;
+  parts.push(B.geometry());
+  return parts;
 }
 
-// A raised engine intake: a long low hump with a dark, jagged mouth facing forward.
-function intakeGeometry(pal, side) {
-  const x = side * 3.5;
-  const z0 = -3.6;
-  const len = 3.2;
+// A moving surface over stations [i0, i1] of the grid, behind the hinge
+// row: "full", or one half of a split rudder ("upper" / "lower", parted
+// along the mid-plane). { geo (in hinge space), pivot, axis }.
+function surfaceGeometry(pal, i0, i1, part) {
+  const g0 = GRID[i0][JH];
+  const g1 = GRID[i1][JH];
+  const pivot = [(g0.x + g1.x) / 2, (g0.top + g0.bot + g1.top + g1.bot) / 4, (g0.z + g1.z) / 2];
+  const axis = new THREE.Vector3(g1.x - g0.x, (g1.top + g1.bot - g0.top - g0.bot) / 2, g1.z - g0.z).normalize();
+  const B = new Builder();
+  const cTop = new THREE.Color(pal.base).multiplyScalar(0.93);
+  const cBot = new THREE.Color(pal.dark).multiplyScalar(0.9);
+  const cEdge = new THREE.Color(pal.dark).multiplyScalar(0.6);
+  const mid = (p) => (p.top + p.bot) / 2;
+  const hiY = (p) => (part === "lower" ? mid(p) : p.top);
+  const loY = (p) => (part === "upper" ? mid(p) : p.bot);
+  const R = (p, y) => [p.x - pivot[0], y - pivot[1], p.z - pivot[2]];
+  // The upper and lower skins, smooth-shaded like the wing's.
+  const skins = [];
+  for (const up of [true, false]) {
+    const c = up ? (part === "lower" ? cEdge : cTop) : part === "upper" ? cEdge : cBot;
+    const pos = [];
+    const col = [];
+    const idx = [];
+    const n = NR - JH;
+    let cols = 0;
+    for (let i = i0; i <= i1; i++) {
+      if (i > i0 && GRID[i][0].x === GRID[i - 1][0].x) continue;
+      for (let j = JH; j < NR; j++) {
+        pos.push(...R(GRID[i][j], up ? hiY(GRID[i][j]) : loY(GRID[i][j])));
+        col.push(c.r, c.g, c.b);
+      }
+      if (cols > 0) {
+        for (let j = 0; j < n - 1; j++) {
+          const a = (cols - 1) * n + j, b = cols * n + j, cc = cols * n + j + 1, d = (cols - 1) * n + j + 1;
+          if (up) idx.push(a, d, b, b, d, cc);
+          else idx.push(a, b, d, b, cc, d);
+        }
+      }
+      cols++;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    skins.push(g);
+  }
+  // The front face (seen when it's deflected).
+  for (let i = i0; i < i1; i++) {
+    if (GRID[i][0].x === GRID[i + 1][0].x) continue;
+    const a = GRID[i][JH], b = GRID[i + 1][JH];
+    B.quad(R(a, hiY(a)), R(b, hiY(b)), R(b, loY(b)), R(a, loY(a)), cEdge, [0, 0, -1]);
+  }
+  // The ends.
+  for (const [i, hint] of [[i0, [-1, 0, 0]], [i1, [1, 0, 0]]]) {
+    const g = GRID[i];
+    for (let j = JH; j < NR - 1; j++) B.quad(R(g[j], hiY(g[j])), R(g[j + 1], hiY(g[j + 1])), R(g[j + 1], loY(g[j + 1])), R(g[j], loY(g[j])), cEdge, hint);
+  }
+  return { geo: merge([...skins, B.geometry()]), pivot, axis };
+}
+
+// ---------- Details on the skin ----------
+
+const _sec = { top: 0, bot: 0, deck: 0 };
+function topAt(x, z) {
+  const s = b2Section(x, Math.min(teZ(Math.abs(x)), Math.max(leZ(Math.abs(x)), z)), _sec);
+  return s ? s.top + intakeHood(x, z) : 0;
+}
+function botAt(x, z) {
+  const s = b2Section(x, Math.min(teZ(Math.abs(x)), Math.max(leZ(Math.abs(x)), z)), _sec);
+  return s ? s.bot : 0;
+}
+// A thin line drawn on the skin (on top or underneath) along a polyline of
+// [x, z] points: panel seams, door outlines, the windscreen's frame.
+function line(B, pts, w, side, color, lift = 0.022, closed = false) {
+  const surf = side > 0 ? topAt : botAt;
+  const list = closed ? [...pts, pts[0]] : pts;
+  for (let k = 0; k < list.length - 1; k++) {
+    const [ax, az] = list[k];
+    const [bx, bz] = list[k + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const dx = (bx - ax) / len, dz = (bz - az) / len;
+    const px = -dz * (w / 2), pz = dx * (w / 2);
+    // (Each piece runs on half a width past its ends: no gaps at the corners.)
+    const n = Math.max(1, Math.ceil(len / 0.4));
+    for (let q = 0; q < n; q++) {
+      const t0 = q === 0 ? -w / 2 / len : q / n;
+      const t1 = q === n - 1 ? 1 + w / 2 / len : (q + 1) / n;
+      const x0 = ax + (bx - ax) * t0, z0 = az + (bz - az) * t0;
+      const x1 = ax + (bx - ax) * t1, z1 = az + (bz - az) * t1;
+      const v = (x, z) => [x, surf(x, z) + side * lift, z];
+      B.quad(v(x0 + px, z0 + pz), v(x1 + px, z1 + pz), v(x1 - px, z1 - pz), v(x0 - px, z0 - pz), color, [0, side, 0]);
+    }
+  }
+}
+// A panel outline with sawtooth front and back edges (the B-2's doors and
+// access panels: every edge parallel to one of the leading edges), as a
+// closed [x, z] polyline over [x0, x1] x [z0, z1].
+function sawPanel(x0, x1, z0, z1, teeth = 2) {
+  const w = (x1 - x0) / (teeth * 2);
+  const depth = w * K;
+  const front = [];
+  const back = [];
+  for (let k = 0; k <= teeth * 2; k++) {
+    const x = x0 + k * w;
+    front.push([x, z0 + (k % 2 ? 0 : depth)]);
+    back.push([x, z1 - (k % 2 ? depth : 0)]);
+  }
+  return [...front, ...back.reverse()];
+}
+
+// The intake hoods: raised scoops on the shoulders, smooth, a lighter lip.
+function hoodGeometry(pal) {
+  const cLip = new THREE.Color(pal.light);
+  const cHood = new THREE.Color(pal.base);
+  const NSP = LIP_TEETH * 8;
+  const ts = [0, 0.025, 0.07, 0.14, 0.24, 0.36, 0.5, 0.66, 0.82, 1];
   const parts = [];
-  const s0 = b2Surface(x, z0 + len * 0.5);
-  const base = s0 ? s0.top - 0.05 : 1.2;
-  const hump = new THREE.CylinderGeometry(1, 1, len, 14, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).rotateZ(0);
-  hump.scale(1.25, 0.55, 1);
-  hump.translate(x, base, z0 + len / 2);
-  parts.push(colorize(hump, pal.base, (px, py, pz) => 0.95 + (pz - z0) * 0.02));
-  // The mouth: a dark half-ellipse at the front, with a sawtooth lip.
-  const mouth = new THREE.CircleGeometry(1, 14, 0, Math.PI).scale(1.15, 0.5, 1).rotateY(Math.PI).translate(x, base + 0.01, z0 - 0.01);
-  parts.push(colorize(mouth, 0x0b0d10));
-  for (let k = -2; k <= 2; k++) {
-    const tooth = new THREE.ConeGeometry(0.16, 0.34, 3).rotateX(-Math.PI / 2).translate(x + k * 0.42, base + 0.42 - Math.abs(k) * 0.07, z0 - 0.12);
-    parts.push(colorize(tooth, pal.dark));
+  for (const s of [-1, 1]) {
+    const pos = [];
+    const col = [];
+    for (let k = 0; k <= NSP; k++) {
+      const ax = XI0 + ((XI1 - XI0) * k) / NSP;
+      for (let q = 0; q < ts.length; q++) {
+        const z = lipZ(ax) + ts[q] * 3.4;
+        pos.push(s * ax, topAt(s * ax, z) + 0.006, z);
+        const c = q === 0 ? cLip : cHood;
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    const idx = [];
+    const n = ts.length;
+    for (let k = 0; k < NSP; k++) {
+      for (let q = 0; q < n - 1; q++) {
+        const a = k * n + q, b = (k + 1) * n + q, c = (k + 1) * n + q + 1, d = k * n + q + 1;
+        // (Winding: up, mirrored on the left.)
+        if (s > 0) idx.push(a, d, b, b, d, c);
+        else idx.push(a, b, d, b, c, d);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    parts.push(g);
   }
   return parts;
 }
 
-// An exhaust slot on top near the trailing edge, and the light heat-resistant deck behind it.
-function exhaustGeometry(pal, side) {
-  const parts = [];
-  const xs = [side * 4.2, side * 6.0];
-  const z = 1.8;
-  for (let i = 0; i < 2; i++) {
-    const x = (xs[0] + xs[1]) / 2;
-    void i;
-    const s = b2Surface(x, z);
-    const y = s ? s.top + 0.03 : 0.4;
-    const slot = new THREE.PlaneGeometry(2.2, 0.55).rotateX(-Math.PI / 2).translate(x, y, z);
-    parts.push(colorize(slot, 0x0a0b0d));
-    break;
-  }
-  // The deck: a lighter trapezoid behind the slot, down to the trailing edge.
-  const x0 = Math.min(...xs.map(Math.abs));
-  const x1 = Math.max(...xs.map(Math.abs));
-  const pts = [];
-  const cols = [];
-  const c = new THREE.Color(pal.deck);
-  const N = 6;
-  for (let k = 0; k < N; k++) {
-    const xa = side * (x0 - 0.2 + ((x1 - x0 + 0.4) * k) / N);
-    const xb = side * (x0 - 0.2 + ((x1 - x0 + 0.4) * (k + 1)) / N);
-    const za = z + 0.3;
-    const zbA = teZ(Math.abs(xa)) - 0.15;
-    const zbB = teZ(Math.abs(xb)) - 0.15;
-    const ya = (b2Surface(xa, za)?.top ?? 0.3) + 0.025;
-    const yb = (b2Surface(xb, za)?.top ?? 0.3) + 0.025;
-    const yc = (b2Surface(xb, zbB)?.top ?? 0.05) + 0.025;
-    const yd = (b2Surface(xa, zbA)?.top ?? 0.05) + 0.025;
-    const quad = side > 0 ? [[xa, ya, za], [xb, yc, zbB], [xb, yb, za], [xa, ya, za], [xa, yd, zbA], [xb, yc, zbB]] : [[xa, ya, za], [xb, yb, za], [xb, yc, zbB], [xa, ya, za], [xb, yc, zbB], [xa, yd, zbA]];
-    for (const p of quad) {
-      pts.push(...p);
-      cols.push(c.r, c.g, c.b);
-    }
-  }
-  const deck = new THREE.BufferGeometry();
-  deck.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-  deck.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
-  deck.computeVertexNormals();
-  parts.push(deck);
-  return parts;
-}
-
-// The four-pane windscreen at the front of the hump.
-function windowsGeometry() {
-  const parts = [];
-  for (const side of [-1, 1]) {
-    for (const [x0, x1] of [[0.25, 0.85], [0.95, 1.5]]) {
-      const pts = [];
-      const z0 = -6.15;
-      const z1 = -5.35;
-      const corner = (x, z) => {
-        const s = b2Surface(side * x, z);
-        return [side * x, (s ? s.top : 1.6) + 0.035, z];
+function detailGeometry(pal) {
+  const B = new Builder();
+  // (Faint seams on top, where the light falls; stronger underneath, in the shade.)
+  const cLine = new THREE.Color(pal.dark).multiplyScalar(0.8);
+  const cUnder = new THREE.Color(pal.dark).multiplyScalar(0.42);
+  const cFrame = new THREE.Color(pal.dark).multiplyScalar(0.45);
+  const cMouth = new THREE.Color(0x090a0c);
+  for (const s of [-1, 1]) {
+    const X = (pts) => pts.map(([x, z]) => [s * x, z]);
+    // The windscreen's frame (see WINDOWS) and the two crew hatches behind it.
+    for (const pane of WINDOWS) line(B, X(pane), 0.09, 1, cFrame, 0.045, true);
+    line(B, X(sawPanel(0.25, 1.15, -5.0, -4.0, 2)), 0.04, 1, cLine, 0.022, true);
+    // The intake hood (see hoodGeometry): its mouth, dark, from the jagged
+    // lip down and back into the skin.
+    const NSP = LIP_TEETH * 8;
+    for (let k = 0; k < NSP; k++) {
+      const lip = (q) => {
+        const ax = XI0 + ((XI1 - XI0) * q) / NSP;
+        const z = lipZ(ax);
+        return [s * ax, topAt(s * ax, z) + 0.005, z];
       };
-      const a = corner(x0, z0), b = corner(x1, z0 + 0.12), c = corner(x1, z1), d = corner(x0, z1);
-      const tri = side > 0 ? [a, c, b, a, d, c] : [a, b, c, a, c, d];
-      for (const p of tri) pts.push(...p);
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-      g.computeVertexNormals();
-      parts.push(g);
+      const a = lip(k), b = lip(k + 1);
+      const base = (p) => [p[0], p[1] - intakeLipHeight(Math.abs(p[0])) - 0.07, p[2] + 0.28];
+      B.quad(a, b, base(b), base(a), cMouth, [0, 0.3, -1]);
+    }
+    // The auxiliary inlet doors on the hood, and its seam with the nacelle.
+    line(B, X(sawPanel(XI0 + 0.75, XI1 - 0.75, LIP_Z + 0.9, LIP_Z + 1.6, 1)), 0.04, 1, cLine, 0.02, true);
+    // Access panels on the nacelles and the wings.
+    line(B, X(sawPanel(4.6, 6.2, -1.2, 0.6, 1)), 0.035, 1, cLine, 0.02, true);
+    line(B, X(sawPanel(9.4, 10.8, -1.1, 0.4, 1)), 0.035, 1, cLine, 0.02, true);
+    // The hinge lines of the moving surfaces, on top and underneath.
+    for (const sp of SPANS) {
+      if (sp.lo < 0) continue;
+      for (const side of [1, -1]) {
+        const pts = [];
+        for (let x = sp.lo; x <= sp.hi + 1e-6; x += Math.max(0.2, (sp.hi - sp.lo) / 8)) pts.push([s * x, teZ(x) - hingeDepth(x) - 0.03]);
+        line(B, pts, 0.035, side, side > 0 ? cLine : cUnder, 0.02);
+      }
+    }
+    // Underneath: the main gear doors, the weapon bays (two doors each),
+    // access panels.
+    line(B, X(sawPanel(4.5, 5.9, 0.2, 2.9, 1)), 0.055, -1, cUnder, 0.02, true);
+    line(B, X([[5.2, 0.45], [5.2, 2.65]]), 0.04, -1, cUnder, 0.02);
+    line(B, X(sawPanel(0.2, 2.25, -3.9, 1.9, 2)), 0.055, -1, cUnder, 0.02, true);
+    line(B, X([[1.225, -3.6], [1.225, 1.6]]), 0.04, -1, cUnder, 0.02);
+    line(B, X(sawPanel(8.6, 10.2, -1.6, 0.2, 1)), 0.04, -1, cUnder, 0.02, true);
+    line(B, X(sawPanel(14.0, 15.2, 2.4, 3.6, 1)), 0.04, -1, cUnder, 0.02, true);
+  }
+  for (const side of [1, -1]) line(B, [[-(A4 - 0.25), HINGE_Z - 0.03], [A4 - 0.25, HINGE_Z - 0.03]], 0.035, side, side > 0 ? cLine : cUnder, 0.02);
+  // The nose gear doors.
+  line(B, sawPanel(-0.55, 0.55, -6.9, -4.3, 1), 0.055, -1, cUnder, 0.02, true);
+  line(B, [[0, -6.6], [0, -4.6]], 0.04, -1, cUnder, 0.02);
+  // A spine panel.
+  line(B, sawPanel(-0.9, 0.9, 0.4, 2.0, 2), 0.035, 1, cLine, 0.02, true);
+  // The air refuelling receptacle's door on the spine behind the cockpit.
+  line(B, [[-0.3, -3.3], [0.3, -3.3], [0.3, -2.6], [-0.3, -2.6]], 0.05, 1, cLine, 0.02, true);
+  return B.geometry();
+}
+
+// The windscreen: two big front panes and two side panes each side of the
+// centre line, their lower and upper edges parallel to the leading edges
+// ([x, z] corners on the skin, right side).
+const WS_Z = -6.68; // the lower frame's apex
+const wsPane = (x0, x1, h0, h1) => [
+  [x0, WS_Z + x0 * K],
+  [x1, WS_Z + x1 * K],
+  [x1, WS_Z + x1 * K + h1],
+  [x0, WS_Z + x0 * K + h0],
+];
+const WINDOWS = [wsPane(0.1, 0.98, 0.86, 0.8), wsPane(1.1, 1.85, 0.74, 0.5)];
+function windowsGeometry() {
+  const B = new Builder();
+  const white = new THREE.Color(1, 1, 1);
+  for (const s of [-1, 1]) {
+    for (const pane of WINDOWS) {
+      // (Subdivided: it follows the curve of the nose.)
+      const N = 4;
+      const at = (u, v) => {
+        const [a, b, c, d] = pane;
+        const x = (a[0] * (1 - u) + b[0] * u) * (1 - v) + (d[0] * (1 - u) + c[0] * u) * v;
+        const z = (a[1] * (1 - u) + b[1] * u) * (1 - v) + (d[1] * (1 - u) + c[1] * u) * v;
+        return [s * x, topAt(s * x, z) + 0.032, z];
+      };
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) B.quad(at(i / N, j / N), at((i + 1) / N, j / N), at((i + 1) / N, (j + 1) / N), at(i / N, (j + 1) / N), white, [0, 1, -0.3]);
     }
   }
-  return merge(parts.map((g) => colorize(g, 0xffffff)));
+  return B.geometry();
 }
 
-// An elevon or a rudder plate along a trailing edge segment (x0,z0)-(x1,z1)
-// (on the edge itself), `chord` deep: a thin slab lying just over the wing's
-// surfaces, hinged at its front edge. { geo (in hinge space), pivot, axis }.
-function teSurface(pal, x0, z0, x1, z1, chord, kind, side) {
-  const hx0 = x0;
-  const hz0 = z0 - chord;
-  const hx1 = x1;
-  const hz1 = z1 - chord;
-  const sA = b2Surface(hx0, hz0) || { top: 0.1, bot: -0.05 };
-  const sB = b2Surface(hx1, hz1) || { top: 0.1, bot: -0.05 };
-  const pivot = [(hx0 + hx1) / 2, (sA.top + sA.bot + sB.top + sB.bot) / 4, (hz0 + hz1) / 2];
-  const rel = (x, y, z) => [x - pivot[0], y - pivot[1], z - pivot[2]];
-  const A = rel(hx0, sA.top + 0.03, hz0), B = rel(hx1, sB.top + 0.03, hz1), C = rel(x1, 0.03, z1), D = rel(x0, 0.03, z0);
-  const A2 = rel(hx0, sA.bot - 0.03, hz0), B2 = rel(hx1, sB.bot - 0.03, hz1), C2 = rel(x1, -0.03, z1), D2 = rel(x0, -0.03, z0);
-  // (Winding by the side: the top faces up.)
-  const cw = (x1 - x0) * side > 0;
-  const top = cw ? [A, D, B, B, D, C] : [A, B, D, B, C, D];
-  const bot = cw ? [A2, B2, D2, B2, C2, D2] : [A2, D2, B2, B2, D2, C2];
-  const pts = [];
-  for (const p of [...top, ...bot]) pts.push(...p);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-  g.computeVertexNormals();
-  colorize(g, pal.base, () => 0.9);
-  const axis = new THREE.Vector3(hx1 - hx0, 0, hz1 - hz0).normalize();
-  return { geo: g, pivot, axis, kind, side };
-}
+// ---------- Gear ----------
 
-// Landing gear leg with wheels (n: wheel pairs along the leg's bogie).
-function gearLeg(len, wheelR, pairs, spread) {
-  const parts = [];
-  parts.push(colorize(new THREE.CylinderGeometry(0.12, 0.12, len, 8).translate(0, -len / 2, 0), 0xb4b8be));
-  parts.push(colorize(new THREE.BoxGeometry(0.22, 0.22, pairs > 1 ? 1.5 : 0.3).translate(0, -len, 0), 0x8b9096));
-  for (let p = 0; p < pairs; p++) {
-    const z = pairs > 1 ? (p - 0.5) * 1.1 : 0;
-    for (const sx of [-spread, spread]) {
-      parts.push(colorize(new THREE.CylinderGeometry(wheelR, wheelR, 0.3, 14).rotateZ(Math.PI / 2).translate(sx, -len, z), 0x16171a));
-      parts.push(colorize(new THREE.CylinderGeometry(wheelR * 0.5, wheelR * 0.5, 0.32, 10).rotateZ(Math.PI / 2).translate(sx, -len, z), 0x9aa0a8));
-    }
+function wheel(r, w, x, y, z) {
+  return [
+    colorize(new THREE.CylinderGeometry(r, r, w, 16).rotateZ(Math.PI / 2).translate(x, y, z), 0x161719),
+    colorize(new THREE.CylinderGeometry(r * 0.55, r * 0.55, w + 0.02, 10).rotateZ(Math.PI / 2).translate(x, y, z), 0x8d939a),
+  ];
+}
+function strut(a, b, r, hex) {
+  const va = new THREE.Vector3(...a);
+  const vb = new THREE.Vector3(...b);
+  const len = va.distanceTo(vb);
+  const g = new THREE.CylinderGeometry(r, r, len, 8);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize()));
+  g.translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  return colorize(g, hex);
+}
+// The nose leg (pivot at the top, the wheels' bottom `len + r` below): an
+// oleo strut, two wheels side by side, a drag brace and the landing lights.
+function noseGearGeometry(len, r) {
+  const steel = 0xb4b8be;
+  const parts = [strut([0, 0, 0], [0, -len * 0.55, 0], 0.13, 0x9aa0a7), strut([0, -len * 0.5, 0], [0, -len, 0], 0.09, steel)];
+  parts.push(strut([0, -len * 0.42, 0], [0, -0.05, -1.0], 0.06, 0x8b9096));
+  parts.push(colorize(new THREE.BoxGeometry(0.62, 0.1, 0.12).translate(0, -len, 0), 0x8b9096));
+  parts.push(colorize(new THREE.BoxGeometry(0.22, 0.12, 0.1).translate(0, -len * 0.62, -0.13), 0xe8ecf0));
+  for (const sx of [-0.26, 0.26]) parts.push(...wheel(r, 0.24, sx, -len, 0));
+  return merge(parts);
+}
+// A main leg: a stout strut, a side brace inboard, a drag brace forward,
+// and a bogie of four wheels.
+function mainGearGeometry(len, r, side) {
+  const parts = [strut([0, 0, 0], [0, -len * 0.6, 0], 0.17, 0x9aa0a7), strut([0, -len * 0.55, 0], [0, -len + 0.05, 0], 0.12, 0xb4b8be)];
+  parts.push(strut([0, -len * 0.45, 0], [-side * 0.95, -0.05, 0], 0.07, 0x8b9096));
+  parts.push(strut([0, -len * 0.4, 0], [0, -0.05, -1.1], 0.07, 0x8b9096));
+  parts.push(colorize(new THREE.BoxGeometry(0.2, 0.18, 1.55).translate(0, -len, 0), 0x8b9096));
+  for (const z of [-0.6, 0.6]) {
+    parts.push(colorize(new THREE.BoxGeometry(0.96, 0.1, 0.1).translate(0, -len, z), 0x8b9096));
+    for (const sx of [-0.36, 0.36]) parts.push(...wheel(r, 0.3, sx, -len, z));
   }
   return merge(parts);
+}
+// The open gear doors (hanging from their hinges, sawtooth ends) and the
+// dark wells between them: shown with the gear.
+function doorsGeometry(pal) {
+  const B = new Builder();
+  const cDoor = new THREE.Color(pal.base);
+  const cIn = new THREE.Color(pal.dark).multiplyScalar(0.8);
+  const cWell = new THREE.Color(0x101113);
+  const door = (xh, z0, z1, depth, out) => {
+    // A plate hanging from a hinge along x = xh, from z0 to z1, `depth` down,
+    // tilted out a little; its ends zigzag like the outline it closes.
+    const pts = [];
+    const n = 4;
+    const tooth = 0.18;
+    const top = (z) => botAt(xh, z) + 0.02;
+    pts.push([xh, top(z0 + tooth), z0 + tooth]);
+    pts.push([xh, top(z1 - tooth), z1 - tooth]);
+    for (let k = 1; k <= n; k++) {
+      const f = k / n;
+      const zz = z1 - (k % 2 ? 0 : tooth);
+      pts.push([xh + out * depth * 0.18 * f, top(z1) - depth * f, zz]);
+    }
+    for (let k = n; k >= 1; k--) {
+      const f = k / n;
+      const zz = z0 + (k % 2 ? 0 : tooth);
+      pts.push([xh + out * depth * 0.18 * f, top(z0) - depth * f, zz]);
+    }
+    const shift = (p, d) => [p[0] + d, p[1], p[2]];
+    B.poly(pts.map((p) => shift(p, 0.02 * out)), cDoor, [out, 0, 0]);
+    B.poly(pts.map((p) => shift(p, -0.02 * out)), cIn, [-out, 0, 0]);
+  };
+  const well = (x0, x1, z0, z1) => {
+    const N = 4;
+    const M = 6;
+    const at = (i, j) => {
+      const x = x0 + ((x1 - x0) * i) / N;
+      const z = z0 + ((z1 - z0) * j) / M;
+      return [x, botAt(x, z) - 0.03, z];
+    };
+    for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) B.quad(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), cWell, [0, -1, 0]);
+  };
+  well(-0.5, 0.5, -6.75, -4.45);
+  door(-0.55, -6.9, -4.3, 0.55, -1);
+  door(0.55, -6.9, -4.3, 0.55, 1);
+  for (const s of [-1, 1]) {
+    well(s * 4.55, s * 5.85, 0.35, 2.75);
+    door(s * 4.5, 0.2, 2.9, 0.7, -s);
+    door(s * 5.9, 0.2, 2.9, 0.7, s);
+  }
+  return B.geometry();
 }
 
 let glowTex = null;
@@ -341,38 +663,71 @@ function softGlowTexture() {
   return glowTex;
 }
 
-export const B2_GEAR_HEIGHT = 2.9; // the centre's height over the wheels' bottom
-
-// The hull, the windscreen and the control surfaces, built once per paint (a
-// B-2 is set out at every airport visit; the models share these).
+// The geometry, built once per paint (a B-2 is set out at every airport
+// visit; the models share it), and the paint-free parts once.
 const cachedByPaint = {};
+let common = null;
+function commonGeometry() {
+  if (common) return common;
+  const nb = botAt(NOSE_GEAR[0], NOSE_GEAR[1]);
+  const mb = botAt(MAIN_GEAR[0], MAIN_GEAR[1]);
+  const rn = 0.4;
+  const rm = 0.5;
+  common = {
+    windows: windowsGeometry(),
+    noseTop: nb,
+    mainTop: mb,
+    nose: noseGearGeometry(B2_GEAR_HEIGHT + nb - rn, rn),
+    left: mainGearGeometry(B2_GEAR_HEIGHT + mb - rm, rm, -1),
+    right: mainGearGeometry(B2_GEAR_HEIGHT + mb - rm, rm, 1),
+  };
+  return common;
+}
 function buildGeometry(key, pal) {
   if (cachedByPaint[key]) return cachedByPaint[key];
-  const hull = merge([wingGeometry(pal), ...intakeGeometry(pal, -1), ...intakeGeometry(pal, 1), ...exhaustGeometry(pal, -1), ...exhaustGeometry(pal, 1)]);
-  // Control surfaces: two elevons a side on the outer and inner trailing
-  // edges (pitch together, roll opposite), split rudders at the tips.
+  const hull = merge([...skinGeometry(pal), ...hoodGeometry(pal), detailGeometry(pal)]);
+  // The moving surfaces: per span, per side (the beaver tail once).
   const defs = [];
-  for (const side of [-1, 1]) {
-    const tz = (x) => teZ(x);
-    const xr0 = S - 0.3;
-    const xr1 = S - 2.1;
-    defs.push(teSurface(pal, side * xr0, tz(xr0), side * xr1, tz(xr1), 1.0, "rudder", side));
-    const xe0 = S - 2.3;
-    const xe1 = TE[1][0] + 0.6;
-    defs.push(teSurface(pal, side * xe0, tz(xe0), side * xe1, tz(xe1), 1.4, "elevon", side));
-    const xi0 = TE[2][0] - 0.4;
-    const xi1 = TE[3][0] + 0.5;
-    defs.push(teSurface(pal, side * xi0, tz(xi0), side * xi1, tz(xi1), 1.2, "elevon2", side));
+  const idx = (x) => GRID.findIndex((p) => Math.abs(p[0].x - x) < 1e-6);
+  const idxLast = (x) => GRID.length - 1 - [...GRID].reverse().findIndex((p) => Math.abs(p[0].x - x) < 1e-6);
+  for (const sp of SPANS) {
+    for (const side of sp.lo < 0 ? [1] : [-1, 1]) {
+      const xa = side > 0 ? sp.lo : -sp.hi;
+      const xb = side > 0 ? sp.hi : -sp.lo;
+      const i0 = idxLast(xa);
+      const i1 = idx(xb);
+      const parts = sp.kind === "rudder" ? ["upper", "lower"] : ["full"];
+      for (const part of parts) {
+        const d = surfaceGeometry(pal, i0, i1, part);
+        // (The axis points to +x: a positive angle drops the trailing edge.)
+        if (d.axis.x < 0) d.axis.negate();
+        defs.push({ ...d, kind: sp.kind === "rudder" ? (part === "upper" ? "rudderUp" : "rudderDown") : sp.kind, side: sp.lo < 0 ? 0 : side });
+      }
+    }
   }
-  cachedByPaint[key] = { hull, windows: windowsGeometry(), defs };
+  // (The outboard and middle elevons move together: one mesh a side.)
+  const merged = [];
+  for (const d of defs) {
+    const twin = d.kind === "elevon" && merged.find((m) => m.kind === "elevon" && m.side === d.side);
+    if (!twin) {
+      merged.push(d);
+      continue;
+    }
+    // Re-base the second piece onto the first one's hinge (they share the segment's hinge line).
+    const off = d.pivot.map((v, k) => v - twin.pivot[k]);
+    d.geo.translate(off[0], off[1], off[2]);
+    twin.geo = merge([twin.geo, d.geo]);
+  }
+  cachedByPaint[key] = { hull, doors: doorsGeometry(pal), defs: merged };
   return cachedByPaint[key];
 }
 
 export function createB2Model({ paint = "gray" } = {}) {
   const key = B2_PAINTS[paint] ? paint : "gray";
   const pal = B2_PAINTS[key];
-  const { hull, windows, defs } = buildGeometry(key, pal);
-  const shared = new Set([hull, windows, ...defs.map((d) => d.geo)]);
+  const { hull, doors, defs } = buildGeometry(key, pal);
+  const cg = commonGeometry();
+  const shared = new Set([hull, doors, cg.windows, cg.nose, cg.left, cg.right, ...defs.map((d) => d.geo)]);
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
@@ -384,7 +739,7 @@ export function createB2Model({ paint = "gray" } = {}) {
   bindEntityLight(hullMesh, () => light);
   body.add(hullMesh);
   // The windscreen.
-  const canopyMesh = new THREE.Mesh(windows, new THREE.MeshStandardMaterial({ color: pal.glass, metalness: 0.9, roughness: 0.18, envMapIntensity: 1 }));
+  const canopyMesh = new THREE.Mesh(cg.windows, new THREE.MeshStandardMaterial({ color: pal.glass, metalness: 0.9, roughness: 0.18, envMapIntensity: 1 }));
   body.add(canopyMesh);
   // The control surfaces (see buildGeometry), hinged at their pivots.
   const surfaces = defs.map((d) => {
@@ -397,7 +752,7 @@ export function createB2Model({ paint = "gray" } = {}) {
     body.add(group);
     return { group, axis: d.axis, kind: d.kind, side: d.side };
   });
-  // Gear: the nose leg forward of the hump's middle, the main bogies under the inner wings.
+  // Gear: the nose leg under the cockpit, the main bogies under the inner wings.
   const gearMat = createEntityMaterial("color");
   const mkGear = (geo, x, y, z) => {
     const m = new THREE.Mesh(geo, gearMat);
@@ -407,42 +762,47 @@ export function createB2Model({ paint = "gray" } = {}) {
     body.add(m);
     return m;
   };
-  const noseTop = b2Surface(0, -4.6)?.bot ?? -0.6;
-  const mainTop = b2Surface(5.2, 0.6)?.bot ?? -0.5;
-  const wheelR = 0.48;
   const gear = {
-    nose: mkGear(gearLeg(B2_GEAR_HEIGHT + noseTop - wheelR, wheelR, 1, 0.22), 0, noseTop, -4.6),
-    left: mkGear(gearLeg(B2_GEAR_HEIGHT + mainTop - wheelR, wheelR, 2, 0.32), -5.2, mainTop, 0.6),
-    right: mkGear(gearLeg(B2_GEAR_HEIGHT + mainTop - wheelR, wheelR, 2, 0.32), 5.2, mainTop, 0.6),
+    nose: mkGear(cg.nose, NOSE_GEAR[0], cg.noseTop, NOSE_GEAR[1]),
+    left: mkGear(cg.left, -MAIN_GEAR[0], cg.mainTop, MAIN_GEAR[1]),
+    right: mkGear(cg.right, MAIN_GEAR[0], cg.mainTop, MAIN_GEAR[1]),
+    doors: mkGear(doors, 0, 0, 0),
   };
+  const gearParts = Object.values(gear);
   let gearT = 1;
-  // The engines' heat: a faint shimmer over each exhaust slot (no afterburner on a bomber).
+  // The engines' heat: a faint shimmer over each exhaust deck (no afterburner on a bomber).
   const heat = [];
   for (const side of [-1, 1]) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color: new THREE.Color(1.2, 0.7, 0.4), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
     sp.layers.set(LAYER_FX);
-    sp.position.set(side * 5.1, (b2Surface(side * 5.1, 1.8)?.top ?? 0.4) + 0.25, 2.2);
+    const x = (XT0 + XT1) / 2;
+    const z = teZ(x) - DN * 0.6;
+    sp.position.set(side * x, topAt(x, z) + 0.25, z);
     sp.visible = false;
     body.add(sp);
     heat.push(sp);
   }
-  // Lights: red (left) and green (right) at the wingtips, white strobes on the spine and the belly.
-  const navSprite = (color, x, y, z, size) => {
+  // Lights: red (left) and green (right) at the wingtips, white strobes on
+  // the spine and the belly, the landing light on the nose leg.
+  const navSprite = (color, x, y, z, size, parent = body) => {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: softGlowTexture(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
     sp.layers.set(LAYER_FX);
     sp.position.set(x, y, z);
     sp.scale.setScalar(size);
-    body.add(sp);
+    parent.add(sp);
     return sp;
   };
+  const tipZ = TIP_LE_Z + 0.25;
   const nav = [
-    navSprite(new THREE.Color(2.4, 0.15, 0.15), -S + 0.2, 0.15, TIP_LE_Z + 0.5, 0.45),
-    navSprite(new THREE.Color(0.15, 2.4, 0.2), S - 0.2, 0.15, TIP_LE_Z + 0.5, 0.45),
-    navSprite(new THREE.Color(2.6, 2.6, 3), 0, (b2Surface(0, -1)?.top ?? 1.4) + 0.12, -1, 0.4),
-    navSprite(new THREE.Color(2.6, 2.6, 3), 0, (b2Surface(0, 0)?.bot ?? -0.7) - 0.1, 0, 0.4),
+    navSprite(new THREE.Color(2.4, 0.15, 0.15), -S + 0.2, topAt(S - 0.2, tipZ) + 0.05, tipZ, 0.45),
+    navSprite(new THREE.Color(0.15, 2.4, 0.2), S - 0.2, topAt(S - 0.2, tipZ) + 0.05, tipZ, 0.45),
+    navSprite(new THREE.Color(2.6, 2.6, 3), 0, topAt(0, -1) + 0.12, -1, 0.4),
+    navSprite(new THREE.Color(2.6, 2.6, 3), 0, botAt(0, 0) - 0.1, 0, 0.4),
   ];
-  const cockpitGlow = navSprite(new THREE.Color(0.1, 0.35, 0.18), 0, (b2Surface(0, -5.6)?.top ?? 1.5) - 0.2, -5.6, 0.6);
-  for (const o of [...nav, cockpitGlow]) o.visible = false;
+  const noseLen = B2_GEAR_HEIGHT + cg.noseTop - 0.4;
+  const landing = navSprite(new THREE.Color(2.2, 2.2, 2), 0, -noseLen * 0.62, -0.22, 0.7, gear.nose);
+  const cockpitGlow = navSprite(new THREE.Color(0.1, 0.35, 0.18), 0, topAt(0, -5.9) - 0.2, -5.9, 0.6);
+  for (const o of [...nav, landing, cockpitGlow]) o.visible = false;
   return {
     root,
     body,
@@ -457,17 +817,22 @@ export function createB2Model({ paint = "gray" } = {}) {
       for (const h of heat) {
         h.visible = throttle > 0.05;
         const k = 0.3 + throttle * 0.7;
-        h.scale.set(2.4 * k, 0.9 * k, 1);
+        h.scale.set(2.6 * k, 0.9 * k, 1);
         h.material.color.setRGB(0.9 * k + Math.sin(t * 23) * 0.05, 0.5 * k, 0.3 * k);
       }
     },
-    // Elevons: pitch together, roll against each other; the split rudders
-    // open on one side for yaw, on both as air brakes.
+    // Elevons: pitch together, roll against each other (the inboard ones
+    // half as much); the split rudders open on one side for yaw, on both as
+    // air brakes; the beaver tail trims with the pitch.
     setControls(pitch, roll, yaw, brake = 0) {
       for (const sf of surfaces) {
         let a = 0;
-        if (sf.kind === "elevon" || sf.kind === "elevon2") a = (0.4 * pitch + 0.45 * roll * sf.side * (sf.kind === "elevon" ? 1 : 0.5)) * sf.side;
-        else a = Math.max(0, 0.6 * yaw * sf.side) + 0.8 * brake;
+        if (sf.kind === "elevon" || sf.kind === "elevon2") a = -0.4 * pitch - 0.45 * roll * sf.side * (sf.kind === "elevon" ? 1 : 0.5);
+        else if (sf.kind === "tail") a = -0.3 * pitch;
+        else {
+          const open = Math.min(1.1, Math.max(0, 0.6 * yaw * sf.side) + 0.8 * brake);
+          a = sf.kind === "rudderUp" ? -open : open;
+        }
         sf.group.quaternion.setFromAxisAngle(sf.axis, a);
       }
     },
@@ -475,14 +840,16 @@ export function createB2Model({ paint = "gray" } = {}) {
       canopyMesh.visible = !on;
       if (!on) return;
       for (const h of heat) h.visible = false;
-      for (const o of [...nav, cockpitGlow]) o.visible = false;
+      for (const o of [...nav, landing, cockpitGlow]) o.visible = false;
       hullMat.uniforms.uFill.value = 0.02;
       light.flash.setRGB(0.55 + 0.25 * Math.sin(t * 17), 0.16 + 0.1 * Math.sin(t * 23 + 1), 0.02);
     },
+    // 1 = wheels down; the nose leg folds forward, the main legs back; the
+    // doors stand open while the gear is out.
     setGear(down) {
       gearT = down;
       const v = down > 0.02;
-      for (const g of Object.values(gear)) g.visible = v;
+      for (const g of gearParts) g.visible = v;
       gear.nose.rotation.x = (1 - down) * 1.5;
       gear.left.rotation.x = (1 - down) * -1.5;
       gear.right.rotation.x = (1 - down) * -1.5;
@@ -499,6 +866,7 @@ export function createB2Model({ paint = "gray" } = {}) {
       nav[0].material.color.setRGB(2.4 * k, 0.15 * k, 0.15 * k);
       nav[1].material.color.setRGB(0.15 * k, 2.4 * k, 0.2 * k);
       nav[2].visible = nav[3].visible = on && strobe;
+      landing.visible = on && dark > 0.25 && gearT > 0.9;
       cockpitGlow.visible = on && dark > 0.3;
       hullMat.uniforms.uFill.value = 0.08 + 0.5 * dark;
     },

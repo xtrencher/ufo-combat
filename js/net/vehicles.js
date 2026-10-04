@@ -327,6 +327,9 @@ export class VehicleSync {
         this._ufoWeapons(v, st);
       }
       v.beam.update(dt, this.game.effects);
+      // (A dash seen from here: the same smear of hull copies the pilot sees.)
+      if (v._netPrev) v.netMoved?.(v._netPrev, dt);
+      (v._netPrev || (v._netPrev = new THREE.Vector3())).copy(v.pos);
       v._place();
       v.model.lightsOn = v.downed ? 0 : 1;
       v.model.animate(v.time, { night, damage: 1 - v.health / v.maxHealth, beam: v.beam.strength, speed: v.vel.length() });
