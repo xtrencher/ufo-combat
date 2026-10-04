@@ -1537,7 +1537,7 @@ console.log("\nProgression (progression.js)");
   const { ITEM } = await import("../js/items.js");
 
   await test("the mission chain (28 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
-    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0, abductorsDown: 0, flagshipDown: 0, titansDown: 0 };
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, hijackedDown: 0, ufosDownSurvival: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0, abductorsDown: 0, flagshipDown: 0, titansDown: 0 };
     const p = new Progress();
     p.load(null, stats);
     let done = [];
