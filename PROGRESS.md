@@ -2460,6 +2460,7 @@ At the owner's request, after the B-2 fix: the whole game read through for mista
 ### Test status (after the audit fixes)
 - `unit-tests.mjs` 61/61, `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `settings-tests.mjs` 7/7, `check-mob-models.mjs` OK.
 - `smoke-test.mjs` 66/67 in the full run (40 minutes; the skeleton check then failed on the aim bug above, and passes since), `ufo-tests.mjs` 34/35 in the full run (the check started inside the 30 s respawn grace an earlier abduction left; it clears that grace now and passes).
-- Multiplayer: `mp-tests.mjs` 23/23 (three players joining through the menu again: the loading freeze), `mp-round9-tests.mjs` 8/8.
+- Multiplayer: `mp-tests.mjs` 23/23 (three players joining through the menu again: the loading freeze), `mp-round9-tests.mjs` 8/8, `mp-damage-tests.mjs` 444/444 applicable cells (11 minutes).
+- `chaos-tests.mjs`: 400 random steps (missions, modes, vehicles, blasts, screens, saves, respawns), 0 problems.
 - New: `perf-tests.mjs` 5/5 (worker-made chunks and meshes identical to the main thread's, streaming inside its budget, one-draw-call bullet holes).
 - Software rendering runs these at a few frames a second; several waits were made more generous for it, never weaker in what they check.
