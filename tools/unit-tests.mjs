@@ -1716,7 +1716,7 @@ console.log("\nProgression (progression.js)");
       assert.ok(at("wings") > at("grays") && at("sunburn") > at("salvage"), `acts in order: ${tag}`);
     }
     assert.ok(orders.size >= 195, `runs differ: ${orders.size}/200`);
-    assert.ok(firsts.size >= 2, "the opening varies a little");
+    assert.ok(firsts.size === 1, "the opening is fixed: the archer (the bow), the visitors (with the bow), then the supply drop (the pistol)");
     assert.ok(skipped > 0, "optional missions sit some runs out");
     // A run is the seed's: the same seed, the same run.
     assert.deepEqual(makeChain(77), makeChain(77));

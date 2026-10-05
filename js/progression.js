@@ -135,7 +135,7 @@ export const MISSIONS = [
     text: "A small UFO is landing nearby. Its crew will look around for a moment, then come for you: be ready with your bow (and your sword: they go down in melee too).",
     objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed", scale: "player" }],
     event: "landing",
-    act: 1, after: ["skeleton"], optional: true, // (its text counts on the bow)
+    act: 1, after: ["skeleton"], // (its text counts on the bow; always played: the bow's own mission before the pistol)
     twists: { 2: "This crew is jumpy: they won't look around for long." },
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0, 0, 0, GREEN),
@@ -146,7 +146,7 @@ export const MISSIONS = [
     text: "Friends on the ground have dropped supplies for you: a pistol. Follow the orange smoke and open the crate. (R reloads.)",
     objectives: [{ stat: "cratesOpened", goal: 1, label: "Supply crates opened", scale: "player" }],
     event: "crate",
-    act: 1,
+    act: 1, after: ["landing"], // (the pistol comes after the bow has had its mission)
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0.3, 1, 0.012, GREEN),
   },
