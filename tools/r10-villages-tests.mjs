@@ -546,21 +546,27 @@ async function mpChecks() {
       const h = await pv(host, (g, pos) => g.interaction.chests.store.get(pos.join(",")), chestPos);
       return g + count(h || []);
     };
+    // (The screen itself closes and opens again: what E / Esc does, without the pointer lock.)
     const reopen = async () => {
-      const opened = await toChest(guest, chestPos, 0);
-      assert(opened.open, `the guest's chest screen didn't open: ${JSON.stringify(opened)}`);
+      await pv(guest, (g, pos) => {
+        g.invScreen.chestPos = pos;
+        g.invScreen.open("chest", false);
+      }, chestPos);
       assert(await until(guest, (g) => g.invScreen.chestView?.ready && !g.invScreen.busy, 10000), "the host never answered");
     };
-    const settled = () => until(guest, (g) => !g.invScreen.busy && !g.interaction.chests.pending && g.gameState !== "inventory", 10000);
+    const settled = () => until(guest, (g) => !g.invScreen.busy && !g.interaction.chests.pending, 10000);
     const out = {};
     // A stack from the inventory into the chest, then Esc at once.
-    await reopen();
-    await pv(guest, (g, id) => g.inventory.add(id, 10), APPLE);
+    assert(await pv(guest, (g) => g.invScreen.chestView?.ready), "the guest's chest screen isn't open");
+    await pv(guest, (g, id) => {
+      g.inventory.clear();
+      g.inventory.add(id, 10);
+    }, APPLE);
     const t0 = await total();
     out.deposit = await pv(guest, (g) => {
       g.invScreen.invViews[0].el.dispatchEvent(new MouseEvent("mousedown", { button: 0, shiftKey: true, bubbles: true }));
       const busy = g.invScreen.busy;
-      g.invScreen.onCloseRequest();
+      g.invScreen.close();
       return busy;
     });
     assert(await settled(), "the deposit never settled");
@@ -573,7 +579,7 @@ async function mpChecks() {
       if (i < 0) return "none";
       document.querySelectorAll(".inv-chest .slot")[i].dispatchEvent(new MouseEvent("mousedown", { button: 0, shiftKey: true, bubbles: true }));
       const busy = g.invScreen.busy;
-      g.invScreen.onCloseRequest();
+      g.invScreen.close();
       return busy;
     }, APPLE);
     assert(await settled(), "the take never settled");
@@ -587,13 +593,15 @@ async function mpChecks() {
       if (i < 0) return "full";
       document.querySelectorAll(".inv-chest .slot")[i].dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true }));
       const busy = g.invScreen.busy;
-      g.invScreen.onCloseRequest();
+      g.invScreen.close();
       return busy;
     });
     assert(await settled(), "the placing never settled");
     const t5 = await total();
     const r = { ...out, t0, t1, t2, t3, t4, t5, cursor: await pv(guest, (g) => g.invScreen.cursor) };
-    assert(t1 === t0 && t3 === t2 && t5 === t4 && !r.cursor, JSON.stringify(r));
+    await reopen(); // (open again for the next check)
+    // (busy: each click was still with the host when the screen closed)
+    assert(out.deposit === true && out.take === true && out.place === true && t1 === t0 && t3 === t2 && t5 === t4 && !r.cursor, JSON.stringify(r));
   });
 
   await check("online: a chest the guest breaks spills the host's contents for both, and both screens close", async () => {
