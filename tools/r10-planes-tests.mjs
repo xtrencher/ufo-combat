@@ -4,9 +4,11 @@
 // and one through the wing tip hits; a shot at a player standing under a
 // B-2's wing reaches the player (and one from above meets the wing); a blast
 // under the wing hurts the jet and one well above it doesn't; two jets
-// meeting head-on both blow up; a gentle bump on the runway leaves both
-// nearly intact and a taxiing scrape only dents them. (The hull shapes on
-// their own: unit checks at the top, in Node.)
+// meeting head-on both blow up; one flying into a B-2 is lost while the B-2
+// loses only part of its hull (at most 3x the mass ratio: about 60% for an
+// F-22); a gentle bump on the runway leaves both nearly intact and a taxiing
+// scrape only dents them. (The hull shapes on their own: unit checks at the
+// top, in Node.)
 //
 //   node r10-planes-tests.mjs [--only=substring] [--seed=42]
 //
@@ -278,6 +280,21 @@ await check("Two jets meeting head-on at speed both blow up", async () => {
   const r = await until(() => window.__pair.every((j) => !j.alive) && window.__pair.map((j) => j.lastHitBy), null, 30000);
   assert(Array.isArray(r), `not both destroyed: ${await v(() => window.__pair.map((j) => `${j.alive} ${j.health} z ${j.pos.z.toFixed(1)}`).join(" / "))}`);
   assert(r.includes("crash"), `not a collision: ${r.join(", ")}`);
+});
+
+await check("A fighter flying into a B-2 at speed is lost; the collision takes only part of the B-2's hull", async () => {
+  const c = await ground();
+  const b = await hang("b2", [c.x, 140, c.z]);
+  await v((g, c) => {
+    const t = window.__t;
+    const dmg = t.damage.bind(t);
+    window.__hits = [];
+    t.damage = (a, cause, p) => (window.__hits.push([a, cause]), dmg(a, cause, p));
+    window.__f = g.vehicles.create("jet", { jetType: "f22", pos: [c.x, 140, c.z + 70], yaw: 0, airborne: true, speed: 140, throttle: 1 });
+  }, c);
+  const r = await until(() => !window.__f.alive && { alive: window.__t.alive, cap: (3 * window.__f.mass) / window.__t.mass, crash: window.__hits.filter((h) => h[1] === "crash").map((h) => h[0]) }, null, 30000);
+  assert(r && r.crash.length === 1, `not one collision: ${JSON.stringify(r)}`);
+  assert(r.alive && r.cap < 0.7 && r.crash[0] <= Math.ceil(b.hp * r.cap), `the collision took too much (${r.crash[0]} of ${b.hp}, cap ${r.cap})`);
 });
 
 // Jet B rolls into the tail of jet A (parked) on the deck at `speed`, with the player in B.

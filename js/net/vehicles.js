@@ -355,7 +355,7 @@ export class VehicleSync {
       }
       v.beam.update(dt, this.game.effects);
       // (A dash seen from here: the same smear of hull copies the pilot sees.)
-      if (v._netPrev) v.netMoved?.(v._netPrev, dt);
+      if (v._netPrev) v.netMoved?.(v._netPrev, dt, !!v.netDash);
       (v._netPrev || (v._netPrev = new THREE.Vector3())).copy(v.pos);
       v._place();
       v.model.lightsOn = v.downed ? 0 : 1;
