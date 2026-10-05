@@ -153,10 +153,10 @@ export const MISSIONS = [
   {
     id: "first_contact",
     title: "First contact",
-    text: "A scout UFO is snooping around nearby. Find it (follow the marker) and shoot it down with your pistol or your bow.",
+    text: "A scout UFO is snooping around nearby. Find it (follow the marker) and shoot it down with your pistol.",
     objectives: [{ stat: "ufosDown", goal: 1, label: "Scouts shot down", scale: "group" }],
     event: "scout",
-    act: 1, after: ["skeleton"], // (something to shoot it with)
+    act: 1, after: ["skeleton", "supply"], // (the pistol from the supply drop: arrows don't bring a UFO down)
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0.4, 1, 0.012, GREEN),
   },
