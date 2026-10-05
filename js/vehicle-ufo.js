@@ -11,11 +11,12 @@
 // ships fire from around the hull, every shot aimed at what is under the
 // crosshair), a tractor beam (hold right click) that lifts creatures, and
 // optionally loose blocks, up into the ship, a teleport dash (R: the ship
-// streaks along the view; held, it keeps streaking until you let go) and a
-// superweapon (B): after a short charge a huge laser straight down that
-// burns a shaft through the ground and everything in it. Third-person chase
-// camera (F5: chase / far / belly view), set above the ship so the ship
-// sits low on the screen and the crosshair is always on open view.
+// streaks along the view; held, it keeps streaking until you let go; in
+// ghost mode it rams what it flies through) and a superweapon (B): after a
+// short charge a huge laser straight down that burns a shaft through the
+// ground and everything in it. Third-person chase camera (F5: chase / far
+// / belly view), set above the ship so the ship sits low on the screen and
+// the crosshair is always on open view.
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
 import { createUfoModel, designInfo, designFacingOffset, UFO_DESIGN_NAMES, normalizeUfoSpec } from "./ufo-models.js";
@@ -27,8 +28,10 @@ import { blockDrops } from "./items.js";
 import { blockCubeGeometry } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { effectsQuality } from "./effects.js";
-import { WORLD_HEIGHT } from "./constants.js";
+import { WORLD_HEIGHT, CHUNK_SIZE } from "./constants.js";
 import { pickUfoStyle } from "./ufos.js";
+import { tileSpan } from "./lod-mesher.js";
+import { discShape, hullContact } from "./hitboxes.js";
 
 export const UFO_SPEED_DEFAULTS = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
 const BEAM_LIFT = 6; // blocks per second
@@ -49,6 +52,39 @@ const DASH_HOLD_COOLDOWN = 1.2; // after a held (continuous) dash
 const DASH_SPEED = [900, 3500]; // blocks/s while R is held (from the dash settings), before the ship's own factor
 const DASH_FACTOR = [1, 6]; // every ship has its own dash factor in this range (log scale): some are fast, some extreme
 const DASH_GHOST_SPEED = 320; // ... and at most this in ghost mode (it burns a tunnel)
+// A dash the player can follow (Round 10): a tap ends within this share of
+// the drawn distance (somewhere in view), and its trip takes at least
+// DASH_MIN_TIME (two frames even at a low frame rate). R held DASH_HOLD_DELAY
+// carries on streaking, from DASH_RAMP[0] blocks/s up to the full speed in
+// DASH_RAMP[1] s, never ahead of the ground that is drawn (while the world
+// catches up it still creeps on at DASH_FOLLOW_MIN), never climbing above
+// DASH_TOP, and stopping at DASH_EDGE (beyond, the terrain's numbers break down).
+const DASH_VIEW_SHARE = 0.8;
+const DASH_MIN_TIME = 0.1;
+const DASH_HOLD_DELAY = 0.25;
+const DASH_RAMP = [400, 1.5];
+const DASH_FOLLOW_MIN = 300;
+const DASH_TOP = 2500;
+const DASH_EDGE = 1000000;
+// (lod.js shows no coarse tile within about this many blocks of the player,
+// waiting for the chunks there instead: see _groundReady. A held streak keeps
+// DASH_LOOK blocks of drawn ground ahead of it, beyond that.)
+const DASH_NEAR = 116;
+const DASH_LOOK = 130;
+// A ghost-mode dash rams what the hull flies through: RAM_DAMAGE (times the
+// ship's size power) to each thing, once per dash; half that to a boss, none
+// through a shield. Each ship or aircraft rammed costs the hull RAM_SELF of
+// its own strength (creatures and players nothing), and a dash that rammed
+// anything has the full DASH_COOLDOWN, held or not, plus RAM_COOL for each
+// thing hit (up to RAM_COOL_MAX of them). The path is at most RAM_REACH to
+// either side of its line, however big the ship (the superweapon's shaft is
+// capped at 24, the tunnel at 7).
+const RAM_DAMAGE = 80;
+const RAM_BOSS = 0.5;
+const RAM_SELF = 0.03;
+const RAM_REACH = 12;
+const RAM_COOL = 0.25;
+const RAM_COOL_MAX = 20;
 
 // The player's version of each enemy attack style (ufos.js STYLES): the
 // same look and sound, balanced for the player. damage is per bolt (per
@@ -74,6 +110,7 @@ const SUPER_DIG_SPEED = 55; // blocks per second the shaft deepens
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _x1 = new THREE.Vector3();
+const _x2 = new THREE.Vector3();
 const _feet = new THREE.Vector3();
 
 function sizeName(radius) {
@@ -388,7 +425,10 @@ export class PilotUfo extends Vehicle {
         this._carved = null;
       }
       this._weapons(dt, input);
-      if (input.pressed.has("KeyR")) this._dash(view);
+      // (A fresh view: `view` is a shared scratch vector, and ghost mode's
+      // tunnel burning above reuses it. Dashing along a position instead of
+      // a direction sent the ship thousands of blocks away.)
+      if (input.pressed.has("KeyR")) this._dash(this._viewDir(new THREE.Vector3()));
       if (input.pressed.has("KeyB")) this._startSuper();
       if (input.pressed.has("KeyG")) this._toggleGhost();
     } else if (this.crashed) {
@@ -906,12 +946,12 @@ export class PilotUfo extends Vehicle {
     mgr.onMessage?.(on ? "GHOST MODE ON: the ship burns through terrain (G to switch off)" : "Ghost mode off");
   }
 
-  // Is any part of the hull inside solid blocks?
-  _embedded() {
+  // Is any part of the hull inside solid blocks (here, or with the ship at `at`)?
+  _embedded(at = this.pos) {
     const w = this.manager.world;
     const r = Math.max(1, this.radius * 0.6);
     for (const [dx, dy, dz] of [[0, 0, 0], [r, 0, 0], [-r, 0, 0], [0, 0, r], [0, 0, -r], [0, -this.bottom * 0.8, 0], [0, this.bottom * 0.5, 0]]) {
-      if (IS_SOLID[w.getBlock(Math.floor(this.pos.x + dx), Math.floor(this.pos.y + dy), Math.floor(this.pos.z + dz))]) return true;
+      if (IS_SOLID[w.getBlock(Math.floor(at.x + dx), Math.floor(at.y + dy), Math.floor(at.z + dz))]) return true;
     }
     return false;
   }
@@ -920,21 +960,30 @@ export class PilotUfo extends Vehicle {
 
   // A tap of R: the ship dashes a long way along the view at extreme speed
   // (it really travels there, in a fraction of a second, the camera riding
-  // along), leaving a smear of fading copies of itself. Held: when that
-  // dash is done it keeps streaking along the view (steer with the mouse)
-  // for as long as R is held, with no distance limit. It stops short of
-  // terrain in the way (unless in ghost mode). Settings > Vehicles: how far
-  // (or off) and how long the tap's trip takes; the held speed follows them.
+  // along), leaving a smear of fading copies of itself. It ends somewhere
+  // in view, short of terrain in the way (unless in ghost mode). Held: when
+  // that dash is done it keeps streaking along the view (steer with the
+  // mouse) for as long as R is held, with no distance limit, gathering speed
+  // and never running ahead of the world drawn around it. In ghost mode the
+  // dash rams what it flies through. Settings > Vehicles: how far (or off)
+  // and how long the tap's trip takes; the held speed follows them.
   get dashDistance() {
-    const mult = this.cfg.dash ?? 1;
+    const mult = Number(this.cfg.dash ?? 1);
     // (A ship with a fast dash also goes farther on a tap.)
-    return THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700) * mult * Math.sqrt(this.dashMul);
+    return THREE.MathUtils.clamp(this.cruise * 1.6, 60, 700) * (Number.isFinite(mult) ? Math.max(0, mult) : 1) * Math.sqrt(this.dashMul);
+  }
+
+  // How far a tap actually goes: the distance above, but never beyond most
+  // of the drawn distance (a dash ends somewhere you can see).
+  get dashReach() {
+    const view = this.manager.viewRange || 320;
+    return Math.min(this.dashDistance, Math.max(60, view * DASH_VIEW_SHARE));
   }
 
   // Speed of a dash (blocks/s): the settings' base, times this ship's own
   // dash factor (some ships are moderately fast, some extremely fast).
   get dashSpeed() {
-    const time = Math.max(0.05, this.cfg.dashTime ?? 0.25);
+    const time = Math.max(0.05, Number(this.cfg.dashTime) || 0.25);
     const v = THREE.MathUtils.clamp((this.dashDistance / Math.sqrt(this.dashMul) / time), DASH_SPEED[0], DASH_SPEED[1]) * this.dashMul;
     return this.cfg.ghost ? Math.min(v, DASH_GHOST_SPEED) : v;
   }
@@ -956,6 +1005,61 @@ export class PilotUfo extends Vehicle {
     return pos.y - this.bottom < w.heightAt(bx, bz) + 3;
   }
 
+  // Is the ground at column (x, z) drawn, or ready to be (a meshed chunk, or
+  // a built distant tile of lod.js, shown or standing by)? Right around the
+  // ship it always is: lod.js never draws a coarse tile there, the ground
+  // waits for its chunks. Without the LOD system (some tests) it always is.
+  _groundReady(x, z) {
+    const lod = this.manager.lod;
+    if (!lod?.tiles) return true;
+    if ((x - this.pos.x) ** 2 + (z - this.pos.z) ** 2 < DASH_NEAR * DASH_NEAR) return true;
+    if (this.manager.world.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))?.meshed) return true;
+    const inside = (t) => {
+      const span = tileSpan(t.level);
+      return x >= t.x0 && x < t.x0 + span && z >= t.z0 && z < t.z0 + span;
+    };
+    // (Samples along a path mostly fall in the tile found last.)
+    const last = this._readyTile;
+    if (last?.mesh && lod.tiles.get(last.key) === last && inside(last)) return true;
+    for (const t of lod.tiles.values()) {
+      if (t.mesh && inside(t)) {
+        this._readyTile = t;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // In ghost mode: is the ground at the ship's position (x, y, z) loaded, or
+  // is the hull above it? (A tunnel can only be burned through blocks that
+  // are there: rock that loads later would close in around the ship.)
+  _groundLoaded(x, y, z) {
+    const w = this.manager.world;
+    const bx = Math.floor(x);
+    const bz = Math.floor(z);
+    if (w.getChunk(bx >> 4, bz >> 4)) return true;
+    return y - this.bottom > w.heightAt(bx, bz) + 2;
+  }
+
+  // How far along `dir` from `from` (up to `want`) every point passes
+  // `ok(x, y, z)`, checked every 16 blocks or so.
+  _reach(from, dir, want, ok) {
+    const n = Math.min(96, Math.ceil(want / 16));
+    for (let i = 1; i <= n; i++) {
+      const s = (want * i) / n;
+      if (!ok(from.x + dir.x * s, from.y + dir.y * s, from.z + dir.z * s)) return (want * (i - 1)) / n;
+    }
+    return want;
+  }
+
+  // How far along `dir` (up to `want`) the dash can go and still have drawn
+  // ground under it and DASH_LOOK blocks beyond. (The ground right around
+  // the ship always counts, so only what lies past it can hold the dash back.)
+  _followReach(from, dir, want) {
+    const r = this._reach(from, dir, want + DASH_LOOK, (x, y, z) => this._groundReady(x, z));
+    return r >= want + DASH_LOOK ? want : Math.max(0, r - DASH_LOOK);
+  }
+
   _dash(view) {
     const mgr = this.manager;
     if (this.dashT > 0 || this.liftOff > 0 || this.dashing) return;
@@ -964,27 +1068,59 @@ export class PilotUfo extends Vehicle {
       return;
     }
     this.dashT = this.dashTotal = DASH_COOLDOWN;
-    const dist = this.dashDistance;
+    const ghost = !!this.cfg.ghost;
+    const dist = this.dashReach;
     const from = this.pos.clone();
     let d = dist;
-    if (!this.cfg.ghost) {
+    let blocked = false; // (stopped short by terrain: holding R then doesn't carry on)
+    if (!ghost) {
       const hit = mgr.world.raycast(from, view, dist + this.radius, { solidOnly: true });
-      if (hit) d = Math.max(0, hit.distance - this.radius - 1.5);
+      if (hit) {
+        d = Math.max(0, hit.distance - this.radius - 1.5);
+        blocked = true;
+      }
       // (Not into ground that has not loaded yet.)
-      for (let k = 0; k < 8 && d > 3 && this._outrunsTerrain(_x1.copy(from).addScaledVector(view, d)); k++) d *= 0.7;
+      for (let k = 0; k < 8 && d > 3 && this._outrunsTerrain(_x1.copy(from).addScaledVector(view, d)); k++) {
+        d *= 0.7;
+        blocked = true;
+      }
+    }
+    // Not past the ground that is drawn (a short hop at least), nor, in
+    // ghost mode, into rock that has not loaded.
+    d = Math.min(d, Math.max(Math.min(d, 60), this._reach(from, view, d, (x, y, z) => this._groundReady(x, z))));
+    if (ghost) d = this._reach(from, view, d, (x, y, z) => this._groundLoaded(x, y, z));
+    // (Nor with the hull's rim in a hillside beside the path.)
+    if (!ghost) {
+      for (let k = 0; k < 6 && d > 3 && this._embedded(_x1.copy(from).addScaledVector(view, d)); k++) {
+        d -= Math.max(2, this.radius * 0.5);
+        blocked = true;
+      }
     }
     if (d < 3) {
-      mgr.onMessage?.("No room to dash");
+      mgr.onMessage?.(ghost ? "The ground ahead is still loading" : "No room to dash");
       this.dashT = this.dashTotal = 0.4;
       return;
     }
     const to = from.clone().addScaledVector(view, d);
-    to.y = Math.max(1 + this.bottom, to.y); // (no ceiling: Round 6)
+    to.y = THREE.MathUtils.clamp(to.y, 1 + this.bottom, Math.max(DASH_TOP, from.y)); // (no ceiling for flying: Round 6)
+    to.x = THREE.MathUtils.clamp(to.x, -DASH_EDGE, DASH_EDGE);
+    to.z = THREE.MathUtils.clamp(to.z, -DASH_EDGE, DASH_EDGE);
     // (In ghost mode no cap on the time: it burns its tunnel at the ghost speed.)
-    this.dashing = { from, to, t: 0, dur: this.cfg.ghost ? Math.max(0.05, d / this.dashSpeed) : THREE.MathUtils.clamp(d / this.dashSpeed, 0.05, 1.2), last: from.clone(), cont: false, traveled: 0 };
+    const dur = ghost ? Math.max(DASH_MIN_TIME, d / this.dashSpeed) : THREE.MathUtils.clamp(d / this.dashSpeed, DASH_MIN_TIME, 1.2);
+    this.dashing = { from, to, t: 0, dur, last: from.clone(), cont: false, traveled: 0, full: !blocked, hold: 0, released: false, contT: 0, rammed: null };
     this._carved = null;
     mgr.audio?.playTeleport?.();
     mgr.effects.shake.add(0.2);
+  }
+
+  // The dash is over: the ship stops, with `cool` seconds of cooldown (or
+  // what is left of the tap's), the full one after a ram.
+  _endDash(cool = 0) {
+    const d = this.dashing;
+    this.dashing = null;
+    this.vel.set(0, 0, 0);
+    if (d?.rammed?.size) cool = DASH_COOLDOWN + RAM_COOL * Math.min(d.hits || 0, RAM_COOL_MAX);
+    if (cool > this.dashT) this.dashT = this.dashTotal = cool;
   }
 
   // The smear of hull copies between where the ship was and where it is.
@@ -1000,22 +1136,53 @@ export class PilotUfo extends Vehicle {
     trail.spawnPath(this.model.hull, from, this.pos, n, shade, 0.35);
   }
 
+  // Online, another player's ship (a puppet: net/vehicles.js), drawn with the
+  // same smear while its snapshot says it dashes (`dash`; a jump of 2000+ is
+  // a teleport, not a dash). Without that flag, a jump this big between two
+  // frames is taken for a dash.
+  netMoved(prev, dt, dash) {
+    if (!prev || !(dt > 0)) return;
+    const step = prev.distanceTo(this.pos);
+    if (dash !== undefined) {
+      if (dash && step < 2000) this._dashSmear(prev);
+      return;
+    }
+    if (step > 8 && step / dt > 600 && step < 2000) this._dashSmear(prev);
+  }
+
   _updateDash(dt, input = null) {
     const d = this.dashing;
     const mgr = this.manager;
+    const ghost = !!this.cfg.ghost;
     const holding = !!input && input.keys.has("KeyR") && (this.cfg.dash ?? 1) > 0;
+    // (How long R has been held since the dash began: a tap is not a hold.)
+    if (!holding) d.released = true;
+    else if (!d.released) d.hold += dt;
     if (d.cont) {
       // Held: streaking along the view for as long as R is down.
       if (!holding) {
-        this.dashing = null;
-        this.vel.set(0, 0, 0);
-        this.dashT = this.dashTotal = DASH_HOLD_COOLDOWN;
+        this._endDash(DASH_HOLD_COOLDOWN);
         return;
       }
       const view = this._viewDir(_w);
-      let step = this.dashSpeed * dt;
+      const top = Math.max(DASH_TOP, d.from.y);
+      if (this.pos.y >= top - 0.5 && view.y > 0) {
+        // (Up at the dash ceiling it levels off: fly higher on your own.)
+        view.y = 0;
+        view.normalize();
+      }
+      // Gathering speed (a moment longer on R is not a kilometre more)...
+      d.contT += dt;
+      const full = this.dashSpeed;
+      const v0 = Math.min(full, DASH_RAMP[0]);
+      const k = Math.min(1, d.contT / DASH_RAMP[1]);
+      let step = (v0 + (full - v0) * k * k * (3 - 2 * k)) * dt;
+      // ...but never ahead of the ground that is drawn (it creeps on while the
+      // world catches up), nor in ghost mode into rock not loaded yet.
+      step = Math.min(step, Math.max(DASH_FOLLOW_MIN * dt, this._followReach(this.pos, view, step)));
+      if (ghost) step = this._reach(this.pos, view, step, (x, y, z) => this._groundLoaded(x, y, z));
       let blocked = false;
-      if (!this.cfg.ghost) {
+      if (!ghost) {
         const hit = mgr.world.raycast(this.pos, view, step + this.radius + 1.5, { solidOnly: true });
         if (hit) {
           step = Math.max(0, hit.distance - this.radius - 1.5);
@@ -1024,7 +1191,7 @@ export class PilotUfo extends Vehicle {
       }
       d.last.copy(this.pos);
       this.pos.addScaledVector(view, step);
-      if (!this.cfg.ghost && this._outrunsTerrain(this.pos)) {
+      if (!ghost && this._outrunsTerrain(this.pos)) {
         // Ahead of the loaded world and heading into the ground: stop here.
         this.pos.copy(d.last);
         step = 0;
@@ -1035,17 +1202,27 @@ export class PilotUfo extends Vehicle {
         this.pos.y = lo;
         blocked = blocked || step < 1;
       }
+      if (this.pos.y > top) this.pos.y = top;
+      let edge = false;
+      if (Math.abs(this.pos.x) > DASH_EDGE || Math.abs(this.pos.z) > DASH_EDGE) {
+        this.pos.x = THREE.MathUtils.clamp(this.pos.x, -DASH_EDGE, DASH_EDGE);
+        this.pos.z = THREE.MathUtils.clamp(this.pos.z, -DASH_EDGE, DASH_EDGE);
+        edge = true;
+      }
+      step = d.last.distanceTo(this.pos);
       d.traveled += step;
-      this.vel.copy(view).multiplyScalar(step / Math.max(1e-4, dt));
-      if (this.cfg.ghost) {
+      this.vel.copy(this.pos).sub(d.last).divideScalar(Math.max(1e-4, dt));
+      if (ghost) {
         this._burnTunnel(d.last, this.pos);
         this._carved = this.pos.clone();
+        this._ram(d.last, this.pos);
       }
       this._dashSmear(d.last);
-      if (blocked && step < 0.5) {
-        this.dashing = null;
-        this.vel.set(0, 0, 0);
-        this.dashT = this.dashTotal = DASH_HOLD_COOLDOWN;
+      if (edge) {
+        this._endDash(DASH_HOLD_COOLDOWN);
+        mgr.onMessage?.("Dash stopped: the edge of the world");
+      } else if (blocked && step < 0.5) {
+        this._endDash(DASH_HOLD_COOLDOWN);
         mgr.onMessage?.("Dash stopped: terrain ahead");
       }
       return;
@@ -1055,23 +1232,144 @@ export class PilotUfo extends Vehicle {
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     this.pos.lerpVectors(d.from, d.to, e);
     this.vel.copy(d.to).sub(d.from).divideScalar(d.dur);
-    if (this.cfg.ghost) {
+    if (ghost) {
       // (A ghost tap goes through rock too: it burns its tunnel as it goes.)
       this._burnTunnel(d.last, this.pos);
       this._carved = this.pos.clone();
+      this._ram(d.last, this.pos);
     }
     this._dashSmear(d.last);
     d.last.copy(this.pos);
     if (k >= 1) {
-      if (holding && d.to.distanceTo(d.from) >= this.dashDistance * 0.7) {
-        // Still held: carry on streaking (no distance limit).
-        d.cont = true;
-        d.traveled = d.to.distanceTo(d.from);
+      if (holding && !d.released && d.full) {
+        this.vel.set(0, 0, 0);
+        // Still held long enough: carry on streaking (no distance limit).
+        // (Until then it waits here: was R only tapped a little long?)
+        if (d.hold >= DASH_HOLD_DELAY) {
+          d.cont = true;
+          d.contT = 0;
+          d.traveled = d.to.distanceTo(d.from);
+        }
         return;
       }
-      this.dashing = null;
-      this.vel.set(0, 0, 0);
+      this._endDash();
     }
+  }
+
+  // Ghost mode: the dashing hull rams everything in its path from a to b
+  // (creatures, other players on foot by the PvP rule, UFOs, aircraft), each
+  // once per dash. Online every hit takes the way of this ship's other hits:
+  // a claim to the host for its creatures, ships and fighters, to the pilot
+  // for another player's aircraft, to the victim for a player on foot.
+  _ram(a, b) {
+    const d = this.dashing;
+    if (!d) return;
+    const mgr = this.manager;
+    const done = d.rammed || (d.rammed = new Set());
+    const r = this.radius;
+    const R = Math.min(r * 0.85, RAM_REACH); // across the hull
+    const H = Math.max(1.2, this.info.h * r * 0.5 + 0.6); // half its height
+    const lift = (this.info.h * 0.5 - this.info.bottom) * r; // its centre above pos
+    const ax = a.x;
+    const ay = a.y + lift;
+    const az = a.z;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dz = b.z - a.z;
+    const len2 = dx * dx + dy * dy + dz * dz;
+    const half = Math.sqrt(len2) / 2;
+    const mx = ax + dx / 2;
+    const my = ay + dy / 2;
+    const mz = az + dz / 2;
+    // Does the path's hull overlap a body at (cx, cy, cz), rr across, hh half high?
+    const touches = (cx, cy, cz, rr, hh) => {
+      const reach = half + R + rr + hh;
+      if (Math.abs(cx - mx) > reach || Math.abs(cy - my) > reach || Math.abs(cz - mz) > reach) return false;
+      let t = len2 > 0 ? ((cx - ax) * dx + (cy - ay) * dy + (cz - az) * dz) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const px = ax + dx * t - cx;
+      const py = ay + dy * t - cy;
+      const pz = az + dz * t - cz;
+      return px * px + pz * pz <= (R + rr) * (R + rr) && Math.abs(py) <= H + hh;
+    };
+    const dmg = Math.round(RAM_DAMAGE * this.power);
+    const hl = Math.hypot(dx, dz) || 1;
+    const push = { x: dx / hl, z: dz / hl };
+    const at = _x1;
+    // Creatures, and (online, by the PvP rule) the other players on foot.
+    const bodies = mgr.mobs?.mobs ?? [];
+    const standIns = mgr.mobs?.standIns?.() ?? [];
+    for (const list of [bodies, standIns]) {
+      for (const m of list) {
+        if (m.dead || done.has(m)) continue;
+        const h = m.spec?.h ?? 1.8;
+        if (!touches(m.pos.x, m.pos.y + h / 2, m.pos.z, m.spec?.r ?? 0.4, h / 2)) continue;
+        done.add(m);
+        mgr.mobs.shoot(m, dmg, push, 10, true);
+        d.hits = (d.hits || 0) + 1;
+        this._ramFx(at.set(m.pos.x, m.pos.y + h / 2, m.pos.z), 1, false);
+      }
+    }
+    // UFOs (a shield turns it away: ufos.damage flashes it and says so).
+    let knocks = 0;
+    for (const u of mgr.ufos?.ufos ?? []) {
+      if (u.state === "gone" || u.falling || done.has(u)) continue;
+      if (!touches(u.pos.x, u.pos.y, u.pos.z, u.radius * 0.7, u.radius * 0.45)) continue;
+      done.add(u);
+      at.copy(u.pos);
+      const hit = mgr.ufos.damage(u, Math.round(u.boss ? dmg * RAM_BOSS : dmg), true, at.clone());
+      if (hit || u.shield || u.immune) knocks++;
+      if (hit) {
+        d.hits = (d.hits || 0) + 1;
+        this._ramFx(at, u.radius, true);
+      }
+    }
+    // Aircraft and other ships: parked, flown by others, enemy fighters.
+    // (An aircraft by its real shape, against the hull's flat disc swept from
+    // a to b: a ship at the end of the step that moved the whole step in it.)
+    const disc = this._ramDisc || (this._ramDisc = discShape(R, -this.info.bottom * r, (this.info.top ?? this.info.bottom) * r));
+    const me = this._ramMe || (this._ramMe = { pos: new THREE.Vector3(), q: null, vel: new THREE.Vector3() });
+    const still = this._ramStill || (this._ramStill = { pos: null, q: null, vel: new THREE.Vector3() });
+    me.pos.copy(b);
+    me.vel.set(dx, dy, dz);
+    const sweep = disc.r + Math.sqrt(len2);
+    for (const v of mgr.vehicles ?? []) {
+      if (v === this || !v.alive || done.has(v)) continue;
+      if (v.hull) {
+        const reach = sweep + v.hull.r;
+        if (v.pos.distanceToSquared(b) > reach * reach) continue;
+        still.pos = v.pos;
+        still.q = v.q && v.q.isQuaternion ? v.q : null;
+        if (!hullContact(disc, me, v.hull, still, 1)) continue;
+      } else {
+        const vr = (v.hitRadius ?? v.radius) * 0.7;
+        if (!touches(v.pos.x, v.pos.y, v.pos.z, vr, Math.max(1.2, vr * 0.4))) continue;
+      }
+      done.add(v);
+      if (!v.damage(dmg, "player", true)) continue;
+      knocks++;
+      d.hits = (d.hits || 0) + 1;
+      this._ramFx(at.copy(v.pos), v.radius, true);
+    }
+    // (The hull takes a knock from each ship it ploughs through.)
+    if (knocks > 0) this.damage(Math.max(1, Math.round(this.maxHealth * RAM_SELF * knocks)), "crash", false);
+  }
+
+  // Sparks, a puff of smoke, a thump: something rammed at `p`.
+  _ramFx(p, size, big) {
+    const mgr = this.manager;
+    const fx = mgr.effects;
+    const c = this._ramC || (this._ramC = [new THREE.Color(3, 1.7, 0.6), new THREE.Color(0.22, 0.2, 0.19), new THREE.Color(0.5, 0.48, 0.45)]);
+    const n = Math.max(2, Math.round((big ? 16 : 6) * effectsQuality.scale));
+    const s = big ? 6 + Math.min(10, size * 0.4) : 4;
+    for (let i = 0; i < n; i++) {
+      fx.glow.spawn({ x: p.x, y: p.y, z: p.z, vx: (Math.random() - 0.5) * s * 2, vy: Math.random() * s, vz: (Math.random() - 0.5) * s * 2, life: 0.35 + Math.random() * 0.4, size0: big ? 0.9 : 0.5, size1: 0.08, color0: c[0], gravity: 0.6, drag: 1.5 });
+    }
+    if (big) {
+      fx.smoke.spawn({ x: p.x, y: p.y, z: p.z, vx: 0, vy: 2, vz: 0, life: 1.6, size0: 1.5, size1: 4 + Math.min(12, size * 0.4), color0: c[1], color1: c[2], alpha: 0.5, drag: 0.8 });
+      fx.shake.add(0.3);
+    }
+    mgr.audio?.playUfoHit?.(this.pos.distanceTo(p), big);
   }
 
   // (Kept for old callers: the dash no longer draws a light streak.)
@@ -1263,7 +1561,8 @@ export class PilotUfo extends Vehicle {
     }
     for (const v of mgr.vehicles) {
       if (v === this || !v.alive) continue;
-      if (Math.hypot(v.pos.x - top.x, v.pos.z - top.z) < R + v.radius * 0.5 && v.pos.y < top.y && v.pos.y > bottomY - 5) v.damage(120, "player", true);
+      const inShaft = v.hull ? v.pos.y < top.y && v.segmentHit(top, _x2.set(top.x, bottomY - 2, top.z), R) : Math.hypot(v.pos.x - top.x, v.pos.z - top.z) < R + v.radius * 0.5 && v.pos.y < top.y && v.pos.y > bottomY - 5;
+      if (inShaft) v.damage(120, "player", true);
     }
     // A blast ring where it meets the ground, now and then.
     if (Math.random() < 0.35) mgr.effects.explode(new THREE.Vector3(top.x, Math.max(bottomY + 2, 3), top.z), { radius: Math.min(9, 3 + R * 0.3), source: "ufocannon" });
@@ -1280,7 +1579,8 @@ export class PilotUfo extends Vehicle {
         ["Hull", `${Math.round(this.health)} / ${this.maxHealth}`],
         ["Cruise speed", `${cfg.minSpeed} to ${cfg.maxSpeed} blocks/s (mouse wheel), Ctrl (or W twice, held) boosts 3x`],
         ["Weapon", this._weaponText()],
-        ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashDistance)} blocks along the view at ${Math.round(this.dashSpeed)} blocks/s (this ship's dash is ${this.dashClass}); hold R to keep streaking, no distance limit; ${DASH_COOLDOWN} s cooldown; the base distance and speed are in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
+        ["Teleport dash", (cfg.dash ?? 1) > 0 ? `R: streaks ~${Math.round(this.dashReach)} blocks along the view at ${Math.round(this.dashSpeed)} blocks/s (this ship's dash is ${this.dashClass}), always ending in view; hold R to keep streaking, gathering speed as far as the world around you is drawn, no distance limit; ${DASH_COOLDOWN} s cooldown; the base distance and speed are in Settings > Vehicles` : "off (Settings > Vehicles > Teleport dash distance)"],
+        ["Ghost ram", `with ghost mode on, a dash rams what it flies through: ${Math.round(RAM_DAMAGE * this.power)} damage to each creature, ship or aircraft (half to a boss, nothing through a shield), once per dash, along a path at most ${RAM_REACH * 2} blocks wide; each ship rammed costs ${Math.round(RAM_SELF * 100)}% of your hull, and the cooldown after a ram is ${RAM_COOL} s longer for each thing hit (up to ${DASH_COOLDOWN + RAM_COOL * RAM_COOL_MAX} s)`],
         ["Superweapon", `B: charge ${SUPER_CHARGE} s, then a ${Math.round(this.superRadius * 2)}-block wide laser straight down for ${SUPER_TIME} s; ${SUPER_COOLDOWN} s cooldown`],
         ["Tractor beam", "hold RMB: lifts creatures (and loose blocks) into the ship; works at any altitude; a bigger ship also pulls in smaller UFOs (1.3x smaller) and enemy jets (ship radius 6.5+), swallowing them"],
         ["Lock-on salvo", "hold T on a UFO, jet or hostile creature near the crosshair: locked after 1 s, a salvo of homing laser bolts (more for bigger ships) fires by itself after 3 s; let go earlier to cancel; 7 s to recharge"],

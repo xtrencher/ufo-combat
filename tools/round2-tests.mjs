@@ -867,7 +867,7 @@ await check("laser minigun: spins up first, then a stream of bolts", async () =>
     return { firstBolt, during, shots, spin, spinAfter: g.weapons.minigun.spin, boltsAfterRelease: g.lasers.bolts.length };
   });
   assert(r.firstBolt > 0.8 && r.firstBolt < 1.3, `bolts start after the spin-up: ${r.firstBolt}`);
-  assert(r.shots >= 35 && r.during > 6, // (Round 6's hillier terrain stops some of the bolts early: 10 in flight in the last run)
+  assert(r.shots >= 35 && r.during >= 3, // (Round 10: bolts fly 680 blocks/s, so they reach their range in a fraction of a second: fewer in flight at once)
      `a big stream: ${r.shots} shots, ${r.during} bolts in flight`);
   assert(r.spin === 1 && r.spinAfter < 0.05, `spins up and down: ${r.spin} -> ${r.spinAfter}`);
 });
@@ -1582,7 +1582,7 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
     const slots = g.sites.parkingSlots(s);
     // (Round 9: the B-2 where there is room for it: its row slot, else on the runway beside the apron.)
     const b2spot = g.airports._bomberSpot(s, slots);
-    const spots = [...slots.fighters, ...(slots.bomber ? [slots.bomber] : []), ...(b2spot ? [b2spot] : [])];
+    const spots = [...slots.fighters, ...(slots.hangars || []), ...(slots.bomber ? [slots.bomber] : []), ...(b2spot ? [b2spot] : [])]; // (Round 10: some fighters stand inside hangars)
     return {
       n: jets.length,
       onGround: jets.every((j) => Math.abs(j.pos.y - (site.y + 1 + j.gearH)) < 0.3),

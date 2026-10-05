@@ -1406,7 +1406,7 @@ try {
       shots: window.__voxelands.weapons.shots,
       recoil: window.__voxelands.player.recoil,
       firing: window.__voxelands.weapons._mgFiring,
-      tracers: window.__voxelands.weapons._tracers.filter((t) => t.line.visible).length,
+      tracers: window.__voxelands.lasers.bolts.filter((b) => b.tracer).length + window.__voxelands.weapons._tracers.filter((t) => t.line.visible).length,
     }));
     await page.mouse.up({ button: "right" });
     await page.waitForTimeout(30);
@@ -1479,9 +1479,11 @@ try {
       v.player.yaw = Math.atan2(-(zb.pos.x - eye.x), -(zb.pos.z - eye.z));
       v.player.pitch = Math.atan2(zb.pos.y + 1.2 - eye.y, Math.hypot(zb.pos.x - eye.x, zb.pos.z - eye.z));
       const hit = v.weapons.fireSniper();
+      const res = { type: hit.type, point: hit.point && hit.point.clone ? hit.point.clone() : hit.point };
+      for (let i = 0; i < 10; i++) v.lasers.update(0.02); // (a real bullet: it needs a moment to get there)
       // hit.mob is a live three.js-linked object (circular refs); only
       // return plain, serializable fields.
-      return { type: hit.type, point: hit.point };
+      return res;
     }, a);
     const zb = await page.evaluate(() => ({ hp: window.__zb.health, dead: window.__zb.dead }));
     console.log(`        sniper hit a zombie: ${JSON.stringify(r)}, health now ${zb.hp}, dead: ${zb.dead}`);

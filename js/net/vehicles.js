@@ -150,6 +150,19 @@ export class VehicleSync {
       if (this.mp.active && v.puppet && (!v.alive || v.wreck)) return "It's a wreck";
       return prevCan ? prevCan(v) : null;
     };
+    // (Round 10) Aircraft colliding: each machine parts the ones it simulates;
+    // the damage to both is dealt once, by the machine of the lower player
+    // number of the two that simulate them (the host for its fighters and
+    // its own aircraft), and the other player's share goes to them.
+    vm.collisionJudge = (a, b) => {
+      if (!this.mp.active) return true;
+      return Math.min(this._simBy(a), this._simBy(b)) === this.net.pid;
+    };
+    vm.collisionHit = (v, amount) => {
+      if (!this.mp.active || !v.net || !v.alive) return;
+      v.hurtTime = 0;
+      this.net.toAll({ t: "vhit", nid: v.net.nid, dmg: Math.round(amount * 10) / 10, cause: "crash", by: this.net.pid });
+    };
     const enter = vm.enter.bind(vm);
     vm.enter = (v) => {
       // Someone else's vehicle: ask the host for it first (we climb in when it says yes).
@@ -160,6 +173,12 @@ export class VehicleSync {
       }
       return enter(v);
     };
+  }
+
+  // Which player's machine simulates a vehicle (the host's fighters are the host's).
+  _simBy(v) {
+    if (!v.puppet) return this.net.pid;
+    return v.net?.owner ?? HOST_PID;
   }
 
   // A local vehicle becomes shared (unless it's an enemy fighter, which is
@@ -238,6 +257,8 @@ export class VehicleSync {
     }
     v.vel.set(0, 0, 0);
     v.netOcc = 0;
+    v.netDash = false;
+    v.netDashT = 0;
   }
 
   _removeLocal(v) {
@@ -324,9 +345,18 @@ export class VehicleSync {
           v.model.setDead(true);
         }
         v.crashed = !!(st.f & 8);
+        // Mid-dash (no collisions, as on the pilot's machine): from the newest
+        // state too (the start, before the drawn time reaches it) and held a
+        // moment (the half step after the last dash state).
+        const dashing = (st.f & 128) || (v.interp.last?.f & 128);
+        v.netDashT = dashing ? 0.2 : Math.max(0, (v.netDashT || 0) - dt);
+        v.netDash = v.netDashT > 0;
         this._ufoWeapons(v, st);
       }
       v.beam.update(dt, this.game.effects);
+      // (A dash seen from here: the same smear of hull copies the pilot sees.)
+      if (v._netPrev) v.netMoved?.(v._netPrev, dt, !!v.netDash);
+      (v._netPrev || (v._netPrev = new THREE.Vector3())).copy(v.pos);
       v._place();
       v.model.lightsOn = v.downed ? 0 : 1;
       v.model.animate(v.time, { night, damage: 1 - v.health / v.maxHealth, beam: v.beam.strength, speed: v.vel.length() });
@@ -598,7 +628,8 @@ export class VehicleSync {
     } else if (v.type === "ufo") {
       s.y = r3(v.yaw);
       s.tl = [r3(v.tilt.x), r3(v.tilt.z)];
-      s.f = (v.beam?.on ? 1 : 0) | (v.beam?.floating ? 2 : 0) | (v.downed ? 4 : 0) | (v.crashed ? 8 : 0);
+      // (128: mid-dash, so no peer counts the streak as a collision.)
+      s.f = (v.beam?.on ? 1 : 0) | (v.beam?.floating ? 2 : 0) | (v.downed ? 4 : 0) | (v.crashed ? 8 : 0) | (v.dashing ? 128 : 0);
       if (v.beam?.on) {
         s.bb = r2(v.beam.bottomY);
         s.br = r2(v.beam.radius ?? v.radius);

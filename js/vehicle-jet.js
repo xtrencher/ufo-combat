@@ -32,6 +32,7 @@ import { createB2Model, B2_GEAR_HEIGHT } from "./b2-model.js";
 import { IS_SOLID, IS_WET } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { hullShape } from "./hitboxes.js";
 
 export const JET_DEFAULTS = { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 const G = 14; // gravity on the jet (blocks/s^2)
@@ -88,6 +89,7 @@ const ROLL_EVADE_COOLDOWN = 4.5;
 const ROLL_EVADE_MISS = 9; // blocks: how close the missile passes
 const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
 export const MISSILE_DAMAGE = 190;
+const MISSILE_FUSE = 2.5; // blocks from an aircraft's surface: the proximity fuse goes off (Round 10)
 
 // The two jets you can call in. The Raptor is the heavy one (more armour, a
 // salvo of four, the higher top speed); the Falcon is lighter and nimbler:
@@ -100,9 +102,9 @@ export const MISSILE_DAMAGE = 190;
 // cannon and no afterburner; it fires its missiles one at a time (no
 // salvo) and it is the only aircraft that carries the nuke.
 export const JET_TYPES = {
-  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, seat: [0, 0.8, -3.6], nuke: false, ab: true },
-  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, seat: [0, 0.8, -3.6], nuke: false, ab: true },
-  b2: { id: "b2", name: "B-2 Spirit", short: "stealth bomber (the nuke)", takeoff: "about 270 blocks", maxHealth: 420, speed: 0.52, stall: 0.85, accel: 0.62, turn: 0.42, roll: 0.42, cannonRate: 0, cannonDamage: 0, heatPerShot: 0, salvo: 1, salvoTime: 99, missileCooldown: 1.4, probes: { nose: 9.0, wing: 21.6, tail: 7.5 }, gear: B2_GEAR_HEIGHT, radius: 22, hitRadius: 13, seat: [0, 1.7, -5.8], nuke: true, ab: false },
+  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1.25, seat: [0, 0.8, -3.6], nuke: false, ab: true },
+  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1, seat: [0, 0.8, -3.6], nuke: false, ab: true },
+  b2: { id: "b2", name: "B-2 Spirit", short: "stealth bomber (the nuke)", takeoff: "about 270 blocks", maxHealth: 420, speed: 0.52, stall: 0.85, accel: 0.62, turn: 0.42, roll: 0.42, cannonRate: 0, cannonDamage: 0, heatPerShot: 0, salvo: 1, salvoTime: 99, missileCooldown: 1.4, probes: { nose: 9.0, wing: 21.6, tail: 7.5 }, gear: B2_GEAR_HEIGHT, touchPitch: 0.3, radius: 22, hitRadius: 13, mass: 6, seat: [0, 1.7, -5.8], nuke: true, ab: false },
 };
 const ROGUE_MISSILE_DAMAGE = 70; // an enemy fighter's missile at a UFO (they help, but never clear the sky for you)
 
@@ -167,7 +169,9 @@ export class Jet extends Vehicle {
     this.gearH = spec.gear;
     this.model = spec.id === "b2" ? createB2Model({ paint: this.paint }) : createJetModel(1, { paint: this.paint, type: spec.id });
     this.root.add(this.model.root);
-    this.hitRadius = spec.hitRadius;
+    this.hitRadius = spec.hitRadius; // (for locks and rams: shots meet the hull)
+    this.hull = hullShape(spec.id); // (Round 10) what shots, blasts and other aircraft meet
+    this.mass = spec.mass;
     this.enterRadius = spec.id === "b2" ? 9 : spec.radius; // (boarding the bomber: walk up to its middle)
     this.cameraModes = ["chase", "cockpit"];
     if (Array.isArray(data.pos)) this.pos.fromArray(data.pos);
@@ -893,15 +897,25 @@ export class Jet extends Vehicle {
             this.crashWhy = `touchdown: wet ${c.wet} sink ${sink.toFixed(1)} roll ${rollRel.toFixed(2)} pitchRel ${pitchRel.toFixed(2)} side ${sideways.toFixed(1)} speed ${aero.speed.toFixed(0)}`;
             return this._crash("crash");
           }
+          // (A type whose tail meets the ground before that limit: the B-2's
+          // trailing edge, nose high on its short gear. A tail strike.)
+          const tailLim = this.spec.touchPitch ?? 0.62;
+          const tailStrike = pitchRel > tailLim;
           this.onGround = true;
           this.pos.y = Math.max(this.pos.y, c.centerY);
           this.vel.y = 0;
           this._rot = false;
+          if (tailStrike) {
+            // (Down at once to the most the nose rises on the wheels, clear of
+            // the ground, rather than easing there with the tail in the runway.)
+            this.q.setFromEuler(_e.set(c.slope + ROTATE_PITCH, yaw, -c.tilt, "YXZ"));
+            this.angVel.x = 0;
+          }
           this.manager.audio?.playLanding?.();
           // A hard landing hurts (never kills outright: the limit above does).
-          const hard = Math.max(0, sink - TOUCH_SAFE_SINK) * 7 + Math.max(0, rollRel - 0.35) * 40;
+          const hard = Math.max(0, sink - TOUCH_SAFE_SINK) * 7 + Math.max(0, rollRel - 0.35) * 40 + (tailStrike ? 8 + (pitchRel - tailLim) * 120 : 0);
           if (hard > 0) {
-            this.manager.onMessage?.("HARD LANDING");
+            this.manager.onMessage?.(tailStrike ? "TAIL STRIKE" : "HARD LANDING");
             this.damage(Math.min(hard, this.health - 1), "crash");
           }
         }
@@ -1338,6 +1352,13 @@ export class Jet extends Vehicle {
     return !r.dead && this.manager.mobs.mobs.includes(r);
   }
 
+  // The aircraft a missile's target is (its hull meets the fuse), or null.
+  _targetHull(t) {
+    const r = t.ref;
+    const v = t.kind === "jet" || t.kind === "vehicle" ? r : t.kind === "player" ? r.vehicle : null;
+    return v?.hull && v.alive ? v : null;
+  }
+
   // Missile radar cross-section for the proximity fuse.
   _targetRadius(t) {
     const r = t.ref;
@@ -1458,11 +1479,22 @@ export class Jet extends Vehicle {
       let boom = null;
       let direct = null;
       if (m.target && this._targetAlive(m.target)) {
-        const tp = this._targetPos(m.target, _w);
-        const r = this._targetRadius(m.target);
-        if (tp.distanceTo(m.pos) < r + step) {
-          boom = m.pos.clone().lerp(tp, 0.7);
-          direct = m.target;
+        // (An aircraft: within the fuse of its real shape along this step,
+        // which it moved along too; anything else: near its middle.)
+        const hv = this._targetHull(m.target);
+        if (hv) {
+          const t = hv.sweptRaycast(m.pos, m.dir, step, MISSILE_FUSE, dt);
+          if (t !== null) {
+            boom = m.pos.clone().addScaledVector(m.dir, t);
+            direct = m.target;
+          }
+        } else {
+          const tp = this._targetPos(m.target, _w);
+          const r = this._targetRadius(m.target);
+          if (tp.distanceTo(m.pos) < r + step) {
+            boom = m.pos.clone().lerp(tp, 0.7);
+            direct = m.target;
+          }
         }
       }
       if (!boom && !m.hostile) {

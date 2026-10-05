@@ -143,6 +143,7 @@ export class MenuScreens {
 // Tips shown (one at a time, rotating) at the bottom of the main menu.
 export const MENU_TIPS = [
   "Survival starts with a sword: skeletons drop bows, supply crates bring guns, alien leaders carry alien weapons.",
+  "Every Survival game draws its own campaign: four acts from small to big, the missions shuffled within them. What comes next is classified.",
   "Supply crates drop by parachute with orange smoke: walk up to open one.",
   "Hold the right mouse button with the bazooka to lock on; release for a homing rocket.",
   "The railgun's beam goes through everything: blocks, creatures and UFOs.",

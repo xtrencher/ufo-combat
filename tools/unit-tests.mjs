@@ -125,7 +125,7 @@ await test("garbage input yields no edits instead of throwing", () => {
 console.log("\nLight engine (light.js) vs. brute-force reference");
 
 const { LightEngine } = await import("../js/light.js");
-const { BLOCK, IS_OPAQUE, LIGHT_FILTER, SKY_PASS, EMISSION } = await import("../js/blocks.js");
+const { BLOCK, IS_OPAQUE, LIGHT_FILTER, SKY_PASS, EMISSION, IS_WALL_TORCH, IS_CHEST } = await import("../js/blocks.js");
 
 const H = WORLD_HEIGHT;
 const DIRS = [
@@ -623,6 +623,8 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   };
   let planks = 0;
   let torches = 0;
+  let wallTorches = 0;
+  let chests = 0;
   let gravel = 0;
   let crops = 0;
   for (let dx = -VILLAGE_REACH; dx <= VILLAGE_REACH; dx++) {
@@ -631,6 +633,8 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
         const id = get(center.x + dx, center.groundY + dy, center.z + dz);
         if (id === BLOCK.PLANKS) planks++;
         else if (id === BLOCK.TORCH) torches++;
+        else if (IS_WALL_TORCH[id]) wallTorches++;
+        else if (IS_CHEST[id]) chests++;
         else if (id === BLOCK.GRAVEL) gravel++;
         else if (id === BLOCK.TALL_GRASS) crops++;
       }
@@ -641,7 +645,10 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   // (Round 8: bigger villages: a torch beside every house door, and 12 lamp posts along the streets.)
   const houses = gen.villages.houses(center).length;
   assert.ok(houses >= 6 && houses <= 10, `expected 6-10 houses, got ${houses}`);
-  assert.equal(torches, houses + 12, `expected a torch per house (${houses}) and 12 lamps, got ${torches}`);
+  // (Round 10: wall torches beside the doors and inside every house; chests in about half of them, at least one.)
+  assert.equal(torches, 12, `expected 12 lamp posts' torches, got ${torches}`);
+  assert.ok(wallTorches >= houses * 2, `expected at least 2 wall torches per house (${houses}), got ${wallTorches}`);
+  assert.ok(chests >= 1 && chests <= houses + 1, `expected chests in some houses (${houses}), got ${chests}`);
   assert.ok(gravel > 20, `expected a real path network, got ${gravel} gravel blocks`);
   assert.ok(crops > 0, "expected some crops in the farm plot");
   // Regenerating the same chunks independently gives identical results
@@ -1533,16 +1540,19 @@ console.log("\nRound 5: pathfinding and bunkers");
 // ---------------------------------------------------------------------------
 console.log("\nProgression (progression.js)");
 {
-  const { Progress, MISSIONS, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
+  const { Progress, MISSIONS, CLASSIC_IDS, CHAIN_MIN, CHAIN_MAX, makeChain, curveAt, rollLoot, pickWeapon, WEAPON_TIERS, CRATE_WEAPONS, ALIEN_WEAPONS, pickAlienWeapon } = await import("../js/progression.js");
   const { ITEM } = await import("../js/items.js");
 
-  await test("the mission chain (28 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
+  await test("the classic chain (28 missions) advances as the stats do, rewards fire, it survives save/load, and old saves carry over", () => {
     const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0, ufosBoarded: 0, takeoffs: 0, ufosDownByJet: 0, enemyJetsDown: 0, hijackedDown: 0, ufosDownSurvival: 0, raidersDown: 0, ufosDownLarge: 0, ufosDownBig: 0, airportsNuked: 0, landings: 0, landingSquad: 0, meteorFragments: 0, bossesDown: 0, shipsStolen: 0, abductorsDown: 0, flagshipDown: 0, titansDown: 0 };
     const p = new Progress();
     p.load(null, stats);
+    // (Round 10: a new game draws its own run; this test plays the classic one.)
+    p.setChain(CLASSIC_IDS);
+    assert.deepEqual(MISSIONS.slice(0, 28).map((m) => m.id), CLASSIC_IDS, "the classic missions keep their places in the list");
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 28);
+    assert.equal(MISSIONS.length, 34, "the classic 28 and Round 10's six");
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1569,15 +1579,17 @@ console.log("\nProgression (progression.js)");
     assert.equal(MISSIONS[2].rules.max, 1);
     assert.deepEqual(Object.keys(MISSIONS[3].rules.sizes), ["small"]);
     assert.ok(MISSIONS[3].rules.health < 0.7 && MISSIONS[3].rules.damage < 0.7);
-    for (let i = 1; i < MISSIONS.length; i++) {
+    for (let i = 1; i < CLASSIC_IDS.length; i++) {
       const a = MISSIONS[i - 1].rules;
       const b = MISSIONS[i].rules;
       assert.ok(b.health >= a.health && b.damage >= a.damage && b.max >= a.max && MISSIONS[i].tier >= MISSIONS[i - 1].tier, `mission ${i + 1} is no easier than ${i}`);
     }
     // Rewards: apples and golden apples only.
-    for (const m of MISSIONS) for (const [id] of m.reward) assert.ok(id === ITEM.APPLE || id === ITEM.GOLDEN_APPLE, `${m.id} rewards only apples`);
+    for (const m of q.list(stats)) for (const [id] of m.reward) assert.ok(id === ITEM.APPLE || id === ITEM.GOLDEN_APPLE, `${m.id} rewards only apples`);
+    // The classic chain plays every mission with its own classic sky (the curve is the classic chain's).
+    for (let i = 0; i < CLASSIC_IDS.length; i++) assert.deepEqual(q.missionAt(i).rules, MISSIONS[i].rules, `${CLASSIC_IDS[i]} plays its classic sky`);
     // Alien ships are boarded late; the jets come before; the alien weapons come weakest first.
-    const idx = (id) => MISSIONS.findIndex((m) => m.id === id);
+    const idx = (id) => CLASSIC_IDS.indexOf(id);
     assert.ok(idx("salvage") >= 12 && idx("wings") < idx("salvage"));
     // Round 6: the landing follows the first flight, the meteor storm and the boss are in, the boss comes after
     // the railgun and before the final 25 UFOs, and the old mothership mission is the boss now.
@@ -1605,8 +1617,8 @@ console.log("\nProgression (progression.js)");
     const v6end = new Progress();
     v6end.load({ v: 6, step: 22, base: {}, done: [] }, stats);
     assert.equal(v6end.mission?.id, "scramble");
-    assert.deepEqual(MISSIONS.slice(idx("slayer") + 1).map((m) => m.id), ["scramble", "abductors", "titan", "swarm", "fortress", "armada"]);
-    assert.equal(MISSIONS[MISSIONS.length - 1].boss?.stat, "flagshipDown");
+    assert.deepEqual(MISSIONS.slice(idx("slayer") + 1, CLASSIC_IDS.length).map((m) => m.id), ["scramble", "abductors", "titan", "swarm", "fortress", "armada"]);
+    assert.equal(MISSIONS[CLASSIC_IDS.length - 1].boss?.stat, "flagshipDown");
     assert.ok(idx("patrol") < idx("grays") && idx("grays") < idx("reds"));
     assert.deepEqual([idx("patrol"), idx("grays"), idx("reds")].map((i) => MISSIONS[i].squad.leaderDrop), [ITEM.LASER_BLASTER, ITEM.MINIGUN, ITEM.RAILGUN]);
     // The patrol leaders' weapons are within reach of their mission's tier.
@@ -1614,14 +1626,22 @@ console.log("\nProgression (progression.js)");
       const w = MISSIONS[i].squad.leaderDrop;
       assert.ok(ALIEN_WEAPONS.find(([id]) => id === w)[1] <= MISSIONS[i].tier, `${MISSIONS[i].id} tier`);
     }
-    // Everything through to the end.
+    // Everything through to the end (the last one is the final).
+    let last = null;
+    q.onComplete = (m) => (last = m);
     for (let i = 0; i < 40; i++) {
       for (const k of Object.keys(stats)) stats[k] += 50; // (each mission counts from when it starts)
       q.update(stats);
     }
     assert.equal(q.mission, null);
-    assert.equal(q.completed, MISSIONS.length);
-    assert.equal(q.list(stats).filter((m) => m.state === "done").length, MISSIONS.length);
+    assert.equal(q.completed, CLASSIC_IDS.length);
+    assert.equal(q.list(stats).filter((m) => m.state === "done").length, CLASSIC_IDS.length);
+    assert.ok(last?.final && last.id === "armada", "the Armada is the final");
+    // A v6 save (Round 9) keeps the classic chain, and its step.
+    const v6 = new Progress();
+    v6.load({ v: 6, step: 9, base: {}, done: CLASSIC_IDS.slice(0, 9) }, stats);
+    assert.deepEqual(v6.chain, CLASSIC_IDS);
+    assert.equal(v6.mission.id, "wings");
     // A Round 3 save (15 missions; its current one was "salvage") carries over, past the new opening.
     const v3 = new Progress();
     v3.load({ v: 3, step: 4, base: {}, done: [] }, stats);
@@ -1630,6 +1650,197 @@ console.log("\nProgression (progression.js)");
     const old = new Progress();
     old.load({ step: 3, base: {}, done: ["first_contact", "salvage", "wings"] }, stats);
     assert.ok(old.step >= 5 && old.mission, `old progress kept: ${old.step}`);
+  });
+
+  await test("random runs (Round 10): 200 seeds keep every rule (acts small to big, unlocks in order, leaders weakest first at their tier, the finale last), the curve rises, a save keeps the run", () => {
+    const stats = { ufosDown: 0, aliensKilled: 0, skeletonsKilled: 0, cratesOpened: 0, nightsSurvived: 0 };
+    const byId = new Map(MISSIONS.map((m) => [m.id, m]));
+    const actRange = (m) => (Array.isArray(m.act) ? m.act : [m.act, m.act]);
+    // The curve by place: tiers and the sky never ease off, for any length.
+    for (let n = CHAIN_MIN; n <= CHAIN_MAX; n++) {
+      for (let i = 1; i < n; i++) {
+        const a = curveAt(i - 1, n);
+        const b = curveAt(i, n);
+        assert.ok(b.tier >= a.tier && b.rules.health >= a.rules.health && b.rules.damage >= a.rules.damage && b.rules.max >= a.rules.max, `place ${i + 1} of ${n} is no easier`);
+      }
+      assert.equal(curveAt(0, n).rules.max, 0, "no UFOs at the start of any run");
+      assert.equal(curveAt(n - 1, n).tier, 5);
+    }
+    const orders = new Set();
+    const firsts = new Set();
+    let skipped = 0;
+    for (let seed = 1; seed <= 200; seed++) {
+      const c = makeChain(seed);
+      const ids = c.ids;
+      const at = (id) => ids.indexOf(id);
+      const tag = `seed ${seed}: ${ids.join(" ")}`;
+      orders.add(ids.join());
+      firsts.add(ids[0]);
+      assert.ok(ids.length >= CHAIN_MIN && ids.length <= CHAIN_MAX, `length ${tag}`);
+      assert.equal(new Set(ids).size, ids.length, `no repeats ${tag}`);
+      assert.equal(c.vars.length, ids.length);
+      assert.ok(c.vars.every((v) => Number.isInteger(v) && v >= 0 && v <= 3));
+      // The act headers are the acts drawn (not each mission's earliest).
+      const pa = new Progress();
+      pa.setChain(ids, c.vars, c.acts);
+      assert.deepEqual(pa.acts, c.acts, `the drawn acts fit: ${tag}`);
+      assert.deepEqual(ids.map((id, i) => pa.missionAt(i).act), c.acts, `the views' acts: ${tag}`);
+      // Every mandatory mission is in; the optional ones that sit out are few.
+      for (const m of MISSIONS) if (!m.optional) assert.ok(at(m.id) >= 0, `${m.id} is in: ${tag}`);
+      skipped += MISSIONS.length - ids.length;
+      // The finale last.
+      assert.ok(byId.get(ids[ids.length - 1]).final, `the finale last: ${tag}`);
+      // Order rules: after, follows, acts never going back.
+      let act = 1;
+      for (let i = 0; i < ids.length; i++) {
+        const m = byId.get(ids[i]);
+        for (const a of m.after || []) if (at(a) >= 0) assert.ok(at(a) < i, `${m.id} after ${a}: ${tag}`);
+        if (m.follows) assert.equal(ids[i - 1], m.follows, `${m.id} right after ${m.follows}: ${tag}`);
+        if (!m.follows && !m.final) {
+          const [lo, hi] = actRange(m);
+          assert.ok(hi >= act, `${m.id} doesn't go back an act: ${tag}`);
+          act = Math.max(act, lo);
+        }
+        // A squad leader's weapon is within its place's tier.
+        if (m.squad?.leaderDrop) assert.ok(ALIEN_WEAPONS.find(([id]) => id === m.squad.leaderDrop)[1] <= curveAt(i, ids.length).tier, `${m.id}'s weapon at its tier: ${tag}`);
+      }
+      // What each unlock gates comes after it: the bow before the first shots, jets before flying, alien ships before boarding one.
+      assert.ok(at("skeleton") <= 1 && at("skeleton") < at("first_contact"), `the archer early: ${tag}`);
+      assert.ok(at("supply") <= 4, `the first crate in act I: ${tag}`);
+      assert.equal(at("touchdown"), at("wings") + 1, `touchdown after wings: ${tag}`);
+      for (const id of ["dogfight", "air_superiority", "scramble"]) if (at(id) >= 0) assert.ok(at(id) > at("wings"), `${id} after wings: ${tag}`);
+      assert.ok(at("patrol") < at("grays") && at("grays") < at("reds"), `leaders weakest first: ${tag}`);
+      assert.ok(at("salvage") < at("steal") && at("steal") < at("overlord"), `steal after salvage, before the Overlord: ${tag}`);
+      if (at("slayer") >= 0) assert.ok(at("slayer") > at("overlord"), `slayer after the Overlord: ${tag}`);
+      if (at("titan") >= 0) assert.ok(at("titan") > at("sunburn"), `the titan after the B-2: ${tag}`);
+      assert.ok(at("wings") > at("grays") && at("sunburn") > at("salvage"), `acts in order: ${tag}`);
+    }
+    assert.ok(orders.size >= 195, `runs differ: ${orders.size}/200`);
+    assert.ok(firsts.size >= 2, "the opening varies a little");
+    assert.ok(skipped > 0, "optional missions sit some runs out");
+    // A run is the seed's: the same seed, the same run.
+    assert.deepEqual(makeChain(77), makeChain(77));
+    // A run's places: rewards and tier by place, a mission's sky over its place's.
+    const p = new Progress();
+    p.newChain(1234);
+    assert.equal(p.seed, 1234);
+    assert.deepEqual(p.chain, makeChain(1234).ids);
+    assert.equal(p.step, 0);
+    assert.equal(p.mission.id, p.chain[0]);
+    assert.equal(p.mission.n, 0);
+    assert.deepEqual(p.missionAt(0).reward, [[ITEM.APPLE, 3]], "the first place's reward");
+    assert.ok(p.missionById("armada").reward.find(([id]) => id === ITEM.GOLDEN_APPLE)[1] >= 20, "the finale's reward");
+    const titan = p.missionById("titan");
+    if (titan) assert.ok(!titan.rules.sizes.giant, "no other titans about during the titan's mission");
+    // Unlocks by id.
+    p.step = p.indexOf("wings") - 1;
+    assert.ok(!p.reached("wings") && p.isDone("supply"));
+    p.step = p.indexOf("wings");
+    assert.ok(p.reached("wings") && !p.isDone("wings") && !p.reached("salvage"));
+    // A save keeps the run (and its place in it); an unknown id in a save is left out.
+    p.base = { aliensKilled: 0 };
+    const saved = JSON.parse(JSON.stringify(p.serialize()));
+    assert.equal(saved.v, 7);
+    const q = new Progress();
+    q.load(saved, stats);
+    assert.deepEqual(q.chain, p.chain);
+    assert.deepEqual(q.vars, p.vars);
+    assert.deepEqual(q.acts, makeChain(1234).acts, "the acts drawn kept too");
+    assert.equal(q.seed, 1234);
+    assert.equal(q.mission.id, "wings");
+    const odd = { ...saved, chain: [saved.chain[0], "nope", ...saved.chain.slice(1)], vars: [0, 0, ...saved.vars.slice(1)], acts: [saved.acts[0], 1, ...saved.acts.slice(1)], step: saved.step + 1 };
+    const r = new Progress();
+    r.load(odd, stats);
+    assert.deepEqual(r.chain, p.chain);
+    assert.deepEqual(r.acts, q.acts);
+    assert.equal(r.mission.id, "wings");
+    // (A save from before the acts were kept: each mission by its earliest act.)
+    const noActs = new Progress();
+    noActs.load({ ...saved, acts: undefined }, stats);
+    assert.equal(noActs.acts, null);
+    assert.equal(noActs.missionAt(noActs.total - 1).act, 4);
+    // A new game: a fresh run (Node has no navigator.webdriver), so two games seldom match.
+    const a = new Progress();
+    a.load(null, stats);
+    const b = new Progress();
+    b.load(null, stats);
+    assert.ok(a.seed != null && b.seed != null && a.chain.length >= CHAIN_MIN);
+    assert.ok(a.chain.join() !== b.chain.join() || a.seed === b.seed);
+  });
+
+  await test("Round 10's new missions and variants: real stats, a reward and an act each, in the right acts in 300 runs, twists and variant goals as the run plays them, the clock set back", async () => {
+    const { STAT_LABELS } = await import("../js/stats.js");
+    const known = new Set(STAT_LABELS.map(([k]) => k));
+    const NEW = ["evac", "hunted", "crash_site", "hold_line", "rescue", "sabotage"];
+    const byId = new Map(MISSIONS.map((m) => [m.id, m]));
+    const EVENTS = new Set(["skeleton", "landing", "scout", "crew", "crate", "night", "intact", "hunt", "squad", "takeoff", "landjet", "dogfight", "fighter", "airraid", "abduct", "giant", "swarm", "fortress", "village", "large", "meteors", "boss", "airport", "steal", "hunters", "hold", "crashsite", "evac", "rescue", "beacons"]);
+    for (const m of MISSIONS) {
+      assert.ok(m.objectives.length >= 1, `${m.id} has objectives`);
+      for (const o of m.objectives) {
+        assert.ok(known.has(o.stat), `${m.id}: the stat ${o.stat} is counted (stats.js)`);
+        assert.ok(o.goal >= 1 && typeof o.label === "string" && o.label.length > 3, `${m.id}: a goal and a label`);
+        if (o.goals) assert.ok(o.goals.length === 4 && o.goals.every((g) => Number.isInteger(g) && g >= 1 && g >= Math.min(o.goal * 0.75, o.goal - 1) && g <= Math.max(o.goal * 1.25, o.goal + 1)), `${m.id}: its variant goals near its goal (a quarter, or one)`);
+      }
+      assert.ok(EVENTS.has(m.event), `${m.id}: the director knows its event (${m.event})`);
+      assert.ok(m.final || m.follows || m.act != null, `${m.id} has an act`);
+      for (const [k, t] of Object.entries(m.twists || {})) assert.ok(["1", "2", "3"].includes(k) && typeof t === "string" && t.length > 10, `${m.id}: twist ${k}`);
+      for (const a of m.after || []) assert.ok(byId.has(a), `${m.id} after a mission that exists (${a})`);
+    }
+    for (const id of NEW) {
+      const m = byId.get(id);
+      assert.ok(m && m.optional, `${id} is in the pool, optional`);
+      assert.ok(MISSIONS.indexOf(m) >= CLASSIC_IDS.length, `${id} is after the classic ones in the list (the saves index those)`);
+      assert.ok(!CLASSIC_IDS.includes(id), `${id} is not in the classic chain`);
+    }
+    // Where they go: small first (the run for cover on foot, after the pistol), the hunted and the crash site in the
+    // ground war, the beacon and the rescue after the laser blaster, the beacons after the grays.
+    const seen = Object.fromEntries(NEW.map((id) => [id, 0]));
+    for (let seed = 1000; seed < 1300; seed++) {
+      const c = makeChain(seed);
+      const p = new Progress();
+      p.setChain(c.ids, c.vars);
+      const at = (id) => c.ids.indexOf(id);
+      const tag = `seed ${seed}: ${c.ids.join(" ")}`;
+      for (const id of NEW) if (at(id) >= 0) seen[id]++;
+      if (at("evac") >= 0) assert.ok(at("evac") > at("supply") && at("evac") > at("skeleton") && p.missionAt(at("evac")).act <= 2, `evac on foot, after the pistol and the bow: ${tag}`);
+      for (const id of ["hunted", "crash_site"]) if (at(id) >= 0) assert.equal(p.missionAt(at(id)).act, 2, `${id} in the ground war: ${tag}`);
+      for (const id of ["hold_line", "rescue"]) if (at(id) >= 0) assert.ok(at(id) > at("patrol") && [2, 3].includes(p.missionAt(at(id)).act), `${id} after the patrol: ${tag}`);
+      if (at("sabotage") >= 0) assert.ok(at("sabotage") > at("grays") && p.missionAt(at("sabotage")).act >= 3, `sabotage after the grays: ${tag}`);
+      assert.ok(at("evac") !== 0 && at("hunted") !== 0 && at("hunted") !== 1, `never a bombardment or a hunt first: ${tag}`);
+      // Every place has a reward, apples only; a new mission's tier is its place's.
+      for (let i = 0; i < c.ids.length; i++) {
+        const m = p.missionAt(i);
+        assert.ok(m.reward.length && m.reward.every(([id, n]) => (id === ITEM.APPLE || id === ITEM.GOLDEN_APPLE) && n >= 1), `${m.id}'s reward: ${tag}`);
+        assert.equal(m.tier, curveAt(i, c.ids.length).tier);
+      }
+    }
+    for (const id of NEW) assert.ok(seen[id] > 120 && seen[id] < 300, `${id} plays in some runs, not all: ${seen[id]}/300`);
+    // A variant as the run plays it: its twist in the text, its goals.
+    const p = new Progress();
+    p.setChain(["skeleton", "supply", "hunted", "long_night", "crash_site", "armada"], [0, 0, 2, 1, 1, 0]);
+    const h = p.missionById("hunted");
+    assert.equal(h.variant, 2);
+    assert.equal(h.objectives[0].goal, 180, "the long hunt's goal");
+    assert.ok(h.text.endsWith(byId.get("hunted").twists[2]), "the twist is in the text");
+    assert.equal(byId.get("hunted").objectives[0].goal, 150, "the pool's mission is untouched");
+    assert.ok(p.missionById("long_night").text.includes("abductor ships hunt you"), "the long night's hunters");
+    assert.equal(p.missionById("crash_site").objectives[0].goal, 75);
+    assert.equal(p.missionById("skeleton").text, byId.get("skeleton").text, "no twist: the text as it is");
+    // The clock set back (a hunted player taken): never below where the mission started.
+    const stats = { holdTime: 500 };
+    p.step = p.indexOf("hunted");
+    p.base = { holdTime: 400 };
+    assert.equal(p.objectives(stats)[0].value, 100);
+    p.setBack("holdTime", 60, stats);
+    assert.equal(p.objectives(stats)[0].value, 40);
+    p.setBack("holdTime", 60, stats);
+    assert.equal(p.objectives(stats)[0].value, 0);
+    stats.holdTime = 690;
+    assert.equal(p.objectives(stats)[0].value, 180);
+    let done = null;
+    p.onComplete = (m) => (done = m.id);
+    p.update(stats);
+    assert.equal(done, "hunted", "held out long enough: done");
   });
 
   await test("weapons come from their own sources: bows from skeletons, standard guns from crates, alien weapons from aliens (weakest first), none from wrecks, fighters or missions", () => {

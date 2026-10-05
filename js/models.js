@@ -3,7 +3,7 @@
 // torches, flowers) becomes an "extruded sprite", a thin slab built from
 // the icon's pixels, like classic voxel games show items in 3D.
 import * as THREE from "three";
-import { BLOCK_INFO, SHAPE, TILE_NAMES } from "./blocks.js";
+import { BLOCK_INFO, SHAPE, TILE_NAMES, CHEST_BOX } from "./blocks.js";
 import { itemInfo } from "./items.js";
 import { itemIconPixels, bowPullPixels } from "./itemtextures.js";
 import { paintTile } from "./textures.js";
@@ -19,9 +19,11 @@ const CUBE_FACES = [
 ];
 
 // A 1x1x1 cube centered at the origin whose faces sample the block's layers
-// of the block texture array (attribute aLayer).
+// of the block texture array (attribute aLayer). (A chest: its smaller box,
+// as the terrain mesher draws it.)
 export function blockCubeGeometry(blockId) {
   const info = BLOCK_INFO[blockId];
+  const box = info.shape === SHAPE.CHEST ? CHEST_BOX : [0, 0, 0, 1, 1, 1];
   const pos = [];
   const nor = [];
   const uv = [];
@@ -29,7 +31,8 @@ export function blockCubeGeometry(blockId) {
   const idx = [];
   CUBE_FACES.forEach((f, fi) => {
     const base = pos.length / 3;
-    for (const p of f.c) {
+    for (const c of f.c) {
+      const p = [c[0] ? box[3] : box[0], c[1] ? box[4] : box[1], c[2] ? box[5] : box[2]];
       pos.push(p[0] - 0.5, p[1] - 0.5, p[2] - 0.5);
       nor.push(...f.n);
       uv.push(...f.uv(p));
@@ -345,7 +348,7 @@ export function itemModel(id) {
   let model = null;
   if (info?.block) {
     const b = BLOCK_INFO[info.block];
-    if (b.shape === SHAPE.CUBE) model = { geometry: blockCubeGeometry(info.block), kind: "array", cube: true };
+    if (b.shape === SHAPE.CUBE || b.shape === SHAPE.CHEST) model = { geometry: blockCubeGeometry(info.block), kind: "array", cube: true };
     else model = { geometry: spriteGeometry(paintTile(TILE_NAMES[b.faces.side])), kind: "color", cube: false };
   } else if (info?.weapon && ["pistol", "bazooka", "machinegun", "sniper", "blaster", "railgun", "minigun"].includes(info.weapon.kind)) {
     const geometry =

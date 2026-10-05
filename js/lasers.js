@@ -87,6 +87,7 @@ const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _z = new THREE.Vector3(0, 0, 1);
 const _c = new THREE.Color();
+const _n = new THREE.Vector3();
 const SMOKE0 = new THREE.Color(0.25, 0.24, 0.23);
 const SMOKE1 = new THREE.Color(0.5, 0.5, 0.5);
 
@@ -101,6 +102,10 @@ export class LaserBolts {
     this.providers = [];
     this.listener = null; // () => Vector3: where the player's ears are (sound)
     this.fired = 0; // stats / tests
+    // Spent bolts wait a frame in _dying (whoever fired one may still read it
+    // this frame: online it is sent at the end of the frame), then are reused.
+    this._free = [];
+    this._dying = [];
     // Flares: hot decoys that pull homing bolts (a UFO's seeking plasma) away
     // from a vehicle. { pos, vel, life } (moved and aged here, drawn by the owner).
     this.decoys = [];
@@ -189,32 +194,43 @@ export class LaserBolts {
   // hits), range (blocks), radius, length, scorch (leave a mark), sound.
   // mirror (multiplayer): a bolt another player (or the host's AI) fired, seen
   // here: it only hits this player and this player's own vehicle (see main.js).
-  // tracer: a bullet (the pistol), drawn like the machine gun's tracers: a
-  // thin pale streak with a faint halo, no muzzle glow, small sparks.
+  // tracer: a bullet (the pistol, the machine gun, the sniper): a thin pale
+  // streak with a faint halo, no muzzle glow, small sparks, a ricochet.
   // cause: what a hit by it is called (damage.js; an AI shooter's own, e.g. "soldier").
-  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false, cause = null }) {
-    if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
-    const bolt = {
-      pos: from.clone(),
-      dir: dir.clone().normalize(),
-      color: color.clone ? color.clone() : new THREE.Color(color[0], color[1], color[2]),
-      speed,
-      damage,
-      owner,
-      source,
-      range,
-      traveled: 0,
-      radius,
-      length,
-      scorch,
-      hole,
-      blast,
-      mirror,
-      sound,
-      tracer,
-      cause,
-      dead: false,
-    };
+  // gun: which gun fired a bullet ("pistol", "machinegun", "sniper": its
+  // sound for the other players online); kb: a creature's knockback (main.js).
+  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false, cause = null, gun = null, kb = null }) {
+    if (this.bolts.length >= MAX_BOLTS) this._retire(this.bolts.shift());
+    // (Bolt objects are reused: a machine gun or a UFO volley makes no garbage per shot.)
+    const bolt = this._free.pop() || { pos: new THREE.Vector3(), origin: new THREE.Vector3(), dir: new THREE.Vector3(), color: new THREE.Color() };
+    bolt.pos.copy(from);
+    bolt.origin.copy(from);
+    bolt.dir.copy(dir).normalize();
+    if (color.isColor) bolt.color.copy(color);
+    else bolt.color.setRGB(color[0], color[1], color[2]);
+    bolt.speed = speed;
+    bolt.damage = damage;
+    bolt.owner = owner;
+    bolt.source = source;
+    bolt.range = range;
+    bolt.traveled = 0;
+    bolt.radius = radius;
+    bolt.length = length;
+    bolt.scorch = scorch;
+    bolt.hole = hole;
+    bolt.blast = blast;
+    bolt.mirror = mirror;
+    bolt.sound = sound;
+    bolt.tracer = tracer;
+    bolt.cause = cause;
+    bolt.gun = gun;
+    bolt.kb = kb;
+    bolt.dead = false;
+    bolt.hitDist = -1; // (where it struck, along its last step: drawn up to there once)
+    bolt.step = 0;
+    bolt.homing = null;
+    bolt.friendlyFire = false;
+    bolt.by = null;
     this.bolts.push(bolt);
     this.fired++;
     // A little muzzle glow (a gun's own flash does that for a bullet).
@@ -245,10 +261,10 @@ export class LaserBolts {
     const fx = this.effects;
     const q = effectsQuality.scale;
     const sparks = b.tracer ? Math.max(2, Math.round(4 * q)) : Math.max(3, Math.round(12 * q));
-    const n = hit.block ? new THREE.Vector3(hit.block.normal[0], hit.block.normal[1], hit.block.normal[2]) : b.dir.clone().negate();
+    const n = hit.block ? _n.set(hit.block.normal[0], hit.block.normal[1], hit.block.normal[2]) : _n.copy(b.dir).negate();
     for (let i = 0; i < sparks; i++) {
-      const v = n.clone().multiplyScalar(2 + Math.random() * 5).add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6));
-      fx.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.2 + Math.random() * 0.3, size0: 0.09, size1: 0.02, color0: b.color, gravity: 0.5, drag: 2.5 });
+      const k = 2 + Math.random() * 5;
+      fx.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: n.x * k + (Math.random() - 0.5) * 6, vy: n.y * k + Math.random() * 4, vz: n.z * k + (Math.random() - 0.5) * 6, life: 0.2 + Math.random() * 0.3, size0: 0.09, size1: 0.02, color0: b.color, gravity: 0.5, drag: 2.5 });
     }
     if (!b.tracer) fx.glow.spawn({ x: point.x, y: point.y, z: point.z, life: 0.14, size0: 0.9 + b.radius * 6, size1: 0.2, color0: b.color, alpha: 0.9 });
     fx.smoke.spawn({ x: point.x, y: point.y, z: point.z, vx: n.x * 0.6, vy: 0.6, vz: n.z * 0.6, life: 0.9, size0: 0.2, size1: 0.8, color0: SMOKE0, color1: SMOKE1, alpha: 0.4, drag: 1.5 });
@@ -257,11 +273,21 @@ export class LaserBolts {
       if (b.hole && this.holes && loaded) this.holes.add(point, hit.block.block, hit.block.normal); // a bullet: a hole
       else if (b.scorch && this.decals && loaded) this.decals.add(point, hit.block.block, hit.block.normal);
       const ears = this.listener ? this.listener() : null;
-      if (this.audio?.playLaserHit) this.audio.playLaserHit(ears ? point.distanceTo(ears) : 0);
+      const d = ears ? point.distanceTo(ears) : 0;
+      // (A bullet whines off the block; a bolt crackles.)
+      if (b.tracer) {
+        if (d < 340) this.audio?.playRicochet?.(d); // (beyond that it is out of earshot: no sound graph for it)
+      } else if (this.audio?.playLaserHit) this.audio.playLaserHit(d);
     } else if (hit.target) {
       hit.target.hit(b, point, b.dir);
     }
     if (b.blast > 0 && this.onBlast) this.onBlast(point, b);
+  }
+
+  // A spent bolt: reused from the frame after next (see _dying).
+  _retire(b) {
+    b.dead = true;
+    this._dying.push(b);
   }
 
   update(dt) {
@@ -273,30 +299,56 @@ export class LaserBolts {
       d.pos.addScaledVector(d.vel, dt);
       if (d.life <= 0) this.decoys.splice(i, 1);
     }
+    // Last frame's spent bolts: nobody reads them any more.
+    for (const b of this._dying) {
+      b.source = null; // (lets a dead UFO or a left player go)
+      b.homing = null;
+      this._free.push(b);
+    }
+    this._dying.length = 0;
     const list = this.bolts;
     let n = 0;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
       if (b.homing) this._home(b, dt);
-      if (b.dead) continue;
+      if (b.dead) {
+        this._retire(b);
+        continue;
+      }
+      // The whole step is one segment, tested against blocks and every
+      // target (nearest first): however fast the bolt and however slow the
+      // frame, nothing on the way is skipped and walls stop it.
       const step = b.speed * dt;
       const hit = this._cast(b, step, dt);
       if (hit) {
         this._impact(b, hit);
+        // (A player's bolt or bullet is drawn once more, up to where it
+        // struck: a fast one that hits within its first step is still seen.
+        // The enemies' slower bolts just vanish, never in the player's face.)
+        if (b.owner === "player" || b.owner === "playerufo" || b.owner === "jet") {
+          b.hitDist = hit.distance;
+          b.dead = true;
+          list[n++] = b;
+        } else this._retire(b);
         continue;
       }
       b.pos.addScaledVector(b.dir, step);
       b.traveled += step;
-      if (b.traveled > b.range || b.pos.y < -20) continue; // (no ceiling: the range bounds a bolt)
+      if (b.traveled > b.range || b.pos.y < -20) {
+        this._retire(b); // (no ceiling: the range bounds a bolt)
+        continue;
+      }
       list[n++] = b;
     }
     list.length = n;
     // Draw: each bolt as a stretched core and halo trailing behind its head.
+    let m = 0;
     for (let i = 0; i < n; i++) {
       const b = list[i];
-      const len = Math.min(b.length, b.traveled + 0.3);
+      const ahead = b.hitDist >= 0 ? b.hitDist : 0;
+      const len = Math.min(b.length, b.traveled + ahead + 0.3);
       _q.setFromUnitVectors(_z, b.dir);
-      _p.copy(b.pos).addScaledVector(b.dir, -len / 2);
+      _p.copy(b.pos).addScaledVector(b.dir, ahead - len / 2);
       _m.compose(_p, _q, _s.set(b.radius, b.radius, len));
       this.core.setMatrixAt(i, _m);
       this.core.setColorAt(i, b.tracer ? _c.copy(b.color) : _c.copy(b.color).multiplyScalar(0.35).addScalar(1.1));
@@ -304,7 +356,11 @@ export class LaserBolts {
       _m.compose(_p, _q, _s.set(b.radius * halo, b.radius * halo, len * 1.15));
       this.halo.setMatrixAt(i, _m);
       this.halo.setColorAt(i, b.color);
+      // (Bolts that struck this frame leave the list once drawn.)
+      if (b.hitDist >= 0) this._retire(b);
+      else list[m++] = b;
     }
+    list.length = m;
     this.core.count = n;
     this.halo.count = n;
     if (n > 0) {
@@ -317,6 +373,7 @@ export class LaserBolts {
 
   // Removes every bolt (e.g. mods switched off).
   clear() {
+    for (const b of this.bolts) this._retire(b);
     this.bolts.length = 0;
     for (const d of this.decoys) d.life = 0; // (the jets' own flare lists drop them)
     this.decoys.length = 0;

@@ -53,25 +53,51 @@ export const MAX_TIER = 5;
 
 // ---------- Missions ----------
 //
-// A chain of twenty-eight missions with a steady difficulty curve. It starts
-// on foot with a sword: a skeleton (its bow), a UFO that lands and lets its
-// crew out (they give you a moment before they attack), the first supply
-// crate (a pistol), a first scout to shoot down and its crew, a night; then
-// alien patrols whose leaders carry the alien weapons (blaster, minigun,
-// railgun), the jets, dogfights, a village raid, and only late in the chain
-// the alien ships themselves (Salvage), big ships, nuking the base, stealing
-// a ship and the Overlord. (Round 9) Then the aliens' counterattack: a wing
-// of hijacked fighters, abductors over a village, a titan, a night of
-// swarms, a fortress on the ground, and the finale: the Armada and its
-// flagship, after which the war is won (a victory screen) and the sky stays
-// busy for free play.
+// The missions (thirty-four so far). They start on foot with a sword: a
+// skeleton (its bow), a UFO that lands and lets its crew out (they give you
+// a moment before they attack), the first supply crate (a pistol), a first
+// scout to shoot down and its crew, a run for cover under a bombardment;
+// then the ground war (a night, alien patrols whose leaders carry the alien
+// weapons: blaster, minigun, railgun, abductors hunting you, a crash site
+// and a radio beacon to hold, carriers to stop), the air war (the jets,
+// dogfights, a village raid, signal beacons to destroy, the alien ships
+// themselves: Salvage), and the counter-offensive (nuking the base, stealing
+// a ship, the Overlord, the aliens' counterattack: hijacked fighters,
+// abductors, a titan, swarms, a fortress) up to the finale: the Armada and
+// its flagship, after which the war is won (a victory screen) and the sky
+// stays busy for free play.
 //
-// Each mission sets the rules for the sky while it is the current one
-// (`rules`): which UFO sizes appear and how often, multipliers for their
+// (Round 10) Each playthrough draws its own campaign from them (makeChain,
+// below): the same four acts, small to advanced, a different order within
+// each and a few optional missions sitting the run out, so nobody knows what
+// comes next. What a mission needs says where it can go:
+//   act: the act it belongs to (1-4), or [first, last] it can go in;
+//   after: ids it comes after (when they are in the run);
+//   follows: the id it comes right after (it rides along with it);
+//   optional: it may sit a run out (milestones, the weapon leaders and the
+//     finale never do);
+//   final: always last (the war is won when it is done);
+//   bonus: golden apples on top of its place's reward;
+//   sky: sky rules its event needs, over its place's (see below);
+//   twists: { variant: text } a variant's twist, added to the mission's text
+//     (the director plays it: see missions.js);
+//   an objective's goals: [4] its goal by variant (counts within a range).
+// A squad's leader weapon also waits for its place's tier (ALIEN_WEAPONS).
+// (The `rules` and `tier` of a mission outside the classic chain only say
+// where it usually plays: its place's are what it plays with.)
+// Adding a mission to the pool is one entry here with those. (New entries go
+// at the end: the classic chain is CLASSIC_IDS, and saves from before Round
+// 10 and the test suites index it by position.)
+//
+// The difficulty comes from the place in the run, not the mission: place i
+// of n plays like place i of the classic chain (stretched to n): its sky
+// rules (`rules`: which UFO sizes appear and how often, multipliers for their
 // health, damage and aggression, how many at most are in the sky at once
-// (day; more at night) and how often a new one turns up, and which alien
-// kinds crew them. So there are no UFOs at all for the first two missions,
-// then a single one, and more as the chain goes on.
+// (day; more at night) and how often a new one turns up, which alien kinds
+// crew them), its loot tier (`tier`, 0-5) and its reward (REWARD_CURVE, plus
+// the mission's bonus). The classic missions' `rules` and `tier` are that
+// curve, by their classic place: so there are no UFOs at all for the first
+// two missions of any run, then a single one, and more as it goes on.
 //
 // objectives: [{ stat, goal, label, scale }] measured from the moment the
 // mission starts (stat counters are the world's; see stats.js). Online the
@@ -80,9 +106,8 @@ export const MAX_TIER = 5;
 // share of aliens for each player: 2 kills for 1 player, 4 for 2, 6 for 3);
 // "group": goal x (1 + 0.5 per extra player), rounded up (UFO counts: more
 // players shoot them down faster); none: the same for any group (a night, a
-// landing, the base, the boss). reward: apples.
+// landing, the base, the boss).
 // event: what the mission director (missions.js) sets up for it.
-// tier: the loot tier while it is the current mission (0-5).
 // squad: an alien patrol for the "squad" event: { kind, n, leaderDrop }.
 
 const R = (sizes, health, damage, aggression, max, rate, crew = { alien: 1 }) => ({ sizes, health, damage, aggression, max, rate, crew });
@@ -99,8 +124,8 @@ export const MISSIONS = [
     title: "The archer",
     text: "A skeleton is prowling nearby (follow the marker). Kill it with your sword and take its bow: hold right click to draw, let go to shoot.",
     objectives: [{ stat: "skeletonsKilled", goal: 1, label: "Skeletons killed", scale: "player" }],
-    reward: [[ITEM.APPLE, 3]],
     event: "skeleton",
+    act: 1,
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0, 0, 0),
   },
@@ -109,8 +134,9 @@ export const MISSIONS = [
     title: "Visitors",
     text: "A small UFO is landing nearby. Its crew will look around for a moment, then come for you: be ready with your bow (and your sword: they go down in melee too).",
     objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed", scale: "player" }],
-    reward: [[ITEM.APPLE, 4]],
     event: "landing",
+    act: 1, after: ["skeleton"], optional: true, // (its text counts on the bow)
+    twists: { 2: "This crew is jumpy: they won't look around for long." },
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0, 0, 0, GREEN),
   },
@@ -119,8 +145,8 @@ export const MISSIONS = [
     title: "Supply drop",
     text: "Friends on the ground have dropped supplies for you: a pistol. Follow the orange smoke and open the crate. (R reloads.)",
     objectives: [{ stat: "cratesOpened", goal: 1, label: "Supply crates opened", scale: "player" }],
-    reward: [[ITEM.APPLE, 3]],
     event: "crate",
+    act: 1,
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0.3, 1, 0.012, GREEN),
   },
@@ -129,8 +155,8 @@ export const MISSIONS = [
     title: "First contact",
     text: "A scout UFO is snooping around nearby. Find it (follow the marker) and shoot it down with your pistol or your bow.",
     objectives: [{ stat: "ufosDown", goal: 1, label: "Scouts shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 1]],
     event: "scout",
+    act: 1, after: ["skeleton"], // (something to shoot it with)
     tier: 0,
     rules: R(EARLY, 0.6, 0.5, 0.4, 1, 0.012, GREEN),
   },
@@ -139,8 +165,8 @@ export const MISSIONS = [
     title: "The crew",
     text: "Aliens climbed out of the wreck, and they are armed. Kill them before they get you.",
     objectives: [{ stat: "aliensKilled", goal: 2, label: "Aliens killed", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 1], [ITEM.APPLE, 2]],
     event: "crew",
+    follows: "first_contact", optional: true, // (the scout's crew)
     tier: 1,
     rules: R(EARLY, 0.6, 0.5, 0.4, 1, 0.012, GREEN),
   },
@@ -149,8 +175,9 @@ export const MISSIONS = [
     title: "The long night",
     text: "UFOs (and zombies) come out in the dark. Survive one night, from dusk to dawn, without dying. Hide under a roof if they try to beam you up.",
     objectives: [{ stat: "nightsSurvived", goal: 1, label: "Nights survived" }],
-    reward: [[ITEM.GOLDEN_APPLE, 1], [ITEM.APPLE, 4]],
     event: "night",
+    act: 2, optional: true,
+    twists: { 1: "Tonight abductor ships hunt you as well: whoever their beam lifts up to the ship is lost. Keep moving, shoot back, or get under a roof.", 3: "Tonight abductor ships hunt you as well: whoever their beam lifts up to the ship is lost. Keep moving, shoot back, or get under a roof." },
     tier: 1,
     rules: R({ small: 5, medium: 1 }, 0.65, 0.6, 0.6, 2, 0.018, GREEN),
   },
@@ -158,9 +185,9 @@ export const MISSIONS = [
     id: "patrol",
     title: "Laser patrol",
     text: "A UFO has landed a patrol of green aliens nearby. Their leader (marked) carries a laser blaster: wipe them out and take it.",
-    objectives: [{ stat: "aliensKilled", goal: 4, label: "Aliens killed", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 1]],
+    objectives: [{ stat: "aliensKilled", goal: 4, goals: [4, 5, 4, 3], label: "Aliens killed", scale: "player" }],
     event: "squad",
+    act: 2,
     squad: { kind: "alien", n: 4, leaderDrop: ITEM.LASER_BLASTER },
     tier: 2,
     rules: R({ small: 4, medium: 2 }, 0.7, 0.65, 0.65, 2, 0.02, GREEN),
@@ -170,8 +197,8 @@ export const MISSIONS = [
     title: "Scout hunter",
     text: "Take the fight to them: shoot down three UFOs. Bigger ones are about now.",
     objectives: [{ stat: "ufosDown", goal: 3, label: "UFOs shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "hunt",
+    act: 2, optional: true,
     tier: 2,
     rules: R({ small: 4, medium: 3 }, 0.75, 0.7, 0.75, 2, 0.025, GREEN),
   },
@@ -179,9 +206,9 @@ export const MISSIONS = [
     id: "grays",
     title: "Gray squad",
     text: "A squad of grays (fast sharpshooters with burst rifles) has landed. Their leader (marked) carries a laser minigun: take it. Keep moving.",
-    objectives: [{ stat: "aliensKilled", goal: 5, label: "Aliens killed", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 2]],
+    objectives: [{ stat: "aliensKilled", goal: 5, goals: [5, 6, 5, 4], label: "Aliens killed", scale: "player" }],
     event: "squad",
+    act: 2, after: ["patrol"],
     squad: { kind: "alien_gray", n: 5, leaderDrop: ITEM.MINIGUN },
     tier: 3,
     rules: R({ small: 3, medium: 3, large: 0.3 }, 0.8, 0.75, 0.8, 2, 0.025, GREEN_GRAY),
@@ -191,8 +218,8 @@ export const MISSIONS = [
     title: "Take to the air",
     text: "Fighter jets wait at airports (F3 shows the nearest, and the marker points the way). Walk up to one, get in (F) and take off: full throttle (W), Shift for the afterburner.",
     objectives: [{ stat: "takeoffs", goal: 1, label: "Takeoffs", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "takeoff",
+    act: 3,
     tier: 3,
     rules: R({ small: 3, medium: 3, large: 0.5 }, 0.85, 0.8, 0.8, 2, 0.025, GREEN_GRAY),
   },
@@ -204,8 +231,8 @@ export const MISSIONS = [
       { stat: "landings", goal: 1, label: "Jet landed on a runway" },
       { stat: "landingSquad", goal: 3, label: "Red aliens killed", scale: "player" },
     ],
-    reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "landjet",
+    follows: "wings",
     tier: 3,
     rules: R({ small: 3, medium: 3, large: 0.5 }, 0.87, 0.82, 0.82, 2, 0.026, GREEN_GRAY),
   },
@@ -214,8 +241,8 @@ export const MISSIONS = [
     title: "Dogfight",
     text: "Shoot down two UFOs from your jet: the cannon (left click), a missile (a click fires one straight ahead) or a missile lock (hold right click, release when LOCKED).",
     objectives: [{ stat: "ufosDownByJet", goal: 2, label: "UFOs shot down from the jet", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "dogfight",
+    act: 3, after: ["wings"], optional: true,
     tier: 3,
     rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.85, 0.85, 3, 0.03, GREEN_GRAY),
   },
@@ -224,8 +251,8 @@ export const MISSIONS = [
     title: "Air superiority",
     text: "The aliens have hijacked one of our fighters, and it is hunting you. Shoot it down: flares (C) fool its missiles, hard turns make them miss.",
     objectives: [{ stat: "hijackedDown", goal: 1, label: "Hijacked fighters shot down", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 2]],
     event: "fighter",
+    act: 3, after: ["wings"], optional: true,
     tier: 3,
     rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 3, 0.03, GREEN_GRAY_BLUE),
   },
@@ -234,8 +261,9 @@ export const MISSIONS = [
     title: "Village under attack",
     text: "Raiders are burning a village. Get there (follow the marker) and shoot down the three raiders before they finish the job.",
     objectives: [{ stat: "raidersDown", goal: 3, label: "Raiders shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "village",
+    act: [2, 3], after: ["patrol"], optional: true,
+    twists: { 1: "These raiders are fast, and fire in bursts.", 2: "Two gunships lead them." },
     tier: 3,
     rules: R({ small: 3, medium: 4, large: 1.5, mothership: 0.1 }, 0.95, 0.95, 0.95, 3, 0.03, GREEN_GRAY_BLUE),
   },
@@ -243,9 +271,9 @@ export const MISSIONS = [
     id: "reds",
     title: "Red brutes",
     text: "Red brutes (slow, armoured, with plasma cannons that blast the ground) have landed. Their leader (marked) carries a railgun: take it. Keep your distance.",
-    objectives: [{ stat: "aliensKilled", goal: 3, label: "Aliens killed", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 3]],
+    objectives: [{ stat: "aliensKilled", goal: 3, goals: [3, 4, 3, 2], label: "Aliens killed", scale: "player" }],
     event: "squad",
+    act: 3, after: ["grays"],
     squad: { kind: "alien_red", n: 3, leaderDrop: ITEM.RAILGUN },
     tier: 4,
     rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
@@ -255,8 +283,9 @@ export const MISSIONS = [
     title: "Falling stars",
     text: "A meteor storm is falling out of the night sky. Every rock is announced by a red ring on the ground: keep out of it. The craters leave glowing star fragments (marked): collect four before the alien salvagers carry them off.",
     objectives: [{ stat: "meteorFragments", goal: 4, label: "Star fragments collected", scale: "player" }],
-    reward: [[ITEM.GOLDEN_APPLE, 4]],
     event: "meteors",
+    act: 3, optional: true,
+    twists: { 1: "It's a heavy storm: more rocks, more often.", 2: "The salvagers are hungry: a fragment doesn't lie around for long." },
     tier: 4,
     rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
   },
@@ -265,8 +294,8 @@ export const MISSIONS = [
     title: "Salvage",
     text: "The next UFO you shoot down will come down in one piece. Board it (walk up, press F): alien ships are yours to fly from now on, the ones kept in the guarded bunkers of airports too.",
     objectives: [{ stat: "ufosBoarded", goal: 1, label: "UFOs boarded" }],
-    reward: [[ITEM.GOLDEN_APPLE, 3]],
     event: "intact",
+    act: 3, after: ["wings", "reds"], // (alien ships to fly: late in the air war)
     tier: 4,
     rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 4, 0.035, ALL_CREWS),
   },
@@ -275,8 +304,8 @@ export const MISSIONS = [
     title: "Big game",
     text: "The big ships are coming. Bring down a large UFO (missiles, the bazooka's lock-on, the railgun or an airstrike help).",
     objectives: [{ stat: "ufosDownLarge", goal: 1, label: "Large UFOs shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 4]],
     event: "large",
+    act: [3, 4], after: ["reds"], optional: true, bonus: 1, // (its text counts on the railgun)
     tier: 4,
     rules: R({ small: 2.5, medium: 4, large: 3, mothership: 0.3, giant: 0.03 }, 1, 1, 1.05, 4, 0.04, ALL_CREWS),
   },
@@ -285,8 +314,8 @@ export const MISSIONS = [
     title: "Operation Sunburn",
     text: "The aliens have taken a far-off airport and turned it into a base. Take the B-2 bomber standing at your airport (marked), fly to the base and drop the nuke on it (B). Fighters and UFOs guard it: online, the others escort the bomber in the fighters.",
     objectives: [{ stat: "airportsNuked", goal: 1, label: "Enemy base nuked" }],
-    reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "airport",
+    act: 4, bonus: 3,
     tier: 5,
     rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
   },
@@ -295,8 +324,8 @@ export const MISSIONS = [
     title: "Steal the ship",
     text: "Soldiers keep a captured alien ship in the underground bunker of a far-off airport (marked). Fight your way down the ramp past the armed guards and board the ship (F). Once you are aboard they seal the blast doors: switch on ghost mode (G) and burn your way out through the rock, then get clear of the base.",
     objectives: [{ stat: "shipsStolen", goal: 1, label: "Alien ship stolen" }],
-    reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "steal",
+    act: 4, after: ["salvage"], bonus: 2, // (boarding a ship: Salvage unlocks it)
     tier: 5,
     rules: R(LATE, 1.1, 1.1, 1.2, 5, 0.05, ALL_CREWS),
   },
@@ -305,8 +334,8 @@ export const MISSIONS = [
     title: "The Overlord",
     text: "The invasion's flagship has come for you: the Overlord, a mothership with a shield. Its pylons (marked) hold the shield up: shoot them down, then hit the hull with everything you have (the railgun is made for this) before the shield comes back. Four shields, an escort, and a squad that drops in: you can do it on foot.",
     objectives: [{ stat: "bossesDown", goal: 1, label: "The Overlord destroyed" }],
-    reward: [[ITEM.GOLDEN_APPLE, 12]],
     event: "boss",
+    act: 4, after: ["steal"], bonus: 6,
     tier: 5,
     rules: R(LATE, 1.12, 1.12, 1.25, 5, 0.05, ALL_CREWS),
   },
@@ -315,8 +344,8 @@ export const MISSIONS = [
     title: "UFO slayer",
     text: "The Overlord is down, but they keep coming while their fleet regroups. Shoot down twenty-five more.",
     objectives: [{ stat: "ufosDown", goal: 25, label: "UFOs shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "hunt",
+    act: 4, after: ["overlord"], optional: true, bonus: 4, // ("The Overlord is down")
     tier: 5,
     rules: R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS),
   },
@@ -326,8 +355,8 @@ export const MISSIONS = [
     title: "Scramble!",
     text: "The aliens are throwing hijacked fighters at you in force: a whole wing is inbound (marked). Shoot down three of them: take a fighter from the airport, or lock on with the bazooka from the ground.",
     objectives: [{ stat: "hijackedDown", goal: 3, label: "Hijacked fighters shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 6]],
     event: "airraid",
+    act: [3, 4], after: ["wings", "air_superiority", "dogfight", "reds"], optional: true, // (a wing of fighters: for seasoned pilots)
     tier: 5,
     rules: R(LATE, 1.15, 1.15, 1.3, 6, 0.05, ALL_CREWS),
   },
@@ -336,8 +365,9 @@ export const MISSIONS = [
     title: "Abductions",
     text: "Abductor UFOs are beaming up the villagers and animals of a village (marked). Get there and shoot down three abductors before they empty the place.",
     objectives: [{ stat: "abductorsDown", goal: 3, label: "Abductors shot down", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 6]],
     event: "abduct",
+    act: 4, optional: true,
+    twists: { 1: "One of them has its eye on you: keep out from under its beam." },
     tier: 5,
     rules: R(LATE, 1.16, 1.16, 1.3, 6, 0.05, ALL_CREWS),
   },
@@ -346,10 +376,11 @@ export const MISSIONS = [
     title: "Titan",
     text: "A titan, the biggest alien ship of all (well over a hundred blocks across), is on its way (marked). Bring it down with everything you have: the railgun, missile salvos, the airstrike, the B-2's nuke. Its crew comes out fighting.",
     objectives: [{ stat: "titansDown", goal: 1, label: "Titans shot down" }],
-    reward: [[ITEM.GOLDEN_APPLE, 10]],
     event: "giant",
+    act: 4, after: ["sunburn", "big_game"], optional: true, bonus: 3, // (its text offers the B-2's nuke)
     tier: 5,
     rules: R({ small: 2.5, medium: 3.5, large: 2, mothership: 0.25 }, 1.17, 1.17, 1.32, 6, 0.05, ALL_CREWS),
+    sky: { sizes: { small: 2.5, medium: 3.5, large: 2, mothership: 0.25 } }, // (no other titans about)
   },
   {
     id: "swarm",
@@ -359,18 +390,21 @@ export const MISSIONS = [
       { stat: "nightsSurvived", goal: 1, label: "Nights survived" },
       { stat: "ufosDown", goal: 8, label: "UFOs shot down", scale: "group" },
     ],
-    reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "swarm",
+    act: 4, after: ["long_night"], optional: true, bonus: 1,
+    twists: { 2: "Abductors fly with the swarm, hunting you: whoever their beam lifts up to the ship is lost." },
     tier: 5,
     rules: R({ small: 7, medium: 2.5, large: 0.6 }, 1.18, 1.18, 1.35, 6, 0.07, ALL_CREWS),
+    sky: { sizes: { small: 7, medium: 2.5, large: 0.6 }, rate: 0.07 }, // (the swarm: small ships, often)
   },
   {
     id: "fortress",
     title: "The fortress",
     text: "The aliens have dug in on the ground: a fortress of red brutes, blue and gray aliens (marked), with heavy UFOs overhead. Storm it and kill ten aliens.",
     objectives: [{ stat: "aliensKilled", goal: 10, label: "Aliens killed", scale: "group" }],
-    reward: [[ITEM.GOLDEN_APPLE, 8]],
     event: "fortress",
+    act: 4, optional: true,
+    twists: { 1: "Red brutes hold most of it.", 2: "Gray and blue sharpshooters man it.", 3: "It's closer than you'd think, and an extra gunship guards it." },
     tier: 5,
     rules: R(LATE, 1.19, 1.19, 1.38, 6, 0.055, ALL_CREWS),
   },
@@ -379,17 +413,232 @@ export const MISSIONS = [
     title: "The Armada",
     text: "The final battle. The invasion's last fleet has arrived with its flagship, the Dreadnought: a titan behind five shields, each held up by pylons (marked), with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won.",
     objectives: [{ stat: "flagshipDown", goal: 1, label: "The Dreadnought destroyed" }],
-    reward: [[ITEM.GOLDEN_APPLE, 20]],
     event: "boss",
+    final: true, bonus: 10,
     // (The boss fight's settings: see missions.js _boss; the Overlord's are the defaults.)
     boss: { name: "THE DREADNOUGHT", short: "The Dreadnought", size: "giant", design: "saucer_domed", health: 8000, shieldAt: [0.75, 0.5, 0.3, 0.12], pylons: [4, 4, 5, 5, 5], escorts: [3, 2, 3, 2, 0], squads: { 1: "alien_red", 3: "alien_blue" }, jets: { 2: 1 }, stat: "flagshipDown", final: true },
     tier: 5,
     rules: R(LATE, 1.2, 1.2, 1.4, 6, 0.05, ALL_CREWS),
   },
+  // ---------- (Round 10) More of the war ----------
+  {
+    id: "evac",
+    title: "Run for cover",
+    text: "The aliens are about to bombard this area from orbit. Get to the shelter (marked, a few hundred blocks off) before the rocks fall in earnest: every strike is announced by a red ring on the ground, so keep out of the rings. Online, everyone has to make it.",
+    objectives: [{ stat: "evacuated", goal: 1, label: "Made it to the shelter", scale: "player" }],
+    event: "evac",
+    act: [1, 2], after: ["skeleton", "supply"], optional: true, // (on foot, with the bow and a pistol)
+    twists: { 1: "The shelter is close, but there's little time: run!", 2: "The shelter is far off: pace yourself.", 3: "A UFO is spotting for the bombardment: shoot it down and the rocks fall wide." },
+    tier: 1,
+    rules: R(EARLY, 0.6, 0.5, 0.4, 1, 0.012, GREEN),
+  },
+  {
+    id: "hunted",
+    title: "Don't look up",
+    text: "Abductor ships are hunting you. Their tractor beams lift whoever they catch up into the ship, and that one is lost. Hold out until the clock runs down: keep moving out from under the beams, shoot the ships (a hit breaks the beam) or get under a roof. Every one of you they take sets the clock back a minute.",
+    objectives: [{ stat: "holdTime", goal: 150, goals: [150, 120, 180, 150], label: "Held out (seconds)" }],
+    event: "hunters",
+    act: 2, optional: true,
+    twists: { 1: "Less time to hold out, but more ships hunting.", 2: "A longer hunt: twice they land a party to flush you out.", 3: "One of the hunters is a big one, with a wide beam." },
+    tier: 1,
+    rules: R({ small: 5, medium: 1 }, 0.65, 0.6, 0.6, 2, 0.018, GREEN),
+  },
+  {
+    id: "crash_site",
+    title: "Crash site",
+    text: "A UFO is coming down nearby, on fire. Get to the crash site first and hold it (stay close to the wreck) while an alien recovery team drops in to take it back: the clock runs while one of you is there and no alien is. Hold it long enough and the wreck is yours to loot.",
+    objectives: [
+      { stat: "holdTime", goal: 90, goals: [90, 75, 105, 90], label: "Crash site held (seconds)" },
+      { stat: "wrecksLooted", goal: 1, label: "Wreck looted" },
+    ],
+    event: "crashsite",
+    act: 2, optional: true,
+    twists: { 1: "The recovery team is in a hurry: a shorter hold, more often attacked.", 2: "They take their time: a longer hold.", 3: "The recovery team has air cover: a UFO circles over the site." },
+    tier: 2,
+    rules: R({ small: 4, medium: 2 }, 0.7, 0.65, 0.65, 2, 0.02, GREEN),
+  },
+  {
+    id: "hold_line",
+    title: "Hold the line",
+    text: "Our radio beacon (marked) is the last line to the other survivors, and the aliens want it gone. Get there and hold it: the clock runs while one of you stands by it and no alien does. Squads keep dropping in.",
+    objectives: [{ stat: "holdTime", goal: 120, goals: [120, 100, 140, 120], label: "Beacon held (seconds)" }],
+    event: "hold",
+    act: [2, 3], after: ["patrol"], optional: true, // (a laser blaster to hold it with)
+    twists: { 1: "A shorter hold, but the squads come thick and fast.", 2: "A longer hold, the squads a little further apart.", 3: "A gunship strafes the beacon too." },
+    tier: 3,
+    rules: R({ small: 3, medium: 3 }, 0.8, 0.75, 0.8, 2, 0.025, GREEN_GRAY),
+  },
+  {
+    id: "rescue",
+    title: "Rescue",
+    text: "Abductor ships have grabbed people and animals (marked) and are carrying them off, low and slow. Shoot the carriers down before they get away: their captives fall free. They don't stop to fight.",
+    objectives: [{ stat: "carriersDown", goal: 3, goals: [3, 3, 4, 3], label: "Carriers shot down", scale: "group" }],
+    event: "rescue",
+    act: [2, 3], after: ["patrol"], optional: true,
+    twists: { 1: "A gunship flies with them as their escort.", 3: "These carriers are quicker: don't let them get far." },
+    tier: 3,
+    rules: R({ small: 3, medium: 3 }, 0.8, 0.75, 0.8, 2, 0.025, GREEN_GRAY),
+  },
+  {
+    id: "sabotage",
+    title: "Sabotage",
+    text: "The aliens have planted signal beacons around here (marked): pods on the ground that call in another UFO every so often, for as long as they stand. Find them and destroy them all. Each one has a few aliens guarding it.",
+    objectives: [{ stat: "beaconsDown", goal: 3, goals: [3, 3, 4, 3], label: "Signal beacons destroyed", scale: "group" }],
+    event: "beacons",
+    act: [3, 4], after: ["grays"], optional: true,
+    twists: { 1: "They are spread far apart.", 3: "They call for help more often." },
+    tier: 4,
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
+  },
 ];
 
 // After the last mission (free play): a busy sky, a little calmer than the finale's.
 const POSTGAME_RULES = R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS);
+
+const BY_ID = new Map(MISSIONS.map((m) => [m.id, m]));
+export const missionById = (id) => BY_ID.get(id) || null;
+
+// The classic chain (Round 9's order; saves from before Round 10 keep it, and
+// so do automated test runs: see defaultChain). Its missions' `rules` and
+// `tier` are the difficulty curve by place.
+export const CLASSIC_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "steal", "overlord", "slayer", "scramble", "abductors", "titan", "swarm", "fortress", "armada"];
+
+// A run's length: what the optional missions sitting out leave.
+export const CHAIN_MIN = 26;
+export const CHAIN_MAX = 30;
+export const ACT_NAMES = ["", "Act I: On foot", "Act II: The ground war", "Act III: The air war", "Act IV: The counter-offensive"];
+
+// Rewards by classic place (apples, then golden apples; a mission's bonus comes on top).
+const A_ = ITEM.APPLE;
+const G_ = ITEM.GOLDEN_APPLE;
+const REWARD_CURVE = [
+  [[A_, 3]], [[A_, 4]], [[A_, 4]], [[G_, 1]], [[G_, 1], [A_, 2]], [[G_, 1], [A_, 4]], [[G_, 1], [A_, 4]],
+  [[G_, 2]], [[G_, 2]], [[G_, 2]], [[G_, 2]], [[G_, 2]], [[G_, 2]],
+  [[G_, 3]], [[G_, 3]], [[G_, 3]], [[G_, 3]], [[G_, 4]], [[G_, 5]], [[G_, 5]],
+  [[G_, 6]], [[G_, 6]], [[G_, 6]], [[G_, 6]], [[G_, 7]], [[G_, 7]], [[G_, 8]], [[G_, 10]],
+];
+const CURVE = CLASSIC_IDS.map((id, i) => ({ tier: BY_ID.get(id).tier, rules: BY_ID.get(id).rules, reward: REWARD_CURVE[i] }));
+
+// Place i of a run of n: the classic chain's place it plays like.
+export function curveAt(i, n) {
+  const c = n > 1 ? Math.round((Math.max(0, Math.min(n - 1, i)) * (CURVE.length - 1)) / (n - 1)) : 0;
+  return CURVE[c];
+}
+
+const n36 = (x) => x.toString(36);
+const actRange = (m) => (Array.isArray(m.act) ? m.act : [m.act ?? 1, m.act ?? 1]);
+const leaderTier = (m) => (m.squad?.leaderDrop != null ? ALIEN_WEAPONS.find(([id]) => id === m.squad.leaderDrop)?.[1] ?? 0 : 0);
+
+// A small seeded random generator (the same seed: the same run).
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// One try at a run (null when the dice made one that breaks a rule: the caller tries again).
+function tryChain(rand) {
+  const pool = MISSIONS;
+  const mand = pool.filter((m) => !m.optional);
+  const opt = pool.filter((m) => m.optional);
+  const hi = Math.max(mand.length, Math.min(CHAIN_MAX, pool.length));
+  const lo = Math.min(hi, Math.max(CHAIN_MIN, mand.length));
+  const len = lo + Math.floor(rand() * (hi - lo + 1));
+  // Which optional ones play (a shuffle; the first ones are in).
+  const deck = opt.slice();
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  const inRun = new Set([...mand, ...deck.slice(0, len - mand.length)].map((m) => m.id));
+  // (One that rides along with a mission sitting out sits out too.)
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const id of inRun) {
+      const f = BY_ID.get(id).follows;
+      if (f && !inRun.has(f)) {
+        inRun.delete(id);
+        changed = true;
+      }
+    }
+  }
+  const members = pool.filter((m) => inRun.has(m.id));
+  // Acts: a mission that can go in more than one picks one, no earlier than what it comes after.
+  const act = new Map();
+  for (const m of members) {
+    if (m.follows || m.final) continue;
+    const [a, b] = actRange(m);
+    act.set(m.id, a + Math.floor(rand() * (b - a + 1)));
+  }
+  const actOf = (id) => {
+    const m = BY_ID.get(id);
+    return m.final ? Infinity : m.follows ? actOf(m.follows) : act.get(id);
+  };
+  for (let pass = 0; pass < 4; pass++) {
+    for (const m of members) {
+      if (m.follows || m.final) continue;
+      for (const a of m.after || []) {
+        if (!inRun.has(a) || actOf(a) <= act.get(m.id)) continue;
+        if (actOf(a) > actRange(m)[1]) return null;
+        act.set(m.id, actOf(a));
+      }
+    }
+  }
+  // Within each act: any order the "after"s allow; followers right after their mission.
+  const ids = [];
+  const placed = new Set();
+  const ready = (m) => (m.after || []).every((a) => !inRun.has(a) || placed.has(a));
+  const place = (m) => {
+    ids.push(m.id);
+    placed.add(m.id);
+    for (const f of members) if (f.follows === m.id) {
+      if (!ready(f)) return false;
+      if (!place(f)) return false;
+    }
+    return true;
+  };
+  const acts = [...new Set(act.values())].sort((a, b) => a - b);
+  for (const k of acts) {
+    let left = members.filter((m) => !m.follows && !m.final && act.get(m.id) === k);
+    while (left.length) {
+      const avail = left.filter(ready);
+      if (!avail.length) return null;
+      const m = avail[Math.floor(rand() * avail.length)];
+      left = left.filter((x) => x !== m);
+      if (!place(m)) return null;
+    }
+  }
+  for (const m of members) if (m.final && !placed.has(m.id)) {
+    if (!ready(m) || !place(m)) return null;
+  }
+  // The weapon leaders wait for a place whose tier has their weapon.
+  for (let i = 0; i < ids.length; i++) if (curveAt(i, ids.length).tier < leaderTier(BY_ID.get(ids[i]))) return null;
+  // (The acts drawn, for the act headers: after the variants, so a seed's run is the same.)
+  return { ids, vars: ids.map(() => Math.floor(rand() * 4)), acts: ids.map((id) => (BY_ID.get(id).final ? ACT_NAMES.length - 1 : actOf(id))) };
+}
+
+// A run for this seed: { ids, vars, acts } (vars: each mission's variant, 0-3,
+// for the director to vary its numbers by; acts: the act each was drawn into).
+// The classic chain if no try works.
+export function makeChain(seed) {
+  const rand = seeded(seed);
+  for (let k = 0; k < 500; k++) {
+    const c = tryChain(rand);
+    if (c) return c;
+  }
+  return { ids: [...CLASSIC_IDS], vars: CLASSIC_IDS.map(() => 0) };
+}
+
+// (Automated test runs, which set navigator.webdriver, play the classic
+// chain: the suites set missions up by their classic place. They can draw a
+// run with progress.newChain(seed) or set one with progress.setChain(ids).)
+function defaultChain() {
+  return typeof navigator !== "undefined" && navigator?.webdriver ? null : (Math.random() * 4294967296) >>> 0;
+}
 
 // The Round 3 chain (v3 saves, fifteen missions): which new mission a save
 // whose current v3 mission was N continues with (the new opening missions
@@ -398,18 +647,18 @@ const POSTGAME_RULES = R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS);
 // landing, the meteor storm and the boss (and moved the mothership fight to the end).
 const V4_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "dogfight", "air_superiority", "village", "reds", "salvage", "big_game", "mothership", "sunburn", "slayer"];
 // (Round 9: a save that had finished the chain carries on with the missions added since.)
-const AFTER_SLAYER = () => MISSIONS.findIndex((m) => m.id === "slayer") + 1;
+const AFTER_SLAYER = () => CLASSIC_IDS.indexOf("slayer") + 1;
 function v4StepToV5(step) {
   if (!(step < V4_IDS.length)) return AFTER_SLAYER();
-  const idx = MISSIONS.findIndex((m) => m.id === V4_IDS[step]);
+  const idx = CLASSIC_IDS.indexOf(V4_IDS[step]);
   // (The old mothership mission is the Overlord's forerunner: that player carries on with the base.)
-  return idx >= 0 ? idx : MISSIONS.findIndex((m) => m.id === "sunburn");
+  return idx >= 0 ? idx : CLASSIC_IDS.indexOf("sunburn");
 }
 // The Round 6-7 chain (v5 saves): ids by step. Round 8 added "Steal the ship" before the Overlord.
 const V5_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "overlord", "slayer"];
 function v5StepToV6(step) {
   if (!(step < V5_IDS.length)) return AFTER_SLAYER();
-  const idx = MISSIONS.findIndex((m) => m.id === V5_IDS[step]);
+  const idx = CLASSIC_IDS.indexOf(V5_IDS[step]);
   return idx >= 0 ? idx : step;
 }
 const V3_STEP_TO_V4 = [0, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 18, 19];
@@ -420,7 +669,7 @@ const OLD_STEP_TO_NEW = [0, 2, 5, 8, 9, 10, 12, 13];
 
 export class Progress {
   constructor() {
-    this.step = 0; // index of the current mission (MISSIONS.length: all done)
+    this.step = 0; // index of the current mission in the run (this.total: all done)
     this.base = {}; // the stat values when the current mission started
     this.done = []; // ids of finished missions
     this.place = null; // (the current mission's chosen place, if it has one: saved, so a reload keeps it; see missions.js)
@@ -430,6 +679,109 @@ export class Progress {
     this.enabled = true;
     // Online (host): how many players the goals are for (see goalFor).
     this.groupN = 1;
+    // (Round 10) This playthrough's run: mission ids in order, each one's
+    // variant, and the seed it was drawn with (null: the classic chain).
+    this.seed = null;
+    this.setChain(CLASSIC_IDS);
+  }
+
+  // (Round 10) Sets the run (ids in order; unknown or repeated ids are left
+  // out), each mission's variant and the act it was drawn into (none, or
+  // ones that don't fit: each by its earliest act). The step stays where it
+  // is (a guest mirroring the host's run sets its step next; see js/net/coop.js).
+  setChain(ids, vars = null, acts = null) {
+    const seen = new Set();
+    const keep = [];
+    const vv = [];
+    const aa = [];
+    (Array.isArray(ids) ? ids : []).forEach((id, i) => {
+      if (typeof id !== "string" || !BY_ID.has(id) || seen.has(id)) return;
+      seen.add(id);
+      keep.push(id);
+      vv.push(Number.isInteger(vars?.[i]) ? Math.max(0, Math.min(3, vars[i])) : 0);
+      aa.push(Number.isInteger(acts?.[i]) ? acts[i] : 0);
+    });
+    if (!keep.length) return this.setChain(CLASSIC_IDS);
+    this.chain = keep;
+    this.vars = vv;
+    const fits = aa.every((a, i) => {
+      const m = BY_ID.get(keep[i]);
+      const [lo, hi] = actRange(m);
+      const prev = i ? aa[i - 1] : 1;
+      return a >= prev && (m.final ? a === ACT_NAMES.length - 1 : m.follows ? a === prev : a >= lo && a <= hi);
+    });
+    this.acts = fits ? aa : null;
+    // (A short signature of the run: online, the host sends the run itself only when it changes.)
+    let hsh = 5381;
+    for (const ch of `${keep.join(",")}/${vv.join("")}/${(this.acts || []).join("")}`) hsh = (Math.imul(hsh, 33) + ch.charCodeAt(0)) | 0;
+    this.key = `${n36(keep.length)}${n36(hsh >>> 0)}`;
+    // The missions as this run plays them: each with its place's tier, sky and reward.
+    const n = keep.length;
+    let act = 1;
+    this._views = keep.map((id, i) => {
+      const m = BY_ID.get(id);
+      const c = curveAt(i, n);
+      act = this.acts ? this.acts[i] : m.final ? ACT_NAMES.length - 1 : m.follows ? act : Math.max(act, actRange(m)[0]);
+      const reward = c.reward.map(([item, k]) => [item, k]);
+      if (m.bonus) {
+        const g = reward.find(([item]) => item === ITEM.GOLDEN_APPLE);
+        if (g) g[1] += m.bonus;
+        else reward.unshift([ITEM.GOLDEN_APPLE, m.bonus]);
+      }
+      // (Its variant: the twist in its text, the goals for it.)
+      const v = vv[i];
+      const text = m.twists?.[v] ? `${m.text} ${m.twists[v]}` : m.text;
+      const objectives = m.objectives.map((o) => (Array.isArray(o.goals) && Number.isFinite(o.goals[v]) ? { ...o, goal: o.goals[v] } : o));
+      return { ...m, n: i, variant: v, text, objectives, act, tier: c.tier, rules: m.sky ? { ...c.rules, ...m.sky } : c.rules, reward, final: !!m.final };
+    });
+    this.step = Math.max(0, Math.min(this.step, n));
+    return true;
+  }
+
+  // (Round 10) A new run drawn from `seed` (a random one if none): the chain
+  // starts over from its first mission.
+  newChain(seed = (Math.random() * 4294967296) >>> 0) {
+    const c = makeChain(seed >>> 0);
+    this.seed = seed >>> 0;
+    this.setChain(c.ids, c.vars, c.acts);
+    this.step = 0;
+    this.done = [];
+    this.place = null;
+    if (this.onChange) this.onChange();
+    return this.chain;
+  }
+
+  // Missions in this run.
+  get total() {
+    return this.chain.length;
+  }
+
+  // The run's mission at place i (as this run plays it), or null.
+  missionAt(i) {
+    return this._views[i] || null;
+  }
+
+  // The run's mission with this id (as this run plays it), or null.
+  missionById(id) {
+    return this._views[this.chain.indexOf(id)] || null;
+  }
+
+  // Where the mission is in this run (-1: not in it).
+  indexOf(id) {
+    return this.chain.indexOf(id);
+  }
+
+  // Has the run got to the mission (it is the current one, or done)? A
+  // mission not in this run counts as reached: nothing waits for it.
+  reached(id) {
+    const i = this.chain.indexOf(id);
+    return i < 0 || this.step >= i;
+  }
+
+  // Is the mission done (or not in this run)?
+  isDone(id) {
+    const i = this.chain.indexOf(id);
+    return i < 0 || this.step > i;
   }
 
   // An objective's goal for the current group (see the objectives' "scale").
@@ -441,12 +793,17 @@ export class Progress {
   }
 
   get mission() {
-    return MISSIONS[this.step] || null;
+    return this._views[this.step] || null;
   }
 
-  // Missions finished, 0-MISSIONS.length.
+  // The current mission's variant (0-3; see makeChain).
+  get variant() {
+    return this.vars[this.step] ?? 0;
+  }
+
+  // Missions finished, 0-total.
   get completed() {
-    return Math.min(this.step, MISSIONS.length);
+    return Math.min(this.step, this.total);
   }
 
   // The rules for the sky right now (see MISSIONS); once the chain is done,
@@ -458,18 +815,25 @@ export class Progress {
   // How far along the player is (weapon and loot quality): the current
   // mission's tier, plus one for a player who shoots down lots of UFOs.
   tier(stats) {
-    const m = this.mission || MISSIONS[MISSIONS.length - 1];
+    const m = this.mission || this._views[this._views.length - 1];
     const extra = Math.floor((stats?.ufosDownSurvival ?? 0) / 12) > 0 ? 1 : 0; // (Survival kills only)
     return Math.min(MAX_TIER, m.tier + (this.mission ? extra : 1));
   }
 
   // 0-1: the difficulty curve (a gentle sky at the start).
   difficulty(stats) {
-    return Math.min(1, this.completed / (MISSIONS.length - 1));
+    return Math.min(1, this.completed / Math.max(1, this.total - 1));
   }
 
   start(stats) {
     this.base = { ...this._pick(stats) };
+  }
+
+  // (Round 10) Sets the current mission's count of `stat` back by n (never
+  // below where the mission started): a hunted player taken costs the clock.
+  setBack(stat, n, stats) {
+    const now = stats?.[stat] ?? 0;
+    this.base[stat] = Math.min(now, (this.base[stat] ?? now) + n);
   }
 
   _pick(stats) {
@@ -489,10 +853,11 @@ export class Progress {
     });
   }
 
-  // Every mission with its state, for the list in the pause menu:
-  // [{ n, id, title, text, reward, state: "done" | "current" | "locked", objectives }].
+  // Every mission of the run with its state, for the list in the pause menu:
+  // [{ n, id, title, text, reward, act, state: "done" | "current" | "locked", objectives }].
+  // (The list shows the locked ones as classified: what comes is a surprise.)
   list(stats) {
-    return MISSIONS.map((m, i) => ({ n: i + 1, id: m.id, title: m.title, text: m.text, reward: m.reward, state: i < this.step ? "done" : i === this.step ? "current" : "locked", objectives: i === this.step ? this.objectives(stats) : null }));
+    return this._views.map((m, i) => ({ n: i + 1, id: m.id, title: m.title, text: m.text, reward: m.reward, act: m.act, state: i < this.step ? "done" : i === this.step ? "current" : "locked", objectives: i === this.step ? this.objectives(stats) : null }));
   }
 
   // Checks the current mission; completes it (and moves on) when every
@@ -517,24 +882,28 @@ export class Progress {
   }
 
   serialize() {
-    return { v: 6, step: this.step, base: this.base, done: this.done, ...(this.place ? { place: this.place } : {}) };
+    return { v: 7, step: this.step, base: this.base, done: this.done, chain: this.chain, vars: this.vars, ...(this.acts ? { acts: this.acts } : {}), ...(this.seed != null ? { seed: this.seed } : {}), ...(this.place ? { place: this.place } : {}) };
   }
 
   load(data, stats) {
+    this.seed = null;
     if (data && Number.isInteger(data.step) && data.step >= 0) {
+      // (Saves from before Round 10: the classic chain, at the same place.)
+      if (data.v !== 7) this.setChain(CLASSIC_IDS);
       if (data.v === 5) {
         // A Round 6-7 save: the same missions, one new one before the Overlord
         // (a save already past it carries on where it was).
-        const step = Math.min(MISSIONS.length, v5StepToV6(data.step));
+        const step = Math.min(this.total, v5StepToV6(data.step));
         this.base = data.base && typeof data.base === "object" ? { ...data.base } : {};
         this.step = step;
-        this.done = MISSIONS.slice(0, step).map((m) => m.id);
+        this.done = this.chain.slice(0, step);
+        this.place = null;
         for (const [k, v] of Object.entries(this._pick(stats))) if (!Number.isFinite(this.base[k])) this.base[k] = v;
         // (A finished chain goes on at Scramble: its counts start now, not at Slayer.)
         if (data.step >= V5_IDS.length) this.base = { ...this._pick(stats) };
         return;
       }
-      if (data.v !== 6) {
+      if (data.v !== 6 && data.v !== 7) {
         // An older save: carry its progress over to the new chain (Round 2
         // -> Round 3 -> Round 4 -> Round 6).
         let v4step;
@@ -543,18 +912,37 @@ export class Progress {
           const v3 = data.v === 3 ? data.step : OLD_STEP_TO_NEW[Math.min(data.step, OLD_STEP_TO_NEW.length - 1)];
           v4step = V3_STEP_TO_V4[Math.min(v3, V3_STEP_TO_V4.length - 1)];
         }
-        this.step = Math.min(MISSIONS.length, v4StepToV5(v4step));
-        this.done = MISSIONS.slice(0, this.step).map((m) => m.id);
+        this.step = Math.min(this.total, v4StepToV5(v4step));
+        this.done = this.chain.slice(0, this.step);
+        this.place = null;
         this.base = { ...this._pick(stats) };
         return;
       }
-      this.step = Math.min(data.step, MISSIONS.length);
+      let step = data.step;
+      if (data.v === 7) {
+        // (Round 10) The run this save was playing. (A mission this version
+        // doesn't know is left out: the step counts the known ones before it.)
+        const ids = Array.isArray(data.chain) ? data.chain : [];
+        const known = (id) => typeof id === "string" && BY_ID.has(id);
+        step = ids.slice(0, step).filter(known).length;
+        if (!this.setChain(ids, Array.isArray(data.vars) ? data.vars : null, Array.isArray(data.acts) ? data.acts : null) || !ids.some(known)) step = Math.min(step, CLASSIC_IDS.length);
+        if (Number.isInteger(data.seed)) this.seed = data.seed >>> 0;
+      }
+      this.step = Math.min(step, this.total);
       this.base = data.base && typeof data.base === "object" ? { ...data.base } : {};
       this.done = Array.isArray(data.done) ? data.done.filter((x) => typeof x === "string") : [];
       this.place = data.place && typeof data.place === "object" ? { ...data.place } : null;
       // Stat counters this save didn't have yet start from where they are.
       for (const [k, v] of Object.entries(this._pick(stats))) if (!Number.isFinite(this.base[k])) this.base[k] = v;
     } else {
+      // A new game: a run of its own (the classic chain under automation).
+      const seed = defaultChain();
+      if (seed == null) {
+        this.setChain(CLASSIC_IDS);
+        this.step = 0;
+        this.done = [];
+        this.place = null;
+      } else this.newChain(seed);
       this.start(stats);
     }
   }

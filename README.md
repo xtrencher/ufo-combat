@@ -52,17 +52,19 @@ are straight in the air at the controls of it).
 
 - **Survival:** you start with basic gear only (a stone sword, a stone
   pickaxe and five apples) at 17:50 (the golden hour before sunset), and a
-  chain of twenty-eight **missions** (see below) that starts with a skeleton and
-  its bow, goes through jets, a meteor storm and a mothership boss, then the
-  aliens' counterattack (fighter wings, abductors, a titan, a night of
-  swarms, a fortress), and ends with the Armada and its flagship: win that
-  and the war is won (a victory screen; the game goes on). There is no crafting, and
+  **campaign** of 26 to 30 **missions** drawn afresh for every new Survival
+  game from a pool of 34 (see below): it starts with a skeleton and its bow,
+  goes through jets, a meteor storm and a mothership boss, abductor ships
+  hunting you, crash sites and radio beacons to hold, then the aliens'
+  counterattack (fighter wings, abductors, a titan, a night of swarms, a
+  fortress), and ends with the Armada and its flagship: win that and the
+  war is won (a victory screen; the game goes on). There is no crafting, and
   missions pay in apples and golden apples only: weapons come from the
   places that make sense (the skeleton's bow, standard weapons in **supply
   crates** that drop by parachute with orange smoke, alien weapons from
-  alien leaders). The fighter jets (parked at airports) join with mission 10, alien ships with
-  mission 17. Watch your hearts: falls, drowning, zombies, aliens and your
-  own grenades and rockets can all kill you.
+  alien leaders). The fighter jets (parked at airports) join with "Take to
+  the air", alien ships with "Salvage". Watch your hearts: falls, drowning,
+  zombies, aliens and your own grenades and rockets can all kill you.
 - **Creative:** every weapon in your hotbar and inventory, every block and
   item in the tabbed **E** palette, instant mining, flight, and no damage.
 
@@ -84,6 +86,7 @@ ground.
 | Mine a block / attack (hold to keep mining) | Left click |
 | Place a block / use / eat (hold to eat) / fire the weapon in hand | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
+| Open a chest (whatever is in your hand) | Right click |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Select hotbar slot | `1`-`9` or scroll wheel |
@@ -107,6 +110,9 @@ the hotbar and the inventory; number keys swap the hovered slot with a hotbar
 slot; `Q` drops from the hovered slot; clicking outside the window drops what
 you're carrying. In Creative the palette has tabs (Weapons, Blocks, Tools,
 Items): click to take a stack, `Shift` + click to add it to the inventory.
+**A chest** (right click on it) opens the same screen with the chest's 27
+slots above your inventory and the same clicks: `Shift` + click moves a stack
+between the chest and your inventory. `E` or `Esc` closes it.
 
 ### Survival basics
 
@@ -120,6 +126,16 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   diamonds are gone: nothing uses them any more; old iron and diamond ore
   blocks in older worlds still break, into cobblestone). Glowing lumen
   crystals grow on deep cave ceilings.
+- **Torches and chests** (Round 10): a torch placed on the side of a block
+  hangs on the wall, leaning out like in classic block games (on top of a
+  block it stands; under a block it doesn't go), and drops off as a torch
+  when its wall is mined or blown away. **Chests** hold 27 stacks. The chests
+  in village houses and city lobbies (see **The world**) hold loot, rolled
+  the first time anyone opens one: food, torches, now and then a golden
+  apple or a tool, sometimes a standard weapon the campaign already allows,
+  rarely a piece of armor (less than a supply crate). A chest you place
+  (Creative palette, or one you broke and picked up) starts empty. Breaking
+  a chest spills what it holds. Opened chests are saved with the world.
 - **Armor** (Round 5; the shield is gone): four slots (head, chest, legs,
   feet) in four tiers (leather, gold, iron, diamond). Every defense point
   turns away 4% of the damage (up to 80%), the HUD shows an armor bar, and
@@ -133,55 +149,105 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 
 ### Missions, loot and supply crates (Survival)
 
-- **Missions:** twenty-eight of them, one after another, shown top right with a
-  progress bar per objective, the target's distance and direction, and a
-  yellow **marker** over the target (an arrow at the screen's edge when it is
-  behind you). **Esc > Missions** lists them all with their rewards, which
-  are only ever apples and golden apples.
+- **Missions:** a campaign of 26 to 30, one after another, shown top right
+  with a progress bar per objective, the target's distance and direction,
+  and a yellow **marker** over the target (an arrow at the screen's edge
+  when it is behind you).
+- **A different campaign every game** (Round 10): each new Survival world
+  draws its own. It always runs in four acts, from small to big, and the
+  missions are shuffled within them, with a few optional ones sitting a game
+  out, so you never know what comes next. The pool has 34 missions (the 28
+  of the classic order and six more: Run for cover, Don't look up, Crash
+  site, Hold the line, Rescue and Sabotage), so every campaign leaves a few
+  out. It is always fair: the bow comes first or second, nothing needs a jet
+  before "Take to the air" (and "Touchdown" always comes right after it),
+  nothing needs an alien ship before "Salvage" or the B-2 before "Operation
+  Sunburn", the alien leaders come weakest first (blaster, minigun,
+  railgun), "Steal the ship" comes before "The Overlord", which comes before
+  "UFO slayer", and "The Armada" is always last. **The difficulty follows
+  your place in the campaign, not the mission:** the sky, the loot and the
+  reward of the 12th mission are those of the 12th place, whichever mission
+  it is (the big ones, like the bosses, give a bonus on top), so the curve
+  rises smoothly in any order.
 
-  | # | Mission | What to do | Reward |
+  **Missions vary from game to game too**: each has a variant drawn with the
+  campaign (the same on every screen online, and kept by a save). Some
+  numbers change within a range (where a squad lands and one alien more or
+  less, how far the crate or the skeleton is, how long a hold lasts, how
+  many carriers or beacons), and some variants add a **twist**, written at
+  the end of the mission's text: in half the long nights **abductor ships
+  hunt you** as well; Visitors' crew may be jumpy (about 22 s of calm, not
+  35); a village raid may be by fast raiders firing bursts, or led by two
+  gunships; the meteor storm may be a heavy one, or have hungry salvagers
+  (fragments last 60 s, not 80); one abductor may hunt you during
+  Abductions; abductors may fly with the night of the swarm; the fortress
+  may be held by brutes, by sharpshooters, or be closer with an extra
+  gunship.
+
+  **Esc > Missions** shows the campaign so far (done and current missions,
+  with their rewards, under their act's name) and how many are still to
+  come: those are **classified** (the tracker only says when a new act
+  begins). Online, the campaign is the host's (see Modes). Worlds from
+  before Round 10 keep playing the classic order (Round 9's 28 missions,
+  without the six new ones), where they were.
+
+  | Act | Mission | What to do | Optional |
   | --- | --- | --- | --- |
-  | 1 | The archer | Kill a skeleton with your sword and take its **bow** | 3 apples |
-  | 2 | Visitors | A small UFO lands; its two aliens look around (about 35 s) before they attack: kill them (bow, or sword in melee) | 4 apples |
-  | 3 | Supply drop | Open the supply crate dropped for you: the **pistol** | 3 apples |
-  | 4 | First contact | Shoot down a small scout UFO | Golden apple |
-  | 5 | The crew | Kill the aliens that climb out of the wreck | Golden apple, 2 apples |
-  | 6 | The long night | The clock jumps ahead to dusk: survive the night (about 4 minutes) without dying; three alien landing parties come. A death restarts the night | Golden apple, 4 apples |
-  | 7 | Laser patrol | Wipe out a landed green patrol; its leader carries the **laser blaster** | Golden apple |
-  | 8 | Scout hunter | Shoot down three UFOs | 2 golden apples |
-  | 9 | Gray squad | Wipe out a gray squad; its leader carries the **laser minigun** | 2 golden apples |
-  | 10 | Take to the air | Take a jet (F-22 or F-16) parked at an airport and take off | 2 golden apples |
-  | 11 | Touchdown | Land a jet on an airport's runway and stop; a red squad then drops in on the ground: finish it (get out with `F`) | 2 golden apples |
-  | 12 | Dogfight | Shoot down two UFOs from the jet | 2 golden apples |
-  | 13 | Air superiority | Shoot down the hijacked fighter hunting you | 2 golden apples |
-  | 14 | Village under attack | Shoot down three raiders burning a village (they stay until shot down) | 3 golden apples |
-  | 15 | Red brutes | Wipe out a red squad; its leader carries the **railgun** (on its back, plain to see) and always drops it, however it dies: the marker then points at it until someone picks it up | 3 golden apples |
-  | 16 | Falling stars | A meteor storm at night: dodge the rocks (a red ring marks each landing 4.5 s ahead) and collect four glowing star fragments from the craters before alien salvagers take them | 4 golden apples |
-  | 17 | Salvage | The next UFO you down lands intact: board it (alien ships, hangar ones too, are yours from now on) | 3 golden apples |
-  | 18 | Big game | Bring down a large UFO | 4 golden apples |
-  | 19 | Operation Sunburn | Take the **B-2 bomber** from your airport, fly to the far-off airport the aliens turned into a base and drop the nuke on it (`B`); guard UFOs and a fighter defend it. A lost B-2 is replaced at its airport | 8 golden apples |
-  | 20 | Steal the ship | Soldiers keep a captured alien ship in the underground bunker of an airport: fight your way past the armed guards, board it (`F`), and when they seal the blast doors switch on **ghost mode** (`G`) and burn your way out through the rock; get 150 blocks clear | 8 golden apples |
-  | 21 | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: four shield rounds, an escort, and a red squad dropped on you. Doable on foot | 12 golden apples |
-  | 22 | UFO slayer | Shoot down twenty-five more | 10 golden apples |
-  | 23 | Scramble! | A wing of hijacked fighters comes at you all at once: shoot down three (take a fighter from the airport, or lock on with the bazooka) | 6 golden apples |
-  | 24 | Abductions | Abductor UFOs beam up a village's people and animals: shoot down three of them | 6 golden apples |
-  | 25 | Titan | Bring down a **titan**, the biggest alien ship (well over a hundred blocks across); its crew comes out fighting | 10 golden apples |
-  | 26 | Night of the swarm | A night of swarms: small, fast UFOs fill the sky while red and blue landing parties hunt you. Survive until dawn and shoot down eight | 8 golden apples |
-  | 27 | The fortress | A garrison of red brutes, blue and gray aliens (two leaders) dug in on open ground, heavy UFOs over it: kill ten | 8 golden apples |
-  | 28 | The Armada | **The finale:** the Dreadnought, a titan behind five shields held up by pylons, with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won: a victory screen, and the sky stays busy for free play | 20 golden apples |
+  | I: On foot | The archer | Kill a skeleton with your sword and take its **bow** | |
+  | I | Visitors | A small UFO lands; its two aliens look around (about 35 s) before they attack: kill them (bow, or sword in melee) | yes |
+  | I | Supply drop | Open the supply crate dropped for you: the **pistol** | |
+  | I | First contact | Shoot down a small scout UFO | |
+  | I | The crew | Kill the aliens that climb out of the wreck (right after First contact) | yes |
+  | I or II | Run for cover | An orbital bombardment is coming: get to the **shelter** (a green ring, a few hundred blocks off: a village if one is about) before the time runs out. The rocks are aimed near whoever is still out in the open (a red ring marks each landing 4.5 s ahead), closer as the time runs out, and close once it has. Online everyone has to make it (each counts on arriving); a player who dies starts again from where the run began. Variants: nearer with less time, farther with more, or a **spotter UFO**: shoot it down and the rocks fall wide | yes |
+  | II: The ground war | The long night | Survive a night (about 4 minutes) without dying; three alien landing parties come. By day the clock speeds up smoothly to dusk first (a time-lapse of about ten seconds, no jump). A death loses the night: the clock eases on to the next dusk and it starts over | yes |
+  | II | Laser patrol | Wipe out a landed green patrol; its leader carries the **laser blaster** | |
+  | II | Scout hunter | Shoot down three UFOs | yes |
+  | II | Gray squad | Wipe out a gray squad; its leader carries the **laser minigun** | |
+  | II | Don't look up | **Abductor ships hunt you:** each flies in over a player and beams them up; whoever reaches the ship is lost (it counts as a death). Hold out until the clock runs down (2:30; 2:00 with more ships, or 3:00 with two landing parties sent to flush you out): keep moving out from under the beam (it follows slowly), shoot the ship (a hit breaks the beam and drives it off) or get under a roof. **Every player taken sets the clock back a minute.** Halfway, a landing party comes to flush you out of cover. Online the hunters go for every player | yes |
+  | II | Crash site | A UFO comes down on fire nearby (you see it fall). Get there first and hold the site (an orange ring: the clock runs while one of you is in it and no alien is; an alien in it stops the clock, "contested") while the alien recovery team drops in, squad after squad (1:30; shorter and more often attacked, longer, or with a gunship circling over it, by variant). Then walk up to the wreck to **loot it** (what a large UFO's wreck gives) | yes |
+  | II or III | Village under attack | Shoot down three raiders burning a village (they stay until shot down) | yes |
+  | II or III | Hold the line | Our **radio beacon** (a blue ring and a blinking mast light on open ground nearby) must be held for two minutes: the clock runs while one of you stands by it and no alien does. Squads keep dropping in on it (every 22 to 32 s by variant; a gunship strafes it in one variant). Comes after Laser patrol | yes |
+  | II or III | Rescue | **Abductor carriers** rise from a village (or a farm) with people and animals aboard, hover a few seconds and make off low and slow, climbing, and never stop to fight. Shoot three down before they get 360 blocks away: their captives fall free and walk off. One that gets away is gone, and more come. Variants: a gunship escort, quicker carriers, or four of them. Comes after Laser patrol | yes |
+  | III: The air war | Take to the air | Take a jet (F-22 or F-16) parked at an airport and take off | |
+  | III | Touchdown | Land a jet on an airport's runway and stop; a red squad then drops in on the ground: finish it (get out with `F`) | |
+  | III | Dogfight | Shoot down two UFOs from the jet | yes |
+  | III | Air superiority | Shoot down the hijacked fighter hunting you | yes |
+  | III | Red brutes | Wipe out a red squad; its leader carries the **railgun** (on its back, plain to see) and always drops it, however it dies: the marker then points at it until someone picks it up | |
+  | III | Falling stars | A meteor storm at night (by day the clock eases on to the night first): dodge the rocks (a red ring marks each landing 4.5 s ahead) and collect four glowing star fragments from the craters before alien salvagers take them | yes |
+  | III or IV | Sabotage | **Signal beacons** (pods that land around you, each sending up a pink column of sparks) call in a UFO every 50 s or so while they stand: destroy three (four in one variant). Each has a few aliens guarding it, set out when you come near. Variants: spread farther apart, or calling more often. Comes after Gray squad | yes |
+  | III | Salvage | The next UFO you down lands intact: board it (alien ships, hangar ones too, are yours from now on) | |
+  | III or IV | Big game | Bring down a large UFO | yes |
+  | III or IV | Scramble! | A wing of hijacked fighters comes at you all at once: shoot down three (take a fighter from the airport, or lock on with the bazooka) | yes |
+  | IV: The counter-offensive | Operation Sunburn | Take the **B-2 bomber** from your airport, fly to the far-off airport the aliens turned into a base and drop the nuke on it (`B`); guard UFOs and a fighter defend it. A lost B-2 is replaced at its airport | |
+  | IV | Steal the ship | Soldiers keep a captured alien ship in the underground bunker of an airport: fight your way past the armed guards, board it (`F`), and when they seal the blast doors switch on **ghost mode** (`G`) and burn your way out through the rock; get 150 blocks clear | |
+  | IV | The Overlord | **Boss:** a shielded mothership. Shoot down its pylons to drop the shield, then hit the hull (the railgun is made for it) before the shield returns: four shield rounds, an escort, and a red squad dropped on you. Doable on foot | |
+  | IV | UFO slayer | Shoot down twenty-five more | yes |
+  | IV | Abductions | Abductor UFOs beam up a village's people and animals: shoot down three of them | yes |
+  | IV | Titan | Bring down a **titan**, the biggest alien ship (well over a hundred blocks across); its crew comes out fighting | yes |
+  | IV | Night of the swarm | A night of swarms: small, fast UFOs fill the sky while red and blue landing parties hunt you. Survive until dawn and shoot down eight (the clock eases to dusk like the long night's) | yes |
+  | IV | The fortress | A garrison of red brutes, blue and gray aliens (two leaders) dug in on open ground, heavy UFOs over it: kill ten | yes |
+  | Finale | The Armada | **The finale:** the Dreadnought, a titan behind five shields held up by pylons, with escorts, hijacked fighters and squads dropping in. Bring it down and the war is won: a victory screen, and the sky stays busy for free play | |
 
-  Each mission also sets the sky, and in Survival **only the missions do**
-  (the UFO activity, spawn chance, max count and size settings are
-  Creative's and hidden in Survival): no UFOs at all for the first two
-  missions, then a single small one, then more and bigger ones (medium,
+  **Rewards** (apples and golden apples only) grow with the place: 3-4
+  apples for the first missions, one golden apple from the fourth place, two
+  or three around the middle of the campaign, up to ten at the end; the
+  Armada gives 20 golden apples, the Overlord six extra, UFO slayer four,
+  Operation Sunburn and the Titan three, Steal the ship two, Big game and the
+  swarm one.
+
+  Each place in the campaign also sets the sky, and in Survival **only the
+  missions do** (the UFO activity, spawn chance, max count and size
+  settings are Creative's and hidden in Survival): no UFOs at all for the
+  first two missions of any campaign, then a single small one, then more and bigger ones (medium,
   large, motherships and, at the very end, giants), with health, damage,
   aggression and numbers growing along the chain. Every UFO carries one kind
   of alien (green early, grays and reds later).
 
   **A mission's own targets are kept** (Round 9): the scout, the raiders,
   the large UFO of Big game, the titan, the boss and its pylons, the
-  abductors, the base's guards, and any UFO you have hit during a hunt never
-  fly off, despawn or get swapped for a fresh one: one that strays far is
+  abductors, the base's guards, and any UFO you have hit during a hunt, the
+  hunters of Don't look up, the carriers of Rescue and the signal beacons
+  of Sabotage never fly off, despawn or get swapped for a fresh one: one that strays far is
   called back toward the nearest player, and its damage stays. Steal the
   ship always has exactly one ship: the bunker's own (if it is lost after
   boarding, the bunker sets out a new one, for everyone online).
@@ -195,23 +261,26 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
   meteor", "Shot down by Bob", and so on.
 - **Where weapons come from** (each lane has its own weapons, so nothing
   arrives twice or out of order):
-  - **The skeleton** (mission 1): the bow.
-  - **Supply crates** (the first one with mission 3, then every 1.5 to 3 minutes
+  - **The skeleton** ("The archer", always first or second): the bow.
+  - **Supply crates** (the first one with "Supply drop", then every 1.5 to 3 minutes
     after it): a standard weapon you don't have yet while any are left, the
     lower ones first as the chain unlocks them (pistol; grenades, machine
     gun; sniper rifle; bazooka; airstrike designator), plus golden
     apples, food and sometimes a tool.
-  - **Aliens:** their leaders (missions 7, 9 and 15) carry the alien
+  - **Aliens:** their leaders ("Laser patrol", "Gray squad" and "Red
+    brutes", always in that order) carry the alien
     weapons (slung on their backs): laser blaster, laser minigun, railgun.
     A leader always drops its weapon, whoever or whatever kills it, while
     someone in the group still lacks it, and the drop never despawns. Later on ordinary aliens
     of that kind or stronger can drop one you missed. Otherwise aliens drop
     food, tools and golden apples, better the further you are.
+  - **Chests** in villages and cities: now and then a standard weapon the
+    campaign already allows (see **Survival basics**).
   - **Missions:** apples and golden apples only.
   - Downed UFOs and enemy fighters drop food, tools and golden apples.
 - **Supply crates:** a crate drifts down on a parachute near you, trailing
   orange smoke (the tracker shows how far it is). Walk up to it.
-- **Difficulty curve:** follows the missions (see above).
+- **Difficulty curve:** follows your place in the campaign (see above).
 
 ### Creatures
 
@@ -269,9 +338,10 @@ hold something else.
   farther and faster** (135 blocks/s, almost flat, 10 damage); a quick flick
   still drops in an arc. Arrows stick where they land.
 
-- **Pistol:** real bullets (fast projectiles, 240 blocks/s) with a muzzle
-  flash and recoil. Bullets spark and leave holes in blocks, and hurt and
-  push back creatures.
+- **Pistol:** real bullets (175 blocks/s) with a muzzle flash and recoil.
+  Bullets spark, ricochet and leave holes in blocks, and hurt and push back
+  creatures. Like every gun's bullet they take time to arrive: lead a moving
+  target.
 - **Grenade:** hold right click to charge the throw (the bar under the
   crosshair fills in about 1.5 s), release to throw. A quick click lobs it a
   few blocks, a full charge about 25. It bounces and rolls, blinks, and
@@ -282,25 +352,36 @@ hold something else.
   target near the crosshair to **lock on** (a box closes in on it, the tone
   speeds up, then LOCK); **release** to launch a homing rocket. A quick click
   fires an unguided one. It can hit you too: keep your distance.
-- **Machine gun:** hold right click for automatic fire with tracers and
-  climbing recoil.
+- **Machine gun:** hold right click for automatic fire (12 rounds a second):
+  real bullets (190 blocks/s) with a tracer on every round, and spread and
+  recoil that climb the longer you hold the trigger. Far, moving targets need
+  a lead.
 - **Sniper rifle:** right click scopes in (a zoomed view through a scope),
-  left click fires a long-range, high-damage shot.
-- **Laser pistol (blaster):** short glowing sci-fi bolts in red, green or blue
-  (**Settings > Weapons**) that glow, spark on impact and leave scorch marks.
-  Hold right click for continuous fire: each bolt hits a little harder (6)
-  than a pistol round (5), and it never reloads.
+  left click fires a long-range, high-damage bullet: the fastest of the guns
+  (480 blocks/s), so only a long shot at a moving target needs a small lead.
+- **Laser pistol (blaster):** glowing sci-fi bolts in red, green or blue
+  (**Settings > Weapons**) that streak out far faster than any bullet (650
+  blocks/s), spark on impact and leave scorch marks. Hold right click for
+  continuous fire: each bolt hits a little harder (6) than a pistol round
+  (5), and it never reloads.
 - **Railgun:** hold right click for about a second (glowing coils, a rising
   whine), then one extremely bright beam that **destroys every block along
   its line** and hits every creature, UFO and vehicle in it, very hard.
 - **Laser minigun:** hold right click: the barrels spin up for a second, then
-  a huge stream of laser bolts.
+  a huge stream of laser bolts (680 blocks/s, like the blaster's: lasers are
+  about three and a half times as fast as the pistol's and machine gun's
+  bullets).
 - **Airstrike designator:** aim its laser and right click. After the delay a
   shower of meteors screams in at an angle from high up and far away: each
   one has a glowing, white-hot core, a heat glow, a fiery tail and a long
   smoke trail, and lands with a flash, a shockwave and a crater. Settings:
   meteors per strike, spread radius, delay, fall angle, fall speed and
   explosion size.
+
+With a long view range (over 300 blocks) the pistol's and machine gun's
+bullets fly half as fast again, so far targets aren't seconds away; they
+stay well behind the lasers. Online, the other players see every bullet fly and hear
+the gun that fired it.
 
 Explosions shake the camera and sound quieter, more muffled and later the
 farther away they are. Sand and gravel fall when the ground under them is
@@ -359,7 +440,16 @@ keeps running there (it just isn't drawn).
 - **Survival together:** one mission chain for the whole group, the host's.
   Everyone's kills and deeds count toward the objectives (the tracker, the
   yellow marker and the boss bar show the same mission to everyone), and a
-  finished mission **rewards every player**. **One shared world** (Round 8):
+  finished mission **rewards every player**. The campaign is the host's:
+  every guest sees the host's missions, in the host's order, with the same
+  rewards and the same classified list, and a dusk the host's clock eases
+  toward runs the same way on every screen. The new missions count everyone
+  too: the hunters of Don't look up go for every player (a guest in a beam
+  is lifted on their own screen, and a guest taken sets the clock back for
+  the group), a zone is held by whoever is in it, every player has to reach
+  the shelter in Run for cover, and the zones, the shelter, the
+  bombardment's rings and the signal beacons' columns show on every screen.
+  **One shared world** (Round 8):
   every item lying anywhere (loot, a mined block, a dead player's things)
   and every supply crate is the same for everyone, and only one player can
   pick each up; every walking creature is the host's and the same for all,
@@ -417,6 +507,9 @@ keeps running there (it just isn't drawn).
   hurts you, not even their nuke (Round 9: it used to). The aliens, UFOs,
   enemy fighters, crashes and meteors always hurt. In a Dogfight it is
   always on.
+- **Chests** are the host's: everyone sees the same contents, two players
+  can have the same chest open at once and see each other's clicks, and
+  what a broken chest held drops for everyone.
 - At the end of a **Dogfight** the results screen frees the mouse and its
   buttons work (new match, close).
 - To try it alone, open the game in **two browser tabs or windows** on one
@@ -472,8 +565,8 @@ playerJoined, playerLeft })` runs alongside the game's own modules (`mp` is
 UFOs roam the skies anywhere from treetop height to high overhead. They are
 **plain, clean shapes** (they look real because they are simple: no
 lights, panels or portholes): **smooth saucers** are the most common (lens,
-flat disc and gently domed, each with its own proportions), then **gray-black
-spheres** with a grainy surface, **white tic-tacs**, **tori** (rings), rounded
+flat disc and gently domed, each with its own proportions), then the **BALL UFO** (a
+gray-black sphere with a grainy surface), **white tic-tacs**, **tori** (rings), rounded
 a large flat black **triangle** with dim lights at the corners, plus the
 odd **boomerang** and **cylinder** (real-sighting shapes: they fly along their
 long axis). Finishes vary: brushed metal, satin,
@@ -547,8 +640,8 @@ the world, including the one you're sitting in.
 Board a UFO that came down in one piece, or one of the small ships that
 sometimes hover in the hall of a **secured underground bunker** at an
 airport (armed human guards stand watch and open fire when you enter the
-restricted zone; in Survival boarding works from mission 17,
-"Salvage"; before that they are locked), or in Creative spawn one from the
+restricted zone; in Survival boarding works from the "Salvage" mission;
+before that they are locked), or in Creative spawn one from the
 **Mods** screen (any shape and size). It has no physics limits (and no ceiling: fly as high as you like): it hovers
 perfectly still and moves instantly in any direction. The camera keeps the
 ship low in the view so the crosshair is always clear.
@@ -564,7 +657,8 @@ ship low in the view so the crosshair is always clear.
 | The ship's own weapon (what its kind fires: rapid bursts, heavy plasma, spread fans, charged shots, a sweeping beam, seeker plasma or pulse bolts; bigger ships hit harder) | Left click |
 | Tractor beam: works at **any altitude**; lifts creatures and loose blocks, and a bigger ship also **pulls in and swallows smaller UFOs** (at least 1.3x smaller) **and enemy jets** (ship radius 6.5+) | Hold right click |
 | **Lock-on salvo**: lock the UFO, jet or hostile creature nearest the crosshair; after 3 s a salvo of homing laser bolts (more for bigger ships) leaves by itself; let go earlier to cancel; 7 s to recharge | Hold `T` |
-| **Teleport dash**: the ship streaks along the view at extreme speed (a split second; distance, travel time or off in Settings > Vehicles; shown in the I panel). **Hold** `R` to keep streaking, with no distance limit. Every ship has its own random dash speed (about 900-3500 b/s) | `R` |
+| **Teleport dash**: the ship streaks along the view at extreme speed (a split second; distance, travel time or off in Settings > Vehicles; shown in the I panel) and always ends somewhere in view. **Hold** `R` to keep streaking, with no distance limit: it gathers speed over a second or so, and never runs ahead of the land drawn around you (on a slower computer it waits a moment for the world to catch up). Every ship has its own random dash speed (about 900-3500 b/s) | `R` |
+| **Ghost ram**: with ghost mode on (`G`), a dash rams everything it flies through: creatures, UFOs, parked or flying aircraft (and other players, when the room allows PvP), each once per dash, for heavy damage that grows with your ship's size (half against a boss, nothing through a shield). Each ship or aircraft you plough through costs your hull 3%, and a dash that rammed anything has the full 2.5 s cooldown | `R` with `G` on |
 | **Superweapon**: after a short charge, a huge laser straight down; hold the ship moving and it carves a continuous trench along its path | `B` |
 | **Ghost mode** (fly through terrain; shown in the HUD) | `G` |
 | Chase camera / far / belly view | `F5` |
@@ -572,19 +666,26 @@ ship low in the view so the crosshair is always clear.
 
 **Settings > Vehicles:** top and slowest speed, **ghost mode** (fly through
 the terrain, burning a tunnel), whether the beam lifts blocks, and the
-**teleport dash** distance (Off, 0.5x-3x) and travel time (0.08-0.6 s). Creatures
+**teleport dash** distance (Off, 0.5x-3x) and travel time (0.08-0.6 s). The
+dash goes at most about four fifths of the view distance on a tap, levels
+off at height 2500 when held (fly higher on your own), and a tap held a
+moment too long no longer sends you on. Creatures
 you beam up are "stored": their drops go to your inventory, as do the blocks.
 
 ### Fighter jet
 
 **There is no calling in a jet:** fighters stand **parked at airports**, in front
-of the hangars (F-22 Raptors and F-16 Fighting Falcons), and a **B-2 Spirit**
-bomber at every airport: in its own spot on the apron, or (Round 9) where
+of the hangars (F-22 Raptors and F-16 Fighting Falcons), and (Round 10) now and
+then **inside a hangar**, nose to the open doorway, with a clear way out to the
+taxiway (nothing is parked in front of it): get in and taxi straight out. And a
+**B-2 Spirit** bomber at every airport (always outside: it is too big for a
+hangar): in its own spot on the apron, or (Round 9) where
 the apron has no room for its wing, on the runway just past the end of the
 apron, lined up for takeoff. Walk up to one and press **F** (the B-2 near
-the middle of its wing). In Survival that works from mission 10, "Take to the air" (the
+the middle of its wing). In Survival that works from "Take to the air" (the
 marker points at the nearest parked fighter; **F3** shows the nearest airport);
-the B-2, and with it the nuke, from mission 19, Operation Sunburn.
+the B-2, and with it the nuke, from Operation Sunburn (a locked aircraft's
+message names that mission's number in your campaign).
 The **F-22 Raptor** is a heavy stealth fighter (160 health, faster,
 four-missile salvos); the **F-16 Fighting Falcon** is light and agile (130
 health, turns and rolls harder, a faster-firing cannon, a shorter takeoff
@@ -600,8 +701,14 @@ dimmer by day); the formation strips and the cockpit glow are night-only.
 fixed per airport and slot (about half are grey; the same for every player).
 
 **The B-2 Spirit** (Round 8) is the only aircraft that carries the **nuke**
-(`B`; in a fighter `B` just says so). A big flying wing with the sawtooth
-trailing edge, moving elevons and drag rudders and tall landing gear: half a
+(`B`; in a fighter `B` just says so). A big flying wing modelled closely on the real one (Round 10): the real
+twelve-edge planform (two leading edges swept 33 degrees, the double-W
+sawtooth trailing edge with every edge parallel to one of them), a blended
+body humped over the cockpit and bays and thinning to sharp wingtips, the
+four-pane windscreen, intake scoops with jagged lips, recessed exhaust
+troughs with their light heat-shield decks, sawtooth-edged doors and panels,
+elevons, split drag rudders and the beaver tail that move, and landing gear
+with four-wheel main bogies and doors that stand open while it is down: half a
 fighter's top speed, slow to turn and roll, 420 health, no afterburner and
 no cannon, missiles one at a time, and a long takeoff roll (about 270
 blocks). Lost, it is replaced at its airport.
@@ -642,6 +749,29 @@ ailerons, elevators and rudders on the model move with your inputs. A jet
 destroyed in the air blows up in a **big fireball** and its burning wreck
 falls and explodes again on impact. The engine sound is much quieter now.
 
+**Hit where it is** (Round 10): every aircraft is hit by its real shape, not
+a ball around it: the F-22 and the F-16 by their fuselage, cockpit, intakes,
+wings, tailplanes and fins, the B-2 by its own planform and thickness, out to
+its wing tips. A shot that passes beside the nose or just over the back
+misses; one that clips a wing tip hits. A blast counts from the nearest part
+of the airframe (one under the wing hurts, one well off the nose or above the
+back doesn't), missiles go off a couple of blocks from the airframe, and the
+same goes for parked aircraft and other players' aircraft online. Standing
+under a parked aircraft's wing no longer shields you: shots that pass under
+the wing reach you, and only the ones that meet the wing hit it. UFOs (yours
+and the enemy's) keep their shapes.
+
+**Collisions** (Round 10): aircraft that touch, on the runway or in the air,
+are hurt by how fast they meet: a gentle bump (under about 4 blocks/s) just
+stops them with a knock, a taxiing scrape dents both, and a real crash (about
+28 blocks/s or more between them, such as head-on in the air) destroys both,
+with the usual explosion: eject in time. The heavier one takes less: a B-2
+shrugs off a bump that would wreck a fighter. Your UFO counts too (except
+mid-dash: the dash rams as before). Online every player's aircraft, the
+patrol fighters and the parked ones collide alike, and each collision is
+counted once.
+
+
 | Action | Key |
 | --- | --- |
 | Steer | Mouse (with **flight assist**, the default: fly toward the crosshair; the little nose marker shows where the jet points) |
@@ -678,8 +808,9 @@ yours, and **hunt UFOs** (only UFOs: they help, but never clear the sky for
 you: weaker against UFOs, long pauses, at most three kills, and their kills
 don't count as yours). They leave you alone, whatever you shoot, unless you
 attack one of them: **only that fighter** turns on you (a message says so),
-with missiles from a distance and then its cannon, flares and breaks. The
-one exception is the hijacked fighter of mission 13 (Air superiority), in a darker paint.
+with missiles from a distance and then its cannon, flares and breaks (Round 10: it breaks off rather than ram you; aircraft that
+touch now crash). The
+one exception is the hijacked fighter of Air superiority, in a darker paint.
 **Settings > Vehicles:** how many patrol at once (0-3, default 1).
 
 **The nuke** goes off with a blinding white flash, a fireball, a shockwave
@@ -704,7 +835,9 @@ The pause menu's **Stats** screen counts, for this world and for all your
 worlds: UFOs shot down, play time, aliens, zombies and skeletons killed, deaths,
 abductions survived, times abducted, creatures you abducted, UFOs boarded,
 jets called in, missile hits, nukes dropped, fighters (hijacked or patrol) and
-motherships/giants shot down, and supply crates opened. **Settings > Gameplay >
+motherships/giants shot down, supply crates opened, and the new missions'
+counts: time holding ground (and holding out), shelters reached, crash
+sites looted, carriers shot down and signal beacons destroyed. **Settings > Gameplay >
 Stats on the HUD** shows UFOs shot down and play time in a corner (off by
 default).
 
@@ -815,17 +948,27 @@ comes alive with grass, reeds along the water, ferns in the shade of trees,
 and flowers.
 
 **Villages** (Round 8: bigger: a cobbled plaza with a well, gravel streets,
-six to ten houses with windows and lit doors, farm plots, lamp posts, up to
-five villagers), and much bigger **airports and cities**, are rarer (and spread far apart), except for one regular
+six to ten houses with windows, farm plots, lamp posts, up to five villagers;
+Round 10: wall torches inside every house and beside every door, and a
+**chest** with loot in about half the houses, one more in the biggest), and
+much bigger **airports and cities**, are rarer (and spread far apart), except for one regular
 airport close to where a new world starts (**F3** shows the nearest). The land is levelled under them, distant terrain
 included. **Airports** come in three sizes (small field, regional,
 international) with runways from 600 to 920 blocks long and 18-26 wide, an
 apron, 2-4 hangars, a tower, a terminal, fuel tanks, a radar and parked
-fighters; many hide a **secured underground bunker** (a ramp down from the
+fighters (Round 10: at about two airports in five, one of them, now and then
+two, waits inside a hangar whose way out is clear; such a hangar has its
+torches on the walls. A hangar only takes a fighter where the airport still
+keeps room for four, so a group of up to four always finds a jet each);
+many hide a **secured underground bunker** (a ramp down from the
 apron to a lit hall) with an alien ship inside and armed human guards who
 open fire when you enter the restricted zone. **Cities** have streets,
 parks, houses, mid-rise blocks and **skyscrapers** up to about 80 blocks with
-setbacks, glass walls and rooftop antennas. At night an airport's runway
+setbacks, glass walls and rooftop antennas; (Round 10) every building has
+**wall torches** beside its door and in its lobby, and about a third of them
+a **chest** in a back corner of the lobby (walk in through the door: loot
+rolled the first time anyone opens it, like the village chests; the host's
+online). At night an airport's runway
 lights show the way within the view distance, dimming with distance and
 fading into the fog like the land around them. Supply crates are redesigned (planks, steel brackets, a red
 cross; cords tied from the crate to the parachute's rim) and only ever land
@@ -843,11 +986,13 @@ now and then one stretches for many kilometres.
 
 - An **airport** has a long dark runway with markings, threshold stripes and
   edge lights that glow at night, an apron with hangars and fighters parked
-  in front of them, a control tower, a terminal, fuel tanks, a radar, a few
-  villagers walking about and, often, a guarded bunker.
+  in front of them (now and then one inside a hangar), a control tower, a
+  terminal, fuel tanks, a radar, a few villagers walking about and, often, a
+  guarded bunker.
 - A **city** is an airport with a grid of streets and lots of all kinds next
   to it: skyscrapers with windows and lit rooms, mid-rise blocks, houses,
-  parks, street lamps, and a crowd of villagers.
+  parks, street lamps, wall torches by the doors, chests in some lobbies, and
+  a crowd of villagers.
 
 ## Sharing a world
 
@@ -918,9 +1063,13 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has thirteen test suites (`cd tools && npm install && npm test`; the
-browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
-environment variable):
+`/tools` has twenty-one test suites (`cd tools && npm install && npm test`
+runs them all; `npm run test:r10` just the Round 10 ones; the browser tests
+need a Chromium binary, set with the `CHROMIUM_PATH` environment variable).
+`chaos-tests.mjs` takes 400 random steps (missions, modes, vehicles, blasts,
+screens, saves, respawns) looking for errors; `perf-tests.mjs` checks the
+streaming budget and that worker-built chunks and meshes match the main
+thread's byte for byte:
 
 - `mp-damage-tests.mjs` (Round 9): the multiplayer **damage matrix**. A
   host and a guest in two headless pages (real PeerJS + WebRTC, a local
@@ -937,7 +1086,8 @@ environment variable):
   `probe-out/damage-matrix.json`. About 10 minutes;
   `--only=guest|host`, `--weapon=a,b`, `--target=a,b` narrow it.
 - `mp-round9-tests.mjs` (Round 9): a host and **two guests** (three pages):
-  the goals for three players, missions 18-20 with guests (Big game's ship
+  the goals for three players, Big game, Operation Sunburn and Steal the
+  ship with guests (Big game's ship
   the same on every screen, hit by a guest, kept near a guest far from the
   host; Operation Sunburn completed by a guest's nuke; Steal the ship with
   one ship on every screen, boarded by a guest, lost and replaced once),
@@ -947,10 +1097,78 @@ environment variable):
   minutes.
 - `round9-tests.mjs` (Round 9): mission targets kept (Big game, the village
   raid, scouts), Steal the ship's single ship, death messages, respawning
-  around a mission, missions 23-28 and the victory screen, the call-ins,
+  around a mission, the classic order's last six missions (Scramble! to
+  The Armada) and the victory screen, the call-ins,
   mode switching, the flatter terrain and flat spawn, the airport lights'
   fade, no land creatures in water and the blue alien's matte head. About a
   minute.
+- `r10-missions-tests.mjs` (Round 10): the random campaign and the smooth
+  dusk. Automation plays the classic chain; a drawn campaign plays by its
+  places (the tracker, the classified mission list, jets unlocked by mission
+  id, crates after the supply drop, a save keeps the campaign); the long
+  night's clock eases to dusk (only forward, speeding up then slowing to
+  normal speed) and a lost night eases on to the next dusk; a guest mirrors
+  the host's campaign (its order, the place's reward, the victory screen on
+  the final, the host's dusk on its sky), at the unit level on one page.
+  And the new missions: Don't look up (hunters come, kept and angry; the
+  clock runs; a player taken sets it back a minute; done, and the hunters
+  leave), Crash site (a UFO falls, its wreck and the zone; the clock runs in
+  it and stops while an alien is in it; the recovery team; the wreck looted),
+  Run for cover (the shelter, the rings and the spotter, the zone and rings
+  sent to guests, arriving counts), Sabotage (beacons land, are guarded,
+  stay grounded when shot, count when destroyed) and Rescue (carriers run at
+  their own pace, count when shot down, captives freed). `--only` takes
+  several substrings separated by `|`. About 6 minutes in all. (The
+  campaign's rules over hundreds of seeds: `unit-tests.mjs`.)
+- `r10-dash-tests.mjs` (Round 10): the UFO dash: a tap ends in view and a
+  moment too long on `R` adds nothing (at 60 and 20 frames a second), ghost
+  mode while flying dashes along the view (it used to fly off thousands of
+  blocks), the held streak gathers speed, never runs far ahead of the drawn
+  ground and stops on release, the dash ceiling, the world's edge and bad
+  settings, the ghost ram (creatures, UFOs, aircraft once each, half to a
+  boss, nothing through a shield, a knock to your own hull; a plain dash
+  passes through), and another player's dash drawn with the smear. Under a
+  minute.
+- `r10-villages-tests.mjs` (Round 10): a village's wall torches hang on real
+  walls and light the rooms, and houses have chests facing into the room; a
+  torch on the side of a block hangs on it (on top it stands, underneath it
+  doesn't go) with its own selection box; right click opens a chest and a
+  real shift-click takes a stack; a reload keeps what is left; a broken wall
+  drops its torch; a broken chest spills its contents and one put back starts
+  empty; meshes of chunks with the new blocks are byte for byte the same from
+  the workers. About 2 minutes. `--mp` adds the online checks (a host and a
+  guest through a local PeerJS server): the guest sees the host's contents,
+  both screens show each other's clicks, a stale click is refused with
+  nothing lost, and a chest the guest breaks spills for both.
+- `r10-hangars-tests.mjs` (Round 10): an airport with a fighter in a hangar
+  (inside, nose to the doorway, lights off, nothing solid overlapping its
+  model, the hangar's shell the same as a plain one's), its wall torches on
+  real walls and lit, a clear and flat way out to the runway with nothing
+  parked in it, as many fighters as before and the same slots for every
+  peer, the marker finding it, boarding it, getting out inside onto the
+  floor, taxiing out without a scrape, a taken jet keeping its hangar empty
+  (here or another player's) and a lost one set out again; a city's chests
+  reachable from the street with wall torches on real walls, and a right
+  click opening one with loot. About 20 seconds.
+- `r10-weapons-tests.mjs` (Round 10): the guns' real bullets and the
+  lasers' speed: a machine-gun bullet takes time to reach a far target, the
+  lasers outrun every bullet, a very fast bolt over a very long step (a slow
+  frame) never passes through a wall or a creature and strikes the nearest
+  thing first, and bolts are reused (no garbage per shot). Each check runs
+  in one step of the page, so the machine's frame rate doesn't matter.
+
+- `r10-planes-tests.mjs` (Round 10): the aircraft's hit shapes and
+  collisions. In Node, the shapes themselves (a ray beside a fighter's nose
+  or over its back misses, one through a wing tip or a fin hits, the F-16's
+  wingtip missile and the B-2's wing tips count, a block under the B-2's wing
+  is clear, distances to the airframe, two fighters passing through each
+  other in one long frame touch). In the game: a player's bolt beside a
+  fighter's nose or over its back misses and one through the wing tip hits;
+  an alien's shot at a player standing under a B-2's wing reaches the player
+  and one from above meets the wing; a blast under a fighter's wing hurts it
+  and one well over its back doesn't; two jets meeting head-on both blow up;
+  a gentle bump on the runway stops the jet and leaves both nearly intact; a
+  taxiing scrape dents both and destroys neither. About a minute.
 
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client
@@ -981,7 +1199,7 @@ environment variable):
   missile, full control during a lock and the salvo charge, UFOs with no
   ceiling, the tractor beam pulling in UFOs and jets, the lock-on salvo, the
   Touchdown, Falling stars and Overlord missions, and the mission chain
-  (28 missions since Round 9).
+  (the classic order of 28 missions since Round 9).
 - `round5-tests.mjs`: the Round 5 features in the real game: the defaults,
   jet throttle and speed, loops and rolls, free look (both mouse buttons),
   armor, bunkers with guards, supply drops on dry land, breakable grass, the
@@ -1005,7 +1223,11 @@ environment variable):
 - `unit-tests.mjs`: fast Node tests of the pure logic (save format, the
   voxel light engine against a brute-force reference, terrain, caves, trees
   and water, mining rules, inventory, collision, explosion falloff,
-  distant-terrain meshes, airports and cities, the mission chain and loot).
+  distant-terrain meshes, airports and cities, the mission chain (the
+  classic order, and 200 random campaigns checked against every ordering
+  rule) and the new missions' rules (real stats, an act, a reward and the
+  right acts in 300 campaigns; twists and variant goals; the clock set back),
+  and loot).
 - `ufo-tests.mjs`: the UFO COMBAT features in the real game in headless
   Chromium (menus, settings and presets, weapons, the airstrike, the laser
   blaster, the sniper scope, binoculars, mods on/off, zombie crowds, and the

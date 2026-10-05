@@ -718,7 +718,8 @@ const stepMission = (id, n = 8) =>
 await check("mission chain: 28 missions in the right order (touchdown after wings, meteors, Steal the ship after Sunburn, the Overlord before the slayer, Round 9's counterattack after it, the Armada last)", async () => {
   const r = await v(async () => {
     const { MISSIONS } = await import("./js/progression.js");
-    const ids = MISSIONS.map((m) => m.id);
+    // (Round 10: the classic chain is the pool's first 28; the new missions follow it.)
+    const ids = MISSIONS.slice(0, 28).map((m) => m.id);
     return { n: ids.length, ids };
   });
   const at = (id) => r.ids.indexOf(id);

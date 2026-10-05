@@ -26,7 +26,7 @@
 // (0: u is world x, 1: u is world z) and `flip` (the side v points to)
 // orient it in the world.
 import { hash2, mulberry32 } from "./noise.js";
-import { BLOCK } from "./blocks.js";
+import { BLOCK, wallTorch, chest } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 
 export const SITE_CELL = 1300; // grid cell a site candidate is picked from (Round 6: bigger cells and lower chances: airports are rarer)
@@ -40,6 +40,11 @@ const KIND_SALT = 0x51a7e001;
 const PLACE_SALT = 0x51a7e002;
 const ORIENT_SALT = 0x51a7e003;
 const SIZE_SALT = 0x51a7e004;
+const JET_HANGAR_SALT = 0x51a7e005;
+const LOT_DECO_SALT = 0x51a7e006;
+const JET_HANGAR_CHANCE = 0.5; // (Round 10) the share of hangars with a fighter in them (where the way out is clear)
+const MIN_ROOM = 4; // (Round 10) a hangar takes a fighter only where the airport keeps room for this many (or as many as before): a group of four always finds a jet each
+const CITY_CHEST_CHANCE = 0.3; // (Round 10) the share of city buildings with a chest in the lobby
 
 // The smallest runway's half length (what older callers assume); each site
 // has its own: `site.half`, and `site.rw` for its half width.
@@ -61,6 +66,7 @@ const CITY_V_GAP = 6; // between the apron and the first street of the city
 const LOT = 32; // city grid pitch (24 lot + 8 street)
 const BUNKER_H = 10; // clear height of the bunker hall
 const BUNKER_RAMP = 24; // length of the ramp down (a drop of 12)
+const HANGAR_JET_BACK = 9.5; // (Round 10) a hangar's fighter: its centre this far in front of the back wall
 
 const ROOFS = [BLOCK.COBBLESTONE, BLOCK.STONE, BLOCK.BRICKS];
 const WALLS = [BLOCK.STONE, BLOCK.BRICKS, BLOCK.TERRACOTTA, BLOCK.PLANKS, BLOCK.COBBLESTONE, BLOCK.WOOL];
@@ -373,7 +379,89 @@ export class SiteGrower {
         lots.push(lot);
       }
     }
+    // (Round 10: after the layout's random stream, from hashes of their own: the buildings stay as they were.)
+    for (const lot of lots) lot.deco = this._lotDeco(site, lot);
     return lots;
+  }
+
+  // (Round 10) The hangars that house a fighter (airports.js parks one
+  // inside, nose to the doorway): about half of them, by a hash of the site's
+  // seed (not the layout's random stream: the rest of the plan stays as it
+  // was), and only where the way out to the taxiway is clear: no tower,
+  // terminal, radar, tank or other hangar in front of the doorway, and no
+  // aircraft parked there (the lane is kept free in the parking row), as long
+  // as the airport keeps room for MIN_ROOM fighters (or as many as before):
+  // the row and the hangars together, a hangar's jet being one of them, and
+  // the B-2 keeps its slot in the row.
+  // Such a hangar has more lights on its walls (h.wt: the wall torches
+  // facing +u, -u and -v) and none on the middle line, under the jet.
+  // Worked out once per site, when first needed (its chunks or its parking
+  // slots), so the many sites only planned for a survey don't pay.
+  _ensureJetHangars(site) {
+    if (site._jets) return;
+    site._jets = true;
+    const t = site.tower;
+    const tm = site.terminal;
+    const rd = site.radar;
+    const boxes = [];
+    if (t) boxes.push([t.u0 - 2, t.u1 + 2, t.v0 - 2, t.v1 + 2]);
+    if (tm) boxes.push([tm.u0, tm.u1, tm.v0, tm.v1]);
+    if (rd) boxes.push([rd.u - rd.r - 1, rd.u + rd.r + 1, rd.v - rd.r - 1, rd.v + rd.r + 1]);
+    for (const k of site.tanks) boxes.push([k.u - k.r - 1, k.u + k.r + 1, k.v - k.r - 1, k.v + k.r + 1]);
+    for (const h of site.hangars) boxes.push([h.u0, h.u1, h.v0, h.v1]);
+    const [ux, uz] = this.dirU(site);
+    const [vx, vz] = this.dirV(site);
+    const lanes = [];
+    const base = this._row(site, lanes);
+    const room = base.fighters;
+    for (const h of site.hangars) {
+      h.jet = false;
+      if (hash2((site.seed ^ JET_HANGAR_SALT) >>> 0, h.id, 7) >= JET_HANGAR_CHANCE) continue;
+      // The way out, from the door to the taxiway: the doorway's width clear
+      // of buildings; in the parking row, the jet's wingspan and a little
+      // more (a parked jet's slot keeps its own room around it).
+      if (boxes.some((b) => b[0] <= h.uc + 9 && b[1] >= h.uc - 9 && b[2] < h.v0 && b[3] >= site.rw + 6)) continue;
+      lanes.push([h.uc - 7, h.uc + 7, site.rw + 6, h.v0 - 1]);
+      const row = this._row(site, lanes);
+      // (Nor where the lane takes the B-2's place in the row: it would stand on the runway.)
+      if (row.fighters + lanes.length < Math.min(room, MIN_ROOM) || (base.bomber !== null && row.bomber === null)) {
+        lanes.pop();
+        continue;
+      }
+      h.jet = true;
+      h.wt = [wallTorch(ux, uz), wallTorch(-ux, -uz), wallTorch(-vx, -vz)];
+    }
+    site._lanes = lanes;
+  }
+
+  // (Round 10) A city building's ground floor details: wall torches beside
+  // its door (outside) and on the lobby's back wall, and in some of them a
+  // chest in a back corner of the lobby, its latch toward the door (loot
+  // rolled on first open, chests.js). [{ u, v, y, id }], or null for a park.
+  _lotDeco(site, lot) {
+    const b = lot.boxes[0];
+    if (!b || b.y0 !== 0) return null;
+    const [vx, vz] = this.dirV(site);
+    const out = lot.doorSide === "v0" ? -1 : 1; // (local v: out through the door)
+    const front = out < 0 ? b.v0 : b.v1;
+    const back = out < 0 ? b.v1 : b.v0;
+    const cu = Math.floor((b.u0 + b.u1) / 2);
+    const list = [];
+    // A wall torch at (u, v) on the wall cell (u, wv), at the doorway's top
+    // (a block higher where a window is there): only on a real wall.
+    const torch = (u, v, wv, dir) => {
+      let y = 3;
+      if (this._buildingBlock(lot, u, wv, y) === BLOCK.GLASS) y = 4;
+      const wall = this._buildingBlock(lot, u, wv, y);
+      if (!wall || wall === BLOCK.GLASS) return;
+      list.push({ u, v, y, id: wallTorch(dir * vx, dir * vz) });
+    };
+    torch(cu - 2, front + out, front, out);
+    torch(cu + 2, front + out, front, out);
+    torch(cu, back + out, back, out);
+    const r = hash2((site.seed ^ LOT_DECO_SALT) >>> 0, lot.m, lot.k);
+    if (r < CITY_CHEST_CHANCE) list.push({ u: r < CITY_CHEST_CHANCE / 2 ? b.u0 + 1 : b.u1 - 1, v: back + out, y: 1, id: chest(out * vx, out * vz) });
+    return list;
   }
 
   // The site whose bounding circle covers world column (wx, wz), or null.
@@ -534,9 +622,42 @@ export class SiteGrower {
   // (from the site's plan alone), so every player gets the same slots.
   parkingSlots(site) {
     if (site._slots) return site._slots;
+    this._ensureJetHangars(site);
+    const [vx, vz] = this.dirV(site);
+    const yaw = Math.atan2(vx, vz);
+    const { free, bomber: bu } = this._row(site, site._lanes);
+    const vC = site.rw + 21; // the row's centre line (noses toward the runway)
+    const slot = (u, key) => {
+      const [x, z] = this.toWorld(site, u, vC);
+      return { x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw, u, v: vC, key };
+    };
+    const bomber = bu === null ? null : slot(bu, `${site.id}#b`);
+    // The fighters: as many as fit, in the order of the row.
+    const fighters = [];
+    for (const [f0, f1] of free) {
+      for (let u = f0 + 9; u + 9 <= f1; u += 19) fighters.push(slot(u, `${site.id}#${fighters.length}`));
+    }
+    // (Round 10) The fighters in the hangars: on the middle line, nose to the
+    // doorway, the tail clear of the back wall (a 15-block jet in a hall 16
+    // to 19 deep: its nose a little inside the doorway).
+    const hangars = [];
+    for (const h of site.hangars || []) {
+      if (!h.jet) continue;
+      const v = h.v1 - HANGAR_JET_BACK;
+      const [x, z] = this.toWorld(site, h.uc, v);
+      hangars.push({ x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw, u: h.uc, v, key: `${site.id}#g${h.id}`, hangar: h.id });
+    }
+    site._slots = { fighters, bomber, hangars };
+    return site._slots;
+  }
+
+  // The parking row's free stretches (local u, in the row's order) once the
+  // B-2's is taken out: { free: [[u0, u1]], bomber: the B-2's u or null,
+  // fighters: how many fighters fit }. lanes: the ways out of the fighters'
+  // hangars ([u0, u1, v0, v1]), kept free.
+  _row(site, lanes = []) {
     const a = site.apron;
-    const rw = site.rw;
-    const vC = rw + 21; // the row's centre line (noses toward the runway)
+    const vC = site.rw + 21;
     const band0 = vC - 10;
     const band1 = vC + 10;
     const blocked = [];
@@ -550,6 +671,7 @@ export class SiteGrower {
     const rd = site.radar;
     if (rd) block(rd.u - rd.r - 4, rd.u + rd.r + 4, rd.v - rd.r - 2, rd.v + rd.r + 2);
     for (const h of site.hangars || []) block(h.u0 - 2, h.u1 + 2, h.v0, h.v1);
+    for (const l of lanes) block(...l);
     // The free stretches of the row.
     let free = [[a.u0 + 3, a.u1 - 3]];
     for (const [b0, b1] of blocked) {
@@ -563,28 +685,18 @@ export class SiteGrower {
       }
       free = next;
     }
-    const [vx, vz] = this.dirV(site);
-    const yaw = Math.atan2(vx, vz);
-    const slot = (u, key) => {
-      const [x, z] = this.toWorld(site, u, vC);
-      return { x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw, u, v: vC, key };
-    };
     // The bomber: the start of the longest stretch.
     let bomber = null;
     free.sort((p, q) => q[1] - q[0] - (p[1] - p[0]));
     if (free.length && free[0][1] - free[0][0] >= 54) {
       const [f0, f1] = free[0];
-      bomber = slot(f0 + 27, `${site.id}#b`);
+      bomber = f0 + 27;
       free[0] = [f0 + 55, f1];
     }
-    // The fighters: as many as fit, in the order of the row.
     free.sort((p, q) => p[0] - q[0]);
-    const fighters = [];
-    for (const [f0, f1] of free) {
-      for (let u = f0 + 9; u + 9 <= f1; u += 19) fighters.push(slot(u, `${site.id}#${fighters.length}`));
-    }
-    site._slots = { fighters, bomber };
-    return site._slots;
+    let fighters = 0;
+    for (const [f0, f1] of free) if (f1 - f0 >= 18) fighters += Math.floor((f1 - f0 - 18) / 19) + 1;
+    return { free, bomber, fighters };
   }
 
   // Where aircraft are parked: [{ x, y, z, yaw }] (nose toward the runway).
@@ -747,6 +859,13 @@ export class SiteGrower {
           if (y >= 6 && y <= 8 && v === o.v1 && (u - o.u0) % 5 !== 0) return BLOCK.GLASS;
           return y <= 2 ? BLOCK.COBBLESTONE : BLOCK.STONE;
         }
+        if (o.jet) {
+          // (Round 10) A fighter's hangar: more lights on the walls, none on
+          // the middle line (under the jet and its way out).
+          if (y === 4 && (u === o.u0 + 1 || u === o.u1 - 1) && (v - o.v0) % 6 === 4) return o.wt[u === o.u0 + 1 ? 0 : 1];
+          if (y === 4 && v === o.v1 - 1 && Math.abs(u - o.uc) === 8) return o.wt[2];
+          if (u === o.uc) return 0;
+        }
         if (y === 1 && (u - o.uc) % 8 === 0 && (v - o.v0) % 6 === 3) return BLOCK.TORCH;
         return 0;
       }
@@ -829,6 +948,10 @@ export class SiteGrower {
 
   // A city building (a stack of boxes): hollow, with floors, windows, a door.
   _buildingBlock(o, u, v, y) {
+    // (Round 10) The ground floor's torches and chest (cells that are air otherwise).
+    if (y <= 4 && o.deco) {
+      for (const d of o.deco) if (d.u === u && d.v === v && d.y === y) return d.id;
+    }
     for (const b of o.boxes) {
       if (y <= b.y0 || y > b.y1 + 1) continue;
       if (u < b.u0 || u > b.u1 || v < b.v0 || v > b.v1) continue;
@@ -965,6 +1088,7 @@ export class SiteGrower {
     const bz = cz * S;
     const site = this.siteAt(bx + S / 2, bz + S / 2) || this._nearSite(bx, bz);
     if (!site) return;
+    this._ensureJetHangars(site); // (which hangars hold a fighter: their lights differ)
     const idx = (x, y, z) => (y * S + z) * S + x;
     for (let lz = 0; lz < S; lz++) {
       for (let lx = 0; lx < S; lx++) {

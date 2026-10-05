@@ -8,7 +8,7 @@
 // per tile, so mipmapping never bleeds between tiles); canvases of the
 // same pixels are kept for UI icons.
 import * as THREE from "three";
-import { TILE_NAMES, BLOCK_INFO } from "./blocks.js";
+import { TILE_NAMES, BLOCK_INFO, SHAPE } from "./blocks.js";
 
 export const TEX = 32;
 
@@ -747,6 +747,65 @@ function paintCraftingSide(t, front) {
   }
 }
 
+// (Round 10) The chest, painted to its size: 28 pixels wide (14/16 of a
+// block, x 2-29) and, on the sides, 28 tall from the bottom (rows 4-31; the
+// top's square is rows 2-29). Warm boards in a dark frame, a dark seam
+// between the lid and the base, and an iron latch on the front.
+const CHEST_WOOD = [0x744a1f, 0x845526, 0x93612d, 0xa26d35, 0xb0793e, 0xbd8648].map(hex);
+const CHEST_RIM = [0x3a250f, 0x4a3015, 0x5a3b1b, 0x6a4721].map(hex);
+
+function chestBoards(t, x0, y0, x1, y1, boardH) {
+  for (let y = y0; y <= y1; y++) {
+    const board = Math.floor((y - y0) / boardH);
+    const base = [0.5, 0.62, 0.42, 0.56][board % 4];
+    for (let x = x0; x <= x1; x++) {
+      let f = base + (t.fbm(x, y, 2, 3, board, 16) - 0.5) * 0.5 + (t.rand() - 0.5) * 0.07;
+      if ((y - y0) % boardH === 0) f += 0.12; // (each board's top edge catches the light)
+      t.set(x, y, ramp(CHEST_WOOD, f));
+    }
+  }
+}
+
+function chestFrame(t, x0, y0, x1, y1) {
+  for (let x = x0; x <= x1; x++) {
+    for (const y of [y0, y0 + 1, y1 - 1, y1]) t.set(x, y, CHEST_RIM[y === y0 ? 3 : y === y1 ? 0 : 1 + Math.floor(t.rand() * 2)]);
+  }
+  for (let y = y0; y <= y1; y++) {
+    for (const x of [x0, x0 + 1, x1 - 1, x1]) t.set(x, y, CHEST_RIM[x === x0 ? 2 : x === x1 ? 0 : 1 + Math.floor(t.rand() * 2)]);
+  }
+}
+
+function paintChestTop(t) {
+  t.forEach((x, y) => t.set(x, y, CHEST_RIM[1]));
+  chestBoards(t, 4, 4, 27, 27, 6);
+  chestFrame(t, 2, 2, 29, 29);
+}
+
+function paintChestSide(t, front) {
+  t.forEach((x, y) => t.set(x, y, CHEST_RIM[1]));
+  chestBoards(t, 4, 6, 27, 12, 7); // the lid
+  chestBoards(t, 4, 16, 27, 29, 7); // the base
+  chestFrame(t, 2, 4, 29, 31);
+  // The seam: the lid's lower rim, a dark gap, the base's upper rim.
+  for (let x = 2; x <= 29; x++) {
+    t.set(x, 13, CHEST_RIM[1]);
+    t.set(x, 14, hex(0x24160a));
+    t.set(x, 15, CHEST_RIM[2]);
+  }
+  if (!front) return;
+  // The latch: an iron plate over the seam, with a keyhole.
+  const iron = [0x3d4247, 0x6b7178, 0x9aa1a8, 0xc9ced3].map(hex);
+  for (let y = 11; y <= 18; y++) {
+    for (let x = 14; x <= 17; x++) {
+      const edge = x === 14 || x === 17 || y === 11 || y === 18;
+      t.set(x, y, edge ? iron[x === 14 || y === 11 ? 1 : 0] : iron[y === 12 ? 3 : 2]);
+    }
+  }
+  t.set(15, 15, hex(0x15171a));
+  t.set(16, 15, hex(0x15171a));
+  t.set(15, 16, hex(0x15171a));
+}
+
 function paintTallGrass(t) {
   // Same style as the instanced tufts (grass.js): many blades of mixed
   // heights and greens, a few seed heads.
@@ -1150,6 +1209,9 @@ const PAINTERS = {
   flower_blue: (t) => paintFlower(t, [0x2a3f9e, 0x4a66d8, 0x8fa8ff, 0xf5e27a]),
   flower_white: (t) => paintFlower(t, [0xb8b8b0, 0xe8e8e0, 0xffffff, 0xf2c230]),
   flower_pink: (t) => paintFlower(t, [0xb03a6e, 0xe86aa0, 0xffb3d1, 0xfff0a0]),
+  chest_top: paintChestTop,
+  chest_side: (t) => paintChestSide(t, false),
+  chest_front: (t) => paintChestSide(t, true),
 };
 
 export function paintTile(name) {
@@ -1201,6 +1263,9 @@ const RELIEF = {
   pine_side: [3.4, 0.9, 1],
   pine_top: [1.6, 0.8, 1],
   pine_leaves: [2.0, 0.55, 1],
+  chest_top: [2.0, 0.62, 1],
+  chest_side: [2.0, 0.62, 1],
+  chest_front: [2.0, 0.58, 1],
 };
 
 function luminance(p, i) {
@@ -1407,7 +1472,7 @@ export function drawBlockIcon(canvases, info, size = 32) {
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
   const tileName = (idx) => TILE_NAMES[idx];
-  if (info.shape !== 0) {
+  if (info.shape !== SHAPE.CUBE && info.shape !== SHAPE.CHEST) {
     ctx.drawImage(canvases[tileName(info.faces.side)], 0, 0, size, size);
     return canvas;
   }
@@ -1425,9 +1490,20 @@ export function drawBlockIcon(canvases, info, size = 32) {
     cctx.fillRect(0, 0, TEX, TEX);
     return c;
   };
-  const topC = canvases[tileName(info.faces.top)];
-  const rightC = shaded(canvases[tileName(info.faceTiles[4])], 0.42);
-  const leftC = shaded(canvases[tileName(info.faceTiles[0])], 0.24);
+  // (A chest's tiles are painted to its size: only that part, as the whole face.)
+  const crop = (src, top) => {
+    if (info.shape !== SHAPE.CHEST) return src;
+    const c = document.createElement("canvas");
+    c.width = TEX;
+    c.height = TEX;
+    const cctx = c.getContext("2d");
+    cctx.imageSmoothingEnabled = false;
+    cctx.drawImage(src, 2, top ? 2 : 4, 28, 28, 0, 0, TEX, TEX);
+    return c;
+  };
+  const topC = crop(canvases[tileName(info.faces.top)], true);
+  const rightC = shaded(crop(canvases[tileName(info.faceTiles[4])]), 0.42);
+  const leftC = shaded(crop(canvases[tileName(info.faceTiles[0])]), 0.24);
   // Top face: a rhombus.
   ctx.setTransform(s / TEX, h / TEX, -s / TEX, h / TEX, s, 0);
   ctx.drawImage(topC, 0, 0);

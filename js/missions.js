@@ -35,8 +35,47 @@ const SWARM_WAVES = [
   { at: 150, kinds: ["alien_red", "alien_blue", "alien_gray", "alien_blue", "alien"], text: "The last landing party! Hold out until dawn." },
 ];
 
+// (Round 10) The squad missions' variants (progress.variant, 0-3): where the
+// squad lands and one alien more or less.
+const SQUAD_VARIANTS = [
+  { dist: 90, n: 0 },
+  { dist: 75, n: 1 },
+  { dist: 110, n: 0 },
+  { dist: 95, n: -1 },
+];
+
+// (Round 10) The fortress's garrison by variant: mixed, brutes, sharpshooters, mixed.
+const FORTRESS_KINDS = [
+  ["alien_red", "alien_blue", "alien_gray", "alien_red", "alien", "alien_blue", "alien_gray", "alien"],
+  ["alien_red", "alien_red", "alien_gray", "alien_red", "alien", "alien_red", "alien_blue", "alien"],
+  ["alien_gray", "alien_blue", "alien_gray", "alien_blue", "alien_red", "alien_gray", "alien_blue", "alien"],
+  ["alien_red", "alien_blue", "alien_gray", "alien_red", "alien", "alien_blue", "alien_gray", "alien"],
+];
+// (Round 10) The missions with a place drawn on the ground every frame (a
+// zone to hold, a shelter, the bombardment's rings, the signal beacons).
+const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons"]);
+const ZONE_KINDS = ["beacon", "site", "shelter"]; // (by index, online: netObjects)
+const TAKEN_SETBACK = 60; // seconds a player taken by the hunters costs the clock ("Don't look up")
+
 function rand(a, b) {
   return a + Math.random() * (b - a);
+}
+
+// "2:05": seconds as minutes and seconds.
+function clock(s) {
+  const t = Math.max(0, Math.ceil(s));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+}
+
+// (Round 10) The dusk's time-lapse: the sky's time `tau` seconds into a warp
+// of `dist` game seconds over D real ones, from t0. It speeds up from normal
+// speed to a peak half way and slows back down to normal speed, landing on
+// t0 + dist at tau = D (and goes on at normal speed after):
+// t0 + tau + (dist - D) * smootherstep(tau / D). (Also run by a guest's sky,
+// from the host's plan: js/net/coop.js.)
+export function warpTime(t0, dist, D, tau) {
+  const u = Math.max(0, Math.min(1, tau / D));
+  return t0 + Math.max(0, tau) + (dist - D) * u * u * u * (u * (u * 6 - 15) + 10);
 }
 
 function n_note(active, toDawn, toDusk, wave, waves) {
@@ -147,6 +186,7 @@ export class MissionDirector {
       if (this._wasOn) {
         this._wasOn = false;
         if (this.sky) this.sky.timeScale = 1;
+        this._warping = false;
         this.ufos.forceIntact = false;
       }
       return;
@@ -160,10 +200,12 @@ export class MissionDirector {
     }
     const st = this.state;
     st.t += dt;
+    this._warpStep(dt);
     if (m.event === "night" || m.event === "swarm") this._nightClock(dt);
     // (Effects that must run every frame.)
     if (m.event === "meteors") this._fxMeteors(dt);
     if (m.event === "boss") this._fxBoss(dt);
+    if (ZONE_EVENTS.has(m.event)) this._fxZones(dt);
     this.checkT -= dt;
     if (this.checkT > 0) {
       this._refreshTarget();
@@ -192,6 +234,7 @@ export class MissionDirector {
         break;
       case "night":
         this._night();
+        this._nightHunters();
         break;
       case "intact":
         this.ufos.forceIntact = true;
@@ -252,6 +295,24 @@ export class MissionDirector {
       case "steal":
         this._steal();
         break;
+      case "hunters":
+        this._hunted();
+        break;
+      case "hold":
+        this._hold();
+        break;
+      case "crashsite":
+        this._crashSite();
+        break;
+      case "evac":
+        this._evac();
+        break;
+      case "rescue":
+        this._rescue();
+        break;
+      case "beacons":
+        this._beacons();
+        break;
       default:
         this.target = null;
     }
@@ -260,6 +321,7 @@ export class MissionDirector {
   // Leftovers of the previous mission's set-up go (or stay, if harmless).
   _cleanup() {
     if (this.sky) this.sky.timeScale = 1;
+    this._warping = false;
     this.ufos.forceIntact = false;
     for (const u of this.ufos.ufos) {
       if (u.immune || u.peaceful) this._releaseShip(u); // (only the Visitors' landing ship has these)
@@ -269,11 +331,14 @@ export class MissionDirector {
         u.shield = false;
         u.bossHook = null;
       }
-      if (u.missionTarget || u.raider || u.abductor || u.swarm) {
+      if (u.missionTarget || u.raider || u.abductor || u.swarm || u.hunter) {
+        // (Round 10: the hunters give up and go.)
+        if (u.hunter && this._alive(u) && u.state !== "leave") this.ufos._leave(u);
         u.missionTarget = false;
         u.raider = false;
         u.abductor = false;
         u.swarm = false;
+        u.hunter = false;
         u.tether = 0;
         u.home = null;
         u.noLeave = false;
@@ -520,7 +585,7 @@ export class MissionDirector {
         st.waitT = st.sks.length ? 3 : 8;
         const people = this._people();
         const who = people.find((q) => !st.sks.some((m) => m.pos.distanceTo(q.position) < 70)) || this._anyone();
-        const at = this._groundSpot(32, 0.25, who.position);
+        const at = this._groundSpot([32, 40, 26, 32][this.mission?.variant ?? 0] ?? 32, 0.25, who.position); // (Round 10: nearer or farther by the variant)
         const m = at && this.mobs.spawn("skeleton", at.x, at.y, at.z);
         if (m) {
           m.fireproof = true;
@@ -609,18 +674,19 @@ export class MissionDirector {
         const group = `visit${Math.floor(Math.random() * 1e9)}`;
         // (Online: two for each player, or what is still to do.)
         const n = Math.max(2, Math.min(2 * this.groupN, this._remaining()));
+        const calm = this.mission?.variant === 2 ? 22 : CALM_TIME; // (Round 10: a jumpy crew)
         for (let i = 0; i < n; i++) {
           const m = this._spawnAlien("alien", 4, st.spot);
           if (!m) continue;
           m.aggro = false;
           m.ai.target = false;
-          m.calmT = CALM_TIME;
+          m.calmT = calm;
           m.group = group;
           st.crew.push(m);
         }
         st.phase = "crew";
         st.leaveT = 8;
-        if (st.crew.length) this.toast?.(`The aliens are out, looking around. You have about ${CALM_TIME} seconds: get your bow ready!`, 5);
+        if (st.crew.length) this.toast?.(`The aliens are out, looking around. You have about ${calm} seconds: get your bow ready!`, 5);
         else st.phase = null;
       }
       return;
@@ -637,6 +703,10 @@ export class MissionDirector {
   _releaseShip(u) {
     u.immune = false;
     u.peaceful = false;
+    u.errand = false; // (Round 10: a beacon or a carrier)
+    u.tripSpeed = 0;
+    u.carrier = false;
+    u.beacon = false;
     u.noLeave = false;
     u.missionTarget = false;
     if (this._alive(u) && u.state !== "leave") this.ufos._leave(u);
@@ -716,7 +786,9 @@ export class MissionDirector {
         const people = this._people();
         const lacking = people.filter((q) => !active.some((c) => Math.hypot(c.pos.x - q.position.x, c.pos.z - q.position.z) < 150));
         const list = lacking.length ? lacking : people;
-        for (let i = 0; i < need - active.length; i++) this.crates.drop({ center: list[i % list.length].position, dist: 60 + Math.random() * 30 });
+        // (Round 10: nearer or farther by the variant.)
+        const [d0, d1] = [[60, 90], [45, 65], [90, 120], [60, 90]][this.mission?.variant ?? 0] || [60, 90];
+        for (let i = 0; i < need - active.length; i++) this.crates.drop({ center: list[i % list.length].position, dist: rand(d0, d1) });
       }
     }
     const c = this.crates.nearest(this.player.position.x, this.player.position.z);
@@ -746,49 +818,154 @@ export class MissionDirector {
     }
   }
 
-  // The long night really is at night: the clock runs fast to dusk when the
-  // mission starts (and goes back to dusk if the player dies, so a retry
-  // needn't wait a whole day), then ticks normally from dusk to dawn.
+  // ---------- (Round 10) The dusk: a smooth time-lapse ----------
+  // A mission that needs the night eases the clock forward to dusk instead
+  // of jumping: over 8-12 s the sky speeds up from normal speed to a peak and
+  // slows back down, landing on the hour (warpTime). The plan is the
+  // state's, so a new mission (or the chain going off) ends it; online the
+  // guests' skies run the same curve from the host's plan (warpInfo).
+
+  // Starts easing the clock to hour h, the next time the clock shows it (just
+  // past it: a whole day on). False: it is about there already.
+  // (dt: from the frame's own update, the clock already speeds up this frame.)
+  _warpTo(h, dt = 0) {
+    const sky = this.sky;
+    const dist = this._secondsUntil(h);
+    if (dist < 4) return false;
+    this.state.warp = { t0: sky.time, dist, D: Math.max(8, Math.min(12, dist / 40)), tau: 0, h, still: 0, seen: sky.time, scale: 0 };
+    if (dt > 0) this._warpStep(dt);
+    return true;
+  }
+
+  // Every frame: sets the sky's speed so that its next step (sky.update runs
+  // after the director, with the same dt) lands on the curve.
+  _warpStep(dt) {
+    const sky = this.sky;
+    const w = this.state.warp;
+    if (!w) {
+      // (The plan went with the state: the clock back to normal.)
+      if (this._warping) {
+        this._warping = false;
+        sky.timeScale = 1;
+      }
+      return;
+    }
+    this._warping = true;
+    if (w.tau >= w.D) {
+      // Landed (last frame): normal speed from here.
+      this.state.warp = null;
+      this._warping = false;
+      sky.timeScale = 1;
+      this._warpDone(w);
+      return;
+    }
+    // (A clock that doesn't move when it should, e.g. locked or not running: straight there.)
+    w.still = sky.time === w.seen && w.scale > 0 ? w.still + dt : 0;
+    if (w.still > 1) {
+      sky.setHours(w.h);
+      w.tau = w.D;
+      sky.timeScale = w.scale = 0;
+      w.seen = sky.time;
+      return;
+    }
+    // (Real time, not the simulation's clamped step: a slow frame rate takes
+    // no longer over it, and the guests' skies, on the room's clock, agree.)
+    const now = performance.now();
+    const real = w.last != null ? (now - w.last) / 1000 : 0;
+    w.last = now;
+    w.tau = Math.min(w.D, w.tau + Math.min(0.5, Math.max(dt, real)));
+    const len = DAY_LENGTH;
+    let d = warpTime(w.t0, w.dist, w.D, w.tau) - sky.time;
+    d = (((d % len) + len * 1.5) % len) - len / 2;
+    if (Math.abs(d) > 90) {
+      // (The clock was moved under it, e.g. the settings' time: the plan is off.)
+      this.state.warp = null;
+      this._warping = false;
+      sky.timeScale = 1;
+      return;
+    }
+    sky.timeScale = w.scale = dt > 0 ? Math.max(0, d / dt) : 0;
+    w.seen = sky.time;
+  }
+
+  // The plan for the guests (js/net/coop.js): [t0, dist, D, tau] or null.
+  warpInfo() {
+    const w = this.enabled ? this.state.warp : null;
+    return w ? [w.t0, w.dist, w.D, w.tau] : null;
+  }
+
+  // The director isn't running this frame (main.js: the main menu): a dusk
+  // in progress waits at normal speed (it picks up again, or starts over).
+  idle() {
+    if (this._warping && this.sky) this.sky.timeScale = 1;
+    if (this.state.warp) this.state.warp.last = null; // (the time behind the menu doesn't count)
+  }
+
+  // A time-lapse has landed: the night (or the storm) begins.
+  _warpDone(w) {
+    const m = this.mission;
+    if (m?.event === "night" || m?.event === "swarm") {
+      const st = this.state;
+      st.fastDone = true;
+      st.retry = false;
+      // (The night's clock starts at dusk.)
+      st.nt = 0;
+      st.wave = 0;
+      this.toast?.("Night falls. Stay near light and shelter; things are coming.", 4);
+    }
+  }
+
+  // The long night really is at night. By day the clock eases forward to
+  // dusk (_warpTo: no jump), then the night runs at normal speed from dusk
+  // to dawn, and dawn completes it. A mission started late at night (too
+  // little of it left for the landings) eases on to the next dusk the same
+  // way, and so does a night the player (online: the whole group) fell in:
+  // the night starts over at the next dusk, with no jump back.
   _nightClock(dt) {
     const st = this.state;
     const sky = this.sky;
     if (sky.locked) sky.locked = false; // a frozen clock would never bring dawn
+    if (st.warp) return; // (easing to dusk: _warpStep)
     const h = sky.hours;
     const dark = h >= 19.5 || h < 5.5;
     const n = this.night;
     if (!dark) {
-      sky.timeScale = h > 5.5 && h < 19.5 && !st.fastDone ? 30 : 1;
-      st.fast = true;
+      // Day: off to dusk (unless the counted night is already over: dawn completed it).
+      if (!st.fastDone || st.retry) {
+        if (this._warpTo(19.6, dt)) this.toast?.("Night is falling...", 3);
+      }
       return;
     }
-    if (st.fast) {
-      st.fast = false;
-      st.fastDone = true;
-      sky.timeScale = 1;
-      // (The night's clock starts at dusk, not with the day's fast-forward.)
-      st.nt = 0;
-      st.wave = 0;
-      this.toast?.("Night falls. Stay near light and shelter; things are coming.", 4);
-    } else if (!st.fastDone && !st.lateChecked) {
+    // (A dusk plan that was dropped in the dark, e.g. the clock moved under it: plan it again; at dusk already, the night begins.)
+    if (st.retry || (!st.fastDone && st.lateChecked)) {
+      if (!this._warpTo(19.6, dt)) this._warpDone({ h: 19.6 });
+      return;
+    }
+    if (!st.fastDone && !st.lateChecked && !st.retry) {
       // (Round 9) Started at night: the night counts from now if most of it is
       // still ahead (the landings need about three minutes); late at night it
-      // waits for the next one, fast through the day.
+      // waits for the next one.
       st.lateChecked = true;
       if (this._secondsUntil(5.5) >= 170) {
         st.fastDone = true;
+        st.nt = 0;
+        st.wave = 0;
+        // (A death earlier tonight, before the mission, doesn't spoil it.)
+        n.clean = true;
+        n.deathsAt = this.nightDeaths ? this.nightDeaths() : this.stats.world.deaths ?? 0;
         this.toast?.("It's night already. Stay near light and shelter; things are coming.", 4);
-      } else this.night.clean = false; // (this dawn doesn't count: only the next whole night)
+      } else {
+        n.clean = false; // (this dawn doesn't count: only the next whole night)
+        if (this._warpTo(19.6, dt)) this.toast?.("Too little of the night is left: on to the next one...", 4);
+      }
     }
-    if (n.active && !n.clean && st.fastDone && this.anyAlive) {
-      // The player died in the night: start it over from dusk.
-      sky.setHours(19.6);
-      n.clean = true;
-      n.deathsAt = this.nightDeaths ? this.nightDeaths() : this.stats.world.deaths ?? 0;
-      st.nt = 0;
-      st.wave = 0;
-      this.toast?.("The night starts over.", 3);
+    if (st.fastDone && !st.retry && n.active && !n.clean && this.anyAlive) {
+      // The player died in the night (online: the whole group): it starts
+      // over at the next dusk, the clock easing on to it.
+      st.retry = true;
+      if (this._warpTo(19.6, dt)) this.toast?.("The night is lost. It starts over at the next dusk...", 4);
     }
-    st.nt = (st.nt ?? 0) + (this.anyAlive ? dt : 0);
+    st.nt = (st.nt ?? 0) + (this.anyAlive && !st.retry ? dt : 0);
   }
 
   // The night's events: three alien landing parties at 30, 90 and 145 s into
@@ -798,8 +975,8 @@ export class MissionDirector {
     const st = this.state;
     const p = this.player.position;
     this.target = null;
-    if (!st.fastDone) {
-      this.state.note = "Night is falling...";
+    if (!st.fastDone || st.retry || st.warp) {
+      this.state.note = st.warp ? "Night is falling..." : st.retry ? "The night starts over at dusk." : "Waiting for the night...";
       return;
     }
     const w = st.wave ?? 0;
@@ -868,13 +1045,16 @@ export class MissionDirector {
         return;
       }
       st.waitT = 25;
-      // Where they land: open ground about 90 blocks from a player.
+      // Where they land: open ground about 90 blocks from a player. (Round
+      // 10: the run's variant of the mission moves it nearer or farther, and
+      // adds or takes away one alien.)
+      const v = SQUAD_VARIANTS[this.mission?.variant ?? 0] || SQUAD_VARIANTS[0];
       const near = this._anyone().position;
-      const at = this._groundSpot(90, 0.15, near) || new THREE.Vector3(near.x + 90, 0, near.z);
+      const at = this._groundSpot(v.dist, 0.15, near) || new THREE.Vector3(near.x + v.dist, 0, near.z);
       st.squad = [];
       // (Online: the squad grows with the group, and there is a leader with
       // the new weapon for every player, while that weapon is still missing.)
-      const N = Math.min(12, spec.n * this.groupN);
+      const N = Math.min(12, Math.max(2, spec.n + v.n) * this.groupN);
       const left = Math.max(1, this._remaining());
       const n = Math.max(Math.min(N, left + this.groupN), Math.min(2, N));
       const leaders = Math.min(this.groupN, n);
@@ -988,13 +1168,17 @@ export class MissionDirector {
       }
       st.waitT = 10;
       st.raiders = [];
+      // (Round 10) The variant: fast raiders firing bursts, or two gunships leading them.
+      const v = this.mission?.variant ?? 0;
       for (let i = 0; i < Math.min(left, 6); i++) {
-        const u = this.ufos.spawn({ size: i === 0 && left >= 3 ? "medium" : "small", style: i % 2 ? "heavy" : "sweep", pos: { x: place.x + rand(-40, 40), y: place.y + rand(28, 40), z: place.z + rand(-40, 40) }, hidden: true });
+        const big = left >= 3 && (i === 0 || (v === 2 && i === 1));
+        const style = v === 1 ? (i % 2 ? "rapid" : "volley") : i % 2 ? "heavy" : "sweep";
+        const u = this.ufos.spawn({ size: big ? "medium" : "small", style, pos: { x: place.x + rand(-40, 40), y: place.y + rand(28, 40), z: place.z + rand(-40, 40) }, hidden: true });
         u.raider = true;
         this._keepTarget(u);
         u.home = center.clone();
         u.tether = 60;
-        u.dodgeMul = 0.6;
+        u.dodgeMul = v === 1 ? 0.8 : 0.6;
         this.ufos.anger(u, 400);
         st.raiders.push(u);
       }
@@ -1079,13 +1263,19 @@ export class MissionDirector {
         return;
       }
       st.waitT = 10;
-      for (let i = 0; i < Math.min(left, 5); i++) {
+      const k = Math.min(left, 5);
+      for (let i = 0; i < k; i++) {
         const u = this.ufos.spawn({ size: i === 0 && left >= 3 ? "medium" : "small", style: "abductor", pos: { x: place.x + rand(-45, 45), y: place.y + rand(30, 42), z: place.z + rand(-45, 45) }, hidden: true });
         u.abductor = true;
         this._keepTarget(u);
         u.home = center.clone();
         u.tether = 70;
         u.dodgeMul = 0.5;
+        // (Round 10: the variant where one of them, the last, hunts the players instead.)
+        if (this.mission?.variant === 1 && i === k - 1 && k > 1) {
+          u.hunter = true;
+          this.ufos.anger(u, 90);
+        }
         ships.push(u);
       }
       this.toast?.(`ABDUCTIONS! UFOs are beaming up the people of the ${place.name.toLowerCase()}: follow the marker.`, 5);
@@ -1093,6 +1283,11 @@ export class MissionDirector {
     }
     // Each calm abductor is handed a creature near the place to take.
     for (const u of ships) {
+      if (u.hunter) {
+        this._leash(u, 200, 180);
+        this.ufos.anger(u, 60);
+        continue;
+      }
       if (u.dash || u.state === "attack" || u.state === "react" || u.state === "beam") continue;
       if (u.state === "trick" && u.trick === "abduct" && u.target && !u.target.dead) continue;
       const prey = this._prey(center, 80);
@@ -1137,8 +1332,9 @@ export class MissionDirector {
   // night and three landing parties, red and blue aliens among them.
   _swarm() {
     const st = this.state;
-    if (st.fastDone && this.night.active) this._keepSwarm(2 + this.groupN, 420);
+    if (st.fastDone && !st.retry && !st.warp && this.night.active) this._keepSwarm(2 + this.groupN, 420);
     this._night(SWARM_WAVES);
+    this._nightHunters();
     // The marker: a landing party if there is one, else the nearest of the swarm.
     if (!this.target && this.night.active) this.target = this._nearestUfo(600, "Swarm UFO", (u) => u.swarm);
   }
@@ -1170,7 +1366,7 @@ export class MissionDirector {
   _fortress() {
     const st = this.state;
     if (!st.at) {
-      const at = this._groundSpot(260, 0.2, this._anyone().position);
+      const at = this._groundSpot(this.mission?.variant === 3 ? 200 : 260, 0.2, this._anyone().position);
       if (!at) return;
       st.at = { x: at.x, y: at.y, z: at.z };
     }
@@ -1185,7 +1381,8 @@ export class MissionDirector {
       st.waitT = (st.waitT ?? 0) - 0.5;
       if (st.waitT <= 0) {
         st.waitT = 25;
-        const kinds = ["alien_red", "alien_blue", "alien_gray", "alien_red", "alien", "alien_blue", "alien_gray", "alien"];
+        // (Round 10) The variant: a garrison of brutes, or of sharpshooters.
+        const kinds = FORTRESS_KINDS[this.mission?.variant ?? 0] || FORTRESS_KINDS[0];
         const n = Math.min(16, Math.max(left, 6 + 2 * this.groupN));
         for (let i = 0; i < n; i++) {
           const m = this._spawnAlien(kinds[i % kinds.length], 7 + (i % 3) * 3, at);
@@ -1202,7 +1399,7 @@ export class MissionDirector {
     }
     // Its guard ships: heavy hitters, kept over it.
     st.guardT = (st.guardT ?? 0) - 0.5;
-    if (st.guards.length < 1 + Math.ceil(this.groupN / 2) && st.guardT <= 0 && d < 700) {
+    if (st.guards.length < 1 + Math.ceil(this.groupN / 2) + (this.mission?.variant === 3 ? 1 : 0) && st.guardT <= 0 && d < 700) {
       st.guardT = 35;
       const ground = Math.max(this.terrain.heightAt(Math.floor(at.x), Math.floor(at.z)), SEA_LEVEL);
       const u = this.ufos.spawn({ size: "medium", style: "heavy", pos: { x: at.x + rand(-40, 40), y: ground + 40, z: at.z + rand(-40, 40) }, hidden: true });
@@ -1215,6 +1412,700 @@ export class MissionDirector {
     const gn = st.garrison.length;
     if (d > 150 || !gn) this.target = { pos: at, label: gn ? `The fortress (${gn} alien${gn === 1 ? "" : "s"})` : "The fortress", follow: null };
     else this._setTarget(this._nearestOf(st.garrison), `Fortress alien (${st.garrison.length} left)`);
+  }
+
+  // ---------- (Round 10) The hunters: abductor ships after the players ----------
+  // Abductor ships that hunt the players on foot: each flies in over a player
+  // and beams them up (ufos.js: its tractor beam; a guest is lifted on their
+  // own machine), and a hit breaks the beam. They are the mission's (kept,
+  // leashed to the players, angry); one shot down is replaced a while later.
+
+  // Keeps n hunters about (opts.big: one of them a medium ship, wide beam).
+  _keepHunters(n, opts = {}) {
+    const st = this.state;
+    const was = st.hunters?.length ?? 0;
+    st.hunters = (st.hunters || []).filter((u) => this._alive(u));
+    // (One went down: the next comes after a while, not at once.)
+    if (st.hunters.length < was) st.huntT = Math.max(st.huntT ?? 0, 15);
+    for (const u of st.hunters) {
+      this._leash(u, 200, 180);
+      this.ufos.anger(u, 60); // (and it never loses interest)
+    }
+    if (st.hunters.length >= n) return;
+    st.huntT = (st.huntT ?? 2) - 0.5;
+    if (st.huntT > 0) return;
+    st.huntT = 5;
+    const who = this._anyone();
+    const big = opts.big && !st.hunters.some((u) => u.size !== "small");
+    const design = ["saucer", "saucer_disc", "saucer_domed"][Math.floor(Math.random() * 3)];
+    const u = this._spawnUfo({ size: big ? "medium" : "small", design, style: "abductor" }, rand(130, 180), true, who.position);
+    u.hunter = true;
+    this._keepTarget(u);
+    u.homeOf = who;
+    u.dodgeMul = 0.5;
+    u.crashPlan = { crew: Math.random() < 0.5 ? 1 : 0 }; // (a hunter is crewed light: a hunt doesn't fill the ground with aliens)
+    this.ufos.anger(u, 90);
+    st.hunters.push(u);
+  }
+
+  // The hunters give up and go (a lost night, a time-lapse to dusk).
+  _releaseHunters() {
+    const st = this.state;
+    for (const u of st.hunters || []) {
+      u.hunter = false;
+      u.missionTarget = false;
+      u.noLeave = false;
+      if (this._alive(u) && u.state !== "leave") this.ufos._leave(u);
+    }
+    st.hunters = [];
+  }
+
+  // How many players were taken (lifted into a ship) since the last look: the
+  // world's "abducted" count (a guest's is reported to the host: coop.js).
+  _taken() {
+    const st = this.state;
+    const n = this.stats.world.abducted ?? 0;
+    const k = st.abd == null ? 0 : Math.max(0, n - st.abd);
+    st.abd = n;
+    return k;
+  }
+
+  // The long night's variants with hunters (and the swarm's): from a little
+  // into the night, one hunter (one more for every two extra players).
+  _nightHunters() {
+    const m = this.mission;
+    const v = m?.variant ?? 0;
+    if (!((m?.id === "long_night" && (v === 1 || v === 3)) || (m?.id === "swarm" && v === 2))) return;
+    const st = this.state;
+    if (st.fastDone && !st.retry && !st.warp && this.night.active && (st.nt ?? 0) > 40) {
+      if (!st.huntTold) {
+        st.huntTold = true;
+        this.toast?.("Abductor ships are hunting you! Keep out from under their beams, or get under a roof.", 5);
+      }
+      this._keepHunters(1 + Math.floor((this.groupN - 1) / 2));
+    } else if (st.hunters?.length) {
+      this._releaseHunters();
+      st.huntTold = false;
+    }
+  }
+
+  // "Don't look up": hold out while the hunters are after you. The clock (the
+  // world's holdTime) runs while anyone is alive; every player taken sets it
+  // back a minute (progress.setBack). Halfway (twice on the long hunt) a
+  // landing party comes to flush the players out of cover.
+  _hunted() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    const o = this.progress.objectives(this.stats.world)[0];
+    const goal = o?.goal ?? 150;
+    const held = o?.value ?? 0;
+    if (!st.told) {
+      st.told = true;
+      this._taken(); // (from now on)
+      this.toast?.("Abductor ships are coming for you: keep out from under their beams!", 5);
+    }
+    this._keepHunters(Math.min(5, 1 + this.groupN + (v === 1 ? 1 : 0)), { big: v === 3 });
+    const taken = this._taken();
+    if (taken) {
+      this.progress.setBack("holdTime", TAKEN_SETBACK * taken, this.stats.world);
+      this.toast?.(this.players ? "Someone was taken! The clock goes back a minute." : "You were taken! The clock goes back a minute.", 4);
+    }
+    if (this.anyAlive && held < goal) this._addHold(0.5, this._people()); // (an empty sky too: shooting the ships down buys a breather, not a stopped clock)
+    const marks = v === 2 ? [0.3, 0.7] : [0.5];
+    st.party = st.party ?? 0;
+    if (st.party < marks.length && held >= goal * marks[st.party]) {
+      st.party++;
+      st.alive = this._wave(this._anyone().position, 55, "A landing party is down nearby: they're here to flush you out!");
+    }
+    st.alive = (st.alive || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    const t = this._nearestUfo(500, "Abductor (hunting you)", (u) => u.hunter);
+    if (t) this.target = t;
+    else if (st.alive.length) this._setTarget(this._nearestOf(st.alive), `Landing party (${st.alive.length})`);
+    else this.target = null;
+    st.note = held >= goal ? "" : `Hold out: ${clock(goal - held)} to go. Keep out from under the beams.`;
+  }
+
+  // (Round 10) A count of holding ground (the world's holdTime, seconds):
+  // the host's own if it is among the ones holding, else the world's.
+  _addHold(sec, holders) {
+    if (holders.includes(this.player)) this.stats.add("holdTime", sec);
+    else this.stats.addWorld("holdTime", sec);
+  }
+
+  // A landing party of the place's kinds (more for a bigger group, 60% per
+  // extra player) dropped `dist` blocks from `near`: the aliens, at once.
+  _wave(near, dist, text) {
+    const kinds = this._waveKinds();
+    const at = this._groundSpot(dist, 0.2, near) || new THREE.Vector3(near.x + dist, 0, near.z);
+    const n = Math.round(kinds.length * (1 + 0.6 * (this.groupN - 1)));
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const m = this._spawnAlien(kinds[i % kinds.length], 5, at);
+      if (m) out.push(m);
+    }
+    if (out.length) {
+      this._dropship(at, kinds[0]);
+      if (text) this.toast?.(text, 4);
+    }
+    return out;
+  }
+
+  // The landing parties' kinds, by the place's tier: greens first, then grays, then brutes and blues.
+  _waveKinds() {
+    const t = this.mission?.tier ?? 1;
+    if (t <= 1) return ["alien", "alien"];
+    if (t === 2) return ["alien", "alien", "alien_gray"];
+    if (t === 3) return ["alien_gray", "alien", "alien_gray"];
+    if (t === 4) return ["alien_red", "alien_gray", "alien"];
+    return ["alien_red", "alien_blue", "alien_gray"];
+  }
+
+  // ---------- (Round 10) Holding ground: the beacon, the crash site ----------
+
+  // Who is holding the zone ({ x, y, z, r }): the players alive on foot in
+  // it, and how many aliens are in it (any: the clock stops, contested).
+  _zoneState(z) {
+    const inside = (p) => Math.hypot(p.x - z.x, p.z - z.z) < z.r && Math.abs(p.y - z.y) < 12;
+    const people = this._people().filter((q) => !q.dead && !q.vehicle && inside(q.position));
+    let foes = 0;
+    for (const m of this.mobs.mobs) if (!m.dead && m.spec.alien && inside(m.pos)) foes++;
+    return { people, foes };
+  }
+
+  // The zone's place saved with the chain (a reload keeps it), or null.
+  _savedPlace() {
+    const pl = this.progress.place;
+    return pl?.mission === this.missionId && Number.isFinite(pl.x) && Number.isFinite(pl.y) && Number.isFinite(pl.z) ? pl : null;
+  }
+
+  // The fight over a zone once someone has reached it: landing parties every
+  // `every` seconds (while not too many of theirs are still about), the clock
+  // while it is held, and an air-cover gunship over it (gun). Sets the marker
+  // and the note; `what` names the place.
+  _holdFight(z, every, firstIn, gun, what) {
+    const st = this.state;
+    const c = new THREE.Vector3(z.x, z.y, z.z);
+    const { people, foes } = this._zoneState(z);
+    const o = this.progress.objectives(this.stats.world)[0];
+    const left = o ? o.goal - o.value : 0;
+    st.alive = (st.alive || []).filter((m) => !m.dead && this.mobs.mobs.includes(m));
+    if (!st.started && people.length) {
+      st.started = true;
+      st.waveT = Math.min(st.waveT ?? firstIn, firstIn);
+    }
+    if (st.started && left > 0) {
+      st.waveT = (st.waveT ?? firstIn) - 0.5;
+      if (st.waveT <= 0 && st.alive.length < 4 + 3 * this.groupN) {
+        st.waveT = every;
+        st.alive.push(...this._wave(c, rand(55, 75), `A squad is dropping in on the ${what}!`));
+      }
+      if (people.length && !foes) this._addHold(0.5, people);
+      if (gun) {
+        st.guns = (st.guns || []).filter((u) => this._alive(u));
+        st.gunT = (st.gunT ?? 4) - 0.5;
+        if (!st.guns.length && st.gunT <= 0) {
+          st.gunT = 40;
+          const ground = Math.max(this.terrain.heightAt(Math.floor(z.x), Math.floor(z.z)), SEA_LEVEL);
+          const u = this.ufos.spawn({ size: "medium", style: "heavy", pos: { x: z.x + rand(-60, 60), y: ground + 40, z: z.z + rand(-60, 60) }, hidden: true });
+          this._keepTarget(u);
+          u.home = c.clone();
+          u.tether = 70;
+          st.guns.push(u);
+        }
+        for (const u of st.guns) this.ufos.anger(u, 60);
+      }
+    }
+    // The marker: the place while nobody holds it, an alien in it, else the nearest of the squads.
+    const inZone = foes ? this.mobs.mobs.filter((m) => !m.dead && m.spec.alien && Math.hypot(m.pos.x - z.x, m.pos.z - z.z) < z.r) : [];
+    if (left <= 0) this.target = null;
+    else if (!people.length) this.target = { pos: c, label: `${what[0].toUpperCase()}${what.slice(1)}: hold it`, follow: null };
+    else if (inZone.length) this._setTarget(this._nearestOf(inZone), `Alien at the ${what}: clear it`);
+    else if (st.alive.length) this._setTarget(this._nearestOf(st.alive), `Alien squad (${st.alive.length})`);
+    else this.target = { pos: c, label: `${what[0].toUpperCase()}${what.slice(1)}: hold it`, follow: null };
+    st.note = left <= 0 ? "" : !st.started ? `Get to the ${what}.` : foes ? `Contested! ${foes} alien${foes === 1 ? "" : "s"} at the ${what}: clear it.` : people.length ? `Holding: ${clock(left)} to go.` : `Nobody at the ${what}: the clock has stopped (${clock(left)} to go).`;
+    return { people, left };
+  }
+
+  // "Hold the line": our radio beacon, on open ground near the group, to be
+  // held for a while against squads dropping in (the variant: how long, how
+  // often, a gunship strafing it).
+  _hold() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.zone) {
+      const pl = this._savedPlace();
+      let at = pl;
+      if (!at) {
+        at = this._groundSpot(80, 0.25, this._anyone().position);
+        if (!at) return;
+        this.progress.place = { mission: this.missionId, x: at.x, y: at.y, z: at.z };
+        this.toast?.("Our radio beacon is marked: get there and hold it!", 4);
+      }
+      st.zone = { x: at.x, y: at.y, z: at.z, r: 12, kind: "beacon" };
+    }
+    this._holdFight(st.zone, [28, 22, 32, 28][v], 6, v === 3, "beacon");
+  }
+
+  // "Crash site": a UFO comes down on fire nearby (a real crash, in one
+  // piece, no crew); the players race the recovery team to it and hold it,
+  // then loot the wreck (walking up to it).
+  _crashSite() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.zone) {
+      const pl = this._savedPlace();
+      if (pl) st.zone = { x: pl.x, y: pl.y, z: pl.z, r: 16, kind: "site" };
+      else if (!st.ship) {
+        st.waitT = (st.waitT ?? 1) - 0.5;
+        if (st.waitT > 0) return;
+        st.waitT = 10;
+        const at = this._groundSpot(110, 0.25, this._anyone().position);
+        if (!at) return;
+        // It streaks in from the side, already burning, and comes down about there.
+        const a = Math.random() * Math.PI * 2;
+        const u = this.ufos.spawn({ size: "small", design: ["saucer", "saucer_disc", "saucer_domed"][Math.floor(Math.random() * 3)], pos: { x: at.x - Math.cos(a) * 55, y: at.y + 75, z: at.z - Math.sin(a) * 55 } });
+        u.crashPlan = { exploded: false, crew: 0 };
+        this.ufos.damage(u, u.health + 1, false);
+        u.vel.set(Math.cos(a) * 20, -6, Math.sin(a) * 20);
+        st.ship = u;
+        st.at = { x: at.x, y: at.y, z: at.z };
+        this.toast?.("A UFO is going down nearby, on fire! Get to the crash site before their recovery team does.", 5);
+      }
+      if (!st.zone) {
+        const u = st.ship;
+        if (u && this.ufos.ufos.includes(u) && u.state !== "gone") {
+          this._setTarget(u, "Crashing UFO");
+          return;
+        }
+        // Down: the site is where it hit (a lost ship: where it was headed).
+        let p = u ? u.pos : st.at;
+        // (Into a lake: the site is the dry spot it was headed for.)
+        if (this.world.getChunk(Math.floor(p.x) >> 4, Math.floor(p.z) >> 4) && IS_WET[this.world.getBlock(Math.floor(p.x), this.world.surfaceY(Math.floor(p.x), Math.floor(p.z)) + 1, Math.floor(p.z))]) p = st.at;
+        const x = Math.floor(p.x);
+        const z = Math.floor(p.z);
+        const y = this.world.getChunk(x >> 4, z >> 4) ? this.world.surfaceY(x, z) + 1 : Math.max(this.terrain.heightAt(x, z), SEA_LEVEL) + 1;
+        st.zone = { x: p.x, y, z: p.z, r: 16, kind: "site" };
+        st.ship = null;
+        this.progress.place = { mission: this.missionId, x: p.x, y, z: p.z };
+        st.waveT = 18; // (the recovery team's first landing: a head start for whoever runs)
+        st.started = true;
+        this.toast?.("It's down! Hold the crash site: their recovery team is on its way.", 4);
+      }
+    }
+    const z = st.zone;
+    const { left } = this._holdFight(z, [30, 24, 34, 30][v], 18, v === 3, "crash site");
+    if (left > 0 || this._remaining(1) <= 0) return;
+    // Held: the wreck is open. Whoever walks up to it loots it.
+    const c = new THREE.Vector3(z.x, z.y, z.z);
+    const looter = this._people().find((q) => !q.dead && !q.vehicle && Math.hypot(q.position.x - z.x, q.position.z - z.z) < 7 && Math.abs(q.position.y - z.y) < 10);
+    if (looter && !st.looted) {
+      st.looted = true;
+      if (looter === this.player) this.stats.add("wrecksLooted");
+      else this.stats.addWorld("wrecksLooted");
+      this.dropLoot?.("ufo", "large", c.clone().setY(z.y + 1));
+      this.toast?.("The wreck is yours: grab what fell out of it!", 4);
+    }
+    this.target = { pos: c, label: "The wreck: loot it (walk up to it)", follow: null };
+    st.note = "The site is held: loot the wreck.";
+  }
+
+  // ---------- (Round 10) Run for cover ----------
+  // A shelter a few hundred blocks off (a village, else open ground) and a
+  // bombardment from orbit (the airstrike's rocks, as the meteor storm's,
+  // each announced by a red ring) aimed near whoever is still out in the
+  // open: wide at first, closer as the time runs out, and once it has run
+  // out, close. Everyone counts once, on reaching the shelter (online the
+  // goal is one per player). A player who dies starts again from where the
+  // run began. (The variant: nearer with less time, farther with more, or a
+  // spotter UFO whose loss makes the rocks fall wide.)
+  _evac() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.zone) {
+      const pl = this._savedPlace();
+      let at = pl;
+      let from = pl && Number.isFinite(pl.fx) && Number.isFinite(pl.fz) ? { x: pl.fx, z: pl.fz } : null;
+      if (!at || !from) {
+        const people = this._people();
+        from = { x: 0, z: 0 };
+        for (const q of people) {
+          from.x += q.position.x / people.length;
+          from.z += q.position.z / people.length;
+        }
+        const dist = [260, 200, 330, 260][v];
+        const vil = this.terrain.villages.nearestVillage(from.x, from.z, dist * 1.4);
+        const vd = vil ? Math.hypot(vil.x - from.x, vil.z - from.z) : 0;
+        at = vil && vd > dist * 0.6 ? { x: vil.x, y: vil.groundY + 1, z: vil.z } : this._farSpot(from, dist) || this._groundSpot(dist * 0.5, 0.3, this._anyone().position);
+        if (!at) return;
+        this.progress.place = { mission: this.missionId, x: at.x, y: at.y, z: at.z, fx: from.x, fz: from.z };
+        this.toast?.("Bombardment incoming! Run for the shelter (marked), and keep out of the red rings!", 5);
+      }
+      st.zone = { x: at.x, y: at.y, z: at.z, r: 12, kind: "shelter" };
+      st.from = from;
+      // (A walk takes about a second for every four blocks: time enough, less of it on the variant that says so.)
+      st.total = st.timeLeft = Math.round(Math.hypot(at.x - from.x, at.z - from.z) / [2.2, 2.8, 2, 2.2][v] + [25, 15, 30, 25][v]);
+      st.rings = [];
+      // (By nick, kept in the saved place: a guest who rejoins comes back as a new proxy, and a reload rebuilds this.)
+      st.arrived = new Set(Array.isArray(this.progress.place?.in) ? this.progress.place.in : []);
+      st.strikeT = 7;
+    }
+    const z = st.zone;
+    const c = new THREE.Vector3(z.x, z.y, z.z);
+    const people = this._people().filter((q) => !q.dead);
+    if (this.anyAlive) st.timeLeft -= 0.5;
+    // Arrivals (each player once, by nick: offline there is only the player).
+    const keyOf = (q) => String(this.nameOf?.(q) ?? (q.isRemote ? `#${q.pid}` : "@host")).toLowerCase();
+    for (const q of people) {
+      const k = keyOf(q);
+      if (st.arrived.has(k) || Math.hypot(q.position.x - z.x, q.position.z - z.z) >= z.r || Math.abs(q.position.y - z.y) >= 10) continue;
+      st.arrived.add(k);
+      if (this.progress.place) this.progress.place.in = [...st.arrived];
+      if (q === this.player) this.stats.add("evacuated");
+      else this.stats.addWorld("evacuated");
+      const who = this.nameOf?.(q);
+      this.toast?.(who ? `${who} made it to the shelter!` : "You made it to the shelter!", 3);
+    }
+    // The spotter (the variant): it makes the rocks fall closer while it flies.
+    if (v === 3 && !st.spotterDown) {
+      if (!this._alive(st.spotter)) {
+        st.spotT = (st.spotT ?? 2) - 0.5;
+        if (st.spotT <= 0) {
+          st.spotT = 20;
+          const who = this._anyone();
+          const u = this._spawnUfo({ size: "small", style: "volley" }, rand(80, 110), true, who.position);
+          this._keepTarget(u);
+          u.spotter = true;
+          u.homeOf = who;
+          u.tether = 90;
+          u.dodgeMul = 0.4;
+          st.spotter = u;
+        }
+      } else this._leash(st.spotter, 120, 90);
+    }
+    // The bombardment, near whoever is still out in the open (not too near the shelter).
+    const out = people.filter((q) => !st.arrived.has(keyOf(q)));
+    st.rings = st.rings.filter((r) => r.t > -1);
+    st.strikeT -= 0.5;
+    if (out.length && st.strikeT <= 0 && this.weapons?.airstrike) {
+      const late = st.timeLeft <= 0;
+      const frac = Math.max(0, st.timeLeft / Math.max(1, st.total));
+      st.strikeT = (late ? 2.6 : 3.4 + 3.6 * frac) / Math.sqrt(out.length);
+      const spot = v === 3 ? (this._alive(st.spotter) ? -4 : 6) : 0;
+      const q = out[Math.floor(Math.random() * out.length)];
+      const vel = q.velocity;
+      for (let k = 0; k < 6; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const d = Math.max(2, (late ? rand(3, 10) : rand(7, 16)) + spot);
+        const x = Math.floor(q.position.x + (vel ? vel.x * 2.5 : 0) + Math.cos(a) * d);
+        const zz = Math.floor(q.position.z + (vel ? vel.z * 2.5 : 0) + Math.sin(a) * d);
+        if (Math.hypot(x - z.x, zz - z.z) < z.r + 8) continue; // (the shelter holds)
+        const y = Math.max(this.world.heightAt(x, zz), SEA_LEVEL) + 1;
+        const target = new THREE.Vector3(x + 0.5, y, zz + 0.5);
+        const count = late ? 2 : 1;
+        this.weapons.airstrike.call(target, { count, spread: 6, delay: 4.5, angle: 25, source: "meteor" });
+        st.rings.push({ pos: target, t: 4.7, fx: 0, r: count > 1 ? 8 : 5 });
+        break;
+      }
+    }
+    if (st.timeLeft <= 0 && !st.lateTold && out.length) {
+      st.lateTold = true;
+      this.toast?.("Time's up: the bombardment is on in earnest! Get to the shelter!", 4);
+    }
+    const goal = this.progress.objectives(this.stats.world)[0]?.goal ?? 1;
+    this.target = { pos: c, label: goal > 1 ? `Shelter (${st.arrived.size}/${goal} in)` : "Shelter", follow: null };
+    st.note = !out.length ? "Everyone is in the shelter." : st.timeLeft > 0 ? `The rocks fall closer in ${clock(st.timeLeft)}. Keep out of the red rings.` : "The bombardment is on! Get to the shelter!";
+  }
+
+  // Open, dry, flattish ground about `dist` blocks from c, by the terrain's
+  // heights (it needn't be loaded yet; the live ground where it is), or null.
+  _farSpot(c, dist) {
+    const T = this.terrain;
+    for (let k = 0; k < 40; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = dist * (k < 24 ? rand(0.9, 1.1) : rand(0.55, 0.8));
+      const x = Math.floor(c.x + Math.cos(a) * d);
+      const z = Math.floor(c.z + Math.sin(a) * d);
+      const h = T.heightAt(x, z);
+      if (h <= SEA_LEVEL + 1) continue;
+      let flat = true;
+      for (const [dx, dz] of NEAR) if (Math.abs(T.heightAt(x + dx * 2, z + dz * 2) - h) > 2) flat = false;
+      if (!flat && k < 32) continue;
+      const loaded = this.world.getChunk(x >> 4, z >> 4);
+      if (loaded && IS_WET[this.world.getBlock(x, this.world.surfaceY(x, z), z)]) continue;
+      return { x: x + 0.5, y: (loaded ? this.world.surfaceY(x, z) : h) + 1, z: z + 0.5 };
+    }
+    return null;
+  }
+
+  // ---------- (Round 10) Rescue: carriers running off with captives ----------
+  // Abductor ships rise from a village (or a farm out in the fields) with
+  // people and animals aboard: they hover a few seconds, then make off low
+  // and slow (their own pace: ufos.js tripSpeed), climbing, and never stop to
+  // fight (errand). Shot down, their captives fall free (set down below);
+  // one that gets far enough away is gone, and another wave comes.
+  _rescue() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.place) {
+      const p = this._anyone().position;
+      const vil = this.terrain.villages.nearestVillage(p.x, p.z, 700);
+      if (vil) st.place = { x: vil.x, y: vil.groundY, z: vil.z, name: "village", kinds: ["villager", "villager", "cow", "sheep"] };
+      else {
+        const at = this._groundSpot(120, 0.3, p) || p;
+        st.place = { x: at.x, y: at.y, z: at.z, name: "farm", kinds: ["cow", "sheep", "pig", "chicken"] };
+      }
+    }
+    const place = st.place;
+    const center = new THREE.Vector3(place.x, place.y, place.z);
+    const escape = 360;
+    st.carriers = (st.carriers || []).filter((u) => this._alive(u));
+    for (const u of [...st.carriers]) {
+      if (Math.hypot(u.pos.x - center.x, u.pos.z - center.z) < escape) continue;
+      // Got away.
+      st.carriers.splice(st.carriers.indexOf(u), 1);
+      u.carrier = false;
+      this._releaseShip(u);
+      this.toast?.("A carrier got away with its captives!", 3);
+    }
+    const left = this._remaining();
+    if (st.carriers.length === 0 && left > 0) {
+      st.waitT = (st.waitT ?? 1) - 0.5;
+      if (st.waitT > 0) {
+        this.target = { pos: center, label: `The ${place.name}: more carriers are coming`, follow: null };
+        st.note = "";
+        return;
+      }
+      st.waitT = 12;
+      const n = Math.min(left, 2 + (this.groupN > 1 ? 1 : 0));
+      for (let i = 0; i < n; i++) {
+        const x = place.x + rand(-30, 30);
+        const z = place.z + rand(-30, 30);
+        const ground = Math.max(this.terrain.heightAt(Math.floor(x), Math.floor(z)), SEA_LEVEL);
+        const u = this.ufos.spawn({ size: "small", design: "saucer_domed", style: "abductor", pos: { x, y: ground + 60, z }, hidden: true });
+        u.carrier = true;
+        u.peaceful = true;
+        u.errand = true;
+        this._keepTarget(u);
+        u.dodgeMul = 0;
+        u.blinkT = 1e9;
+        u.tripSpeed = v === 3 ? 9.5 : 7;
+        u.captives = 1 + Math.floor(Math.random() * 3);
+        u.crashPlan = { crew: 0 }; // (its crew is busy: no aliens climb out)
+        u.loadT = rand(5, 9);
+        u.state = "trick";
+        u.trick = "land";
+        u.timer = 1e9;
+        u.waypoint = new THREE.Vector3(x, ground + rand(16, 22) + u.info.bottom * u.radius, z);
+        st.carriers.push(u);
+      }
+      // The escort (the variant): a gunship with them, the mission's while they fly.
+      if (v === 1) {
+        const ground = Math.max(this.terrain.heightAt(Math.floor(place.x), Math.floor(place.z)), SEA_LEVEL);
+        const e = this.ufos.spawn({ size: "medium", style: "sweep", pos: { x: place.x + rand(-40, 40), y: ground + 45, z: place.z + rand(-40, 40) }, hidden: true });
+        this._keepTarget(e);
+        e.home = center.clone();
+        e.tether = 120;
+        this.ufos.anger(e, 120);
+        (st.escorts = (st.escorts || []).filter((u) => this._alive(u))).push(e);
+      }
+      this.toast?.(`Carriers are rising from the ${place.name} with captives aboard: shoot them down before they get away!`, 5);
+      return;
+    }
+    // Each carrier: loads up over the place, then makes off, away from the players, climbing.
+    const people = this._people();
+    for (const u of st.carriers) {
+      if (u.state !== "trick" || u.trick !== "land") {
+        if (u.beam) u.beam.set(false);
+        u.state = "trick";
+        u.trick = "land";
+        u.timer = 1e9;
+      }
+      if (!u.runDir) {
+        u.loadT -= 0.5;
+        if (u.loadT > 0) continue;
+        let near = null;
+        let bd = Infinity;
+        for (const q of people) {
+          const d = q.position.distanceTo(u.pos);
+          if (d < bd) {
+            bd = d;
+            near = q;
+          }
+        }
+        const a = near ? Math.atan2(u.pos.z - near.position.z, u.pos.x - near.position.x) + rand(-1, 1) : Math.random() * Math.PI * 2;
+        u.runDir = new THREE.Vector2(Math.cos(a), Math.sin(a));
+        u.runT = 0;
+      }
+      u.runT += 0.5;
+      const x = u.pos.x + u.runDir.x * 40;
+      const z = u.pos.z + u.runDir.y * 40;
+      const ground = Math.max(this.terrain.heightAt(Math.floor(x), Math.floor(z)), SEA_LEVEL);
+      u.waypoint = new THREE.Vector3(x, ground + u.info.bottom * u.radius + Math.min(70, 18 + u.runT * 1.2), z);
+    }
+    const s = this._nearestOf(st.carriers);
+    if (s) this._setTarget(s, `Carrier (${st.carriers.length} in the air)`);
+    else this.target = null;
+    const far = s ? Math.round(Math.hypot(s.pos.x - center.x, s.pos.z - center.z)) : 0;
+    st.note = s ? `The nearest carrier is ${Math.max(0, escape - far)} m from getting away.` : "";
+  }
+
+  // A carrier shot down: its captives fall free, set down on the ground by
+  // the wreck (out of the loaded world, or in water: back at their village).
+  _freeCaptives(u) {
+    const place = this.state.place;
+    const kinds = place?.kinds || ["cow", "sheep"];
+    let n = 0;
+    for (let i = 0; i < (u.captives || 1); i++) {
+      for (const c of [u.pos, place]) {
+        if (!c) continue;
+        const x = Math.floor(c.x + rand(-4, 4));
+        const z = Math.floor(c.z + rand(-4, 4));
+        if (!this.world.getChunk(x >> 4, z >> 4)) continue;
+        if (this.mobs.spawn(kinds[Math.floor(Math.random() * kinds.length)], x + 0.5, this.world.surfaceY(x, z) + 1, z + 0.5)) {
+          n++;
+          break;
+        }
+      }
+    }
+    if (n) this.toast?.(`${n} captive${n === 1 ? "" : "s"} freed!`, 3);
+  }
+
+  // ---------- (Round 10) Sabotage: the signal beacons ----------
+  // Pods (small ships, landed and grounded for good: errand, peaceful) spread
+  // around the group, each with a few aliens guarding it (set out when
+  // someone comes near) and calling in a UFO now and then while it stands.
+  // As many are set out as are still to destroy (at most six at once); a
+  // reload sets out what is left.
+  _beacons() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.center) {
+      const people = this._people();
+      st.center = { x: 0, z: 0 };
+      for (const q of people) {
+        st.center.x += q.position.x / people.length;
+        st.center.z += q.position.z / people.length;
+      }
+    }
+    st.pods = (st.pods || []).filter((u) => this._alive(u));
+    const left = this._remaining();
+    if (st.pods.length < Math.min(left, 6)) {
+      st.podT = (st.podT ?? 0) - 0.5;
+      if (st.podT <= 0) {
+        st.podT = 1;
+        const s = this._farSpot(st.center, v === 1 ? rand(230, 330) : rand(110, 210)) || this._groundSpot(90, 0.4, this._anyone().position);
+        if (s) {
+          const u = this.ufos.spawn({ size: "small", design: "saucer_domed", style: "volley", pos: { x: s.x, y: s.y + 60, z: s.z }, hidden: true });
+          u.beacon = true;
+          u.peaceful = true;
+          u.errand = true;
+          this._keepTarget(u);
+          u.dodgeMul = 0;
+          u.blinkT = 1e9;
+          u.crashPlan = { exploded: true, crew: 0 };
+          u.maxHealth = u.health = Math.round(90 * (this.ufos.groupHealth ?? 1));
+          u.podAt = new THREE.Vector3(s.x, s.y, s.z);
+          u.waypoint = new THREE.Vector3(s.x, s.y + u.info.bottom * u.radius + 0.3, s.z);
+          u.callT = rand(15, 30);
+          st.pods.push(u);
+          if (!st.told) {
+            st.told = true;
+            this.toast?.("Signal beacons are coming down around you (marked): destroy them before they call in the fleet!", 5);
+          }
+        }
+      }
+    }
+    // Each pod: down and staying down; its guards when someone comes near; a call now and then.
+    const people = this._people();
+    st.called = (st.called || []).filter((u) => this._alive(u));
+    for (const u of st.pods) {
+      if (u.state !== "trick" || u.trick !== "land") {
+        u.state = "trick";
+        u.trick = "land";
+        u.timer = 1e9;
+      }
+      // (Onto the live ground once it is loaded: the terrain's height was a guess.)
+      const g = this.ufos._groundAt?.(u.podAt.x, u.podAt.z) ?? u.podAt.y;
+      u.podAt.y = g;
+      u.waypoint.y = g + u.info.bottom * u.radius + 0.3;
+      if (u.landed || u.pos.distanceTo(u.waypoint) < 2.5) u.podDown = true;
+      let d = Infinity;
+      for (const q of people) d = Math.min(d, q.position.distanceTo(u.podAt));
+      if (!u.guarded && d < 170 && this.world.getChunk(Math.floor(u.podAt.x) >> 4, Math.floor(u.podAt.z) >> 4)) {
+        u.guarded = true;
+        const kinds = this._waveKinds();
+        for (let i = 0; i < 1 + this.groupN; i++) {
+          this._spawnAlien(kinds[i % kinds.length], 6, u.podAt);
+        }
+      }
+      u.callT -= 0.5;
+      if (u.callT <= 0 && u.podDown) {
+        u.callT = (v === 3 ? 32 : 50) * rand(0.9, 1.1);
+        if (st.called.length < 1 + this.groupN) {
+          const ground = Math.max(this.terrain.heightAt(Math.floor(u.pos.x), Math.floor(u.pos.z)), SEA_LEVEL);
+          const c = this.ufos.spawn({ pos: { x: u.pos.x + rand(-70, 70), y: ground + rand(40, 60), z: u.pos.z + rand(-70, 70) }, hidden: true });
+          this.ufos.anger(c, 90);
+          st.called.push(c);
+          this.toast?.("A signal beacon has called in a UFO!", 3);
+        }
+      }
+    }
+    const b = this._nearestOf(st.pods);
+    if (b) this._setTarget(b, `Signal beacon (${st.pods.length} standing)`);
+    else this.target = null;
+    st.note = st.pods.length ? `${st.pods.length} beacon${st.pods.length === 1 ? "" : "s"} standing: each calls in UFOs.` : "";
+  }
+
+  // ---------- (Round 10) What these missions draw on the ground ----------
+
+  // Every frame: the bombardment's rings, the zone's ring (and its beacon's
+  // light), the signal beacons' columns.
+  _fxZones(dt) {
+    const st = this.state;
+    for (let i = (st.rings || []).length - 1; i >= 0; i--) {
+      const r = st.rings[i];
+      r.t -= dt;
+      this._drawRing(r, dt);
+      if (r.t <= -1) st.rings.splice(i, 1);
+    }
+    if (st.zone) this._drawZone(st.zone, dt);
+    for (const u of st.pods || []) if (u.podDown && this._alive(u)) this._drawPod(u.pos, u.radius);
+  }
+
+  // A zone's ring on the ground, in its kind's colour, and a blinking light
+  // over the radio beacon.
+  _drawZone(z, dt) {
+    const fx = this.effects;
+    if (!fx) return;
+    const cols = this._zoneC || (this._zoneC = { beacon: new THREE.Color(0.4, 1.6, 3), site: new THREE.Color(3, 1.4, 0.3), shelter: new THREE.Color(0.5, 3, 0.8) });
+    z.fx = (z.fx ?? 0) - dt;
+    z.t = (z.t ?? 0) + dt;
+    if (z.fx > 0) return;
+    z.fx = 0.12;
+    const n = 30;
+    const c = cols[z.kind] || cols.beacon;
+    const life = Math.max(0.26, dt * 2.2); // (a slow frame rate: each ring lasts until the next one)
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + z.t * 0.3;
+      const x = z.x + Math.cos(a) * z.r;
+      const zz = z.z + Math.sin(a) * z.r;
+      const gy = this.world.getChunk(Math.floor(x) >> 4, Math.floor(zz) >> 4) ? this.world.surfaceY(Math.floor(x), Math.floor(zz)) + 1.15 : z.y + 0.15;
+      fx.glow.spawn({ x, y: gy, z: zz, life, size0: 0.6, size1: 0.4, color0: c, alpha: 0.85 });
+    }
+    // The middle: a light on the beacon's mast (blinking), smoke over the wreck, a column of light over the shelter.
+    if (z.kind === "beacon" && Math.floor(z.t * 2) % 2 === 0) fx.glow.spawn({ x: z.x, y: z.y + 7, z: z.z, life: Math.max(0.2, dt * 1.5), size0: 2.2, size1: 1.6, color0: this._redC || (this._redC = new THREE.Color(3.5, 0.5, 0.25)), alpha: 0.95 });
+    if (z.kind === "beacon") for (let y = 0.5; y < 7; y += 1.5) fx.glow.spawn({ x: z.x, y: z.y + y, z: z.z, life, size0: 0.35, size1: 0.3, color0: c, alpha: 0.7 });
+    if (z.kind === "site") fx.smoke?.spawn({ x: z.x + rand(-1.5, 1.5), y: z.y + 1, z: z.z + rand(-1.5, 1.5), vx: rand(-0.4, 0.4), vy: 2.2, vz: rand(-0.4, 0.4), life: rand(3, 5), size0: 1.2, size1: 4, color0: this._smokeC || (this._smokeC = new THREE.Color(0.16, 0.15, 0.14)), color1: this._smokeC2 || (this._smokeC2 = new THREE.Color(0.45, 0.43, 0.4)), alpha: 0.5, drag: 0.6 });
+    if (z.kind === "shelter") fx.glow.spawn({ x: z.x + rand(-1, 1), y: z.y + 0.5, z: z.z + rand(-1, 1), vy: rand(6, 12), life: rand(0.8, 1.4), size0: 0.5, size1: 0.1, color0: c, alpha: 0.9 });
+  }
+
+  // A signal beacon's column: sparks rising from it, a pulse now and then.
+  _drawPod(pos, radius = 3.5) {
+    const fx = this.effects;
+    if (!fx) return;
+    const c = this._podC || (this._podC = new THREE.Color(3.2, 0.6, 1.6));
+    if (Math.random() < 0.7) fx.glow.spawn({ x: pos.x + rand(-0.4, 0.4), y: pos.y + radius * 0.4, z: pos.z + rand(-0.4, 0.4), vy: rand(14, 24), life: rand(1, 1.8), size0: 0.7, size1: 0.2, color0: c, alpha: 0.9 });
+    if (Math.random() < 0.04) fx.glow.spawn({ x: pos.x, y: pos.y + radius, z: pos.z, life: 0.35, size0: radius * 1.6, size1: radius * 3, color0: c, alpha: 0.5 });
   }
 
   // 11. Touchdown: fly a jet back onto a runway and stop; then a red squad
@@ -1322,15 +2213,29 @@ export class MissionDirector {
     const st = this.state;
     const p = this.player.position;
     if (!st.init) {
+      // (Round 10) It falls out of the night sky: by day the clock eases on
+      // to the night first (a time-lapse, see _warpTo; a locked clock jumps).
+      const h = this.sky.hours;
+      if (st.warp) {
+        this.target = null;
+        this.state.note = "Night is falling...";
+        return;
+      }
+      if (!(h >= 19.5 || h < 5.5) && !st.dusk) {
+        st.dusk = true;
+        if (this.sky.locked) this.sky.setHours(21);
+        else if (this._warpTo(21)) {
+          this.toast?.("Night is falling... and something is falling with it.", 4);
+          this.target = null;
+          return;
+        }
+      }
       st.init = true;
       st.strikeT = 5;
       st.frags = [];
       st.rings = [];
       st.seed = 0;
       st.since = 2; // the first strike seeds a fragment
-      const h = this.sky.hours;
-      if (!(h >= 19.5 || h < 5.5)) this.sky.setHours(21);
-      this.sky.timeScale = 1;
       this.toast?.("A meteor storm! Rocks fall where the red rings are: keep out of them, and grab the glowing star fragments.", 6);
     }
     st.frags = st.frags.filter((f) => f.life > 0);
@@ -1340,7 +2245,7 @@ export class MissionDirector {
     const goal = this.progress.objectives(this.stats.world)[0]?.goal ?? 4;
     if (st.strikeT <= 0 && this.anyAlive && this.weapons?.airstrike) {
       // (Online: around everyone, a little more often for a bigger group.)
-      st.strikeT = Math.max(3.2, rand(5.5, 8) - (collected / goal) * 2.8) / Math.sqrt(this.groupN);
+      st.strikeT = (Math.max(3.2, rand(5.5, 8) - (collected / goal) * 2.8) / Math.sqrt(this.groupN)) * (this.mission?.variant === 1 ? 0.75 : 1); // (Round 10: a heavy storm)
       const q = this._anyone().position;
       const a = Math.random() * Math.PI * 2;
       const d = rand(20, 65);
@@ -1359,7 +2264,7 @@ export class MissionDirector {
       } else st.since++;
     }
     // Salvagers: a small UFO comes for a fragment that has been lying around.
-    const old = st.frags.find((f) => f.life < 45);
+    const old = st.frags.find((f) => f.life < (this.mission?.variant === 2 ? 40 : 45));
     if (old && !this._alive(st.salvager)) {
       st.salvT = (st.salvT ?? 0) - 0.5;
       if (st.salvT <= 0) {
@@ -1402,7 +2307,7 @@ export class MissionDirector {
       st.pending.splice(i, 1);
       st.seed = Math.max(0, (st.seed || 1) - 1);
       const y = this.world.surfaceY(Math.floor(q.pos.x), Math.floor(q.pos.z)) + 1.4;
-      st.frags.push({ pos: new THREE.Vector3(q.pos.x, y, q.pos.z), life: 80 });
+      st.frags.push({ pos: new THREE.Vector3(q.pos.x, y, q.pos.z), life: this.mission?.variant === 2 ? 60 : 80 }); // (Round 10: hungry salvagers)
       this.toast?.("A star fragment!", 2.5);
     }
     for (let i = st.frags.length - 1; i >= 0; i--) {
@@ -1453,15 +2358,25 @@ export class MissionDirector {
     if (Math.random() < 0.6) fx.glow.spawn({ x: f.pos.x + rand(-0.5, 0.5), y: f.pos.y, z: f.pos.z + rand(-0.5, 0.5), vy: rand(3, 8), life: rand(0.8, 1.6), size0: 0.4, size1: 0.05, color0: star, alpha: 0.9 });
   }
 
-  // What a guest must see of the mission's own objects (online): rings and fragments.
+  // What a guest must see of the mission's own objects (online): rings and
+  // fragments; (Round 10) the zone, the signal beacons.
   netObjects() {
     const st = this.state;
-    if (this.mission?.event !== "meteors" || !st.init) return null;
+    const ev = this.mission?.event;
     const r1 = (v) => Math.round(v * 10) / 10;
-    return {
-      r: (st.rings || []).map((r) => [r1(r.pos.x), r1(r.pos.y), r1(r.pos.z), r.r, Math.round(r.t * 2) / 2]),
-      f: (st.frags || []).map((f) => [r1(f.pos.x), r1(f.pos.y), r1(f.pos.z)]),
-    };
+    if (ev === "meteors" && st.init) {
+      return {
+        r: (st.rings || []).map((r) => [r1(r.pos.x), r1(r.pos.y), r1(r.pos.z), r.r, Math.round(r.t * 2) / 2]),
+        f: (st.frags || []).map((f) => [r1(f.pos.x), r1(f.pos.y), r1(f.pos.z)]),
+      };
+    }
+    if (!ZONE_EVENTS.has(ev)) return null;
+    const out = {};
+    if (st.rings?.length) out.r = st.rings.map((r) => [r1(r.pos.x), r1(r.pos.y), r1(r.pos.z), r.r, Math.round(r.t * 2) / 2]);
+    if (st.zone) out.z = [[r1(st.zone.x), r1(st.zone.y), r1(st.zone.z), st.zone.r, Math.max(0, ZONE_KINDS.indexOf(st.zone.kind))]];
+    const pods = (st.pods || []).filter((u) => u.podDown && this._alive(u));
+    if (pods.length) out.b = pods.map((u) => [r1(u.pos.x), r1(u.pos.y), r1(u.pos.z), r1(u.radius)]);
+    return Object.keys(out).length ? out : null;
   }
 
   // A guest draws the host's mission objects (see netObjects).
@@ -1479,6 +2394,19 @@ export class MissionDirector {
     }
     for (const k of keep.keys()) if (!seen.has(k)) keep.delete(k);
     for (const [x, y, z] of objs.f || []) this._drawFrag({ pos: _v.set(x, y, z) });
+    // (Round 10) The zone (kept between states: its ring turns on), the beacons.
+    const zs = (this._netZones ||= new Map());
+    const zseen = new Set();
+    for (const e of Array.isArray(objs.z) ? objs.z : []) {
+      if (!Array.isArray(e) || !e.slice(0, 4).every(Number.isFinite)) continue;
+      const key = `${e[0]},${e[2]}`;
+      zseen.add(key);
+      let z = zs.get(key);
+      if (!z) zs.set(key, (z = { x: e[0], y: e[1], z: e[2], r: Math.max(1, Math.min(40, e[3])), kind: ZONE_KINDS[e[4]] || "beacon" }));
+      this._drawZone(z, dt);
+    }
+    for (const k of zs.keys()) if (!zseen.has(k)) zs.delete(k);
+    for (const e of Array.isArray(objs.b) ? objs.b.slice(0, 8) : []) if (Array.isArray(e) && e.slice(0, 3).every(Number.isFinite)) this._drawPod(_v.set(e[0], e[1], e[2]), Number(e[3]) || 3.5);
   }
 
   // ---------- 20. The Overlord: a shielded mothership ----------
@@ -2083,6 +3011,23 @@ export class MissionDirector {
       case "landjet":
         if (!st.landed) return airport(mid) || (t && airport(t.pos));
         break;
+      // (Round 10) Back out of the zone (to walk back in), back to where the
+      // run for cover began, around the village of the rescue, the group.
+      case "hold":
+      case "crashsite":
+        if (st.zone) return { x: st.zone.x, z: st.zone.z, r: 50 };
+        break;
+      case "evac":
+        if (st.from) return { x: st.from.x, z: st.from.z, r: 20 };
+        break;
+      case "rescue":
+        if (st.place) return { x: st.place.x, z: st.place.z, r: 60 };
+        break;
+      case "beacons":
+        if (st.center) return { x: st.center.x, z: st.center.z, r: 50 };
+        break;
+      case "hunters":
+        return { x: mid.x, z: mid.z, r: 35 };
     }
     if (t) return { x: t.pos.x, z: t.pos.z, r: t.follow?.S ? 55 + (t.follow.radius || 10) : 45 };
     if (this._lastPlace?.id === m.id) return { x: this._lastPlace.x, z: this._lastPlace.z, r: 45 };
@@ -2140,6 +3085,16 @@ export class MissionDirector {
     if (u.size === "giant") add("titansDown"); // (the Titan mission's: a mothership doesn't count)
     if (u.raider) add("raidersDown");
     if (u.abductor) add("abductorsDown");
+    // (Round 10) A carrier (its captives fall free), a signal beacon, the bombardment's spotter.
+    if (u.carrier) {
+      add("carriersDown");
+      this._freeCaptives(u);
+    }
+    if (u.beacon) add("beaconsDown");
+    if (u.spotter && this.mission?.event === "evac") {
+      this.state.spotterDown = true;
+      this.toast?.("The spotter is down: the rocks fall wide now!", 4);
+    }
     if (u.boss) {
       add("bossesDown");
       if (u.bossStat && u.bossStat !== "bossesDown") add(u.bossStat);

@@ -1,16 +1,32 @@
 // What the player does with the mouse and the item in hand: mining blocks
 // (timed by hardness and tool in survival, instant in creative) with a crack
-// overlay, drops and tool wear; placing blocks; eating food; opening
-// crafting tables; dropping items (Q); creative pick-block (middle click).
+// overlay, drops and tool wear; placing blocks (a torch on the side of a
+// block hangs on it); eating food; opening chests (js/chests.js); dropping
+// items (Q); creative pick-block (middle click).
 // Melee attacks go through `entityTarget`, which the mob system provides.
 import * as THREE from "three";
-import { BLOCK, BLOCK_INFO, IS_REPLACEABLE, SHAPE, SHAPE_OF, isSupportedBy } from "./blocks.js";
+import {
+  BLOCK,
+  BLOCK_INFO,
+  IS_REPLACEABLE,
+  IS_CHEST,
+  IS_WALL_TORCH,
+  ITEM_OF,
+  SHAPE,
+  SHAPE_OF,
+  CHEST_BOX,
+  isSupportedBy,
+  isWallSupportedBy,
+  wallTorch,
+  chest,
+} from "./blocks.js";
 import { itemInfo, breakTime, blockDrops, canHarvest } from "./items.js";
 import { buildCrackStages } from "./itemtextures.js";
 import { selectionBox } from "./world.js";
 import { HOTBAR_SIZE, makeStack } from "./inventory.js";
 import { SEA_LEVEL } from "./constants.js";
 import { MAX_HEALTH } from "./player.js";
+import { Chests } from "./chests.js";
 
 const REACH_SURVIVAL = 4.5;
 const REACH_CREATIVE = 6;
@@ -51,6 +67,37 @@ function createCrackMesh() {
   return { mesh, textures };
 }
 
+// (Round 10) Wall torches hang on the block behind them: one whose wall goes
+// pops off and drops a torch, like a standing torch losing its floor (which
+// world.js handles). An edit that came from another player online pops it
+// here too, without a drop (their game dropped it).
+const SIDE_X = [1, -1, 0, 0];
+const SIDE_Z = [0, 0, 1, -1];
+function watchWallTorches(world) {
+  world.changeListeners.push((changed, opts) => {
+    let pop = null;
+    for (let i = 0; i < changed.length; i += 3) {
+      const x = changed[i];
+      const y = changed[i + 1];
+      const z = changed[i + 2];
+      if (isWallSupportedBy(world.getBlock(x, y, z))) continue;
+      for (let k = 0; k < 4; k++) {
+        const id = world.getBlock(x + SIDE_X[k], y, z + SIDE_Z[k]);
+        if (!IS_WALL_TORCH[id]) continue;
+        const f = BLOCK_INFO[id].facing;
+        if (f[0] === SIDE_X[k] && f[1] === SIDE_Z[k]) (pop ||= []).push(x + SIDE_X[k], y, z + SIDE_Z[k], id);
+      }
+    }
+    if (!pop) return;
+    const remote = !!opts?.remote;
+    const list = pop.slice();
+    for (let i = 3; i < list.length; i += 4) list[i] = BLOCK.AIR;
+    world.setBlocks(list, { recordEdit: opts?.recordEdit !== false, remote });
+    if (remote || !world.onBlockPopped) return;
+    for (let i = 0; i < pop.length; i += 4) if (world.getBlock(pop[i], pop[i + 1], pop[i + 2]) === BLOCK.AIR) world.onBlockPopped(pop[i], pop[i + 1], pop[i + 2], pop[i + 3]);
+  });
+}
+
 export class Interaction {
   constructor({ scene, world, player, inventory, entities, audio, effects, held }) {
     this.world = world;
@@ -78,6 +125,15 @@ export class Interaction {
     this.eating = 0; // seconds spent eating the held food (0 = not eating)
     this._eatSoundTimer = 0;
     this._color = new THREE.Color();
+
+    watchWallTorches(world);
+    // The chests' contents (and what a broken one spills).
+    this.chests = new Chests({ world });
+    this.chests.onDrop = (s, x, y, z) => {
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 2, (Math.random() - 0.5) * 3);
+      this.entities.spawn(s.id, s.count, new THREE.Vector3(x + 0.5, y + 0.4, z + 0.5), vel, { dur: s.dur, pickupDelay: 0.6 });
+    };
+    this.onOpenChest = null; // (x, y, z): right click on a chest (main.js opens the chest screen)
 
     // Hooks set by the game.
     this.onChange = null; // () => void: inventory contents changed
@@ -116,6 +172,13 @@ export class Interaction {
     } else if (button === 2) {
       this.rightDown = true;
       this._placeTimer = 0;
+      // A chest under the crosshair opens, whatever is in hand.
+      const t = this.target;
+      if (t && IS_CHEST[t.id] && this.onOpenChest) {
+        this.audio.playClick?.();
+        this.onOpenChest(t.block[0], t.block[1], t.block[2]);
+        return;
+      }
       // A weapon or grenade in hand is used instead of placing or opening;
       // a piece of armor in hand is put on.
       const weapon = this._weapon();
@@ -384,10 +447,22 @@ export class Interaction {
   _place(blockId) {
     const t = this.target;
     if (!t) return false;
+    if (IS_CHEST[t.id]) return false; // (right click opens it: nothing is placed against one)
     // Placing onto something replaceable (tall grass) replaces it in place.
     const [px, py, pz] = IS_REPLACEABLE[t.id] ? t.block : t.place;
     const world = this.world;
     if (!IS_REPLACEABLE[world.getBlock(px, py, pz)]) return false;
+    if (blockId === BLOCK.TORCH && !IS_REPLACEABLE[t.id]) {
+      // A torch on the side of a block hangs on it, on top it stands, and
+      // under a block it doesn't go (as in classic block games).
+      const [nx, ny, nz] = t.normal;
+      if (ny < 0) return false;
+      if (ny === 0 && (nx || nz) && isWallSupportedBy(t.id)) blockId = wallTorch(nx, nz);
+    } else if (IS_CHEST[blockId]) {
+      // A chest's front (its latch) faces the player who places it.
+      const f = this.player.getForwardVector();
+      blockId = chest(-f.x, -f.z);
+    }
     if (BLOCK_INFO[blockId].solid && this._overlapsPlayer(px, py, pz)) return false;
     if (BLOCK_INFO[blockId].solid && this.othersOverlap?.(px, py, pz)) return false;
     if (BLOCK_INFO[blockId].solid && this.combat && this.combat.overlapsBlock(px, py, pz)) return false;
@@ -442,7 +517,7 @@ export class Interaction {
   // Creative: middle click puts the targeted block in the hotbar.
   _pickBlock() {
     if (!this.player.creative || !this.target) return;
-    const id = this.target.id;
+    const id = ITEM_OF[this.target.id]; // (a wall torch: a torch)
     if (!itemInfo(id)) return;
     const inv = this.inventory;
     for (let i = 0; i < HOTBAR_SIZE; i++) {
@@ -469,13 +544,22 @@ export class Interaction {
 
     // Crack overlay on the block being mined.
     const m = this.mining;
-    if (m && m.progress > 0 && m.time !== Infinity && SHAPE_OF[m.id] === SHAPE.CUBE) {
+    const shape = m ? SHAPE_OF[m.id] : -1;
+    if (m && m.progress > 0 && m.time !== Infinity && (shape === SHAPE.CUBE || shape === SHAPE.CHEST)) {
       const stage = Math.min(9, Math.floor(m.progress * 10));
       if (this.crackMesh.material.map !== this.crackTextures[stage]) {
         this.crackMesh.material.map = this.crackTextures[stage];
         this.crackMesh.material.needsUpdate = true;
       }
-      this.crackMesh.position.set(m.x + 0.5, m.y + 0.5, m.z + 0.5);
+      // (A chest: the cracks on its smaller box.)
+      const b = shape === SHAPE.CHEST ? CHEST_BOX : null;
+      if (b) {
+        this.crackMesh.scale.set(b[3] - b[0], b[4] - b[1], b[5] - b[2]);
+        this.crackMesh.position.set(m.x + (b[0] + b[3]) / 2, m.y + (b[1] + b[4]) / 2, m.z + (b[2] + b[5]) / 2);
+      } else {
+        this.crackMesh.scale.set(1, 1, 1);
+        this.crackMesh.position.set(m.x + 0.5, m.y + 0.5, m.z + 0.5);
+      }
       this.crackMesh.visible = true;
     } else {
       this.crackMesh.visible = false;

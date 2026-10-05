@@ -15,10 +15,12 @@
 // A joining player gets every edit of the world (in parts), then the live stream.
 import { CHUNK_SIZE, WORLD_HEIGHT, chunkKey, blockIndex } from "../constants.js";
 import { encodeChunkEdits, decodeChunkEdits, setEdit } from "../storage.js";
+import { IS_CHEST } from "../blocks.js";
 
 const FLUSH_INTERVAL = 0.05; // seconds between batches
 const MAX_BATCH_CHUNKS = 48; // chunks per message (a nuke's crater goes out in several)
 const RACE_WINDOW = 1500; // ms
+const MAX_GONE = 64; // a guest's broken chests named per message
 
 export class WorldSync {
   constructor(mp) {
@@ -27,6 +29,7 @@ export class WorldSync {
     this.net = mp.net;
     this.world = mp.game.world;
     this.out = new Map(); // chunkKey -> Map<index, id>: our edits waiting to go
+    this.outGone = []; // a guest: [x, y, z] of generated chests it broke, with those edits
     this.applying = false;
     this._t = 0;
     this.recent = new Map(); // host: "x,y,z" -> { pid, t }
@@ -63,6 +66,11 @@ export class WorldSync {
     if (this.net.isHost) this.recent.set(`${x},${y},${z}`, { pid: this.net.pid, t: performance.now() });
   }
 
+  // A guest broke a generated chest (js/net/chests.js): named with its edit.
+  goneLocal(x, y, z) {
+    if (!this.net.isHost && this.outGone.length < MAX_GONE) this.outGone.push([x, y, z]);
+  }
+
   update(dt) {
     this._t -= dt;
     if (this._t <= 0 && this.out.size) {
@@ -81,9 +89,12 @@ export class WorldSync {
   _flush() {
     let c = {};
     let n = 0;
+    let left = this.out.size;
     const send = () => {
       if (!n) return;
       const msg = { t: "ed", c };
+      // (The broken chests go with the last part: their edits are in it or before.)
+      if (!left && this.outGone.length) msg.cg = this.outGone;
       if (this.net.isHost) this.net.broadcast(msg);
       else this.net.toHost(msg);
       c = {};
@@ -97,14 +108,17 @@ export class WorldSync {
       if (chunk) for (const index of map.keys()) map.set(index, chunk.blocks[index]);
       c[key] = encodeChunkEdits(map);
       this.stats.sent += map.size;
+      left--;
       if (++n >= MAX_BATCH_CHUNKS) send();
     }
     send();
     this.out.clear();
+    this.outGone = [];
   }
 
   stop() {
     this.out.clear();
+    this.outGone = [];
     this.recent.clear();
   }
 
@@ -113,8 +127,10 @@ export class WorldSync {
   _onEdits(m, from) {
     if (!m.c || typeof m.c !== "object") return;
     const world = this.world;
+    const gone = this.net.isHost && Array.isArray(m.cg) ? this._goneBefore(m.cg) : null;
     const changed = this._apply(m.c, from);
     if (!this.net.isHost) return;
+    if (gone) this._goneAfter(gone);
     // Host: pass it on, and settle races with the sender.
     this.net.broadcast(m, { except: from });
     if (!changed.raced.length) return;
@@ -132,6 +148,34 @@ export class WorldSync {
     this.net.send(from, { t: "ed", c, fix: 1 });
   }
 
+  // Host: the generated chests a guest says it broke, in ground not loaded
+  // here (loaded ground spills through js/chests.js's own wrapper): only
+  // where no edit was recorded before this batch (generated, not placed)
+  // and nobody opened it (a record spills in _apply).
+  _goneBefore(list) {
+    const world = this.world;
+    const chests = this.game.interaction?.chests;
+    if (!chests) return null;
+    const out = [];
+    for (const p of list.slice(0, MAX_GONE)) {
+      if (!Array.isArray(p) || p.length !== 3 || !p.every(Number.isInteger) || p[1] < 0 || p[1] >= WORLD_HEIGHT) continue;
+      const [x, y, z] = p;
+      if (world.getChunk(x >> 4, z >> 4) || chests.store.has(`${x},${y},${z}`)) continue;
+      if (world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)) === undefined) out.push(p);
+    }
+    return out.length ? out : null;
+  }
+
+  // ... and once the batch is in: where it recorded a non-chest, the loot spills.
+  _goneAfter(list) {
+    const chests = this.game.interaction?.chests;
+    if (!chests) return;
+    for (const [x, y, z] of list) {
+      const id = this.world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
+      if (id !== undefined && !IS_CHEST[id]) chests.goneGenerated(x, y, z);
+    }
+  }
+
   // Applies a batch: loaded chunks in one bulk edit, the others recorded
   // (applied when they load). Returns { raced: [[x, y, z]] } (host).
   _apply(chunks, from) {
@@ -140,6 +184,8 @@ export class WorldSync {
     const raced = [];
     const t = performance.now();
     const host = this.net.isHost;
+    // (Host: a chest with a record here, in ground not loaded, replaced: it spills.)
+    const chests = host ? this.game.interaction?.chests : null;
     let count = 0;
     for (const [key, enc] of Object.entries(chunks)) {
       const m = /^(-?\d+),(-?\d+)$/.exec(key);
@@ -168,6 +214,7 @@ export class WorldSync {
         }
         if (loaded) list.push(x, y, z, id);
         else {
+          if (chests?.store.size && !IS_CHEST[id]) chests.goneUnloaded(x, y, z);
           setEdit(world.edits, cx, cz, index, id);
           world.dirtyEditChunks.add(key);
           world.lodDirty.add(key);

@@ -1,9 +1,9 @@
 // Weapons: grenades (charge-thrown, bouncing, 5 s fuse, instant on a direct
-// hit on a mob), the pistol (hitscan: sparks and bullet holes on blocks,
-// damage and knockback on mobs), the bazooka (a fast rocket with a smoke
-// trail that explodes on terrain or mobs with a huge blast), the machine
-// gun, the sniper rifle, the airstrike designator (see airstrike.js), the
-// laser blaster (see lasers.js) and the bow (skeletons drop it; hold right
+// hit on a mob), the pistol, the machine gun and the sniper rifle (real
+// bullets that take time to arrive: see _fireBullet), the bazooka (a fast
+// rocket with a smoke trail that explodes on terrain or mobs with a huge
+// blast), the airstrike designator (see airstrike.js), the laser blaster
+// and minigun (see lasers.js) and the bow (skeletons drop it; hold right
 // click to draw it, let go to shoot: a fuller draw is faster, farther and
 // harder). Ammo never runs out, but every weapon reloads, recharges or cools
 // down (WEAPON_STATS), balanced by its damage: the sniper has one round and
@@ -33,9 +33,16 @@ const GRENADE_GRAVITY = -20;
 const RESTITUTION = 0.38;
 export const PISTOL_DAMAGE = 5;
 const PISTOL_RANGE = 160;
-const PISTOL_SPEED = 240; // blocks/s: a real bullet, it takes time to arrive
-// The pistol's bullet: a pale tracer like the machine gun's (Round 8: it was
-// a big glowing yellow bolt that looked like a laser).
+// Bullets (the pistol, the machine gun, the sniper) are real projectiles: a
+// moving target must be led. Lasers fly about three times as fast as the
+// pistol's and the machine gun's bullets, and faster than the sniper's.
+const PISTOL_SPEED = 175; // blocks/s
+// (With a long view range, the pistol's and machine gun's bullets fly half
+// as fast again, so a far target is not seconds away; still slower than lasers.
+// Not where players can shoot each other: there everyone's are the same.)
+const LONG_VIEW_BULLET = 1.5;
+// A bullet: a pale tracer streak (Round 8: the pistol's was a big glowing
+// yellow bolt that looked like a laser).
 const BULLET_COLOR = new THREE.Color(1.15, 1.05, 0.8);
 export const ROCKET_SPEED = 75;
 const ROCKET_DIRECT = 90; // extra damage of a rocket that hits a UFO or vehicle square on
@@ -67,7 +74,7 @@ const RAIL_RANGE = 900;
 export const MINIGUN_DAMAGE = 3;
 const MINIGUN_SPINUP = 1.0; // seconds to full spin
 const MINIGUN_RATE = 32; // bolts per second at full spin
-const MINIGUN_SPEED = 170;
+const MINIGUN_SPEED = 680; // (a laser: ~3.5x the machine gun's bullets)
 const MINIGUN_RANGE = 300;
 
 // Bazooka lock-on: hold the button with a target near the crosshair; the
@@ -76,16 +83,25 @@ export const LOCK_TIME = 1.1;
 const LOCK_CONE = 0.11; // radians around the crosshair
 const ROCKET_TURN = 2.4; // homing turn rate (rad/s)
 
-// Machine gun: automatic while held, tracers, spread and recoil that climb
-// the longer the trigger is held, and settle again once it's released.
+// Machine gun: automatic while held, a tracer on every bullet, spread and
+// recoil that climb the longer the trigger is held, and settle again once
+// it's released.
 export const MACHINEGUN_DAMAGE = 3;
 const MACHINEGUN_RANGE = 140;
 const MACHINEGUN_RATE = 12; // shots per second
+const MACHINEGUN_SPEED = 190; // blocks/s
 
 // Sniper rifle: a toggled scope (zoomed FOV + overlay), a single very
-// long-range, high-damage hitscan shot per left click.
+// long-range, high-damage bullet per left click. Its bullet is the fastest
+// (a high-velocity round: 240 blocks in half a second, a small lead on a
+// moving target), but lasers are faster still. With a long view range it
+// flies 624 blocks/s and reaches at most ~1.6 s of flight (about 1000
+// blocks), so a far shot still lands; the railgun is for farther.
 export const SNIPER_DAMAGE = 34;
 const SNIPER_RANGE = 400;
+const SNIPER_SPEED = 480; // blocks/s
+const SNIPER_LONG_VIEW = 1.3; // (624: still under the lasers' 650-680)
+const SNIPER_FLIGHT = 1.6; // seconds
 const SNIPER_ZOOM_FOV = 15;
 
 // Airstrike designator: aim a laser at a spot and fire; after a delay a rain
@@ -96,7 +112,8 @@ const AIRSTRIKE_AIM_RANGE = 500;
 // about 4.5 per second, for as long as you like: no magazine, no reload). 6 a
 // bolt (~27/s): with no reload it out-damages the pistol in sustained fire.
 export const BLASTER_DAMAGE = 6;
-const BLASTER_SPEED = 130;
+const BLASTER_SPEED = 650; // (a laser: long streaks, ~3.7x the pistol's bullets)
+const BLASTER_LENGTH = 7;
 const BLASTER_RANGE = 240;
 
 function glowTexture() {
@@ -144,6 +161,9 @@ export class WeaponSystem {
     // reaches at least as far as what is visible, so a UFO you can see is one
     // you can hit.
     this.viewRange = 160;
+    // Online with PvP on (set by the game): bullet speeds don't follow the
+    // view range, so a weak PC's bullets are as fast as anyone's.
+    this.fairBullets = false;
     // Extra things bullets, rockets and grenades can hit (UFOs, vehicles):
     // { raycast(origin, dir, maxDist) -> { distance, hit(damage, dir, point) }, sphereHit(p, r) }.
     this.targets = [];
@@ -198,8 +218,13 @@ export class WeaponSystem {
       tmp: new THREE.Color(),
     };
     this._v = new THREE.Vector3();
+    // (Reused by every bullet: the machine gun makes no garbage per shot.)
+    this._muzzle = new THREE.Vector3();
+    this._aim = new THREE.Vector3();
+    this._shot = { type: "miss", point: new THREE.Vector3(), distance: 0, mob: null };
 
-    // A small pool of fading tracer lines, reused round-robin (machine gun, sniper).
+    // A small pool of fading tracer lines, reused round-robin (an older
+    // version's machine gun or sniper, seen online: net/fx.js).
     this._tracers = [];
     for (let i = 0; i < 14; i++) {
       const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -229,6 +254,11 @@ export class WeaponSystem {
   // A weapon's range: at least `base`, and a share of the visible distance.
   _range(base, share) {
     return Math.min(2400, Math.max(base, this.viewRange * share));
+  }
+
+  // A bullet's speed: faster with a long view range (not in PvP, see fairBullets).
+  _bulletSpeed(base, k = LONG_VIEW_BULLET) {
+    return base * (this.viewRange > 300 && !this.fairBullets ? k : 1);
   }
 
   // 0-1 while a throw is being drawn back.
@@ -467,83 +497,33 @@ export class WeaponSystem {
     }
   }
 
-  // The sniper fires on left click (right click toggles its scope instead).
+  // The sniper fires on left click (right click toggles its scope instead):
+  // one fast, heavy bullet. Returns what it is aimed at (see _fireBullet).
   fireSniper() {
     const p = this.player;
-    const eye = p.getEyePosition();
-    const dir = p.getForwardVector();
-    this.shots++;
-    const range = this._range(SNIPER_RANGE, 1.2);
-    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
-    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
-    const muzzle = this._handPoint(0.9, 0.26, 0.14);
+    const muzzle = this._handPoint(0.9, 0.26, 0.14, this._muzzle);
+    const speed = this._bulletSpeed(SNIPER_SPEED, SNIPER_LONG_VIEW);
+    const range = Math.min(this._range(SNIPER_RANGE, 1.2), Math.max(SNIPER_RANGE, speed * SNIPER_FLIGHT)); // (a far shot lands within ~1.6 s)
+    const shot = this._fireBullet("sniper", muzzle, 0, range, speed, SNIPER_DAMAGE, 0.022, 14, 6);
     this.effects.muzzleFlash(muzzle, 1.8);
     this.held.fire(1.6);
     p.kick(0.07);
     this.audio.playSniperShot ? this.audio.playSniperShot() : this.audio.playGunshot();
-    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, SNIPER_DAMAGE, muzzle)) return { type: "target" };
-    const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
-    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : range;
-    const endPoint = eye.clone().addScaledVector(dir, dist);
-    this._spawnTracer(muzzle, endPoint);
-    if (isMob) {
-      if (this.mobs.shoot(mobHit.mob, SNIPER_DAMAGE, dir, 6)) this.onHit?.();
-      this._burst(endPoint, dir.clone().negate(), this._c.blood, 12, 4.5);
-      return { type: "mob", mob: mobHit.mob, point: endPoint };
-    }
-    if (blockHit) {
-      if (this._isRealBlock(endPoint)) {
-        const n = blockHit.normal;
-        const normal = new THREE.Vector3(n[0], n[1], n[2]);
-        this.decals.add(endPoint, blockHit.block, n);
-        this._burst(endPoint, normal, this._c.spark, 6, 2.2);
-      }
-      this.audio.playRicochet(Math.min(blockHit.distance, 300));
-      return { type: "block", block: blockHit.block, point: endPoint, distance: blockHit.distance };
-    }
-    return { type: "miss" };
+    return shot;
   }
 
-  // A single machine-gun shot (called repeatedly from update() while held).
+  // A single machine-gun bullet (called repeatedly from update() while held).
   fireMachineGun() {
     const p = this.player;
-    const eye = p.getEyePosition();
-    const dir = p.getForwardVector();
+    const muzzle = this._handPoint(0.7, 0.3, 0.16, this._muzzle);
     // Spread and camera recoil both grow the longer the trigger is held.
-    const spread = 0.006 + this._mgHeat * 0.03;
-    dir.x += (Math.random() - 0.5) * spread;
-    dir.y += (Math.random() - 0.5) * spread;
-    dir.z += (Math.random() - 0.5) * spread;
-    dir.normalize();
-    this.shots++;
-    const range = this._range(MACHINEGUN_RANGE, 0.55);
-    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
-    const mobHit = this.mobs.raycast(eye, dir, blockHit ? blockHit.distance : range);
-    const muzzle = this._handPoint(0.7, 0.3, 0.16);
+    const speed = this._bulletSpeed(MACHINEGUN_SPEED);
+    const shot = this._fireBullet("machinegun", muzzle, 0.006 + this._mgHeat * 0.03, this._range(MACHINEGUN_RANGE, 0.55), speed, MACHINEGUN_DAMAGE, 0.016, 3.6, 2);
     this.effects.muzzleFlash(muzzle, 0.85);
     this.held.fire(0.55);
     p.kick(0.016 + this._mgHeat * 0.022);
     this.audio.playMachineGun ? this.audio.playMachineGun() : this.audio.playGunshot();
-    if (this._shootTargets(eye, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : range, MACHINEGUN_DAMAGE, muzzle)) return;
-    const isMob = !!mobHit && (!blockHit || mobHit.distance < blockHit.distance);
-    const dist = isMob ? mobHit.distance : blockHit ? blockHit.distance : range;
-    const endPoint = eye.clone().addScaledVector(dir, dist);
-    this._spawnTracer(muzzle, endPoint);
-    if (isMob) {
-      if (this.mobs.shoot(mobHit.mob, MACHINEGUN_DAMAGE, dir, 2)) this.onHit?.();
-      this._burst(endPoint, dir.clone().negate(), this._c.blood, 5, 2.5);
-      return;
-    }
-    if (blockHit && this._isRealBlock(endPoint)) {
-      const n = blockHit.normal;
-      const normal = new THREE.Vector3(n[0], n[1], n[2]);
-      this.decals.add(endPoint, blockHit.block, n);
-      for (let i = 0; i < 4; i++) {
-        const v = normal.clone().multiplyScalar(2 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 2, (Math.random() - 0.5) * 4));
-        this.effects.glow.spawn({ x: endPoint.x, y: endPoint.y, z: endPoint.z, vx: v.x, vy: v.y, vz: v.z, life: 0.12 + Math.random() * 0.2, size0: 0.05, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
-      }
-    }
-    if (blockHit) this.audio.playRicochet(blockHit.distance);
+    return shot;
   }
 
   // Locks the airstrike target where the laser currently points; the meteor
@@ -574,7 +554,7 @@ export class WeaponSystem {
     this.held.fire(0.6);
     p.kick(0.02);
     this.effects.muzzleFlash(muzzle, 0.8);
-    return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED * (this.viewRange > 300 ? 1.6 : 1), damage: BLASTER_DAMAGE, owner: "player", source: p, range: this._range(BLASTER_RANGE, 0.9) });
+    return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED, damage: BLASTER_DAMAGE, owner: "player", source: p, range: this._range(BLASTER_RANGE, 0.9), length: BLASTER_LENGTH });
   }
 
   // The nearest extra target (UFO, vehicle) along a ray, or null.
@@ -598,24 +578,6 @@ export class WeaponSystem {
       const v = dir.clone().multiplyScalar(-3 - Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6));
       this.effects.glow.spawn({ x: point.x, y: point.y, z: point.z, vx: v.x, vy: v.y, vz: v.z, life: 0.2 + Math.random() * 0.3, size0: 0.1, size1: 0.02, color0: this._c.spark, gravity: 0.6, drag: 2 });
     }
-  }
-
-  // A hitscan shot against the extra targets, if one is nearer than
-  // `nearest` (the block or mob hit). Returns true if it hit one.
-  _shootTargets(eye, dir, nearest, damage, muzzle) {
-    const t = this._targetHit(eye, dir, nearest);
-    if (!t) return false;
-    const point = eye.clone().addScaledVector(dir, t.distance);
-    t.hit(damage, dir, point);
-    this._hullSparks(point, dir);
-    if (muzzle) this._spawnTracer(muzzle, point);
-    return true;
-  }
-
-  // A block hit is "real" (a loaded chunk) vs. an approximate heightfield
-  // guess for unloaded/distant terrain, which shouldn't get decals or sparks.
-  _isRealBlock(point) {
-    return !!this.world.getChunk(Math.floor(point.x) >> 4, Math.floor(point.z) >> 4);
   }
 
   _spawnTracer(a, b) {
@@ -647,12 +609,16 @@ export class WeaponSystem {
 
   // Where a shot or throw leaves the hand, in world space (just right of
   // and below the eyes, a little ahead).
-  _handPoint(forwardDist, right = 0.28, down = 0.2) {
+  // (`out`: a vector to write it into.)
+  _handPoint(forwardDist, right = 0.28, down = 0.2, out = new THREE.Vector3()) {
     const p = this.player;
     const eye = p.getEyePosition();
     const f = p.getForwardVector();
-    const r = new THREE.Vector3(Math.cos(p.yaw), 0, -Math.sin(p.yaw));
-    return eye.addScaledVector(f, forwardDist).addScaledVector(r, right).add(new THREE.Vector3(0, -down, 0));
+    out.copy(eye).addScaledVector(f, forwardDist);
+    out.x += Math.cos(p.yaw) * right;
+    out.y -= down;
+    out.z -= Math.sin(p.yaw) * right;
+    return out;
   }
 
   // The world point under the crosshair (for aiming projectiles from the hand).
@@ -752,42 +718,70 @@ export class WeaponSystem {
     return g.age >= GRENADE_FUSE || pos.y < -20;
   }
 
-  // ---------- Pistol ----------
+  // ---------- Bullets ----------
 
-  // The pistol fires a real bullet (a fast projectile with a visible tracer):
-  // it leaves the muzzle aimed at whatever is under the crosshair and takes
-  // time to get there (240 blocks/s), so a moving target must be led, and
-  // far targets are hit a moment after the click. It hits mobs, UFOs and
-  // vehicles on the way (see main.js and lasers.js) and chips blocks.
+  // The pistol: one bullet per click (see _fireBullet).
   firePistol() {
     const p = this.player;
-    const eye = p.getEyePosition();
-    const dir = p.getForwardVector();
-    // A tiny spread, so rapid fire isn't a laser.
-    dir.x += (Math.random() - 0.5) * 0.004;
-    dir.y += (Math.random() - 0.5) * 0.004;
-    dir.z += (Math.random() - 0.5) * 0.004;
-    dir.normalize();
-    this.shots++;
-    const range = this._range(PISTOL_RANGE, 0.6);
-    // What is under the crosshair: the nearest block, creature, UFO or vehicle.
-    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
-    let near = blockHit ? blockHit.distance : range;
-    const mobHit = this.mobs.raycast(eye, dir, near);
-    if (mobHit) near = mobHit.distance;
-    const th = this._targetHit(eye, dir, near);
-    if (th) near = th.distance;
-    const muzzle = this._handPoint(0.7, 0.26, 0.17);
-    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
+    const muzzle = this._handPoint(0.7, 0.26, 0.17, this._muzzle);
+    // (A tiny spread, so rapid fire isn't a laser.)
+    const speed = this._bulletSpeed(PISTOL_SPEED);
+    const shot = this._fireBullet("pistol", muzzle, 0.004, this._range(PISTOL_RANGE, 0.6), speed, PISTOL_DAMAGE, 0.014, 3.2, null);
     this.effects.muzzleFlash(muzzle, 1);
     this.held.fire(1);
     p.kick(0.035);
     this.audio.playGunshot();
-    const aim = eye.clone().addScaledVector(dir, near).sub(muzzle);
+    return shot;
+  }
+
+  // Fires a real bullet (the pistol, the machine gun, the sniper): a fast
+  // projectile with a visible tracer, from `muzzle` toward whatever is under
+  // the crosshair (with a random `spread`), at `speed` blocks/s: a moving
+  // target must be led, and a far one is hit a moment after the shot. It
+  // hits creatures, other players, UFOs, vehicles and blocks on its way just
+  // like a laser bolt (lasers.js, and the hit providers in main.js and
+  // net/pvp.js), leaves a bullet hole, and online the other players see it
+  // fly (net/fx.js); hits are judged here, by the shooter. kb: a creature's
+  // knockback (null: the bolts' default). Returns what it is aimed at:
+  // { type: "mob" | "target" | "block" | "miss", point, distance, mob }
+  // (one reused object: read it at once). `muzzle` may be moved.
+  _fireBullet(gun, muzzle, spread, range, speed, damage, radius, length, kb) {
+    const p = this.player;
+    const eye = p.getEyePosition();
+    const dir = p.getForwardVector();
+    if (spread > 0) {
+      dir.x += (Math.random() - 0.5) * spread;
+      dir.y += (Math.random() - 0.5) * spread;
+      dir.z += (Math.random() - 0.5) * spread;
+      dir.normalize();
+    }
+    this.shots++;
+    // What is under the crosshair: the nearest block, creature, UFO or vehicle.
+    const shot = this._shot;
+    const blockHit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    let near = blockHit ? blockHit.distance : range;
+    shot.type = blockHit ? "block" : "miss";
+    shot.mob = null;
+    const mobHit = this.mobs.raycast(eye, dir, near);
+    if (mobHit) {
+      near = mobHit.distance;
+      shot.type = "mob";
+      shot.mob = mobHit.mob;
+    }
+    const th = this._targetHit(eye, dir, near);
+    if (th) {
+      near = th.distance;
+      shot.type = "target";
+      shot.mob = null;
+    }
+    shot.distance = near;
+    shot.point.copy(eye).addScaledVector(dir, near);
+    if (IS_SOLID[this.world.getBlock(Math.floor(muzzle.x), Math.floor(muzzle.y), Math.floor(muzzle.z))]) muzzle.copy(eye);
+    const aim = this._aim.copy(shot.point).sub(muzzle);
     if (aim.lengthSq() < 0.25) aim.copy(dir);
     aim.normalize();
-    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed: PISTOL_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: PISTOL_DAMAGE, owner: "player", source: p, range: range + 8, radius: 0.014, length: 3.2, sound: false, scorch: true, hole: true, tracer: true });
-    return { type: "bullet" };
+    this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed, damage, owner: "player", source: p, range: range + 8, radius, length, sound: false, scorch: true, hole: true, tracer: true, gun, kb });
+    return shot;
   }
 
   _burst(point, normal, color, count, speed) {
@@ -855,8 +849,11 @@ export class WeaponSystem {
         const to = c.sub(r.pos);
         const dist = to.length();
         // Proximity fuse: a homing rocket that gets close enough goes off
-        // (squarely on a UFO or vehicle: the direct hit counts too).
-        if (dist < (t.radius || 1) * 0.6 + 1.4 && r.age > 0.25) {
+        // (squarely on a UFO or vehicle: the direct hit counts too). An
+        // aircraft: close to its real shape (Round 10), not to its middle.
+        const hull = t.ref?.hull && t.ref.hullDistance ? t.ref : null;
+        const near = hull ? hull.hullDistance(r.pos, 2) < 1.4 : dist < (t.radius || 1) * 0.6 + 1.4;
+        if (near && r.age > 0.25) {
           const d2 = to.clone().divideScalar(dist || 1);
           const th = this._targetHit(r.pos, d2, dist + 1);
           if (th) th.hit(ROCKET_DIRECT, d2, r.pos.clone());
@@ -877,7 +874,20 @@ export class WeaponSystem {
     const dir = step.clone().divideScalar(len || 1);
     const blockHit = this.world.raycast(r.pos, dir, len, { solidOnly: true });
     const mobHit = this.mobs.raycast(r.pos, dir, blockHit ? blockHit.distance : len);
-    const tHit = this._targetHit(r.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
+    const lim = mobHit ? mobHit.distance : blockHit ? blockHit.distance : len;
+    const tHit = this._targetHit(r.pos, dir, lim);
+    // A locked aircraft's fuse also along the whole step, in the jet's frame
+    // of motion like the missiles' (a point test once a frame lets a fast
+    // or low-fps pass slip by a thin wing).
+    const hv = r.target && r.age > 0.25 && r.target.ref?.hull && r.target.ref.sweptRaycast ? r.target.ref : null;
+    if (hv) {
+      const tt = hv.sweptRaycast(r.pos, dir, len, 1.4, dt);
+      if (tt !== null && tt <= lim && (!tHit || tt < tHit.distance)) {
+        // (A real touch is a direct hit.)
+        if (hv.sweptRaycast(r.pos, dir, len, 0, dt) !== null && hv.damage(ROCKET_DIRECT, "player")) this.onHit?.();
+        return r.pos.clone().addScaledVector(dir, tt);
+      }
+    }
     if (tHit) {
       // A direct hit on a UFO or a vehicle: the warhead's punch on top of the blast.
       const at = r.pos.clone().addScaledVector(dir, tHit.distance);
@@ -1143,7 +1153,7 @@ export class WeaponSystem {
     p.kick(0.012);
     if (this.shots % 3 === 0) this.effects.muzzleFlash(muzzle, 0.9);
     this.audio.playMinigunShot?.();
-    this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: MINIGUN_SPEED * (this.viewRange > 300 ? 1.5 : 1), damage: MINIGUN_DAMAGE, owner: "player", source: p, range, radius: 0.09, length: 3.2, sound: false });
+    this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: MINIGUN_SPEED, damage: MINIGUN_DAMAGE, owner: "player", source: p, range, radius: 0.09, length: 9, sound: false });
   }
 
   // ---------- Bow ----------

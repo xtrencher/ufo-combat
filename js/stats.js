@@ -40,6 +40,11 @@ export const STAT_LABELS = [
   ["shipsStolen", "Alien ships stolen from a bunker"],
   ["abductorsDown", "Abductor UFOs shot down (mission)"],
   ["flagshipDown", "The Armada's flagship destroyed"],
+  ["holdTime", "Time holding ground and holding out (missions)"],
+  ["evacuated", "Shelters reached under bombardment (mission)"],
+  ["wrecksLooted", "Crash sites held and looted (mission)"],
+  ["carriersDown", "Abductor carriers shot down (mission)"],
+  ["beaconsDown", "Signal beacons destroyed (mission)"],
   ["playerKills", "Players taken down (multiplayer)"],
 ];
 
@@ -111,7 +116,7 @@ export class Stats {
   }
 
   format(key, value) {
-    return key === "playTime" ? formatPlayTime(value) : String(Math.floor(value));
+    return key === "playTime" || key === "holdTime" ? formatPlayTime(value) : String(Math.floor(value));
   }
 
   // The Stats screen: a table of this world vs all worlds.
