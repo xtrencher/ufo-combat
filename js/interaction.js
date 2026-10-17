@@ -145,6 +145,7 @@ export class Interaction {
     this.othersOverlap = null; // (bx, by, bz) => whether the block would be inside another player (online)
     this.weapons = null; // the weapon system (grenades, pistol, bazooka), if any
     this.entityHit = null; // { mob, distance } under the crosshair
+    this.onUseMob = null; // (mob, stack) => true if a right click on the creature was handled (Round 11)
   }
 
   get reach() {
@@ -175,6 +176,14 @@ export class Interaction {
     } else if (button === 2) {
       this.rightDown = true;
       this._placeTimer = 0;
+      // (Round 11) Right click on a creature with something in hand (shears on
+      // a sheep, a bucket on a cow, wheat to breed, a villager's trades): the
+      // creatures' own handler (mobs.js), if it takes it.
+      if (this.entityHit && this.onUseMob?.(this.entityHit.mob, this.inventory.selectedStack)) {
+        this.held.swing();
+        this._changed();
+        return;
+      }
       const t = this.target;
       // A content block's own use (a door, a bed, a furnace), unless the
       // player sneaks with something in hand (that places against it).
