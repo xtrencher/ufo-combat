@@ -103,12 +103,14 @@ function hash3(seed, x, y, z) {
 }
 
 export class TerrainGenerator {
-  constructor(seed) {
+  // opts.sites: false for a terrain without airports and cities (a Survival world, Round 11).
+  constructor(seed, opts = {}) {
     this.seed = seed >>> 0;
+    this.options = { sites: opts?.sites !== false };
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
     this.biomes = new BiomeSource(this.seed);
-    this.sites = new SiteGrower(this); // airports and cities (sites.js): flat pads bend the terrain
+    this.sites = new SiteGrower(this, { off: !this.options.sites }); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
   }

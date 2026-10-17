@@ -4,6 +4,8 @@
 // block hangs on it); eating food; opening chests (js/chests.js); dropping
 // items (Q); creative pick-block (middle click).
 // Melee attacks go through `entityTarget`, which the mob system provides.
+// (Round 11) The content modules' block and item uses (BLOCK_USE, ITEM_USE)
+// and a block's placeAs come first: see js/content/index.js.
 import * as THREE from "three";
 import {
   BLOCK,
@@ -27,6 +29,7 @@ import { HOTBAR_SIZE, makeStack } from "./inventory.js";
 import { SEA_LEVEL } from "./constants.js";
 import { MAX_HEALTH } from "./player.js";
 import { Chests } from "./chests.js";
+import { BLOCK_USE, ITEM_USE } from "./content/index.js";
 
 const REACH_SURVIVAL = 4.5;
 const REACH_CREATIVE = 6;
@@ -172,8 +175,15 @@ export class Interaction {
     } else if (button === 2) {
       this.rightDown = true;
       this._placeTimer = 0;
-      // A chest under the crosshair opens, whatever is in hand.
       const t = this.target;
+      // A content block's own use (a door, a bed, a furnace), unless the
+      // player sneaks with something in hand (that places against it).
+      if (t && BLOCK_USE[t.id] && !(this.player.sneaking && this.inventory.selectedStack) && BLOCK_USE[t.id](this._useCtx(t))) {
+        this.held.swing();
+        this._changed();
+        return;
+      }
+      // A chest under the crosshair opens, whatever is in hand.
       if (t && IS_CHEST[t.id] && this.onOpenChest) {
         this.audio.playClick?.();
         this.onOpenChest(t.block[0], t.block[1], t.block[2]);
@@ -429,10 +439,47 @@ export class Interaction {
 
   // ---------- Right button: use / place / eat ----------
 
+  // What a content module's use handler or placeAs gets (js/content/index.js):
+  // the block aimed at (t: a raycast hit, or null) and the cell a block
+  // placed now would go to (place).
+  _useCtx(t, place = t ? t.place : null) {
+    const stack = this.inventory.selectedStack;
+    const eye = this.player.getEyePosition();
+    const f = this.player.getForwardVector();
+    return {
+      world: this.world,
+      player: this.player,
+      inventory: this.inventory,
+      entities: this.entities,
+      audio: this.audio,
+      effects: this.effects,
+      interaction: this,
+      x: t ? t.block[0] : null,
+      y: t ? t.block[1] : null,
+      z: t ? t.block[2] : null,
+      id: t ? t.id : null,
+      normal: t ? t.normal : null,
+      place,
+      // (where the crosshair meets the block, and the view direction)
+      hit: t ? [eye.x + f.x * t.distance, eye.y + f.y * t.distance, eye.z + f.z * t.distance] : null,
+      forward: [f.x, f.y, f.z],
+      stack,
+      info: stack ? itemInfo(stack.id) : null,
+      creative: !!this.player.creative,
+      sneaking: !!this.player.sneaking,
+    };
+  }
+
   // Returns true if the item in hand did something (eat, place).
   _use() {
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
+    // A content item's own use (a bucket, a hoe, bone meal).
+    if (stack && ITEM_USE[stack.id] && ITEM_USE[stack.id](this._useCtx(this.target))) {
+      this.held.swing();
+      this._changed();
+      return true;
+    }
     if (info?.food) {
       if (!this.player.creative && (this.player.health < MAX_HEALTH || (info.absorb && this.player.absorption < 20))) {
         this.eating = 0.0001;
@@ -462,6 +509,10 @@ export class Interaction {
       // A chest's front (its latch) faces the player who places it.
       const f = this.player.getForwardVector();
       blockId = chest(-f.x, -f.z);
+    } else if (BLOCK_INFO[blockId].placeAs) {
+      // A content block picks its variant (facing, top or bottom half).
+      blockId = BLOCK_INFO[blockId].placeAs(this._useCtx(t, [px, py, pz]));
+      if (!blockId || !BLOCK_INFO[blockId]) return false;
     }
     if (BLOCK_INFO[blockId].solid && this._overlapsPlayer(px, py, pz)) return false;
     if (BLOCK_INFO[blockId].solid && this.othersOverlap?.(px, py, pz)) return false;

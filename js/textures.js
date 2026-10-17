@@ -8,7 +8,8 @@
 // per tile, so mipmapping never bleeds between tiles); canvases of the
 // same pixels are kept for UI icons.
 import * as THREE from "three";
-import { TILE_NAMES, BLOCK_INFO, SHAPE } from "./blocks.js";
+import { TILE_NAMES, BLOCK_INFO, SHAPE, BLOCK_LIMIT } from "./blocks.js";
+import { TILE_PAINTERS, TILE_RELIEF } from "./content/index.js";
 
 export const TEX = 32;
 
@@ -1214,8 +1215,29 @@ const PAINTERS = {
   chest_front: (t) => paintChestSide(t, true),
 };
 
+// (Round 11) The content modules' tiles are painted by their own painters,
+// given this kit (see js/content/index.js).
+const KIT = {
+  TEX,
+  hex,
+  ramp,
+  mixRgb,
+  scaleRgb,
+  clamp01,
+  makeRand,
+  hashInt,
+  base: (name, t) => PAINTERS[name](t),
+  ore: (t, colors) => paintOre(t, colors),
+  flower: (t, petals) => paintFlower(t, petals),
+};
+function painterOf(name) {
+  if (PAINTERS[name]) return PAINTERS[name];
+  const custom = TILE_PAINTERS[name];
+  return custom ? (t) => custom(t, KIT) : null;
+}
+
 export function paintTile(name) {
-  const painter = PAINTERS[name];
+  const painter = painterOf(name);
   if (!painter) throw new Error(`No texture painter for tile "${name}"`);
   const t = new Tile(name);
   painter(t);
@@ -1298,7 +1320,7 @@ function structureHeight(name, t) {
 }
 
 function paintRelief(name, t) {
-  const [strength, rough, lumWeight] = RELIEF[name] || [1.2, 0.85, 1];
+  const [strength, rough, lumWeight] = RELIEF[name] || TILE_RELIEF[name] || [1.2, 0.85, 1];
   const p = t.data;
   const structure = structureHeight(name, t);
   const height = new Float32Array(TEX * TEX);
@@ -1356,7 +1378,7 @@ function paintRelief(name, t) {
 
 // Pixels and relief map of one tile.
 function paintTileWithRelief(name) {
-  const painter = PAINTERS[name];
+  const painter = painterOf(name);
   if (!painter) throw new Error(`No texture painter for tile "${name}"`);
   const t = new Tile(name);
   painter(t);
@@ -1376,7 +1398,7 @@ function tileCanvas(pixels) {
 //   reliefTexture: the matching normal / height / roughness layers
 //   canvases: tile name -> 32x32 canvas (for UI icons)
 //   blockColors: block id -> [r, g, b] (sRGB 0-1) average visible color
-//   facePalette: { top, side }: Float32Array(256 * 3), each block's average
+//   facePalette: { top, side }: Float32Array(BLOCK_LIMIT * 3), each block's average
 //     top / side texture color in linear light (for distant terrain)
 const SRGB_TO_LINEAR = new Float32Array(256).map((_, i) => {
   const c = i / 255;
@@ -1455,7 +1477,7 @@ export function buildBlockTextures() {
     const side = tileAvg[info.faces.side];
     blockColors[info.id] = [(top[0] + side[0]) / 2, (top[1] + side[1]) / 2, (top[2] + side[2]) / 2];
   }
-  const facePalette = { top: new Float32Array(256 * 3), side: new Float32Array(256 * 3) };
+  const facePalette = { top: new Float32Array(BLOCK_LIMIT * 3), side: new Float32Array(BLOCK_LIMIT * 3) };
   for (const info of Object.values(BLOCK_INFO)) {
     facePalette.top.set(tileLinear[info.faces.top], info.id * 3);
     facePalette.side.set(tileLinear[info.faces.side], info.id * 3);

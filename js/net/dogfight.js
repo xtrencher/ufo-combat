@@ -18,6 +18,7 @@
 // No UFOs, enemy fighters, missions or supply drops during a Dogfight.
 import { HOST_PID } from "./session.js";
 import { MAX_HEALTH } from "../player.js";
+import { modeName } from "./rules.js";
 
 const COUNTDOWN = 4; // seconds
 const RESPAWN_DELAY = 3;
@@ -482,7 +483,7 @@ export class Dogfight {
     const show = this._tab && this.mp.active;
     el.classList.toggle("hidden", !show);
     if (!show) return;
-    const mode = this.on ? `Dogfight · out at ${this.deathLimit} deaths` : this.mp.mode === "creative" ? "Creative" : "Survival";
+    const mode = this.on ? `Dogfight · out at ${this.deathLimit} deaths` : modeName(this.mp.mode, this.game.worldType);
     el.innerHTML = `<div class="mp-score-title">Room ${String(this.net.code ?? "").replace(/[^A-Z0-9]/gi, "")}<span>${mode}</span></div>${this._table(this._rows())}`;
   }
 

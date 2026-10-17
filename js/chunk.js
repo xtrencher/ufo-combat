@@ -1,4 +1,5 @@
-// A 16 x 64 x 16 column of blocks with its light values and render meshes.
+// A 16 x 128 x 16 column of blocks (16-bit ids, see blocks.js) with its
+// light values and render meshes.
 import * as THREE from "three";
 import { BLOCK } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, blockIndex, chunkKey } from "./constants.js";
@@ -7,12 +8,13 @@ import { LAYER_WATER } from "./layers.js";
 export { CHUNK_SIZE, WORLD_HEIGHT, blockIndex };
 
 export class Chunk {
-  // (blocks: already generated, e.g. by a worker: see world.js.)
+  // (blocks: already generated, e.g. by a worker: see world.js. A byte
+  // array, from a stale cached worker, is widened.)
   constructor(cx, cz, blocks = null) {
     this.cx = cx;
     this.cz = cz;
     this.key = chunkKey(cx, cz);
-    this.blocks = blocks || new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+    this.blocks = blocks ? (blocks instanceof Uint16Array ? blocks : Uint16Array.from(blocks)) : new Uint16Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     // High nibble: sky light, low nibble: block light (see light.js).
     this.light = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     this.generated = false;

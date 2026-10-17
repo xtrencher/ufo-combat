@@ -123,7 +123,7 @@ export class LodSystem {
           if (e && e.preventDefault) e.preventDefault();
           this._useLocalBuilder(`worker error: ${e && e.message}`);
         };
-        w.postMessage({ type: "init", seed: this.seed, palette: this.world.facePalette, edits });
+        w.postMessage({ type: "init", seed: this.seed, opts: this.world.terrainOptions, palette: this.world.facePalette, edits });
         w.busy = 0;
         this.workers.push(w);
       }
@@ -142,7 +142,7 @@ export class LodSystem {
     this.workers = [];
     for (const tile of this._inFlight.values()) tile.building = false;
     this._inFlight.clear();
-    const terrain = new LodTerrain(this.seed);
+    const terrain = new LodTerrain(this.seed, this.world.terrainOptions);
     for (const [key, list] of this._allEdits()) terrain.setChunkEdits(key, list);
     this.local = { terrain, palette: makeLodPalette(this.world.facePalette) };
     this._queueDirty = true;

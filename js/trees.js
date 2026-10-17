@@ -144,7 +144,8 @@ export class TreeGrower {
   }
 
   // Blocks of a tree, relative to the block above its ground: flat
-  // Int8Array [dx, dy, dz, id, ...]. dy = -1 is the ground block itself (roots).
+  // Int16Array [dx, dy, dz, id, ...] (16-bit block ids). dy = -1 is the
+  // ground block itself (roots).
   shape(root) {
     const key = `${root.x},${root.z}`;
     let s = this._shapes.get(key);
@@ -280,7 +281,7 @@ export class TreeGrower {
         }
       }
     }
-    s = Int8Array.from(out); // offsets and ids are small: 4 bytes per block
+    s = Int16Array.from(out); // (offsets and 16-bit ids: 8 bytes per block)
     if (this._shapes.size > 600) this._shapes.clear();
     this._shapes.set(key, s);
     return s;

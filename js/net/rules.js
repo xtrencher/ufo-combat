@@ -1,13 +1,39 @@
 // The rules of the game online: they are the host's. The host's game mode
-// (Survival, Creative or Dogfight), its rule settings (weapons, creatures,
-// UFOs, vehicles, the clock: every Creative-only setting), its difficulty,
-// its Mods switch and its clock (the time of day) go to every player when a
-// player joins and whenever they change. A guest's own settings are never
-// overwritten: the host's values are applied on top and the guest's rows
-// are locked ("set by the host") until they leave.
+// (Missions, Survival, Creative or Dogfight), its rule settings (weapons,
+// creatures, UFOs, vehicles, the clock: every Creative-only setting), its
+// difficulty, its Mods switch and its clock (the time of day) go to every
+// player when a player joins and whenever they change. (The world's type,
+// Missions or Survival, comes with the welcome: net/multiplayer.js.) A
+// guest's own settings are never overwritten: the host's values are applied
+// on top and the guest's rows are locked ("set by the host") until they leave.
 import { DAY_LENGTH } from "../sky.js";
 
+// (Round 11) The room's modes. The room plays the host's world, whose type
+// is fixed: "survival" is that world's own game (named Missions in a
+// Missions world, Survival in a Survival world), "creative", and "dogfight"
+// (a Missions world only: jets and guns). ("missions" is taken as "survival".)
 export const MODES = ["survival", "creative", "dogfight"];
+
+export function roomModes(worldType) {
+  return worldType === "survival" ? ["survival", "creative"] : ["survival", "creative", "dogfight"];
+}
+
+// A mode asked for, if the world of that type has it, or null.
+export function roomMode(mode, worldType) {
+  if (mode === "missions") mode = "survival";
+  return roomModes(worldType).includes(mode) ? mode : null;
+}
+
+// What a mode is called in a world of that type.
+export function modeName(mode, worldType) {
+  if (mode === "survival") return worldType === "survival" ? "Survival" : "Missions";
+  return { creative: "Creative", dogfight: "Dogfight" }[mode] || String(mode);
+}
+
+// The player's own mode in a room mode (Dogfight plays by Survival's rules, in a jet).
+export function playerModeOf(mode) {
+  return mode === "creative" ? "creative" : "survival";
+}
 
 export class RulesSync {
   constructor(mp) {
@@ -65,7 +91,8 @@ export class RulesSync {
 
   // The host picks the mode (the lobby, or the pause menu).
   setMode(mode) {
-    if (!this.net.isHost || !MODES.includes(mode)) return;
+    mode = roomMode(mode, this.game.worldType);
+    if (!this.net.isHost || !mode) return;
     const before = this.mp.mode;
     this.mp.mode = mode;
     // (The mode first: a guest has entered a Dogfight by the time its first
@@ -78,7 +105,7 @@ export class RulesSync {
 
   _applyMode(mode, before) {
     const g = this.game;
-    const playerMode = mode === "creative" ? "creative" : "survival";
+    const playerMode = playerModeOf(mode);
     if (g.player.mode !== playerMode && g.gameState !== "start") g.setMode(playerMode);
     else if (g.gameState === "start") {
       g.ui.modeSelect.value = playerMode;
@@ -86,7 +113,7 @@ export class RulesSync {
     }
     g.ui.pauseModeSelect.value = playerMode;
     this.mp.dogfight?.modeChanged(mode, before);
-    if (mode !== before) this.mp.feed(`Game mode: ${mode[0].toUpperCase()}${mode.slice(1)}`);
+    if (mode !== before) this.mp.feed(`Game mode: ${modeName(mode, g.worldType)}`);
   }
 
   update(dt) {
@@ -127,11 +154,12 @@ export class RulesSync {
     }
     if (m.mode && m.mode !== this.mp.mode) this._onMode({ mode: m.mode });
     // (A Dogfight watcher is in Creative on purpose: left flying.)
-    else if (m.mode && !this.mp.dogfight?.watching && this.game.player.mode !== (m.mode === "creative" ? "creative" : "survival")) this._applyMode(m.mode, m.mode);
+    else if (m.mode && !this.mp.dogfight?.watching && this.game.player.mode !== playerModeOf(m.mode)) this._applyMode(m.mode, m.mode);
   }
 
   _onMode(m) {
-    if (this.net.isHost || !MODES.includes(m.mode)) return;
+    // (A mode this world can't have, e.g. from a host of another version: ignored.)
+    if (this.net.isHost || !MODES.includes(m.mode) || roomMode(m.mode, this.game.worldType) !== m.mode) return;
     const before = this.mp.mode;
     this.mp.mode = m.mode;
     this._applyMode(m.mode, before);

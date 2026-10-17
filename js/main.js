@@ -2,7 +2,7 @@ import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
-import { UI, isMobileDevice } from "./ui.js";
+import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky } from "./sky.js";
@@ -35,7 +35,7 @@ import { LodSystem } from "./lod.js";
 import { DistantStructures } from "./distant.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
-import { MenuScreens, MenuFlyover, MenuPerf, renderControls } from "./menu.js";
+import { MenuScreens, MenuFlyover, MenuPerf, renderControls, MENU_TIPS, SURVIVAL_TIPS } from "./menu.js";
 import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
@@ -59,6 +59,8 @@ import { FullscreenControl } from "./fullscreen.js";
 import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
+import { roomMode, playerModeOf } from "./net/rules.js";
+import { setWorldType, worldType, isVanilla, normalizeWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -104,6 +106,25 @@ const JOIN_PARAM = new URLSearchParams(window.location.search).get("join");
 const joinWelcome = JOIN_PARAM !== null ? await bootJoin(net, normalizeRoomCode(JOIN_PARAM)) : null;
 const GUEST = !!joinWelcome;
 const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
+
+// ---------- World type ----------
+// (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
+// known before the world is built (a Survival world's terrain has no
+// airports or cities): the save's (an old save without one is Missions),
+// else what "New world" picked for this seed (?type= in its link, or the
+// last-world record), else Missions. A guest plays the host's.
+// (A saved player: position, inventory, ...; a guest's session reads none.)
+const savedPlayer = GUEST ? null : loadPlayer(SEED);
+function newWorldPick() {
+  const params = new URLSearchParams(window.location.search);
+  const last = loadJSON("last");
+  const lastHere = last && last.seed === SEED ? last : null;
+  const type = params.get("type") ?? lastHere?.type;
+  const mode = params.get("mode") ?? lastHere?.mode;
+  return { type: normalizeWorldType(type), mode: mode === "creative" ? "creative" : "survival" };
+}
+const NEW_PICK = savedPlayer || GUEST ? null : newWorldPick();
+setWorldType(GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : NEW_PICK.type);
 
 // ---------- Renderer / scene / camera ----------
 const canvas = document.getElementById("game-canvas");
@@ -261,7 +282,9 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- World ----------
-const world = new World(scene, SEED);
+// (sites: false: no airports or cities in a Survival world's terrain; the
+// generators in the workers and the LOD get the same options from the world.)
+const world = new World(scene, SEED, { sites: !isVanilla() });
 if (!GUEST) world.loadEdits(loadEdits(SEED));
 // (Perf) Terrain generation off the main thread, in a worker or two (the
 // streaming's heaviest part; world.js). ?genWorkers=0 keeps it on the main thread.
@@ -302,8 +325,6 @@ const encodedEditCache = new Map();
 
 const [spawnX, spawnZ] = world.terrain.spawnColumn();
 
-// A saved player (position, inventory, ...) for this world, if any.
-const savedPlayer = GUEST ? null : loadPlayer(SEED);
 const savedPos = Array.isArray(savedPlayer?.pos) && savedPlayer.pos.length === 3 && savedPlayer.pos.every(Number.isFinite) ? savedPlayer.pos : null;
 const startX = savedPos ? savedPos[0] : spawnX + 0.5;
 const startZ = savedPos ? savedPos[2] : spawnZ + 0.5;
@@ -997,7 +1018,7 @@ function removePlayerJets() {
 // in that nobody sits in goes. Online the aircraft is shared like any other
 // player's (net/vehicles.js), for the host and guests alike.
 function callIn(kind) {
-  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight") return false;
+  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight" || isVanilla()) return false;
   if (!mods.enabled) {
     toast("Switch mods on first (Settings > Mods).", 3);
     return false;
@@ -1027,9 +1048,10 @@ function callIn(kind) {
   toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3);
   return true;
 }
-// The call-ins show in the pause menu in Creative only.
+// The call-ins show in the pause menu in Creative only (and never in a
+// Survival world: no aircraft there).
 function refreshCallIns() {
-  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight");
+  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight" || isVanilla());
 }
 for (const b of document.querySelectorAll("#pause-callins [data-callin]")) {
   b.addEventListener("click", () => {
@@ -1096,9 +1118,10 @@ interaction.combat = mobs;
 // mods off gets it (in free slots) the first time it's played with mods on.
 // (Round 9: that is the only time anything is given. Switching between
 // Creative and Survival never touches the inventory: see setMode.)
+// (Round 11: a Survival world starts empty-handed, like vanilla.)
 let loadoutGiven = false;
 function fillStartingWeapons(fresh) {
-  if (loadoutGiven || !mods.enabled) return;
+  if (loadoutGiven || !mods.enabled || isVanilla()) return;
   loadoutGiven = true;
   (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((entry, i) => {
     const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
@@ -1139,6 +1162,8 @@ if (savedPlayer) {
   nuke.loadZones(savedPlayer.blastZones);
   waterSim.loadMeta(savedPlayer.water);
 } else {
+  // (A new world made from the Creative choice starts in Creative.)
+  if (NEW_PICK?.mode === "creative") player.setMode("creative");
   player.spawnAt(spawnX, spawnZ);
 }
 let newWorld = !savedPlayer;
@@ -1148,7 +1173,9 @@ mods.onChange((on) => {
   vehicles.setEnabled(on);
   if (!on) mobs.removeKind("alien");
 });
-mods.set(settings.mods, { initial: true });
+// (A Survival world: Mods off for that world, whatever the setting, which is
+// left as it is for the Missions worlds.)
+mods.set(settings.mods && !isVanilla(), { initial: true });
 stats.loadWorld(savedPlayer?.stats);
 
 // ---------- Missions, loot, supply crates ----------
@@ -1233,7 +1260,8 @@ const testFlags = { noMissions: false };
 let survivalPaused = false;
 let progressOffAt = null; // (the mission stats when the chain went off)
 function refreshSurvivalSystems() {
-  const on = mods.enabled && !player.creative && !survivalPaused;
+  // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
+  const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla();
   settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   const wasOn = progress.enabled;
@@ -1307,7 +1335,18 @@ function giveMissionReward(m) {
 
 // ---------- Mods screen ----------
 const modsCheckbox = document.getElementById("mods-enabled");
-modsCheckbox.checked = settings.mods;
+modsCheckbox.checked = settings.mods && !isVanilla();
+// (Round 11) A Survival world is vanilla: the switch shows off and locked,
+// with a note; the setting itself stays the player's, for Missions worlds.
+if (isVanilla()) {
+  modsCheckbox.disabled = true;
+  const note = document.getElementById("mods-world-note");
+  if (note) {
+    note.textContent = `This is a Survival world (normal Minecraft): Mods are off here. Your Mods setting (${settings.mods ? "on" : "off"}) is kept for your Missions worlds.`;
+    note.classList.remove("hidden");
+  }
+  document.getElementById("mods-tools")?.classList.add("hidden");
+}
 function refreshModsPills() {
   for (const id of ["settings-mods-state"]) {
     const el = document.getElementById(id);
@@ -1330,6 +1369,8 @@ function setModsEnabled(on, persist = true) {
     settings.mods = on;
     persistSettings();
   }
+  // (A Survival world: the setting is saved, the world stays without Mods.)
+  if (isVanilla()) on = false;
   modsCheckbox.checked = on;
   if (!on) stashCursorMod();
   mods.set(on);
@@ -1360,7 +1401,8 @@ for (const design of UFO_DESIGNS) {
 }
 function creativeToolCheck() {
   const note = document.getElementById("mods-tools-note");
-  if (!mods.enabled) note.textContent = "Switch mods on first.";
+  if (isVanilla()) note.textContent = "Not in a Survival world: no UFOs there.";
+  else if (!mods.enabled) note.textContent = "Switch mods on first.";
   else if (gameState === "start") note.textContent = "Start playing first: these place things in front of you.";
   else if (!player.creative) note.textContent = "Only in Creative mode (switch it in the pause menu).";
   else return true;
@@ -1392,10 +1434,13 @@ for (const [id, kind, dist, up] of [["summon-ufo", "roam", 60, 30], ["summon-ufo
     requestLock();
   });
 }
+ui.setWorldType(worldType());
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
-document.getElementById("world-state").textContent = savedPlayer ? `(saved ${savedPlayer.mode === "creative" ? "creative" : "survival"} world)` : "(new world)";
+document.getElementById("world-state").textContent = `(${savedPlayer ? "saved" : "new"} ${worldLabel(worldType(), player.mode)})`;
+// (Round 11) No missions in a Survival world: no Missions button in its pause menu.
+document.getElementById("pause-missions-btn").classList.toggle("hidden", isVanilla());
 if (GUEST) {
   // A guest's main menu: into the host's game (the host picks the mode; no new worlds from here).
   ui.setPlayLabel("Join the game");
@@ -1444,6 +1489,7 @@ const menuPerf = new MenuPerf({
   recTextEl: document.getElementById("fps-recommend-text"),
   recBtn: document.getElementById("fps-recommend-apply"),
   tipEl: document.getElementById("menu-tip"),
+  tips: isVanilla() ? SURVIVAL_TIPS : MENU_TIPS,
   onApply: (preset) => {
     if (!PRESET_ORDER.includes(preset)) {
       document.getElementById("fps-recommend").classList.add("hidden");
@@ -1474,6 +1520,7 @@ function playerState() {
   // (Watching a Dogfight: Creative only for the flight; the things kept aside are the player's.)
   const kept = mp.dogfight?.keptInventory;
   return {
+    worldType: worldType(),
     mode: kept ? "survival" : player.mode,
     pos: p ? [round3(p.x), round3(p.y), round3(p.z)] : null,
     yaw: round3(player.yaw),
@@ -2301,17 +2348,75 @@ let entered = false; // enterGame has run (respawn checks it)
 function enterGame() {
   entered = true;
   // Online the room decides the mode (Dogfight plays by Survival's rules, in a jet).
-  setMode(mp.active ? (mp.mode === "creative" ? "creative" : "survival") : ui.modeSelect.value);
+  setMode(mp.active ? playerModeOf(mp.mode) : ui.modeSelect.value);
   fillStartingWeapons(newWorld);
   markInventoryChanged();
-  if (!GUEST) saveJSON("last", { seed: SEED });
+  if (!GUEST) {
+    saveJSON("last", { seed: SEED, type: worldType() });
+    rememberWorld();
+  }
 }
 
 ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
+  // (Round 11: the other type's card was picked: into that world instead.)
+  if (worldPick) {
+    openWorld(worldPick.seed, worldPick.type);
+    return;
+  }
   enterGame();
   requestLock();
 });
+
+// ---------- World types on the main menu (Round 11) ----------
+// The last world of each type played ("worlds": { missions, survival } seeds):
+// the card of the other type opens it again, or makes a new one.
+let worldPick = null; // { type, seed (null: a new world) }: the other type's card
+function rememberWorld() {
+  if (GUEST) return;
+  const rec = loadJSON("worlds") || {};
+  if (rec[worldType()] === SEED) return;
+  rec[worldType()] = SEED;
+  saveJSON("worlds", rec);
+}
+function rememberedWorld(type) {
+  const seed = loadJSON("worlds")?.[type];
+  if (!Number.isInteger(seed) || seed < 0 || seed === SEED || !hasSavedWorld(seed)) return null;
+  return normalizeWorldType(loadPlayer(seed)?.worldType) === type ? seed : null;
+}
+if (savedPlayer) rememberWorld(); // (a world from before Round 11 is remembered as it is opened)
+function pickWorld(type) {
+  // (Online the room plays this world.)
+  if (type && mp.active) {
+    toast("The room plays this world: close the room first (Multiplayer).", 3);
+    return;
+  }
+  worldPick = type ? { type, seed: rememberedWorld(type) } : null;
+  const name = WORLD_TYPE_NAMES[type];
+  const where = !worldPick ? "" : worldPick.seed !== null ? `Opens your ${name} world (seed ${worldPick.seed}) where you left it.` : `Makes a new ${name} world ("New world" below picks its seed).`;
+  ui.setPick(worldPick && { type, hint: `${where} ${MODE_HINTS[type]}` });
+  ui.setPlayLabel(worldPick ? `${worldPick.seed !== null ? "Continue" : "New"} ${name} world` : savedPlayer ? "Continue" : "Play");
+}
+ui.onPickType = pickWorld;
+// Into another world: this one saved, then the page reloads into that one (a
+// new world's type and mode go along in its link). A seed that already has a
+// saved world opens it as it is, in its own type.
+function openWorld(seed, type, mode = "survival") {
+  if (seed === null) seed = randomSeed();
+  // (This very world, never played and made again as another type: nothing
+  // of it to keep, and a save now would make it its old type again.)
+  if (seed !== SEED || entered) flushSave();
+  const fresh = !hasSavedWorld(seed);
+  saveJSON("last", fresh ? { seed, type, mode } : { seed });
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("seed", String(seed));
+  if (fresh) {
+    url.searchParams.set("type", type);
+    if (mode === "creative") url.searchParams.set("mode", "creative");
+  }
+  window.location.href = url.toString();
+}
 
 // A guest lands in the host's world as soon as it has arrived: no main menu.
 // (The browser only captures the mouse after a click: "Click to play".)
@@ -2368,16 +2473,28 @@ function parseSeedInput() {
 }
 newSeedInput.addEventListener("input", () => {
   const seed = parseSeedInput();
-  newSeedNote.textContent = seed !== null && hasSavedWorld(seed) ? `You already have a world with seed ${seed}: it will be continued where you left it.` : "";
+  const old = seed !== null && hasSavedWorld(seed) ? loadPlayer(seed) : null;
+  newSeedNote.textContent = old ? `You already have a ${worldLabel(old.worldType, old.mode)} with seed ${seed}: it will be continued where you left it.` : "";
 });
+// (Round 11) Its type: Missions, Survival, or Creative (a Missions world, in
+// Creative: today's Creative with every block, item and call-in).
+const NEW_TYPE_HINTS = {
+  missions: "A Missions world: the UFO war, with missions, loot, supply drops, vehicles and the mod weapons.",
+  survival: "A Survival world: normal Minecraft. You start with nothing; no UFOs, missions, airports, cities or mod weapons. (Creative is in its pause menu too.)",
+  creative: "A Missions world in Creative: every block and item, flight, the call-ins. The pause menu switches it to Missions any time.",
+};
+let newType = "missions";
+function pickNewType(t) {
+  newType = NEW_TYPE_HINTS[t] ? t : "missions";
+  for (const b of document.querySelectorAll("[data-nwtype]")) b.classList.toggle("active", b.dataset.nwtype === newType);
+  document.getElementById("new-type-hint").textContent = NEW_TYPE_HINTS[newType];
+}
+for (const b of document.querySelectorAll("[data-nwtype]")) b.addEventListener("click", () => pickNewType(b.dataset.nwtype));
+// (Opened: the card picked on the main menu.)
+screens.onOpen["new-world-screen"] = () => pickNewType(worldPick?.type ?? (player.creative && !isVanilla() ? "creative" : worldType()));
+pickNewType(worldType());
 document.getElementById("new-world-create").addEventListener("click", () => {
-  const seed = parseSeedInput() ?? randomSeed();
-  flushSave();
-  saveJSON("last", { seed });
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.searchParams.set("seed", String(seed));
-  window.location.href = url.toString();
+  openWorld(parseSeedInput() ?? randomSeed(), newType === "survival" ? "survival" : "missions", newType === "creative" ? "creative" : "survival");
 });
 
 // Back to the main menu: save and reload this world's page (the menu
@@ -2478,6 +2595,10 @@ ui.copyLinkBtn.addEventListener("click", () => {
   }
   const url = new URL(window.location.href);
   url.searchParams.set("seed", String(SEED));
+  // (Round 11: the type too, for a friend who makes this world from the link.)
+  if (isVanilla()) url.searchParams.set("type", "survival");
+  else url.searchParams.delete("type");
+  url.searchParams.delete("mode");
   navigator.clipboard?.writeText(url.toString()).catch(() => {});
   toast("World link copied", 2);
 });
@@ -2598,7 +2719,7 @@ function updateDebug(dt, frameTime) {
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
     `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
-    `Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
+    `World: ${worldType()}   Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
     `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
     `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
@@ -2813,6 +2934,11 @@ const game = {
   SEED,
   GUEST,
   joinWelcome,
+  // (Round 11) "missions" | "survival" (worldtype.js; fixed for the page).
+  get worldType() {
+    return worldType();
+  },
+  isVanilla,
   world,
   scene,
   camera,
@@ -2963,6 +3089,7 @@ const game = {
   // The host's Mods switch (a guest's own setting is not touched).
   setModsFromHost(on) {
     modsCheckbox.disabled = true;
+    if (isVanilla()) on = false; // (the host's Survival world: no Mods, as for the host)
     if (mods.enabled === on) return;
     if (!on) stashCursorMod();
     mods.set(on);
@@ -3014,7 +3141,9 @@ const game = {
   // A room was opened from a menu: the game mode follows the room's.
   hostStarted(mode) {
     // (Dogfight plays by Survival's rules: a Creative host's pilot could never die.)
-    const pm = mode === "creative" ? "creative" : mode === "survival" || mode === "dogfight" ? "survival" : null;
+    const pm = roomMode(mode, worldType()) ? playerModeOf(mode) : null;
+    // (The room plays this world: no other world picked on the main menu.)
+    if (worldPick) pickWorld(null);
     if (pm) {
       ui.modeSelect.value = pm;
       ui.pauseModeSelect.value = pm;
@@ -3064,6 +3193,9 @@ screens.onOpen["mp-lobby"] = ((prev) => () => {
 
 window.__ufo = window.__voxelands = {
   THREE,
+  get worldType() {
+    return worldType();
+  },
   mp,
   net,
   world,
@@ -3507,7 +3639,7 @@ screens.onOpen["missions-screen"] = () => {
   const el = document.getElementById("missions-list");
   const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   const reward = (r) => r.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ");
-  const intro = player.creative ? `<p class="hint">Missions run in Survival (switch the game mode in the pause menu). Creative is free play.</p>` : "";
+  const intro = player.creative ? `<p class="hint">Missions run in the Missions mode (switch the game mode in the pause menu). Creative is free play.</p>` : "";
   const list = progress.list(stats.world);
   let act = 0;
   const rows = [];
@@ -3565,6 +3697,15 @@ const MAX_DT = 0.05;
 // One step of the game: everything but drawing. (In a hidden tab during a
 // multiplayer game the background clock calls it without animate().)
 let loopsQuiet = false; // (the looping sounds were stopped for a frozen world)
+// Where random ticks happen (world.randomTick): around this player and,
+// hosting, around every guest (in the chunks loaded here).
+const tickCenters = [];
+function randomTickCenters() {
+  tickCenters.length = 0;
+  tickCenters.push(player.position);
+  if (mp.active) for (const r of mp.players.active()) tickCenters.push(r.position);
+  return tickCenters;
+}
 function simulate(dt, frameTime) {
   // The world keeps running behind the inventory and death screens; only
   // the pause and start menus freeze it. Online nothing pauses: the pause
@@ -3599,6 +3740,9 @@ function simulate(dt, frameTime) {
     mobs.update(dt);
     falling.update(dt);
     waterSim.update();
+    // (Round 11) Random ticks (crops, saplings, fire: js/content/index.js), near
+    // every player; the host simulates them, a guest gets the results as edits.
+    if (!mp.active || mp.isHost) world.randomTick(dt, randomTickCenters());
     // A drawn throw is dropped if the grenade leaves the hand (thrown away, swapped).
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);

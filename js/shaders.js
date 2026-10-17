@@ -352,7 +352,7 @@ ${SUN_SHADOW}
 
 const chunkVertex = /* glsl */ `
 attribute vec4 aData;  // normal*4+ao, sky*17, block*17, flags
-attribute vec4 aExtra; // texture layer, water depth*16
+attribute vec4 aExtra; // texture layer (low byte), water depth*16, tint, texture layer (high byte)
 varying vec3 vTexCoord;
 varying vec3 vWorldPos;
 varying vec3 vNormal;
@@ -388,7 +388,7 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
   vec3 transformedNormal = normalMatrix * objectNormal;
   #include <shadowmap_vertex>
-  vTexCoord = vec3(uv, aExtra.x);
+  vTexCoord = vec3(uv, aExtra.x + aExtra.w * 256.0); // (the layer in two bytes)
   vWorldPos = worldPosition.xyz;
   vNormal = objectNormal;
   vLight = aData.yz / 255.0;
@@ -570,7 +570,7 @@ void main() {
   vec4 worldPosition = modelMatrix * vec4(position, 1.0);
   if ((flags & 1) != 0) worldPosition.xyz += windOffset(worldPosition.xyz);
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
-  vTexCoord = vec3(uv, aExtra.x);
+  vTexCoord = vec3(uv, aExtra.x + aExtra.w * 256.0); // (the layer in two bytes)
 }
 `;
 

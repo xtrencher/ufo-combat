@@ -3,6 +3,7 @@
 // lines, discs, polygons) filled with a material's color ramp, lit from the
 // top-left, and outlined in a dark color: the classic item-sprite look.
 import { itemInfo } from "./items.js";
+import { ICON_PAINTERS } from "./content/index.js";
 
 const N = 32;
 
@@ -469,8 +470,12 @@ export function bowPullPixels(stage) {
   return px;
 }
 
+// (Round 11) A content module's icon painter gets this kit (js/content/index.js).
+const KIT = { N, Canvas, RAMPS, hex, tool: (type, mat) => paintTool(type, mat) };
+
 export function paintItemIcon(iconName) {
   if (PAINTERS[iconName]) return PAINTERS[iconName]();
+  if (ICON_PAINTERS[iconName]) return ICON_PAINTERS[iconName](KIT);
   const m = /^(sword|pickaxe|axe|shovel)_(wood|stone|iron|diamond)$/.exec(iconName);
   if (m) return paintTool(m[1], m[2]);
   throw new Error(`No item icon painter for "${iconName}"`);

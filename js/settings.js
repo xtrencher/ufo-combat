@@ -364,7 +364,7 @@ export class SettingsPanel {
     if (!note) {
       note = document.createElement("div");
       note.className = "hint survival-note hidden";
-      note.textContent = "Survival: the rules of the game (weapon stats, creature and UFO numbers, vehicle performance, the clock) are fixed so every run is balanced. Those settings are Creative's.";
+      note.textContent = "Missions and Survival: the rules of the game (weapon stats, creature and UFO numbers, vehicle performance, the clock) are fixed so every run is balanced. Those settings are Creative's.";
       page.insertBefore(note, page.firstChild);
     }
     return note;

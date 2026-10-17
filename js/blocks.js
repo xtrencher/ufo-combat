@@ -1,60 +1,23 @@
 // Block registry: pure data (no three.js), shared by terrain generation,
 // lighting, meshing, physics and UI. Block ids are persisted in saves, so
 // existing ids must never change meaning; new blocks get new ids.
+//
+// (Round 11) Block ids are 16-bit. The id space (js/content/base.js):
+//   0-255      the original blocks (defined here; unchanged meaning)
+//   256-1023   items (items.js): no block ever uses these
+//   1024-4095  new blocks, defined by the content modules (js/content/*.js,
+//              merged below before the tables are built, so the tables are
+//              built once at load, the same on the main thread and in workers)
+// Every lookup table has BLOCK_LIMIT (4096) entries; chunks are Uint16Arrays.
+import { BLOCK, RENDER, SHAPE, SHAPE_CUSTOM, FACE, BLOCK_LIMIT, ITEM_MIN, NEW_BLOCK_MIN, isBlockId, LIB } from "./content/base.js";
+import { CONTENT_BLOCKS, CONTENT_TILES, CONTENT_SHAPES } from "./content/index.js";
 
-export const BLOCK = Object.freeze({
-  AIR: 0,
-  GRASS: 1,
-  DIRT: 2,
-  STONE: 3,
-  SAND: 4,
-  WATER: 5,
-  WOOD: 6,
-  LEAVES: 7,
-  PLANKS: 8,
-  GLASS: 9,
-  COBBLESTONE: 10,
-  BEDROCK: 11,
-  GRAVEL: 12,
-  COAL_ORE: 13,
-  IRON_ORE: 14,
-  GOLD_ORE: 15,
-  DIAMOND_ORE: 16,
-  TORCH: 17,
-  LUMEN: 18,
-  CRAFTING_TABLE: 19,
-  TALL_GRASS: 20,
-  FLOWER_RED: 21,
-  FLOWER_YELLOW: 22,
-  BRICKS: 23,
-  WOOL: 24,
-  BIRCH_LOG: 25,
-  BIRCH_LEAVES: 26,
-  PINE_LOG: 27,
-  PINE_LEAVES: 28,
-  OAK_BARK: 29,
-  SNOW: 30,
-  TERRACOTTA: 31,
-  CACTUS: 32,
-  DEAD_BUSH: 33,
-  CORAL: 34,
-  SEAGRASS: 35,
-  KELP: 36,
-  // (Round 10) Wall torches and chests face one of four ways: one id per
-  // facing (the block system has no metadata). See wallTorch() / chest().
-  WALL_TORCH_PX: 37,
-  WALL_TORCH_NX: 38,
-  WALL_TORCH_PZ: 39,
-  WALL_TORCH_NZ: 40,
-  CHEST: 41, // (the item; its front faces +Z)
-  CHEST_NZ: 42,
-  CHEST_PX: 43,
-  CHEST_NX: 44,
-});
+export { BLOCK, RENDER, SHAPE, SHAPE_CUSTOM, FACE, BLOCK_LIMIT, ITEM_MIN, NEW_BLOCK_MIN, isBlockId };
 
 // Texture layers of the block texture array, in order. Painted procedurally
-// by textures.js; a block face refers to a layer by name.
-export const TILE_NAMES = [
+// by textures.js; a block face refers to a layer by name. (The content
+// modules' tiles come after these, so these layers never move.)
+const CORE_TILE_NAMES = [
   "grass_top",
   "grass_side",
   "dirt",
@@ -117,13 +80,25 @@ export const TILE_NAMES = [
   "chest_side",
   "chest_front",
 ];
+export const TILE_NAMES = [...CORE_TILE_NAMES, ...CONTENT_TILES];
+for (const name of CONTENT_TILES) if (CORE_TILE_NAMES.includes(name)) throw new Error(`Content tile "${name}" is already a core tile`);
+// (The mesher's vertices carry the layer in two bytes: room for 1024 tiles.
+// A GPU only promises 256 layers in one texture array, so past that the
+// array would have to be split.)
+if (TILE_NAMES.length > 1024) throw new Error(`Too many texture tiles (${TILE_NAMES.length}; at most 1024)`);
 export const TILE = Object.freeze(Object.fromEntries(TILE_NAMES.map((name, i) => [name, i])));
 
-// Render buckets and shapes (numeric for use in hot loops).
-export const RENDER = Object.freeze({ NONE: 0, OPAQUE: 1, CUTOUT: 2, WATER: 3 });
-// WALL_TORCH: a torch leaning out from the wall it hangs on; CHEST: a box a
-// little smaller than a block (CHEST_BOX).
-export const SHAPE = Object.freeze({ CUBE: 0, CROSS: 1, TORCH: 2, WALL_TORCH: 3, CHEST: 4 });
+// The content modules' shapes: SHAPE_CUSTOM + their place in CONTENT_SHAPES.
+// SHAPE_MESH[shape] is the shape's mesh function (mesher.js), SHAPE_NAME its name.
+export const SHAPE_MESH = [];
+export const SHAPE_NAME = ["cube", "cross", "torch", "wall_torch", "chest"];
+const SHAPE_BY_NAME = new Map(SHAPE_NAME.map((n, i) => [n, i]));
+CONTENT_SHAPES.forEach((s, i) => {
+  if (SHAPE_BY_NAME.has(s.name)) throw new Error(`Content shape "${s.name}" is defined twice`);
+  SHAPE_BY_NAME.set(s.name, SHAPE_CUSTOM + i);
+  SHAPE_NAME[SHAPE_CUSTOM + i] = s.name;
+  SHAPE_MESH[SHAPE_CUSTOM + i] = s.mesh;
+});
 
 const DEFAULTS = {
   render: RENDER.OPAQUE,
@@ -151,6 +126,13 @@ const DEFAULTS = {
   tool: null, // "pickaxe" | "axe" | "shovel"
   minTier: 0,
   sound: "stone", // stone | wood | grass | dirt | sand | glass | cloth | plant
+  // (Round 11, for the content modules) The selection box within the cell
+  // ([minX, minY, minZ, maxX, maxY, maxZ]; null: the shape's), the collision
+  // boxes of a solid block (a list of such boxes, maxY up to 1.5; null: the
+  // whole cell), and whether it is offered in the creative palette.
+  box: null,
+  collision: null,
+  creative: true,
 };
 
 // faces: a tile name for all faces, or { top, bottom, side, front? }.
@@ -302,8 +284,7 @@ const DEFS = {
   },
 };
 
-// Face order used everywhere: +X, -X, +Y (top), -Y (bottom), +Z, -Z.
-export const FACE = Object.freeze({ PX: 0, NX: 1, PY: 2, NY: 3, PZ: 4, NZ: 5 });
+// (Face order used everywhere: +X, -X, +Y (top), -Y (bottom), +Z, -Z: FACE.)
 
 // (Round 10) The four-way blocks. Facing convention, for structure
 // generators too: `facing` [dx, dz] is where the front points. A wall torch
@@ -333,6 +314,20 @@ for (const [dx, dz, face, torchId, chestId] of FOUR_WAYS) {
   };
 }
 
+// (Round 11) The content modules' blocks (ids from 1024; ./content/index.js
+// checks each module keeps to its own range). A shape given by name is one
+// of the shapes above or a content module's.
+for (const [idStr, def] of Object.entries(CONTENT_BLOCKS)) {
+  if (DEFS[idStr]) throw new Error(`Block id ${idStr} is defined twice`);
+  if (def.shape === undefined) {
+    DEFS[idStr] = def;
+    continue;
+  }
+  const shape = typeof def.shape === "string" ? SHAPE_BY_NAME.get(def.shape) : def.shape;
+  if (shape === undefined || (shape >= SHAPE_CUSTOM && !SHAPE_MESH[shape])) throw new Error(`Block ${def.name}: unknown shape "${def.shape}"`);
+  DEFS[idStr] = { ...def, shape };
+}
+
 export const BLOCK_INFO = {};
 for (const [idStr, def] of Object.entries(DEFS)) {
   const id = Number(idStr);
@@ -356,8 +351,8 @@ for (const [idStr, def] of Object.entries(DEFS)) {
 }
 
 // ---------- Flat lookup tables for hot loops (indexed by block id) ----------
-function table(fn) {
-  const t = new Uint8Array(256);
+function table(fn, Type = Uint8Array) {
+  const t = new Type(BLOCK_LIMIT);
   for (const info of Object.values(BLOCK_INFO)) t[info.id] = fn(info);
   return t;
 }
@@ -383,11 +378,11 @@ export const IS_WET = table((b) => (b.liquid || b.waterlogged ? 1 : 0));
 export const IS_LOG = table((b) => (b.log ? 1 : 0));
 export const IS_CHEST = table((b) => (b.shape === SHAPE.CHEST ? 1 : 0));
 export const IS_WALL_TORCH = table((b) => (b.shape === SHAPE.WALL_TORCH ? 1 : 0));
-// The item a block counts as (its own id, or e.g. a torch for a wall torch).
-export const ITEM_OF = table((b) => b.item ?? b.id);
-for (let id = 0; id < 256; id++) {
+// The item a block counts as (its own id, or e.g. a torch for a wall torch;
+// 0, no item, for an unknown id).
+export const ITEM_OF = table((b) => b.item ?? b.id, Uint16Array);
+for (let id = 0; id < BLOCK_LIMIT; id++) {
   if (!BLOCK_INFO[id]) {
-    ITEM_OF[id] = id;
     IS_OPAQUE[id] = 1;
     IS_SOLID[id] = 1;
     RENDER_TYPE[id] = RENDER.OPAQUE;
@@ -395,8 +390,8 @@ for (let id = 0; id < 256; id++) {
   }
 }
 // FACE_TILES[id * 6 + face] = texture layer.
-export const FACE_TILES = new Uint8Array(256 * 6);
-for (let id = 0; id < 256; id++) {
+export const FACE_TILES = new Uint16Array(BLOCK_LIMIT * 6);
+for (let id = 0; id < BLOCK_LIMIT; id++) {
   const info = BLOCK_INFO[id] || BLOCK_INFO[BLOCK.STONE];
   for (let f = 0; f < 6; f++) FACE_TILES[id * 6 + f] = info.faceTiles[f];
 }
@@ -419,9 +414,11 @@ export function blockName(id) {
 
 // Whether block `id` placed at a cell is supported by `belowId` underneath.
 // (A wall torch rests on its wall, not the floor: see isWallSupportedBy.)
+// (A content block's `support` may be a function (belowId, id) => bool.)
 export function isSupportedBy(id, belowId) {
   const support = BLOCK_INFO[id]?.support;
   if (!support || support === "wall") return true;
+  if (typeof support === "function") return !!support(belowId, id);
   // "soil": grass, dirt or sand (so seagrass/kelp can root on a sandy sea
   // floor too), or the same block again (so kelp can stack on itself).
   if (support === "soil") return belowId === BLOCK.GRASS || belowId === BLOCK.DIRT || belowId === BLOCK.SAND || belowId === id;
@@ -445,9 +442,11 @@ export const chest = (dx, dz) => fourWay(dx, dz, 4);
 
 // Selection boxes ([minX, minY, minZ, maxX, maxY, maxZ] within the cell) of
 // blocks whose box depends on more than their shape (a wall torch's on its
-// facing), by id; null for the rest (world.js selectionBox).
+// facing, a content block's `box`), by id; null for the rest (world.js
+// selectionBox).
 export const CHEST_BOX = [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
-export const BLOCK_BOX = new Array(256).fill(null);
+export const BLOCK_BOX = new Array(BLOCK_LIMIT).fill(null);
+for (const info of Object.values(BLOCK_INFO)) if (info.box) BLOCK_BOX[info.id] = info.box;
 for (const [dx, dz, , torchId, chestId] of FOUR_WAYS) {
   // (from the wall out to the leaning flame, 3/16 up to 13/16)
   const a = [dx > 0 ? 0 : dx < 0 ? 11 / 16 : 5.5 / 16, 3 / 16, dz > 0 ? 0 : dz < 0 ? 11 / 16 : 5.5 / 16];
@@ -455,6 +454,19 @@ for (const [dx, dz, , torchId, chestId] of FOUR_WAYS) {
   BLOCK_BOX[torchId] = [a[0], a[1], a[2], b[0], b[1], b[2]];
   BLOCK_BOX[chestId] = CHEST_BOX;
 }
+
+// (Round 11) Collision boxes of solid blocks that don't fill their cell (a
+// content block's `collision`), by id; null: the whole cell (physics.js).
+// TALL_COLLISION: some block's box reaches above its cell (a fence, 1.5).
+export const COLLISION_BOXES = new Array(BLOCK_LIMIT).fill(null);
+for (const info of Object.values(BLOCK_INFO)) {
+  if (!info.collision || !info.solid) continue;
+  for (const b of info.collision) {
+    if (b.length !== 6 || !(b[4] <= 1.5)) throw new Error(`Block ${info.name}: bad collision box ${JSON.stringify(b)}`);
+  }
+  COLLISION_BOXES[info.id] = info.collision;
+}
+export const TALL_COLLISION = COLLISION_BOXES.some((list) => list && list.some((b) => b[4] > 1));
 
 // Blocks placeable from the (pre-inventory) hotbar.
 export const HOTBAR = [
@@ -468,3 +480,6 @@ export const HOTBAR = [
   BLOCK.TORCH,
   BLOCK.LUMEN,
 ];
+
+// (For content code that runs later: see LIB in js/content/base.js.)
+Object.assign(LIB, { BLOCK_INFO, IS_SOLID, IS_OPAQUE, IS_REPLACEABLE, ITEM_OF, FACE_TILES, isSupportedBy, isWallSupportedBy });

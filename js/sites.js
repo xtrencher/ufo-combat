@@ -79,11 +79,18 @@ function smooth(t) {
 
 export class SiteGrower {
   // terrain: the TerrainGenerator (its _baseInfo is the natural terrain).
-  constructor(terrain) {
+  constructor(terrain, { off = false } = {}) {
     this.terrain = terrain;
     this.seed = terrain.seed;
     this._cells = new Map(); // numeric key -> site or null
     this.any = true;
+    // (Round 11) off: a Survival world's terrain, with no airports or cities
+    // (no home airport, no site in any cell; every query finds none).
+    this.off = off;
+    if (off) {
+      this._homeDone = true;
+      this.home = null;
+    }
   }
 
   _key(cx, cz) {
@@ -105,6 +112,7 @@ export class SiteGrower {
   }
 
   _make(cx, cz) {
+    if (this.off) return null;
     const roll = hash2((this.seed ^ KIND_SALT) >>> 0, cx, cz);
     if (roll >= CITY_CHANCE + AIRPORT_CHANCE) return null;
     const kind = roll < CITY_CHANCE ? "city" : "airport";

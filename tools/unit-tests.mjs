@@ -154,7 +154,7 @@ function makeTestWorld(size, seed) {
   const allBlocks = [];
   for (let cx = 0; cx < size; cx++) {
     for (let cz = 0; cz < size; cz++) {
-      allBlocks.push({ cx, cz, blocks: new Uint8Array(16 * 16 * H), light: new Uint8Array(16 * 16 * H) });
+      allBlocks.push({ cx, cz, blocks: new Uint16Array(16 * 16 * H), light: new Uint8Array(16 * 16 * H) });
     }
   }
   // Terrain: rolling height field, water below y=20, caves, trees, glass,
@@ -358,7 +358,7 @@ function generateRegion(seed, size, ox = 0, oz = 0) {
   const chunks = new Map();
   for (let cx = ox; cx < ox + size; cx++) {
     for (let cz = oz; cz < oz + size; cz++) {
-      const c = { cx, cz, blocks: new Uint8Array(16 * 16 * H) };
+      const c = { cx, cz, blocks: new Uint16Array(16 * 16 * H) };
       gen.generate(c);
       chunks.set(`${cx},${cz}`, c);
     }
@@ -552,7 +552,7 @@ await test("biome surface materials: snow on cold ground, sand in deserts, terra
   for (const [biome, [x, z]] of Object.entries(found)) {
     const cx = x >> 4;
     const cz = z >> 4;
-    const c = { cx, cz, blocks: new Uint8Array(16 * 16 * H) };
+    const c = { cx, cz, blocks: new Uint16Array(16 * 16 * H) };
     gen.generate(c);
     const lx = x - cx * 16;
     const lz = z - cz * 16;
@@ -612,7 +612,7 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   const chunks = new Map();
   for (let cx = c0; cx <= c1; cx++) {
     for (let cz = cz0; cz <= cz1; cz++) {
-      const c = { cx, cz, blocks: new Uint8Array(16 * 16 * H) };
+      const c = { cx, cz, blocks: new Uint16Array(16 * 16 * H) };
       gen.generate(c);
       chunks.set(`${cx},${cz}`, c);
     }
@@ -653,7 +653,7 @@ await test("villages: a rare, deterministic structure with houses, a torch-lit d
   assert.ok(crops > 0, "expected some crops in the farm plot");
   // Regenerating the same chunks independently gives identical results
   // (determinism across chunk borders, like trees).
-  const again = { cx: c0, cz: cz0, blocks: new Uint8Array(16 * 16 * H) };
+  const again = { cx: c0, cz: cz0, blocks: new Uint16Array(16 * 16 * H) };
   gen.generate(again);
   assert.deepEqual(again.blocks, chunks.get(`${c0},${cz0}`).blocks, "village placement must be deterministic");
 });
@@ -671,7 +671,7 @@ await test("new players start on the ground, never on top of a tree", async () =
     const { IS_SOLID } = await import("../js/blocks.js");
     const cx = Math.floor(x / 16);
     const cz = Math.floor(z / 16);
-    const blocks = new Uint8Array(16 * 16 * H);
+    const blocks = new Uint16Array(16 * 16 * H);
     gen.generate({ cx, cz, blocks });
     for (let y = h + 1; y < H; y++) {
       const id = blocks[(y * 16 + (z - cz * 16)) * 16 + (x - cx * 16)];
@@ -727,11 +727,11 @@ await test("terrain generation is fast enough to stream (< 3 ms per chunk)", () 
   const gen = new TerrainGenerator(5);
   // (Warmed up first, then the best of three batches: a busy machine or the
   // JIT's first passes used to tip it over the limit now and then.)
-  for (let i = 0; i < 10; i++) gen.generate({ cx: 100 + i, cz: 100 - i, blocks: new Uint8Array(16 * 16 * H) });
+  for (let i = 0; i < 10; i++) gen.generate({ cx: 100 + i, cz: 100 - i, blocks: new Uint16Array(16 * 16 * H) });
   let ms = Infinity;
   for (let b = 0; b < 3; b++) {
     const t0 = performance.now();
-    for (let i = 0; i < 40; i++) gen.generate({ cx: i + b * 50, cz: -i, blocks: new Uint8Array(16 * 16 * H) });
+    for (let i = 0; i < 40; i++) gen.generate({ cx: i + b * 50, cz: -i, blocks: new Uint16Array(16 * 16 * H) });
     ms = Math.min(ms, (performance.now() - t0) / 40);
   }
   console.log(`        ${ms.toFixed(2)} ms per chunk`);
@@ -1074,7 +1074,7 @@ console.log("\nDistant terrain (lod-mesher.js)");
     let checked = 0;
     let bad = 0;
     for (const [cx, cz] of [[-40, 30], [12, -55], [80, 80], [-100, -20], [3, 3], [60, -90], [-30, 110], [140, 20]]) {
-      const chunk = { cx, cz, blocks: new Uint8Array(16 * 16 * WORLD_HEIGHT) };
+      const chunk = { cx, cz, blocks: new Uint16Array(16 * 16 * WORLD_HEIGHT) };
       gen.generate(chunk);
       for (let lz = 0; lz < 16; lz++) for (let lx = 0; lx < 16; lx++) {
         const wx = cx * 16 + lx;
@@ -1406,7 +1406,7 @@ console.log("\nAirports and cities (sites.js)");
       const cz = wz >> 4;
       const key = `${cx},${cz}`;
       if (!chunks.has(key)) {
-        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 64) };
+        const chunk = { cx, cz, blocks: new Uint16Array(S * S * 64) };
         t.generate(chunk);
         chunks.set(key, chunk);
       }
@@ -1444,7 +1444,7 @@ console.log("\nAirports and cities (sites.js)");
       const cz = wz >> 4;
       const key = `${cx},${cz}`;
       if (!chunks.has(key)) {
-        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 64) };
+        const chunk = { cx, cz, blocks: new Uint16Array(S * S * 64) };
         t.generate(chunk);
         chunks.set(key, chunk);
       }
@@ -1520,7 +1520,7 @@ console.log("\nRound 5: pathfinding and bunkers");
       const cz = wz >> 4;
       const key = `${cx},${cz}`;
       if (!chunks.has(key)) {
-        const chunk = { cx, cz, blocks: new Uint8Array(S * S * 128) };
+        const chunk = { cx, cz, blocks: new Uint16Array(S * S * 128) };
         t.generate(chunk);
         chunks.set(key, chunk);
       }
@@ -1960,6 +1960,236 @@ console.log("Multiplayer (js/net)");
     for (let i = 0; i < 400; i++) map.set(blockIndex(i % 16, 30 + (i >> 8), (i >> 4) % 16), i % 3 === 0 ? 0 : 5);
     const back = decodeChunkEdits(encodeChunkEdits(map));
     assert.deepEqual([...back].sort((a, b) => a[0] - b[0]), [...map].sort((a, b) => a[0] - b[0]));
+  });
+}
+
+console.log("\nRound 11: 16-bit block ids and the content registries");
+{
+  const blocks = await import("../js/blocks.js");
+  const { BLOCK_LIMIT, BLOCK_INFO, SHAPE_OF, SHAPE_CUSTOM, FACE_TILES, TILE, ITEM_OF, IS_SOLID, IS_OPAQUE } = blocks;
+  const { DEBUG } = await import("../js/content/debug.js");
+  const content = await import("../js/content/index.js");
+  const { WIDE } = await import("../js/storage.js");
+
+  await test("wide edits (ids up to 4095) round-trip; byte-only chunks keep the old format", () => {
+    const rand = rng(21);
+    for (let trial = 0; trial < 30; trial++) {
+      const map = new Map();
+      const n = 1 + Math.floor(rand() * 3000);
+      for (let i = 0; i < n; i++) map.set(Math.floor(rand() * CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT), Math.floor(rand() * BLOCK_LIMIT));
+      for (let i = 0; i < 600; i++) map.set(i, DEBUG.BLOCK); // (a long run of a 16-bit id)
+      const enc = encodeChunkEdits(map);
+      assert.ok(enc.startsWith(WIDE));
+      const back = decodeChunkEdits(enc);
+      assert.equal(back.size, map.size);
+      for (const [k, v] of map) assert.equal(back.get(k), v, `index ${k}`);
+    }
+    // Ids that fit in a byte: exactly the original records (old versions read them).
+    const narrow = new Map([[5, 3], [6, 3], [7, 255], [32767, 1]]);
+    const enc = encodeChunkEdits(narrow);
+    assert.ok(!enc.startsWith(WIDE));
+    assert.equal(enc, Buffer.from([5, 0, 2, 3, 7, 0, 1, 255, 255, 127, 1, 1]).toString("base64"));
+  });
+
+  await test("an old save (format v2, byte ids) loads every edit; a new one with 16-bit ids is v3", () => {
+    // A v2 save as the previous version wrote it: records of [index lo, index hi, run, id].
+    const rec = (idx, run, id) => [idx & 255, idx >> 8, run, id];
+    const old = { v: 2, chunks: { "0,0": Buffer.from([...rec(blockIndex(1, 30, 2), 3, 9), ...rec(blockIndex(4, 40, 4), 1, 41)]).toString("base64"), "-3,7": Buffer.from(rec(0, 255, 0)).toString("base64") } };
+    const edits = parseEdits(JSON.parse(JSON.stringify(old)));
+    assert.equal(edits.get("0,0").get(blockIndex(1, 30, 2)), 9);
+    assert.equal(edits.get("0,0").get(blockIndex(3, 30, 2)), 9);
+    assert.equal(edits.get("0,0").get(blockIndex(4, 40, 4)), BLOCK.CHEST);
+    assert.equal(edits.get("-3,7").size, 255);
+    assert.equal(serializeEdits(edits).v, 2, "no 16-bit id: still v2");
+    setEdit(edits, 2, 2, 77, DEBUG.SLAB);
+    const data = JSON.parse(JSON.stringify(serializeEdits(edits)));
+    assert.equal(data.v, 3);
+    const back = parseEdits(data);
+    assert.equal(back.get("2,2").get(77), DEBUG.SLAB);
+    assert.equal(back.get("0,0").get(blockIndex(4, 40, 4)), BLOCK.CHEST);
+  });
+
+  await test("an unreadable edit string fails loudly instead of misreading", () => {
+    assert.throws(() => decodeChunkEdits("~AAAA"), /unknown edit format/);
+    assert.throws(() => decodeChunkEdits(WIDE + Buffer.from([0, 0, 1, 0]).toString("base64")), /cut short/);
+    assert.throws(() => decodeChunkEdits(WIDE + Buffer.from([0, 0, 1, 0, 16]).toString("base64")), /block id 4096/);
+    const warn = console.warn;
+    let warned = 0;
+    console.warn = () => warned++;
+    try {
+      assert.equal(parseEdits({ v: 4, chunks: {} }).size, 0);
+      const p = parseEdits({ v: 3, chunks: { "0,0": "~xx", "1,0": encodeChunkEdits(new Map([[3, DEBUG.BLOCK]])) } });
+      assert.equal(p.get("1,0").get(3), DEBUG.BLOCK);
+      assert.equal(p.has("0,0"), false);
+    } finally {
+      console.warn = warn;
+    }
+    assert.ok(warned >= 2);
+  });
+
+  await test("the tables cover 4096 ids; the debug blocks are registered with their shape, tile and box", () => {
+    for (const t of ["IS_OPAQUE", "IS_SOLID", "LIGHT_FILTER", "EMISSION", "SHAPE_OF", "RENDER_TYPE", "ITEM_OF", "IS_CHEST", "IS_WET"]) assert.equal(blocks[t].length, BLOCK_LIMIT, t);
+    assert.equal(FACE_TILES.length, BLOCK_LIMIT * 6);
+    assert.ok(FACE_TILES instanceof Uint16Array && ITEM_OF instanceof Uint16Array);
+    assert.equal(BLOCK_INFO[DEBUG.BLOCK].name, "Debug Block");
+    assert.equal(FACE_TILES[DEBUG.BLOCK * 6 + 2], TILE.debug);
+    assert.ok(SHAPE_OF[DEBUG.SLAB] >= SHAPE_CUSTOM);
+    assert.deepEqual(blocks.BLOCK_BOX[DEBUG.SLAB], [0, 0, 0, 1, 0.5, 1]);
+    assert.ok(IS_SOLID[DEBUG.SLAB] && !IS_OPAQUE[DEBUG.SLAB] && IS_OPAQUE[DEBUG.BLOCK]);
+    // Item ids are never blocks; unknown ids are stone-like and drop nothing.
+    assert.equal(BLOCK_INFO[300], undefined);
+    assert.ok(IS_SOLID[300] && IS_OPAQUE[300] && IS_SOLID[2000]);
+    assert.equal(ITEM_OF[2000], 0);
+    assert.equal(typeof content.BLOCK_USE[DEBUG.BLOCK], "function");
+    assert.ok(blocks.isBlockId(4095) && blocks.isBlockId(0) && !blocks.isBlockId(256) && !blocks.isBlockId(1023) && blocks.isBlockId(1024) && !blocks.isBlockId(4096));
+  });
+
+  await test("a 16-bit block is an item: info, drops, stacks, the inventory and its save", async () => {
+    const { itemInfo, blockDrops, CREATIVE_ITEMS, ITEM } = await import("../js/items.js");
+    const { Inventory, makeStack } = await import("../js/inventory.js");
+    const info = itemInfo(DEBUG.BLOCK);
+    assert.equal(info.block, DEBUG.BLOCK);
+    assert.equal(info.stack, 64);
+    assert.equal(itemInfo(2000), null, "an id without a def is no item");
+    assert.deepEqual(blockDrops(DEBUG.SLAB, null), [[DEBUG.SLAB, 1]]);
+    assert.deepEqual(blockDrops(2000, null), []);
+    assert.ok(!CREATIVE_ITEMS.includes(DEBUG.BLOCK), "test blocks are not in the palette");
+    assert.equal(itemInfo(ITEM.STICK).name, "Stick");
+    const inv = new Inventory();
+    assert.equal(inv.add(DEBUG.BLOCK, 70), 0);
+    assert.equal(inv.countItem(DEBUG.BLOCK), 70);
+    const again = new Inventory();
+    again.load(JSON.parse(JSON.stringify(inv.serialize())));
+    assert.equal(again.countItem(DEBUG.BLOCK), 70);
+    assert.deepEqual(makeStack(DEBUG.SLAB, 3), { id: DEBUG.SLAB, count: 3 });
+  });
+
+  await test("light over 16-bit ids matches the full recompute", () => {
+    const { world, chunkList, rand, W } = makeTestWorld(3, 404);
+    const engine = new LightEngine(world);
+    for (const c of chunkList) engine.initChunk(c);
+    const palette = [BLOCK.AIR, BLOCK.AIR, DEBUG.BLOCK, DEBUG.SLAB, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.GLASS, 2000];
+    for (let round = 0; round < 25; round++) {
+      const changes = [];
+      const n = 1 + Math.floor(rand() * (round % 8 === 0 ? 300 : 6));
+      const x0 = Math.floor(rand() * W);
+      const y0 = Math.floor(rand() * 50);
+      const z0 = Math.floor(rand() * W);
+      for (let i = 0; i < n; i++) {
+        const x = Math.min(W - 1, Math.max(0, x0 + Math.floor((rand() - 0.5) * 16)));
+        const y = Math.min(H - 1, Math.max(0, y0 + Math.floor((rand() - 0.5) * 16)));
+        const z = Math.min(W - 1, Math.max(0, z0 + Math.floor((rand() - 0.5) * 16)));
+        world.set(x, y, z, palette[Math.floor(rand() * palette.length)]);
+        changes.push(x, y, z);
+      }
+      engine.applyChanges(changes);
+      compareLight(world, chunkList, `round ${round}`);
+    }
+  });
+
+  await test("meshing 16-bit blocks: the worker path is the main thread's byte for byte; slab and tile layers right", async () => {
+    const { meshChunk, padChunk, meshPadded } = await import("../js/mesher.js");
+    const { world, chunkList } = makeTestWorld(3, 77);
+    const engine = new LightEngine(world);
+    const c = chunkList.find((k) => k.cx === 1 && k.cz === 1);
+    // A debug block, a debug slab and a slab on a slab, on the surface and on chunk borders.
+    const top = (x, z) => {
+      let y = H - 1;
+      while (y > 0 && !IS_SOLID[world.get(x, y - 1, z)]) y--;
+      return y;
+    };
+    const put = [[20, 20, DEBUG.BLOCK], [22, 20, DEBUG.SLAB], [16, 24, DEBUG.SLAB], [31, 31, DEBUG.BLOCK]];
+    for (const [x, z, id] of put) world.set(x, top(x, z), z, id);
+    world.set(22, top(22, 20), 20, DEBUG.SLAB);
+    for (const k of chunkList) engine.initChunk(k);
+    const nb = [];
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) nb.push(world.getChunk(c.cx + dx, c.cz + dz) || null);
+    const same = (a, b) => {
+      for (const k of ["opaque", "cutout", "water"]) {
+        assert.equal(!a[k], !b[k], k);
+        if (a[k]) for (const f of ["position", "uv", "data", "extra", "index"]) assert.deepEqual(Buffer.from(a[k][f].buffer, a[k][f].byteOffset, a[k][f].byteLength), Buffer.from(b[k][f].buffer, b[k][f].byteOffset, b[k][f].byteLength), `${k}.${f}`);
+      }
+    };
+    for (const fancyLeaves of [false, true]) {
+      const ref = meshChunk(nb, { fancyLeaves });
+      const p = padChunk(nb);
+      assert.ok(p.blocks instanceof Uint16Array);
+      // (as it travels to a worker: a structured clone)
+      const moved = structuredClone({ blocks: p.blocks, light: p.light });
+      same(ref, meshPadded(moved.blocks, moved.light, c.cx, c.cz, p.maxY, { fancyLeaves }));
+    }
+    // The debug tile's layer is on the debug block's faces; the slab's top is half way up.
+    const m = meshChunk(nb, {});
+    const o = m.opaque;
+    const layerOf = (v) => o.extra[v * 4] + o.extra[v * 4 + 3] * 256;
+    let debugVerts = 0;
+    let slabTop = false;
+    const sy = top(22, 20) - 2; // (the lower slab of the two)
+    for (let v = 0; v < o.vertexCount; v++) {
+      if (layerOf(v) !== TILE.debug) continue;
+      debugVerts++;
+      if (o.position[v * 3] >= 6 && o.position[v * 3] <= 7 && Math.abs(o.position[v * 3 + 1] - (sy + 1.5)) < 1e-6) slabTop = true;
+    }
+    assert.ok(debugVerts >= 24, `debug vertices ${debugVerts}`);
+    assert.ok(slabTop, "the upper slab's top face at y + 0.5");
+    // A layer above 255 travels in two bytes.
+    const saved = FACE_TILES[DEBUG.BLOCK * 6 + 2];
+    FACE_TILES[DEBUG.BLOCK * 6 + 2] = 300;
+    try {
+      const w = meshChunk(nb, {}).opaque;
+      let found = false;
+      for (let v = 0; v < w.vertexCount; v++) if (w.extra[v * 4] === 300 - 256 && w.extra[v * 4 + 3] === 1) found = true;
+      assert.ok(found, "layer 300 as [44, ..., 1]");
+    } finally {
+      FACE_TILES[DEBUG.BLOCK * 6 + 2] = saved;
+    }
+  });
+
+  await test("collision with a partial block: standing on a debug slab, walking into it, over it", async () => {
+    const { sweepAxis, boxInSolid } = await import("../js/physics.js");
+    const cells = new Map([["5,0,5", DEBUG.SLAB], ["6,0,5", BLOCK.STONE]]);
+    const world = {
+      getBlock: (x, y, z) => (y < 0 ? BLOCK.STONE : cells.get(`${x},${y},${z}`) ?? BLOCK.AIR),
+      isSolidAt: (x, y, z) => !!IS_SOLID[world.getBlock(x, y, z)],
+    };
+    const v = (x, y, z) => ({ x, y, z });
+    // Falling onto the slab: stops on its top (y 0.5).
+    const fall = sweepAxis(world, v(5.5, 1.2, 5.5), 0.3, 1.8, "y", -1);
+    assert.ok(Math.abs(1.2 + fall - 0.5) < 1e-3, `landed at ${1.2 + fall}`);
+    // Beside it, feet below its top: blocked at its side.
+    const walk = sweepAxis(world, v(4.5, 0, 5.5), 0.3, 1.8, "x", 1);
+    assert.ok(Math.abs(4.5 + walk - (5 - 0.3)) < 1e-3, `stopped at ${4.5 + walk}`);
+    // Feet above its top: passes over (and the full block beyond still stops).
+    const over = sweepAxis(world, v(4.5, 0.6, 5.5), 0.3, 1.8, "x", 3);
+    assert.ok(Math.abs(4.5 + over - (6 - 0.3)) < 1e-3, `stopped at ${4.5 + over}`);
+    // Standing inside the slab's cell, above the slab: not in a solid.
+    assert.equal(boxInSolid(world, v(5.5, 0.51, 5.5), 0.3, 1.8), false);
+    assert.equal(boxInSolid(world, v(5.5, 0.3, 5.5), 0.3, 1.8), true);
+  });
+
+  await test("distant terrain shows a 16-bit block in its own colour", async () => {
+    const { LodTerrain, makeLodPalette } = await import("../js/lod-mesher.js");
+    const lt = new LodTerrain(42);
+    const h = lt.terrain.heightAt(8, 8);
+    lt.setChunkEdits("0,0", [blockIndex(8, Math.min(H - 1, Math.max(h, 30) + 3), 8), DEBUG.BLOCK]);
+    const s = lt.sample(8, 8, { top: 0, id: 0, depth: 0 });
+    assert.equal(s.id, DEBUG.BLOCK);
+    const pal = { top: new Float32Array(BLOCK_LIMIT * 3).fill(0.2), side: new Float32Array(BLOCK_LIMIT * 3).fill(0.2) };
+    pal.top.set([1, 0, 1], DEBUG.BLOCK * 3);
+    const lp = makeLodPalette(pal);
+    assert.deepEqual(lp.top[DEBUG.BLOCK], [255, 0, 255]);
+    // (an old 256-entry palette: the new ids are black, not NaN)
+    assert.deepEqual(makeLodPalette({ top: new Float32Array(768), side: new Float32Array(768) }).top[DEBUG.BLOCK], [0, 0, 0]);
+  });
+
+  await test("random-tick registry: registering turns the world's loop on, removing turns it off", () => {
+    assert.equal(content.TICKING.any, false, "no block has a random tick yet");
+    content.registerRandomTick(DEBUG.BLOCK, () => {});
+    assert.equal(content.TICKING.any, true);
+    assert.equal(content.TICKS_RANDOMLY[DEBUG.BLOCK], 1);
+    content.registerRandomTick(DEBUG.BLOCK, null);
+    assert.equal(content.TICKING.any, false);
+    assert.ok(Array.isArray(content.recipes()));
   });
 }
 

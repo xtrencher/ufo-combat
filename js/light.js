@@ -86,7 +86,8 @@ function setLevel(chunk, idx, ch, v) {
 
 export class LightEngine {
   // world: anything with getChunk(cx, cz) -> chunk | undefined, where a
-  // chunk has cx, cz, blocks (Uint8Array) and light (Uint8Array).
+  // chunk has cx, cz, blocks (Uint16Array: block ids, see blocks.js) and
+  // light (Uint8Array).
   constructor(world) {
     this.world = world;
     this.queue = new IntQueue();

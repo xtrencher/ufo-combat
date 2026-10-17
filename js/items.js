@@ -1,66 +1,18 @@
-// Item registry (pure data, no three.js). Item ids below 256 are blocks
-// (same id as the block, placeable); ids from 256 up are plain items: tools,
-// materials and food. Like block ids, item ids are saved with the player's
-// inventory, so existing ids must never change meaning.
-import { BLOCK, BLOCK_INFO, ITEM_OF } from "./blocks.js";
+// Item registry (pure data, no three.js). Item ids 0-255 and from 1024 up
+// are blocks (same id as the block, placeable); ids 256-1023 are plain
+// items: tools, materials and food. Like block ids, item ids are saved with
+// the player's inventory, so existing ids must never change meaning.
+//
+// (Round 11) The id space (js/content/base.js): 0-255 the original blocks,
+// 256-1023 items (the core ones here, ITEM; the content modules' in their
+// ranges, see js/content/index.js), 1024-4095 the new blocks, each its own
+// item unless it counts as another. Never assume "id < 256 means a block":
+// itemInfo(id).block says whether an item places a block.
+import { BLOCK, BLOCK_INFO, ITEM_OF, isBlockId } from "./blocks.js";
+import { ITEM, LIB } from "./content/base.js";
+import { CONTENT_ITEMS, CONTENT_ORDER, BLOCK_DROPS } from "./content/index.js";
 
-export const ITEM = Object.freeze({
-  STICK: 256,
-  COAL: 257,
-  // 258 (iron ingot) and 260 (diamond) were removed in Round 6: nothing uses them. Never reuse the ids.
-  GOLD_INGOT: 259,
-  APPLE: 261,
-  GOLDEN_APPLE: 262,
-  RAW_MEAT: 263,
-  COOKED_MEAT: 264,
-  FLUFF: 265,
-  WOOD_SWORD: 270,
-  STONE_SWORD: 271,
-  IRON_SWORD: 272,
-  DIAMOND_SWORD: 273,
-  WOOD_PICKAXE: 274,
-  STONE_PICKAXE: 275,
-  IRON_PICKAXE: 276,
-  DIAMOND_PICKAXE: 277,
-  WOOD_AXE: 278,
-  STONE_AXE: 279,
-  IRON_AXE: 280,
-  DIAMOND_AXE: 281,
-  WOOD_SHOVEL: 282,
-  STONE_SHOVEL: 283,
-  IRON_SHOVEL: 284,
-  DIAMOND_SHOVEL: 285,
-  GRENADE: 286,
-  PISTOL: 287,
-  BAZOOKA: 288,
-  MACHINE_GUN: 289,
-  SNIPER_RIFLE: 290,
-  AIRSTRIKE: 291,
-  LASER_BLASTER: 292,
-  // 293 (the Jet Radio) was removed in Round 6: jets are taken from airports. Never reuse the id.
-  RAILGUN: 294,
-  MINIGUN: 295,
-  // (296 was the shield, removed in Round 5: never reuse the id; old saves
-  // that still hold one lose it on load.)
-  BOW: 297,
-  // Armor, four tiers of four pieces: leather, gold, iron, diamond.
-  LEATHER_HELMET: 300,
-  LEATHER_CHESTPLATE: 301,
-  LEATHER_LEGGINGS: 302,
-  LEATHER_BOOTS: 303,
-  GOLD_HELMET: 304,
-  GOLD_CHESTPLATE: 305,
-  GOLD_LEGGINGS: 306,
-  GOLD_BOOTS: 307,
-  IRON_HELMET: 308,
-  IRON_CHESTPLATE: 309,
-  IRON_LEGGINGS: 310,
-  IRON_BOOTS: 311,
-  DIAMOND_HELMET: 312,
-  DIAMOND_CHESTPLATE: 313,
-  DIAMOND_LEGGINGS: 314,
-  DIAMOND_BOOTS: 315,
-});
+export { ITEM };
 
 // Tool materials: tier (what they can harvest), mining speed multiplier,
 // durability (uses), and melee damage for a sword (other tools hit weaker).
@@ -150,6 +102,9 @@ for (const [matKey, mat] of Object.entries(MATERIALS)) {
   }
 }
 
+// (Round 11) The content modules' items (their ids checked in js/content/index.js).
+for (const [id, def] of Object.entries(CONTENT_ITEMS)) ITEM_DEFS[id] = def;
+
 const itemCache = new Map();
 
 // Info for any item id: { id, name, stack, icon, block?, tool?, food? }, or null.
@@ -157,7 +112,7 @@ export function itemInfo(id) {
   if (itemCache.has(id)) return itemCache.get(id);
   let info = null;
   // (A block that counts as another item, e.g. a wall torch, is no item itself.)
-  if (id > 0 && id < 256 && BLOCK_INFO[id] && id !== BLOCK.AIR && ITEM_OF[id] === id) {
+  if (id > 0 && isBlockId(id) && BLOCK_INFO[id] && ITEM_OF[id] === id) {
     const b = BLOCK_INFO[id];
     info = { id, name: b.name, stack: 64, block: id, icon: null };
   } else if (ITEM_DEFS[id]) {
@@ -196,8 +151,11 @@ export function breakTime(blockId, tool) {
 }
 
 // Items dropped when a block is broken in survival: array of [itemId, count].
+// (A content module's `drops` for the block come first: js/content/index.js.)
 export function blockDrops(blockId, tool, rand = Math.random) {
   if (!canHarvest(blockId, tool)) return [];
+  const custom = BLOCK_DROPS[blockId]?.(tool, rand);
+  if (custom) return custom.filter(([id, n]) => n > 0 && itemInfo(id));
   switch (blockId) {
     case BLOCK.GRASS:
       return [[BLOCK.DIRT, 1]];
@@ -225,8 +183,10 @@ export function blockDrops(blockId, tool, rand = Math.random) {
     case BLOCK.BIRCH_LEAVES:
     case BLOCK.PINE_LEAVES:
       return rand() < 0.05 ? [[ITEM.STICK, 1]] : [];
-    default:
-      return [[ITEM_OF[blockId] ?? blockId, 1]]; // (a wall torch gives a torch, any chest the chest)
+    default: {
+      const item = ITEM_OF[blockId]; // (a wall torch gives a torch, any chest the chest)
+      return item && itemInfo(item) ? [[item, 1]] : [];
+    }
   }
 }
 
@@ -249,6 +209,8 @@ export const CREATIVE_ITEMS = [
   ITEM.BOW,
   ITEM.PISTOL, ITEM.GRENADE, ITEM.BAZOOKA, ITEM.MACHINE_GUN, ITEM.SNIPER_RIFLE, ITEM.LASER_BLASTER, ITEM.RAILGUN, ITEM.MINIGUN, ITEM.AIRSTRIKE,
   ...ARMOR_TIERS.flatMap((_, t) => [0, 1, 2, 3].map((sl) => armorId(t, sl))),
+  // (Round 11) The content modules' blocks and items, module by module.
+  ...CONTENT_ORDER.flatMap((o) => [...o.blocks.filter((id) => BLOCK_INFO[id].creative !== false && itemInfo(id)), ...o.items.filter((id) => ITEM_DEFS[id].creative !== false)]),
 ];
 
 // Every mod weapon and gadget, weakest first (the order of the creative
@@ -275,3 +237,6 @@ export const modState = { enabled: true };
 export function itemAllowed(id) {
   return modState.enabled || !MOD_ITEMS.has(id);
 }
+
+// (For content code that runs later: see LIB in js/content/base.js.)
+Object.assign(LIB, { itemInfo, maxStack, canHarvest, breakTime, blockDrops });

@@ -13,6 +13,11 @@
 // someone else just changed, the host sends that client the final value.
 //
 // A joining player gets every edit of the world (in parts), then the live stream.
+//
+// (Round 11) Block ids are 16-bit: a chunk's string is in the saves' byte
+// format while its ids fit in a byte, else the "wide" one (storage.js), which
+// an older peer can't decode (it skips that chunk) rather than misreading.
+// A string this peer can't read is skipped with a warning (stats.unreadable).
 import { CHUNK_SIZE, WORLD_HEIGHT, chunkKey, blockIndex } from "../constants.js";
 import { encodeChunkEdits, decodeChunkEdits, setEdit } from "../storage.js";
 import { IS_CHEST } from "../blocks.js";
@@ -34,7 +39,7 @@ export class WorldSync {
     this._t = 0;
     this.recent = new Map(); // host: "x,y,z" -> { pid, t }
     this._recentT = 0;
-    this.stats = { sent: 0, received: 0 };
+    this.stats = { sent: 0, received: 0, unreadable: 0 };
     const world = this.world;
     // Everything this peer changes.
     world.changeListeners.push((changed, opts) => {
@@ -195,7 +200,8 @@ export class WorldSync {
       let map;
       try {
         map = decodeChunkEdits(enc);
-      } catch {
+      } catch (err) {
+        this._unreadable(key, err);
         continue;
       }
       const loaded = !!world.getChunk(cx, cz);
@@ -237,6 +243,12 @@ export class WorldSync {
     return { raced };
   }
 
+  // A chunk's edits in a format this version can't read (a newer peer, or
+  // damaged): skipped, and said once (not silently wrong blocks).
+  _unreadable(key, err) {
+    if (this.stats.unreadable++ === 0) console.warn(`UFO COMBAT: block edits from another player could not be read (chunk ${key}: ${err?.message ?? err}); is everyone on the same version?`);
+  }
+
   // ---------- Joining ----------
 
   _snapshot() {
@@ -254,7 +266,9 @@ export class WorldSync {
       if (typeof enc !== "string" || !/^-?\d+,-?\d+$/.test(key)) continue;
       try {
         edits.set(key, decodeChunkEdits(enc));
-      } catch {}
+      } catch (err) {
+        this._unreadable(key, err);
+      }
     }
     world.loadEdits(edits);
     // Chunks already built: apply their edits now (in one bulk edit).

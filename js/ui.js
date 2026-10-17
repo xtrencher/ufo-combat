@@ -5,8 +5,11 @@ export function isMobileDevice() {
   return (coarse && ua) || (touch && ua);
 }
 
-const MODE_HINTS = {
-  survival: "Health, fall damage and drowning. Start with a sword and pickaxe: skeletons drop the bow, supply crates bring guns, alien leaders carry alien weapons. Eat to heal.",
+// (Round 11) "missions": the survival game of a Missions world; "survival":
+// a Survival world's (vanilla).
+export const MODE_HINTS = {
+  missions: "The UFO war: a campaign of missions, loot, supply drops and vehicles. Health, fall damage and drowning. Start with a sword and pickaxe: skeletons drop the bow, supply crates bring guns, alien leaders carry alien weapons. Eat to heal.",
+  survival: "Normal Minecraft: start with nothing, gather, craft and survive. No UFOs, missions or mod weapons in this world.",
   creative: "Unlimited blocks from the E palette, instant mining, flight (double-tap Space), no damage.",
 };
 
@@ -32,10 +35,22 @@ export class UI {
     this.startNoticeEl = document.getElementById("start-notice");
     this.modeSelect = document.getElementById("mode-select");
     this.modeHintEl = document.getElementById("mode-hint");
-    // The two mode cards on the main menu drive the (hidden) select.
+    // The mode cards on the main menu drive the (hidden) select. (Round 11)
+    // A card of the other world type (Missions or Survival) picks a world of
+    // that type instead: onPickType(type) (main.js), null for this world.
+    this.worldType = "missions";
+    this.pick = null; // { type, hint }: the other type's world, picked
+    this._mode = "survival";
+    this.onPickType = null;
     this.modeCards = [...document.querySelectorAll(".mode-card")];
     for (const card of this.modeCards) {
       card.addEventListener("click", () => {
+        const type = card.dataset.type;
+        if (type && type !== this.worldType) {
+          this.onPickType?.(type);
+          return;
+        }
+        if (this.pick) this.onPickType?.(null);
         this.modeSelect.value = card.dataset.mode;
         this.modeSelect.dispatchEvent(new Event("change", { bubbles: true }));
       });
@@ -49,11 +64,40 @@ export class UI {
   }
 
   setModeShown(mode) {
+    this._mode = mode;
     this.modeSelect.value = mode;
     this.pauseModeSelect.value = mode;
-    for (const card of this.modeCards) card.classList.toggle("active", card.dataset.mode === mode);
-    this.modeHintEl.textContent = MODE_HINTS[mode] || "";
-    this.pauseModeHintEl.textContent = MODE_HINTS[mode] || "";
+    this._refreshCards();
+  }
+
+  // (Round 11) This world's type: the cards, the hints and the selects' names
+  // for its survival game ("Missions" or "Survival").
+  setWorldType(type) {
+    this.worldType = type === "survival" ? "survival" : "missions";
+    const name = this.worldType === "survival" ? "Survival" : "Missions";
+    for (const sel of [this.modeSelect, this.pauseModeSelect]) {
+      const o = [...sel.options].find((x) => x.value === "survival");
+      if (o) o.textContent = name;
+    }
+    this._refreshCards();
+  }
+
+  // The other type's world picked on the main menu ({ type, hint }), or null.
+  setPick(pick) {
+    this.pick = pick || null;
+    this._refreshCards();
+  }
+
+  _refreshCards() {
+    const mode = this._mode;
+    const pick = this.pick;
+    for (const card of this.modeCards) {
+      const type = card.dataset.type;
+      card.classList.toggle("active", pick ? type === pick.type : card.dataset.mode === mode && (!type || type === this.worldType));
+    }
+    const hint = MODE_HINTS[mode === "creative" ? "creative" : this.worldType] || "";
+    this.modeHintEl.textContent = pick ? pick.hint : hint;
+    this.pauseModeHintEl.textContent = hint;
   }
 
   updateFps(dt) {
@@ -82,12 +126,19 @@ export class UI {
       btn.disabled = preparing;
       btn.textContent = preparing ? "Preparing graphics\u2026" : label;
     }
+    this._fitPlay();
+  }
+
+  // (A long label, e.g. "Continue Survival world", in a smaller type: one line.)
+  _fitPlay() {
+    this.playBtn.classList.toggle("long", this.playBtn.textContent.length > 16);
   }
 
   // "Play" or "Continue" (a saved world).
   setPlayLabel(label) {
     this.playLabel = label;
     if (!this._preparing) this.playBtn.textContent = label;
+    this._fitPlay();
   }
 
   // A line under the start menu's graphics choice ("" hides it).

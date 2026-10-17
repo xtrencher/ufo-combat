@@ -23,7 +23,7 @@ import { PlayerSync } from "./players.js";
 import { VehicleSync } from "./vehicles.js";
 import { WorldSync } from "./world.js";
 import { FxSync } from "./fx.js";
-import { RulesSync } from "./rules.js";
+import { RulesSync, roomMode } from "./rules.js";
 import { EntitySync } from "./entities.js";
 import { CoopSync } from "./coop.js";
 import { Dogfight } from "./dogfight.js";
@@ -37,7 +37,8 @@ export class Multiplayer {
     this.net = net;
     this.game = game;
     this.modules = [];
-    this.mode = game.GUEST ? game.joinWelcome.mode || "survival" : "survival"; // survival | creative | dogfight
+    // survival | creative | dogfight (rules.js; a Survival world has no Dogfight)
+    this.mode = (game.GUEST && roomMode(game.joinWelcome.mode, game.worldType)) || "survival";
     this.stateLoaded = !game.GUEST; // a guest: the host's state has arrived
     this.ended = null; // why the session ended (shown on screen)
     this.bg = new BackgroundClock(() => game.backgroundStep());
@@ -65,7 +66,8 @@ export class Multiplayer {
       this.feed(`${p.nick} ${reason === "kicked" ? "was removed" : reason === "timeout" ? "lost the connection" : "left the game"}`);
     };
     net.onPlayersChanged = () => this.ui.refresh();
-    net.welcomeExtra = () => ({ seed: game.SEED, hostNick: net.nick, mode: this.mode });
+    // (Round 11: the world's type too, Missions or Survival: the guest builds its world by it.)
+    net.welcomeExtra = () => ({ seed: game.SEED, hostNick: net.nick, mode: this.mode, worldType: game.worldType });
     // (Round 8) The nukes' blast zones: a joining guest clears the ground the
     // same way when it streams in (see nuke.js).
     net.registerSync("blastZones", {
@@ -100,6 +102,10 @@ export class Multiplayer {
   get pid() {
     return this.net.pid;
   }
+  // The room's world type: the host's world's ("missions" | "survival").
+  get worldType() {
+    return this.game.worldType;
+  }
 
   // May players hurt each other right now (the host's rule; Dogfight always)?
   pvpAllowed() {
@@ -118,7 +124,7 @@ export class Multiplayer {
   async host(nick, mode) {
     const code = await this.net.host({ nick });
     // (Only once the room is open: a failed attempt leaves no stale mode.)
-    this.mode = mode || this.mode;
+    this.mode = roomMode(mode, this.game.worldType) || this.mode;
     this._started();
     return code;
   }

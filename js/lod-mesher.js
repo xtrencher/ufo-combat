@@ -19,7 +19,7 @@
 //   info     Uint8   x4  [normal index (as in the chunk mesher), kind, water depth, 0]
 //   index    Uint16/Uint32
 import { TerrainGenerator, surfaceBlocks } from "./terrain.js";
-import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET, BLOCK_LIMIT } from "./blocks.js";
 import { TREE } from "./trees.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
@@ -51,8 +51,8 @@ const EDIT_CACHE_MAX = 256;
 // real blocks of chunks the player has edited (so a crater stays visible
 // from afar).
 export class LodTerrain {
-  constructor(seed) {
-    this.terrain = new TerrainGenerator(seed);
+  constructor(seed, opts) {
+    this.terrain = new TerrainGenerator(seed, opts);
     this.edits = new Map(); // "cx,cz" -> flat [blockIndex, id, ...]
     this._edited = new Map(); // "cx,cz" -> { blocks, top, id, depth } (cache, LRU order)
   }
@@ -71,11 +71,11 @@ export class LodTerrain {
     let c = this._edited.get(key);
     if (c) return c;
     const S = CHUNK_SIZE;
-    const blocks = new Uint8Array(S * WORLD_HEIGHT * S);
+    const blocks = new Uint16Array(S * WORLD_HEIGHT * S);
     this.terrain.generate({ cx, cz, blocks });
     for (let i = 0; i < list.length; i += 2) blocks[list[i]] = list[i + 1];
     const top = new Float32Array(S * S);
-    const id = new Uint8Array(S * S);
+    const id = new Uint16Array(S * S);
     const depth = new Uint8Array(S * S);
     for (let lz = 0; lz < S; lz++) {
       for (let lx = 0; lx < S; lx++) {
@@ -277,15 +277,16 @@ function toSrgbByte(v) {
   return Math.round(Math.pow(c, 1 / 2.2) * 255);
 }
 
-// palette: { top: Float32Array(256 * 3), side: Float32Array(256 * 3) } with
+// palette: { top: Float32Array(BLOCK_LIMIT * 3), side: (the same) } with
 // each block's average texture colour (linear 0-1). Returns per-id sRGB
-// byte triplets, plus the tinted "grass with trees" colour.
+// byte triplets, plus the tinted "grass with trees" colour. (A shorter
+// palette, from before the 16-bit ids, leaves the rest black.)
 export function makeLodPalette(palette) {
   const top = [];
   const side = [];
-  for (let id = 0; id < 256; id++) {
-    const t = [palette.top[id * 3], palette.top[id * 3 + 1], palette.top[id * 3 + 2]];
-    const s = [palette.side[id * 3], palette.side[id * 3 + 1], palette.side[id * 3 + 2]];
+  for (let id = 0; id < BLOCK_LIMIT; id++) {
+    const t = [palette.top[id * 3] ?? 0, palette.top[id * 3 + 1] ?? 0, palette.top[id * 3 + 2] ?? 0];
+    const s = [palette.side[id * 3] ?? 0, palette.side[id * 3 + 1] ?? 0, palette.side[id * 3 + 2] ?? 0];
     top.push(t.map(toSrgbByte));
     side.push(s.map(toSrgbByte));
   }
@@ -307,7 +308,7 @@ export function buildLodTile(lt, level, tx, tz, pal) {
   const z0 = tz * span;
   const half = step >> 1;
   const top = new Float32Array(P * P);
-  const id = new Uint8Array(P * P);
+  const id = new Uint16Array(P * P);
   const depth = new Uint8Array(P * P);
   let lowest = Infinity;
   const spread = level >= 2 ? half * 0.7 : 0;
