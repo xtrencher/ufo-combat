@@ -280,6 +280,35 @@
   @media (max-width: 760px) { #weapon-status { left: auto; right: 8px; bottom: 76px; } }
   #bubbles { flex-direction: row-reverse; }
   #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
+  /* (Round 11) Survival worlds: the hunger bar right of the hearts (filling from the right), the
+     air bubbles above it, and the XP bar with its level over the hotbar, as in vanilla. */
+  #food { display: flex; gap: 1px; flex-direction: row-reverse; }
+  #food.hidden { display: none; }
+  #food canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
+  #food:not(.hidden) ~ #bubbles { position: absolute; right: 0; bottom: 21px; }
+  body.xp-on #status-bars { bottom: 84px; }
+  #xp-bar { position: fixed; bottom: 71px; left: 50%; width: 464px; height: 6px; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 1px solid rgba(0,0,0,0.85); pointer-events: none; z-index: 10; }
+  #xp-bar.hidden { display: none; }
+  #xp-bar .xp-fill { height: 100%; width: 0; background: linear-gradient(#c6ff6a, #7edc2c 55%, #4a9e18); }
+  #xp-bar .xp-level { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); font: 700 15px ui-monospace, Consolas, monospace; color: #80ff20; text-shadow: 1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000; }
+  body.in-vehicle #xp-bar { display: none; }
+  /* Status effects, top right: an icon in a frame of its colour, the time left under it. */
+  #effects-bar { position: fixed; top: 8px; right: 10px; display: flex; gap: 4px; pointer-events: none; z-index: 10; }
+  #effects-bar.hidden { display: none; }
+  #effects-bar .fx { width: 36px; padding: 3px 0 2px; background: rgba(10,12,18,0.6); border: 2px solid; border-radius: 4px; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  #effects-bar .fx canvas { image-rendering: pixelated; }
+  #effects-bar .fx span { font: 700 9px ui-monospace, Consolas, monospace; color: #fff; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+  #effects-bar .fx.ending { animation: fx-blink 1s steps(2, jump-none) infinite; }
+  @keyframes fx-blink { 50% { opacity: 0.35; } }
+  /* Burning: flames licking up the bottom of the screen. */
+  #fire-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 9; background: linear-gradient(to top, rgba(255,110,10,0.55), rgba(255,70,0,0.18) 28%, rgba(255,60,0,0) 46%); animation: fire-flicker 0.3s steps(3) infinite alternate; }
+  #fire-overlay.hidden { display: none; }
+  @keyframes fire-flicker { from { opacity: 0.75; } to { opacity: 1; } }
+  /* Asleep: the screen darkens (vanilla's 86%), and the line over the hotbar. */
+  #sleep-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 11; background: #101020; opacity: 0; }
+  #sleep-overlay.hidden { display: none; }
+  #sleep-status { position: fixed; bottom: 134px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 600; text-shadow: 1px 1px 0 #000, 0 0 4px rgba(0,0,0,0.8); white-space: nowrap; pointer-events: none; z-index: 12; }
+  #sleep-status.hidden { display: none; }
   #item-name {
     position: fixed;
     bottom: 96px;
@@ -1335,6 +1364,8 @@
   <canvas id="game-canvas"></canvas>
 
   <div id="damage-flash"></div>
+  <div id="fire-overlay" class="hidden"></div>
+  <div id="sleep-overlay" class="hidden"></div>
   <div id="nuke-flash"></div>
   <div id="binocular-overlay"><div class="reading" id="binocular-reading"></div></div>
   <div id="scope-overlay"><div id="scope-crosshair"><div id="scope-dot"></div></div></div>
@@ -1345,7 +1376,10 @@
     <div id="fps-counter">FPS: --</div>
     <div id="mode-badge" class="hidden"></div>
     <div id="item-name"></div>
-    <div id="status-bars"><div id="armor-bar" class="hidden"></div><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="status-bars"><div id="armor-bar" class="hidden"></div><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="food" class="hidden"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="xp-bar" class="hidden"><div class="xp-fill"></div><div class="xp-level"></div></div>
+    <div id="effects-bar" class="hidden"></div>
+    <div id="sleep-status" class="hidden"></div>
     <div id="hotbar"></div>
     <div id="weapon-status" class="hidden"><div class="ws-label"></div><div class="ws-ammo"></div><div class="ws-bar"><div></div></div></div>
     <div id="reload-bar" class="hidden"><div></div></div>

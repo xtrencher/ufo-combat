@@ -3,9 +3,23 @@
 // clips into walls. Animated with a swing (mining, attacking, placing), an
 // equip dip when switching items, and a little walk bob.
 import * as THREE from "three";
-import { itemModel, MUZZLE, minigunBarrels, bowPullGeometry } from "./models.js";
+import { itemModel, MUZZLE, minigunBarrels, bowPullGeometry, spriteGeometry } from "./models.js";
 import { itemInfo } from "./items.js";
-import { createEntityMaterial, bindEntityLight } from "./shaders.js";
+import { createEntityMaterial, bindEntityLight, worldUniforms } from "./shaders.js";
+import { compassPixels, clockPixels, paintItemIcon } from "./itemtextures.js";
+import { COMPASS, CLOCK, FISHING_ROD, SHIELD } from "./content/ids.js";
+
+// (Round 11) The compass's needle and the clock's dial turn in hand: one
+// geometry per frame, made the first time it shows.
+const COMPASS_FRAMES = 32;
+const CLOCK_FRAMES = 64;
+const dialGeos = { compass: new Map(), clock: new Map() };
+function dialGeometry(kind, frame) {
+  const cache = dialGeos[kind];
+  if (!cache.has(frame)) cache.set(frame, spriteGeometry(kind === "compass" ? compassPixels(frame, COMPASS_FRAMES) : clockPixels(frame, CLOCK_FRAMES)));
+  return cache.get(frame);
+}
+let rodCastGeo = null; // (the rod with its line out)
 
 const SWING_TIME = 0.28;
 let barrelsGeo = null; // (built once and shared: never disposed)
@@ -87,6 +101,13 @@ export class HeldItem {
     this.bowDraw = 0; // 0-1: how far the bow is drawn
     this._bowStage = 0;
     this._bowPose = 0; // 0-1: the bow raised to shoot
+    // (Round 11) Set by the game: where the compass points ({ x, z }: the
+    // world spawn); whether the fishing rod's line is out.
+    this.compassTarget = null;
+    this.rodCast = false;
+    this._dialFrame = -1;
+    this._rodShown = false;
+    this._shieldPose = 0; // 0-1: the shield raised in front
     this.setItem(0, true);
   }
 
@@ -115,6 +136,9 @@ export class HeldItem {
     this.itemId = id;
     this._bowStage = 0;
     this._bowPose = 0;
+    this._dialFrame = -1;
+    this._rodShown = false;
+    this._shieldPose = 0;
     if (this.mesh) this.pivot.remove(this.mesh);
     const model = id ? itemModel(id) : null;
     if (!model) {
@@ -170,6 +194,12 @@ export class HeldItem {
         this.mesh.position.set(0.36, -0.28, -0.58);
         this.mesh.rotation.set(0.1, -0.7, 0.15);
         this.kind = "item";
+      } else if (id === COMPASS || id === CLOCK) {
+        // (held up and turned toward you, so the dial reads)
+        this.mesh.scale.setScalar(0.2);
+        this.mesh.position.set(0.24, -0.21, -0.5);
+        this.mesh.rotation.set(-0.3, -0.18, 0.02);
+        this.kind = "item";
       } else {
         this.mesh.scale.setScalar(0.42);
         this.mesh.position.set(0.4, -0.27, -0.62);
@@ -218,6 +248,56 @@ export class HeldItem {
 
   get swinging() {
     return this._swing < 1;
+  }
+
+  // (Round 11) The vanilla items' looks in hand: the compass needle toward
+  // its target (as seen from where you look), the clock's dial by the sun,
+  // the fishing rod without its line while cast, the shield raised in front
+  // while right click holds it up.
+  _updateVanilla(dt, player, camera, m) {
+    const id = this.itemId;
+    if (id === COMPASS || id === CLOCK) {
+      let frame;
+      if (id === COMPASS) {
+        const t = this.compassTarget;
+        // The needle's turn, clockwise from straight ahead: the target's
+        // direction on the view's forward (f) and right (r) axes.
+        const fx = -Math.sin(player.yaw);
+        const fz = -Math.cos(player.yaw);
+        const dx = t ? t.x - player.position.x : 0;
+        const dz = t ? t.z - player.position.z : 0;
+        const a = t && dx * dx + dz * dz > 0.01 ? Math.atan2(dx * -fz + dz * fx, dx * fx + dz * fz) : performance.now() / 300; // (no target, or on it: it spins)
+        frame = Math.round((a / (Math.PI * 2)) * COMPASS_FRAMES);
+        frame = ((frame % COMPASS_FRAMES) + COMPASS_FRAMES) % COMPASS_FRAMES;
+      } else {
+        const s = worldUniforms.uSunDir.value;
+        const sun = Math.atan2(Math.sign(s.y) * Math.hypot(s.y, s.z), s.x); // (0 sunrise, PI/2 noon)
+        frame = Math.round((sun / (Math.PI * 2)) * CLOCK_FRAMES);
+        frame = ((frame % CLOCK_FRAMES) + CLOCK_FRAMES) % CLOCK_FRAMES;
+      }
+      if (frame !== this._dialFrame) {
+        this._dialFrame = frame;
+        m.geometry = dialGeometry(id === COMPASS ? "compass" : "clock", frame);
+      }
+    } else if (id === FISHING_ROD) {
+      if (this.rodCast !== this._rodShown) {
+        this._rodShown = this.rodCast;
+        m.geometry = this.rodCast ? (rodCastGeo ??= spriteGeometry(paintItemIcon("fishing_rod_cast"))) : itemModel(id).geometry;
+      }
+    } else if (id === SHIELD) {
+      const up = player.shieldRaisedUntil > performance.now() / 1000 ? 1 : 0;
+      this._shieldPose += (up - this._shieldPose) * Math.min(1, dt * 14);
+      const k = this._shieldPose;
+      if (k > 0.001) {
+        // In front of the body, face on, a little to the right.
+        m.position.x += (0.2 - m.position.x) * k;
+        m.position.y += (-0.24 - m.position.y) * k;
+        m.position.z += (-0.66 - m.position.z) * k;
+        m.rotation.x += (0 - m.rotation.x) * k;
+        m.rotation.y += (-0.12 - m.rotation.y) * k;
+        m.rotation.z += (0 - m.rotation.z) * k;
+      }
+    }
   }
 
   // camera: the world camera (the held item is lit as if it faced the same
@@ -305,6 +385,7 @@ export class HeldItem {
         }
       }
     }
+    this._updateVanilla(dt, player, camera, m);
     this._flash += dt;
     this._flashFrames = this._flash === dt ? 0 : (this._flashFrames || 0) + 1;
     // Visible for 50 ms, and always for at least one rendered frame.

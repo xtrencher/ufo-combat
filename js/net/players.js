@@ -4,7 +4,9 @@
 // other clients. Each remote player is drawn with the player model (walks,
 // sneaks, looks where they look, swings, holds their item, under a
 // parachute when they have one open), interpolated ~0.1 s in the past, with
-// a nameplate over their head or over their vehicle.
+// a nameplate over their head or over their vehicle. (Round 11) A player
+// asleep in a bed (sleep.js) lies in it: their state's feet are at the bed's
+// foot, facing it (an older peer ignores the flag and sees them standing).
 import * as THREE from "three";
 import { PlayerAvatar } from "../player-avatar.js";
 import { Parachute } from "../vehicles.js";
@@ -13,8 +15,9 @@ import { Nameplate } from "./nameplate.js";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { RATES } from "./config.js";
 import { HOST_PID } from "./session.js";
+import { layDown, standUp } from "../sleep.js";
 
-export const PF = { ground: 1, sneak: 2, dead: 4, fly: 8, chute: 16, water: 32, sprint: 64, creative: 128 };
+export const PF = { ground: 1, sneak: 2, dead: 4, fly: 8, chute: 16, water: 32, sprint: 64, creative: 128, sleep: 256 };
 
 export class RemotePlayer {
   constructor(sync, info) {
@@ -39,6 +42,8 @@ export class RemotePlayer {
     this.inWater = false;
     this.parachute = false;
     this.creative = false;
+    this.sleeping = false;
+    this.sleepTime = 0; // seconds asleep (the host's count of who is ready to skip the night)
     this.walkPhase = 0;
     this.health = MAX_HEALTH;
     this.heldId = 0;
@@ -74,6 +79,7 @@ export class RemotePlayer {
       const f = msg.f | 0;
       this.dead = !!(f & PF.dead);
       this.creative = !!(f & PF.creative);
+      this.sleeping = !!(f & PF.sleep) && !this.dead;
     }
   }
 
@@ -100,6 +106,9 @@ export class RemotePlayer {
     this.shots = Number.isFinite(st.fx) ? st.fx : null;
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.onGround && speed > 0.5) this.walkPhase += speed * dt * 1.6;
+    this.sleepTime = this.sleeping ? this.sleepTime + dt : 0;
+    // (Asleep: the head lies flat on the pillow.)
+    if (this.sleeping) this.pitch = 0;
     // The live position: the newest state, carried forward a little.
     const last = this.interp.last;
     if (last) {
@@ -111,6 +120,8 @@ export class RemotePlayer {
     const inVehicle = !!veh || !!this.vehicleNid;
     const light = g.world.lightAt(this.position.x, this.position.y + 1, this.position.z);
     this.avatar.update(dt, this, light, { visible: !inVehicle && !this.dead, swing: this.swing, heldId: this.heldId, bowDraw: this.bowDraw, shots: this.shots });
+    if (this.sleeping) layDown(this.avatar, this);
+    else if (this.avatar.root.rotation.x) standUp(this.avatar);
     // The parachute.
     if (this.parachute && !inVehicle && !this.dead) {
       if (!this.chute) this.chute = new Parachute(g.scene);
@@ -121,7 +132,7 @@ export class RemotePlayer {
     // The nameplate: over the head, or over the vehicle.
     const me = g.player.position;
     let px = this.position.x;
-    let py = this.position.y + 2.25;
+    let py = this.position.y + (this.sleeping ? 0.9 : 2.25);
     let pz = this.position.z;
     if (veh) {
       px = veh.pos.x;
@@ -240,6 +251,7 @@ export class PlayerSync {
     if (p.inWater) f |= PF.water;
     if (p.sprinting) f |= PF.sprint;
     if (p.creative) f |= PF.creative;
+    if (p.sleeping) f |= PF.sleep;
     const veh = g.vehicles.active;
     const swing = g.held?.swingProgress ?? 1;
     return {

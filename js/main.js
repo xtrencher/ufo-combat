@@ -15,7 +15,7 @@ import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
 import { Inventory, HOTBAR_SIZE, makeStack } from "./inventory.js";
-import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS } from "./items.js";
+import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS, canHarvest } from "./items.js";
 const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
@@ -23,7 +23,7 @@ import { InventoryScreen } from "./inventory-ui.js";
 import { ItemEntities } from "./entities.js";
 import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
-import { MobManager } from "./mobs.js";
+import { MobManager, SPECIES } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
@@ -54,13 +54,17 @@ import { createJetModel } from "./jet-model.js";
 import { createB2Model } from "./b2-model.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { Stats, formatPlayTime } from "./stats.js";
-import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause, baseCause } from "./damage.js";
+import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause, baseCause, BYPASSES_ARMOR } from "./damage.js";
 import { FullscreenControl } from "./fullscreen.js";
 import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
 import { roomMode, playerModeOf } from "./net/rules.js";
 import { setWorldType, worldType, isVanilla, normalizeWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
+import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
+import { Sleep } from "./sleep.js";
+import { oreXp } from "./survival.js";
+import { LIB } from "./content/base.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -380,6 +384,34 @@ interaction.onCut = (x, y, z, n) => {
 const mobs = new MobManager({ scene, world, player, entities, audio, effects, sky });
 // The player's own body, drawn in the third-person camera modes (F5).
 const avatar = new PlayerAvatar(scene, world.atlas);
+// (Round 11) Survival worlds: experience orbs (local to whoever caused them,
+// online too: js/xp.js) and beds (the spawn point and skipping the night:
+// js/sleep.js). Other code gives XP through LIB.giveXp and the building
+// part's bed calls LIB.onBedUse.
+const xp = new XpOrbs({ scene, world, player, audio });
+xp.enabled = isVanilla();
+const sleep = new Sleep({
+  player,
+  sky,
+  world,
+  mobs,
+  toast: (t, s) => toast(t, s),
+  players: () => (mpLate?.active ? mpLate.players.active() : []),
+  online: () => !!mpLate?.active,
+  isHost: () => !!mpLate?.isHost,
+  // (The host's clock jumped: everyone gets it now, not at the next 2 s update.)
+  sendTime: () => net.broadcast({ t: "time", time: sky.time, scale: sky.timeScale ?? 1, locked: !!sky.locked, ts: net.time }),
+  onSpawnSet: () => (playerDirty = true),
+  onSkip: () => (playerDirty = true),
+});
+LIB.onBedUse = (ctx) => sleep.useBed(ctx);
+// XP points at (x, y, z) (default: the player): a whole number of them, a
+// fraction being the chance of one more (smelting's 0.7 an ingot).
+LIB.giveXp = (amount, x, y, z) => {
+  if (!isVanilla() || player.dead) return;
+  const p = player.position;
+  xp.spawn(Number.isFinite(x) ? x : p.x, Number.isFinite(y) ? y : p.y + 1, Number.isFinite(z) ? z : p.z, wholeXp(amount));
+};
 const falling = new FallingBlocks(scene, world);
 const waterSim = new WaterSim(world);
 const decals = new BulletHoles(scene, world);
@@ -608,7 +640,8 @@ weapons.getLockables = () => {
 // with a full diamond set) and wears out as it takes hits. It does nothing
 // against the environment (falls, drowning, the void, starving) or crashes
 // and the nuke.
-const ARMOR_PASS = new Set(["fall", "drown", "void", "starve", "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
+// (Round 11: vanilla's own, damage.js BYPASSES_ARMOR: burning, suffocation, poison...)
+const ARMOR_PASS = new Set([...BYPASSES_ARMOR, "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
 player.damageFilter = (amount, cause) => {
   if (player.creative || ARMOR_PASS.has(cause)) return amount;
   const red = inventory.armorReduction();
@@ -828,6 +861,9 @@ function dropArmor(who, at) {
 // kill, counted for the shared missions by the host).
 function mobKilled(m, { mine = true } = {}) {
   const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
+  // (Round 11) A Survival world: the killer's XP orbs (online, a guest's kill
+  // reaches here on the guest's own machine, as m: its kind and place).
+  if (mine && isVanilla() && m.pos) xp.spawn(m.pos.x, m.pos.y + 0.5, m.pos.z, killXp(m, SPECIES[m.kind]));
   if (m.spec.alien) add("aliensKilled");
   else if (m.kind === "guard") add("guardsKilled");
   else if (m.kind === "zombie") add("zombiesKilled");
@@ -1159,6 +1195,11 @@ if (savedPlayer) {
   // (An older save's "survivalStash", the inventory set aside in Creative,
   // is no longer used: the inventory a save has is the one it keeps.)
   loadoutGiven = savedPlayer.loadout !== false;
+  // (Round 11) A Survival world's hunger, effects, XP and bed (an older save: full and none).
+  if (isVanilla()) {
+    player.loadSurvival(savedPlayer.surv);
+    sleep.load(savedPlayer.bed);
+  }
   nuke.loadZones(savedPlayer.blastZones);
   waterSim.loadMeta(savedPlayer.water);
 } else {
@@ -1528,6 +1569,9 @@ function playerState() {
     health: player.dead ? MAX_HEALTH : player.health,
     air: player.dead ? MAX_AIR : round3(player.air),
     absorb: player.dead ? 0 : player.absorption,
+    // (Round 11) A Survival world: food, effects, XP (a dead player: as respawned) and the bed.
+    surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined,
+    bed: isVanilla() ? sleep.serialize() : undefined,
     inv: kept ? kept.slots : serializeInvWithCursor(),
     armor: kept ? kept.armor : inventory.serializeArmor(),
     sel: kept ? kept.sel : inventory.selected,
@@ -1633,6 +1677,15 @@ function markInventoryChanged() {
 
 interaction.onChange = markInventoryChanged;
 interaction.onMessage = (t) => toast(t, 2.5);
+// (Round 11) A block the player broke: mining's bit of hunger and, in a
+// Survival world, an ore's XP (its def's `xp`; only when the tool harvests
+// it, as vanilla). An attack that lands costs a little hunger too.
+interaction.onBlockBroken = (x, y, z, id, tool) => {
+  player.addExhaustion(0.005);
+  const spec = oreXp(id);
+  if (spec != null && isVanilla() && canHarvest(id, tool)) xp.spawn(x + 0.5, y + 0.5, z + 0.5, rollXp(spec));
+};
+interaction.onAttack = () => player.addExhaustion(0.1);
 weapons.onChange = markInventoryChanged;
 weapons.onMessage = (t) => toast(t, 1.6);
 invScreen.onChange = markInventoryChanged;
@@ -1719,6 +1772,11 @@ function dropEverything() {
   });
   inventory.clear();
   markInventoryChanged();
+  // (Round 11) A Survival world: 7 XP a level (at most 100) as orbs, the rest lost.
+  if (isVanilla()) {
+    xp.spawn(at.x, at.y, at.z, deathXp(player));
+    resetXp(player);
+  }
 }
 
 // The column nearest the world spawn with open air (not water) above solid
@@ -1759,9 +1817,21 @@ function respawn(at = null) {
   }
   hud.hideDeath();
   const spot = Array.isArray(at) ? at : missionRespawnSpot();
-  world.prepareArea(spot ? spot[0] : spawnX + 0.5, spot ? spot[1] : spawnZ + 0.5, INITIAL_SYNC_RADIUS);
+  // (Round 11) A Survival world: at the bed, if it is still there with room to stand.
+  let bedSpot = null;
+  if (!spot && sleep.spawn) {
+    world.prepareArea(sleep.spawn[0] + 0.5, sleep.spawn[2] + 0.5, INITIAL_SYNC_RADIUS);
+    bedSpot = sleep.respawnSpot();
+    if (bedSpot === false) toast("Your home bed was missing or obstructed", 4);
+  }
+  if (!bedSpot) world.prepareArea(spot ? spot[0] : spawnX + 0.5, spot ? spot[1] : spawnZ + 0.5, INITIAL_SYNC_RADIUS);
   player.revive();
-  if (spot) player.spawnAt(Math.floor(spot[0]), Math.floor(spot[1]));
+  if (bedSpot) {
+    player.position.copy(bedSpot);
+    player.velocity.set(0, 0, 0);
+    player.knockback.set(0, 0, 0);
+    player.resetFall();
+  } else if (spot) player.spawnAt(Math.floor(spot[0]), Math.floor(spot[1]));
   else player.spawnAt(...safeSpawnColumn());
   player.yaw = 0;
   player.pitch = 0;
@@ -2143,6 +2213,7 @@ let hostDifficulty = null;
 const difficulty = () => hostDifficulty ?? settings.difficulty;
 function applyDifficulty() {
   player.mobDamageScale = DIFFICULTY_DAMAGE[difficulty()] ?? 1;
+  player.difficulty = difficulty(); // (Round 11: starving's floor, Peaceful's full food)
   mobs.spawning = settingsPanel.effective("mobSpawning");
   mobs.hostileSpawning = difficulty() !== "peaceful";
   if (difficulty() === "peaceful") mobs.removeHostiles();
@@ -2720,6 +2791,7 @@ function updateDebug(dt, frameTime) {
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
     `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `World: ${worldType()}   Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
+    ...(isVanilla() ? [`Food: ${player.food} (saturation ${player.saturation.toFixed(1)}, exhaustion ${player.exhaustion.toFixed(2)})   XP: level ${player.xpLevel} + ${Math.round(player.xpProgress * 100)}% (${player.xpTotal} in all)   Orbs: ${xp.orbs.length}${sleep.spawn ? `   Bed: ${sleep.spawn.join(" ")}` : ""}`] : []),
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
     `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
     `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
@@ -2770,6 +2842,7 @@ document.addEventListener("mousedown", (e) => {
     return;
   }
   if (mp.dogfight?.watching) return; // (no mining or placing in the shared world)
+  if (player.sleeping) return; // (Round 11: in bed, hands off; Shift gets up)
   chord.down(e.button);
 });
 
@@ -2971,6 +3044,8 @@ const game = {
   held,
   falling,
   waterSim,
+  xp,
+  sleep,
   toast,
   setMode,
   respawn,
@@ -2991,7 +3066,7 @@ const game = {
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
     const air = vehicles.active || player.parachute;
     const kept = mp.dogfight?.keptInventory;
-    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven };
+    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined, bed: isVanilla() ? sleep.serialize() : undefined };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
@@ -3004,6 +3079,11 @@ const game = {
     if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
     if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
     if (Number.isFinite(d.absorb)) player.absorption = Math.max(0, Math.min(20, d.absorb));
+    // (Round 11) A Survival room: the guest's food, XP and bed, kept by the host.
+    if (isVanilla()) {
+      player.loadSurvival(d.surv);
+      sleep.load(d.bed);
+    }
     loadoutGiven = d.loadout !== false;
     // (Things of their own: a loadout still owed goes into free slots, not over them.)
     newWorld = false;
@@ -3249,6 +3329,8 @@ window.__ufo = window.__voxelands = {
   hud,
   held,
   avatar,
+  xp,
+  sleep,
   settings,
   settingsPanel,
   screens,
@@ -3715,7 +3797,12 @@ function simulate(dt, frameTime) {
   const online = mp.active;
   const running = gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || gameState === "start"));
   if (running) {
-    if (gameState !== "start") player.update(dt);
+    if (gameState !== "start") {
+      player.update(dt);
+      // (Round 11) Beds and XP orbs (Survival worlds).
+      sleep.update(dt);
+      xp.update(dt);
+    }
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
     if (player.splashEvent) audio.playSplash();
     // Vehicles (the seated player rides along) and UFOs.
@@ -3789,7 +3876,7 @@ function simulate(dt, frameTime) {
 
   chord.update();
   binoculars.update(dt, gameState === "playing");
-  interaction.updateTarget(gameState === "playing" && !vehicles.active);
+  interaction.updateTarget(gameState === "playing" && !vehicles.active && !player.sleeping);
   vehicles.updateHud(dt, gameState === "playing");
   // (Play time is wall-clock: not the step clamped for the physics.)
   stats.tick(Math.min(frameTime, 1), gameState === "playing");
@@ -3799,7 +3886,7 @@ function simulate(dt, frameTime) {
   updateHints(dt);
   updateMissions(dt);
   updateStatsOverlay(dt);
-  if (gameState === "playing") interaction.update(dt);
+  if (gameState === "playing" && !player.sleeping) interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();
 
   const now = performance.now();

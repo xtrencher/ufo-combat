@@ -87,6 +87,15 @@ export class BiomeSource {
     return { t, m };
   }
 
+  // (Round 11) Whether the climate at (wx, wz) is the snowy zone's (where a
+  // Survival world's waters freeze over). Cheap where it is warm: the
+  // temperature alone first (the dry regions only ever warm a place up).
+  coldAt(wx, wz) {
+    const t = this.tempNoise.fbm2(wx, wz, 3, 0.45, 2, 1 / 2200) * 1.2;
+    if (t >= -0.3) return false;
+    return this.climate(wx, wz).t < -0.3;
+  }
+
   // h: terrain height at (wx, wz). mountainT: 0-1, how mountainous. river:
   // whether this column sits in a river channel (both from terrain.js, which
   // already computes them while finding the height).

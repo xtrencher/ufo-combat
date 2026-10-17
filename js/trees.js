@@ -10,6 +10,13 @@
 //            high ground and in pine groves)
 //   old oak  rare, in dense forests: a 2x2 trunk, roots spreading over the
 //            ground, big crooked branches and a huge crown
+// (Round 11) In a Survival world's terrain (terrain.options.vanilla) also:
+//   jungle   a tall trunk hung with vines under a small crown (and the
+//            jungle's giants: the old oak's shape in jungle wood)
+//   acacia   the savanna's: a trunk that bends off sideways under flat,
+//            wide layers of leaves, sometimes a second branch
+//   dark oak a 2x2 trunk under a wide, low canopy (dark forests)
+// and saplings grow into these shapes (saplingShape).
 // Forests and meadows follow a low-frequency noise field; birches and pines
 // grow in groves, and pines also take over high ground. Trees keep a minimum distance from each
 // other (the one with the lower placement hash wins, which is symmetric and
@@ -21,16 +28,19 @@ import { BLOCK } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
 import { VILLAGE_REACH } from "./village.js";
+import { JUNGLE_LOG, ACACIA_LOG, DARK_OAK_LOG, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES, VINE } from "./content/ids.js";
 
-export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4 });
-export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak" };
+export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4, JUNGLE: 5, ACACIA: 6, DARK_OAK: 7, MEGA_JUNGLE: 8 });
+export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak", 5: "jungle", 6: "acacia", 7: "dark oak", 8: "giant jungle" };
 // No block of a tree is farther than this from its root column.
 export const TREE_REACH = 9;
 
 const PLACE_SALT = 0x2c1b3c6d;
 const KIND_SALT = 0x297a2d39;
 const MAX_DENSITY = 0.026;
-const SPACING = { 1: 2, 2: 2, 3: 2, 4: 5 };
+const SPACING = { 1: 2, 2: 2, 3: 2, 4: 5, 5: 2, 6: 3, 7: 3, 8: 5 };
+// (2x2 trunks: their root column is the trunk's -X -Z quarter)
+const WIDE = { 4: true, 7: true, 8: true };
 
 // Biomes with no trees at all.
 const NO_TREE_BIOMES = new Set([BIOME.DESERT, BIOME.BADLANDS, BIOME.SNOWY_PLAINS, BIOME.MOUNTAINS, BIOME.BEACH, BIOME.OCEAN, BIOME.WARM_OCEAN, BIOME.DEEP_OCEAN, BIOME.RIVER]);
@@ -49,10 +59,14 @@ const BIOME_DENSITY = {
   [BIOME.PLAINS]: 0.4,
   [BIOME.SAVANNA]: 0.14,
 };
-const LOG = { 1: BLOCK.WOOD, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.WOOD };
-const LEAF = { 1: BLOCK.LEAVES, 2: BLOCK.BIRCH_LEAVES, 3: BLOCK.PINE_LEAVES, 4: BLOCK.LEAVES };
+const LOG = { 1: BLOCK.WOOD, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.WOOD, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG };
+const LEAF = { 1: BLOCK.LEAVES, 2: BLOCK.BIRCH_LEAVES, 3: BLOCK.PINE_LEAVES, 4: BLOCK.LEAVES, 5: JUNGLE_LEAVES, 6: ACACIA_LEAVES, 7: DARK_OAK_LEAVES, 8: JUNGLE_LEAVES };
 // Branches and roots show bark all round (no sawn-off rings).
-const BARK = { 1: BLOCK.OAK_BARK, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.OAK_BARK };
+const BARK = { 1: BLOCK.OAK_BARK, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.OAK_BARK, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG };
+// A sapling's tree (saplingShape).
+const SAPLING_SPECIES = { oak: 1, birch: 2, spruce: 3, jungle: 5, acacia: 6, dark_oak: 7, mega_jungle: 8 };
+// A vine on the side of a trunk: VINE + the side its wall is on (+X, -X, +Z, -Z).
+const isVine = (id) => id >= VINE && id < VINE + 4;
 
 // Small integer hash in [0, 1) for per-voxel jitter.
 function hash3(seed, x, y, z) {
@@ -102,6 +116,13 @@ export class TreeGrower {
     if (scaled <= 0 || r >= scaled) return null;
     const k = hash2((this.seed ^ KIND_SALT) >>> 0, wx, wz);
     let species = TREE.OAK;
+    // (Round 11) A Survival world's jungles, savannas and dark forests grow their own woods.
+    if (this.terrain.options?.vanilla) {
+      if (biome === BIOME.JUNGLE) species = k < 0.1 ? TREE.MEGA_JUNGLE : k < 0.25 ? TREE.OAK : TREE.JUNGLE;
+      else if (biome === BIOME.SAVANNA) species = k < 0.8 ? TREE.ACACIA : TREE.OAK;
+      else if (biome === BIOME.DARK_FOREST) species = k < 0.75 ? TREE.DARK_OAK : k < 0.85 ? TREE.BIRCH : TREE.OAK;
+      if (species !== TREE.OAK || biome === BIOME.JUNGLE || biome === BIOME.SAVANNA || biome === BIOME.DARK_FOREST) return { r, species, h };
+    }
     if (biome === BIOME.TAIGA || biome === BIOME.SNOWY_TAIGA) species = TREE.PINE;
     else if (biome === BIOME.BIRCH_FOREST) species = TREE.BIRCH;
     else if (biome === BIOME.DARK_FOREST && k < 0.22) species = TREE.OLD_OAK;
@@ -136,7 +157,7 @@ export class TreeGrower {
           }
         }
       }
-      if (clear) root = { x: wx, z: wz, h: c.h, species: c.species, log: LOG[c.species], bark: BARK[c.species], leaf: LEAF[c.species] };
+      if (clear) root = { x: wx, z: wz, h: c.h, species: c.species, log: LOG[c.species], bark: BARK[c.species], leaf: LEAF[c.species], wide: !!WIDE[c.species] };
     }
     if (this._roots.size > 20000) this._roots.clear();
     this._roots.set(key, root);
@@ -151,6 +172,26 @@ export class TreeGrower {
     let s = this._shapes.get(key);
     if (s) return s;
     const rand = mulberry32((this.seed ^ Math.imul(root.x, 0x9e3779b1) ^ Math.imul(root.z, 0x85ebca6b) ^ 0x51f15e) >>> 0);
+    s = this._build(root, rand);
+    if (this._shapes.size > 600) this._shapes.clear();
+    this._shapes.set(key, s);
+    return s;
+  }
+
+  // (Round 11) The tree a sapling of `kind` ("oak", "spruce", "birch",
+  // "jungle", "acacia", "dark_oak", "mega_jungle": the last two from four
+  // saplings, rooted at the -X -Z one) grows into at (wx, wz): { root, shape }
+  // (shape as for shape(); never cached: a grown tree differs from what the
+  // terrain would put there), or null for an unknown kind. `salt` varies it.
+  saplingShape(kind, wx, wz, salt = 0) {
+    const species = SAPLING_SPECIES[kind];
+    if (!species) return null;
+    const root = { x: wx, z: wz, h: 0, species, log: LOG[species], bark: BARK[species], leaf: LEAF[species], wide: !!WIDE[species] };
+    const rand = mulberry32((this.seed ^ Math.imul(wx, 0x2c1b3c6d) ^ Math.imul(wz, 0x297a2d39) ^ Math.imul(salt | 0, 0x68e31da4) ^ 0x5a9117) >>> 0);
+    return { root, shape: this._build(root, rand) };
+  }
+
+  _build(root, rand) {
     const out = [];
     const log = root.log;
     const bark = root.bark;
@@ -210,6 +251,77 @@ export class TreeGrower {
         }
       }
       out.push(0, T, 0, leaf, 0, T + 1, 0, leaf, 0, T + 2, 0, leaf);
+    } else if (root.species === TREE.JUNGLE) {
+      // A tall trunk with vines up its sides under a small, rounded crown.
+      const T = 5 + Math.floor(rand() * 6);
+      trunkTop = T;
+      for (let y = 0; y < T; y++) {
+        out.push(0, y, 0, log);
+        if (y < 1) continue;
+        // (a vine on the -X side hangs on a wall at +X: VINE + 0, and so on)
+        if (rand() < 0.3) out.push(-1, y, 0, VINE);
+        if (rand() < 0.3) out.push(1, y, 0, VINE + 1);
+        if (rand() < 0.3) out.push(0, y, -1, VINE + 2);
+        if (rand() < 0.3) out.push(0, y, 1, VINE + 3);
+      }
+      blobs.push({ x: 0, y: T - 0.4, z: 0, rx: 2.4 + rand() * 0.6, ry: 1.5 + rand() * 0.4, rz: 2.4 + rand() * 0.6 });
+    } else if (root.species === TREE.ACACIA) {
+      // The trunk rises, then leans off diagonally 1-3 blocks under a flat
+      // crown; half the trees fork with a lower, smaller crown the other way.
+      const T = 5 + Math.floor(rand() * 3);
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+      const [ddx, ddz] = dirs[Math.floor(rand() * 8)];
+      const lean = 1 + Math.floor(rand() * 3);
+      const bendAt = T - lean;
+      let x = 0;
+      let z = 0;
+      for (let y = 0; y < T; y++) {
+        if (y >= bendAt) {
+          x += ddx;
+          z += ddz;
+        }
+        out.push(x, y, z, log);
+      }
+      trunkTop = T;
+      const canopy = (cx, cy, cz, r) => {
+        for (let dz = -r; dz <= r; dz++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) === r && Math.abs(dz) === r) continue; // (corners cut)
+            out.push(cx + dx, cy, cz + dz, leaf);
+          }
+        }
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) out.push(cx + dx, cy + 1, cz + dz, leaf);
+        out.push(cx + 2, cy + 1, cz, leaf, cx - 2, cy + 1, cz, leaf, cx, cy + 1, cz + 2, leaf, cx, cy + 1, cz - 2, leaf);
+      };
+      canopy(x, T - 1, z, 3);
+      if (rand() < 0.5 && bendAt > 2) {
+        let bx = 0;
+        let bz = 0;
+        let by = bendAt - 1 - Math.floor(rand() * 2);
+        const len = 1 + Math.floor(rand() * 2);
+        for (let i = 0; i < len; i++) {
+          bx -= ddx;
+          bz -= ddz;
+          by += 1;
+          out.push(bx, by, bz, bark);
+        }
+        canopy(bx, by + 1, bz, 2);
+      }
+    } else if (root.species === TREE.DARK_OAK) {
+      // A 2x2 trunk under a wide, low canopy with a few lobes around it.
+      const T = 6 + Math.floor(rand() * 3);
+      trunkTop = T;
+      for (let y = 0; y < T; y++) for (let k = 0; k < 4; k++) out.push(k & 1, y, k >> 1, log);
+      blobs.push({ x: 0.5, y: T, z: 0.5, rx: 3.6 + rand() * 0.6, ry: 1.6 + rand() * 0.3, rz: 3.6 + rand() * 0.6 });
+      const lobes = 2 + Math.floor(rand() * 2);
+      for (let i = 0; i < lobes; i++) {
+        const a = ((i + rand() * 0.6) / lobes) * Math.PI * 2;
+        const d = 2.6 + rand() * 0.8;
+        const bx = 0.5 + Math.cos(a) * d;
+        const bz = 0.5 + Math.sin(a) * d;
+        blobs.push({ x: bx, y: T - 1 + rand() * 0.8, z: bz, rx: 2.2, ry: 1.3, rz: 2.2 });
+        branch(Math.round(0.5 + Math.cos(a) * 0.9 - 0.5), T - 3, Math.round(0.5 + Math.sin(a) * 0.9 - 0.5), Math.round(bx - 0.5), T - 1, Math.round(bz - 0.5));
+      }
     } else {
       // Old oak: a 2x2 trunk, roots, crooked branches, a huge crown.
       const T = 7 + Math.floor(rand() * 3);
@@ -281,10 +393,7 @@ export class TreeGrower {
         }
       }
     }
-    s = Int16Array.from(out); // (offsets and 16-bit ids: 8 bytes per block)
-    if (this._shapes.size > 600) this._shapes.clear();
-    this._shapes.set(key, s);
-    return s;
+    return Int16Array.from(out); // (offsets and 16-bit ids: 8 bytes per block)
   }
 
   // Places every tree that reaches into chunk (cx, cz). Logs may replace
@@ -318,7 +427,7 @@ export class TreeGrower {
         const idx = (y * S + z) * S + x;
         const cur = blocks[idx];
         const id = shape[i + 3];
-        if (id === root.leaf) {
+        if (id === root.leaf || isVine(id)) {
           if (cur === BLOCK.AIR) blocks[idx] = id;
         } else if (shape[i + 1] === -1) {
           // Roots run through the ground's top block, never through the air.
@@ -357,7 +466,7 @@ export class TreeGrower {
       if (shape[i + 3] !== root.leaf) continue;
       lo = Math.min(lo, shape[i + 1]);
       hi = Math.max(hi, shape[i + 1]);
-      r = Math.max(r, Math.abs(shape[i] + 0.5 - (root.species === TREE.OLD_OAK ? 1 : 0.5)), Math.abs(shape[i + 2] + 0.5 - (root.species === TREE.OLD_OAK ? 1 : 0.5)));
+      r = Math.max(r, Math.abs(shape[i] + 0.5 - (root.wide ? 1 : 0.5)), Math.abs(shape[i + 2] + 0.5 - (root.wide ? 1 : 0.5)));
     }
     root.crown = { bottom: lo, top: hi + 1, radius: Math.max(1, r * 0.85) };
     return root.crown;
@@ -365,5 +474,16 @@ export class TreeGrower {
 }
 
 function isLeafOrPlant(id) {
-  return id === BLOCK.LEAVES || id === BLOCK.BIRCH_LEAVES || id === BLOCK.PINE_LEAVES || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW;
+  return (
+    id === BLOCK.LEAVES ||
+    id === BLOCK.BIRCH_LEAVES ||
+    id === BLOCK.PINE_LEAVES ||
+    id === BLOCK.TALL_GRASS ||
+    id === BLOCK.FLOWER_RED ||
+    id === BLOCK.FLOWER_YELLOW ||
+    id === JUNGLE_LEAVES ||
+    id === ACACIA_LEAVES ||
+    id === DARK_OAK_LEAVES ||
+    isVine(id)
+  );
 }

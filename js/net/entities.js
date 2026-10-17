@@ -17,12 +17,23 @@
 // player as a message ("dmg"; the player's own armour and difficulty
 // apply there). Kills are announced to their player ("kill"), who rolls the
 // loot; it drops into the shared world (items.js) for anyone to pick up.
+//
+// (Round 11) A Survival world's mobs: their looks and states travel too (a
+// sheep's colour and wool, a villager's trade, babies, love, a creeper's
+// fuse, an enderman's anger and the block it holds, a witch drinking). A
+// guest's use of the host's creatures is a claim like a hit ("us": shears,
+// food, iron; "sp": a creature its egg or spawn egg asks for); trading is
+// the host's ("tq"/"to": a villager's offers, "tr"/"tk": one trade, yes or
+// no); what the host's creatures do to a guest beyond damage comes as
+// messages ("eff": a witch's potion, "mxp": breeding experience).
 import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { HOST_PID } from "./session.js";
 import { EnemyJet } from "../enemy-jets.js";
-import { SPECIES } from "../mobs.js";
+import { SPECIES, specOf } from "../mobs.js";
 import { isPlayerCause } from "../damage.js";
+import { encodeOffers, decodeOffers } from "../trading.js";
+import { LIB } from "../content/base.js";
 
 const SNAP_RATE = 15;
 const UFO_RANGE = 1100; // blocks: UFOs within this of a client are sent
@@ -93,6 +104,15 @@ class AiProxy {
   applyImpulse(v) {
     this.sync.net.send(this.pid, { t: "imp", v: [r2(v.x), r2(v.y), r2(v.z)] });
   }
+  // (Round 11) What they hold (animals follow their food), and a status
+  // effect from the host's creatures (a witch's potion): theirs to apply.
+  get heldId() {
+    return this.r.heldId | 0;
+  }
+  addEffect(name, seconds, level = 0) {
+    if (this.dead || this.creative) return;
+    this.sync.net.send(this.pid, { t: "eff", n: String(name), d: r1(seconds), a: level | 0 });
+  }
   getForwardVector() {
     return new THREE.Vector3(-Math.sin(this.r.yaw) * Math.cos(this.r.pitch), Math.sin(this.r.pitch), -Math.cos(this.r.yaw) * Math.cos(this.r.pitch));
   }
@@ -131,6 +151,17 @@ export class EntitySync {
       this._alarmT = now;
     });
     net.on("dashw", () => this.game.ufos.onMessage?.("A UFO is right above you! Shoot it to break the beam!"));
+    // (Round 11) Trading with the host's villagers, effects and experience from its creatures.
+    net.on("tq", (m, from) => this._onTradeQuery(m, from));
+    net.on("tr", (m, from) => this._onTradeRequest(m, from));
+    net.on("to", (m) => this.game.mobs.tradeAnswer(m.id, decodeOffers(m.o)));
+    net.on("tk", (m) => this.game.mobs.tradeAnswer(m.id, decodeOffers(m.o), !!m.ok));
+    net.on("eff", (m) => this._onEffect(m));
+    net.on("mxp", (m) => {
+      const at = Array.isArray(m.at) && m.at.every(Number.isFinite) ? m.at : null;
+      const p = this.game.player.position;
+      if (Number.isFinite(m.a) && m.a > 0) LIB.giveXp?.(Math.min(100, m.a), at ? at[0] : p.x, at ? at[1] + 0.5 : p.y, at ? at[2] : p.z);
+    });
   }
 
   // ---------- Lifecycle ----------
@@ -145,6 +176,8 @@ export class EntitySync {
       g.airports.positions = () => this.targets().filter((t) => !t.dead).map((t) => (t.vehicle ? t.vehicle.pos : t.position));
       // A guest a UFO dashes in on is warned on their own screen (ufos.js toasts the host's own).
       g.ufos.onDashWarn = (t) => t?.isRemote && this.net.send(t.pid, { t: "dashw" });
+      // (Round 11) A guest's breeding experience: theirs, as orbs on their screen.
+      g.mobs.onRemoteXp = (pid, amount, pos) => this.net.send(pid, { t: "mxp", a: amount | 0, at: vec1(pos) });
     } else {
       // A guest: the host's world, drawn from its states.
       g.mobs.puppets = true;
@@ -166,6 +199,7 @@ export class EntitySync {
     g.enemyJets.targets = null;
     g.airports.positions = null;
     g.ufos.onDashWarn = null;
+    g.mobs.onRemoteXp = null;
     g.mobs.puppets = false;
     g.ufos.puppets = false;
     g.airports.guardsEnabled = true;
@@ -225,9 +259,16 @@ export class EntitySync {
     // A guest's hits on the host's things: claims.
     g.mobs.onPuppetHit = (m, amount, dir, kb, byPlayer) => {
       if (!byPlayer) return;
-      this.claims.push(["m", m.net.id, r1(amount), dir ? r2(dir.x) : 0, dir ? r2(dir.z) : 0, r1(kb || 0)]);
+      // (Round 11: a shot, not a blow, marked: an enderman dodges it, on the host.)
+      this.claims.push(["m", m.net.id, r1(amount), dir ? r2(dir.x) : 0, dir ? r2(dir.z) : 0, r1(kb || 0), g.mobs.projectileHit ? 1 : 0]);
       g.hud?.hitMarker?.();
     };
+    // (Round 11) A guest's shears, food or iron on the host's creature; a
+    // creature its egg asks for; a villager's trades.
+    g.mobs.onPuppetUse = (m, action) => this.claims.push(["us", m.net.id, action]);
+    g.mobs.onPuppetSpawn = (kind, x, y, z, baby, variant) => this.claims.push(["sp", kind, r2(x), r2(y), r2(z), baby ? 1 : 0, variant | 0]);
+    g.mobs.onPuppetTradeQuery = (m) => this.net.toHost({ t: "tq", id: m.net.id });
+    g.mobs.onPuppetTrade = (m, i) => this.net.toHost({ t: "tr", id: m.net.id, i });
     g.mobs.onPuppetUpdate = (m, dt) => this._driveMob(m, dt);
     // (Round 9) A guest's tractor beam on the host's creature: a claim; the
     // host lifts its real one and says so when it is aboard ("abd").
@@ -463,11 +504,16 @@ export class EntitySync {
     seenM.add(m.id);
     if (!k.m.has(m.id)) {
       k.m.set(m.id, m);
-      add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, ld: m.carryId || 0, dead: m.dead ? 1 : 0 });
+      add.m.push({ id: m.id, kind: m.kind, p: vec2(m.pos), y: r2(m.yaw), hp: m.maxHealth, leader: m.leader ? 1 : 0, ld: m.carryId || 0, dead: m.dead ? 1 : 0, v: m.variant || 0, b: m.baby ? 1 : 0 });
       state = true;
     }
     if (!state) return;
-    snap.m.push([m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0), r2(m.attack ?? 1), r1(m.vel?.y ?? 0), Math.round((Math.max(0, m.health) / (m.maxHealth || 1)) * 1000) / 1000]);
+    // (Round 11: the vanilla states, flags 128 and up; a creeper's fuse and an
+    // enderman's block after the health, only when there are any.)
+    const vf = (m.baby ? 128 : 0) | (m.sheared ? 256 : 0) | (m.loveT > 0 ? 512 : 0) | (m.angerT > 0 ? 1024 : 0) | (m.drinkT > 0 ? 2048 : 0) | (m.breedCd > 0 || m.loveT > 0 ? 4096 : 0);
+    const s = [m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0) | vf, r2(m.attack ?? 1), r1(m.vel?.y ?? 0), Math.round((Math.max(0, m.health) / (m.maxHealth || 1)) * 1000) / 1000];
+    if (m.fuse > 0 || m.carry) s.push(r2(m.fuse || 0), m.carry || 0);
+    snap.m.push(s);
   }
 
   _ufoInfo(u) {
@@ -553,11 +599,28 @@ export class EntitySync {
           if (px) g.mobs.player = px;
           g.mobs.currentAttacker = from;
           try {
-            g.mobs._hurt(mob, c[2], { x: c[3], z: c[4] }, c[5], true);
+            if (c[6]) g.mobs.shoot(mob, c[2], { x: c[3], z: c[4] }, c[5], true);
+            else g.mobs._hurt(mob, c[2], { x: c[3], z: c[4] }, c[5], true);
           } finally {
             g.mobs.player = prev;
             g.mobs.currentAttacker = null;
           }
+        } else if (c[0] === "us") {
+          // (Round 11) A guest's use: within reach of the creature (their own inventory paid).
+          const mob = g.mobs.mobs.find((x) => x.id === c[1]);
+          const px = this.proxy(from);
+          if (!mob || mob.dead || !px || px.position.distanceTo(mob.pos) > 8) continue;
+          g.mobs.useFrom(mob, String(c[2]), from);
+        } else if (c[0] === "sp") {
+          // (Round 11) A creature a guest's egg asks for: near them, a few a second at most.
+          const px = this.proxy(from);
+          const at = new THREE.Vector3(Number(c[2]), Number(c[3]), Number(c[4]));
+          const spec = SPECIES[c[1]];
+          if (!px || !spec || spec.special || !Number.isFinite(at.x + at.y + at.z) || px.position.distanceTo(at) > 24) continue;
+          const now = g.mobs.time;
+          px._spawnT = Math.max(now - 2, px._spawnT ?? 0) + 0.25;
+          if (px._spawnT > now) continue;
+          g.mobs.requestSpawn(c[1], at.x, at.y, at.z, { baby: !!c[5], variant: Number.isInteger(c[6]) && c[6] > 0 ? c[6] : undefined });
         } else if (c[0] === "bl") {
           const mob = g.mobs.mobs.find((x) => x.id === c[1]);
           if (!mob || mob.dead) continue;

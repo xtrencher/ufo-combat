@@ -32,7 +32,8 @@ export function stackLabel(stack) {
   if (!info) return "";
   const wear = info.tool || info.armor; // (armor wears out too)
   if (stack.dur !== undefined && wear) return `${info.name} (${stack.dur}/${wear.durability})`;
-  if (info.food) return `${info.name} (heals ${info.food / 2} ♥)`;
+  // (Round 11: a vanilla food is { hunger, saturation }, shown by its name alone, as in vanilla.)
+  if (typeof info.food === "number" && info.food > 0) return `${info.name} (heals ${info.food / 2} ♥)`;
   return info.name;
 }
 

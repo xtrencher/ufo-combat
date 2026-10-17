@@ -5,14 +5,18 @@
 // items (Q); creative pick-block (middle click).
 // Melee attacks go through `entityTarget`, which the mob system provides.
 // (Round 11) The content modules' block and item uses (BLOCK_USE, ITEM_USE)
-// and a block's placeAs come first: see js/content/index.js.
+// and a block's placeAs come first: see js/content/index.js. A content
+// block may also take two cells (placeMore: a door's upper half, a bed's
+// head; its halves go together, see watchAttached), merge with the block
+// it is placed into (merge: a slab onto its other half), hang under a block
+// (ceiling) or on a wall (support "wall" with a facing: ladders).
 import * as THREE from "three";
 import {
   BLOCK,
   BLOCK_INFO,
+  BLOCK_LIMIT,
   IS_REPLACEABLE,
   IS_CHEST,
-  IS_WALL_TORCH,
   ITEM_OF,
   SHAPE,
   SHAPE_OF,
@@ -73,29 +77,56 @@ function createCrackMesh() {
 // (Round 10) Wall torches hang on the block behind them: one whose wall goes
 // pops off and drops a torch, like a standing torch losing its floor (which
 // world.js handles). An edit that came from another player online pops it
-// here too, without a drop (their game dropped it).
-const SIDE_X = [1, -1, 0, 0];
-const SIDE_Z = [0, 0, 1, -1];
-function watchWallTorches(world) {
+// here too, without a drop (their game dropped it). (Round 11) Ladders hang
+// on their wall the same way, a lantern under its block (`ceiling`), and the
+// two halves of a door or a bed go together: when one goes, the other goes
+// quietly (a `partner`: the other half's offset, `pairs`: whether a block
+// there is that half), so breaking either drops one door or bed.
+// (the four sides, then up and down)
+const NEAR_X = [1, -1, 0, 0, 0, 0];
+const NEAR_Y = [0, 0, 0, 0, 1, -1];
+const NEAR_Z = [0, 0, 1, -1, 0, 0];
+const ON_WALL = new Uint8Array(BLOCK_LIMIT);
+const PAIRED = new Uint8Array(BLOCK_LIMIT);
+const HANGING = new Uint8Array(BLOCK_LIMIT);
+for (const info of Object.values(BLOCK_INFO)) {
+  if (info.support === "wall" && info.facing) ON_WALL[info.id] = 1;
+  if (info.partner && info.pairs) PAIRED[info.id] = 1;
+  if (info.ceiling) HANGING[info.id] = 1;
+}
+function watchAttached(world) {
   world.changeListeners.push((changed, opts) => {
-    let pop = null;
+    let pop = null; // [x, y, z, id]: these drop what they are
+    let quiet = null; // [x, y, z, id]: the other halves, gone without a drop
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1];
       const z = changed[i + 2];
-      if (isWallSupportedBy(world.getBlock(x, y, z))) continue;
-      for (let k = 0; k < 4; k++) {
-        const id = world.getBlock(x + SIDE_X[k], y, z + SIDE_Z[k]);
-        if (!IS_WALL_TORCH[id]) continue;
-        const f = BLOCK_INFO[id].facing;
-        if (f[0] === SIDE_X[k] && f[1] === SIDE_Z[k]) (pop ||= []).push(x + SIDE_X[k], y, z + SIDE_Z[k], id);
+      const here = world.getBlock(x, y, z);
+      const wall = isWallSupportedBy(here);
+      for (let k = 0; k < 6; k++) {
+        const dx = NEAR_X[k];
+        const dy = NEAR_Y[k];
+        const dz = NEAR_Z[k];
+        const id = world.getBlock(x + dx, y + dy, z + dz);
+        if (ON_WALL[id] && !wall && dy === 0) {
+          const f = BLOCK_INFO[id].facing;
+          if (f[0] === dx && f[1] === dz) (pop ||= []).push(x + dx, y, z + dz, id);
+        }
+        if (HANGING[id] && dy === -1 && !BLOCK_INFO[id].ceiling(here)) (pop ||= []).push(x, y - 1, z, id);
+        if (PAIRED[id]) {
+          const p = BLOCK_INFO[id].partner;
+          if (dx + p[0] === 0 && dy + p[1] === 0 && dz + p[2] === 0 && !BLOCK_INFO[id].pairs(here)) (quiet ||= []).push(x + dx, y + dy, z + dz, BLOCK.AIR);
+        }
       }
     }
-    if (!pop) return;
     const remote = !!opts?.remote;
+    const recordEdit = opts?.recordEdit !== false;
+    if (quiet) world.setBlocks(quiet, { recordEdit, remote });
+    if (!pop) return;
     const list = pop.slice();
     for (let i = 3; i < list.length; i += 4) list[i] = BLOCK.AIR;
-    world.setBlocks(list, { recordEdit: opts?.recordEdit !== false, remote });
+    world.setBlocks(list, { recordEdit, remote });
     if (remote || !world.onBlockPopped) return;
     for (let i = 0; i < pop.length; i += 4) if (world.getBlock(pop[i], pop[i + 1], pop[i + 2]) === BLOCK.AIR) world.onBlockPopped(pop[i], pop[i + 1], pop[i + 2], pop[i + 3]);
   });
@@ -129,7 +160,7 @@ export class Interaction {
     this._eatSoundTimer = 0;
     this._color = new THREE.Color();
 
-    watchWallTorches(world);
+    watchAttached(world);
     // The chests' contents (and what a broken one spills).
     this.chests = new Chests({ world });
     this.chests.onDrop = (s, x, y, z) => {
@@ -412,7 +443,10 @@ export class Interaction {
   // mined, a flower whose soil was removed).
   blockPopped(x, y, z, id) {
     if (this.player.creative) return;
-    for (const [itemId, count] of blockDrops(id, null)) {
+    // (A block that comes off on its own drops itself even where mining it
+    // would take a pickaxe: a lantern whose ceiling went, an iron door.)
+    const drops = canHarvest(id, null) ? blockDrops(id, null) : itemInfo(ITEM_OF[id]) ? [[ITEM_OF[id], 1]] : [];
+    for (const [itemId, count] of drops) {
       this.entities.spawn(itemId, count, new THREE.Vector3(x + 0.5, y + 0.25, z + 0.5));
     }
   }
@@ -504,35 +538,56 @@ export class Interaction {
     const t = this.target;
     if (!t) return false;
     if (IS_CHEST[t.id]) return false; // (right click opens it: nothing is placed against one)
-    // Placing onto something replaceable (tall grass) replaces it in place.
-    const [px, py, pz] = IS_REPLACEABLE[t.id] ? t.block : t.place;
     const world = this.world;
-    if (!IS_REPLACEABLE[world.getBlock(px, py, pz)]) return false;
-    if (blockId === BLOCK.TORCH && !IS_REPLACEABLE[t.id]) {
-      // A torch on the side of a block hangs on it, on top it stands, and
-      // under a block it doesn't go (as in classic block games).
-      const [nx, ny, nz] = t.normal;
-      if (ny < 0) return false;
-      if (ny === 0 && (nx || nz) && isWallSupportedBy(t.id)) blockId = wallTorch(nx, nz);
-    } else if (IS_CHEST[blockId]) {
-      // A chest's front (its latch) faces the player who places it.
-      const f = this.player.getForwardVector();
-      blockId = chest(-f.x, -f.z);
-    } else if (BLOCK_INFO[blockId].placeAs) {
-      // A content block picks its variant (facing, top or bottom half).
-      blockId = BLOCK_INFO[blockId].placeAs(this._useCtx(t, [px, py, pz]));
-      if (!blockId || !BLOCK_INFO[blockId]) return false;
+    // (Round 11) A slab onto its other half (or into a cell holding it) makes
+    // the full block there: [x, y, z, id], or null.
+    const merged = BLOCK_INFO[blockId].merge?.(this._useCtx(t)) || null;
+    let px;
+    let py;
+    let pz;
+    let more = null; // the other cells of a two-cell block: [x, y, z, id, ...]
+    if (merged) {
+      [px, py, pz, blockId] = merged;
+    } else {
+      // Placing onto something replaceable (tall grass) replaces it in place.
+      [px, py, pz] = IS_REPLACEABLE[t.id] ? t.block : t.place;
+      if (!IS_REPLACEABLE[world.getBlock(px, py, pz)]) return false;
+      if (blockId === BLOCK.TORCH && !IS_REPLACEABLE[t.id]) {
+        // A torch on the side of a block hangs on it, on top it stands, and
+        // under a block it doesn't go (as in classic block games).
+        const [nx, ny, nz] = t.normal;
+        if (ny < 0) return false;
+        if (ny === 0 && (nx || nz) && isWallSupportedBy(t.id)) blockId = wallTorch(nx, nz);
+      } else if (IS_CHEST[blockId]) {
+        // A chest's front (its latch) faces the player who places it.
+        const f = this.player.getForwardVector();
+        blockId = chest(-f.x, -f.z);
+      } else if (BLOCK_INFO[blockId].placeAs) {
+        // A content block picks its variant (facing, top or bottom half).
+        const ctx = this._useCtx(t, [px, py, pz]);
+        blockId = BLOCK_INFO[blockId].placeAs(ctx);
+        if (!blockId || !BLOCK_INFO[blockId]) return false;
+        if (BLOCK_INFO[blockId].placeMore) {
+          more = BLOCK_INFO[blockId].placeMore(ctx, blockId, px, py, pz);
+          if (!more) return false;
+        }
+      }
     }
-    if (BLOCK_INFO[blockId].solid && this._overlapsPlayer(px, py, pz)) return false;
-    if (BLOCK_INFO[blockId].solid && this.othersOverlap?.(px, py, pz)) return false;
-    if (BLOCK_INFO[blockId].solid && this.combat && this.combat.overlapsBlock(px, py, pz)) return false;
-    if (!isSupportedBy(blockId, world.getBlock(px, py - 1, pz))) return false;
-    if (!world.setBlock(px, py, pz, blockId)) return false;
+    if (this._occupied(blockId, px, py, pz)) return false;
+    if (more) for (let i = 0; i < more.length; i += 4) if (this._occupied(more[i + 3], more[i], more[i + 1], more[i + 2])) return false;
+    if (!merged && !isSupportedBy(blockId, world.getBlock(px, py - 1, pz))) return false;
+    if (!world.setBlocks(more ? [px, py, pz, blockId, ...more] : [px, py, pz, blockId]) || world.getBlock(px, py, pz) !== blockId) return false;
     this.audio.playPlace(BLOCK_INFO[blockId].sound);
     this.held.swing();
     if (!this.player.creative) this.inventory.consumeSelected(1);
     this._changed();
     return true;
+  }
+
+  // Whether a solid block placed at the cell would be inside a player or a creature.
+  _occupied(id, x, y, z) {
+    if (!BLOCK_INFO[id].solid) return false;
+    return this._overlapsPlayer(x, y, z) || !!this.othersOverlap?.(x, y, z) || !!(this.combat && this.combat.overlapsBlock(x, y, z));
   }
 
   _overlapsPlayer(bx, by, bz) {

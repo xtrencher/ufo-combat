@@ -12,6 +12,7 @@
 //   rules.js     mode, rule settings, time of day, missions, deaths, loot
 //   dogfight.js  the Dogfight mode
 //   chests.js    chests: the host's contents, guests' clicks asked of it
+//   furnace.js   furnaces (Round 11): the same for their slots, the host smelts
 //   ui.js        menus, lobby, HUD
 // A mod can add its own module the same way (mp.addModule(m)), and its own
 // messages with net.on(type, fn) / net.toAll(msg).
@@ -31,6 +32,7 @@ import { ItemSync } from "./items.js";
 import { PvpSync } from "./pvp.js";
 import { CrateSync } from "./crates.js";
 import { ChestSync } from "./chests.js";
+import { FurnaceSync } from "./furnace.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -56,6 +58,7 @@ export class Multiplayer {
     this.pvpSync = this.addModule(new PvpSync(this));
     this.crates = this.addModule(new CrateSync(this));
     this.chests = this.addModule(new ChestSync(this));
+    this.furnaces = this.addModule(new FurnaceSync(this));
     net.onClosed = (reason) => this._ended(reason);
     net.onPlayerJoin = (p) => {
       for (const m of this.modules) m.playerJoined?.(p);

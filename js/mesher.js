@@ -520,11 +520,14 @@ function emitChest(b, x, y, z, id, pi) {
 // and shaded like a cube's from the cells around it, or, for a face inside
 // the cell (a slab's top), from the block's own cell; a face on the cell's
 // side is skipped against an opaque neighbour. The uv is the corner's place
-// in the block, so the texture is cut to the box (as in vanilla).
+// in the block, so the texture is cut to the box (as in vanilla). skip: a
+// bit mask (1 << face) of faces left out (one hidden inside another box);
+// uv: [u0, v0, u1, v1], the part of the tile the cell's 0-1 uv maps onto
+// (a tile holding a door's two halves, or a few small things).
 const boxLo = [0, 0, 0];
 const boxHi = [0, 0, 0];
 const boxCorner = [0, 0, 0];
-function emitBox(b, x, y, z, id, pi, x0, y0, z0, x1, y1, z1, tiles) {
+function emitBox(b, x, y, z, id, pi, x0, y0, z0, x1, y1, z1, tiles, skip, uv) {
   boxLo[0] = x0;
   boxLo[1] = y0;
   boxLo[2] = z0;
@@ -533,6 +536,7 @@ function emitBox(b, x, y, z, id, pi, x0, y0, z0, x1, y1, z1, tiles) {
   boxHi[2] = z1;
   const base = (WAVES[id] ? FLAG.WAVE : 0) | (EMISSIVE[id] ? FLAG.EMISSIVE : 0);
   for (let f = 0; f < 6; f++) {
+    if (skip & (1 << f)) continue;
     const face = FACES[f];
     const onSide = face.positive ? boxHi[face.axis] >= 1 : boxLo[face.axis] <= 0;
     const nid = padBlocks[pi + face.neighbor];
@@ -543,7 +547,11 @@ function emitBox(b, x, y, z, id, pi, x0, y0, z0, x1, y1, z1, tiles) {
     for (let c = 0; c < 4; c++) {
       const p = face.corners[c].pos;
       for (let a = 0; a < 3; a++) boxCorner[a] = p[a] ? boxHi[a] : boxLo[a];
-      const [u, v] = face.uvOf(boxCorner);
+      let [u, v] = face.uvOf(boxCorner);
+      if (uv) {
+        u = uv[0] + u * (uv[2] - uv[0]);
+        v = uv[1] + v * (uv[3] - uv[1]);
+      }
       b.vertex(x + boxCorner[0], y + boxCorner[1], z + boxCorner[2], u, v, f * 4 + aoVals[c], skyVals[c], blkVals[c], flags, layer, 0);
     }
     const a02 = aoVals[0] + aoVals[2];
@@ -563,8 +571,8 @@ const shapeApi = {
   wz: 0,
   _pi: 0,
   _b: null,
-  box(x0, y0, z0, x1, y1, z1, tiles = null) {
-    emitBox(this._b, this.x, this.y, this.z, this.id, this._pi, x0, y0, z0, x1, y1, z1, tiles);
+  box(x0, y0, z0, x1, y1, z1, tiles = null, skip = 0, uv = null) {
+    emitBox(this._b, this.x, this.y, this.z, this.id, this._pi, x0, y0, z0, x1, y1, z1, tiles, skip, uv);
   },
   quad(corners, uvs, face, tile) {
     const l = padLight[this._pi];

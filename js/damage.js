@@ -72,6 +72,31 @@ export const DEATH_MESSAGES = {
   fall: "Fell from a high place",
   drown: "Drowned",
   void: "Fell out of the world",
+  // (Round 11) Survival worlds: vanilla's own wording.
+  lava: "Tried to swim in lava",
+  fire: "Went up in flames",
+  burn: "Burned to death",
+  cactus: "Was pricked to death",
+  suffocate: "Suffocated in a wall",
+  starve: "Starved to death",
+  magic: "Killed by magic",
+  poison: "Killed by magic", // (poison never kills on its own: only with something else)
+  ender_pearl: "Hit the ground too hard",
+  tnt: "Blown up by TNT",
+  tnt_fall: "Blown off your feet by TNT",
+  creeper: "Blown up by a creeper",
+  creeper_fall: "Blown off your feet by a creeper",
+  enderman: "Killed by an enderman",
+  slime: "Squashed by a slime",
+  witch: "Killed by a witch using magic",
+  cave_spider: "Killed by a cave spider",
+  husk: "Killed by a husk",
+  drowned: "Killed by a drowned",
+  stray: "Shot by a stray",
+  zombie_villager: "Killed by a zombie villager",
+  iron_golem: "Crushed by an iron golem",
+  wolf: "Mauled by a wolf",
+  arrow: "Shot by an arrow",
   // Your own weapons.
   grenade: "Blown up by your own grenade",
   bazooka: "Blown up by your own bazooka",
@@ -146,3 +171,8 @@ export function pilotCause(vehicleType, cause) {
   if (c === "ufo_laser" || c === "ufo_blast") return "ufo_down_ufo";
   return "ufo_down";
 }
+
+// (Round 11) Hurts that armor does nothing against, as vanilla's "bypasses
+// armor" sources: falls, drowning, the void, hunger, burning (after leaving
+// the fire), suffocation and magic. They cost no hunger either (player.js).
+export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic"]);

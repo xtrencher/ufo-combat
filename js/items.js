@@ -8,32 +8,65 @@
 // ranges, see js/content/index.js), 1024-4095 the new blocks, each its own
 // item unless it counts as another. Never assume "id < 256 means a block":
 // itemInfo(id).block says whether an item places a block.
-import { BLOCK, BLOCK_INFO, ITEM_OF, isBlockId } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, ITEM_OF, BLOCK_LIMIT, isBlockId } from "./blocks.js";
 import { ITEM, LIB } from "./content/base.js";
 import { CONTENT_ITEMS, CONTENT_ORDER, BLOCK_DROPS } from "./content/index.js";
+import * as V from "./content/ids.js";
+import { isVanilla } from "./worldtype.js";
 
 export { ITEM };
 
 // Tool materials: tier (what they can harvest), mining speed multiplier,
 // durability (uses), and melee damage for a sword (other tools hit weaker).
+// (Round 11) Gold, as in the classic game: the fastest, the weakest (a wooden
+// tool's tier, 33 uses); its tools are the vanilla items' (js/content/items-vanilla.js).
 export const MATERIALS = {
   wood: { tier: 1, speed: 2, durability: 60, sword: 4, color: "wood" },
   stone: { tier: 2, speed: 4, durability: 132, sword: 5, color: "stone" },
   iron: { tier: 3, speed: 6, durability: 251, sword: 6, color: "iron" },
   diamond: { tier: 4, speed: 8, durability: 1562, sword: 7, color: "diamond" },
+  gold: { tier: 1, speed: 12, durability: 33, sword: 4, color: "gold" },
 };
+
+// A tool of `type` made of `mat` (a MATERIALS key): what its item's `tool` is.
+// (Hoes hit like a bare hand, as in the classic game.)
+export function toolOf(type, mat) {
+  const m = MATERIALS[mat];
+  return {
+    type,
+    tier: m.tier,
+    speed: m.speed,
+    durability: m.durability,
+    damage: type === "sword" ? m.sword : type === "axe" ? m.sword - 1 : type === "hoe" ? HAND_DAMAGE : Math.max(2, m.sword - 3),
+  };
+}
 
 const HAND_DAMAGE = 1;
 
+// (Round 11) Food: `food` is { hunger, saturation } in the classic game's
+// points (a Survival world's hunger bar eats them), with optional `effects`
+// ([{ id, level, seconds, chance }]), `alwaysEat` (even when full), `returns`
+// (the item left in hand: a bowl, a bucket). `heal` is what it heals at once
+// in a Missions world (today's food; the hunger points when not given). An
+// item's food object also reads as that heal amount where older code adds it.
 const ITEM_DEFS = {
   [ITEM.STICK]: { name: "Stick", icon: "stick" },
   [ITEM.COAL]: { name: "Coal", icon: "coal" },
   [ITEM.GOLD_INGOT]: { name: "Gold Ingot", icon: "gold_ingot" },
-  [ITEM.APPLE]: { name: "Apple", icon: "apple", food: 4 },
-  // Heals fully and adds four golden (absorption) hearts on top.
-  [ITEM.GOLDEN_APPLE]: { name: "Golden Apple", icon: "golden_apple", food: 20, absorb: 8 },
-  [ITEM.RAW_MEAT]: { name: "Raw Meat", icon: "raw_meat", food: 2 },
-  [ITEM.COOKED_MEAT]: { name: "Cooked Meat", icon: "cooked_meat", food: 8 },
+  [ITEM.APPLE]: { name: "Apple", icon: "apple", food: { hunger: 4, saturation: 2.4 }, heal: 4 },
+  // Heals fully and adds four golden (absorption) hearts on top (a Missions
+  // world); in a Survival world, Regeneration II for 5 s and Absorption for 2 min.
+  [ITEM.GOLDEN_APPLE]: {
+    name: "Golden Apple",
+    icon: "golden_apple",
+    food: { hunger: 4, saturation: 9.6 },
+    heal: 20,
+    absorb: 8,
+    alwaysEat: true,
+    effects: [{ id: "regeneration", level: 2, seconds: 5, chance: 1 }, { id: "absorption", level: 1, seconds: 120, chance: 1 }],
+  },
+  [ITEM.RAW_MEAT]: { name: "Raw Meat", icon: "raw_meat", food: { hunger: 3, saturation: 1.8 }, heal: 2 },
+  [ITEM.COOKED_MEAT]: { name: "Cooked Meat", icon: "cooked_meat", food: { hunger: 8, saturation: 12.8 }, heal: 8 },
   [ITEM.FLUFF]: { name: "Fluff", icon: "fluff" },
   // Weapons never run out of ammo, but each one reloads, recharges or cools
   // down (weapons.js WEAPON_STATS).
@@ -83,27 +116,30 @@ const TOOL_KINDS = [
   ["AXE", "axe", "Axe"],
   ["SHOVEL", "shovel", "Shovel"],
 ];
-for (const [matKey, mat] of Object.entries(MATERIALS)) {
+for (const matKey of Object.keys(MATERIALS)) {
   for (const [kindKey, type, label] of TOOL_KINDS) {
     const id = ITEM[`${matKey.toUpperCase()}_${kindKey}`];
+    if (id === undefined) continue; // (gold's tools are content items)
     const matName = matKey === "wood" ? "Wooden" : matKey[0].toUpperCase() + matKey.slice(1);
-    ITEM_DEFS[id] = {
-      name: `${matName} ${label}`,
-      icon: `${type}_${matKey}`,
-      stack: 1,
-      tool: {
-        type,
-        tier: mat.tier,
-        speed: mat.speed,
-        durability: mat.durability,
-        damage: type === "sword" ? mat.sword : type === "axe" ? mat.sword - 1 : Math.max(2, mat.sword - 3),
-      },
-    };
+    ITEM_DEFS[id] = { name: `${matName} ${label}`, icon: `${type}_${matKey}`, stack: 1, tool: toolOf(type, matKey) };
   }
 }
 
 // (Round 11) The content modules' items (their ids checked in js/content/index.js).
-for (const [id, def] of Object.entries(CONTENT_ITEMS)) ITEM_DEFS[id] = def;
+// A tool given as { type, material } gets that material's numbers.
+for (const [id, def] of Object.entries(CONTENT_ITEMS)) {
+  ITEM_DEFS[id] = def.tool?.material && MATERIALS[def.tool.material] ? { ...def, tool: toolOf(def.tool.type, def.tool.material) } : def;
+}
+for (const def of Object.values(ITEM_DEFS)) {
+  if (!def.food || typeof def.food !== "object") continue;
+  const heal = def.heal ?? def.food.hunger ?? 0;
+  Object.defineProperty(def.food, "valueOf", { value: () => heal, enumerable: false, configurable: true });
+}
+
+// What eating the item heals at once (a Missions world), or 0.
+export function foodHeal(info) {
+  return info?.food ? info.heal ?? info.food.hunger ?? 0 : 0;
+}
 
 const itemCache = new Map();
 
@@ -132,6 +168,34 @@ export function isValidItem(id) {
 
 // ---------- Mining ----------
 
+// (Round 11) Blocks shears cut fast and keep whole (leaves, plants, cobwebs,
+// vines: the block itself drops, as in the classic game), and how fast:
+// cobwebs and leaves 15, wool 5, vines 2.
+const SHEARS_SPEED = new Float32Array(BLOCK_LIMIT);
+const SHEARABLE = new Uint8Array(BLOCK_LIMIT);
+// Hoes are the leaves', hay's and sponges' tool; swords cut cobwebs (15) and
+// leaves, vines, pumpkins and melons a little faster (1.5) (Survival worlds).
+const HOE_BLOCK = new Uint8Array(BLOCK_LIMIT);
+const SWORD_SPEED = new Float32Array(BLOCK_LIMIT);
+const VINES = [V.VINE, V.VINE + 1, V.VINE + 2, V.VINE + 3];
+for (const b of Object.values(BLOCK_INFO)) {
+  if (!b.leaves) continue;
+  SHEARS_SPEED[b.id] = 15;
+  SHEARABLE[b.id] = 1;
+  HOE_BLOCK[b.id] = 1;
+  SWORD_SPEED[b.id] = 1.5;
+}
+for (const id of [BLOCK.WOOL, V.ORANGE_WOOL, V.MAGENTA_WOOL, V.LIGHT_BLUE_WOOL, V.YELLOW_WOOL, V.LIME_WOOL, V.PINK_WOOL, V.GRAY_WOOL, V.LIGHT_GRAY_WOOL, V.CYAN_WOOL, V.PURPLE_WOOL, V.BLUE_WOOL, V.BROWN_WOOL, V.GREEN_WOOL, V.RED_WOOL, V.BLACK_WOOL]) SHEARS_SPEED[id] = 5;
+SHEARS_SPEED[V.COBWEB] = 15;
+SWORD_SPEED[V.COBWEB] = 15;
+for (const id of VINES) {
+  SHEARS_SPEED[id] = 2;
+  SWORD_SPEED[id] = 1.5;
+}
+for (const id of [BLOCK.TALL_GRASS, BLOCK.DEAD_BUSH, BLOCK.SEAGRASS, V.FERN, V.COBWEB, ...VINES]) SHEARABLE[id] = 1;
+for (const id of [V.HAY_BLOCK, V.SPONGE]) HOE_BLOCK[id] = 1;
+for (const id of [V.PUMPKIN, V.MELON, V.CARVED_PUMPKIN, V.CARVED_PUMPKIN + 1, V.CARVED_PUMPKIN + 2, V.CARVED_PUMPKIN + 3]) SWORD_SPEED[id] = 1.5;
+
 // Whether `tool` (item info's .tool, or null for the bare hand) gets drops from the block.
 export function canHarvest(blockId, tool) {
   const b = BLOCK_INFO[blockId];
@@ -140,22 +204,42 @@ export function canHarvest(blockId, tool) {
   return !!tool && tool.type === b.tool && tool.tier >= b.minTier;
 }
 
+// The held tool's speed multiplier on the block.
+function toolSpeed(b, tool) {
+  if (!tool) return 1;
+  if (tool.type === b.tool) return tool.speed ?? 1;
+  if (tool.type === "shears") return SHEARS_SPEED[b.id] || 1;
+  if (tool.type === "hoe" && HOE_BLOCK[b.id]) return tool.speed ?? 1;
+  if (tool.type === "sword" && SWORD_SPEED[b.id] && isVanilla()) return SWORD_SPEED[b.id];
+  return 1;
+}
+
 // Seconds to break the block in survival (Infinity if unbreakable):
 // hardness * (harvestable ? 1.5 : 5) / tool speed, as in classic voxel games.
 export function breakTime(blockId, tool) {
   const b = BLOCK_INFO[blockId];
   if (!b || b.hardness < 0) return Infinity;
   if (b.hardness === 0) return 0;
-  const speed = tool && b.tool && tool.type === b.tool ? tool.speed : 1;
-  return (b.hardness * (canHarvest(blockId, tool) ? 1.5 : 5)) / speed;
+  return (b.hardness * (canHarvest(blockId, tool) || (tool?.type === "shears" && SHEARABLE[blockId]) ? 1.5 : 5)) / toolSpeed(b, tool);
 }
 
 // Items dropped when a block is broken in survival: array of [itemId, count].
-// (A content module's `drops` for the block come first: js/content/index.js.)
+// (A content module's `drops` for the block come first: js/content/index.js;
+// shears before them: what they cut drops whole.)
 export function blockDrops(blockId, tool, rand = Math.random) {
+  if (tool?.type === "shears" && SHEARABLE[blockId]) {
+    const item = ITEM_OF[blockId];
+    return item && itemInfo(item) ? [[item, 1]] : [];
+  }
   if (!canHarvest(blockId, tool)) return [];
   const custom = BLOCK_DROPS[blockId]?.(tool, rand);
   if (custom) return custom.filter(([id, n]) => n > 0 && itemInfo(id));
+  // (Round 11) A Survival world's core blocks drop as in the classic game;
+  // a Missions world's as before.
+  if (isVanilla()) {
+    const out = vanillaDrops(blockId, tool, rand);
+    if (out) return out.filter(([id, n]) => n > 0 && itemInfo(id));
+  }
   switch (blockId) {
     case BLOCK.GRASS:
       return [[BLOCK.DIRT, 1]];
@@ -187,6 +271,44 @@ export function blockDrops(blockId, tool, rand = Math.random) {
       const item = ITEM_OF[blockId]; // (a wall torch gives a torch, any chest the chest)
       return item && itemInfo(item) ? [[item, 1]] : [];
     }
+  }
+}
+
+// The classic game's drops of the core blocks that differ from "itself"
+// (null: the default). Raw ores to smelt, flint from gravel, seeds from
+// grass, sticks and apples from leaves (their saplings are the nature
+// module's: its `drops` for a leaf block replace these).
+function vanillaDrops(blockId, tool, rand) {
+  switch (blockId) {
+    case BLOCK.IRON_ORE:
+      return [[V.RAW_IRON, 1]];
+    case BLOCK.GOLD_ORE:
+      return [[V.RAW_GOLD, 1]];
+    case BLOCK.DIAMOND_ORE:
+      return [[V.DIAMOND, 1]];
+    case BLOCK.GRAVEL:
+      return [[rand() < 0.1 ? V.FLINT : BLOCK.GRAVEL, 1]];
+    case BLOCK.TALL_GRASS:
+      return rand() < 0.125 ? [[V.WHEAT_SEEDS, 1]] : [];
+    case BLOCK.DEAD_BUSH:
+      return [[ITEM.STICK, Math.floor(rand() * 3)]];
+    case BLOCK.SEAGRASS:
+      return []; // (only shears keep it)
+    case BLOCK.SNOW:
+      // Four snowballs, with a shovel (by hand nothing); the block itself
+      // while there are no snowballs.
+      if (!itemInfo(V.SNOWBALL)) return null;
+      return tool?.type === "shovel" ? [[V.SNOWBALL, 4]] : [];
+    case BLOCK.LEAVES:
+    case BLOCK.BIRCH_LEAVES:
+    case BLOCK.PINE_LEAVES: {
+      const out = [];
+      if (rand() < 0.02) out.push([ITEM.STICK, 1 + Math.floor(rand() * 2)]);
+      if (blockId === BLOCK.LEAVES && rand() < 0.005) out.push([ITEM.APPLE, 1]);
+      return out;
+    }
+    default:
+      return null;
   }
 }
 

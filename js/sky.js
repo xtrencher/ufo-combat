@@ -199,6 +199,12 @@ export class Sky {
     this.setSunAngle((t / 12) * Math.PI);
   }
 
+  // (Round 11) Sleeping through the night (sleep.js): straight to the next
+  // morning, 6:00 (vanilla wakes everyone at the day's first tick).
+  skipToMorning(hours = 6) {
+    this.setHours(hours);
+  }
+
   get isNight() {
     return worldUniforms.uSunDir.value.y < -0.05;
   }

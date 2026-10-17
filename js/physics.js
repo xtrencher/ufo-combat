@@ -3,8 +3,13 @@
 //
 // (Round 11) A solid block may collide with boxes smaller than its cell (a
 // content block's `collision`: a slab, stairs, a fence up to 1.5 tall; see
-// blocks.js COLLISION_BOXES). Full cells collide exactly as before.
-import { IS_SOLID, COLLISION_BOXES, TALL_COLLISION } from "./blocks.js";
+// blocks.js COLLISION_BOXES), or with boxes that depend on its neighbours (a
+// def's `collide(world, x, y, z, id)`: a fence's arms, a stair's corners,
+// the same ones its shape draws). Full cells collide exactly as before.
+import { IS_SOLID, COLLISION_BOXES, TALL_COLLISION, BLOCK_INFO, BLOCK_LIMIT } from "./blocks.js";
+
+const COLLIDE = new Array(BLOCK_LIMIT).fill(null);
+for (const info of Object.values(BLOCK_INFO)) if (info.solid && typeof info.collide === "function") COLLIDE[info.id] = info.collide;
 
 const EPS = 1e-4;
 // A box the mover already overlaps by more than this is ignored (so it can step out of it).
@@ -18,6 +23,7 @@ function collisionAt(world, bx, by, bz) {
   if (!world.getBlock) return world.isSolidAt(bx, by, bz) ? FULL : NONE;
   const id = world.getBlock(bx, by, bz);
   if (!IS_SOLID[id]) return NONE;
+  if (COLLIDE[id]) return COLLIDE[id](world, bx, by, bz, id) || COLLISION_BOXES[id] || FULL;
   return COLLISION_BOXES[id] || FULL;
 }
 

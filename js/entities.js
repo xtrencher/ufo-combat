@@ -7,6 +7,7 @@ import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { maxStack } from "./items.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
+import { EGG, SNOWBALL, ENDER_PEARL } from "./content/ids.js";
 
 const GRAVITY = -20;
 const DESPAWN_SECONDS = 300;
@@ -204,5 +205,146 @@ export class ItemEntities {
         if (a.count >= maxStack(a.id)) break;
       }
     }
+  }
+}
+
+// ---------- Thrown items (Round 11) ----------
+// Eggs, snowballs and ender pearls, thrown as in the classic game (30
+// blocks/s, gravity 12, a little drag; the thrower's own motion added). They
+// break on the first block or creature they meet: an egg hatches a chick one
+// time in eight (four chicks one time in 256: onHatch, the creatures'), a
+// snowball does nothing but shatter, an ender pearl takes the thrower there
+// (5 damage, as a fall: armor doesn't help). Each throw is the thrower's own
+// (online: their pearl moves only them; a chick is the host's to spawn).
+const THROW_SPEED = 30;
+const THROW_GRAVITY = -12;
+const THROW_DRAG = 0.2; // 1/s (0.99 a tick)
+const THROW_LIFE = 12;
+const THROWN = { [EGG]: "egg", [SNOWBALL]: "snowball", [ENDER_PEARL]: "pearl" };
+const SHARDS = { egg: new THREE.Color(0.93, 0.88, 0.74), snowball: new THREE.Color(0.95, 0.97, 1), pearl: new THREE.Color(0.1, 0.45, 0.38) };
+
+export class Throwables {
+  constructor({ scene, world, player, audio, effects, mobs }) {
+    this.scene = scene;
+    this.world = world;
+    this.player = player;
+    this.audio = audio;
+    this.effects = effects;
+    this.mobs = mobs;
+    this.list = []; // { id, kind, pos, vel, age, mesh, light }
+    this.material = createEntityMaterial("color");
+    this.onHatch = null; // (pos, count): an egg hatched chicks (the creatures spawn them)
+    this.onTeleport = null; // (pos): an ender pearl took the player there
+    this._dir = new THREE.Vector3();
+    this._step = new THREE.Vector3();
+  }
+
+  // Throws one of item `id` from the player's eye. Returns the throw (or null).
+  throw(id) {
+    const kind = THROWN[id];
+    const model = kind ? itemModel(id) : null;
+    if (!model) return null;
+    const p = this.player;
+    const pos = p.getEyePosition();
+    pos.y -= 0.1;
+    const vel = p.getForwardVector().multiplyScalar(THROW_SPEED);
+    if (p.velocity) vel.add(p.velocity.clone().setY(p.onGround ? 0 : p.velocity.y));
+    const mesh = new THREE.Mesh(model.geometry, this.material);
+    mesh.scale.setScalar(0.32);
+    const t = { id, kind, pos, vel, age: 0, mesh, light: { sky: 15, block: 0 } };
+    bindEntityLight(mesh, () => t.light);
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this.list.push(t);
+    this.audio.playThrow?.();
+    return t;
+  }
+
+  clear() {
+    for (const t of this.list) this.scene.remove(t.mesh);
+    this.list.length = 0;
+  }
+
+  update(dt) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const t = this.list[i];
+      t.age += dt;
+      t.vel.y += THROW_GRAVITY * dt;
+      t.vel.multiplyScalar(Math.exp(-THROW_DRAG * dt));
+      const step = this._step.copy(t.vel).multiplyScalar(dt);
+      const len = step.length();
+      const dir = this._dir.copy(step).divideScalar(len || 1);
+      const block = this.world.raycast(t.pos, dir, len, { solidOnly: true });
+      const mob = this.mobs?.raycast(t.pos, dir, block ? block.distance : len);
+      if (block || mob) {
+        const d = mob ? mob.distance : block.distance;
+        const at = t.pos.clone().addScaledVector(dir, Math.max(0, d - 0.05));
+        this._land(t, at, mob ? null : block);
+        this.scene.remove(t.mesh);
+        this.list.splice(i, 1);
+        continue;
+      }
+      t.pos.add(step);
+      if (t.age > THROW_LIFE || t.pos.y < -20) {
+        this.scene.remove(t.mesh);
+        this.list.splice(i, 1);
+        continue;
+      }
+      t.mesh.position.copy(t.pos);
+      t.mesh.rotation.y = this.player.yaw; // (a flat icon: kept facing the view)
+      t.light = this.world.lightAt(t.pos.x, t.pos.y, t.pos.z);
+    }
+  }
+
+  _land(t, at, block) {
+    const d = this.effects?.debris;
+    if (d) for (let k = 0; k < 8; k++) d.spawn(at.x, at.y, at.z, (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 0.05, SHARDS[t.kind], 0.6);
+    if (t.kind === "egg") {
+      if (Math.random() < 1 / 8) this.onHatch?.(at, Math.random() < 1 / 32 ? 4 : 1);
+    } else if (t.kind === "pearl") this._teleport(at, block);
+  }
+
+  // Takes the player to where the pearl broke: onto the face it hit, in a
+  // cell with room to stand (the cell itself, or one above).
+  _teleport(at, block) {
+    const p = this.player;
+    if (p.dead || p.vehicle) return;
+    let x = at.x;
+    let y = at.y;
+    let z = at.z;
+    if (block) {
+      const [nx, ny, nz] = block.normal;
+      if (ny > 0) y = block.block[1] + 1;
+      else {
+        x += nx * 0.35;
+        z += nz * 0.35;
+        y = Math.floor(y);
+      }
+    }
+    const fx = Math.floor(x);
+    const fz = Math.floor(z);
+    let fy = Math.floor(y);
+    for (let k = 0; k < 3 && (IS_SOLID[this.world.getBlock(fx, fy, fz)] || IS_SOLID[this.world.getBlock(fx, fy + 1, fz)]); k++) fy++;
+    p.position.set(x, Math.max(y, fy), z);
+    p.velocity?.set(0, 0, 0);
+    p.resetFall?.();
+    this.audio.playTeleport?.();
+    p.damage?.(5, "fall");
+    this.onTeleport?.(p.position);
+  }
+
+  // Online (net/fx.js): a throw's kind for the wire, and the mesh another
+  // player's throw of that kind is drawn with.
+  static netKind(t) {
+    return t.kind === "egg" ? "eg" : t.kind === "snowball" ? "sb" : "ep";
+  }
+
+  remoteMesh(kind) {
+    const id = kind === "eg" ? EGG : kind === "sb" ? SNOWBALL : kind === "ep" ? ENDER_PEARL : 0;
+    const model = id ? itemModel(id) : null;
+    if (!model) return null;
+    const mesh = new THREE.Mesh(model.geometry, this.material);
+    mesh.scale.setScalar(0.32);
+    return mesh;
   }
 }

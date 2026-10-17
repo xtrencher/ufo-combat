@@ -940,16 +940,22 @@ const VILLAGER = {
     { name: "armL", size: [3, 10, 3], pivot: [-5.5, 21, 0], from: [-1.5, -9, -1.5], parent: "body" },
     { name: "armR", size: [3, 10, 3], pivot: [5.5, 21, 0], from: [-1.5, -9, -1.5], parent: "body" },
   ],
-  paint(s) {
+  // (Round 11) A Survival world's villager wears its trade (variant: the
+  // profession's number + 1, see VILLAGER_DRESS); 0 is the Missions villager.
+  paint(s, v = 0) {
+    const dress = v > 0 ? VILLAGER_DRESS[(v - 1) % VILLAGER_DRESS.length] : null;
     const skin = hex(0xd9a066);
-    const robe = hex(0x8a6a3c);
-    const robeDark = hex(0x6a4f2b);
-    const trim = hex(0xb9925a);
+    const robe = hex(dress ? dress.robe : 0x8a6a3c);
+    const robeDark = dress ? shade(robe, 0.76) : hex(0x6a4f2b);
+    const trim = hex(dress ? dress.trim : 0xb9925a);
     const pants = hex(0x4a4438);
     const cloth = (x, y, seed, base) => grain(base, x, y, seed, 0.1);
     s.part("head", (f, x, y, w, h) => {
       let c = grain(skin, x, y, 91, 0.08);
       if (f === "top") c = grain(mix(skin, hex(0x3a2a1c), 0.5), x, y, 92, 0.15); // hair
+      // A hat (straw, a cap, a hood): its top and a band round the head.
+      if (dress?.hat && (f === "top" || (f !== "bottom" && y < 3))) c = grain(hex(dress.hat), x, y, 90, 0.14);
+      if (dress?.patch && f === "front" && y >= 1 && y < 5 && x >= w - 5 && x < w - 1) c = [26, 22, 20]; // an eye patch
       if (f === "front") {
         if (y >= 2 && y < 4 && (x === 1 || x === w - 2)) c = [30, 24, 20]; // eyes
         if (y === 5) c = shade(c, 0.85); // mouth shadow line
@@ -962,6 +968,11 @@ const VILLAGER = {
       let c = cloth(x, y, 94, robe);
       if ((x + y) % 7 === 0) c = cloth(x, y, 95, robeDark);
       if (f === "front" && y >= h - 3) c = grain(trim, x, y, 96, 0.1); // hem band
+      // An apron down the front (a butcher's, a smith's), stained or sooty.
+      if (dress?.apron && f === "front" && y >= 6 && x >= 3 && x < w - 3) {
+        c = grain(hex(dress.apron), x, y, 89, 0.12);
+        if (dress.stain && hash(x >> 1, y >> 1, 88) > 0.82) c = hex(dress.stain);
+      }
       return c;
     });
     for (const arm of ["armL", "armR"]) {
@@ -1400,6 +1411,331 @@ const GUARD = {
   animate: alienAnimate,
 };
 
+// ---------- (Round 11) The vanilla mobs of a Survival world ----------
+
+// Villager outfits by profession (trading.js PROFESSIONS order): robe, trim,
+// and optionally a hat, an apron (with stains) or an eye patch.
+const VILLAGER_DRESS = [
+  { robe: 0x7b5a32, trim: 0xb9925a, hat: 0xd8bf62 }, // farmer (a straw hat)
+  { robe: 0x6e2a24, trim: 0xd8d0b8, hat: 0x9c3328 }, // librarian
+  { robe: 0x4b4b4f, trim: 0x8a8a90, apron: 0x2c2c30 }, // armorer
+  { robe: 0x3b2f28, trim: 0x6b6b70, apron: 0x1f1f22 }, // toolsmith
+  { robe: 0x8a6a3c, trim: 0xe8e2d6, apron: 0xe8e2d6, stain: 0xa83232 }, // butcher
+  { robe: 0x5e2f7a, trim: 0xc9a83a }, // cleric
+  { robe: 0x5b6b3a, trim: 0xd4b45a, hat: 0x9a8a4a }, // fisherman
+  { robe: 0x6b4b2a, trim: 0xe8e4dc, hat: 0x8a5a3a }, // shepherd
+  { robe: 0x4f6b3a, trim: 0xd8c08a, hat: 0x6b8a3a }, // fletcher
+  { robe: 0x3a4b6b, trim: 0xc9b98a, hat: 0x2f3c58 }, // cartographer
+  { robe: 0x5a4a3a, trim: 0x8a7a6a, apron: 0x6f6a64 }, // mason
+  { robe: 0x6b3f22, trim: 0x9a6a3a, apron: 0x8a5a2e }, // leatherworker
+  { robe: 0x2f2f33, trim: 0x7a7a80, apron: 0x1c1c1f, patch: true }, // weaponsmith
+  { robe: 0x3f6b2f, trim: 0x5b8a45 }, // nitwit
+];
+
+// A tall green column on four stubby legs, mottled like moss on stone, with
+// the hollow, frowning face. It swells (mobs.js) before it bursts.
+const CREEPER = {
+  parts: [
+    { name: "legFL", size: [4, 6, 4], pivot: [-2, 6, 4], from: [-2, -6, -2] },
+    { name: "legFR", size: [4, 6, 4], pivot: [2, 6, 4], from: [-2, -6, -2] },
+    { name: "legBL", size: [4, 6, 4], pivot: [-2, 6, -4], from: [-2, -6, -2] },
+    { name: "legBR", size: [4, 6, 4], pivot: [2, 6, -4], from: [-2, -6, -2] },
+    { name: "body", size: [8, 12, 4], pivot: [0, 6, 0], from: [-4, 0, -2] },
+    { name: "head", size: [8, 8, 8], pivot: [0, 18, 0], from: [-4, 0, -4], parent: "body" },
+  ],
+  paint(s) {
+    const greens = [hex(0x3f8a32), hex(0x58ad44), hex(0x2f6e28), hex(0x8cd27a), hex(0x4c9c3c)];
+    const moss = (x, y, seed) => {
+      const r = hash(x >> 1, y >> 1, seed);
+      let c = greens[Math.floor(r * greens.length)];
+      if (hash(x, y, seed + 3) > 0.93) c = hex(0xc9dcc2); // pale flecks
+      return grain(c, x, y, seed + 1, 0.1);
+    };
+    s.part("head", (f, x, y, w, h) => {
+      let c = moss(x, y, 201);
+      if (f === "front") {
+        // Two square eye holes and the long frowning mouth below them.
+        const px = x >> 1;
+        const py = y >> 1;
+        const dark = hex(0x101410);
+        if ((px === 1 || px === 2 || px === 5 || px === 6) && (py === 2 || py === 3)) c = dark;
+        if ((px === 3 || px === 4) && py >= 4 && py <= 6) c = dark;
+        if ((px === 2 || px === 5) && py >= 5 && py <= 7) c = dark;
+      }
+      return c;
+    });
+    s.part("body", (f, x, y, w, h) => moss(x, y, 202));
+    for (const leg of ["legFL", "legFR", "legBL", "legBR"]) s.part(leg, (f, x, y, w, h) => (f === "bottom" ? shade(moss(x, y, 203), 0.6) : moss(x, y, 204)));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.7 * st.walk;
+    p.legFL.rotation.x = swing;
+    p.legBR.rotation.x = swing;
+    p.legFR.rotation.x = -swing;
+    p.legBL.rotation.x = -swing;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch;
+  },
+};
+
+// Very tall and thin, black with a faint violet sheen, glowing violet eyes.
+// Angry (st.aim), its head lifts off the jaw; holding a block, its arms
+// reach forward (st.carry).
+const ENDERMAN = {
+  parts: [
+    { name: "legL", size: [2, 27, 2], pivot: [-2, 27, 0], from: [-1, -27, -1] },
+    { name: "legR", size: [2, 27, 2], pivot: [2, 27, 0], from: [-1, -27, -1] },
+    { name: "body", size: [8, 12, 4], pivot: [0, 27, 0], from: [-4, 0, -2] },
+    { name: "jaw", size: [7.5, 3, 7.5], pivot: [0, 39, 0], from: [-3.75, 0, -3.75], parent: "body", rigid: true },
+    { name: "head", size: [8, 8, 8], pivot: [0, 39, 0], from: [-4, 0, -4], parent: "body" },
+    { name: "armL", size: [2, 28, 2], pivot: [-5, 38, 0], from: [-1, -27, -1], parent: "body" },
+    { name: "armR", size: [2, 28, 2], pivot: [5, 38, 0], from: [-1, -27, -1], parent: "body" },
+  ],
+  paint(s) {
+    const black = (x, y, seed) => grain(mix(hex(0x111014), hex(0x221a2a), hash(x >> 1, y >> 2, seed) * 0.7), x, y, seed + 1, 0.12);
+    s.part("head", (f, x, y, w, h) => {
+      let c = black(x, y, 211);
+      // Long violet eyes with a pale, glowing middle.
+      if (f === "front" && y >= 8 && y < 10 && ((x >= 1 && x < 7) || (x >= 9 && x < 15))) c = x === 3 || x === 4 || x === 11 || x === 12 ? [255, 214, 255] : [214, 92, 250];
+      return c;
+    });
+    s.part("jaw", (f, x, y, w, h) => black(x, y, 212));
+    s.part("body", (f, x, y, w, h) => black(x, y, 213));
+    for (const limb of ["legL", "legR", "armL", "armR"]) s.part(limb, (f, x, y, w, h) => black(x, y, 214));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.5 * st.walk;
+    const carry = st.carry ?? 0;
+    p.legL.rotation.x = swing;
+    p.legR.rotation.x = -swing;
+    p.armL.rotation.x = carry ? -0.7 : -swing * 0.6;
+    p.armR.rotation.x = carry ? -0.7 : swing * 0.6;
+    p.armL.rotation.z = carry ? 0.05 : -0.05;
+    p.armR.rotation.z = carry ? -0.05 : 0.05;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch;
+    // (Angry: the head rides up off its jaw, mouth agape.)
+    p.head.position.y = (12 + (st.aim ? 2.5 : 0)) * PX;
+  },
+};
+
+// A cube of green jelly with a darker core showing through, two eyes and a
+// small mouth. One model for every size (MODELS: scale); it squashes and
+// stretches as it hops (st.vy).
+const SLIME = {
+  parts: [{ name: "body", size: [8, 8, 8], pivot: [0, 0, 0], from: [-4, 0, -4] }],
+  paint(s) {
+    const jelly = hex(0x7ccf62);
+    const core = hex(0x4f9a3e);
+    s.part("body", (f, x, y, w, h) => {
+      // The core: a darker square inside each face, the rim clear and bright.
+      const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
+      let c = edge >= 3 ? grain(core, x, y, 221, 0.12) : grain(jelly, x, y, 222, 0.1);
+      if (edge === 0) c = shade(c, 1.12);
+      if (f === "front") {
+        if (y >= 5 && y < 8 && ((x >= 2 && x < 5) || (x >= 11 && x < 14))) c = hex(0x1d3a18); // eyes
+        if (y === 11 && x >= 9 && x < 11) c = hex(0x1d3a18); // mouth
+      }
+      return c;
+    });
+  },
+  animate(p, st) {
+    const vy = st.vy ?? 0;
+    // Stretched rising, flattened landing, a slow wobble at rest.
+    const k = vy > 0.5 ? 1.18 : vy < -0.5 ? 1.06 : 0.92 + Math.sin(st.time * 3) * 0.03;
+    p.body.scale.set(1 / Math.sqrt(k), k, 1 / Math.sqrt(k));
+  },
+};
+
+// A villager in a deep purple robe with a green collar, a warty nose and a
+// tall, crooked black hat with a green band.
+const WITCH = {
+  parts: [
+    { name: "legL", size: [4, 11, 4], pivot: [-2, 11, 0], from: [-2, -11, -2] },
+    { name: "legR", size: [4, 11, 4], pivot: [2, 11, 0], from: [-2, -11, -2] },
+    { name: "body", size: [8, 12, 6], pivot: [0, 11, 0], from: [-4, 0, -3] },
+    { name: "head", size: [8, 9, 8], pivot: [0, 23, 0], from: [-4, 0, -4], parent: "body" },
+    { name: "nose", size: [2, 4, 2], pivot: [0, 27, 4], from: [-1, -2, 0], parent: "head", rigid: true },
+    { name: "wart", size: [1, 1, 1], pivot: [0, 26, 6], from: [0, -1, 0], parent: "head", rigid: true },
+    { name: "brim", size: [10, 2, 10], pivot: [0, 32, 0], from: [-5, 0, -5], parent: "head", rigid: true },
+    { name: "crown", size: [7, 4, 7], pivot: [0, 34, -0.5], from: [-3.5, 0, -3.5], parent: "head", rigid: true },
+    { name: "peak", size: [4, 4, 4], pivot: [0, 38, -1.5], from: [-2, 0, -2], parent: "head", rigid: true },
+    { name: "tip", size: [1.5, 2, 1.5], pivot: [0, 42, -2.5], from: [-0.75, 0, -0.75], parent: "head", rigid: true },
+    { name: "armL", size: [3, 10, 3], pivot: [-5.5, 22, 0], from: [-1.5, -9, -1.5], parent: "body" },
+    { name: "armR", size: [3, 10, 3], pivot: [5.5, 22, 0], from: [-1.5, -9, -1.5], parent: "body" },
+    // The potion she throws or drinks, in the right hand.
+    { name: "bottle", size: [2, 3, 2], pivot: [5.5, 22, 0], from: [-1, -12, -1], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const skin = hex(0xb48a6a);
+    const robe = hex(0x3d1f4c);
+    const robeDark = hex(0x2a1436);
+    const green = hex(0x3c6b2c);
+    const hat = hex(0x1d1a20);
+    const cloth = (x, y, seed, base) => grain(base, x, y, seed, 0.12);
+    s.part("head", (f, x, y, w, h) => {
+      let c = grain(skin, x, y, 231, 0.1);
+      if (f === "top") c = grain(hex(0x2a2a1c), x, y, 232, 0.2);
+      if (f === "front") {
+        if (y >= 7 && y < 9 && (x === 3 || x === w - 4)) c = [44, 120, 40]; // green eyes
+        if (y >= 6 && y < 7 && x >= 2 && x < w - 2) c = shade(c, 0.8); // brow
+        if (y === 13) c = shade(c, 0.82);
+      }
+      return c;
+    });
+    s.part("nose", () => grain(hex(0xa67a5c), 0, 0, 233, 0.1));
+    s.part("wart", () => hex(0x4f8a3a));
+    for (const part of ["brim", "peak", "tip"]) s.part(part, (f, x, y, w, h) => cloth(x, y, 234, hat));
+    s.part("crown", (f, x, y, w, h) => (f !== "top" && f !== "bottom" && y >= h - 3 ? cloth(x, y, 235, green) : cloth(x, y, 234, hat)));
+    s.part("body", (f, x, y, w, h) => {
+      if (f === "front" && y < 4 && x >= 4 && x < w - 4) return cloth(x, y, 236, green); // collar
+      let c = cloth(x, y, 237, robe);
+      if ((x + y) % 6 === 0) c = cloth(x, y, 238, robeDark);
+      return c;
+    });
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y >= h - 2 || f === "bottom" ? grain(skin, x, y, 239, 0.1) : cloth(x, y, 240, robe)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => cloth(x, y, 241, robeDark));
+    s.part("bottle", (f, x, y, w, h) => (y < 2 ? [190, 170, 140] : [150, 60, 200]));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.5 * st.walk;
+    p.legL.rotation.x = swing;
+    p.legR.rotation.x = -swing;
+    p.armL.rotation.x = -swing * 0.6;
+    // A throw: the bottle arm swings over; drinking (st.carry), it's raised to the lips.
+    const throwing = st.attack < 1 ? Math.sin(st.attack * Math.PI) : 0;
+    p.armR.rotation.x = (st.carry ? -2.3 : swing * 0.6) - throwing * 2.2;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch;
+  },
+};
+
+// The vanilla wool colours (white, orange, magenta, light blue, yellow, lime,
+// pink, gray, light gray, cyan, purple, blue, brown, green, red, black: the
+// order of the wool blocks in js/content/ids.js).
+export const WOOL_COLORS = [0xe9ecec, 0xf07613, 0xbd44b3, 0x3aafd9, 0xf8c627, 0x70b919, 0xed8dac, 0x3e4447, 0x8e8e86, 0x158991, 0x792aac, 0x35399d, 0x724728, 0x546d1b, 0xa12722, 0x1d1d21];
+
+// A sheep: a pale, shorn body on long legs, wrapped in a thick coat of wool
+// of its colour (variant) that comes off when shorn (mobs.js hides the
+// "wool" and "woolHead" parts) and grows back.
+const SHEEP = {
+  parts: [
+    { name: "legFL", size: [4, 12, 4], pivot: [-2.5, 12, 5.5], from: [-2, -12, -2] },
+    { name: "legFR", size: [4, 12, 4], pivot: [2.5, 12, 5.5], from: [-2, -12, -2] },
+    { name: "legBL", size: [4, 12, 4], pivot: [-2.5, 12, -5.5], from: [-2, -12, -2] },
+    { name: "legBR", size: [4, 12, 4], pivot: [2.5, 12, -5.5], from: [-2, -12, -2] },
+    { name: "body", size: [8, 6, 16], pivot: [0, 12, 0], from: [-4, 0, -8] },
+    { name: "wool", size: [12, 10, 19], pivot: [0, 12, 0], from: [-6, -2.5, -9.5], parent: "body" },
+    { name: "head", size: [6, 6, 8], pivot: [0, 17, 7], from: [-3, -2, 0], parent: "body" },
+    { name: "woolHead", size: [7, 3.5, 6], pivot: [0, 17, 7], from: [-3.5, 3, -0.5], parent: "head" },
+  ],
+  paint(s, v = 0) {
+    const woolC = hex(WOOL_COLORS[v] ?? WOOL_COLORS[0]);
+    const skinC = hex(0xd9bfae);
+    const face = hex(0xcdb8a6);
+    const fleece = (x, y, seed) => {
+      // Curls: soft lumps of light and shade.
+      const curl = hash(x >> 1, y >> 1, seed) * 0.6 + hash(x >> 2, y >> 2, seed + 1) * 0.4;
+      return grain(shade(woolC, 0.86 + curl * 0.24), x, y, seed + 2, 0.06);
+    };
+    s.part("wool", (f, x, y, w, h) => fleece(x, y, 251));
+    s.part("woolHead", (f, x, y, w, h) => fleece(x, y, 252));
+    s.part("body", (f, x, y, w, h) => grain(skinC, x, y, 253, 0.08));
+    s.part("head", (f, x, y, w, h) => {
+      let c = grain(face, x, y, 254, 0.08);
+      if (f === "front") {
+        if (y >= 4 && y < 6 && (x === 1 || x === w - 2)) c = [24, 20, 18]; // eyes
+        if (y >= 8 && x >= 4 && x < w - 4) c = hex(0xb79c8a); // muzzle
+        if (y === 9 && (x === 4 || x === w - 5)) c = [70, 46, 40];
+      }
+      if ((f === "left" || f === "right") && y >= 1 && y < 4 && fromFront(f, x, w) >= 6 && fromFront(f, x, w) < 10) c = shade(woolC, 0.8); // ears
+      return c;
+    });
+    for (const leg of ["legFL", "legFR", "legBL", "legBR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? hex(0x4a3a30) : y < 8 ? fleece(x, y, 255) : grain(skinC, x, y, 256, 0.08)));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.5 * st.walk;
+    p.legFL.rotation.x = swing;
+    p.legBR.rotation.x = swing;
+    p.legFR.rotation.x = -swing;
+    p.legBL.rotation.x = -swing;
+    p.head.rotation.y = st.headYaw;
+    // Grazing: the head goes right down to the grass and nibbles.
+    p.head.rotation.x = -st.headPitch + st.graze * (1.0 + Math.sin(st.time * 9) * 0.1);
+  },
+};
+
+// The iron golem: a huge, round-shouldered guardian of riveted grey iron
+// with long arms, a big nose under a heavy brow and vines growing over it.
+const IRON_GOLEM = {
+  parts: [
+    { name: "legL", size: [6, 16, 5], pivot: [-4, 16, 0], from: [-3, -16, -2.5] },
+    { name: "legR", size: [6, 16, 5], pivot: [4, 16, 0], from: [-3, -16, -2.5] },
+    { name: "body", size: [18, 12, 11], pivot: [0, 16, 0], from: [-9, 5, -5.5] },
+    { name: "waist", size: [9, 5, 6], pivot: [0, 16, 0], from: [-4.5, 0, -3], parent: "body", rigid: true },
+    { name: "head", size: [8, 10, 8], pivot: [0, 31, 2], from: [-4, 0, -4], parent: "body" },
+    { name: "nose", size: [2, 4, 2], pivot: [0, 33, 6], from: [-1, -1, 0], parent: "head", rigid: true },
+    { name: "armL", size: [4, 30, 6], pivot: [-11, 31, 0], from: [-2, -28, -3], parent: "body" },
+    { name: "armR", size: [4, 30, 6], pivot: [11, 31, 0], from: [-2, -28, -3], parent: "body" },
+  ],
+  paint(s) {
+    const iron = (x, y, seed) => {
+      let c = grain(mix(hex(0xd6cfc2), hex(0xa79f93), hash(x >> 2, y >> 2, seed) * 0.6), x, y, seed + 1, 0.08);
+      if (hash(x, y >> 1, seed + 2) > 0.95) c = hex(0x7d7468); // cracks and rivets
+      return c;
+    };
+    const vine = (x, y, seed) => hash(x >> 1, (y >> 1) + (x >> 2), seed) > 0.78;
+    const leaf = (x, y) => grain(hex(0x4a7a2c), x, y, 261, 0.18);
+    s.part("head", (f, x, y, w, h) => {
+      let c = iron(x, y, 262);
+      if (f === "front") {
+        if (y >= 7 && y < 9 && ((x >= 3 && x < 6) || (x >= 10 && x < 13))) c = y === 7 ? [92, 20, 16] : [168, 34, 24]; // red eyes
+        if (y === 6 && x >= 2 && x < 14) c = shade(c, 0.7); // the heavy brow
+      }
+      return c;
+    });
+    s.part("nose", (f, x, y, w, h) => iron(x, y, 263));
+    s.part("body", (f, x, y, w, h) => (f !== "bottom" && vine(x, y, 264) ? leaf(x, y) : iron(x, y, 265)));
+    s.part("waist", (f, x, y, w, h) => iron(x, y, 266));
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y, w, h) => (y < 20 && vine(x, y, 267) ? leaf(x, y) : iron(x, y, 268)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => iron(x, y, 269));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase * 0.8) * 0.5 * st.walk;
+    p.legL.rotation.x = swing;
+    p.legR.rotation.x = -swing;
+    // A blow: both arms heave up and slam down.
+    const blow = st.attack < 1 ? Math.sin(st.attack * Math.PI) * 2 : 0;
+    p.armL.rotation.x = -swing * 0.8 - blow;
+    p.armR.rotation.x = swing * 0.8 - blow;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch;
+  },
+};
+
+// Cod and salmon: a Survival world's fish (FISH's rig, their own colours).
+const COD = {
+  parts: FISH.parts,
+  paint(s) {
+    const body = (x, y, seed) => grain(hash(x >> 1, y >> 1, seed) > 0.8 ? hex(0x8a6a48) : hex(0xb69a72), x, y, seed + 1, 0.1);
+    s.part("body", (f, x, y, w, h) => (f === "bottom" ? hex(0xd8ccb2) : f === "top" ? hex(0x7a6a52) : body(x, y, 271)));
+    s.part("tail", () => hex(0x9a8262));
+    s.part("finTop", () => hex(0x8a7458));
+  },
+  animate: FISH.animate,
+};
+
+const SALMON = {
+  parts: FISH.parts,
+  paint(s) {
+    const body = (x, y, seed) => grain(y < 3 ? hex(0x4a5a48) : hex(0xa8403a), x, y, seed, 0.12);
+    s.part("body", (f, x, y, w, h) => (f === "bottom" ? hex(0xd8a090) : f === "top" ? hex(0x445244) : body(x, y, 272)));
+    s.part("tail", () => hex(0x8a3430));
+    s.part("finTop", () => hex(0x445244));
+  },
+  animate: FISH.animate,
+};
+
 export const MODELS = {
   fluffalo: FLUFFALO,
   hoplet: HOPLET,
@@ -1420,6 +1756,17 @@ export const MODELS = {
   alien_red: ALIEN_RED,
   alien_blue: ALIEN_BLUE,
   guard: GUARD,
+  // (Round 11) A Survival world's mobs (the slimes: one model at three sizes).
+  creeper: CREEPER,
+  enderman: ENDERMAN,
+  slime: { ...SLIME, scale: 4 },
+  slime_medium: { ...SLIME, scale: 2 },
+  slime_small: SLIME,
+  witch: WITCH,
+  sheep: SHEEP,
+  iron_golem: IRON_GOLEM,
+  cod: COD,
+  salmon: SALMON,
 };
 
 // Shared per species: skin texture, material and part geometries.
@@ -1449,11 +1796,14 @@ function mergeGeometries(list) {
   return out;
 }
 
-function buildSpecies(kind) {
-  if (built.has(kind)) return built.get(kind);
+// (Round 11) `variant`: a skin of the species' own (a sheep's wool colour, a
+// villager's profession), painted by def.paint(skin, variant) and kept apart.
+function buildSpecies(kind, variant = 0) {
+  const key = variant ? `${kind}#${variant}` : kind;
+  if (built.has(key)) return built.get(key);
   const def = MODELS[kind];
   const skin = new Skin(def.parts);
-  def.paint(skin);
+  def.paint(skin, variant);
   const texture = skin.texture();
   const material = createEntityMaterial("map", texture);
   // Rigid parts are baked into their parent's geometry.
@@ -1471,16 +1821,19 @@ function buildSpecies(kind) {
   const geometries = {};
   for (const [name, list] of Object.entries(pieces)) geometries[name] = list.length === 1 ? list[0] : mergeGeometries(list);
   const entry = { def, skin, texture, material, geometries };
-  built.set(kind, entry);
+  built.set(key, entry);
   return entry;
 }
 
-// Creates a model instance: { root, tilt, parts, meshes, animate(state) }.
-// `root` is positioned/rotated by the mob; `tilt` is used for death.
-export function createMobModel(kind) {
-  const { def, material, geometries } = buildSpecies(kind);
+// Creates a model instance: { root, tilt, parts, meshes, scale, animate(state) }.
+// `root` is positioned/rotated by the mob; `tilt` is used for death (and
+// scaled by `scale`: a big slime is the small one's model, four times over).
+export function createMobModel(kind, variant = 0) {
+  const { def, material, geometries } = buildSpecies(kind, variant);
   const root = new THREE.Group();
   const tilt = new THREE.Group();
+  const scale = def.scale ?? 1;
+  if (scale !== 1) tilt.scale.setScalar(scale);
   root.add(tilt);
   const parts = {};
   const meshes = [];
@@ -1503,6 +1856,7 @@ export function createMobModel(kind) {
     tilt,
     parts,
     meshes,
+    scale,
     animate: (state) => def.animate(parts, state),
   };
 }

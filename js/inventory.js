@@ -3,7 +3,7 @@
 // A stack is { id, count } plus `dur` (remaining uses) for tools. The
 // player's inventory has 36 slots: 0-8 are the hotbar, 9-35 the main area.
 // UI screens hold one "cursor" stack (what the mouse is carrying) and call
-// clickSlot()/quickMove() on arrays of slots.
+// clickSlot()/quickMove() on arrays of slots (a crafting grid's, a furnace's).
 import { maxStack, itemInfo, ARMOR_SLOTS, ARMOR_REDUCTION_PER_POINT } from "./items.js";
 
 export const HOTBAR_SIZE = 9;
@@ -17,7 +17,7 @@ export function makeStack(id, count = 1, dur) {
   return stack;
 }
 
-function canMerge(a, b) {
+export function canMerge(a, b) {
   return !!a && !!b && a.id === b.id && maxStack(a.id) > 1;
 }
 
@@ -37,6 +37,42 @@ export function addToRange(slots, stack, from, to) {
     }
   }
   for (let i = from; i < to && stack.count > 0; i++) {
+    if (slots[i]) continue;
+    const n = Math.min(stack.count, limit);
+    slots[i] = { ...stack, count: n };
+    stack.count -= n;
+  }
+  return stack.count === 0;
+}
+
+// (Round 11) Vanilla's shift-click orders through the 36 slots: into the
+// inventory from a crafting result or a furnace's output, the hotbar's right
+// end first, then the main area from its bottom right (ORDER_RESULT); from a
+// crafting grid or a furnace's input and fuel, the main area from its top
+// left, then the hotbar (ORDER_CONTAINER).
+export const ORDER_RESULT = [];
+for (let i = HOTBAR_SIZE - 1; i >= 0; i--) ORDER_RESULT.push(i);
+for (let i = INVENTORY_SIZE - 1; i >= HOTBAR_SIZE; i--) ORDER_RESULT.push(i);
+export const ORDER_CONTAINER = [];
+for (let i = HOTBAR_SIZE; i < INVENTORY_SIZE; i++) ORDER_CONTAINER.push(i);
+for (let i = 0; i < HOTBAR_SIZE; i++) ORDER_CONTAINER.push(i);
+
+// Like addToRange, through the slots in `order` (merging into matching stacks
+// first, then empty slots). Mutates `stack.count`; true if all of it moved.
+export function addInOrder(slots, stack, order) {
+  const limit = maxStack(stack.id);
+  if (limit > 1) {
+    for (let k = 0; k < order.length && stack.count > 0; k++) {
+      const s = slots[order[k]];
+      if (canMerge(s, stack) && s.count < limit) {
+        const n = Math.min(stack.count, limit - s.count);
+        s.count += n;
+        stack.count -= n;
+      }
+    }
+  }
+  for (let k = 0; k < order.length && stack.count > 0; k++) {
+    const i = order[k];
     if (slots[i]) continue;
     const n = Math.min(stack.count, limit);
     slots[i] = { ...stack, count: n };
