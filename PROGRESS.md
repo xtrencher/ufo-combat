@@ -2534,3 +2534,24 @@ The owner's requests after the audit (all must work for the host and for guests 
 - All green: `unit-tests.mjs` 63/63, `r10-missions-tests.mjs` 6/6, `r10-villages-tests.mjs` 6/6, `r10-weapons-tests.mjs` 6/6, `r10-dash-tests.mjs` 8/8, `r10-hangars-tests.mjs` 7/7, `r10-planes-tests.mjs` 17/17, `perf-tests.mjs` 5/5, `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `settings-tests.mjs` 7/7, `ufo-tests.mjs` 35/35, `smoke-test.mjs` 67/67, `check-mob-models.mjs` OK, `chaos-tests.mjs` 400 steps / 0 problems.
 - Multiplayer: `mp-tests.mjs` 23/23, `mp-round9-tests.mjs` 8/8, `mp-damage-tests.mjs` 444/444 applicable cells (machine gun and sniper now real bullets).
 - Test updates for Round 10's intended changes: the classic chain is the pool's first 28 (round6, round9), village torch counts (unit), hangar parking spots (round2), real bullets need a moment to arrive (smoke, ufo), and the laser minigun's faster bolts leave fewer in flight at once (round2). round3's "UFO shots hit a fast jet" timed out once on a menu click in the chain and passed on its own.
+
+# Round 11 plan: three ways to play (Missions, Survival = vanilla Minecraft, Creative)
+The owner: a separate mode for the missions; normal Survival that is just normal Minecraft (everything in it: items, blocks, crafting, mechanics, "don't miss anything"); normal Creative as now; then a pass for bugs and things that are not like Minecraft; then the PR merged so the site has it.
+
+Decisions:
+- **World types:** a world is a **Missions** world (today's game: UFOs, missions, mod weapons, loot; unchanged in its rules) or a **Survival** world (vanilla: Mods forced off for that world, no missions, no airports or cities in its terrain, crafting, smelting, hunger, XP, beds...). **Creative** is the player mode, as now, in either world type (the pause menu still switches). The main menu's new game picks Missions / Survival / Creative; an old save is a Missions world. Online the room's mode is Missions / Survival / Creative / Dogfight (Dogfight needs a Missions world).
+- **Block ids widen to 16 bits** (one byte left no room: doors, stairs, slabs, crops and colours need several hundred ids). Ids 0-255 keep their meaning; items keep 256-1023; new blocks from 1024. Old saves and edits load unchanged.
+- **Content in modules** (blocks, items, recipes, textures, block and item "use" handlers by area), so several builders can work at once without editing the same files.
+- Missions worlds keep their balance: crafting, hunger and XP are Survival-world systems (Creative gets every new block and item in its palette in both).
+
+## Round 11 checklist
+- [ ] 11.A1 16-bit block ids (storage, meshing in workers, light, saves, online edits, LOD) with old saves intact; content registries.
+- [ ] 11.A2 World types and modes: menus, saves, online rooms, Survival forces Mods off, no airports/cities in Survival terrain.
+- [ ] 11.B1 Crafting (2x2 in the inventory, 3x3 at the crafting table, the vanilla recipes) and smelting (furnace, fuel, recipes), online.
+- [ ] 11.B2 Building blocks: stairs, slabs, fences and gates, walls, doors, trapdoors, ladders, panes and bars, beds, wood types, stone variants, colours.
+- [ ] 11.B3 Nature and the world: iron/diamond/redstone/lapis/emerald/copper ores, lava (and obsidian, cobblestone), clay, sugar cane, pumpkins, melons, saplings and trees growing, leaf decay, crops and farmland, bone meal, ice and snow, mushrooms, flowers.
+- [ ] 11.B4 Items and their uses: ingots and gems, mob drops, the vanilla foods, buckets, flint and steel and fire, shears, hoes, gold tools, arrows for the bow, fishing, compass and clock.
+- [ ] 11.B5 Survival mechanics: hunger and saturation, XP and levels, sleeping in beds and the spawn point, fire/lava/cactus/suffocation damage, the HUD for them.
+- [ ] 11.B6 Mobs: creepers, endermen, slimes, witches, sheep (wool, shearing), vanilla drops, breeding, villager trading.
+- [ ] 11.C Extras as far as they go: structures (dungeons, mineshafts, temples), enchanting, anvils, brewing, redstone basics, weather, the Nether.
+- [ ] 11.D A pass for bugs and un-Minecraft behaviour; every suite; the PR merged.
