@@ -215,6 +215,9 @@ async function installTools(p = page) {
         p._invulnerable = 0;
         p._lastDamage = 0;
         p.clearEffects();
+        // (17 food points and no saturation: no healing to blur a hurt's count.)
+        p.food = 17;
+        p.saturation = 0;
         p.update(0.05); // (settles on the floor)
       },
       run(seconds, each) {
@@ -451,6 +454,8 @@ await check("a stew leaves its bowl; rotten flesh can give Hunger (green drumsti
     p.health = 2;
     p.eat(eye, t.ID.SPIDER_EYE);
     Math.random = rnd;
+    p.food = 10; // (no healing from a full bar meanwhile)
+    p.saturation = 0;
     const fx = p.effects.map((e) => e.effect).sort();
     g.hud._effectsT = 0;
     g.hud.update(0.05, p);
@@ -571,6 +576,7 @@ await check("sleeping at night skips to the morning and sets the spawn; the resp
       const used = g.sleep.useBed({ x: fx, y: fy, z: fz, id: fid });
       const p = g.player;
       const lying = !!p.sleeping && p.sleeping.x === bed.head[0];
+      t.run(0.1);
       const status = document.getElementById("sleep-status").textContent;
       let t4 = null;
       t.run(6, (i) => {

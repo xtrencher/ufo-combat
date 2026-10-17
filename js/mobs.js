@@ -31,7 +31,7 @@ import { meleeCause, shooterCause } from "./damage.js";
 import { isVanilla } from "./worldtype.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
-import { makeOffers, PROFESSIONS, PROFESSION_NAMES, NITWIT } from "./trading.js";
+import { makeOffers, PROFESSION_NAMES, NITWIT } from "./trading.js";
 import { SEA_LEVEL } from "./constants.js";
 
 const GRAVITY = -26;
@@ -257,7 +257,7 @@ export const SPECIES = {
 // health, drops and experience, breeding food. (Missions worlds: SPECIES as is.)
 const VANILLA_CHANGES = {
   zombie: { health: 20, xp: [5, 5], huntsVillagers: true, drops: [[V.ROTTEN_FLESH, 0, 2, 1]] }, // (and, rarely, iron, a carrot or a potato: _vanillaDrops)
-  skeleton: { health: 20, xp: [5, 5], drops: [[V.BONE, 0, 2, 1], [V.ARROW, 0, 2, 1]] },
+  skeleton: { health: 20, xp: [5, 5], drops: [[V.BONE, 0, 2, 1], [V.ARROW, 0, 2, 1], [ITEM.BOW, 1, 1, 0.085, 0, true]] }, // (its bow: vanilla's 8.5%)
   spider: { health: 16, xp: [5, 5], drops: [[V.STRING, 0, 2, 1], [V.SPIDER_EYE, 1, 1, 1 / 3, 0, true]] },
   cow: { health: 10, xp: [1, 3], weight: 8, breed: [V.WHEAT], milk: true, drops: [[V.BEEF, 1, 3, 1, V.COOKED_BEEF], [V.LEATHER, 0, 2, 1]] },
   pig: { health: 10, xp: [1, 3], weight: 10, breed: [V.CARROT, V.POTATO, V.BEETROOT], drops: [[V.PORKCHOP, 1, 3, 1, V.COOKED_PORKCHOP]] },
@@ -1541,7 +1541,7 @@ export class MobManager {
     const dx = t.position.x - m.pos.x;
     const dz = t.position.z - m.pos.z;
     const d = Math.hypot(dx, dz) || 1;
-    if (t.damage(dmg, meleeCause(m.kind), { from: m.pos })) {
+    if (t.damage(dmg, m.spec.brain === "slime" ? "slime" : meleeCause(m.kind), { from: m.pos })) {
       t.applyImpulse(this._tmp.set((dx / d) * push, lift, (dz / d) * push));
       if (t === this.localPlayer) this.onPlayerHurt?.(m);
     }

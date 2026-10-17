@@ -671,7 +671,7 @@ export class EntitySync {
 
   _killFor(pid, kind, obj) {
     if (kind === "ufo") this.net.send(pid, { t: "kill", k: "ufo", size: obj.size, idx: obj.S?.idx ?? 0, at: vec1(obj.pos), into: obj.absorbed ? 1 : 0 });
-    else if (kind === "mob") this.net.send(pid, { t: "kill", k: "mob", kind: obj.kind, at: vec1(obj.pos), lead: obj.leaderDrop || 0 });
+    else if (kind === "mob") this.net.send(pid, { t: "kill", k: "mob", kind: obj.kind, at: vec1(obj.pos), lead: obj.leaderDrop || 0, b: obj.baby ? 1 : 0 });
     else if (kind === "jet") this.net.send(pid, { t: "kill", k: "jet", at: vec1(obj.pos), into: obj.absorbedBy ? 1 : 0, hj: obj.hijacked ? 1 : 0 });
     // (UFOs, fighters and aliens only: not every zombie or cow, on any screen.)
     if (kind === "mob" && !obj.spec?.alien) return;
@@ -713,7 +713,8 @@ export class EntitySync {
       g.audio.playNotice?.();
       g.lootFor("ufo", m.size, at, { into: !!m.into });
     } else if (m.k === "mob") {
-      const fake = { kind: m.kind, spec: { alien: /^alien/.test(m.kind) }, pos: at, leaderDrop: m.lead || null };
+      // (Round 11: its kind's spec and whether it was a baby, for its experience: xp.js killXp.)
+      const fake = { kind: m.kind, spec: specOf(m.kind) || { alien: /^alien/.test(m.kind) }, pos: at, leaderDrop: m.lead || null, baby: !!m.b };
       g.mobKilled(fake);
       const lk = g.mobLootKind(fake);
       if (lk) g.lootFor(lk[0], lk[1], at.clone().setY(at.y + 0.6), { leaderDrop: fake.leaderDrop });
@@ -769,7 +770,8 @@ export class EntitySync {
     }
     for (const e of m.m || []) {
       if (this.mobById.has(e.id)) continue;
-      const mob = g.mobs.spawn(e.kind, e.p[0], e.p[1], e.p[2]);
+      // (Round 11: its looks, the host's: a sheep's colour, a villager's trade, a baby.)
+      const mob = g.mobs.spawn(e.kind, e.p[0], e.p[1], e.p[2], { variant: Number.isInteger(e.v) ? e.v : 0, baby: !!e.b });
       if (!mob) continue;
       mob.net = { id: e.id };
       mob.yaw = e.y;
@@ -852,7 +854,7 @@ export class EntitySync {
     for (const s of m.m || []) {
       const mob = this.mobById.get(s[0]);
       if (!mob) continue;
-      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1 }, now);
+      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1, x: s[12] ?? 0, h: s[13] ?? 0 }, now);
     }
     for (const s of m.j || []) {
       const j = this.jetById.get(s.n);
@@ -943,7 +945,7 @@ export class EntitySync {
     if (f & 1 && !m.dead) {
       m.dead = true;
       m.deathTime = 0;
-      this.game.audio.playMob?.(m.kind, "death", m.pos.distanceTo(this.game.player.position));
+      this.game.mobs._voice(m, "death");
     }
     m.burning = !!(f & 2);
     m.onGround = !!(f & 4);
@@ -956,8 +958,73 @@ export class EntitySync {
     m.vel.y = st.vy ?? 0;
     // (Round 9) Its health, the host's: the same on every screen.
     if (Number.isFinite(st.hp)) m.health = st.hp * m.maxHealth;
+    // (Round 11) The vanilla states (see _mobOut).
+    const g = this.game;
+    if (!!(f & 128) !== m.baby) g.mobs.setBaby(m, !!(f & 128));
+    m.sheared = !!(f & 256);
+    m.angerT = f & 1024 ? 1 : 0;
+    m.drinkT = f & 2048 ? 1 : 0;
+    m.breedCd = f & 4096 ? 1 : 0;
+    if (f & 512) {
+      m.loveT = 1;
+      if ((m._heartT = (m._heartT ?? 0) - dt) <= 0) {
+        m._heartT = 0.8;
+        g.mobs._hearts(m, 1);
+      }
+    } else m.loveT = 0;
+    const fuse = (st.x || 0) > 0 ? st.x : 0;
+    if (fuse > 0 && !(m.fuse > 0)) g.mobs._voice(m, "hiss");
+    m.fuse = fuse;
+    m.carry = st.h | 0;
+    // (An enderman's teleport: the flash where it was and where it is.)
+    if (m.kind === "enderman" && Math.hypot(m.pos.x - ox, m.pos.z - oz) > 4 && m.interp.last) {
+      const to = m.pos.clone();
+      m.pos.set(ox, m.pos.y, oz);
+      g.mobs._teleportFx(m);
+      m.pos.copy(to);
+      g.mobs._teleportFx(m);
+    }
     const speed = Math.hypot(m.pos.x - ox, m.pos.z - oz) / Math.max(dt, 1e-3);
     if (m.walk > 0.05) m.walkPhase += Math.min(speed, 8) * dt * 1.8 + dt * 0.5;
+  }
+
+  // ---------- (Round 11) Trading, effects ----------
+
+  // Host: a guest opens a villager's trades: its offers (it stands for them a while).
+  _onTradeQuery(m, from) {
+    const mob = this._villagerFor(m, from);
+    if (!mob) return;
+    this.net.send(from, { t: "to", id: mob.id, o: encodeOffers(this.game.mobs._ensureTrades(mob)) });
+  }
+
+  // Host: a guest's trade: yes if the villager has the stock (the guest pays
+  // and takes the goods on their own screen), and the offers as they are now.
+  _onTradeRequest(m, from) {
+    const mob = this._villagerFor(m, from);
+    const ok = !!mob && Number.isInteger(m.i) && this.game.mobs.takeTrade(mob, m.i);
+    this.net.send(from, { t: "tk", id: m.id, ok: ok ? 1 : 0, o: mob ? encodeOffers(mob.trades) : [] });
+  }
+
+  _villagerFor(m, from) {
+    if (!this.net.isHost) return null;
+    const g = this.game;
+    const mob = g.mobs.mobs.find((x) => x.id === m.id);
+    const px = this.proxy(from);
+    if (!mob || mob.dead || !mob.spec.trades || !(mob.variant > 0) || !px || px.position.distanceTo(mob.pos) > 10) return null;
+    mob.tradingT = Math.max(mob.tradingT ?? 0, g.mobs.time + 8);
+    return mob;
+  }
+
+  // A status effect from the host's creature (a witch's potion) on this
+  // player: the survival systems' own, or, without them, a little damage.
+  _onEffect(m) {
+    const p = this.game.player;
+    const secs = Math.min(600, Math.max(0, Number(m.d) || 0));
+    if (typeof p.addEffect === "function") p.addEffect(String(m.n), secs, m.a | 0);
+    else if (m.n === "poison" && secs >= 1) {
+      const dmg = Math.min(4, Math.floor(p.health - 1));
+      if (dmg > 0) p.damage(dmg, "witch");
+    }
   }
 }
 

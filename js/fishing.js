@@ -259,6 +259,16 @@ export class Fishing {
       this._remove();
       return;
     }
+    // (In steps of at most 50 ms: the float's spring stays steady on a slow frame.)
+    const n = Math.min(8, Math.ceil(dt / 0.05));
+    for (let i = 0; i < n && this.bobber; i++) this._move(b, dt / n);
+    if (!this.bobber) return;
+    this.mesh.position.copy(b.pos);
+    this.light = this.world.lightAt(b.pos.x, b.pos.y + 0.2, b.pos.z);
+    this._drawLine();
+  }
+
+  _move(b, dt) {
     b.age += dt;
     const w = this.world;
     const id = w.getBlock(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z));
@@ -313,13 +323,7 @@ export class Fishing {
         if (b.onGround && !IS_SOLID[w.getBlock(Math.floor(b.pos.x), Math.floor(b.pos.y - 0.1), Math.floor(b.pos.z))]) b.onGround = false;
       }
     }
-    if (b.pos.y < -10) {
-      this._remove();
-      return;
-    }
-    this.mesh.position.copy(b.pos);
-    this.light = w.lightAt(b.pos.x, b.pos.y + 0.2, b.pos.z);
-    this._drawLine();
+    if (b.pos.y < -10) this._remove();
   }
 
   // The fish's side of it: waiting, swimming up, biting.
@@ -367,6 +371,11 @@ export class Fishing {
       arr[i * 3 + 2] = a.z + (b.z - a.z) * t;
     }
     this.line.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // Another player's bobber (online, net/fx.js): the same float.
+  remoteMesh() {
+    return new THREE.Mesh(bobberGeometry(), this.material);
   }
 
   dispose() {

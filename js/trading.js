@@ -236,6 +236,11 @@ export class TradeScreen {
     this._render(true);
     const tick = () => {
       if (!this.session) return;
+      // (The inventory screen closed, however: so does this.)
+      if (this.root?.classList.contains("hidden")) {
+        this.close();
+        return;
+      }
       this._watch();
       this._render(false);
       this._raf = requestAnimationFrame(tick);

@@ -35,6 +35,9 @@ const CLIMB_SLIDE = 3; // ...and the most it slides down (0.15 a tick)
 const LAVA_SPEED = 1.3; // swimming in lava: half the speed in water
 // Survival worlds: 15 s of breath (vanilla's 300 ticks) for the ten bubbles.
 const VANILLA_AIR_TIME = 15;
+// (Timers compare with a hair's margin: 0.05 s steps summed in floating point
+// fall just short of 0.5.)
+const TICK_EPS = 1e-6;
 // Exhaustion (vanilla): every 4 points take 1 saturation, then 1 food.
 const EXHAUST = { sprint: 0.1, swim: 0.01, jump: 0.05, sprintJump: 0.2, hurt: 0.1 };
 
@@ -442,14 +445,14 @@ export class Player {
       if (e.effect === "regeneration") {
         // (vanilla: a half-heart every 50 ticks at I, 25 at II...)
         const every = Math.max(0.05, 2.5 / (1 << (L - 1)));
-        while (e.acc >= every) {
+        while (e.acc >= every - TICK_EPS) {
           e.acc -= every;
           if (this.health < MAX_HEALTH) this.heal(1);
         }
       } else if (e.effect === "poison") {
         // (every 25 ticks at I; never below one half-heart)
         const every = Math.max(0.05, 1.25 / (1 << (L - 1)));
-        if (e.acc >= every) {
+        if (e.acc >= every - TICK_EPS) {
           e.acc -= every;
           if (this.health > 1) this.damage(1, "poison");
         }
@@ -474,7 +477,7 @@ export class Player {
     }
     if (peaceful) {
       this._peaceTimer += dt;
-      while (this._peaceTimer >= 0.5) {
+      while (this._peaceTimer >= 0.5 - TICK_EPS) {
         this._peaceTimer -= 0.5;
         this._peaceTick = !this._peaceTick;
         if (this._peaceTick && this.health < MAX_HEALTH) this.heal(1); // (a half-heart a second)
@@ -484,7 +487,7 @@ export class Player {
     const hurt = this.health < MAX_HEALTH;
     if (this.saturation > 0 && hurt && this.food >= MAX_FOOD) {
       this._foodTimer += dt;
-      if (this._foodTimer >= 0.5) {
+      if (this._foodTimer >= 0.5 - TICK_EPS) {
         this._foodTimer = 0;
         const f = Math.min(this.saturation, 6);
         this.heal(f / 6);
@@ -492,14 +495,14 @@ export class Player {
       }
     } else if (this.food >= 18 && hurt) {
       this._foodTimer += dt;
-      if (this._foodTimer >= 4) {
+      if (this._foodTimer >= 4 - TICK_EPS) {
         this._foodTimer = 0;
         this.heal(1);
         this.exhaustion += 6;
       }
     } else if (this.food <= 0) {
       this._foodTimer += dt;
-      if (this._foodTimer >= 4) {
+      if (this._foodTimer >= 4 - TICK_EPS) {
         this._foodTimer = 0;
         const d = this.difficulty;
         if (this.health > 10 || d === "hard" || (this.health > 1 && d === "normal")) this.damage(1, "starve");
@@ -1106,7 +1109,7 @@ export class Player {
     if (this.fireTime > 0) {
       this.fireTime = Math.max(0, this.fireTime - dt);
       this._burnTimer += dt;
-      if (this._burnTimer >= 1) {
+      if (this._burnTimer >= 1 - TICK_EPS) {
         this._burnTimer -= 1;
         if (!fireproof) this.damage(1, "burn");
       }

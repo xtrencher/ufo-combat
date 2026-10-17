@@ -335,7 +335,7 @@ export class Throwables {
 
   // Online (net/fx.js): a throw's kind for the wire, and the mesh another
   // player's throw of that kind is drawn with.
-  static netKind(t) {
+  netKind(t) {
     return t.kind === "egg" ? "eg" : t.kind === "snowball" ? "sb" : "ep";
   }
 
