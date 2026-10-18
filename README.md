@@ -1,12 +1,17 @@
 # UFO COMBAT
 
 A procedurally generated voxel sandbox under alien attack, running entirely
-in the browser: no install, no build step, no accounts. Build and survive in
-a block world, then take on UFOs with a bow, guns, a railgun, a laser
-minigun, homing rockets, meteor airstrikes, two fighter jets (an F-22 and an
-F-16, with missiles, flares, radar and a real runway takeoff), a B-2 stealth
-bomber that carries the nuke and, late in the game, a flying saucer of your
-own (stolen from a guarded bunker if need be). Play alone or with friends
+in the browser: no install, no build step, no accounts. There are three ways
+to play (see **Three ways to play** below). In **Missions**, the UFO war,
+you build and survive in a block world, then take on UFOs with a bow, guns,
+a railgun, a laser minigun, homing rockets, meteor airstrikes, two fighter
+jets (an F-22 and an F-16, with missiles, flares, radar and a real runway
+takeoff), a B-2 stealth bomber that carries the nuke and, late in the game,
+a flying saucer of your own (stolen from a guarded bunker if need be).
+**Survival** is normal Minecraft in a world of its own: crafting, smelting,
+mining, farming, hunger, experience, beds, and vanilla blocks, items, mobs,
+villagers and terrain. **Creative** builds and flies with everything, in
+either kind of world. Play alone or with friends
 (peer-to-peer, up to 8 players, one shared world). Built from scratch with plain JavaScript and
 [Three.js](https://threejs.org/).
 
@@ -34,10 +39,24 @@ before closing the page while you play.
 The main menu (Round 8: square corners, a blue accent, no logo over the
 flyover) has three things:
 
-- **Play** enters the world (the last world you played is continued) in the
-  mode picked right under it (**Survival** / **Creative**). The same card
-  shows the world's seed and a small **+ New world** link (a fresh world,
-  with an optional seed: a number, or any text).
+- **Play** enters the world (the last world you played is continued) the way
+  picked right under it, one of three cards:
+  - **Missions**: the UFO war (missions, loot, supply drops, vehicles, the mod
+    weapons): the game as it has always been.
+  - **Creative**: build with everything, fly, no damage, in this world.
+  - **Survival**: normal Minecraft (gather, craft, survive), in a world of its
+    own.
+
+  **Missions** and **Survival** are **world types**: a world is one or the
+  other for good. Picking the card of the other type turns Play into
+  **Continue Survival world** (your last Survival world, where you left it) or
+  **New Survival world** (a fresh one; the same for Missions). The same card
+  shows the world's seed and type ("saved Missions world", "new Survival
+  world", "saved Creative world"...) and a small **+ New world** link: pick
+  **Missions**, **Survival** or **Creative** (a Missions world started in
+  Creative, with every block, item and call-in) and an optional seed (a
+  number, or any text). A seed you already have a world for continues that
+  world, in its own type.
 - **Multiplayer** hosts a game for your friends or joins theirs (see
   **How to play with friends** below).
 - **Settings** has every option, in tabs (Graphics, Performance, Controls,
@@ -46,14 +65,17 @@ flyover) has three things:
   buttons at its top, and the graphics preset lives in its Graphics tab.
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
-Settings, Missions, Stats, Multiplayer, Copy world link, Save & main menu;
-in Creative also the **call-ins**: F-22, F-16, B-2 or a random UFO, and you
-are straight in the air at the controls of it).
+Settings, Missions (in a Missions world), Stats, Multiplayer, Copy world
+link, Save & main menu, and the **Game mode**; in Creative in a Missions
+world also the **call-ins**: F-22, F-16, B-2 or a random UFO, and you are
+straight in the air at the controls of it).
 
-- **Survival:** you start with basic gear only (a stone sword, a stone
+### Three ways to play
+
+- **Missions:** you start with basic gear only (a stone sword, a stone
   pickaxe and five apples) at 17:50 (the golden hour before sunset), and a
-  **campaign** of 26 to 30 **missions** drawn afresh for every new Survival
-  game from a pool of 34 (see below): it starts with a skeleton and its bow,
+  **campaign** of 26 to 30 **missions** drawn afresh for every new Missions
+  game from a pool of 34 (see **Missions** below): it starts with a skeleton and its bow,
   goes through jets, a meteor storm and a mothership boss, abductor ships
   hunting you, crash sites and radio beacons to hold, then the aliens'
   counterattack (fighter wings, abductors, a titan, a night of swarms, a
@@ -65,14 +87,26 @@ are straight in the air at the controls of it).
   alien leaders). The fighter jets (parked at airports) join with "Take to
   the air", alien ships with "Salvage". Watch your hearts: falls, drowning,
   zombies, aliens and your own grenades and rockets can all kill you.
-- **Creative:** every weapon in your hotbar and inventory, every block and
-  item in the tabbed **E** palette, instant mining, flight, and no damage.
+- **Survival:** normal Minecraft (see **Survival (vanilla Minecraft)**
+  below). You start with **nothing** (no starter kit), and the world is
+  vanilla: **Mods are off for that world** (no guns, explosives, UFOs, aliens
+  or vehicles; your own Mods setting is kept for your Missions worlds, and the
+  Mods switch shows locked there), no missions, supply crates, call-ins or
+  airport aircraft and guards, no Missions button in the pause menu, and its
+  land has **no airports or cities** (villages stay). Difficulty and Peaceful
+  work as everywhere.
+- **Creative:** every block and item in the tabbed **E** palette, instant
+  mining, flight, and no damage (in a Missions world also every weapon in
+  your hotbar and the pause menu's call-ins).
 
-You can switch modes at any time in the pause menu: the switch never
-changes your inventory (what you took from the Creative palette stays, and
-nothing is added or taken away). Each world remembers its mode, your
-position, inventory and health. A new world starts on flat, open, dry
-ground.
+You can switch between the world's own game and Creative at any time in the
+pause menu (**Game mode**: Missions or Creative in a Missions world, Survival
+or Creative in a Survival world, like vanilla's game mode): a Survival world
+in Creative stays a Survival world, and the switch never changes your
+inventory (what you took from the Creative palette stays, and nothing is added
+or taken away). Each world remembers its type, its mode, your position,
+inventory and health; a world saved before Round 11 is a Missions world. A
+new world starts on flat, open, dry ground.
 
 ### Controls
 
@@ -81,16 +115,21 @@ ground.
 | Move | `W` `A` `S` `D` |
 | Look around | Mouse |
 | Jump / swim up | `Space` |
-| Sprint | `Ctrl` + `W`, or double-tap `W` |
-| Sneak (slow, won't walk off edges) | `Shift` |
+| Climb a ladder or vine | Walk into it, or `Space`; `Shift` holds you in place |
+| Sprint (in a Survival world not with 6 food points or less) | `Ctrl` + `W`, or double-tap `W` |
+| Sneak (slow, won't walk off edges; in bed: get up) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
-| Place a block / use / eat (hold to eat) / fire the weapon in hand | Right click |
+| Place a block / use / eat or drink (hold) / fire the weapon in hand | Right click |
+| Use the item in hand (Survival worlds): raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball or ender pearl, fill or pour a bucket, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire with flint and steel | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
 | Open a chest (whatever is in your hand) | Right click |
+| Open a crafting table (Survival worlds) or a furnace (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
+| Sleep in a bed / set your spawn point (Survival worlds) | Right click (on the bed) |
+| Trade with a villager, milk a cow (empty bucket), shear a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand (Survival worlds) | Right click (on it, with the item) |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Select hotbar slot | `1`-`9` or scroll wheel |
-| Inventory (in Creative: every block, tool and weapon, in tabs) | `E` |
+| Inventory (in Creative: every block, tool and item, and in a Missions world every weapon, in tabs; in a Survival world with a 2x2 crafting grid) | `E` |
 | Drop the held item (whole stack with `Ctrl`) | `Q` |
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
 | Pick the targeted block (Creative) | Middle click |
@@ -114,14 +153,41 @@ Items): click to take a stack, `Shift` + click to add it to the inventory.
 slots above your inventory and the same clicks: `Shift` + click moves a stack
 between the chest and your inventory. `E` or `Esc` closes it.
 
-### Survival basics
+**Crafting** (Survival worlds): the inventory has a 2x2 **crafting grid**
+(top right; not in Creative, as in Minecraft), and a **crafting table** (right
+click on it) opens a 3x3 one. Put the ingredients in the grid's shape
+(anywhere in the grid, and mirrored left to right where that matters): the
+result shows on the right. Click it (left or right) to take one craft onto the
+mouse (again to add another of the same), `Shift` + click to craft as many as
+fit into your inventory (they go into the hotbar from its right end first, as
+in Minecraft), a number key to craft one into that empty hotbar slot, `Q` to
+craft one and throw it. At the table, `Shift` + click on your inventory moves
+a stack into the grid. Whatever is left in the grid goes back into your
+inventory when the screen closes (dropped if it is full); a milk bucket used in
+a cake leaves its empty bucket in the grid.
+
+**A furnace** (right click on it) has an input slot (top), a fuel slot
+(bottom) and the output (right), with the flame (how long the fuel burns on)
+and the arrow (the item cooking). `Shift` + click on your inventory puts what
+can be smelted into the input and fuel into the fuel slot; the fuel slot takes
+only fuel; the output only gives (all, half with the right button). Taking from
+the output gives the experience of what was smelted.
+
+## Missions
+
+The UFO war (a **Missions** world): everything in this section, and the
+**UFOs** and **Vehicles** sections further down, belongs to it. A Survival
+world has none of it (see **Survival (vanilla Minecraft)**).
+
+### Missions basics
 
 - **Health:** 10 hearts. They come back slowly on their own; food heals
   faster (apples, cooked meat). A **golden apple** heals fully and adds four
   golden hearts on top that soak damage first.
 - **Mining:** harder blocks take longer; the right tool is much faster.
   Stone and coal need a pickaxe; gold needs an iron pickaxe or better. Tools wear
-  out. There is **no crafting**: tools drop from UFOs, aliens and supply crates.
+  out. In a Missions world there is **no crafting**: tools drop from UFOs, aliens and
+  supply crates. In a Survival world you craft them (see **Crafting and smelting**).
 - **Caves and ores:** caves wind underground with coal and gold (iron and
   diamonds are gone: nothing uses them any more; old iron and diamond ore
   blocks in older worlds still break, into cobblestone). Glowing lumen
@@ -136,7 +202,7 @@ between the chest and your inventory. `E` or `Esc` closes it.
   rarely a piece of armor (less than a supply crate). A chest you place
   (Creative palette, or one you broke and picked up) starts empty. Breaking
   a chest spills what it holds. Opened chests are saved with the world.
-- **Armor** (Round 5; the shield is gone): four slots (head, chest, legs,
+- **Armor** (Round 5; a Missions world has no shield): four slots (head, chest, legs,
   feet) in four tiers (leather, gold, iron, diamond). Every defense point
   turns away 4% of the damage (up to 80%), the HUD shows an armor bar, and
   every hit wears each piece. Pick a piece up with its slot free and it is
@@ -147,13 +213,13 @@ between the chest and your inventory. `E` or `Esc` closes it.
   where you died and respawn with full health around the current mission's
   location (at the world spawn when no mission is running).
 
-### Missions, loot and supply crates (Survival)
+### Missions, loot and supply crates
 
 - **Missions:** a campaign of 26 to 30, one after another, shown top right
   with a progress bar per objective, the target's distance and direction,
   and a yellow **marker** over the target (an arrow at the screen's edge
   when it is behind you).
-- **A different campaign every game** (Round 10): each new Survival world
+- **A different campaign every game** (Round 10): each new Missions world
   draws its own. It always runs in four acts, from small to big, and the
   missions are shuffled within them, with a few optional ones sitting a game
   out, so you never know what comes next. The pool has 34 missions (the 28
@@ -235,9 +301,9 @@ between the chest and your inventory. `E` or `Esc` closes it.
   Operation Sunburn and the Titan three, Steal the ship two, Big game and the
   swarm one.
 
-  Each place in the campaign also sets the sky, and in Survival **only the
+  Each place in the campaign also sets the sky, and in Missions **only the
   missions do** (the UFO activity, spawn chance, max count and size
-  settings are Creative's and hidden in Survival): no UFOs at all for the
+  settings are Creative's and hidden in Missions): no UFOs at all for the
   first two missions of any campaign, then a single small one, then more and bigger ones (medium,
   large, motherships and, at the very end, giants), with health, damage,
   aggression and numbers growing along the chain. Every UFO carries one kind
@@ -275,7 +341,8 @@ between the chest and your inventory. `E` or `Esc` closes it.
     of that kind or stronger can drop one you missed. Otherwise aliens drop
     food, tools and golden apples, better the further you are.
   - **Chests** in villages and cities: now and then a standard weapon the
-    campaign already allows (see **Survival basics**).
+    campaign already allows (see **Missions basics**; a Survival world's
+    chests hold the classic village loot instead).
   - **Missions:** apples and golden apples only.
   - Downed UFOs and enemy fighters drop food, tools and golden apples.
 - **Supply crates:** a crate drifts down on a parachute near you, trailing
@@ -283,6 +350,9 @@ between the chest and your inventory. `E` or `Esc` closes it.
 - **Difficulty curve:** follows your place in the campaign (see above).
 
 ### Creatures
+
+These are a Missions world's creatures; a Survival world has vanilla
+Minecraft's instead (see **Mobs**).
 
 - **Fluffalo:** a shaggy, humped grazer with a cream mane. Drops fluff and raw
   meat.
@@ -312,7 +382,7 @@ a note warns next to the heavy values.
 
 ### Weapons (Mods on)
 
-Survival starts with a sword (weapons come from the lanes above); Creative
+Missions starts with a sword (weapons come from the lanes above); Creative
 has them all (the hotbar first, the rest in the inventory). With one selected, right click uses it instead of placing a
 block. Ammo is unlimited, but every gun has a **magazine and a reload
 time**, shown next to the hotbar (with a bar while it reloads). An empty
@@ -387,6 +457,361 @@ Explosions shake the camera and sound quieter, more muffled and later the
 farther away they are. Sand and gravel fall when the ground under them is
 blown away.
 
+## Survival (vanilla Minecraft)
+
+A **Survival** world (Round 11) is normal Minecraft, fitted to this game:
+vanilla's recipes, numbers, blocks, items, creatures and terrain. You start
+with nothing; everything you have, you gather, craft, smelt, farm or trade
+for, and your body works like normal Minecraft's (hunger, experience, beds).
+None of the body rules are in a **Missions** world (food heals directly and
+health comes back on its own, as always) or in **Creative**. Every new block
+and item is in the Creative palette in both world types; a Missions world's
+items, drops, bow and chests are unchanged.
+
+### Crafting and smelting
+
+(How the grid and the furnace screen work: see **Controls**.)
+
+- **Crafting** works like Minecraft's, with Minecraft's recipes: a log makes 4
+  planks (of its wood), 2 planks 4 sticks, 4 planks a crafting table; the
+  table makes the tools (wooden, stone, iron, golden and diamond swords,
+  pickaxes, axes, shovels and hoes), armor (leather, iron, gold, diamond;
+  chainmail can't be crafted, as in Minecraft), the chest, the furnace,
+  torches (coal or charcoal), the storage blocks of iron, gold, diamond,
+  emerald, lapis, redstone, coal and copper (and back to nine), nuggets and
+  ingots, the bucket, shears, flint and steel, compass, clock, bow, arrows,
+  fishing rod, paper, books, bookshelves, bread, cake, cookies, pumpkin pie,
+  golden apples and carrots, bowls, mushroom stew and beetroot soup, wool from
+  string, the bed, ladders, glass panes, iron bars, stone bricks, the shield
+  and more; the building and nature blocks add their own (stairs, slabs,
+  fences, doors...: see **Building blocks** and **Farming and growing**).
+  In a Missions world the crafting table does nothing.
+- **Smelting:** a furnace cooks one item every **10 seconds** while its fuel
+  burns: coal or charcoal 80 s (8 items), a coal block 800 s, a log or planks
+  15 s, a wooden slab 7.5 s, a stick or a sapling 5 s, a lava bucket 1000 s
+  (its bucket stays in the fuel slot)... It smelts raw iron, gold and copper
+  (and their ores) into ingots, sand and red sand into glass, cobblestone into
+  stone, stone into smooth stone, logs into charcoal, clay balls into bricks
+  and clay into terracotta, raw meat and fish into cooked, potatoes into baked
+  potatoes, and iron or gold gear back into a nugget. A burning furnace glows
+  (light 13) and keeps working while you are away (as long as its ground is
+  loaded); the experience of what it smelted waits in it until someone takes
+  from the output. Breaking a furnace drops what is in it. Furnaces are saved
+  with the world. (A furnace works in a Missions world too, from the Creative
+  palette.)
+
+### Mining and ores
+
+A Survival world's terrain is vanilla Minecraft's, fitted to this world (128
+blocks tall, the sea at 24):
+
+- **Ores** at their usual depths: coal everywhere up into the hills, iron and
+  copper common down to the sea and a little above, gold under 30 (and plenty
+  more in the badlands), lapis around 15, redstone and diamonds in the deepest
+  15 blocks, emeralds only in the mountains. Granite, diorite and andesite
+  pockets, dirt and gravel. No alien crystals.
+- **Tools:** iron, copper and lapis need a stone pickaxe; gold, diamond,
+  redstone and emerald an iron one; obsidian a diamond one.
+- **Drops, like the classic game:** iron, gold and copper ore give raw metal
+  to smelt; diamond, emerald and coal ore their diamond, emerald or coal,
+  lapis ore 4-9 lapis and redstone ore 4-5 dust. Gravel gives flint one time
+  in ten; tall grass and ferns give wheat seeds one time in eight; oak and
+  dark oak leaves sometimes an apple, all leaves sometimes sticks; a dead bush
+  gives sticks; a snow block gives four snowballs (with a shovel).
+- Mining coal, diamond, emerald, lapis and redstone ore gives **experience**
+  (see **Experience**).
+
+### The land
+
+- **Biomes:** snowy plains and taigas under a layer of snow (dig it with a
+  shovel for snowballs), frozen seas and rivers in the cold (break the ice
+  and the sea comes back; a bright lamp melts it), red sand and banded
+  terracotta in the badlands, clay in river and lake beds (4 clay balls),
+  podzol in the taiga, coarse dirt in the savanna, sugar cane by the water,
+  lily pads on the water by the swamps, pumpkin patches, melons in the jungle,
+  mushrooms in the shade and in caves, and the flowers of each biome (tulips,
+  daisies, cornflowers, alliums, bluets, blue orchids in swamps, lilies of
+  the valley).
+- **Trees:** oaks, birches and spruces as before, plus the jungle's tall
+  vine-hung jungle trees (vines fall when their trunk is cut) and giant
+  jungle trees, the savanna's bent acacias and the dark forest's dark oaks,
+  each with its own wood and leaves.
+- **No airports or cities;** the villages have vanilla touches (see **The
+  world**).
+
+### Farming and growing
+
+- Till grass or dirt with a **hoe** into farmland (water within 4 blocks
+  keeps it wet, and wet farmland grows crops faster; bare dry farmland turns
+  back to dirt). Plant **wheat seeds** (from tall grass and ferns),
+  **carrots**, **potatoes**, **beetroot seeds**, **pumpkin seeds** and
+  **melon seeds** on it. Crops grow by themselves in the light (rows grow
+  faster than square blocks), and drop seeds until ripe; ripe wheat gives
+  wheat and 1-4 seeds, carrots and potatoes 2-5 (now and then a poisonous
+  potato), beetroots a beetroot and seeds. Pumpkin and melon stems grow their
+  fruit on a free block beside them.
+- A **shovel** flattens grass into a dirt path.
+- **Bone meal** (3 from a bone) makes crops jump ahead, a sapling grow
+  (sometimes it takes two), and grass sprout tall grass and flowers around.
+- **Saplings** drop from leaves (one in 20, jungle one in 40) and grow into
+  their tree when there is room. Four dark oak saplings in a square make a
+  dark oak (one alone never grows); four jungle saplings make a giant jungle
+  tree.
+- **Leaves** more than 6 blocks from a log decay once their tree is cut;
+  leaves you place yourself never do.
+- **Sugar cane** grows 3 tall beside water (sugar from it); **cactus** grows
+  3 tall too; mushrooms spread slowly in the dark.
+- **Recipes from the land:** hay bale (9 wheat, and back), melon (9 slices),
+  seeds from melon slices and pumpkins, sugar, bone meal, the bricks block (4
+  bricks), clay (4 clay balls), snow block (4 snowballs) and snow layers,
+  packed ice (9 ice), coarse dirt, jack o'lantern (a carved pumpkin over a
+  torch: carve a pumpkin with shears).
+
+### Food, hunger and health
+
+- **Hunger:** ten drumsticks right of the hearts (20 food points), with hidden
+  **saturation** under them. Running, swimming, jumping, fighting, mining and
+  getting hurt use them up (vanilla's rates: sprinting costs 0.1 a metre,
+  jumping 0.05, a sprint-jump 0.2, a hit you land 0.1, a block 0.005; every 4
+  of these take a saturation point, then a food point). Walking is free.
+  - With **18 food points or more** you heal a half-heart every 4 s; with a
+    **full bar and saturation left**, twice a second. Below that, no healing.
+  - At **6 or less** you can't sprint. At **0** you starve, down to 5 hearts
+    on Easy, half a heart on Normal, to death on Hard. **Peaceful** refills
+    the bar and heals.
+  - When saturation runs out the drumsticks shake.
+- **Eating:** hold right click with food for 1.6 s (only when not full; a
+  golden apple always). Each food has vanilla's values (food points /
+  saturation): bread 5 / 6, steak and cooked porkchop 8 / 12.8, cooked
+  chicken, mutton and salmon 6, cooked cod and baked potatoes 5, a golden
+  carrot 6 / 14.4 (the best saturation), pumpkin pie 8, cookies 2, mushroom
+  stew and beetroot soup 6. Stews and soups leave their bowl.
+- **Side effects:** **rotten flesh** (80%) and **raw chicken** (30%) give
+  **Hunger** (green drumsticks: you get hungry fast), a **spider eye** and
+  (60%) a **poisonous potato** **Poison** (green hearts: it hurts, but never
+  below half a heart), a **golden apple** **Regeneration II** for 5 s and
+  **Absorption** (two golden hearts) for 2 minutes. Status effects show top
+  right, with the time left; they blink in their last 10 seconds. A **milk
+  bucket** (drunk like food, even with a full bar) clears them and leaves the
+  empty bucket.
+
+### Experience
+
+Green orbs from mining coal (0-2), diamond and emerald (3-7), lapis (2-5) and
+redstone ore (1-5) with the right pickaxe, killing creatures (5 for a
+monster, 12 for a baby zombie, 1-3 for an animal, nothing for a baby animal),
+smelting (when you take the furnace's output), breeding, trading and fishing.
+They fly to you within 8 blocks and fill the **XP bar** over the hotbar, with
+your **level** in green (vanilla's curve: 7 points to level 1, more for each
+level after). Dying drops 7 points a level (at most 100) as orbs where you
+died; the rest is lost.
+
+### Beds, sleeping and dying
+
+- **Beds:** right click a bed to set your **spawn point** ("Respawn point
+  set", any time of day) and, at night (from about 18:30 to 5:30), to sleep:
+  not with monsters within 8 blocks ("You may not rest now; there are
+  monsters nearby"). Asleep, the screen darkens; after 5 seconds the night is
+  skipped to the morning. `Shift` gets you up (so does being hit).
+- **Dying** shows the **NOOB!** screen and drops everything where you died,
+  as in Missions. You respawn next to your bed, with full food; if the bed was
+  broken or blocked in, at the world spawn ("Your home bed was missing or
+  obstructed"). Your experience is lost (some of it drops as orbs: see
+  **Experience**).
+
+### Lava, water, fire and other dangers
+
+- **Lava** fills the bottom of the caves (y 10 and below), and now and then a
+  lava pool lies in the open. Lava glows, burns and sets fire to wood, leaves
+  and grass near it. It flows 3 blocks over flat ground, slowly (a block every
+  1.5 s), and falls into holes. Water on a lava source makes **obsidian**, on
+  flowing lava **cobblestone**; lava pouring onto water makes **stone**.
+  Water flows 7 blocks (4 in a Missions world).
+- **Fire** (flint and steel, lava) spreads to planks, logs, leaves, wool,
+  hay, grass and flowers, burns them away and goes out once nothing is left.
+  Punch it to put it out.
+- **Getting hurt:** lava burns (2 hearts every half second) and sets you on
+  fire for 15 s, fire for 8 s (half a heart a second while burning, the
+  flames show on screen); water puts you out. A **cactus** pricks (half a
+  heart every half second you touch it), a block at your eyes
+  **suffocates**, and your breath lasts **15 seconds** under water (10
+  bubbles). Falls hurt as before (a half-heart a block beyond 3); a hay bale
+  takes 80% of it, a bed half. Armor helps against lava, fire, cactus and
+  creatures, not against falls, drowning, burning, hunger, suffocation or a
+  witch's potions.
+
+### Building blocks
+
+Every vanilla building block, with vanilla recipes (crafting table or the
+2x2 grid), hardness and tools; Creative has them all in its palette (in
+both world types).
+
+- **Wood:** planks of six woods (oak, spruce, birch, jungle, acacia, dark
+  oak), each with its **stairs** (6 planks: 4), **slab** (3 planks: 6),
+  **fence** (4 planks and 2 sticks: 3) and **fence gate** (2 planks and 4
+  sticks). Oak, spruce and birch **doors** (6 planks: 3), the oak
+  **trapdoor** (6 oak planks: 2), the **ladder** (7 sticks: 3), the
+  **bookshelf** (6 planks, 3 books).
+- **Stone:** stairs and slabs of cobblestone, stone, stone bricks, bricks,
+  sandstone and mossy cobblestone, the smooth stone slab; walls of
+  cobblestone, mossy cobblestone, stone bricks, bricks and sandstone (6: 6).
+  Stone bricks (4 stone: 4) and their mossy (with a vine), cracked
+  (smelted) and chiseled (2 stone brick slabs) kinds, smooth stone (smelted
+  stone), mossy cobblestone (cobblestone and a vine), granite, diorite,
+  andesite (diorite and cobblestone: 2) and their polished kinds (4: 4),
+  sandstone (4 sand), cut (4: 4), chiseled (2 slabs) and smooth (smelted).
+- **Iron:** the iron door (6 ingots: 3) and trapdoor (4 ingots), iron bars
+  (6 ingots: 16), the **lantern** (8 iron nuggets around a torch; light 15,
+  stands on a block or hangs under one). **Glass panes** (6 glass: 16;
+  broken, they drop nothing, like glass).
+- **Colours:** wool in 16 colours, 16 terracottas, 16 concretes and 16
+  **carpets** (2 wool of a colour: 3). Dyes aren't in yet: the coloured
+  blocks come from Creative and from villages until they are.
+- **The red bed:** 3 wool (any colour, as there are no dyes yet) over 3
+  planks: the only bed so far. Right click it to sleep (see **Beds, sleeping
+  and dying**).
+
+How they behave, as in vanilla:
+
+- **Stairs** face away from you and go upside down when placed under a
+  block or on the upper half of a block's side; next to each other they
+  turn their corners (outer and inner) by themselves, and you bump into
+  exactly what you see.
+- **Slabs** go in the lower or upper half the same way; one more of the
+  same kind on its open side makes the full block.
+- **Fences, walls, panes and bars** join their own kind, full blocks and
+  gates across them. A fence or a wall is 1.5 blocks tall: it can't be
+  jumped. An open gate is walked through.
+- **Doors** take two blocks; right click opens and closes both halves
+  (iron ones don't open by hand); breaking either half breaks the door and
+  drops one. A door placed beside another is hinged on the other side, so
+  the two open as a pair. **Trapdoors** hinge on the block you click (upper
+  or lower half by where), or lie on the floor or ceiling; right click
+  opens them. **Ladders** go on a wall's side and come off with it. A
+  **bed** takes two blocks (its foot where you click, its head beyond);
+  breaking either half takes both.
+- **Moving:** you walk up slabs and stairs (half a block) without jumping.
+  **Ladders** (and vines) are climbed by walking into them or holding
+  `Space`; `Shift` holds you in place; nothing hurts while you slide down.
+  Cobwebs hold you. (Ladders, the step up and cobwebs work in any world.)
+
+### Items and tools
+
+A Survival world has the classic game's items, with its numbers:
+
+- **Materials:** iron, gold and copper ingots and nuggets, raw iron, gold and
+  copper (smelt them), diamonds, emeralds, lapis lazuli, redstone dust,
+  flint, charcoal, leather, feathers, string, bones, gunpowder, slimeballs,
+  paper, books, glass bottles and bowls.
+- **Tools:** golden tools (the fastest of all, but they break after 32 uses
+  and mine only what wood can), hoes of every material (right click turns
+  grass or dirt into farmland), **shears** (cut leaves, wool, cobwebs, vines
+  and grass fast and keep them whole; carve a pumpkin; shear sheep),
+  **flint and steel** (sets fire to the face you click; 64 uses).
+- **Buckets:** an empty bucket picks up a water or lava source (not flowing
+  water), a water bucket pours a new source, a lava bucket pours lava; milk a
+  cow with an empty bucket. Buckets stack to 16 when empty. In Creative a
+  full bucket stays full.
+- **The bow takes arrows:** one arrow a shot, from your inventory (no
+  arrows, no draw); an arrow stuck in a block can be picked up again for a
+  minute. In Creative no arrows are needed (and none are left to pick up);
+  in a Missions world the bow never runs out, as before.
+- **Fishing:** right click with a fishing rod casts the bobber; where it
+  lands in water, wait (5-30 s, slower under a roof): bubbles come in, the
+  bobber dips with a splash, and a right click within a second or two reels
+  in a catch (mostly cod and salmon, sometimes junk such as a bowl, leather,
+  a bone or an old pair of boots, rarely a bow or a fishing rod from open
+  water) that flies to you with a little experience. Reeling in from the
+  ground costs the rod two uses, a catch one (64 uses in all).
+- **Thrown items:** eggs (a chick hatches one time in eight), snowballs and
+  **ender pearls** (you are taken where it lands, for 5 damage; one a second).
+  Eggs and pearls stack to 16.
+- **Compass and clock:** in hand, the compass's needle points to the world
+  spawn and the clock's dial shows the sun or the moon.
+- **Chainmail armor** (2/5/4/1 points, an iron set's wear; not crafted: an
+  armorer sells it) and the **shield**: hold right click with it for a quarter of a
+  second and it turns away blows, arrows and shots from in front (the half
+  you face); a hit of 3 or more wears it by 1 + the damage. Flint and steel,
+  a fishing rod and a shield wear only by their own use, not by breaking
+  blocks or hitting.
+- **Village chests** hold the classic village loot: bread, apples, potatoes,
+  emeralds, iron and gold ingots, now and then diamonds, iron tools and armor
+  (a smith's), wool and shears (a shepherd's), fish (a fisherman's), and so
+  on.
+
+### Mobs
+
+A Survival world has vanilla Minecraft's creatures instead of the Missions
+world's (no fluffalos, hoplets, mossbacks or butterflies there):
+
+- **By night and in the dark** (no torch light at all, as in vanilla):
+  **zombies** (rotten flesh; rarely iron, a carrot or a potato; one in twenty
+  is a fast **baby zombie**; they go after villagers too), **skeletons**
+  (bones, arrows, now and then their bow), **spiders** (string, spider eyes;
+  calm in daylight unless hit), **creepers**, **endermen** and **witches**.
+  Zombies and skeletons burn in the sun.
+- **Creeper:** walks up silently; within 3 blocks it hisses, swells and
+  flashes for 1.5 s, then bursts: a crater, the blocks it blew away (a third
+  of them drop), and heavy damage close by. Get more than 7 blocks away (or
+  out of its sight) and it calms down. Drops gunpowder.
+- **Enderman:** tall, black, neutral. **Don't look it in the eyes** (the
+  crosshair on its head): it screams and comes for you fast, teleporting
+  closer. It dodges arrows and bullets (teleports away unhurt), hates water,
+  and picks up and puts down blocks (grass, dirt, sand, flowers, pumpkins...).
+  Drops an ender pearl.
+- **Slime:** hops in swamps at night, and deep underground in "slime
+  chunks" (one chunk in ten) at any time. A big one splits into medium ones,
+  a medium one into small ones; only the small ones drop slime balls.
+- **Witch:** keeps her distance and throws splash potions (poison, harming,
+  slowness), and drinks a healing potion when hurt. Drops odds and ends
+  (glass bottles, redstone, gunpowder, spider eyes, sugar, sticks).
+- **Animals:** **cows** (beef, leather; **right click with a bucket for
+  milk**), **pigs** (porkchops), **chickens** (chicken, feathers; they lay an
+  **egg** every 5-10 minutes) and **sheep** (mutton and their wool: mostly
+  white, sometimes grey, black, brown, very rarely pink). **Shears** on a
+  sheep give 1-3 wool of its colour; it grows back when the sheep eats grass
+  (which turns to dirt). Animals that die burning (fire, lava) drop their
+  meat cooked. **Cod** and **salmon** swim in the sea and the rivers.
+- **Breeding:** hold an animal's food and it follows you (cows and sheep:
+  wheat; pigs: carrots, potatoes, beetroot; chickens: seeds). Feed two of a
+  kind and they fall in love (hearts) and have a **baby**, which grows up in
+  20 minutes (feeding it speeds that up); breeding gives experience. A parent
+  can breed again after 5 minutes. Animals you bred, fed or shore stay where
+  they are when you walk away, and are saved with the world.
+- **Wolves** live in packs in forests and the taiga. Hit one and the pack
+  comes for you; wild wolves hunt sheep and skeletons. **Tame one with bones**
+  (each has a one-in-three chance): it gets a red collar and sits; right
+  click to make it stand or sit. A tame wolf follows you (teleporting to you
+  when you get far ahead), fights whatever hurts you and whatever you hit
+  (never a creeper), heals with meat and, healthy, breeds with meat too (the
+  pups are yours as well).
+- **Spawn eggs** (Creative): one for each of these creatures (the villager
+  and the iron golem too); right click a block to make it there.
+
+(Differences from vanilla, kept on purpose: no drowned, husks, strays or cave
+spiders yet; mobs spawn one at a time, not in packs; the night's monster cap
+is 20 per player, which in the area the game keeps loaded is as busy as
+vanilla's 70.)
+
+### Villagers and trading
+
+- **Villagers** (farmers, librarians, armorers, toolsmiths, butchers,
+  clerics, fishermen, shepherds, fletchers, cartographers, masons,
+  leatherworkers, weaponsmiths; each dressed for the trade) **trade**: right
+  click one to see its offers beside your inventory. Click an offer to trade
+  once (the price leaves your inventory, the goods come in), shift-click for
+  as many as you can. **Emeralds** are the money: a farmer pays one for 20
+  wheat, a cleric for 32 rotten flesh, an armorer sells iron armor for
+  emeralds... Each offer has a stock that comes back now and then. (Nitwits,
+  in green, don't trade.) Trading gives experience.
+- An **iron golem** guards each village: it fights every monster near it
+  (not creepers) and anyone who hurts a villager.
+
+(Differences from vanilla, kept on purpose: villagers have no levels or
+experience of their own and offer the trades of their first three levels at
+once, at fixed prices; they don't keep their trades after a reload (only bred
+or tamed animals are saved).)
+
 ## How to play with friends (multiplayer)
 
 Up to **8 players**, free, with no account and no server of your own: the
@@ -399,13 +824,19 @@ plain static site (GitHub Pages).
 
 1. Open the game and press **Multiplayer** (on the main menu, or in the
    pause menu during a game: Esc > Multiplayer).
-2. Type your **nickname**, pick **Survival**, **Creative** or **Dogfight**,
-   and press **Open room**.
+2. Type your **nickname**, pick the mode (in a Missions world **Missions**,
+   **Creative** or **Dogfight**; in a Survival world **Survival** or
+   **Creative**), and press **Open room**.
 3. You get a 5-character **room code** (like `K7MPQ`). Send it to your
    friends, or press **Copy invite link** and send them the link.
 4. Press **Play**. Your current world becomes the shared world. It stays
    yours: it is saved on your computer as usual, with everything your
    friends build in it.
+
+The room plays the host's world, and so its type: guests in a Survival room
+play normal Minecraft (empty-handed when new, Mods off for everyone), guests
+in a Missions room the UFO war. Dogfight needs a Missions world (jets and
+guns).
 
 The host is in charge: only the host picks the **game mode** (Esc >
 Multiplayer, any time) and the **game settings** for everyone (Settings:
@@ -437,7 +868,7 @@ keeps running there (it just isn't drawn).
 
 ### Modes
 
-- **Survival together:** one mission chain for the whole group, the host's.
+- **Missions together:** one mission chain for the whole group, the host's.
   Everyone's kills and deeds count toward the objectives (the tracker, the
   yellow marker and the boss bar show the same mission to everyone), and a
   finished mission **rewards every player**. The campaign is the host's:
@@ -466,6 +897,17 @@ keeps running there (it just isn't drawn).
   whole group is down at the same time. A dead player respawns around the
   current mission's location (see Missions above; outside a mission, at the
   world spawn) or **next to a friend**.
+- **Survival together** (a Survival world): normal Minecraft for everyone in
+  the host's world; no missions, UFOs or mod weapons. Each player has their
+  own hunger, effects, XP and bed (the host keeps a guest's between visits).
+  XP orbs are your own: only the player who mined, killed, smelted, bred or
+  traded sees and picks them up. Everyone in the game must be asleep to skip
+  the night (the dead don't count): the screen says "1/2 players sleeping",
+  and the others see you lying in your bed. The host's computer runs every
+  creature: guests see them as they are (a sheep's colour and wool, babies, a
+  creeper swelling, an enderman's block) and can shear, milk, feed, breed,
+  tame and trade with them like the host (the host keeps each villager's
+  stock, so two players can't buy the same last item).
 - **Damage online (Round 9):** every weapon works the same for the host and
   the guests, on foot or in a vehicle, against every kind of target:
   creatures, aliens, soldiers, UFOs, enemy fighters, other players (with
@@ -480,7 +922,7 @@ keeps running there (it just isn't drawn).
   UFO" (Mods screen) asks the host's game for it. Everyone can use the
   pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
   air): the others see the aircraft and who flies it. Switching between
-  Creative and Survival never changes anyone's inventory.
+  Creative and Missions (or Survival) never changes anyone's inventory.
 - **Dogfight:** everyone flies an F-22, all against all. After a countdown
   everyone is put in a jet high over the arena; shoot the others down with
   the cannon and missiles (flares and rolling away still work). A
@@ -495,7 +937,7 @@ keeps running there (it just isn't drawn).
 ### While playing
 
 - Every player's **nickname** floats over them (and over their aircraft),
-  with their health in Survival and the distance when they are far.
+  with their health (outside Creative) and the distance when they are far.
 - Hold **Tab** for the scoreboard: the players and their pings (in a
   Dogfight, kills and deaths).
 - The top-left corner shows the mode, the room code, the players and (for
@@ -510,6 +952,10 @@ keeps running there (it just isn't drawn).
 - **Chests** are the host's: everyone sees the same contents, two players
   can have the same chest open at once and see each other's clicks, and
   what a broken chest held drops for everyone.
+- **Furnaces** are the host's too: everyone sees the same furnace (two
+  players can use one at once), it smelts at the host's world (also near a
+  guest far from the host), and the one who takes from the output gets the
+  experience. Crafting happens in your own inventory (nothing to wait for).
 - At the end of a **Dogfight** the results screen frees the mouse and its
   buttons work (new match, close).
 - To try it alone, open the game in **two browser tabs or windows** on one
@@ -559,6 +1005,13 @@ a message type, `mp.net.toAll(msg)` sends to everyone (through the host),
 a joining player gets, and `mp.addModule({ start, update, stop,
 playerJoined, playerLeft })` runs alongside the game's own modules (`mp` is
 `window.__ufo.mp`).
+
+New blocks and items go in a content module (`js/content/*.js`, listed in
+`js/content/index.js` with its id ranges): block and item definitions,
+texture and icon painters, mesh shapes (a box helper lights and shades them
+like cubes), recipes, and handlers for right clicks on a block or with an
+item, random ticks and drops. A module imports only `js/content/base.js`;
+edits its handlers make travel online like a player's.
 
 ## UFOs (Mods on)
 
@@ -640,7 +1093,7 @@ the world, including the one you're sitting in.
 Board a UFO that came down in one piece, or one of the small ships that
 sometimes hover in the hall of a **secured underground bunker** at an
 airport (armed human guards stand watch and open fire when you enter the
-restricted zone; in Survival boarding works from the "Salvage" mission;
+restricted zone; in Missions boarding works from the "Salvage" mission;
 before that they are locked), or in Creative spawn one from the
 **Mods** screen (any shape and size). It has no physics limits (and no ceiling: fly as high as you like): it hovers
 perfectly still and moves instantly in any direction. The camera keeps the
@@ -682,7 +1135,7 @@ taxiway (nothing is parked in front of it): get in and taxi straight out. And a
 hangar): in its own spot on the apron, or (Round 9) where
 the apron has no room for its wing, on the runway just past the end of the
 apron, lined up for takeoff. Walk up to one and press **F** (the B-2 near
-the middle of its wing). In Survival that works from "Take to the air" (the
+the middle of its wing). In Missions that works from "Take to the air" (the
 marker points at the nearest parked fighter; **F3** shows the nearest airport);
 the B-2, and with it the nuke, from Operation Sunburn (a locked aircraft's
 message names that mission's number in your campaign).
@@ -844,11 +1297,16 @@ default).
 ## Mods
 
 **Mods** (the button at the top of Settings) switches all the UFO COMBAT content on
-or off. It's on by default. Off gives plain vanilla survival and creative:
-no guns, explosives, vehicles, UFOs or aliens (swords and tools stay).
-Switching mid-game is instant and clean: mod items are put away and come
+or off. It's on by default. Off takes the UFO war out of a Missions world:
+no guns, explosives, vehicles, UFOs or aliens (swords and tools stay; for
+normal Minecraft, with crafting, hunger and vanilla mobs, make a Survival
+world). Switching mid-game is instant and clean: mod items are put away and come
 back to the same slots when you switch mods on again; projectiles, UFOs,
 aliens and vehicles leave the world.
+
+A **Survival world** never has Mods: in one, the switch shows off and locked
+(with a note), whatever your setting, which stays yours for your Missions
+worlds.
 
 ## Graphics and performance
 
@@ -921,15 +1379,22 @@ filled up by big world saves can't stop them from being saved.
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, stats on the HUD (off); **Creative only:** creatures spawn (on), time of day and lock |
 | Weapons | Laser blaster color Red / Green / Blue (Red), nuke effects intensity Low / Medium / **High**. **Creative only:** grenade and bazooka blast size (1x); airstrike: meteors per strike 1-40 (7), spread 0-80 (22), delay 1-20 s (5 s), fall angle 0-70 degrees (35), fall speed 30-250 (95), meteor blast size (1x); nuke size 12-200 (96) |
 | Mobs | **(Creative only)** Zombie spawn rate Off to APOCALYPSE (1x), max zombies 0-400 (8), zombie health and damage 0.25-5x (1x), daylight zombies (off) |
-| UFOs | (**All of this tab is Creative only**: in Survival the mission chain sets the sky.) UFO activity Off to UFO APOCALYPSE (Occasional); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
-| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on; the only one Survival keeps), jet top speed 288-2520 km/h (1080), cannon aim assist (on), patrol fighters 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
+| UFOs | (**All of this tab is Creative only**: in Missions the mission chain sets the sky.) UFO activity Off to UFO APOCALYPSE (Occasional); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
+| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on; the only one Missions keeps), jet top speed 288-2520 km/h (1080), cannon aim assist (on), patrol fighters 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
 
-**Survival fixes the rules of the game.** Every setting that changes weapon stats, creature or UFO numbers and strength, vehicle performance or the clock (marked *Creative only* above) is hidden in Survival, and in Survival the game uses their defaults whatever was set in Creative (switch modes in the pause menu and your Creative values come back). Survival keeps graphics, performance, controls, audio, difficulty, the stats overlay, the blaster color, the nuke's visual intensity and the jet's flight assist.
+**Missions and Survival fix the rules of the game.** Every setting that changes weapon stats, creature or UFO numbers and strength, vehicle performance or the clock (marked *Creative only* above) is hidden outside Creative, and there the game uses their defaults whatever was set in Creative (switch modes in the pause menu and your Creative values come back). Missions and Survival keep graphics, performance, controls, audio, difficulty, the stats overlay, the blaster color, the nuke's visual intensity and the jet's flight assist.
 
 Heavy values show a short performance note next to the slider (for example
 hundreds of zombies, or a long full-detail distance).
 
 ## The world
+
+(Round 11) This is a Missions world's land: its terrain, ores, trees and
+water are exactly as before Round 11 (its old saves look the same), and the
+new blocks and items are in its Creative palette. A Survival world has the
+same scale, landforms and villages, but vanilla's ores, lava, frozen water,
+biomes and trees, and no airports or cities (see **Survival (vanilla
+Minecraft)**).
 
 A world at the scale of classic block games, 128 blocks tall, now with very
 different landforms: continents and big oceans; **mountain ranges** with bare
@@ -941,7 +1406,7 @@ flowery **meadows** with a lone tree here and there, deserts as flat as a
 table, room for the jets and the fights); rivers; and big biomes (forests, plains, taigas,
 snowy lands, **much larger deserts and jungles** (the jungle has giant old
 oaks), savannas, swamps, badlands, meadows), with caves, coal and gold, and
-glowing crystals underground. (Iron and diamonds are gone.) Forests and meadows alternate: oaks with irregular crowns and
+glowing crystals underground. (Iron and diamonds are gone from a Missions world.) Forests and meadows alternate: oaks with irregular crowns and
 branches, pale birch groves, dark pine woods on the hills, and rare huge old
 oaks with roots spreading over the ground. On High and Ultra the ground
 comes alive with grass, reeds along the water, ferns in the shade of trees,
@@ -950,8 +1415,12 @@ and flowers.
 **Villages** (Round 8: bigger: a cobbled plaza with a well, gravel streets,
 six to ten houses with windows, farm plots, lamp posts, up to five villagers;
 Round 10: wall torches inside every house and beside every door, and a
-**chest** with loot in about half the houses, one more in the biggest), and
-much bigger **airports and cities**, are rarer (and spread far apart), except for one regular
+**chest** with loot in about half the houses, one more in the biggest;
+Round 11, in Survival worlds, vanilla touches: oak double doors in the
+doorways, a bed (and a carpet) in more than half the houses, glass panes in
+the windows, stair-edged roofs, fence posts under the well's roof and
+farmland with wheat in the farm plots, while a Missions world's villages are
+as before), and much bigger **airports and cities** (Missions worlds only), are rarer (and spread far apart), except for one regular
 airport close to where a new world starts (**F3** shows the nearest). The land is levelled under them, distant terrain
 included. **Airports** come in three sizes (small field, regional,
 international) with runways from 600 to 920 blocks long and 18-26 wide, an
@@ -1004,11 +1473,20 @@ generates the same terrain.
   `?seed=NUMBER` to the page's URL, e.g. `https://your-deployment-url/?seed=12345`.
 - Opening the game without `?seed=` continues the last world you played (a
   random new one on the first visit); use **+ New world** for a fresh one.
+- A Survival world's **Copy world link** carries its type (`&type=survival`):
+  a friend who opens it makes a Survival world from that seed (someone who
+  already has a world with that seed continues their own, in its own type).
 
 Your block edits, position, inventory and settings are saved in your
 browser's local storage, per seed, on your device only. Other players who
 open the same seed link get the untouched world. Creatures and items lying
-on the ground aren't saved.
+on the ground aren't saved (except, in a Survival world, the animals you
+bred, fed, shore or tamed); chests and furnaces keep their contents.
+
+Worlds from older versions open unchanged, with every block edit. A world
+saved with one of the new (Round 11) blocks in it is saved in a newer format
+that older versions of the game can't read; worlds without them stay
+readable by older versions too.
 
 ## Running locally
 
@@ -1194,7 +1672,7 @@ thread's byte for byte:
 
 - `round6-tests.mjs`: the Round 6 features in the real game: the fullscreen
   control and the cancelled shortcuts, the bow, laser pistol and UFO limits,
-  skeleton arrows at point blank, Survival's locked rule settings, no jet
+  skeleton arrows at point blank, Missions' locked rule settings, no jet
   calls, air brakes (speed, turn, stall, the panels), rolling out of a
   missile, full control during a lock and the salvo charge, UFOs with no
   ceiling, the tractor beam pulling in UFOs and jets, the lock-on salvo, the
@@ -1209,7 +1687,7 @@ thread's byte for byte:
   aircraft only, attackers first, the camera following the target), the jet
   picker and the F-16, patrol fighters, UFO health, the tractor beam, one
   crew kind per UFO, muzzles, bunker UFOs, the UFO camera, held dash and
-  ship weapons, the Survival opening played through (skeleton, bow, landing,
+  ship weapons, the Missions opening played through (skeleton, bow, landing,
   crate, scout), reloads, armor, the chain's locks and rewards, and the
   parrot. About 3 minutes; `--only=word` and `--from=word` as below.
 - `round3-tests.mjs`: the Round 3 features in the real game: UFO shots that
