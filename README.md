@@ -120,10 +120,11 @@ new world starts on flat, open, dry ground.
 | Sneak (slow, won't walk off edges; in bed: get up) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
 | Place a block / use / eat or drink (hold) / fire the weapon in hand | Right click |
-| Use the item in hand (Survival worlds): raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball or ender pearl, fill or pour a bucket, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire with flint and steel | Right click |
+| Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball or ender pearl, fill or pour a bucket, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire with flint and steel | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
 | Open a chest (whatever is in your hand) | Right click |
 | Open a crafting table (Survival worlds) or a furnace (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
+| Open or close a door, trapdoor or fence gate (not an iron one) | Right click |
 | Sleep in a bed / set your spawn point (Survival worlds) | Right click (on the bed) |
 | Trade with a villager, milk a cow (empty bucket), shear a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand (Survival worlds) | Right click (on it, with the item) |
 | Reload the weapon in hand | `R` |
@@ -186,8 +187,9 @@ world has none of it (see **Survival (vanilla Minecraft)**).
   golden hearts on top that soak damage first.
 - **Mining:** harder blocks take longer; the right tool is much faster.
   Stone and coal need a pickaxe; gold needs an iron pickaxe or better. Tools wear
-  out. In a Missions world there is **no crafting**: tools drop from UFOs, aliens and
-  supply crates. In a Survival world you craft them (see **Crafting and smelting**).
+  out. In a Missions world there is **no crafting**: tools drop from UFOs,
+  aliens and supply crates. In a Survival world you craft them (see
+  **Crafting and smelting**).
 - **Caves and ores:** caves wind underground with coal and gold (iron and
   diamonds are gone: nothing uses them any more; old iron and diamond ore
   blocks in older worlds still break, into cobblestone). Glowing lumen
@@ -463,7 +465,8 @@ A **Survival** world (Round 11) is normal Minecraft, fitted to this game:
 vanilla's recipes, numbers, blocks, items, creatures and terrain. You start
 with nothing; everything you have, you gather, craft, smelt, farm or trade
 for, and your body works like normal Minecraft's (hunger, experience, beds).
-None of the body rules are in a **Missions** world (food heals directly and
+There are no UFOs, missions, mod weapons or vehicles (see **Three ways to
+play**). None of the body rules are in a **Missions** world (food heals directly and
 health comes back on its own, as always) or in **Creative**. Every new block
 and item is in the Creative palette in both world types; a Missions world's
 items, drops, bow and chests are unchanged.
@@ -1541,9 +1544,11 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has twenty-one test suites (`cd tools && npm install && npm test`
-runs them all; `npm run test:r10` just the Round 10 ones; the browser tests
-need a Chromium binary, set with the `CHROMIUM_PATH` environment variable).
+`/tools` has twenty-nine test suites (`cd tools && npm install && npm test`
+runs the twenty-one older ones; `npm run test:r10` just the Round 10 ones;
+the eight Round 11 suites run on their own, `node r11-modes-tests.mjs` and so
+on; the browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
+environment variable).
 `chaos-tests.mjs` takes 400 random steps (missions, modes, vehicles, blasts,
 screens, saves, respawns) looking for errors; `perf-tests.mjs` checks the
 streaming budget and that worker-built chunks and meshes match the main
@@ -1648,6 +1653,105 @@ thread's byte for byte:
   a gentle bump on the runway stops the jet and leaves both nearly intact; a
   taxiing scrape dents both and destroys neither. About a minute.
 
+- `r11-modes-tests.mjs` (Round 11): the three ways to play. A new Missions
+  world as before (the starter kit, the missions, Mods on) and the main
+  menu's three cards; a new Survival world made from the New World screen:
+  empty-handed, Mods off for it (the setting untouched, the switch locked),
+  no missions, crates, UFOs, aliens, vehicles or call-ins, no Missions
+  button, and no airports or cities in its terrain; Creative and back keeps
+  it a Survival world, and its type survives a reload (the save's, not the
+  link's); an old save without a type loads as a Missions world; the other
+  type's card opens the last world of that type. Online (a host and a guest
+  through a local PeerJS server): a Survival room gives the guest a Survival
+  world with Mods off and offers only Survival and Creative (no Dogfight); a
+  Missions room is as before. `--solo` skips the online part.
+- `r11-engine16-tests.mjs` (Round 11): the 16-bit block ids and the content
+  registries in the real game, with the test-only Debug Block and Debug Slab
+  (`js/content/debug.js`): placed by a right click, meshed in the workers
+  byte for byte like the main thread, lit, stood on (the slab's half-height
+  collision), block use, item use and placeAs, random ticks, broken into an
+  item, picked up and placed again, saved and reloaded, an old (byte-format)
+  save, the distant terrain's colour; with `--mp` the join snapshot and live
+  edits both ways between a host and a guest. About 4 minutes (6 with `--mp`).
+- `r11-crafting-tests.mjs` (Round 11): crafting and smelting in a Survival
+  world. The inventory's 2x2 grid (a log into planks, planks into sticks,
+  four planks into a crafting table, a shapeless recipe in any slot, the
+  result onto the mouse, shift-click crafting as many as fit into the
+  hotbar's end first, what is left going back into the inventory on
+  closing); the crafting table's 3x3 grid (a wooden pickaxe, an axe
+  mirrored, a recipe shifted in the grid, a milk bucket's bucket left
+  behind); a Missions world with no grid and a crafting table that opens
+  nothing; the furnace (placed facing the player, raw iron and coal into an
+  ingot after 10 s of game time, the burn times, the lit block and its light,
+  the experience on taking the output, the fuel slot refusing what doesn't
+  burn, its contents kept through a reload and dropped when it is broken).
+  Online, a guest uses the host's furnace (fills it, the host smelts, the
+  guest takes the output and its experience; a stale click is refused);
+  `--solo` skips that.
+- `r11-building-tests.mjs` (Round 11): the building blocks. Stairs placed
+  facing away from the player and upside down on a side's upper half or
+  under a block; vanilla stair corners in the shape and the collision; a
+  slab onto its other half making the full block (not across kinds); a door
+  placing both halves, opening both, breaking either taking both and
+  dropping one door, the second of a pair hinged right, an iron door that
+  doesn't open by hand; fence, gate and wall connections and heights (a
+  fence 1.5 tall, a slab stood on at half height, an open gate walked
+  through); a bed's two cells and the sleep hook; a ladder and a hanging
+  lantern coming off with their block; every shape meshed byte for byte the
+  same in a worker and on the main thread; icons and 3D item models for
+  every building block; every building recipe resolving; in Node, a
+  Survival world's village with doors, beds and panes and a Missions world's
+  with none of the new blocks (`--nobrowser` runs only that).
+- `r11-nature-tests.mjs` (Round 11; Node only, a few seconds): a Survival
+  world's terrain (ores at their depths, lava lakes and pools, frozen water,
+  snow, red sand, the new trees and their vines, lily pads), a Missions
+  world's terrain hashing as before Round 11, lava flowing and drying, lava
+  and water (obsidian, cobblestone, stone), water's reach (7 or 4), tilling,
+  planting and crops growing and dropping, bone meal and saplings (the 2x2
+  dark oak), leaf decay, sugar cane and stems, fire spreading and burning
+  out, the blocks' shapes and drops.
+- `r11-items-tests.mjs` (Round 11; about 2 minutes): in a new Survival
+  world, every vanilla item has a name, a painted icon and its stack size and
+  the foods their classic values; a bucket picks up a water source and pours
+  it back; flint and steel sets fire; the bow takes one arrow a shot (none in
+  Creative) and a stuck arrow is picked up again; a fishing rod casts into
+  water and a forced bite reels in a catch; an ender pearl takes you where it
+  lands (5 damage) and an egg is thrown; shears cut leaves whole, golden
+  tools mine at gold's speed and the ores drop raw metal and gems; a village
+  chest holds the classic village loot; the compass and the clock turn in
+  hand. Then a Missions world: the bow needs no arrows and ores and chests
+  are as before.
+- `r11-survival-tests.mjs` (Round 11): a Missions world keeps today's rules;
+  in a Survival world, sprinting drains food over distance, starving stops
+  at each difficulty's floor (Peaceful refills), regeneration needs 18 food
+  points, bread restores 5 / 6 through a held right click, a golden apple's
+  effects, poison's floor and a stew's bowl, a mined coal ore's XP orbs fill
+  the bar (vanilla's curve), death drops 7 a level, milk clears the effects
+  (and gives its bucket back), a raised shield stops a blow from in front, a
+  witch's potion goes through armor, a baby zombie gives 12 XP, sleeping at
+  night skips to the morning and sets the spawn (and not by day or with
+  monsters near; a broken bed sends you to the world spawn), lava, burning,
+  water, cactus and suffocation damage, 15 s of air, the step up onto a
+  slab, ladder climbing, and a reload keeps it all. `--online`: a host and a
+  guest must both sleep (the count shows), the host skips the night and the
+  guest wakes.
+- `r11-mobs-tests.mjs` (Round 11): a Survival world's mobs. Its spawners
+  make only vanilla kinds (creepers, endermen, slimes and witches do spawn at
+  night, no monster in daylight in the open); a creeper near the player
+  swells and bursts, breaking blocks and hurting the player; a sheep is shorn
+  and its wool grows back as it eats grass; two cows fed wheat have a calf
+  that grows up, a cow gives milk; an enderman stared at gets angry and
+  dodges a shot; a big slime splits; a spawn egg works; a villager's trade
+  swaps the items; a wolf tamed with bones sits, follows and defends its
+  owner; Survival drops (rotten flesh, cooked meat from a burning cow); a
+  Missions world's mob set and drops are today's. Online (a host and a
+  guest): the guest sees the host's mobs as they are, shears, feeds, trades
+  and tames through the host, and a creeper's blast reaches the guest.
+  `--solo` skips the online part.
+
+All the Round 11 suites take `--only=substring`; the browser ones, like the
+others, fail on any console or page error.
+
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client
   and real WebRTC data channels, through a local PeerJS signaling server
@@ -1699,7 +1803,9 @@ thread's byte for byte:
   changes, corrupted or missing data, a full browser storage, two open tabs,
   a lost graphics context. About 5 minutes.
 - `unit-tests.mjs`: fast Node tests of the pure logic (save format, the
-  voxel light engine against a brute-force reference, terrain, caves, trees
+  voxel light engine against a brute-force reference, the 16-bit block ids
+  (wide edits, old saves, unreadable data failing loudly, light, meshing and
+  collision of a 16-bit block), terrain, caves, trees
   and water, mining rules, inventory, collision, explosion falloff,
   distant-terrain meshes, airports and cities, the mission chain (the
   classic order, and 200 random campaigns checked against every ordering
@@ -1750,6 +1856,19 @@ subpath only, like GitHub Pages.
   `js/trees.js`, ground plants from `js/grass.js`.
 - Block textures (32x32), item icons and mob skins are painted pixel by
   pixel in code (`js/textures.js`, `js/itemtextures.js`, `js/mob-models.js`).
+- Block ids are 16-bit (chunks are `Uint16Array`s; 0-255 the original
+  blocks, 256-1023 items, 1024-4095 new blocks; `js/content/base.js`). New
+  blocks, items, textures, icons, mesh shapes, recipes and behaviours (block
+  and item use, random ticks, drops) live in content modules, one per area,
+  in `js/content/`; `js/content/index.js` documents what a module may export
+  and checks each keeps to its id range. The tables are built once at load,
+  the same on the main thread and in the workers.
+- A world's type (Missions or Survival) is fixed for its life
+  (`js/worldtype.js`); the systems that differ ask `isVanilla()`: crafting
+  and smelting (`js/crafting.js`, `js/furnace.js`), hunger, effects and the
+  body (`js/survival.js`, `js/player.js`), experience (`js/xp.js`), beds
+  (`js/sleep.js`), the vanilla mobs and trades (`js/mobs.js`,
+  `js/trading.js`), and the terrain.
 - All sounds are synthesized with the Web Audio API (`js/audio.js`).
 - Multiplayer is peer-to-peer WebRTC through PeerJS (loaded only when
   used), host-authoritative, in `js/net/`: the session and rooms
