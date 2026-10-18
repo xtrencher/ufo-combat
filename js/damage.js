@@ -83,6 +83,7 @@ export const DEATH_MESSAGES = {
   poison: "Killed by magic", // (poison never kills on its own: only with something else)
   ender_pearl: "Hit the ground too hard",
   tnt: "Blown up by TNT",
+  bed: "Killed by [Intentional Game Design]", // (Round 12: a bed used in the Nether or the End, vanilla's message)
   tnt_fall: "Blown off your feet by TNT",
   creeper: "Blown up by a creeper",
   creeper_fall: "Blown off your feet by a creeper",

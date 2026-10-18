@@ -517,7 +517,7 @@ export class CoopSync {
     const you = p && this.guestData ? this.guestData[p.nick.toLowerCase()] || null : null;
     const hp = g.player.position;
     // (What every player has: a joiner who has more leaves it unchanged, so no "gown" would follow.)
-    return { you, host: g.player.dead || g.vehicles.active ? null : vec1(hp), mis: { ...this._missionState(), ...this._chainState() }, gown: this.groupOwned ? [...this.groupOwned] : null };
+    return { you, /* (Round 12: a new guest starts beside the host in the Overworld only) */ host: g.player.dead || g.vehicles.active || (g.dims && g.dims.dim !== "overworld") ? null : vec1(hp), mis: { ...this._missionState(), ...this._chainState() }, gown: this.groupOwned ? [...this.groupOwned] : null };
   }
 
   _loadJoinState(s) {

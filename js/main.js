@@ -81,6 +81,7 @@ import { Sleep } from "./sleep.js";
 import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
 import { LIB } from "./content/base.js";
 import { shieldRaised, shieldInOffhand } from "./content/items-vanilla.js";
+import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensions.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -314,6 +315,8 @@ window.addEventListener("resize", onResize);
 // generators in the workers and the LOD get the same options from the world.)
 const world = new World(scene, SEED, { sites: !isVanilla(), vanilla: isVanilla() });
 if (!GUEST) world.loadEdits(loadEdits(SEED));
+// (Round 12) The Nether's and the End's edits (js/dimensions.js), kept aside until the player goes there.
+if (!GUEST) loadDimensionEdits(world, SEED);
 // (Round 11) Concrete powder against water, and the colours of blocks that
 // share a tile (js/decor-sim.js: before the LOD system reads them).
 const decorSim = new DecorSim(world);
@@ -365,8 +368,12 @@ const startZ = savedPos ? savedPos[2] : spawnZ + 0.5;
 // full render distance streams in over the next frames (while the start
 // menu is showing), instead of freezing the page for seconds at startup.
 const INITIAL_SYNC_RADIUS = 2;
-world.prepareArea(startX, startZ, INITIAL_SYNC_RADIUS);
-streamAround(startX, startZ);
+// (Round 12: a save made in the Nether or the End gets its own ground once
+// the world is there, dims.init below, not the Overworld's at that place.)
+if (savedDimension(savedPlayer) === "overworld") {
+  world.prepareArea(startX, startZ, INITIAL_SYNC_RADIUS);
+  streamAround(startX, startZ);
+}
 
 // Main-thread milliseconds per frame spent generating/meshing chunks. Larger
 // while a menu is open (nothing to keep smooth), smaller while playing.
@@ -1759,14 +1766,16 @@ function playerState() {
     furnaces: furnaces.serialize(),
     brewing: brewing.serialize(), // (Round 11)
     signs: signs.serialize(),
-    mobs: mobs.serializeKept(), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
+    mobs: dims.overworld("mobs", () => mobs.serializeKept()), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
     // (Flowing water's cells: without them a reload turns each into a source.)
-    water: waterSim.meta.size ? savedWaterMeta() : undefined,
+    // (Round 12: the Overworld's, wherever the player is; the other dimensions' are in `dims`.)
+    water: dims.overworld("water", () => (waterSim.meta.size ? savedWaterMeta() : undefined)),
     leaderDrops: progress.mission?.squad ? missionDirector.serializeDrops() : undefined,
     missionsOff: progressOffAt || undefined, // (saved in Creative: what the mission counts had reached)
+    ...dims.serialize(), // (Round 12) the dimension the player is in, the other dimensions' state
   };
 }
 
@@ -1798,7 +1807,7 @@ function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
   if (GUEST) {
     pendingSave = false;
-    world.dirtyEditChunks.clear();
+    dims.clearDirty();
     lastSaveTime = lastPlayerSave = performance.now();
     stats.save(); // (a guest's own all-worlds totals)
     return;
@@ -1806,8 +1815,8 @@ function flushSave(force = true) {
   let failed = false;
   if (pendingSave && (force || performance.now() >= nextEditTry)) {
     // (A failed save keeps the edits: the cache holds them all for the next try.)
-    failed = !saveEdits(SEED, world.edits, encodedEditCache, world.dirtyEditChunks);
-    world.dirtyEditChunks.clear();
+    // (Round 12: every dimension's that changed, js/dimensions.js.)
+    failed = !dims.saveEdits(SEED, encodedEditCache);
     pendingSave = failed;
     // (Storage full: the next try in about 30 s, not the whole edit set with
     // every player save.)
@@ -1998,6 +2007,8 @@ function respawn(at = null) {
     flyover.hide();
   }
   hud.hideDeath();
+  // (Round 12) Back in the Overworld (vanilla), unless next to a friend in this dimension.
+  dims.enterNow(Array.isArray(at) ? dims.dim : dims.respawnDimension());
   const spot = Array.isArray(at) ? at : missionRespawnSpot();
   // (Round 11) A Survival world: at the bed, if it is still there with room to stand.
   let bedSpot = null;
@@ -2081,7 +2092,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
 };
 // (A Survival world's creeper and TNT hurt as vanilla's, by their power;
 // the mod weapons keep the grenade curve below.)
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4 };
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5 }; // (Round 12: a bed in the Nether or the End)
 // What a blast does to this player on foot: damage close in, and a shove.
 function hurtByBlast(center, radius, source) {
   // (Seated, the blast already hit the vehicle: Player.damage would hand it
@@ -2100,7 +2111,7 @@ function hurtByBlast(center, radius, source) {
     if (q > 0 && !player.dead) {
       let dmg = Math.floor(((q * q + q) / 2) * 7 * 2 * power + 1);
       // (TNT isn't a mob's cause, so its difficulty is applied here; a creeper's is in Player.damage)
-      if (source === "tnt") {
+      if (source === "tnt" || source === "bed") {
         const s = player.mobDamageScale;
         dmg = s <= 0 ? 0 : Math.max(1, Math.round(dmg * s));
       }
@@ -3187,7 +3198,8 @@ function updateEnvironment(dt) {
   const target = 1 + (1 - ambient) * 0.45;
   eyeAdaptation += (target - eyeAdaptation) * Math.min(1, dt * 1.5);
   // (Round 11) Night Vision (the world shader's light floor) and Respiration (the helmet's).
-  worldUniforms.uNightVision.value = nightVisionFactor(player);
+  // (Round 12: and the dimension's darkest light, js/dim-registry.js lightFloor.)
+  worldUniforms.uNightVision.value = Math.max(nightVisionFactor(player), dims.lightFloor);
   player.respiration = armorLevel(inventory.armor, "respiration");
 
   scene.fog.color.copy(sky.horizonColor);
@@ -3343,7 +3355,7 @@ const game = {
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
     const air = vehicles.active || player.parachute;
     const kept = mp.dogfight?.keptInventory;
-    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined, bed: isVanilla() ? sleep.serialize() : undefined };
+    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined, bed: isVanilla() ? sleep.serialize() : undefined, dim: dims.dim !== "overworld" ? dims.dim : undefined };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
@@ -3369,6 +3381,7 @@ const game = {
     // dropped: on the ground of that column instead of a deadly fall.)
     if (Array.isArray(d.pos) && d.pos.length === 3 && Number.isFinite(d.pos[0]) && Number.isFinite(d.pos[2])) {
       const [x, y, z] = d.pos;
+      dims.enterNow(d.dim); // (Round 12: the dimension they were in)
       world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
       const top = world.surfaceY(Math.floor(x), Math.floor(z));
       game.teleport(x, Number.isFinite(y) && top >= 0 && y <= Math.max(top, SEA_LEVEL) + 3 ? y : null, z);
@@ -3532,8 +3545,13 @@ mpLate = mp;
 mp.brewing = mp.addModule(new BrewingSync(mp, { brewing, throws: potionThrows }));
 mp.addModule(new WeatherSync(mp, weather)); // (Round 11: the host's weather and bolts)
 mp.addModule(new SignSync(mp, signs)); // (Round 11: the signs' text online)
-natureSim.fire.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's fires burn at the host; the results arrive as edits)
-redstone.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
+// (Round 12) The dimensions: the Nether and the End, the travel, their saves and their online part (js/dimensions.js).
+const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionThrows, spawners, weather, invScreen, streamAround, mp });
+game.dims = dims;
+if (dims.sync) mp.addModule(dims.sync);
+// (Round 12: the host's dimension the host's; another dimension the guest's who simulates it there, js/dimensions.js.)
+natureSim.fire.enabled = () => dims.simulatesWorld(); // (a guest's fires burn at the host; the results arrive as edits)
+redstone.enabled = () => dims.simulatesWorld(); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
 redstone.send = (m) => mp.active && net.isHost && net.broadcast(m); // (primed TNT and the circuits' sounds, for the guests)
 net.on("rs", (m, from) => {
   if (!net.isHost && from === 1) redstone.onMessage(m); // (1: the host)
@@ -3601,6 +3619,7 @@ window.__ufo = window.__voxelands = {
   weather,
   weatherFx,
   spawners,
+  dims, // (Round 12)
   weapons,
   lasers,
   nuke,
@@ -4144,11 +4163,11 @@ function simulate(dt, frameTime) {
     // (Round 11) The weather and the monster spawners: the host's (or a single
     // player's); a guest's weather fades to the host's, its spawners only flicker.
     weather.update(dt, randomTickCenters());
-    spawners.update(dt, randomTickCenters(), !mp.active || mp.isHost);
+    spawners.update(dt, randomTickCenters(), !mobs.puppets); // (Round 12: wherever this game's creatures are its own)
     redstone.update(dt); // (Round 11: redstone ticks; primed TNT falling and going off)
     // (Round 11) Random ticks (crops, saplings, fire: js/content/index.js), near
     // every player; the host simulates them, a guest gets the results as edits.
-    if (!mp.active || mp.isHost) world.randomTick(dt, randomTickCenters());
+    if (dims.simulatesWorld()) world.randomTick(dt, randomTickCenters()); // (Round 12: js/dimensions.js)
     // A drawn throw is dropped if the grenade leaves the hand (thrown away, swapped).
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
@@ -4229,6 +4248,7 @@ function simulate(dt, frameTime) {
   // (Round 12: lit where the body stands, not at the third-person camera; the armor, the off hand, eating.)
   avatar.update(dt, player, player.thirdPerson ? world.lightAt(player.position.x, player.position.y + 1, player.position.z) : heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0, armor: inventory.armor, offhandId: inventory.offhand?.id ?? 0, eating: interaction.eating > 0 });
   updateDebug(dt, frameTime);
+  dims.update(dt); // (Round 12: portals, a travel's arrival)
   mp.update(dt);
 }
 
@@ -4268,6 +4288,8 @@ function animate() {
 
 // Vehicles last: the player may have saved while seated in one.
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
+// (Round 12) A save made in the Nether or the End: the world goes there now.
+dims.init(savedPlayer);
 animate();
 ui.setStartNotice(startNotice);
 bootDone();

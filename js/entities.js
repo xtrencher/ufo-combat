@@ -56,7 +56,9 @@ export class ItemEntities {
   // Spawns a stack at `pos` with velocity `vel`. pickupDelay: seconds before
   // it can be collected (longer for items the player throws).
   // keep: never despawns (a mission's weapon drop).
-  spawn(id, count, pos, vel = null, { dur, tag, pickupDelay = PICKUP_DELAY, keep = false } = {}) {
+  // (Round 12) dim: the dimension it lies in (a code, js/dim-registry.js;
+  // default: where things drop now, world.itemDim).
+  spawn(id, count, pos, vel = null, { dur, tag, pickupDelay = PICKUP_DELAY, keep = false, dim } = {}) {
     const model = itemModel(id);
     if (!model || count <= 0) return null;
     if (this.items.length >= MAX_ITEMS) {
@@ -81,6 +83,7 @@ export class ItemEntities {
       light: { sky: 15, block: 0 },
       onGround: false,
       keep,
+      dim: dim ?? this.world.itemDim ?? 0,
     };
     bindEntityLight(mesh, () => item.light);
     this.group.add(mesh);
@@ -182,6 +185,12 @@ export class ItemEntities {
     this._updateFlying(dt);
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
+      // (Round 12) Another dimension's item waits there, unseen (and doesn't age, as in unloaded ground).
+      if (it.dim !== (world.dimCode ?? 0)) {
+        it.mesh.visible = false;
+        continue;
+      }
+      it.mesh.visible = true;
       it.age += dt;
       if (it.age > DESPAWN_SECONDS && !it.keep) {
         this._remove(i);
@@ -303,7 +312,7 @@ export class ItemEntities {
       if (a.dur !== undefined || a.tag || a.count >= maxStack(a.id) || a.shared) continue;
       for (let j = this.items.length - 1; j > i; j--) {
         const b = this.items[j];
-        if (b.id !== a.id || b.dur !== undefined || b.tag || b.shared) continue;
+        if (b.id !== a.id || b.dur !== undefined || b.tag || b.shared || b.dim !== a.dim) continue;
         if (a.pos.distanceToSquared(b.pos) > 0.8 * 0.8) continue;
         const room = maxStack(a.id) - a.count;
         const n = Math.min(room, b.count);

@@ -5,6 +5,7 @@
 import { normalizeRoomCode, isRoomCode, cleanNick, netErrorText, NET_ERRORS, HOST_PID } from "./session.js";
 import { loadNick, saveNick, markAutoJoin, inviteUrl, showError, soloUrl } from "./boot-join.js";
 import { modeName, roomModes } from "./rules.js";
+import { dimLabel } from "../dim-registry.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -251,6 +252,13 @@ export class MpMenus {
       nick.className = "nick";
       nick.textContent = p.nick + (p.pid === net.pid ? " (you)" : "");
       li.append(dot, nick);
+      // (Round 12) Where they are, when it isn't the Overworld.
+      if (p.dim) {
+        const where = document.createElement("span");
+        where.className = "tag";
+        where.textContent = dimLabel(p.dim | 0);
+        li.appendChild(where);
+      }
       if (p.host) {
         const tag = document.createElement("span");
         tag.className = "tag";

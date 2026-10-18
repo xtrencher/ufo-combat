@@ -1051,6 +1051,13 @@ export class MobManager {
     // `spawning` and `hostileSpawning` are settings (creature spawning,
     // Peaceful difficulty); `enabled` is used by tests.
     if (!this.enabled || this.spawning === false) return;
+    // (Round 12) Another dimension's creatures are its own (js/dim-registry.js
+    // spawnMobs, the Nether's and the End's parts): none of the Overworld's there.
+    const dim = this.world.dimInfo;
+    if (dim && dim.id !== "overworld") {
+      if (!this.puppets) dim.spawnMobs?.(this, dt);
+      return;
+    }
     // Online, a guest's creatures are the host's (Round 8: animals and
     // villagers too); only the little ambient flyers (butterflies, parrots,
     // fish) are each player's own.
