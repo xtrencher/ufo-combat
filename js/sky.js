@@ -365,7 +365,8 @@ export class Sky {
   // (no direct light, no shadows to draw: daylight reads 0, as vanilla's
   // Nether and End have no day), its colours, no clouds, its stars still or
   // none, and its fog: the Nether's thick (vanilla: the fog ends at half the
-  // view, 96 blocks at most), the End's at the edge of its view.
+  // view, 96 blocks at most; here at three quarters of the chunks drawn,
+  // which hides their edge), the End's at the edge of its view.
   _applyDimension(d) {
     const u = worldUniforms;
     u.uSunDir.value.set(0, -1, 0);
@@ -392,7 +393,7 @@ export class Sky {
     const b = this._fogBase;
     const cap = Number.isFinite(this.dimView) ? (this.dimView - 0.3) * 16 : Infinity;
     if (d.fog === "thick") {
-      const end = THREE.MathUtils.clamp(Math.min(b.y, cap) * 0.5, 40, 96);
+      const end = THREE.MathUtils.clamp(Math.min(b.y, cap) * 0.75, 40, 96);
       fog.set(end * 0.08, end, b.z * 3, b.w);
     } else {
       const end = Math.min(b.y, cap);

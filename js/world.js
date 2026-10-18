@@ -222,7 +222,11 @@ export class World {
     if (!c) return -1;
     const col = ((wz & 15) << 4) | (wx & 15);
     const b = c.blocks;
-    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) if (IS_SOLID[b[(y << 8) | col]] === 1) return y;
+    let y = WORLD_HEIGHT - 1;
+    // (Round 12) Under a roof (the Nether's): the highest floor below open
+    // space, not the roof itself (spawning, teleports, what stands on top).
+    if (this.dimInfo.ceiling) while (y >= 0 && IS_SOLID[b[(y << 8) | col]] === 1) y--;
+    for (; y >= 0; y--) if (IS_SOLID[b[(y << 8) | col]] === 1) return y;
     return -1;
   }
 

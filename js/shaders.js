@@ -629,7 +629,7 @@ void main() {
     // (Round 12) Kept on the tile: at a face's very edge (and on the pixels
     // past it that MSAA shades) the texture wrapped round to the tile's far
     // side, a bright line of a fire's or a plant's bottom row along its top.
-    uvw.xy = clamp(uvw.xy, 0.0, 0.99998);
+    if ((flags & 64) == 0) uvw.xy = clamp(uvw.xy, 0.0, 0.99998);
   #endif
   vec4 tex = atlasTex(uvw);
   #ifdef CUTOUT

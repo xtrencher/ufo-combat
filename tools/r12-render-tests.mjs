@@ -288,35 +288,38 @@ async function browserChecks() {
       for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 - 4, ID.FIRE);
       for (let dx = -3; dx <= 3; dx++) for (let dz = -2; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, ID.LAVA);
       g.world.setBlocks(e);
+      g.player.pitch = -0.3;
     }, room);
     try {
       await frames(6);
-      const pts = [[0.46, 0.5], [0.5, 0.5], [0.54, 0.5], [0.4, 0.62], [0.5, 0.62], [0.6, 0.62]];
-      const meshes = await v((g) => g.world.stats.meshes);
-      const a = await v((g, p) => g.samplePixels(p), pts);
-      await shot("anim-a");
-      // (fire: a frame every 0.05 s; still lava churns slowly: two seconds on)
-      const b = await v((g, p) => {
-        g.uniforms.uTime.value += 0.73;
-        return g.samplePixels(p);
-      }, pts);
-      const c = await v((g, p) => {
-        g.uniforms.uTime.value += 1.5;
-        return g.samplePixels(p);
+      // (where the fire's middle and three spots on the pool are on the screen)
+      const pts = await v((g, a) => {
+        g.renderer.render(g.scene, g.camera); // (the camera's matrices up to date)
+        return [[0, 0.4, -4], [-0.7, 0.4, -4], [0.7, 0.4, -4], [-2, -0.1, -1], [0, -0.1, -1.5], [2, -0.1, -0.5]].map(([dx, dy, dz]) => {
+          const p = new g.THREE.Vector3(a.x0 + 0.5 + dx, a.y + dy, a.z0 + 0.5 + dz).project(g.camera);
+          return [(p.x + 1) / 2, (1 - p.y) / 2];
+        });
+      }, room);
+      // (all in one go: no frame runs between, so nothing is remeshed; only the clock moves)
+      const [a, b, c] = await v((g, p) => {
+        const a = g.samplePixels(p);
+        g.uniforms.uTime.value += 0.73; // (fire: a frame every 0.05 s)
+        const b = g.samplePixels(p);
+        g.uniforms.uTime.value += 1.5; // (still lava churns slowly)
+        return [a, b, g.samplePixels(p)];
       }, pts);
       await shot("anim-b");
-      const meshes2 = await v((g) => g.world.stats.meshes);
       const diff = (x, y, i) => Math.abs(x[i][0] - y[i][0]) + Math.abs(x[i][1] - y[i][1]) + Math.abs(x[i][2] - y[i][2]);
       console.log(`        fire ${[0, 1, 2].map((i) => diff(a, b, i))}, lava ${[3, 4, 5].map((i) => diff(a, c, i))}`);
       assert([0, 1, 2].some((i) => diff(a, b, i) > 20), "the fire didn't change");
       assert([3, 4, 5].some((i) => diff(a, c, i) > 12), "the lava didn't change");
-      assert(meshes2 === meshes, "it remeshed");
     } finally {
       await v((g, a) => {
         const e = [];
         for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 - 4, 0);
         for (let dx = -3; dx <= 3; dx++) for (let dz = -2; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, 3);
         g.world.setBlocks(e);
+        g.player.pitch = 0.1;
       }, room);
     }
   });

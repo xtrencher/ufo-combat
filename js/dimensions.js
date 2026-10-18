@@ -73,9 +73,10 @@
 //     dimension's edits.
 // Older peers are refused at the handshake (NET_VERSION).
 //
-// PORTALS (the Nether's and the End's parts): enterPortal(kind, at) every
-// frame the player stands in a portal block (kind "nether" | "end" |
-// "end_exit"; at: the block). A nether portal takes 4 s (vanilla's 80
+// PORTALS (the Nether's and the End's parts): a block in PORTAL_BLOCKS
+// (dim-registry.js: id -> kind "nether" | "end" | "end_exit") where the
+// player's feet or head are puts them in that portal, as does
+// enterPortal(kind, at) called every frame (at: the block). A nether portal takes 4 s (vanilla's 80
 // ticks; at once in Creative), and carries the position over at 1:8; the
 // End's portal is at once, to the obsidian platform at 100, 49, 0 (rebuilt
 // on every arrival, as vanilla); the End's exit to the player's spawn (the
@@ -92,7 +93,7 @@
 // Testing: F7 in Creative goes Overworld -> Nether -> End -> Overworld; the
 // page's debug object has `dims` (travel, enterPortal, ...).
 import * as THREE from "three";
-import { DIMS, OVERWORLD, NETHER, END, DIM_IDS, dimId, codeOf, scaleBetween } from "./dim-registry.js";
+import { DIMS, OVERWORLD, NETHER, END, DIM_IDS, PORTAL_BLOCKS, dimId, codeOf, scaleBetween } from "./dim-registry.js";
 import { loadEdits, saveEdits as storeEdits } from "./storage.js";
 import { WaterSim } from "./watersim.js";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
@@ -103,12 +104,12 @@ import { HOST_PID } from "./net/session.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { isVanilla } from "./worldtype.js";
 
-export { DIMS };
+export { DIMS, PORTAL_BLOCKS };
 
 export const PORTAL_TIME = 4; // seconds in a nether portal (vanilla: 80 ticks)
 export const PORTAL_SEARCH = { [OVERWORLD]: 128, [NETHER]: 16, [END]: 0 }; // (vanilla's, at the destination)
 export const END_PLATFORM = { x: 100, y: 48, z: 0 }; // (vanilla: the obsidian platform's middle block)
-const LOAD_TIMEOUT = 10; // seconds before the arrival ground is made at once
+const LOAD_TIMEOUT = 10; // seconds (real ones: a slow computer's frames are clamped) before the arrival ground is made at once
 const WATER_CAP = 12000; // flow cells saved per dimension (a Survival world's, as main.js)
 const MAX_PORTALS = 512; // registered per dimension
 const BED_RADIUS = (5 * 4) / 3; // (effects.js units: vanilla's power 5, TNT's 4 being 16/3)
@@ -197,7 +198,7 @@ export class DimensionManager {
     if (![x, y, z].every(Number.isFinite)) return false;
     const p = this.player;
     if (dim !== this.dim) this._switch(dim);
-    this.pending = { dim, x, y, z, opts, t: 0, wasEnabled: p.enabled };
+    this.pending = { dim, x, y, z, opts, t0: performance.now(), wasEnabled: p.enabled };
     p.enabled = false;
     this._hold();
     this._showLoading(dim);
@@ -224,6 +225,22 @@ export class DimensionManager {
     this._portal = { kind, at: at || this.player.position };
   }
 
+  // The portal block the player's feet or head are in, if any.
+  _portalHere() {
+    const p = this.player.position;
+    const w = this.world;
+    const x = Math.floor(p.x);
+    const z = Math.floor(p.z);
+    for (const dy of [0.1, 1.2]) {
+      const y = Math.floor(p.y + dy);
+      const kind = PORTAL_BLOCKS.get(w.getBlock(x, y, z));
+      if (kind) {
+        this._portal = { kind, at: { x, y, z } };
+        return;
+      }
+    }
+  }
+
   // 0-1: how far through a nether portal's wait this player is (an overlay).
   get portalProgress() {
     return Math.min(1, this._portalT / PORTAL_TIME);
@@ -233,6 +250,7 @@ export class DimensionManager {
   update(dt) {
     if (!this.enabled) return;
     this._cool = Math.max(0, this._cool - dt);
+    if (!this._portal && PORTAL_BLOCKS.size && !this.pending && this.player.enabled && !this.player.dead) this._portalHere();
     const pt = this._portal;
     this._portal = null;
     if (pt && !this.pending) {
@@ -248,7 +266,7 @@ export class DimensionManager {
       this._needExit = false;
     }
     this._showPortal(pt && pt.kind === "nether" && !this._needExit ? this.portalProgress : 0);
-    if (this.pending) this._loadStep(dt);
+    if (this.pending) this._loadStep();
   }
 
   _throughPortal(pt) {
@@ -291,16 +309,15 @@ export class DimensionManager {
     this.x.streamAround?.(pd.x, pd.z);
   }
 
-  _loadStep(dt) {
+  _loadStep() {
     const pd = this.pending;
-    pd.t += dt;
     this._hold();
     const w = this.world;
     const cx = Math.floor(pd.x) >> 4;
     const cz = Math.floor(pd.z) >> 4;
     let ready = !!w.getChunk(cx, cz)?.meshed;
     for (let dz = -1; dz <= 1 && ready; dz++) for (let dx = -1; dx <= 1 && ready; dx++) if (!w.getChunk(cx + dx, cz + dz)) ready = false;
-    if (!ready && pd.t < LOAD_TIMEOUT) return;
+    if (!ready && performance.now() - pd.t0 < LOAD_TIMEOUT * 1000) return;
     if (!ready) w.prepareArea(pd.x, pd.z, 1);
     this._arrive(pd);
   }
@@ -538,10 +555,15 @@ export class DimensionManager {
     }
   }
 
+  // (Every chunk drawn in full there, as the detail chunks here: as far as
+  // the graphics' own detail distance, at least the dimension's minView, at
+  // most its maxView; the sky's fog ends with it.)
   _lodView() {
     const want = this._lodWant;
-    if (this.info.lod !== false) return { renderDistance: want.renderDistance, detailDistance: want.detailDistance };
-    const rd = Math.min(want.renderDistance, this.info.maxView);
+    const info = this.info;
+    if (info.lod !== false) return { renderDistance: want.renderDistance, detailDistance: want.detailDistance };
+    const rd = Math.min(want.renderDistance, info.maxView, Math.max(want.detailDistance, info.minView || 4));
+    if (this.game.sky) this.game.sky.dimView = rd;
     return { renderDistance: rd, detailDistance: rd + 1 };
   }
 

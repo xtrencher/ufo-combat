@@ -476,6 +476,25 @@ async function browserChecks() {
     // A nether portal stood in for 4 s (Survival): to the Nether, scaled; standing in it again needs a step out first.
     await v(page, (g) => g.dims.toSpawn());
     assert(await until(page, (g) => !g.dims.pending && g.dims.dim === "overworld", 60000), "the End's exit never ended");
+    // A block registered as a portal (the portal parts' PORTAL_BLOCKS) at the player's feet puts them in it.
+    const auto = await v(page, async (g) => {
+      const { PORTAL_BLOCKS } = await import("./js/dim-registry.js");
+      g.setMode("survival"); // (Creative goes through at once)
+      const p = g.player.position;
+      const c = [Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z)];
+      const was = g.world.getBlock(c[0], c[1], c[2]);
+      g.world.setBlocks([c[0], c[1], c[2], 24], { recordEdit: false });
+      PORTAL_BLOCKS.set(24, "nether");
+      g.dims._cool = 0;
+      g.dims._needExit = false;
+      g.dims.update(0.25);
+      const t = g.dims._portalT;
+      PORTAL_BLOCKS.delete(24);
+      g.world.setBlocks([c[0], c[1], c[2], was], { recordEdit: false });
+      g.dims.update(0.25);
+      return { t, after: g.dims._portalT };
+    });
+    assert(auto.t > 0.2 && auto.after < auto.t, `a portal block at the feet: ${JSON.stringify(auto)}`);
     // (All in one go, no frame between: the player never steps out of the portal.)
     const portal = await v(page, (g) => {
       g.setMode("survival");

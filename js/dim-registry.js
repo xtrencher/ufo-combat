@@ -18,8 +18,9 @@
 //   bedsExplode  a bed used there blows up (power 5, fire), as vanilla's
 //   lod          distant terrain tiles (the Overworld's height map: none elsewhere)
 //   heightfield  long shots hit an unloaded column's height (the Overworld's)
-//   maxView      chunks drawn at most (no distant tiles there: every chunk
-//                in sight is a full one, so the view is capped)
+//   minView, maxView   chunks drawn there (no distant tiles: every chunk in
+//                sight is a full one, as far as the graphics' detail distance,
+//                within these; the fog ends with it)
 //   lightFloor   the darkest light (vanilla's ambient light, the Nether's 0.1, seen here as a dim floor;
 //                the shader's floor is 0.42 x this, see main.js uNightVision)
 //   lavaStep     seconds a lava flow takes per block (the Nether's 3x faster)
@@ -74,6 +75,7 @@ export const DIMS = {
     bedsExplode: true,
     lod: false,
     heightfield: false,
+    minView: 4,
     maxView: 8,
     lightFloor: 0.3,
     lavaStep: 0.5, // (vanilla: 10 game ticks a step, the Overworld's 30)
@@ -96,6 +98,7 @@ export const DIMS = {
     bedsExplode: true,
     lod: false,
     heightfield: false,
+    minView: 7,
     maxView: 12,
     lightFloor: 0.05,
     lavaStep: 1.5,
@@ -106,6 +109,11 @@ export const DIMS = {
 };
 
 const BY_CODE = [DIMS[OVERWORLD], DIMS[NETHER], DIMS[END]];
+
+// The portal blocks (the Nether's and the End's parts fill it): block id ->
+// "nether" | "end" | "end_exit". A player whose body is in one is in that
+// portal (js/dimensions.js: its wait, then the travel).
+export const PORTAL_BLOCKS = new Map();
 
 // A dimension's id from a saved or received value (anything else: the Overworld).
 export function dimId(v) {

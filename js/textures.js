@@ -1413,7 +1413,7 @@ function tileCanvas(pixels) {
 // time axis that wraps with the strip, and the tongues climb two pixels a
 // frame through a noise that wraps every 32, so the strip loops without a
 // seam (vanilla's fire: 32 frames at 20 a second). Coloured with the
-// flipbook's ramp. Returns `frames` RGBA tiles (canvas rows).
+// flipbook's ramp. Returns `frames` tiles.
 function paintFlameFrames(fb) {
   const colors = fb.ramp.map(hex);
   const out = [];
@@ -1431,7 +1431,7 @@ function paintFlameFrames(fb) {
         t.set(x, y, ramp(colors, 1 - up / h + (tongue - 0.5) * 0.3 + 0.1));
       }
     }
-    out.push(t.data);
+    out.push(t);
   }
   return out;
 }
@@ -1447,11 +1447,7 @@ function paintAllLayers() {
     const paint = FLIPBOOK_STYLES[fb.style];
     if (!paint) throw new Error(`No flipbook style "${fb.style}" (tile "${fb.tile}")`);
     flipbooks.push({ tile: fb.tile, layer: layers.length, frames: fb.frames, fps: fb.fps });
-    for (const pixels of paint(fb)) {
-      const t = new Tile(fb.tile);
-      t.data.set(pixels);
-      layers.push({ name: null, pixels, relief: paintRelief(fb.tile, t) });
-    }
+    for (const t of paint(fb)) layers.push({ name: null, pixels: t.data, relief: paintRelief(fb.tile, t) });
   }
   return { layers, flipbooks };
 }

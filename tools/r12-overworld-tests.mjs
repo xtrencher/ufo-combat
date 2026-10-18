@@ -494,6 +494,9 @@ async function browserChecks() {
     return null;
   }
   async function play() {
+    // (as probe.mjs: the Play button once it is there)
+    await page.click("#play-btn", { timeout: 120000 }).catch(() => {});
+    await page.waitForFunction(() => window.__ufo.gameState === "playing", null, { timeout: 60000 }).catch(() => {});
     const t0 = Date.now();
     while (Date.now() - t0 < 240000) {
       const st = await v((g) => g.gameState);
