@@ -1356,6 +1356,8 @@ export class MobManager {
       this.onPuppetSpawn?.(kind, x, y, z, baby, variant);
       return null;
     }
+    // (Round 12) A magma cube's egg: any of its sizes, as vanilla's.
+    if (kind === "magma_cube") kind = MAGMA_SIZES[Math.floor(Math.random() * 3)];
     const m = this.spawn(kind, x, y, z, { baby, variant, wet: !!spec.flies });
     if (m && !spec.hostile) m.persist = true;
     return m;
