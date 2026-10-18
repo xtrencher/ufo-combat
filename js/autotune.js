@@ -18,7 +18,8 @@
 // is what it is). Over a window of WINDOW_S seconds of play the median frame
 // time is taken (hitches, a GC pause or a chunk remesh, don't move a
 // median); under TARGET_FPS for SLOW_S seconds running (about 6 s of slow
-// frames in all), one step down. A step that made no difference
+// frames in all; under half of it, as soon as the window is full), one step
+// down. A step that made no difference
 // twice running means the frame rate isn't the graphics' doing (a busy CPU):
 // the tuner stops for the session rather than strip everything for nothing.
 // Once in a session it may step back up one level, to a level that ran fine
@@ -272,7 +273,9 @@ export class AutoTune {
     if (fps < TARGET_FPS) {
       this._roomT = 0;
       this._slowT += dt;
-      if (this._slowT >= SLOW_S) this._stepDown(med);
+      // (Under half the target the full window is evidence enough: a weak PC
+      // starting at the top doesn't sit through every level's wait.)
+      if (this._slowT >= SLOW_S || fps < TARGET_FPS / 2) this._stepDown(med);
       return;
     }
     this._slowT = 0;

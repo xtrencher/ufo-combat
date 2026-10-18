@@ -20,7 +20,7 @@
 //   heightfield  long shots hit an unloaded column's height (the Overworld's)
 //   maxView      chunks drawn at most (no distant tiles there: every chunk
 //                in sight is a full one, so the view is capped)
-//   lightFloor   the darkest light (vanilla's ambient light: the Nether's 0.1;
+//   lightFloor   the darkest light (vanilla's ambient light, the Nether's 0.1, seen here as a dim floor;
 //                the shader's floor is 0.42 x this, see main.js uNightVision)
 //   lavaStep     seconds a lava flow takes per block (the Nether's 3x faster)
 //   sky          null (the Overworld's day and night), else a fixed sky:
@@ -75,7 +75,7 @@ export const DIMS = {
     lod: false,
     heightfield: false,
     maxView: 8,
-    lightFloor: 0.11,
+    lightFloor: 0.3,
     lavaStep: 0.5, // (vanilla: 10 game ticks a step, the Overworld's 30)
     // (vanilla's Nether Wastes fog, #330808; no sun, moon, stars or clouds)
     sky: { zenith: [0.03, 0.0025, 0.0025], horizon: [0.04, 0.004, 0.003], ambSky: [0.07, 0.035, 0.03], ambGround: [0.05, 0.025, 0.02], stars: false, fog: "thick", exposure: 1.1 },
@@ -97,7 +97,7 @@ export const DIMS = {
     lod: false,
     heightfield: false,
     maxView: 12,
-    lightFloor: 0.02,
+    lightFloor: 0.05,
     lavaStep: 1.5,
     // (vanilla's dark End sky; its static stars: they never turn)
     sky: { zenith: [0.004, 0.003, 0.006], horizon: [0.011, 0.008, 0.013], ambSky: [0.2, 0.19, 0.24], ambGround: [0.1, 0.09, 0.12], stars: true, fog: "clear", exposure: 1.0 },

@@ -399,14 +399,14 @@ async function browserChecks() {
     assert(n.dim === "nether" && n.here !== BLOCK.BRICKS, `in the Nether: ${JSON.stringify(n)}`);
     assert(n.light[0] === 0 && n.light[1] === 0 && n.night === 0 && n.daylight === 0 && n.fogEnd <= 96, `the Nether's sky: ${JSON.stringify(n)}`);
     assert(n.rain === 0 && n.raining, `the weather there: ${JSON.stringify(n)}`);
-    assert(n.lod === 0 && !n.distant && n.floor > 0.05, `distant tiles / light floor: ${JSON.stringify(n)} (before: ${lodBefore} tiles)`);
+    assert(n.lod === 0 && !n.distant && n.floor >= 0.3, `distant tiles / light floor: ${JSON.stringify(n)} (before: ${lodBefore} tiles)`);
     assert(n.feet !== BLOCK.AIR && n.feet !== V.LAVA, `put down on ${n.feet} at ${n.pos}`);
     if (out) await page.screenshot({ path: path.join(out, "dims-nether.png") });
     // The Nether's own edit, one above.
     await v(page, (g, P) => g.world.setBlock(P[0], P[1] + 1, P[2], 24), P);
     // Water put there boils away.
     const boiled = await v(page, (g, P) => {
-      g.world.setBlock(P[0], P[1] + 2, P[2], 8);
+      g.world.setBlock(P[0], P[1] + 2, P[2], 5);
       return g.world.getBlock(P[0], P[1] + 2, P[2]);
     }, P);
     assert(boiled === BLOCK.AIR, `water in the Nether: ${boiled}`);

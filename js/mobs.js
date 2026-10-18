@@ -29,6 +29,7 @@ import { Crowd } from "./crowd.js";
 import { Pathfinder } from "./pathfinding.js";
 import { meleeCause, shooterCause } from "./damage.js";
 import { isVanilla } from "./worldtype.js";
+import { touchesCactus } from "./survival.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { dyeColorOf, mixDyeColors } from "./content/decor.js";
@@ -3862,6 +3863,11 @@ export class MobManager {
           if (isVanilla() && !m.dead) {
             this._animalTick(m, step);
             this._fireTick(m, step);
+          }
+          // (Round 12) A cactus pricks a creature touching it, as vanilla's: 1 every 0.5 s (the host's or a single player's: a guest's puppets are the host's).
+          if (!m.dead && !m.net && (m.cactusT = (m.cactusT ?? 0) - step) <= 0 && touchesCactus(this.world, m.pos, m.spec.r, m.spec.h)) {
+            m.cactusT = 0.5;
+            this._hurt(m, 1, null, 0);
           }
         }
       }

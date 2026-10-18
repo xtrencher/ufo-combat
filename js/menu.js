@@ -81,7 +81,7 @@ export const CONTROLS = [
     ["Esc", "Pause menu (settings, mods, missions, stats)"],
     ["F1", "Hide the HUD"],
     ["F3", "Debug info"],
-    ["F5", "Camera: first person / behind / in front"],
+    ["F5", "Camera: first person / third person behind / in front (facing you)"],
     ["Tab (hold, online)", "Scoreboard: players, pings, Dogfight kills"],
   ]],
 ];

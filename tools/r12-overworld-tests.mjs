@@ -154,8 +154,8 @@ await check("a jungle's chunks: giant jungle trees (2x2 trunks 10-31 tall under 
   const cnt = { giants: 0, tallest: 0, jungleTrees: 0, bushes: 0, vines: 0, hanging: 0, cocoa: 0, ferns: 0, melons: 0, chunks: 0 };
   const cx0 = j.x >> 4;
   const cz0 = j.z >> 4;
-  for (let cx = cx0 - 4; cx <= cx0 + 4; cx++) {
-    for (let cz = cz0 - 4; cz <= cz0 + 4; cz++) {
+  for (let cx = cx0 - 6; cx <= cx0 + 5; cx++) {
+    for (let cz = cz0 - 6; cz <= cz0 + 5; cz++) {
       cnt.chunks++;
       for (let lx = 0; lx < 16; lx++) {
         for (let lz = 0; lz < 16; lz++) {
@@ -261,7 +261,7 @@ await check("a village: a well, streets of path on the ground, houses on foundat
           if (id === V.DIRT_PATH || (v.style === "desert" && id === V.SMOOTH_SANDSTONE && y <= c.gen.heightAt(v.x + dx, v.z + dz))) cnt.path++;
           else if (name.includes("door")) cnt.doors++;
           else if (name.includes("bed")) cnt.beds++;
-          else if (IS_CHEST[id]) {
+          else if (IS_CHEST[id] && y >= c.gen.heightAt(v.x + dx, v.z + dz) - 1) {
             cnt.chests++;
             const table = c.gen.structures.chestAt(v.x + dx, y, v.z + dz);
             assert(table && table.startsWith("village_"), `a chest at ${v.x + dx},${y},${v.z + dz} rolls ${table}`);

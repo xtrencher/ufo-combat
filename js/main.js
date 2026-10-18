@@ -18,7 +18,7 @@ import { Inventory, HOTBAR_SIZE, makeStack, encodeStack } from "./inventory.js";
 import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS, canHarvest } from "./items.js";
 const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
-import { Hud } from "./hud.js";
+import { Hud, debugFacing } from "./hud.js";
 import { InventoryScreen } from "./inventory-ui.js";
 import { Furnaces } from "./furnace.js";
 import { BrewingStands, PotionThrows } from "./brewing.js";
@@ -2977,7 +2977,6 @@ function airportLine(p) {
   return `Nearest ${a.site.kind === "city" ? "city (with airport)" : "airport"}: ${Math.round(a.dist)} blocks ${dir}  (${a.site.x}, ${a.site.z})`;
 }
 
-const FACING = ["north (-Z)", "west (-X)", "south (+Z)", "east (+X)"];
 function updateDebug(dt, frameTime) {
   if (!debugShown) return;
   debugTimer -= dt;
@@ -2988,8 +2987,6 @@ function updateDebug(dt, frameTime) {
   const by = Math.floor(p.y);
   const bz = Math.floor(p.z);
   const light = world.lightAt(p.x, p.y + 0.5, p.z);
-  const yawDeg = ((((-player.yaw * 180) / Math.PI) % 360) + 360) % 360;
-  const facing = FACING[Math.round((((player.yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 2)) % 4];
   const biomeId = world.terrain?.biomeAt ? world.terrain.biomeAt(bx, bz) : null;
   const biome = BIOME_NAMES[biomeId] ?? biomeId ?? "?";
   const info = renderer.info;
@@ -2998,7 +2995,7 @@ function updateDebug(dt, frameTime) {
     `MINECLAUDE  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (sim ${perf.simMs.toFixed(1)} ms, draw ${perf.renderMs.toFixed(1)} ms)  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
     `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
-    `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
+    debugFacing(player.yaw, player.pitch),
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
     `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}${isVanilla() ? `   Weather: ${weather.kind}` : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `World: ${worldType()}   Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
@@ -4165,7 +4162,8 @@ function simulate(dt, frameTime) {
   held.visible = !player.sleeping; // (Round 11: no hand in bed)
   held.update(dt, player, heldLight, camera, interaction.eating);
   player.usingItem = gameState === "playing" && (interaction.eating > 0 || weapons.bow.drawing || shieldRaised(player, inventory));
-  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
+  // (Round 12: lit where the body stands, not at the third-person camera; the armor, the off hand, eating.)
+  avatar.update(dt, player, player.thirdPerson ? world.lightAt(player.position.x, player.position.y + 1, player.position.z) : heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0, armor: inventory.armor, offhandId: inventory.offhand?.id ?? 0, eating: interaction.eating > 0 });
   updateDebug(dt, frameTime);
   mp.update(dt);
 }

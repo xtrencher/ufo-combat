@@ -690,9 +690,10 @@ class VillagePlan {
     this._streets();
     this._placePieces();
     this._lamps();
-    // Its people: one a bed, at the door of their house; the jobs go round first.
+    // Its people: one a bed, at the door of their house; a trade's house's
+    // first has its trade, the farms' go to others (the rest: any trade).
     const jobs = this.jobs.slice();
-    for (const r of this.residents) r.profession = jobs.length ? jobs.shift() : -1;
+    for (const r of this.residents) if (r.profession < 0 && jobs.length) r.profession = jobs.shift();
     // Trees keep off the streets and the pieces (and a couple of blocks round them).
     const clear = new Uint8Array(V_GRID * V_GRID);
     for (let x = -V_RADIUS; x <= V_RADIUS; x++) {
@@ -738,12 +739,12 @@ class VillagePlan {
         }
         for (let y = F - 4; y <= F; y++) put(x, y, z, stone);
         const corner = (x === -2 || x === 1) && (z === -2 || z === 1);
-        put(x, F + 1, z, corner || st.flat ? stone : st.slab ?? stone);
+        put(x, F + 1, z, stone);
         if (corner) for (let y = F + 2; y <= F + 3; y++) put(x, y, z, st.flat ? V.CUT_SANDSTONE : st.fence);
         put(x, F + 4, z, st.flat ? V.SANDSTONE_SLAB : st.slab);
       }
     }
-    // (the walls' sides under the square: the water stays in)
+    // (the roof's middle)
     for (let x = -1; x <= 0; x++) for (let z = -1; z <= 0; z++) put(x, F + 4, z, st.flat ? V.CUT_SANDSTONE : st.roofBlock);
     if (st.lamp === "lantern") put(-1, F + 3, -1, LANTERN_HANGING);
     this.houses.push({ x: -2, z: -2, w: 4, d: 4, h: 3, y: F, door: "z-", kind: "well", wall: stone, roof: st.flat ? V.CUT_SANDSTONE : st.roofBlock });
@@ -972,10 +973,11 @@ class VillagePlan {
     put(u, 1, p.D - 3, base + f);
   }
 
-  // A resident at the piece's door.
-  _resident(ctx) {
+  // A resident at the piece's door (with trade `job`, or -1: one of the
+  // village's free jobs, or any).
+  _resident(ctx, job = -1) {
     const [x, z] = ctx.at(ctx.p.du, -1);
-    this.residents.push({ x, y: ctx.p.F + 1, z, profession: -1 });
+    this.residents.push({ x, y: ctx.p.F + 1, z, profession: job });
   }
 
   // A wall torch at (u, dy, v) hanging on the wall behind it at (u - du, v - dv).
@@ -1025,10 +1027,11 @@ class VillagePlan {
     // The step out to the street: path.
     put(du, 0, -1, st.path);
     if (st.snow) put(du, 1, -1, BLOCK.AIR);
-    this._record(ctx, H, wall, flat ? st.roofBlock : st.stairs, p.kind);
     // The roof.
-    if (flat) this._flatRoof(ctx, H, st.flat ? st.roofBlock : spec.roofBlock?.(st) ?? st.roofBlock);
+    const roofBlock = st.flat ? st.roofBlock : spec.roofBlock?.(st) ?? st.roofBlock;
+    if (flat) this._flatRoof(ctx, H, roofBlock);
     else this._gableRoof(ctx, H, wall);
+    this._record(ctx, H, wall, flat ? roofBlock : st.stairs, p.kind);
     // Torches by the door, outside, and inside on the back wall.
     if (W >= 5) {
       this._torch(ctx, du - 1, 2, -1, 0, -1);
@@ -1211,8 +1214,7 @@ class VillagePlan {
     this._torch(ctx, p.du + 1, 2, -1, 0, -1);
     this._torch(ctx, 1, 4, 2, 1, 0);
     this._torch(ctx, W - 2, 4, 2, -1, 0);
-    this.jobs.push(JOB.cleric);
-    this._resident(ctx);
+    this._resident(ctx, JOB.cleric);
     this._record(ctx, H, stone, stone, "temple");
   }
 
@@ -1259,12 +1261,11 @@ class VillagePlan {
     const st = this.st;
     const put = (y, id) => this.blocks.push(x, g + y, z, id);
     for (let y = 1; y <= 4; y++) put(y, BLOCK.AIR);
-    if (o === 0) put(0, st.top === SNOWY_GRASS ? BLOCK.DIRT : st.fill === BLOCK.SAND ? BLOCK.SAND : BLOCK.DIRT);
     if (st.lamp === "wool") {
       // (vanilla's old street lamp: fence posts, a block of black wool, a torch on each side)
       for (let y = 1; y <= 3; y++) put(y, st.fence);
       put(4, V.BLACK_WOOL);
-      for (let f = 0; f < 4; f++) this.blocks.push(x + FXS[f], g + 4, z + FZS[f], wallTorch(FXS[f], FZS[f]));
+      for (let f = 0; f < 4; f++) if (this.occAt(x + FXS[f], z + FZS[f]) !== 2) this.blocks.push(x + FXS[f], g + 4, z + FZS[f], wallTorch(FXS[f], FZS[f]));
     } else if (st.lamp === "desert") {
       put(1, V.CUT_SANDSTONE);
       put(2, V.CHISELED_SANDSTONE);
@@ -1338,8 +1339,7 @@ const HOUSE_SPECS = {
       put(p.du - 2, 1, 1, BLOCK.CRAFTING_TABLE);
       put(p.du, 1, (p.D - 1) >> 1, V.WHITE_CARPET + C.red);
       put(p.du, 1, ((p.D - 1) >> 1) + 1, V.WHITE_CARPET + C.red);
-      plan.jobs.push(JOB.librarian);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.librarian);
       void st;
     },
   },
@@ -1359,8 +1359,7 @@ const HOUSE_SPECS = {
       put(p.W - 2, 1, p.D - 2, V.ANVIL + dir(1, 0));
       put(p.W - 2, 1, 1, BLOCK.CRAFTING_TABLE);
       plan._chest(ctx, p.du + 1, 1, p.D - 2, "village_weaponsmith");
-      plan.jobs.push(JOB.weaponsmith);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.weaponsmith);
     },
   },
   armorer: {
@@ -1368,10 +1367,9 @@ const HOUSE_SPECS = {
     furnish(ctx, plan) {
       const { p, put, dir, rand, st } = ctx;
       put(1, 1, p.D - 2, V.FURNACE + dir(0, -1));
-      plan._chest(ctx, p.W - 2, 1, p.D - 2, "village_armorer");
+      plan._chest(ctx, 2, 1, p.D - 2, "village_armorer");
       plan._bed(ctx, p.W - 2, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.armorer);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.armorer);
     },
   },
   toolsmith: {
@@ -1380,8 +1378,7 @@ const HOUSE_SPECS = {
       put(1, 1, p.D - 2, BLOCK.CRAFTING_TABLE);
       plan._chest(ctx, 2, 1, p.D - 2, "village_toolsmith");
       plan._bed(ctx, p.W - 2, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.toolsmith);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.toolsmith);
     },
   },
   butcher: {
@@ -1392,8 +1389,7 @@ const HOUSE_SPECS = {
       put(2, 1, p.D - 2, V.HAY_BLOCK);
       plan._chest(ctx, p.W - 2, 1, 1, "village_butcher", [-1, 0]);
       plan._bed(ctx, p.W - 2, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.butcher);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.butcher);
     },
   },
   fletcher: {
@@ -1402,8 +1398,7 @@ const HOUSE_SPECS = {
       put(p.W - 2, 1, p.D - 2, BLOCK.CRAFTING_TABLE);
       plan._chest(ctx, p.W - 3, 1, p.D - 2, "village_fletcher");
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.fletcher);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.fletcher);
     },
   },
   shepherd: {
@@ -1413,8 +1408,7 @@ const HOUSE_SPECS = {
       put(p.W - 3, 1, p.D - 2, V.LIGHT_GRAY_WOOL);
       plan._chest(ctx, p.W - 2, 1, 1, "village_shepherd", [-1, 0]);
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.shepherd);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.shepherd);
     },
   },
   tannery: {
@@ -1423,8 +1417,7 @@ const HOUSE_SPECS = {
       put(p.W - 2, 1, p.D - 2, V.CAULDRON + 3);
       plan._chest(ctx, p.W - 3, 1, p.D - 2, "village_tannery");
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.leatherworker);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.leatherworker);
     },
   },
   mason: {
@@ -1434,8 +1427,7 @@ const HOUSE_SPECS = {
       put(p.W - 2, 1, p.D - 2, V.SMOOTH_STONE);
       plan._chest(ctx, p.W - 3, 1, p.D - 2, "village_mason");
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.mason);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.mason);
     },
   },
   fisher: {
@@ -1444,8 +1436,7 @@ const HOUSE_SPECS = {
       put(p.W - 2, 1, p.D - 2, V.BARREL);
       plan._chest(ctx, p.W - 2, 1, 1, "village_fisher", [-1, 0]);
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
-      plan.jobs.push(JOB.fisherman);
-      plan._resident(ctx);
+      plan._resident(ctx, JOB.fisherman);
     },
   },
 };

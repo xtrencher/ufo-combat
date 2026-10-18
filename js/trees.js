@@ -190,7 +190,7 @@ export class TreeGrower {
       const deep = this.terrain.biomes.jungleDepth(wx, wz);
       if (r >= JUNGLE_DENSITY * (0.3 + 0.7 * deep)) return null;
       let species;
-      if (deep > 0.4) species = k < 0.12 ? TREE.MEGA_JUNGLE : k < 0.4 ? TREE.JUNGLE : k < 0.47 ? TREE.OAK : TREE.BUSH;
+      if (deep > 0.4) species = k < 0.24 ? TREE.MEGA_JUNGLE : k < 0.5 ? TREE.JUNGLE : k < 0.56 ? TREE.OAK : TREE.BUSH;
       else species = k < 0.35 ? TREE.JUNGLE : k < 0.45 ? TREE.OAK : TREE.BUSH;
       return { r, species, h };
     }

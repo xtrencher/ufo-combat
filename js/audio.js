@@ -876,6 +876,13 @@ export class Audio {
     this._hit({ type: "highpass", f: 3500, q: 0.6, d: 0.5, v: 0.18, attack: 0.01 });
     for (let i = 0; i < 4; i++) this._hit({ type: "bandpass", f: 1800 + i * 300, q: 2, d: 0.08, v: 0.1, attack: 0.001 }, i * 0.06);
   }
+  // (Round 12) One flare of a salvo (vehicle-jet.js): a sharp pop and a short hiss.
+  playFlarePop() {
+    this._cat("weapons");
+    this._hit({ type: "bandpass", f: 1700 + Math.random() * 900, q: 2, d: 0.08, v: 0.12, attack: 0.001 });
+    this._hit({ type: "highpass", f: 3500, q: 0.6, d: 0.22, v: 0.07, attack: 0.01 });
+  }
+
 
   // Missile warning: a harsh double beep, higher and more urgent when close.
   playMissileWarning(urgent = false) {
