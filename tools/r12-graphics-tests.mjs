@@ -256,7 +256,7 @@ async function browserChecks() {
     return null;
   }
   const boot = async (p, query) => {
-    await p.goto(`http://127.0.0.1:${PORT}/index.html?seed=4242${query}`, { waitUntil: "load", timeout: 60000 });
+    await p.goto(`http://127.0.0.1:${PORT}/index.html?seed=4242&type=survival${query}`, { waitUntil: "load", timeout: 60000 });
     await p.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 180000 });
   };
   async function play(p) {

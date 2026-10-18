@@ -93,13 +93,15 @@ function hash3(seed, x, y, z) {
 // on a side that is open, a vine one time in four, hanging down up to 4 more
 // blocks (never through the tree itself or below its ground).
 function leafVines(out, root, seed) {
-  const leaves = [];
-  const solid = new Set();
+  // (each cell as it will stand: logs win, else the first block put there)
+  const at = new Map();
   for (let i = 0; i < out.length; i += 4) {
     const key = `${out[i]},${out[i + 1]},${out[i + 2]}`;
-    if (out[i + 3] === root.leaf) leaves.push(out[i], out[i + 1], out[i + 2]);
-    solid.add(key);
+    if (out[i + 3] === root.log || out[i + 3] === root.bark || !at.has(key)) at.set(key, out[i + 3]);
   }
+  const leaves = [];
+  for (const [key, id] of at) if (id === root.leaf) leaves.push(...key.split(",").map(Number));
+  const solid = at;
   const vines = new Set();
   for (let i = 0; i < leaves.length; i += 3) {
     const x = leaves[i];
@@ -400,7 +402,8 @@ export class TreeGrower {
       out.push(0, T, 0, leaf, 0, T + 1, 0, leaf, 0, T + 2, 0, leaf);
     } else if (root.species === TREE.JUNGLE) {
       // A tall trunk with vines up its sides under a small, rounded crown.
-      const T = 5 + Math.floor(rand() * 6);
+      // (Round 12: vanilla's 4-12 blocks, vines on two sides in three)
+      const T = 4 + Math.floor(rand() * 9);
       trunkTop = T;
       // Cocoa pods on one tree in 5, round its lowest 3 logs, a side in 4
       // (vanilla's CocoaDecorator; hashed, so the tree's other draws stay put).
@@ -415,10 +418,10 @@ export class TreeGrower {
         out.push(0, y, 0, log);
         if (y < 1) continue;
         // (a vine on the -X side hangs on a wall at +X: VINE + 2, and so on)
-        if (rand() < 0.3) out.push(-1, y, 0, VINE + 2);
-        if (rand() < 0.3) out.push(1, y, 0, VINE + 3);
-        if (rand() < 0.3) out.push(0, y, -1, VINE);
-        if (rand() < 0.3) out.push(0, y, 1, VINE + 1);
+        if (rand() < 2 / 3) out.push(-1, y, 0, VINE + 2);
+        if (rand() < 2 / 3) out.push(1, y, 0, VINE + 3);
+        if (rand() < 2 / 3) out.push(0, y, -1, VINE);
+        if (rand() < 2 / 3) out.push(0, y, 1, VINE + 1);
       }
       // (Round 12) Vanilla's blob of leaves: two rows of radius 1 over two
       // of radius 2, their corners cut now and then (the top row's always).

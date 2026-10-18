@@ -479,6 +479,7 @@ async function browserChecks() {
     // (All in one go, no frame between: the player never steps out of the portal.)
     const portal = await v(page, (g) => {
       g.setMode("survival");
+      g.dims._cool = 0; // (the last arrival's second, in game time, may not be over: frames are slow here)
       const p = g.player.position.clone();
       const step = (n) => {
         for (let i = 0; i < n; i++) {

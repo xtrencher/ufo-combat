@@ -45,8 +45,8 @@ const WATER_TOP = 16; // an open water surface 1-3 blocks deep
 // width scale. (Round 12: Ultra's carpet was too massive, hid what lay in
 // it and cost a quarter of a frame, most of it its soft shadows (see the
 // constructor): now as thick as High's, finer and a little lower, only
-// reaching farther. Vanilla's short grass is one block
-// tall at most, a tall-grass plant two: these tufts stay well under that.)
+// reaching farther. Vanilla's short grass is one block tall at most, a
+// tall-grass plant two: these tufts stay well under that.)
 const LEVELS = {
   1: { radius: 20, short: 1.2, tall: 0.6, grow: 0.72, wide: 1 },
   2: { radius: 28, short: 1.2, tall: 0.45, grow: 0.42, wide: 0.85 },
