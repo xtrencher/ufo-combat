@@ -10,6 +10,7 @@ import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setSto
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
+import { AutoTune } from "./autotune.js";
 import { normalizeSettings, DEFAULT_SETTINGS, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
@@ -212,6 +213,10 @@ setStorageFullHandler(({ evicted, ok }) => {
   if (ok && evicted.length) setTimeout(() => toast?.(`Browser storage was full: the saved block changes of ${evicted.length} other world${evicted.length > 1 ? "s" : ""} were removed to keep your settings.`, 8), 0);
 });
 persistSettings();
+// (Round 12) Automatic graphics (js/autotune.js): while the player hasn't
+// chosen their own, its level goes into the settings here, before anything
+// below reads them, and it steps down in play while the frame rate is low.
+const autotune = new AutoTune(settings, { save: () => persistSettings(), lastBoot: loadBootRecord() });
 
 function clampRenderDistance(value) {
   const n = Math.round(Number(value));
@@ -238,7 +243,7 @@ let graphicsPreset = normalizePreset(urlPreset ?? settings.graphics);
 // individual options stay untouched): the player's chosen graphics survive a
 // bad start, a sleeping laptop, or a reload during shader compilation. Only
 // picking a preset (or options) again in a menu changes what's saved.
-let startNotice = "";
+let startNotice = autotune.bootNotice; // (Round 12: the automatic graphics' own safe start)
 let graphicsLowered = false;
 const lastBoot = loadBootRecord();
 if (!urlPreset && lastBoot && lastBoot.ok === false && lastBoot.preset === graphicsPreset && lowerPreset(graphicsPreset) !== graphicsPreset) {
@@ -396,6 +401,7 @@ const effects = new EffectsSystem(scene, world, audio);
 const icons = new IconCache(world.tileCanvases);
 const hud = new Hud({ icons, inventory });
 const entities = new ItemEntities(scene, world);
+grass.items = () => entities.items; // (Round 12: no grass grows over a dropped item)
 held = new HeldItem(world.atlas);
 held.resize(camera.aspect);
 const interaction = new Interaction({ scene, world, player, inventory, entities, audio, effects, held });
@@ -2171,7 +2177,10 @@ const allWorldMaterials = [world.materials.opaque, world.materials.cutout, world
 // start-up call) don't overwrite a saved preset while the session is lowered.
 function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, userPick = false } = {}) {
   graphicsPreset = normalizePreset(name);
-  if (userPick) graphicsLowered = false;
+  if (userPick) {
+    graphicsLowered = false;
+    autotune.chosen(); // (Round 12: the player's own choice ends the automatic graphics)
+  }
   if (!keepOverrides) settings.gfxOverrides = {};
   const preset = applyPreset(graphicsPreset, {
     overrides: graphicsLowered ? {} : settings.gfxOverrides,
@@ -2196,15 +2205,20 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, 
     settings.renderDistanceCustom = false;
     setRenderDistance(preset.renderDistance);
   }
-  ui.graphicsSelect.value = graphicsPreset;
   ui.startGraphicsSelect.value = graphicsPreset;
-  ui.graphicsHintEl.textContent = describePreset(preset);
+  showGraphicsChoice();
   refreshGfxOptions();
   if (!graphicsLowered) {
     settings.graphics = graphicsPreset;
     persistSettings();
   }
   prepareGraphics();
+}
+
+// The preset row and its hint: Auto while the tuner picks (Round 12, js/autotune.js).
+function showGraphicsChoice() {
+  ui.graphicsSelect.value = autotune.on ? "auto" : graphicsPreset;
+  ui.graphicsHintEl.textContent = `${autotune.on ? `${autotune.describe()} ` : ""}${describePreset(activePreset)}`;
 }
 
 // ---------- Shader preparation ----------
@@ -2365,7 +2379,10 @@ setGraphics(graphicsPreset);
 // suggested render distance (the slider can still be changed afterwards) and
 // clears individual overrides.
 for (const select of [ui.graphicsSelect, ui.startGraphicsSelect]) {
-  select.addEventListener("change", () => setGraphics(select.value, { adoptRenderDistance: true, keepOverrides: false, userPick: true }));
+  select.addEventListener("change", () => {
+    if (select.value === "auto") autotune.enable(); // (Round 12)
+    else setGraphics(select.value, { adoptRenderDistance: true, keepOverrides: false, userPick: true });
+  });
 }
 
 const fpsEl = document.getElementById("fps-counter");
@@ -2429,9 +2446,12 @@ const timeSlider = SettingsPanel.range("time-of-day", sky.hours, formatHours, (v
   playerDirty = true;
 });
 
-// Graphics: "Reset to defaults" goes back to the default preset, its render
-// distance, and no individual overrides.
-settingsPanel.onReset("video", () => setGraphics(DEFAULT_PRESET, { adoptRenderDistance: "force", keepOverrides: false, userPick: true }));
+// Graphics: "Reset to defaults" goes back to Auto (Round 12: in an automated
+// browser, the default preset, its render distance, and no individual overrides).
+settingsPanel.onReset("video", () => {
+  if (autotune.automated) setGraphics(DEFAULT_PRESET, { adoptRenderDistance: "force", keepOverrides: false, userPick: true });
+  else autotune.enable();
+});
 
 // Performance: full-detail distance, far-terrain quality, resolution scale
 // and effects detail, plus one-click presets for different computers.
@@ -2453,6 +2473,15 @@ const PERF_PRESETS = {
   extreme: { label: "Extreme", hint: "Powerful PCs", graphics: "ultra", renderDistance: 72, detail: 14, lod: "extreme", resolution: 1, effects: "high" },
 };
 const perfPresetsEl = document.getElementById("perf-presets");
+// (Round 12) Auto: the best this PC runs smoothly (js/autotune.js).
+{
+  const btn = document.createElement("button");
+  btn.className = "btn";
+  btn.dataset.preset = "auto";
+  btn.innerHTML = "Auto<small>Best for this PC</small>";
+  btn.addEventListener("click", () => autotune.enable());
+  perfPresetsEl.appendChild(btn);
+}
 for (const [key, p] of Object.entries(PERF_PRESETS)) {
   const btn = document.createElement("button");
   btn.className = "btn";
@@ -2478,10 +2507,41 @@ function applyPerfPreset(key) {
 function refreshPerfPresets() {
   for (const btn of perfPresetsEl.children) {
     const p = PERF_PRESETS[btn.dataset.preset];
-    const match = p.graphics === graphicsPreset && p.renderDistance === renderDistance && p.detail === settings.perf.detailDistance && p.lod === settings.perf.lodQuality && p.resolution === settings.perf.resolution && p.effects === settings.perf.effects && Object.keys(settings.gfxOverrides).length === 0;
+    const match = !p ? autotune.on : !autotune.on && p.graphics === graphicsPreset && p.renderDistance === renderDistance && p.detail === settings.perf.detailDistance && p.lod === settings.perf.lodQuality && p.resolution === settings.perf.resolution && p.effects === settings.perf.effects && Object.keys(settings.gfxOverrides).length === 0;
     btn.classList.toggle("active", match);
   }
 }
+// (Round 12) A level of the automatic graphics put into effect: not the
+// player's choice, the tuner stays on (js/autotune.js).
+function applyAutoLevel(lv) {
+  graphicsLowered = false;
+  settings.perf.resolution = lv.resolution; // applied by setGraphics below
+  settingsPanel.set("perf.detailDistance", lv.detail);
+  settingsPanel.set("perf.lodQuality", lv.lod);
+  settingsPanel.set("perf.effects", lv.effects);
+  settingsPanel.set("perf.resolution", lv.resolution);
+  setGraphics(lv.graphics, { keepOverrides: false });
+  settings.renderDistanceCustom = false;
+  setRenderDistance(lv.renderDistance);
+  refreshPerfPresets();
+}
+const fpsRecommendEl = document.getElementById("fps-recommend");
+autotune.attach({
+  apply: applyAutoLevel,
+  toast,
+  // (a burst of chunks streaming in: a load, a teleport, a new render distance)
+  busy: () => (world.genQueue?.length ?? 0) + (world.meshQueue?.length ?? 0) > 24 || lod.busy > 16,
+  refresh: () => {
+    showGraphicsChoice();
+    refreshPerfPresets();
+    // (The main menu's "lower graphics" advice is the tuner's job while it is on.)
+    if (autotune.on) fpsRecommendEl.classList.add("hidden");
+    menuPerf.recEl = autotune.on ? null : fpsRecommendEl;
+  },
+  panel: settingsPanel,
+});
+autotune.hooks.refresh();
+
 // Another tab of the game changed the settings: take them over here too, so
 // this tab never writes its older copy back over them.
 window.addEventListener("storage", (e) => {
@@ -2510,6 +2570,7 @@ window.addEventListener("storage", (e) => {
     lod.configure({ renderDistance: viewRD });
   }
   if (fresh.mods !== settings.mods) setModsEnabled(fresh.mods);
+  autotune.adopt(fresh.autoGraphics); // (Round 12)
   const gfxChanged = fresh.graphics !== settings.graphics || JSON.stringify(fresh.gfxOverrides) !== JSON.stringify(settings.gfxOverrides);
   if (gfxChanged && !graphicsLowered) {
     settings.gfxOverrides = { ...fresh.gfxOverrides };
@@ -2521,7 +2582,8 @@ function getSettingPath(obj, path) {
 }
 
 settingsPanel.onReset("performance", () => {
-  setGraphics(graphicsPreset);
+  if (autotune.automated) setGraphics(graphicsPreset);
+  else autotune.enable(); // (Round 12: the default is Auto)
   refreshPerfPresets();
 });
 screens.onOpen["settings-screen"] = () => {
@@ -2861,6 +2923,7 @@ function closeInventory() {
 }
 
 ui.renderDistanceInput.addEventListener("input", () => {
+  autotune.chosen(); // (Round 12: and the automatic graphics stop)
   settings.renderDistanceCustom = true; // the player's own choice: presets keep it from now on
   setRenderDistance(ui.renderDistanceInput.value);
 });
@@ -3567,6 +3630,7 @@ window.__ufo = window.__voxelands = {
   audio,
   lod,
   grass,
+  autotune, // (Round 12)
   distant,
   motes,
   streamAround,
@@ -4182,6 +4246,8 @@ function animate() {
   simulate(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
+  // (Round 12) The automatic graphics watch the frame rate in play (js/autotune.js).
+  autotune.update(frameTime, gameState === "playing" && graphicsReady && document.visibilityState !== "hidden");
   const simEnd = performance.now();
   const simMs = simEnd - frameStart;
   perf.simMs += (simMs - perf.simMs) * 0.1;

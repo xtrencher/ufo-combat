@@ -242,6 +242,12 @@ export class TerrainGenerator {
     return this.biomes.biomeAt(wx, wz, info.height, info.mountainT, info.river, info.flat);
   }
 
+  // (Round 12) The top block of the land at (wx, wz), its ground at height h
+  // (the villages' earthworks end in it).
+  landTop(wx, wz, h = this.heightAt(wx, wz)) {
+    return surfaceBlocks(this.biomeAt(wx, wz), h, this.options.vanilla).top;
+  }
+
   // (Round 11) Whether a Survival world's water at (wx, wz) is frozen over:
   // the snowy climate's waters, in wide sheets with open leads between them.
   frozenAt(wx, wz) {

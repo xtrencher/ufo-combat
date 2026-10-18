@@ -718,7 +718,7 @@
   .settings-panel { max-width: 760px; padding-bottom: 0; }
   .settings-panel > .menu-buttons:last-child { position: sticky; bottom: 0; background: rgba(30,34,40,0.97); padding: 10px 0 16px; margin-top: 8px; }
   .settings-tabs { flex-wrap: wrap; }
-  .perf-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+  .perf-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
   .perf-presets .btn { padding: 10px 6px; font-size: 13px; background: #34414f; }
   .perf-presets .btn.active { background: #1f6fd6; }
   .perf-presets .btn small { display: block; font-size: 10px; opacity: 0.75; margin-top: 2px; }
@@ -1751,6 +1751,7 @@
         <div class="row">
           <label for="graphics-preset">Graphics preset</label>
           <select id="graphics-preset">
+            <option value="auto">Auto (best for this PC)</option>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>

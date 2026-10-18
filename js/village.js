@@ -932,11 +932,21 @@ class VillagePlan {
         const g = this.ground(x, z);
         const ring = u < 0 || v < 0 || u >= p.W || v >= p.D;
         for (let y = g + 1; y < p.F; y++) this.shaping.push(x, y, z, ring ? st.fill : found);
-        this.shaping.push(x, p.F, z, ring ? st.top : found);
+        // (the ring's top: the land's own there, snow and all)
+        const land = ring ? this._landTop(x, z) : found;
+        this.shaping.push(x, p.F, z, land);
         for (let y = p.F + 1; y <= p.F + top; y++) this.shaping.push(x, y, z, BLOCK.AIR);
-        if (ring && st.snow) this.shaping.push(x, p.F + 1, z, V.SNOW_LAYER);
+        if (land === SNOWY_GRASS) this.shaping.push(x, p.F + 1, z, V.SNOW_LAYER);
       }
     }
+  }
+
+  // The land's top block at (x, z) (the terrain's, by its biome: grass, sand, snowy grass...).
+  _landTop(x, z) {
+    const wx = this.center.x + x;
+    const wz = this.center.z + z;
+    const id = this.terrain.landTop(wx, wz, this.ground(x, z));
+    return id === BLOCK.STONE || id === BLOCK.SNOW ? this.st.top : id;
   }
 
   _buildPiece(p, at) {
@@ -1038,7 +1048,7 @@ class VillagePlan {
     put(du, 2, 0, st.door[0] + inward + 8);
     // The step out to the street: path.
     put(du, 0, -1, st.path);
-    if (st.snow) put(du, 1, -1, BLOCK.AIR);
+    put(du, 1, -1, BLOCK.AIR); // (no snow on the step)
     // The roof.
     const roofBlock = st.flat ? st.roofBlock : spec.roofBlock?.(st) ?? st.roofBlock;
     if (flat) this._flatRoof(ctx, H, roofBlock);
