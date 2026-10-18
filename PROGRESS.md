@@ -2571,3 +2571,28 @@ A review of waves A-C (40 confirmed findings plus the known gaps), fixed in five
 - Multiplayer: `mp-tests.mjs` 23/23, `mp-round9-tests.mjs` 8/8, `mp-damage-tests.mjs` 444/444 applicable cells.
 - `ufo-tests.mjs`: 34/35 in each full run on the software renderer, a different check each time (the full jet scenario, a UFO's counter-fire), each passing on its own and in another full run: timing on this slow machine, not a defect.
 - Test updates for Round 11's intended changes: a Missions world has no visible crafting UI (round2, smoke: the module exists now); cocoa's tiles in the nature budget; a cactus stands on sand; vanilla's creeper blast can kill an unarmored player 2 blocks off, so the creeper checks wear iron armor.
+
+# Round 12 plan: MINECLAUDE, the Nether and the End
+The owner: add the Nether and the End (huge; take the time); one Play click (no reload then a second Play); Survival the default mode, then Creative, then Missions (the mods as an add-on); graphics and performance at their best by default, stepping down on their own while the frame rate stays low, a player's own choice kept; fire and lava animated (lava like water); caves: no sun or moon shine on rock in the dark, no light seeping at block edges; the name MINECLAUDE, a home screen to match (no UFOs or airports unless Missions); a fullscreen option that keeps Ctrl+W from closing the page; better villages, desert and jungle temples, a real jungle with huge trees; cactus hurts on touch; lighter grass on the top preset (items in it visible); items picked up sooner; multiplayer in every mode, the Nether and the End included; third-person view as in Minecraft; flares one after another; and whatever else real Minecraft has that the game lacks.
+
+Decisions:
+- **The name** is MINECLAUDE everywhere a player reads it (title, menus, README); storage keys, save formats and net ids keep their old names (old saves and links keep working).
+- **Modes:** the main menu lists Survival (the default), Creative, then Missions ("with mods": UFOs, missions, mod weapons and vehicles). The Mods switch stays the Missions world's. Choosing a world and pressing Play enters it in one go: the page still reloads into the chosen world (its world is built at load), and the reload goes straight into the game (one click to capture the mouse, as a guest's join does).
+- **Graphics:** a new install starts at the best preset (graphics and performance) and an automatic tuner steps down one level at a time while the frame rate stays low (and remembers where it settled); once the player picks a preset or changes a setting, the tuner stops for good and their choice is kept.
+- **Dimensions:** Overworld, Nether, End, per player (as vanilla): each player is in one dimension; edits, saves and online messages carry their dimension. The Nether and the End are in Survival worlds (Creative in them too); a Missions world keeps its Overworld (its UFOs, missions and jets live there).
+- **Texture budget:** the 256-layer cap is raised (the Nether and the End need many tiles).
+
+Waves:
+- **A (parallel):** menu (name, modes, one-click play, home screen, fullscreen option, multiplayer for every mode); graphics (best by default, auto tuner, grass); render (fire and lava animation, cave shine and light edges, texture capacity); feel (cactus touch, pickup, flares, third person, small Minecraft gaps); overworld (villages, temples, jungle); dims (the dimension engine: worlds, saves, net, portals' travel, sky).
+- **B:** the Nether (terrain, blocks, portal, fortress, mobs) and the End (strongholds, eyes of ender, the portal, the island, the dragon, end cities as far as they go).
+- **C:** a review and "what Minecraft has that we don't" pass; every suite; the PR merged.
+
+## Round 12 checklist
+- [ ] 12.A1 menu: MINECLAUDE, Survival / Creative / Missions order, one-click play, home screen per mode, fullscreen option, multiplayer for every mode.
+- [ ] 12.A2 graphics: best by default, the auto tuner, the player's choice kept, lighter grass on the top preset.
+- [ ] 12.A3 render: fire and lava animated, no sky shine in caves, no light at block edges in the dark, more texture layers.
+- [ ] 12.A4 feel: cactus on touch, quicker pickup, flares one by one, third person as Minecraft's, small gaps.
+- [ ] 12.A5 overworld: villages upgraded, desert and jungle temples, the jungle biome with giant trees.
+- [ ] 12.A6 dims: dimensions (worlds, saves, online), portal travel, per-dimension sky.
+- [ ] 12.B1 the Nether. 12.B2 the End.
+- [ ] 12.C review, missing-Minecraft pass, every suite, the PR merged.
