@@ -742,7 +742,7 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     const el = document.getElementById("inventory-screen");
     const out = {
       craftingModule,
-      grid: !!el.querySelector(".craft-grid"),
+      grid: [...el.querySelectorAll(".craft-grid, .result-slot")].some((e) => e.offsetParent !== null), // (Round 11: crafting is a Survival world's; hidden in a Missions world)
       book: !!el.querySelector(".recipe-book"),
       tabs: [...el.querySelectorAll(".inv-tab")].map((b) => b.textContent),
       loadouts: [ALL_WEAPONS.length, CREATIVE_LOADOUT.length, SURVIVAL_LOADOUT.length, SURVIVAL_LOADOUT[0] === ITEM.STONE_SWORD],
@@ -774,7 +774,6 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     out.missing = ALL_WEAPONS.length - out.weaponsShown + 1; // (the weapons tab: every weapon and the bow)
     return out;
   });
-  assert(!fs.existsSync(path.join(ROOT, "js", "crafting.js")), "crafting.js is deleted");
   assert(!r.craftingModule && !r.grid && !r.book, `crafting is gone: ${JSON.stringify(r)}`);
   assert(r.tabs.length >= 3, `palette tabs: ${r.tabs}`);
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
