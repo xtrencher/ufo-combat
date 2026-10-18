@@ -1407,61 +1407,31 @@ function tileCanvas(pixels) {
 
 // ---------- Flipbooks (Round 12) ----------
 //
-// Fire's frames: Minecraft's own original fire texture, a little heat
-// simulation (each cell the cooled average of the cells around and below
-// it, fed with random heat along a row below the tile), run until it
-// settles, then a frame every two steps. The strip loops: its first frames fade in
-// from the steps after its last. Coloured with the flipbook's ramp, cut out
-// where it is too cool to glow. Returns `frames` RGBA tiles (canvas rows).
+// Fire's frames: the fire tile's own flames (the content's painter, in
+// the same style: a ragged front of flame per column, tongues licking up
+// from it), moving. Each column's height drifts through a noise along a
+// time axis that wraps with the strip, and the tongues climb two pixels a
+// frame through a noise that wraps every 32, so the strip loops without a
+// seam (vanilla's fire: 32 frames at 20 a second). Coloured with the
+// flipbook's ramp. Returns `frames` RGBA tiles (canvas rows).
 function paintFlameFrames(fb) {
-  const W = TEX;
-  const FH = TEX + 4; // (rows below the tile: where the heat is fed)
-  const rand = makeRand(strSeed(fb.tile + ":flames"));
-  let cur = new Float32Array(W * FH);
-  let next = new Float32Array(W * FH);
-  const step = () => {
-    for (let y = 0; y < FH; y++) {
-      for (let x = 0; x < W; x++) {
-        let n = 18;
-        let f = cur[x + ((y + 1) % FH) * W] * n;
-        for (let i = x - 1; i <= x + 1; i++) {
-          for (let j = y; j <= y + 1; j++) {
-            if (i >= 0 && j < FH && i < W) f += cur[i + j * W];
-            n++;
-          }
-        }
-        // (vanilla's 16-pixel fire cools by 1.06 a row: half that a row here, at twice the rows)
-        next[x + y * W] = y >= FH - 1 ? rand() * rand() * rand() * 4 + rand() * 0.1 + 0.2 : f / (n * 1.03);
-      }
-    }
-    [cur, next] = [next, cur];
-  };
-  for (let i = 0; i < 120; i++) step();
-  const BLEND = 8;
-  const fields = [];
-  for (let i = 0; i < fb.frames + BLEND; i++) {
-    // (two steps a frame: the heat climbs two rows of 32 a frame, vanilla's one of 16)
-    step();
-    step();
-    fields.push(cur.slice(0, W * TEX));
-  }
   const colors = fb.ramp.map(hex);
   const out = [];
   for (let k = 0; k < fb.frames; k++) {
-    const a = fields[k];
-    const b = k < BLEND ? fields[fb.frames + k] : null;
-    const w = k / BLEND;
-    const px = new Uint8ClampedArray(TEX * TEX * 4);
-    for (let i = 0; i < TEX * TEX; i++) {
-      const heat = Math.min(1, (b ? b[i] * (1 - w) + a[i] * w : a[i]) * 1.8);
-      if (heat < 0.5) continue;
-      const c = ramp(colors, (heat - 0.5) * 2);
-      px[i * 4] = c[0];
-      px[i * 4 + 1] = c[1];
-      px[i * 4 + 2] = c[2];
-      px[i * 4 + 3] = 255;
+    const t = new Tile(fb.tile);
+    const time = (k * TEX) / fb.frames;
+    const rise = (k * 2) % TEX;
+    for (let x = 0; x < TEX; x++) {
+      const h = 10 + t.noise(x, time, 6, 1) * 14 + t.noise(x, time * 2, 16, 2) * 6;
+      for (let y = 0; y < TEX; y++) {
+        const up = TEX - 1 - y; // height above the bottom
+        if (up > h) continue;
+        const tongue = t.noise(x, y + rise, 8, 3, 4);
+        if (up > h * 0.6 && tongue < 0.35) continue;
+        t.set(x, y, ramp(colors, 1 - up / h + (tongue - 0.5) * 0.3 + 0.1));
+      }
     }
-    out.push(px);
+    out.push(t.data);
   }
   return out;
 }

@@ -109,14 +109,15 @@ async function check(name, fn) {
 
 async function play() {
   const t0 = Date.now();
-  while (Date.now() - t0 < 180000) {
+  while (Date.now() - t0 < 420000) {
     const st = await v((g) => g.gameState);
     if (st === "playing") return;
     if (st === "dead") {
       await v((g) => g.respawn());
       continue;
     }
-    if (st === "start") await page.click("#play-btn", { timeout: 5000 }).catch(() => {});
+    // (A slow, shared machine draws a frame every second or two: the click's checks need time.)
+    if (st === "start") await page.click("#play-btn", { timeout: 60000 }).catch(() => {});
     else if (await page.isVisible("#resume-btn")) await page.click("#resume-btn", { timeout: 3000 }).catch(() => {});
     else if (await page.isVisible("#click-to-play").catch(() => false)) await page.click("#click-to-play", { timeout: 3000 }).catch(() => {});
     else {
