@@ -20,10 +20,12 @@ const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
 import { InventoryScreen } from "./inventory-ui.js";
+import { Furnaces } from "./furnace.js";
 import { ItemEntities } from "./entities.js";
 import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
 import { MobManager, specOf } from "./mobs.js";
+import { TradeScreen } from "./trading.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
@@ -65,6 +67,7 @@ import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
 import { Sleep } from "./sleep.js";
 import { oreXp } from "./survival.js";
 import { LIB } from "./content/base.js";
+import { shieldRaised } from "./content/items-vanilla.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -288,7 +291,7 @@ window.addEventListener("resize", onResize);
 // ---------- World ----------
 // (sites: false: no airports or cities in a Survival world's terrain; the
 // generators in the workers and the LOD get the same options from the world.)
-const world = new World(scene, SEED, { sites: !isVanilla() });
+const world = new World(scene, SEED, { sites: !isVanilla(), vanilla: isVanilla() });
 if (!GUEST) world.loadEdits(loadEdits(SEED));
 // (Perf) Terrain generation off the main thread, in a worker or two (the
 // streaming's heaviest part; world.js). ?genWorkers=0 keeps it on the main thread.
@@ -415,6 +418,7 @@ LIB.giveXp = (amount, x, y, z) => {
 };
 const falling = new FallingBlocks(scene, world);
 const waterSim = new WaterSim(world);
+world.waterSim = waterSim; // (a bucket tells flowing water from a source: js/content/items-vanilla.js)
 const decals = new BulletHoles(scene, world);
 // Laser bolts (the blaster; later UFOs and aliens), with scorch marks.
 const scorches = new BulletHoles(scene, world, { kind: "scorch" });
@@ -643,12 +647,26 @@ weapons.getLockables = () => {
 // and the nuke.
 // (Round 11: vanilla's own, damage.js BYPASSES_ARMOR: burning, suffocation, poison...)
 const ARMOR_PASS = new Set([...BYPASSES_ARMOR, "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
-player.damageFilter = (amount, cause) => {
+player.damageFilter = (amount, cause, from) => {
   if (player.creative || ARMOR_PASS.has(cause)) return amount;
+  if (shieldBlocks(amount, from)) return 0;
   const red = inventory.armorReduction();
   if (red <= 0) return amount;
   return Math.max(1, Math.round(amount * (1 - red)));
 };
+// (Round 11) A raised shield (js/content/items-vanilla.js) turns away a hit
+// from in front (vanilla: the half the player faces): a blow, an arrow, a
+// shot; not a witch's potion or the world's hurts (they come from nowhere).
+// It wears by 1 + the damage for a hit of 3 or more, as vanilla's.
+function shieldBlocks(amount, from) {
+  if (!from || !shieldRaised(player, inventory)) return false;
+  const f = player.getForwardVector();
+  if ((from.x - player.position.x) * f.x + (from.z - player.position.z) * f.z <= 0) return false;
+  audio.playBreak?.("wood");
+  if (amount >= 3 && inventory.damageSelected(1 + Math.floor(amount))) audio.playToolBreak();
+  markInventoryChanged();
+  return true;
+}
 // (Worn only by the hits that land: Player.damage calls this after the hurt
 // grace time has let the hit through.)
 player.armorWear = (amount, cause) => {
@@ -873,6 +891,7 @@ function mobKilled(m, { mine = true } = {}) {
 }
 // What a killed creature leaves for a player: the loot kind and detail.
 function mobLootKind(m) {
+  if (isVanilla()) return null; // (Round 11) a Survival world's creatures drop their own vanilla things (mobs.js), not the missions' loot
   if (m.spec.alien) return ["alien", alienColour(m.kind)];
   if (m.kind === "guard" || m.kind === "zombie") return [m.kind, null];
   // Skeletons drop their bow (if you don't have one yet): a plain
@@ -1148,6 +1167,23 @@ vehicles.onPilotHurt = () => {
 };
 interaction.weapons = weapons;
 interaction.combat = mobs;
+// (Round 11) Using creatures with what's in hand (shears, a bucket, food,
+// bones, a villager's trades: mobs.js useMob), and the trade screen beside
+// the inventory (js/trading.js; it closes with the inventory screen).
+mobs.inventory = inventory;
+interaction.onUseMob = (mob, stack) => mobs.useMob(mob, stack);
+const trading = new TradeScreen({ icons, inventory, audio, mobs, player });
+trading.onChange = () => markInventoryChanged();
+trading.onDrop = (stack) => interaction.throwStack(stack);
+trading.onCloseRequest = () => closeInventory();
+mobs.onTrade = (session) => {
+  if (gameState !== "playing") return false;
+  trading.open(session);
+  openInventory("inventory");
+  if (gameState === "inventory") return true;
+  trading.close();
+  return false;
+};
 
 // A brand new game (mods on) starts with its loadout: Survival basic gear
 // (everything else is loot), Creative every weapon, filling the hotbar
@@ -1241,11 +1277,24 @@ const chests = interaction.chests;
 chests.getTier = progressTier;
 chests.getOwned = ownedItems;
 chests.load(savedPlayer?.chests);
+mobs.loadKept(savedPlayer?.mobs);
 invScreen.chests = chests;
 invScreen.onCloseRequest = () => closeInventory();
 interaction.onOpenChest = (x, y, z) => {
   invScreen.chestPos = [x, y, z];
   openInventory("chest");
+};
+// (Round 11) Furnaces (js/furnace.js): they smelt while their ground is
+// loaded, saved with the world like the chests. The crafting table's and the
+// furnace's screens open from their blocks (js/content/containers.js).
+const furnaces = new Furnaces({ world });
+furnaces.onDrop = chests.onDrop;
+furnaces.load(savedPlayer?.furnaces);
+invScreen.furnaces = furnaces;
+invScreen.world = world;
+interaction.onOpenScreen = (kind, x, y, z) => {
+  invScreen.screenPos = [x, y, z];
+  openInventory(kind);
 };
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
 function dropLoot(list, at) {
@@ -1548,10 +1597,11 @@ held.setItem(inventory.selectedStack?.id ?? 0, true);
 // e.g. the tab closed, would lose it).
 function serializeInvWithCursor() {
   const inv = inventory.serialize();
-  const c = invScreen.isOpen ? invScreen.cursor : null;
-  if (c) {
+  // (Round 11: and what is in a crafting grid.)
+  for (const c of invScreen.heldStacks()) {
     const i = inv.indexOf(0);
-    if (i >= 0) inv[i] = c.dur !== undefined ? [c.id, c.count, c.dur] : [c.id, c.count];
+    if (i < 0) break;
+    inv[i] = c.dur !== undefined ? [c.id, c.count, c.dur] : [c.id, c.count];
   }
   return inv;
 }
@@ -1581,6 +1631,8 @@ function playerState() {
     loadout: loadoutGiven,
     missions: progress.serialize(),
     chests: chests.serialize(),
+    furnaces: furnaces.serialize(),
+    mobs: mobs.serializeKept(), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
@@ -2730,6 +2782,7 @@ window.addEventListener("keydown", (e) => {
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
   if (mp.dogfight?.watching) return; // (only watching: no dropping, reloading or inventory)
+  if (player.sleeping) return; // (Round 11: in bed, Shift gets up first)
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
@@ -3149,6 +3202,8 @@ const game = {
   mobKilled,
   mobLootKind,
   hooks,
+  furnaces,
+  trading,
   progressTier,
   ownedItems,
   myItems,
@@ -3290,6 +3345,8 @@ window.__ufo = window.__voxelands = {
   inventory,
   entities,
   interaction,
+  furnaces,
+  trading,
   invScreen,
   mobs,
   falling,
@@ -3812,6 +3869,7 @@ function simulate(dt, frameTime) {
     enemyJets.update(dt);
     airports.update(dt);
     crates.update(dt);
+    furnaces.update(dt);
     updateJetWatch(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     updateAltitudeView(dt);

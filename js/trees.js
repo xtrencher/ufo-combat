@@ -66,7 +66,8 @@ const LEAF = { 1: BLOCK.LEAVES, 2: BLOCK.BIRCH_LEAVES, 3: BLOCK.PINE_LEAVES, 4: 
 const BARK = { 1: BLOCK.OAK_BARK, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.OAK_BARK, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG };
 // A sapling's tree (saplingShape).
 const SAPLING_SPECIES = { oak: 1, birch: 2, spruce: 3, jungle: 5, acacia: 6, dark_oak: 7, mega_jungle: 8 };
-// A vine on the side of a trunk: VINE + the side its wall is on (+X, -X, +Z, -Z).
+// A vine on the side of a trunk: VINE + the side its wall is on (+Z, -Z,
+// +X, -X: js/content/nature.js's order).
 const isVine = (id) => id >= VINE && id < VINE + 4;
 // Ground a grown trunk turns to dirt.
 const SOIL_TO_DIRT = new Set([BLOCK.GRASS, MYCELIUM, FARMLAND, FARMLAND + 1, SNOWY_GRASS]);
@@ -325,11 +326,11 @@ export class TreeGrower {
       for (let y = 0; y < T; y++) {
         out.push(0, y, 0, log);
         if (y < 1) continue;
-        // (a vine on the -X side hangs on a wall at +X: VINE + 0, and so on)
-        if (rand() < 0.3) out.push(-1, y, 0, VINE);
-        if (rand() < 0.3) out.push(1, y, 0, VINE + 1);
-        if (rand() < 0.3) out.push(0, y, -1, VINE + 2);
-        if (rand() < 0.3) out.push(0, y, 1, VINE + 3);
+        // (a vine on the -X side hangs on a wall at +X: VINE + 2, and so on)
+        if (rand() < 0.3) out.push(-1, y, 0, VINE + 2);
+        if (rand() < 0.3) out.push(1, y, 0, VINE + 3);
+        if (rand() < 0.3) out.push(0, y, -1, VINE);
+        if (rand() < 0.3) out.push(0, y, 1, VINE + 1);
       }
       blobs.push({ x: 0, y: T - 0.4, z: 0, rx: 2.4 + rand() * 0.6, ry: 1.5 + rand() * 0.4, rz: 2.4 + rand() * 0.6 });
     } else if (root.species === TREE.ACACIA) {

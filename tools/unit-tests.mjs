@@ -2185,12 +2185,15 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
   });
 
   await test("random-tick registry: registering turns the world's loop on, removing turns it off", () => {
-    assert.equal(content.TICKING.any, false, "no block has a random tick yet");
+    // (Round 11: the nature part's crops, saplings and fire tick; the loop is on whenever any block does.)
+    const before = content.TICKING.any;
+    assert.equal(content.TICKS_RANDOMLY[DEBUG.BLOCK], 0, "the debug block doesn't tick");
     content.registerRandomTick(DEBUG.BLOCK, () => {});
     assert.equal(content.TICKING.any, true);
     assert.equal(content.TICKS_RANDOMLY[DEBUG.BLOCK], 1);
     content.registerRandomTick(DEBUG.BLOCK, null);
-    assert.equal(content.TICKING.any, false);
+    assert.equal(content.TICKS_RANDOMLY[DEBUG.BLOCK], 0);
+    assert.equal(content.TICKING.any, before, "removing it leaves the loop as it was");
     assert.ok(Array.isArray(content.recipes()));
   });
 }

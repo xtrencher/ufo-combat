@@ -48,7 +48,7 @@ export const CAMERA_MODES = ["first", "behind", "front"];
 const THIRD_PERSON_DISTANCE = 4;
 // Creature attacks scaled by difficulty (settings menu).
 // (Round 9: a skeleton's blow up close has its own death message; Round 11: the vanilla mobs.)
-const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider", "creeper", "enderman", "slime", "witch", "cave_spider", "husk", "drowned", "stray", "zombie_villager"]);
+const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider", "creeper", "enderman", "slime", "witch", "cave_spider", "husk", "drowned", "stray", "zombie_villager", "iron_golem", "wolf"]);
 
 const CAMERA_PROBE = [[0, 0, 0], [0.12, 0.12, 0.12], [-0.12, 0.12, -0.12], [0.12, -0.12, -0.12], [-0.12, -0.12, 0.12]];
 

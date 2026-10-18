@@ -689,8 +689,12 @@ export class TerrainGenerator {
           }
           continue;
         }
-        // Lily pads on a swamp's pools.
-        if (g === BLOCK.WATER && a === BLOCK.AIR && b === BIOME.SWAMP && r < 0.15) blocks[ai] = V.LILY_PAD;
+        // Lily pads on the shallow water of a swamp's climate (its pools and
+        // shores are counted as beach, river or sea: biomes.js).
+        if (r < 0.12 && h < SEA_LEVEL && h >= SEA_LEVEL - 4 && blocks[idx(lx, SEA_LEVEL, lz)] === BLOCK.WATER && blocks[idx(lx, SEA_LEVEL + 1, lz)] === BLOCK.AIR) {
+          const { t, m } = this.biomes.climate(wx, wz);
+          if (m > 0.4 && t >= -0.3 && t <= 0.16) blocks[idx(lx, SEA_LEVEL + 1, lz)] = V.LILY_PAD;
+        }
       }
     }
     const rand = mulberry32((this.seed ^ PATCH_SALT ^ Math.imul(cx, 0x5bd1e995) ^ Math.imul(cz, 0x1b873593)) >>> 0);

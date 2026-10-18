@@ -288,11 +288,13 @@ def(FIRE, {
 });
 def(CLAY, { name: "Clay", faces: "clay", hardness: 0.6, tool: "shovel", sound: "dirt" });
 def(RED_SAND, { name: "Red Sand", faces: "red_sand", hardness: 0.5, tool: "shovel", sound: "sand", gravity: true });
-// Ice: see-through-ish, slippery (`slipperiness` for the survival part), and
-// broken it leaves water behind (waterlogged: world.js puts water back when it
-// is removed; vanilla only does that over solid ground or liquid). Melts by
-// bright block light.
-def(ICE, { name: "Ice", faces: "ice", render: RENDER.CUTOUT, opaque: false, lightFilter: 2, waterlogged: true, hardness: 0.5, tool: "pickaxe", sound: "glass", slipperiness: 0.98 });
+// Ice: lets some light through, slippery (`slipperiness`, vanilla's 0.98),
+// melts by bright block light. Broken over the sea, the sea fills it again
+// (the game's flooding of a mined cell at sea level); elsewhere it leaves
+// nothing (deviation: vanilla leaves water over any solid ground). Not
+// `waterlogged`: that would make it count as water (swimming, the water
+// drawn inside it).
+def(ICE, { name: "Ice", faces: "ice", render: RENDER.CUTOUT, opaque: false, lightFilter: 2, hardness: 0.5, tool: "pickaxe", sound: "glass", slipperiness: 0.98 });
 // (the ice tile again: packed ice is a block of the same look that never melts)
 def(PACKED_ICE, { name: "Packed Ice", faces: "ice", hardness: 0.5, tool: "pickaxe", sound: "glass", slipperiness: 0.98 });
 // Snow layers: 1-8 (8 is a full block). One layer is replaceable and has no
@@ -500,7 +502,9 @@ def(LILY_PAD, {
   sound: "plant",
 });
 // Vines: 4 ids, by the wall they cling to (FACINGS order: 0 the wall at +Z,
-// 1 -Z, 2 +X, 3 -X); climbable (the survival part reads `climbable`).
+// 1 -Z, 2 +X, 3 -X); climbable (the survival part reads `climbable`). They
+// hang on their wall like a ladder (`support: "wall"`, `facing` away from
+// it: interaction.js pops them when it goes).
 FACINGS.forEach(([dx, dz], k) => {
   const t = 1 / 16;
   def(VINE + k, {
@@ -519,6 +523,8 @@ FACINGS.forEach(([dx, dz], k) => {
     sound: "plant",
     item: k ? VINE : null,
     wall: [dx, dz],
+    support: "wall",
+    facing: [-dx, -dz],
     placeAs: (ctx) => {
       const n = ctx.normal;
       if (!n || n[1] !== 0) return null; // (on a wall's side only)
@@ -528,7 +534,7 @@ FACINGS.forEach(([dx, dz], k) => {
 });
 // Cobweb: slows whatever moves through it (`slows` for the survival part);
 // a sword cuts it fast and gets string, shears get the web.
-def(COBWEB, { ...PLANT, name: "Cobweb", faces: "cobweb", wave: false, lightFilter: 1, hardness: 4, tool: "sword", sound: "cloth", slows: 0.25 });
+def(COBWEB, { ...PLANT, name: "Cobweb", faces: "cobweb", wave: false, lightFilter: 1, hardness: 4, tool: "sword", sound: "cloth", slows: true });
 def(PODZOL, { name: "Podzol", faces: { top: "podzol_top", bottom: "dirt", side: "podzol_side" }, hardness: 0.5, tool: "shovel", sound: "dirt" });
 // (Mycelium's sides are plain dirt: it only grows where players spread it.)
 def(MYCELIUM, { name: "Mycelium", faces: { top: "mycelium_top", bottom: "dirt", side: "dirt" }, hardness: 0.6, tool: "shovel", sound: "grass" });
@@ -701,8 +707,9 @@ export const shapes = {
   vine: {
     mesh(m) {
       const t = m.tile(2);
-      const q = VINE_QUADS[m.id - VINE][0];
-      m.quad(q.c, q.uv, FACINGS[m.id - VINE][2], t);
+      const k = m.id - VINE;
+      const q = VINE_QUADS[k][0];
+      m.quad(q.c, q.uv, FACINGS[k ^ 1][2], t); // (lit as the face looking away from its wall)
     },
   },
   lily_pad: {
@@ -1355,30 +1362,13 @@ blockUse[REDSTONE_ORE] = (ctx) => {
 
 // ---------- Recipes ----------
 
-const SAPLING_IDS = Object.keys(SAPLINGS).map(Number);
-export const recipes = () => [
-  { type: "shaped", pattern: ["###", "###", "###"], key: { "#": WHEAT }, result: [HAY_BLOCK, 1] },
-  { type: "shapeless", ingredients: [HAY_BLOCK], result: [WHEAT, 9] },
-  { type: "shapeless", ingredients: [SUGAR_CANE], result: [SUGAR, 1] },
-  { type: "shaped", pattern: ["###", "###", "###"], key: { "#": MELON_SLICE }, result: [MELON, 1] },
-  { type: "shapeless", ingredients: [MELON_SLICE], result: [MELON_SEEDS, 1] },
-  { type: "shapeless", ingredients: [PUMPKIN], result: [PUMPKIN_SEEDS, 4] },
-  { type: "shapeless", ingredients: [ID.BONE], result: [BONE_MEAL, 3] },
-  { type: "shaped", pattern: ["##", "##"], key: { "#": BRICK }, result: [BLOCK.BRICKS, 1] },
-  { type: "shaped", pattern: ["##", "##"], key: { "#": SNOWBALL }, result: [BLOCK.SNOW, 1] },
-  { type: "shaped", pattern: ["###"], key: { "#": BLOCK.SNOW }, result: [SNOW_LAYER, 6] },
-  { type: "shaped", pattern: ["##", "##"], key: { "#": CLAY_BALL }, result: [CLAY, 1] },
-  { type: "shaped", pattern: ["P", "T"], key: { P: CARVED_PUMPKIN, T: BLOCK.TORCH }, result: [JACK_O_LANTERN, 1] },
-  { type: "shaped", pattern: ["###", "###", "###"], key: { "#": ICE }, result: [PACKED_ICE, 1] },
-  { type: "smelting", input: CLAY_BALL, result: [BRICK, 1], xp: 0.3, time: 10 },
-  { type: "smelting", input: CLAY, result: [BLOCK.TERRACOTTA, 1], xp: 0.35, time: 10 },
-  { type: "smelting", input: RED_SAND, result: [BLOCK.GLASS, 1], xp: 0.1, time: 10 },
-  { type: "smelting", input: COPPER_ORE, result: [ID.COPPER_INGOT, 1], xp: 0.7, time: 10 },
-  { type: "smelting", input: LAPIS_ORE, result: [ID.LAPIS_LAZULI, 1], xp: 0.2, time: 10 },
-  { type: "smelting", input: [REDSTONE_ORE, REDSTONE_ORE + 1], result: [ID.REDSTONE, 1], xp: 0.7, time: 10 },
-  { type: "smelting", input: EMERALD_ORE, result: [ID.EMERALD, 1], xp: 1, time: 10 },
-  { type: "fuel", input: SAPLING_IDS, time: 5 },
-];
+// This module's crafting and smelting (hay bales, sugar, melons, seeds, bone
+// meal, bricks, clay, snow, packed ice, coarse dirt, the jack o'lantern; clay
+// into bricks and terracotta, red sand into glass, the ores; saplings as
+// fuel) are in js/crafting.js's core list with vanilla's values, so none are
+// repeated here (a content recipe is tried first: a second copy could only
+// disagree with it).
+export const recipes = () => [];
 
 // ---------- Textures ----------
 

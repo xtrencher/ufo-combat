@@ -174,5 +174,6 @@ export function pilotCause(vehicleType, cause) {
 
 // (Round 11) Hurts that armor does nothing against, as vanilla's "bypasses
 // armor" sources: falls, drowning, the void, hunger, burning (after leaving
-// the fire), suffocation and magic. They cost no hunger either (player.js).
-export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic"]);
+// the fire), suffocation and magic (a witch's potions too). They cost no
+// hunger either (player.js).
+export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch"]);

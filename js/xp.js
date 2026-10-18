@@ -112,11 +112,18 @@ const KILL_XP = {
 export function killXp(mob, species = null) {
   if (!mob || mob.isRemotePlayer) return 0;
   const spec = species || mob.spec || {};
+  // (A baby known by its grown-up's spec, a guest's kill: an animal gives
+  // nothing, a monster (a baby zombie) two and a half times a grown one's,
+  // vanilla's 12. A baby's own spec says its own.)
+  if (mob.baby && !spec.baby) return spec.hostile ? Math.floor(grownXp(mob, spec) * 2.5) : 0;
+  return grownXp(mob, spec);
+}
+
+function grownXp(mob, spec) {
   if (typeof spec.xp === "function") return Math.max(0, Math.floor(spec.xp(mob) || 0));
   if (spec.xp != null) return rollXp(spec.xp);
-  // (A baby, or a spec that says none: nothing.)
-  if (mob.baby || spec.baby || "xp" in spec) return 0;
   if (spec.alien || spec.special) return 0; // (the Missions world's foes give loot, not XP)
+  if ("xp" in spec || spec.baby) return 0; // (a spec that says none: a baby animal's)
   const k = KILL_XP[mob.kind];
   if (k != null) return rollXp(k);
   return spec.hostile ? 5 : rollXp([1, 3]);

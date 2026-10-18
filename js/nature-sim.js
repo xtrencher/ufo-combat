@@ -13,6 +13,7 @@ import { BLOCK, IS_SOLID, IS_OPAQUE } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { FIRE } from "./content/ids.js";
 import { flammability } from "./content/nature.js";
+import { LavaSim } from "./lavasim.js";
 
 const BUDGET_PER_FRAME = 64;
 const MAX_FIRES = 4096; // (a forest fire's front; more wait for their random tick)
@@ -148,14 +149,18 @@ export class FireSim {
   }
 }
 
-// The world's slower nature systems (main.js builds one: world.natureSim).
+// The world's nature systems beside the water (main.js builds one, after the
+// WaterSim: world.natureSim): flowing lava (every player, for their own
+// edits, like water) and fire (the host's: main.js sets fire.enabled).
 export class NatureSim {
   constructor(world) {
+    this.lava = new LavaSim(world);
     this.fire = new FireSim(world);
     world.natureSim = this;
   }
 
   update(dt) {
+    this.lava.update(dt);
     this.fire.update(dt);
   }
 }

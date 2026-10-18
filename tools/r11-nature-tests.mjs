@@ -25,7 +25,7 @@ const args = Object.fromEntries(
     })
 );
 const imp = (p) => import(path.join(ROOT, p));
-const { BLOCK, BLOCK_INFO, isSupportedBy, TILE_NAMES, SHAPE_NAME } = await imp("js/blocks.js");
+const { BLOCK, BLOCK_INFO, isSupportedBy, TILE_NAMES, SHAPE_NAME, IS_WET } = await imp("js/blocks.js");
 const { itemInfo, blockDrops } = await imp("js/items.js");
 const { ITEM_USE, RANDOM_TICK, BLOCK_USE } = await imp("js/content/index.js");
 const V = await imp("js/content/ids.js");
@@ -356,6 +356,44 @@ await check("a Survival world grows its own trees: jungle, acacia and dark oak w
   assert(found[5].log === V.JUNGLE_LOG && found[6].leaf === V.ACACIA_LEAVES && found[7].wide, "their woods");
   const shape = gen.trees.shape(found[6]);
   assert(shape.length > 40 && [...shape].some((v, i) => i % 4 === 3 && v === V.ACACIA_LOG), "an acacia's shape");
+  // A jungle tree's vines cling to its trunk (the wall each one faces is a log).
+  let vines = 0;
+  for (let k = 0; k < 20 && !vines; k++) {
+    const j = gen.trees.shape(found[5]);
+    const at = new Map();
+    for (let i = 0; i < j.length; i += 4) if (j[i + 3] === V.JUNGLE_LOG) at.set(`${j[i]},${j[i + 1]},${j[i + 2]}`, j[i + 3]); // (logs win over leaves, as placed)
+    for (let i = 0; i < j.length; i += 4) {
+      if (j[i + 3] < V.VINE || j[i + 3] >= V.VINE + 4) continue;
+      const [wx, wz] = BLOCK_INFO[j[i + 3]].wall;
+      assert(at.get(`${j[i] + wx},${j[i + 1]},${j[i + 2] + wz}`) === V.JUNGLE_LOG, `a vine at ${j[i]},${j[i + 1]},${j[i + 2]} faces its trunk`);
+      vines++;
+    }
+  }
+  assert(vines > 0, "the jungle tree has vines");
+});
+await check("a Survival world's swamps have lily pads on their pools; ice is not water", async () => {
+  const gen = new TerrainGenerator(424242, { sites: false });
+  let lily = 0;
+  let spots = 0;
+  for (let gx = -30; gx <= 30 && !lily; gx++) {
+    for (let gz = -30; gz <= 30 && !lily; gz++) {
+      if (gen.biomeAt(gx * 500, gz * 500) !== 15) continue;
+      spots++;
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dz = -2; dz <= 2; dz++) {
+          const blocks = new Uint16Array(16 * 128 * 16);
+          gen.generate({ cx: ((gx * 500) >> 4) + dx, cz: ((gz * 500) >> 4) + dz, blocks });
+          for (let i = 0; i < blocks.length; i++) {
+            if (blocks[i] !== V.LILY_PAD) continue;
+            assert(blocks[i - 256] === BLOCK.WATER && i >> 8 === 25, `a lily pad on the water's surface: ${i >> 8}`);
+            lily++;
+          }
+        }
+      }
+    }
+  }
+  assert(lily > 0, `lily pads by ${spots} swamps`);
+  assert(!IS_WET[V.ICE] && !BLOCK_INFO[V.ICE].waterlogged, "ice doesn't count as water (no swimming in it, no water drawn inside it)");
 });
 
 // ---------- Lava and water ----------

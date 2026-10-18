@@ -8,7 +8,9 @@
 //  - eating bread restores 5 food and 6 saturation (a right click held),
 //    a golden apple gives Regeneration II and Absorption, a stew its bowl;
 //  - XP: a mined coal ore drops orbs that fly in and fill the bar; death
-//    drops 7 a level as orbs and loses the rest;
+//    drops 7 a level as orbs and loses the rest; a baby zombie gives 12;
+//  - milk clears the effects and gives its bucket back, a raised shield
+//    turns away a blow from in front, a witch's potion goes through armor;
 //  - beds: sleeping at night skips to the morning and sets the spawn, the
 //    respawn is at the bed (or the world spawn when it is gone), not by
 //    day, not with monsters near;
@@ -557,6 +559,72 @@ await check("death drops 7 XP a level (at most 100) as orbs and loses the rest; 
     t.calm();
   });
   assert(back.food === 20 && back.sat === 5 && back.fx === 0, `respawned: ${JSON.stringify(back)}`);
+});
+
+await check("milk (right click held) clears the effects and gives the bucket back; a raised shield turns away a blow from in front; a witch's potion goes through armor; kill XP", async () => {
+  await survival();
+  const r = await tt(page, (g, t) => {
+    t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
+    const p = g.player;
+    const inv = g.inventory;
+    const out = {};
+    // Milk: drunk with a full bar, every effect gone, the bucket in hand.
+    if (t.items.itemInfo(t.ID.MILK_BUCKET)) {
+      p.food = 20;
+      p.addEffect("poison", 20, 1);
+      p.addEffect("regeneration", 20, 1);
+      inv.slots[inv.selected] = { id: t.ID.MILK_BUCKET, count: 1 };
+      g.interaction.target = null;
+      g.interaction.entityHit = null;
+      g.interaction.mouseDown(2);
+      for (let i = 0; i < 35; i++) g.interaction.update(0.05);
+      g.interaction.mouseUp(2);
+      out.milk = { fx: p.effects.length, held: inv.slots[inv.selected]?.id ?? 0, bucket: t.ID.BUCKET };
+    }
+    // The shield: raised (as a held right click does), a blow from in front
+    // (+X: the player faces +X) does nothing and wears it; one from behind lands.
+    if (t.items.itemInfo(t.ID.SHIELD)) {
+      inv.slots[inv.selected] = { id: t.ID.SHIELD, count: 1, dur: 337 };
+      const now = performance.now() / 1000;
+      p.shieldRaisedAt = now - 1;
+      p.shieldRaisedUntil = now + 30;
+      const at = p.position;
+      const front = p.damage(4, "zombie", { from: { x: at.x + 1, y: at.y, z: at.z } });
+      const hpFront = p.health;
+      p._invulnerable = 0;
+      const back = p.damage(4, "zombie", { from: { x: at.x - 1, y: at.y, z: at.z } });
+      out.shield = { front, hpFront, back, hpBack: p.health, dur: inv.slots[inv.selected]?.dur };
+      p.shieldRaisedUntil = 0;
+      p.health = 20;
+    }
+    // Armor: a diamond chestplate softens a zombie's blow, not a witch's potion.
+    inv.slots[inv.selected] = null;
+    const saved = inv.armor[1];
+    inv.armor[1] = { id: t.items.ITEM.DIAMOND_CHESTPLATE, count: 1, dur: 528 };
+    p._invulnerable = 0;
+    p.damage(6, "zombie");
+    const zombie = 20 - p.health;
+    p.health = 20;
+    p._invulnerable = 0;
+    p.damage(6, "witch");
+    out.armor = { zombie, witch: 20 - p.health };
+    inv.armor[1] = saved;
+    p.health = 20;
+    g.mp.game.markInventoryChanged();
+    return out;
+  });
+  const X = await page.evaluate(async () => {
+    const { killXp } = await import("./js/xp.js");
+    const { specOf } = await import("./js/mobs.js");
+    const zombie = specOf("zombie");
+    const cow = specOf("cow");
+    // (a guest's kill: the kind's grown-up spec and the baby flag)
+    return { baby: killXp({ kind: "zombie", spec: zombie, baby: true }), zombie: killXp({ kind: "zombie", spec: zombie }), calf: cow ? killXp({ kind: "cow", spec: cow, baby: true }) : 0 };
+  });
+  assert(r.milk && r.milk.fx === 0 && r.milk.held === r.milk.bucket, `milk: ${JSON.stringify(r)}`);
+  assert(r.shield && r.shield.front === false && r.shield.hpFront === 20 && r.shield.back === true && r.shield.hpBack === 16 && r.shield.dur === 332, `the shield: ${JSON.stringify(r)}`);
+  assert(r.armor.zombie < 6 && r.armor.witch === 6, `armor against a zombie and a witch: ${JSON.stringify(r)}`);
+  assert(X.baby === 12 && X.zombie === 5 && X.calf === 0, `kill XP: ${JSON.stringify(X)}`);
 });
 
 // A bed: the building part's (its ids in ids.js: the foot facing +X and

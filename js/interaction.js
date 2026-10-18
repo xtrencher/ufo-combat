@@ -31,7 +31,6 @@ import { buildCrackStages } from "./itemtextures.js";
 import { selectionBox } from "./world.js";
 import { HOTBAR_SIZE, makeStack } from "./inventory.js";
 import { SEA_LEVEL } from "./constants.js";
-import { MAX_HEALTH } from "./player.js";
 import { Chests } from "./chests.js";
 import { BLOCK_USE, ITEM_USE } from "./content/index.js";
 
@@ -40,8 +39,9 @@ const REACH_CREATIVE = 6;
 const BREAK_DELAY = 0.25; // pause after breaking a block before the next one starts (survival)
 const CREATIVE_BREAK_REPEAT = 0.22;
 const PLACE_REPEAT = 0.22;
-const EAT_TIME = 1.1;
 const ENTITY_REACH = 3.5; // mobs must be closer than blocks to hit (survival)
+// (Worn by their own use only, not by mining or hitting: vanilla's.)
+const OWN_USE_WEAR = new Set(["flint_and_steel", "fishing_rod", "shield"]);
 
 function createOutline() {
   const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
@@ -369,7 +369,9 @@ export class Interaction {
     this.held.swing();
     if (this.entityHit) {
       const tool = this._tool();
-      if (this.combat.attack(this.entityHit.mob, tool) && tool && !this.player.creative) {
+      const landed = this.combat.attack(this.entityHit.mob, tool);
+      if (landed) this.onAttack?.(); // (Round 11: a hit's hunger, main.js)
+      if (landed && tool && !this.player.creative && !OWN_USE_WEAR.has(tool.type)) {
         // Weapons wear with use: swords by 1 per hit, other tools by 2.
         if (this.inventory.damageSelected(tool.type === "sword" ? 1 : 2)) this.audio.playToolBreak();
         this._changed();
@@ -462,7 +464,9 @@ export class Interaction {
     for (const [itemId, count] of blockDrops(id, tool)) {
       this.entities.spawn(itemId, count, new THREE.Vector3(x + 0.5, y + 0.25, z + 0.5));
     }
-    if (tool && BLOCK_INFO[id].hardness > 0) {
+    // (Round 11) Mining's hunger and an ore's XP (main.js, Survival worlds).
+    this.onBlockBroken?.(x, y, z, id, tool);
+    if (tool && BLOCK_INFO[id].hardness > 0 && !OWN_USE_WEAR.has(tool.type)) {
       if (this.inventory.damageSelected(1)) this.audio.playToolBreak();
     }
     this._changed();
@@ -553,7 +557,9 @@ export class Interaction {
       return true;
     }
     if (info?.food) {
-      if (!this.player.creative && (this.player.health < MAX_HEALTH || (info.absorb && this.player.absorption < 20))) {
+      // (Round 11) A Survival world: when not full (or food that can always
+      // be eaten, milk); a Missions world: when hurt (player.js canEat).
+      if (this.player.canEat(info, stack.id)) {
         this.eating = 0.0001;
         return true;
       }
@@ -642,10 +648,16 @@ export class Interaction {
         this._eatSoundTimer = 0.21;
         this.audio.playEat();
       }
-      if (this.eating >= EAT_TIME) {
-        this.player.heal(info.food);
-        if (info.absorb) this.player.addAbsorption(info.absorb);
+      if (this.eating >= this.player.eatTime(info, stack.id)) {
+        // (Round 11) player.eat: hunger, saturation and the food's effects in
+        // a Survival world, health in a Missions world; milk clears effects.
+        const back = this.player.eat(info, stack.id);
         this.inventory.consumeSelected(1);
+        // (A stew's bowl, milk's bucket: back in the hand, or in the inventory.)
+        if (back && itemInfo(back)) {
+          if (!this.inventory.selectedStack) this.inventory.slots[this.inventory.selected] = makeStack(back, 1);
+          else if (this.inventory.add(back, 1) > 0) this.throwStack(makeStack(back, 1));
+        }
         this.eating = 0;
         this._changed();
       }
