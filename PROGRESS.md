@@ -2545,13 +2545,13 @@ Decisions:
 - Missions worlds keep their balance: crafting, hunger and XP are Survival-world systems (Creative gets every new block and item in its palette in both).
 
 ## Round 11 checklist
-- [ ] 11.A1 16-bit block ids (storage, meshing in workers, light, saves, online edits, LOD) with old saves intact; content registries.
-- [ ] 11.A2 World types and modes: menus, saves, online rooms, Survival forces Mods off, no airports/cities in Survival terrain.
-- [ ] 11.B1 Crafting (2x2 in the inventory, 3x3 at the crafting table, the vanilla recipes) and smelting (furnace, fuel, recipes), online.
-- [ ] 11.B2 Building blocks: stairs, slabs, fences and gates, walls, doors, trapdoors, ladders, panes and bars, beds, wood types, stone variants, colours.
-- [ ] 11.B3 Nature and the world: iron/diamond/redstone/lapis/emerald/copper ores, lava (and obsidian, cobblestone), clay, sugar cane, pumpkins, melons, saplings and trees growing, leaf decay, crops and farmland, bone meal, ice and snow, mushrooms, flowers.
-- [ ] 11.B4 Items and their uses: ingots and gems, mob drops, the vanilla foods, buckets, flint and steel and fire, shears, hoes, gold tools, arrows for the bow, fishing, compass and clock.
-- [ ] 11.B5 Survival mechanics: hunger and saturation, XP and levels, sleeping in beds and the spawn point, fire/lava/cactus/suffocation damage, the HUD for them.
-- [ ] 11.B6 Mobs: creepers, endermen, slimes, witches, sheep (wool, shearing), vanilla drops, breeding, villager trading.
-- [ ] 11.C Extras as far as they go: structures (dungeons, mineshafts, temples), enchanting, anvils, brewing, redstone basics, weather, the Nether.
+- [x] 11.A1 16-bit block ids (storage, meshing in workers, light, saves, online edits, LOD) with old saves intact; content registries.
+- [x] 11.A2 World types and modes: menus, saves, online rooms, Survival forces Mods off, no airports/cities in Survival terrain.
+- [x] 11.B1 Crafting (2x2 in the inventory, 3x3 at the crafting table, the vanilla recipes) and smelting (furnace, fuel, recipes), online.
+- [x] 11.B2 Building blocks: stairs, slabs, fences and gates, walls, doors, trapdoors, ladders, panes and bars, beds, wood types, stone variants, colours.
+- [x] 11.B3 Nature and the world: iron/diamond/redstone/lapis/emerald/copper ores, lava (and obsidian, cobblestone), clay, sugar cane, pumpkins, melons, saplings and trees growing, leaf decay, crops and farmland, bone meal, ice and snow, mushrooms, flowers.
+- [x] 11.B4 Items and their uses: ingots and gems, mob drops, the vanilla foods, buckets, flint and steel and fire, shears, hoes, gold tools, arrows for the bow, fishing, compass and clock.
+- [x] 11.B5 Survival mechanics: hunger and saturation, XP and levels, sleeping in beds and the spawn point, fire/lava/cactus/suffocation damage, the HUD for them.
+- [x] 11.B6 Mobs: creepers, endermen, slimes, witches, sheep (wool, shearing), vanilla drops, breeding, villager trading.
+- [x] 11.C Extras as far as they go: structures (dungeons, mineshafts, temples), enchanting, anvils, brewing, redstone basics, weather, the Nether.
 - [ ] 11.D A pass for bugs and un-Minecraft behaviour; every suite; the PR merged.
