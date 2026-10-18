@@ -2553,5 +2553,6 @@ Decisions:
 - [x] 11.B4 Items and their uses: ingots and gems, mob drops, the vanilla foods, buckets, flint and steel and fire, shears, hoes, gold tools, arrows for the bow, fishing, compass and clock.
 - [x] 11.B5 Survival mechanics: hunger and saturation, XP and levels, sleeping in beds and the spawn point, fire/lava/cactus/suffocation damage, the HUD for them.
 - [x] 11.B6 Mobs: creepers, endermen, slimes, witches, sheep (wool, shearing), vanilla drops, breeding, villager trading.
-- [x] 11.C Extras as far as they go: structures (dungeons, mineshafts, temples), enchanting, anvils, brewing, redstone basics, weather, the Nether.
+- [x] 11.C Extras as far as they go: structures (dungeons, mineshafts, temples), enchanting, anvils, brewing, redstone basics, weather. Left out: the Nether (brewing uses stand-in ingredients: no fuel, no awkward potion; an iron ingot for the stand's blaze rod, a golden apple for the ghast tear, an ender pearl for blaze powder, js/brewing.js).
+  - Vanilla staples not built yet (for the 11.D pass to choose from): boats, minecarts and rails, maps and item frames, the campfire, smoker and blast furnace, double chests (a chest is 27 slots).
 - [ ] 11.D A pass for bugs and un-Minecraft behaviour; every suite; the PR merged.

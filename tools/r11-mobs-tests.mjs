@@ -15,7 +15,8 @@
 //
 //  - online (a host and a guest through a local PeerJS server): the guest
 //    sees the host's mobs as they are, shears, feeds and trades with them (the
-//    host's claims and stock), and a creeper's blast reaches the guest.
+//    host's claims and stock), and a creeper's blast reaches the guest; a
+//    hostile mob's health doesn't grow with the group (vanilla).
 //
 //   node r11-mobs-tests.mjs [--only=substring] [--seed=4242] [--solo]
 //
@@ -603,8 +604,14 @@ async function online() {
         villager: M.spawn("villager", x - 0.5, top(-1, -3), z - 2.5, { variant: 1 }),
       };
       window.__mt2.villager.trades = makeOffers(0, () => 0); // (a farmer buying wheat first)
+      // (A hostile mob's health doesn't grow with the group in a Survival world: vanilla's.)
+      const zz = M.spawn("zombie", x + 0.5, top(0, 0), z + 0.5, { wet: true });
+      window.__mt2.zhp = zz ? [zz.maxHealth, zz.spec.health * M.zombies.health] : null;
+      if (zz) M._remove(M.mobs.indexOf(zz));
       return true;
     });
+    const zhp = await vp(host, () => window.__mt2.zhp);
+    assert(zhp && zhp[0] === zhp[1], `a zombie's health in a 2-player Survival room: ${JSON.stringify(zhp)}`);
     const seen = await until(guest, (g) => {
       const list = [...g.mp.entities.mobById.values()];
       const sheep = list.find((m) => m.kind === "sheep" && !m.baby);

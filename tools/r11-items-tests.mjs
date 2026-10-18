@@ -323,7 +323,7 @@ await check("flint and steel sets fire on the face clicked (when the fire block 
   else assert(r.fire === 0 && r.after === r.dur, `no fire block yet: nothing happens ${JSON.stringify(r)}`);
 });
 
-await check("the bow takes one arrow a shot in a Survival world (none in Creative) and a stuck arrow is picked up again", async () => {
+await check("the bow takes one arrow and one use a shot in a Survival world (none in Creative) and a stuck arrow is picked up again", async () => {
   const r = await v(async (g, s) => {
     const V = await import("./js/content/ids.js");
     const { ITEM } = await import("./js/items.js");
@@ -344,8 +344,10 @@ await check("the bow takes one arrow a shot in a Survival world (none in Creativ
     w.refill();
     w.press("bow");
     w.bow.t = 1;
+    const durFull = g.inventory.selectedStack?.dur;
     w.release();
     const left = g.inventory.countItem(V.ARROW);
+    const durShot = g.inventory.selectedStack?.dur;
     const arrow = w.arrows[w.arrows.length - 1];
     // Creative: no arrow used.
     g.setMode("creative");
@@ -354,6 +356,7 @@ await check("the bow takes one arrow a shot in a Survival world (none in Creativ
     w.bow.t = 1;
     w.release();
     const leftCreative = g.inventory.countItem(V.ARROW);
+    const durCreative = g.inventory.selectedStack?.dur;
     const creativeArrow = w.arrows[w.arrows.length - 1];
     g.setMode("survival");
     g.player.flying = false;
@@ -363,11 +366,12 @@ await check("the bow takes one arrow a shot in a Survival world (none in Creativ
     g.player.position.set(arrow.pos.x, s.y, arrow.pos.z + 0.6);
     for (let i = 0; i < 15; i++) w._updateArrows(0.02); // (not in the first moment it sticks)
     const picked = !w.arrows.includes(arrow);
-    return { drewEmpty, left, leftCreative, pickup: arrow.pickup, creativePickup: creativeArrow?.pickup, stuck, picked, after: g.inventory.countItem(V.ARROW) };
+    return { drewEmpty, left, leftCreative, durFull, durShot, durCreative, pickup: arrow.pickup, creativePickup: creativeArrow?.pickup, stuck, picked, after: g.inventory.countItem(V.ARROW) };
   }, site);
   assert(!r.drewEmpty, "no draw without arrows");
   assert(r.left === 2 && r.pickup === true, `one arrow used: ${JSON.stringify(r)}`);
   assert(r.leftCreative === 2 && r.creativePickup === false, `none in Creative: ${JSON.stringify(r)}`);
+  assert(r.durFull === 385 && r.durShot === 384 && r.durCreative === 384, `a Survival shot wears the bow by 1, a Creative one not: ${JSON.stringify(r)}`);
   assert(r.stuck && r.picked && r.after === 3, `picked up again: ${JSON.stringify(r)}`);
   await v((g, s) => g.world.setBlocks([s.x, s.y, s.z - 4, 0, s.x, s.y + 1, s.z - 4, 0], { recordEdit: false }), site);
 });
@@ -453,6 +457,7 @@ await check("shears cut leaves whole and fast; golden tools mine at gold's speed
     g.world.setBlocks([s.x + 3, s.y, s.z + 3, BLOCK.STONE], { recordEdit: false });
     await window.__ti.hold(g, V.GOLDEN_PICKAXE);
     window.__ti.aim(g, [s.x + 3, s.y, s.z + 3], [1, 0, 0]);
+    g.player.onGround = true; // (off the ground a Survival world mines 5x slower)
     g.interaction.mouseDown(0);
     const mining = g.interaction.mining?.time;
     g.interaction.mouseUp(0);
@@ -540,11 +545,13 @@ await check("a Missions world: the bow needs no arrows, ores and chests as befor
     w.press("bow");
     w.bow.t = 1;
     w.release();
+    const bowDur = g.inventory.selectedStack?.dur;
     const ironPick = I.itemInfo(I.ITEM.IRON_PICKAXE).tool;
     const loot = new Set();
     for (let i = 0; i < 30; i++) for (const [id] of C.rollChestLoot(2, new Set())) loot.add(id);
     return {
       type: g.worldType,
+      bowDur,
       shot: w.arrows.length - n,
       pickup: w.arrows[w.arrows.length - 1]?.pickup,
       ores: [BLOCK.IRON_ORE, BLOCK.GOLD_ORE, BLOCK.DIAMOND_ORE].map((id) => I.blockDrops(id, ironPick)[0]?.[0]),
@@ -554,7 +561,7 @@ await check("a Missions world: the bow needs no arrows, ores and chests as befor
     };
   });
   assert(r.type === "missions", `a Missions world: ${r.type}`);
-  assert(r.shot === 1 && r.pickup === false, `the bow shoots without arrows: ${JSON.stringify(r)}`);
+  assert(r.shot === 1 && r.pickup === false && r.bowDur === 385, `the bow shoots without arrows, never wearing: ${JSON.stringify(r)}`);
   assert(String(r.ores) === "10,259,10" && r.gravel === 12 && r.grass === 0 && r.vanillaLoot === 0, `drops and loot as before: ${JSON.stringify(r)}`);
 });
 

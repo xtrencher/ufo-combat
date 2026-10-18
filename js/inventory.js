@@ -10,6 +10,7 @@
 // clickSlot()/quickMove() on arrays of slots (a crafting grid's, a furnace's).
 import { maxStack, itemInfo, ARMOR_SLOTS, ARMOR_REDUCTION_PER_POINT } from "./items.js";
 import { cleanTag, sameTag, unbreakingSaves } from "./enchant.js";
+import { isVanilla } from "./worldtype.js";
 
 export const HOTBAR_SIZE = 9;
 export const INVENTORY_SIZE = 36;
@@ -74,10 +75,11 @@ export function addToRange(slots, stack, from, to) {
 }
 
 // (Round 11) Vanilla's shift-click orders through the 36 slots: into the
-// inventory from a crafting result or a furnace's output, the hotbar's right
-// end first, then the main area from its bottom right (ORDER_RESULT); from a
-// crafting grid or a furnace's input and fuel, the main area from its top
-// left, then the hotbar (ORDER_CONTAINER).
+// inventory from a crafting result, a furnace's output, a chest, a brewing
+// stand or the enchanting table, the hotbar's right end first, then the main
+// area from its bottom right (ORDER_RESULT); from a crafting grid, a furnace's
+// input and fuel or the anvil, the main area from its top left, then the
+// hotbar (ORDER_CONTAINER).
 export const ORDER_RESULT = [];
 for (let i = HOTBAR_SIZE - 1; i >= 0; i--) ORDER_RESULT.push(i);
 for (let i = INVENTORY_SIZE - 1; i >= HOTBAR_SIZE; i--) ORDER_RESULT.push(i);
@@ -123,6 +125,30 @@ export class Inventory {
     this.selected = 0;
     // The armor worn: one piece per slot (head, chest, legs, feet), or null.
     this.armor = new Array(ARMOR_SLOTS.length).fill(null);
+    // The off hand (a Survival world: vanilla's, the shield's), or null.
+    this.offhand = null;
+  }
+
+  // Swaps the selected hotbar stack with the off hand (vanilla's F).
+  // Returns true if anything moved.
+  swapOffhand() {
+    const s = this.slots[this.selected];
+    if (!s && !this.offhand) return false;
+    this.slots[this.selected] = this.offhand;
+    this.offhand = s;
+    return true;
+  }
+
+  // Wears the off-hand item (the shield); returns true if it broke.
+  damageOffhand(amount = 1) {
+    const s = this.offhand;
+    if (!s || s.dur === undefined) return false;
+    s.dur -= wearPoints(s, amount, false);
+    if (s.dur <= 0) {
+      this.offhand = null;
+      return true;
+    }
+    return false;
   }
 
   // The armor slot an item goes in (0-3), or -1 if it is not armor.
@@ -174,13 +200,21 @@ export class Inventory {
     return this.slots[this.selected];
   }
 
+  // Whether add() puts item `id` on at once: armor with its slot free (a
+  // Missions-world convenience; in a Survival world it goes into the
+  // inventory, as vanilla).
+  wouldWear(id) {
+    const aslot = isVanilla() ? -1 : Inventory.armorSlotOf(id);
+    return aslot >= 0 && !this.armor[aslot];
+  }
+
   // Adds items (hotbar first, then the main area). Returns the count that
   // didn't fit. (tag: the stack's enchantments and name, js/enchant.js.)
   add(id, count = 1, dur, tag) {
     if (count <= 0 || !itemInfo(id)) return count;
     // A piece of armor picked up with its slot free is put on at once.
-    const aslot = Inventory.armorSlotOf(id);
-    if (aslot >= 0 && !this.armor[aslot]) {
+    if (this.wouldWear(id)) {
+      const aslot = Inventory.armorSlotOf(id);
       this.armor[aslot] = makeStack(id, 1, dur, tag);
       this.justWorn = id;
       if (count <= 1) return 0;
@@ -221,6 +255,7 @@ export class Inventory {
     let n = 0;
     for (const s of this.slots) if (s && s.id === id) n += s.count;
     for (const a of this.armor) if (a && a.id === id) n += a.count;
+    if (this.offhand && this.offhand.id === id) n += this.offhand.count;
     return n;
   }
 
@@ -252,23 +287,30 @@ export class Inventory {
   }
 
   isEmpty() {
-    return this.slots.every((s) => !s) && this.armor.every((a) => !a);
+    return this.slots.every((s) => !s) && this.armor.every((a) => !a) && !this.offhand;
   }
 
   clear() {
     this.slots.fill(null);
     this.armor.fill(null);
+    this.offhand = null;
   }
 
-  // The armor worn, for the save: per slot [id, count, dur(, tag)] or 0.
+  // The armor worn, for the save: per slot [id, count, dur(, tag)] or 0;
+  // the off hand's stack after them when it holds one (older games read
+  // only the four armor slots).
   serializeArmor() {
-    return this.armor.map((s) => (s ? (s.tag ? [s.id, s.count, s.dur ?? 0, s.tag] : [s.id, s.count, s.dur]) : 0));
+    const out = this.armor.map((s) => (s ? (s.tag ? [s.id, s.count, s.dur ?? 0, s.tag] : [s.id, s.count, s.dur]) : 0));
+    if (this.offhand) out.push(encodeStack(this.offhand));
+    return out;
   }
 
-  // Loads the armor worn (an old save has none).
+  // Loads the armor worn and the off hand (an old save has none).
   loadArmor(data) {
     this.armor.fill(null);
+    this.offhand = null;
     if (!Array.isArray(data)) return;
+    if (data.length > this.armor.length) this.offhand = decodeStack(data[this.armor.length]);
     for (let i = 0; i < Math.min(data.length, this.armor.length); i++) {
       const e = data[i];
       if (!Array.isArray(e)) continue;

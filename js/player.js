@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BLOCK, IS_WET, IS_SOLID } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, IS_WET, IS_SOLID } from "./blocks.js";
 import { sweepAxis } from "./physics.js";
 import { isVanilla } from "./worldtype.js";
 import { BYPASSES_ARMOR } from "./damage.js";
@@ -70,6 +70,14 @@ export class Player {
     this.flying = false;
     this.sprinting = false;
     this.sneaking = false;
+    // Eating, drinking, drawing a bow, a raised shield (main.js sets it each frame):
+    // a Survival world's 20% walk, no sprint (vanilla).
+    this.usingItem = false;
+    // (Survival worlds) The ice under the feet (its slipperiness, 0: none; kept
+    // in the air off it) and the walk it carries on.
+    this._slip = 0;
+    this._slideX = 0;
+    this._slideZ = 0;
     this.inWater = false;
     this.headInWater = false;
     this.mode = "survival"; // "survival" | "creative"
@@ -262,6 +270,8 @@ export class Player {
     this._sinceDamage = 99;
     this.flying = false;
     this.sprinting = false;
+    this.usingItem = false;
+    this._slip = 0;
     // (Round 11) Vanilla's respawn: full food, saturation 5, no effects, not burning.
     this.food = MAX_FOOD;
     this.saturation = START_SATURATION;
@@ -531,6 +541,7 @@ export class Player {
     this.knockback.set(0, 0, 0);
     this.sprinting = false;
     this.flying = false;
+    this._slip = 0;
     this._airborneMaxY = null;
     // (Feet at the bed's foot end, on the mattress; facing the foot.)
     this.position.set(x + 0.5 - dx * 1.5, y + 0.5625, z + 0.5 - dz * 1.5);
@@ -811,7 +822,8 @@ export class Player {
     if ((this.keys.has("ControlLeft") || this.keys.has("ControlRight")) && this.keys.has("KeyW") && this.canSprint) this.sprinting = true;
     const shift = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
     this.sneaking = shift && !this.flying;
-    if (this.sneaking || moveZ >= 0 || !this.canSprint) this.sprinting = false;
+    const using = this.usingItem && !this.flying && isVanilla();
+    if (this.sneaking || moveZ >= 0 || !this.canSprint || using) this.sprinting = false;
 
     const len = Math.hypot(moveX, moveZ);
     if (len > 0) {
@@ -845,8 +857,19 @@ export class Player {
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
     if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1);
-    this.velocity.x = worldX * speed + this.knockback.x;
-    this.velocity.z = worldZ * speed + this.knockback.z;
+    if (using) speed *= 0.2;
+    let walkX = worldX * speed;
+    let walkZ = worldZ * speed;
+    if (this._slip > 0 && !this.flying && !this.inWater && !this.inLava && !web) {
+      // Ice: the walk eases toward the input (vanilla keeps slipperiness x 0.91 of it a tick).
+      const keep = Math.pow(this._slip * 0.91, dt * 20);
+      walkX += (this._slideX - walkX) * keep;
+      walkZ += (this._slideZ - walkZ) * keep;
+    }
+    this._slideX = walkX;
+    this._slideZ = walkZ;
+    this.velocity.x = walkX + this.knockback.x;
+    this.velocity.z = walkZ + this.knockback.z;
     const knockbackDecay = Math.exp(-(this.onGround ? 7 : 1.2) * dt);
     this.knockback.x *= knockbackDecay;
     this.knockback.z *= knockbackDecay;
@@ -946,6 +969,11 @@ export class Player {
       this.knockback.z = 0;
     }
     this._pushing = (blockedX || blockedZ) && len > 0;
+    if (blockedX) this._slideX = 0;
+    if (blockedZ) this._slideZ = 0;
+    // (Survival worlds) What the feet stand on: ice slides (kept in the air, until landing elsewhere).
+    if (!isVanilla() || this.flying || this.inWater || this.inLava || this.onClimbable || web) this._slip = 0;
+    else if (this.onGround) this._slip = BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))]?.slipperiness || 0;
 
     // Climb out of water onto a ledge when swimming against it.
     if ((this.inWater || this.inLava) && space && (blockedX || blockedZ)) this.velocity.y = Math.max(this.velocity.y, 6);
@@ -1031,6 +1059,7 @@ export class Player {
   // Forgets the height fallen so far (teleports, getting out of a vehicle).
   resetFall() {
     this._airborneMaxY = null;
+    this._slip = 0; // (nor any slide off ice)
   }
 
   _updateFall() {

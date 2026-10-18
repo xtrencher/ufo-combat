@@ -48,7 +48,7 @@ const COLD_WATER = new Set([BIOME.OCEAN, BIOME.DEEP_OCEAN, BIOME.RIVER, BIOME.BE
 const between = (a, b, rand) => a + rand() * (b - a);
 
 export class Weather {
-  // deps: { world, player, mobs, dayLength (seconds: sky.js DAY_LENGTH),
+  // deps: { world, player, mobs, dayLength (seconds: sky.js dayLength(), a Survival world's vanilla 1200),
   // difficulty () => "peaceful" | "easy" | "normal" | "hard" }
   constructor({ world, player = null, mobs = null, dayLength = 600, difficulty = () => "normal" }) {
     this.world = world;

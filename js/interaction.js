@@ -33,7 +33,7 @@ import {
   wallTorch,
   chest,
 } from "./blocks.js";
-import { itemInfo, breakTime, blockDrops, canHarvest } from "./items.js";
+import { itemInfo, breakTime, blockDrops, canHarvest, maxStack } from "./items.js";
 import { buildCrackStages } from "./itemtextures.js";
 import { selectionBox } from "./world.js";
 import { HOTBAR_SIZE, makeStack } from "./inventory.js";
@@ -195,7 +195,9 @@ export class Interaction {
 
   _tool() {
     const s = this.inventory.selectedStack;
-    return s ? itemInfo(s.id)?.tool ?? null : null;
+    const tool = s ? itemInfo(s.id)?.tool ?? null : null;
+    // (A bow's `tool` is only its uses, worn by its shots: it hits and mines as a bare hand.)
+    return tool?.type === "bow" ? null : tool;
   }
 
   // The held tool's info (null for the bare hand or a non-tool item).
@@ -425,14 +427,15 @@ export class Interaction {
 
   // The seconds to mine block `id` now: the tool and its Efficiency; in a
   // Survival world vanilla's 5x with the head under water (unless the
-  // helmet has Aqua Affinity). (Vanilla's 5x off the ground is left out, as
-  // before: towering up would be five times slower.)
+  // helmet has Aqua Affinity) and another 5x off the ground (on a ladder,
+  // mid-jump, swimming, in a cobweb).
   _breakTime(id) {
     const stack = this.inventory.selectedStack;
     let t = breakTime(id, this._tool(), stack?.tag ? efficiencyBonus(stack) : 0);
     if (!isVanilla() || !Number.isFinite(t) || t <= 0) return t;
     const p = this.player;
     if (p.headInWater && !enchLevel(this.inventory.armor?.[0], "aqua_affinity")) t *= 5;
+    if (!p.onGround && !p.flying) t *= 5;
     return t;
   }
 
@@ -522,7 +525,8 @@ export class Interaction {
     // none for an ore taken whole with Silk Touch).
     this.onBlockBroken?.(x, y, z, id, tool, silk);
     if (tool && BLOCK_INFO[id].hardness > 0 && !OWN_USE_WEAR.has(tool.type)) {
-      if (this.inventory.damageSelected(1)) this.audio.playToolBreak();
+      // (A Survival world's sword wears by 2 a block, as vanilla's.)
+      if (this.inventory.damageSelected(tool.type === "sword" && isVanilla() ? 2 : 1)) this.audio.playToolBreak();
     }
     this._changed();
   }
@@ -708,7 +712,8 @@ export class Interaction {
       this._eatSoundTimer -= dt;
       if (this._eatSoundTimer <= 0) {
         this._eatSoundTimer = 0.21;
-        this.audio.playEat();
+        if (drink || info.drink) this.audio.playDrink?.();
+        else this.audio.playEat();
       }
       if (drink && this.eating >= 1.6) {
         // (Its effects through the player's own; the empty bottle back.)
@@ -761,7 +766,7 @@ export class Interaction {
       const empty = inv.slots.slice(0, HOTBAR_SIZE).findIndex((s) => !s);
       if (empty >= 0) slot = empty;
     }
-    inv.slots[slot] = makeStack(id, 64);
+    inv.slots[slot] = makeStack(id, maxStack(id)); // (a bed 1, a sign 16)
     inv.selected = slot;
     this._changed();
   }

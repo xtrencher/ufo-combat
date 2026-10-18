@@ -369,21 +369,43 @@ function carve(ctx) {
 // Seconds since the page started (the shield's clock).
 const now = () => performance.now() / 1000;
 
-// Right click held with a shield keeps it up (renewed by the repeating use).
+// Right click held with a shield keeps it up (renewed by the repeating use;
+// not while an axe's blow has it disabled).
 function raiseShield(ctx) {
   const p = ctx.player;
   const t = now();
+  if (p.shieldDisabledUntil > t) return false;
   if (!(p.shieldRaisedUntil > t)) p.shieldRaisedAt = t;
   p.shieldRaisedUntil = t + 0.35;
   return false; // (nothing else happens: no swing)
 }
 
 // Whether the player's shield is up and working (raised for 0.25 s, as in
-// the classic game) and the shield still in hand: the damage code turns away
-// the hits from in front.
+// the classic game) and the shield still in hand (either hand): the damage
+// code turns away the hits from in front.
 export function shieldRaised(player, inventory) {
   const t = now();
-  return inventory?.selectedStack?.id === V.SHIELD && player.shieldRaisedUntil > t && t - player.shieldRaisedAt >= 0.25;
+  const held = inventory?.selectedStack?.id === V.SHIELD || inventory?.offhand?.id === V.SHIELD;
+  return held && player.shieldRaisedUntil > t && t - player.shieldRaisedAt >= 0.25 && !(player.shieldDisabledUntil > t);
+}
+
+// Whether the raised shield is the off hand's (wear it there, not the main hand's).
+export function shieldInOffhand(inventory) {
+  return inventory?.selectedStack?.id !== V.SHIELD && inventory?.offhand?.id === V.SHIELD;
+}
+
+// An axe's blow on a raised shield (vanilla): down, and not raised again for 5 s.
+export function disableShield(player, seconds = 5) {
+  player.shieldRaisedUntil = 0;
+  player.shieldDisabledUntil = now() + seconds;
+}
+
+// The off hand's use when the main hand's did nothing (vanilla): its shield
+// raised. ctx is the main hand's use context (js/interaction.js _useCtx).
+export function offhandUse(ctx) {
+  if (ctx.inventory?.offhand?.id !== V.SHIELD || ctx.stack?.id === V.SHIELD) return false;
+  raiseShield(ctx);
+  return true;
 }
 
 let pearlReady = 0;

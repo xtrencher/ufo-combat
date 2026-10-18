@@ -333,6 +333,10 @@ export function nextEnchantSeed() {
   seedState.seed = (Math.random() * 2 ** 31) >>> 0;
   return seedState.seed;
 }
+// (The saved seed back: a reload doesn't re-roll the offers for free.)
+export function setEnchantSeed(s) {
+  if (Number.isInteger(s) && s >= 0) seedState.seed = s >>> 0;
+}
 
 // ---------- Loot: a random enchantment (books in chests, the treasure of fishing) ----------
 

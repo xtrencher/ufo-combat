@@ -6,7 +6,8 @@
 // Also owns the shared particle pools and the persistent dynamic lights.
 import * as THREE from "three";
 import { LAYER_FX } from "./layers.js";
-import { BLOCK, IS_WET } from "./blocks.js";
+import { BLOCK, IS_WET, BLOCK_INFO, BLOCK_LIMIT } from "./blocks.js";
+import { isVanilla } from "./worldtype.js";
 import { SEA_LEVEL, WORLD_HEIGHT } from "./constants.js";
 import { DebrisPool, BillboardPool } from "./particles.js";
 import { shakeFalloff } from "./falloff.js";
@@ -20,6 +21,11 @@ const MAX_FLOOD_CELLS = 12000; // bound on how much water one blast can let in
 // Craters are wide, flat ellipsoids (roughly this many times wider than
 // deep) rather than spheres, closer to how a real blast digs into the ground.
 const CRATER_VERTICAL_SCALE = 2;
+// Blocks a blast leaves standing in a Survival world (vanilla: blast
+// resistance 1200 for obsidian, the enchanting table and anvils; fluids
+// never break). Missions weapons still dig through everything.
+const BLAST_PROOF = new Uint8Array(BLOCK_LIMIT);
+for (const b of Object.values(BLOCK_INFO)) if ((b.blastResistance ?? 0) >= 1200 || b.liquid || b.lava) BLAST_PROOF[b.id] = 1;
 // Per-weapon explosion-size multipliers, changed live from the settings menu.
 export const explosionScale = { grenade: 1, bazooka: 1, airstrike: 1, nuke: 1 };
 // Effects detail (Performance settings): scales particle counts everywhere.
@@ -171,6 +177,7 @@ export class EffectsSystem {
     const bz = Math.floor(center.z);
     const removed = [];
     const edits = [];
+    const proof = isVanilla() ? BLAST_PROOF : null;
     const y0 = Math.max(0, by - vReach);
     const y1 = Math.min(WORLD_HEIGHT - 1, by + vReach);
     const maxR2 = (r + lumpiness) * (r + lumpiness);
@@ -193,7 +200,7 @@ export class EffectsSystem {
           let id;
           if (blocks) {
             id = blocks[(y << 8) | col];
-            if (id === BLOCK.AIR || id === BLOCK.WATER || (id === BLOCK.BEDROCK && y <= 1)) continue; // (runways are 'bedrock' blocks high above the real one at y 0-1)
+            if (id === BLOCK.AIR || id === BLOCK.WATER || (id === BLOCK.BEDROCK && y <= 1) || (proof && proof[id])) continue; // (runways are 'bedrock' blocks high above the real one at y 0-1)
           } else {
             if (y < 2 || y > surfaceY) continue; // approximate: solid ground below the surface, never bedrock
             id = y >= surfaceY - 3 ? BLOCK.GRASS : BLOCK.STONE;

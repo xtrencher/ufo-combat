@@ -33,7 +33,7 @@ import { isVanilla } from "./worldtype.js";
 import { tableOffers, applyOffer, countBookshelves, enchantSeed, nextEnchantSeed, anvilResult, enchantName } from "./enchant.js";
 import { BREWING_SLOTS, BREW_TICKS, brewingAccepts, isBottle, isIngredient } from "./brewing.js";
 import { spendLevels } from "./xp.js";
-import { ENCHANTING_TABLE, LAPIS_LAZULI } from "./content/ids.js";
+import { ENCHANTING_TABLE, LAPIS_LAZULI, ARROW, SHIELD } from "./content/ids.js";
 import { isAnvil, wornAnvil } from "./content/containers.js";
 
 function el(tag, className, parent) {
@@ -75,6 +75,7 @@ const CRAFT_CSS = `
 .anvil-row { display: flex; align-items: center; gap: 8px; }
 .anvil-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .anvil-name { width: 180px; font: inherit; font-size: 13px; padding: 3px 6px; background: #1e1e1e; color: #fff; border: 2px solid #555; }
+.inv-search { display: block; margin: 0 0 6px; }
 .anvil-cost { font-size: 12px; min-height: 15px; color: #3a7a1a; font-weight: 600; }
 .anvil-cost.bad { color: #c03030; }
 .brew-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -92,14 +93,22 @@ function injectCraftCss() {
   document.head.appendChild(s);
 }
 
-// Creative palette tabs: name -> predicate on the item id.
+// Creative palette tabs: name -> predicate on the item id (null: the search
+// box's). A Survival world has vanilla's Combat tab in Weapons' place (the
+// swords, the bow, the arrows, the shield and the armor) and no Armor tab.
 const WEAPON_SET = new Set(ALL_WEAPONS);
+const COMBAT = (id) => {
+  const info = itemInfo(id);
+  return WEAPON_SET.has(id) || !!info?.weapon || !!info?.armor || !!info?.shield || info?.tool?.type === "sword" || id === ARROW;
+};
+const notCombat = (id) => !isVanilla() || !COMBAT(id);
 const TABS = [
-  ["Weapons", (id) => WEAPON_SET.has(id) || !!itemInfo(id)?.weapon],
+  ["Weapons", (id) => (isVanilla() ? COMBAT(id) : WEAPON_SET.has(id) || !!itemInfo(id)?.weapon)],
   ["Blocks", (id) => itemInfo(id)?.block !== undefined && !WEAPON_SET.has(id)],
-  ["Tools", (id) => !!itemInfo(id)?.tool && !itemInfo(id)?.weapon],
-  ["Armor", (id) => !!itemInfo(id)?.armor],
-  ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !itemInfo(id)?.armor && !WEAPON_SET.has(id)],
+  ["Tools", (id) => !!itemInfo(id)?.tool && !itemInfo(id)?.weapon && notCombat(id)],
+  ["Armor", (id) => !isVanilla() && !!itemInfo(id)?.armor],
+  ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !itemInfo(id)?.armor && !WEAPON_SET.has(id) && notCombat(id)],
+  ["Search", null],
 ];
 
 const copyStack = (s) => (s ? { ...s } : null);
@@ -132,6 +141,17 @@ export class InventoryScreen {
     const left = el("div", "inv-left", body);
 
     this.tabsEl = el("div", "inv-tabs", left);
+    // The Search tab's box (typing here is text, not the game's keys).
+    this.searchEl = el("input", "anvil-name inv-search hidden", left);
+    this.searchEl.type = "text";
+    this.searchEl.placeholder = "Search";
+    this.searchEl.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.code === "Escape" || e.code === "Enter") this.searchEl.blur();
+    });
+    this.searchEl.addEventListener("keyup", (e) => e.stopPropagation());
+    this.searchEl.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.searchEl.addEventListener("input", () => this.setTab(this.tab));
     this.paletteEl = el("div", "inv-palette", left);
     this.tabBtns = TABS.map(([name], i) => {
       const b = el("button", "inv-tab", this.tabsEl);
@@ -140,6 +160,7 @@ export class InventoryScreen {
         e.preventDefault();
         e.stopPropagation();
         this.setTab(i);
+        if (!TABS[i][1]) this.searchEl.focus();
         if (this.audio) this.audio.playClick();
       });
       return b;
@@ -296,6 +317,13 @@ export class InventoryScreen {
       this._bindSlot(v.el, { area: "armor", index: i });
       return v;
     });
+    // (A Survival world: vanilla's off hand next to them, any item; F swaps
+    // the hovered slot with it.)
+    this.offhandView = new SlotView(icons);
+    this.offhandView.el.title = "Off hand";
+    this.offhandView.el.style.marginLeft = "12px";
+    armorRow.appendChild(this.offhandView.el);
+    this._bindSlot(this.offhandView.el, { area: "offhand", index: 0 });
     this.armorPointsEl = el("span", "inv-label inv-armor-points", armorRow);
 
     this.invViews = [];
@@ -340,7 +368,12 @@ export class InventoryScreen {
   setTab(i) {
     this.tab = i;
     this.tabBtns.forEach((b, k) => b.classList.toggle("active", k === i));
-    const pred = TABS[i][1];
+    let pred = TABS[i][1];
+    this.searchEl.classList.toggle("hidden", !!pred || this.paletteEl.classList.contains("hidden"));
+    if (!pred) {
+      const q = this.searchEl.value.trim().toLowerCase();
+      pred = (id) => !q || (itemInfo(id)?.name || "").toLowerCase().includes(q);
+    }
     this.paletteViews.forEach((v, k) => {
       const id = CREATIVE_ITEMS[k];
       v.el.classList.toggle("hidden", !itemAllowed(id) || !pred(id));
@@ -373,8 +406,18 @@ export class InventoryScreen {
     }
     this.tabsEl.classList.toggle("hidden", !palette);
     this.paletteEl.classList.toggle("hidden", !palette);
+    // (The tabs of this world's type; a new type opens on its first useful tab:
+    // a Survival world's Blocks, as vanilla.)
+    const vanilla = isVanilla();
+    if (this._tabsVanilla !== vanilla) {
+      this._tabsVanilla = vanilla;
+      this.tabBtns[0].textContent = vanilla ? "Combat" : "Weapons";
+      this.tabBtns[3].classList.toggle("hidden", vanilla);
+      this.tab = vanilla ? 1 : 0;
+    }
     this.chestEl.classList.toggle("hidden", !chest);
     this.armorRow.classList.toggle("hidden", this.kind !== "inventory");
+    this.offhandView.el.classList.toggle("hidden", !isVanilla());
     this.craftBox.classList.toggle("hidden", !width);
     this.craftBox.classList.toggle("wide", width === 3);
     this.craftLabel.classList.toggle("hidden", width === 3);
@@ -434,7 +477,7 @@ export class InventoryScreen {
     const leftovers = [];
     if (this.cursor && !this.busy) {
       const s = this.cursor;
-      const left = this.inventory.add(s.id, s.count, s.dur);
+      const left = this.inventory.add(s.id, s.count, s.dur, s.tag);
       if (left > 0) leftovers.push({ ...s, count: left });
       this.cursor = null;
     }
@@ -442,6 +485,7 @@ export class InventoryScreen {
     this._returnLocal(this.enchSlots, leftovers);
     this._returnLocal(this.anvilSlots, leftovers);
     this.anvilName.blur();
+    this.searchEl.blur();
     this.gridWidth = 0;
     this.grid = [];
     this._gridDirty = true;
@@ -558,6 +602,7 @@ export class InventoryScreen {
   _stackAt(ref) {
     if (ref.area === "inv") return this.inventory.slots[ref.index];
     if (ref.area === "armor") return this.inventory.armor[ref.index];
+    if (ref.area === "offhand") return this.inventory.offhand;
     if (ref.area === "palette") return makeStack(CREATIVE_ITEMS[ref.index], 1);
     if (ref.area === "chest") return this.chestView?.ready ? this.chestView.slots[ref.index] : null;
     if (ref.area === "craft") return this.grid[ref.index] || null;
@@ -633,8 +678,14 @@ export class InventoryScreen {
     } else if (ref.area === "inv") {
       const st = inv.slots[ref.index];
       const slot = st && !this.cursor ? Inventory.armorSlotOf(st.id) : -1;
-      if (shift && slot >= 0) {
-        // Shift-click armor: onto the body (swapping places with what is worn).
+      if (shift && !this.cursor && st?.id === SHIELD && isVanilla() && !inv.offhand) {
+        // Shift-click a shield: into the free off hand (vanilla).
+        inv.offhand = st;
+        inv.slots[ref.index] = null;
+      } else if (shift && slot >= 0 && (!isVanilla() || !inv.armor[slot])) {
+        // Shift-click armor: onto the body (a Missions world swaps places with
+        // what is worn; a Survival world only into a free slot, else it moves
+        // like any item, as vanilla).
         inv.slots[ref.index] = inv.armor[slot];
         inv.armor[slot] = st;
       } else if (shift && !this.cursor) sound = quickMove(inv, ref.index);
@@ -655,6 +706,16 @@ export class InventoryScreen {
         this.cursor = worn;
         inv.armor[ref.index] = null;
       } else sound = false;
+    } else if (ref.area === "offhand") {
+      // (Any item, as vanilla; shift: into the inventory, the main area first.)
+      const hand = [inv.offhand];
+      if (shift && !this.cursor) {
+        const moving = hand[0] ? { ...hand[0] } : null;
+        if (moving) addInOrder(inv.slots, moving, ORDER_CONTAINER);
+        sound = !!moving && moving.count !== hand[0].count;
+        if (moving) hand[0] = moving.count > 0 ? moving : null;
+      } else this.cursor = clickSlot(hand, 0, this.cursor, button);
+      inv.offhand = hand[0];
     } else if (ref.area === "palette") {
       const id = CREATIVE_ITEMS[ref.index];
       if (this.cursor) this.cursor = null; // dropping onto the palette deletes the stack
@@ -753,7 +814,7 @@ export class InventoryScreen {
       if (!this.isOpen && this.cursor) {
         const s = this.cursor;
         this.cursor = null;
-        const left = this.inventory.add(s.id, s.count, s.dur);
+        const left = this.inventory.add(s.id, s.count, s.dur, s.tag);
         if (left > 0) this.onDrop?.({ ...s, count: left });
       }
       this.refresh();
@@ -773,13 +834,16 @@ export class InventoryScreen {
     if (!v) return false;
     const before = v.slots[i] ? { ...v.slots[i] } : null;
     if (shift) {
-      // Into the inventory, as much as fits.
+      // Into the inventory, as much as fits (a Survival world: the hotbar's
+      // right end first, as vanilla; a Missions world: the hotbar from the left).
       if (!before || this.cursor) return false;
+      const order = isVanilla() ? ORDER_RESULT : null;
       const moving = { ...before };
-      addToRange(this.inventory.slots.map((s) => (s ? { ...s } : null)), moving, 0, INVENTORY_SIZE);
+      if (order) addInOrder(copySlots(this.inventory.slots), moving, order);
+      else addToRange(copySlots(this.inventory.slots), moving, 0, INVENTORY_SIZE);
       if (moving.count === before.count) return false;
       const taken = { ...before, count: before.count - moving.count };
-      this._submit([[i, before, moving.count > 0 ? { ...before, count: moving.count } : null]], () => this._give(taken));
+      this._submit([[i, before, moving.count > 0 ? { ...before, count: moving.count } : null]], () => this._give(taken, order));
       return true;
     }
     const copy = v.slots.map((s) => (s ? { ...s } : null));
@@ -890,10 +954,11 @@ export class InventoryScreen {
     if (shift) {
       if (!before || this.cursor) return false;
       const moving = { ...before };
-      addInOrder(copySlots(this.inventory.slots), moving, ORDER_CONTAINER);
+      // (Into the inventory from the hotbar's right end, as vanilla.)
+      addInOrder(copySlots(this.inventory.slots), moving, ORDER_RESULT);
       if (moving.count === before.count) return false;
       const taken = { ...before, count: before.count - moving.count };
-      this._submit([[i, before, moving.count > 0 ? { ...before, count: moving.count } : null]], () => this._give(taken, ORDER_CONTAINER));
+      this._submit([[i, before, moving.count > 0 ? { ...before, count: moving.count } : null]], () => this._give(taken, ORDER_RESULT));
       return true;
     }
     const cur = this.cursor;
@@ -951,7 +1016,8 @@ export class InventoryScreen {
       const s = slots[i];
       if (!s || cur) return false;
       const moving = { ...s };
-      addInOrder(this.inventory.slots, moving, ORDER_CONTAINER);
+      // (Vanilla: the table's slots from the hotbar's right end, the anvil's the main area first.)
+      addInOrder(this.inventory.slots, moving, area === "ench" ? ORDER_RESULT : ORDER_CONTAINER);
       if (moving.count === s.count) return false;
       slots[i] = moving.count > 0 ? moving : null;
       this._localChanged();
@@ -1279,6 +1345,54 @@ export class InventoryScreen {
       this._changed();
       return true;
     }
+    if (code === "KeyF" && isVanilla() && this.hover && this.hover.area === "inv") {
+      // (Vanilla's F: the hovered slot swaps with the off hand.)
+      const i = this.hover.index;
+      const slots = this.inventory.slots;
+      if (!slots[i] && !this.inventory.offhand) return true;
+      const tmp = slots[i];
+      slots[i] = this.inventory.offhand;
+      this.inventory.offhand = tmp;
+      this.refresh();
+      this._changed();
+      this._showTooltip();
+      return true;
+    }
+    if (this.hover && this.hover.area === "offhand" && key) {
+      const inv = this.inventory;
+      if (m) {
+        const h = Number(m[1]) - 1;
+        const tmp = inv.slots[h];
+        inv.slots[h] = inv.offhand;
+        inv.offhand = tmp;
+      } else if (inv.offhand) {
+        const s = inv.offhand;
+        const n = ctrl ? s.count : 1;
+        s.count -= n;
+        if (s.count <= 0) inv.offhand = null;
+        this.onDrop?.({ ...s, count: n });
+      }
+      this.refresh();
+      this._changed();
+      this._showTooltip();
+      return true;
+    }
+    if (m && this.hover && this.hover.area === "armor") {
+      // (Swaps the worn piece with that hotbar slot: only the right piece goes on.)
+      const h = Number(m[1]) - 1;
+      const a = this.hover.index;
+      const slots = this.inventory.slots;
+      const held = slots[h];
+      const worn = this.inventory.armor[a];
+      if ((held && Inventory.armorSlotOf(held.id) !== a) || (!held && !worn)) return true;
+      this.inventory.armor[a] = held || null;
+      slots[h] = worn || null;
+      if (this.audio) this.audio.playClick();
+      this.refresh();
+      this._changed();
+      this._showTooltip();
+      return true;
+    }
     if (m && this.hover && this.hover.area === "palette") {
       const id = CREATIVE_ITEMS[this.hover.index];
       this.inventory.slots[Number(m[1]) - 1] = makeStack(id, maxStack(id));
@@ -1386,6 +1500,7 @@ export class InventoryScreen {
       this._title();
     }
     this.armorViews.forEach((v, i) => v.set(this.inventory.armor[i]));
+    this.offhandView.set(this.inventory.offhand);
     const pts = this.inventory.armorPoints();
     const text = pts > 0 ? `${pts} defense (${Math.round(this.inventory.armorReduction() * 100)}% less damage)` : "no armor";
     // (Every frame while open: the DOM only when something changed.)

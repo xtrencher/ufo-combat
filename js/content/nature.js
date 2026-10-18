@@ -943,12 +943,28 @@ for (const [stem, fruit] of [
     };
   }
 }
+// Whether a cactus can stand at (x, y, z): in a Survival world, as vanilla,
+// only on sand, red sand or cactus and with no solid block beside it
+// (world.js pops one that can't; a Missions world keeps its old cacti).
+export function cactusHolds(world, x, y, z) {
+  if (!isVanilla()) return true;
+  const below = world.getBlock(x, y - 1, z);
+  if (below !== BLOCK.CACTUS && below !== BLOCK.SAND && below !== RED_SAND) return false;
+  for (const [dx, dz] of SIDES) if (LIB.IS_SOLID[world.getBlock(x + dx, y, z + dz)]) return false;
+  return true;
+}
+
 // Sugar cane (and the core's cactus, in a Survival world) grows a block every
 // 16 ticks on average, up to 3 tall; cane dries out without water by its
 // root (deviation: vanilla notices at once, here on its next tick).
 function columnTick(id0, needsWater) {
   return (world, x, y, z, id, rand) => {
     if (id0 === BLOCK.CACTUS && !isVanilla()) return;
+    if (id0 === BLOCK.CACTUS && !cactusHolds(world, x, y, z)) {
+      world.setBlock(x, y, z, BLOCK.AIR); // (the rest pops off: world.js)
+      world.onBlockPopped?.(x, y, z, id0);
+      return;
+    }
     let bottom = y;
     while (bottom > 0 && y - bottom < 3 && world.getBlock(x, bottom - 1, z) === id0) bottom--;
     if (needsWater && !waterBeside(world, x, bottom - 1, z)) {
@@ -957,7 +973,9 @@ function columnTick(id0, needsWater) {
       return;
     }
     if (world.getBlock(x, y + 1, z) !== BLOCK.AIR || y + 1 - bottom >= 3 || rand() >= 1 / 16) return;
-    world.setBlock(x, y + 1, z, id0);
+    // (a cactus grown beside a block breaks at once: vanilla's cactus farms)
+    if (id0 === BLOCK.CACTUS && SIDES.some(([dx, dz]) => LIB.IS_SOLID[world.getBlock(x + dx, y + 1, z + dz)])) world.onBlockPopped?.(x, y + 1, z, id0);
+    else world.setBlock(x, y + 1, z, id0);
   };
 }
 randomTick[SUGAR_CANE] = columnTick(SUGAR_CANE, true);

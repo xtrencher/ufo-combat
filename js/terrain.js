@@ -124,7 +124,7 @@ const VANILLA_VEINS = [
 // [block, veins per chunk, min size, max size, min y, max y, biome of the vein's column]
 const VANILLA_BIOME_VEINS = [
   [V.EMERALD_ORE, 5.5, 1, 1, 4, 80, BIOME.MOUNTAINS],
-  [BLOCK.GOLD_ORE, 12, 3, 8, 24, 70, BIOME.BADLANDS],
+  [BLOCK.GOLD_ORE, 12, 3, 8, 4, 34, BIOME.BADLANDS], // (in the stone and the bands under the mesas: vanilla's y 32-79 is mostly air here)
 ];
 // Caves below this are filled with lava (vanilla's lava lakes at the bottom
 // of the world: y 10 and under, before 1.18).
@@ -530,6 +530,7 @@ export class TerrainGenerator {
   _placeVanillaVeins(blocks, cx, cz, biomeAt) {
     const S = CHUNK_SIZE;
     const rand = mulberry32((this.seed ^ Math.imul(cx, 0x27d4eb2f) ^ Math.imul(cz, 0x165667b1) ^ 0x0de5) >>> 0);
+    const bandSet = new Set(BADLAND_BANDS); // (the badlands' own veins go through its terracotta too: _vanillaColumns ran first)
     const vein = (id, minSize, maxSize, minY, maxY, biome) => {
       let x = Math.floor(rand() * S);
       let y = minY + Math.floor(rand() * (maxY - minY + 1));
@@ -539,7 +540,7 @@ export class TerrainGenerator {
       for (let k = 0; k < size; k++) {
         if (here && x >= 0 && x < S && z >= 0 && z < S && y >= 1 && y < WORLD_HEIGHT) {
           const i = (y * S + z) * S + x;
-          if (blocks[i] === BLOCK.STONE) blocks[i] = id;
+          if (blocks[i] === BLOCK.STONE || (biome === BIOME.BADLANDS && bandSet.has(blocks[i]))) blocks[i] = id;
         }
         const axis = Math.floor(rand() * 3);
         const step = rand() < 0.5 ? -1 : 1;

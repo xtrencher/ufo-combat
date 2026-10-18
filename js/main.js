@@ -5,7 +5,7 @@ import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
 import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
-import { Sky, DAY_LENGTH } from "./sky.js";
+import { Sky, DAY_LENGTH, dayLength } from "./sky.js";
 import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, lastEditsBytes } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
@@ -444,7 +444,7 @@ const natureSim = new NatureSim(world);
 // (Round 11) A Survival world's weather (js/weather.js; drawn and heard
 // through js/weather-fx.js; the host's online: js/net/weather.js), and the
 // monster spawners of its dungeons and mineshafts (js/structures.js).
-const weather = new Weather({ world, player, mobs, dayLength: DAY_LENGTH, difficulty: () => difficulty() });
+const weather = new Weather({ world, player, mobs, dayLength: dayLength(), difficulty: () => difficulty() });
 const weatherFx = new WeatherFx({ scene, weather, audio, sky });
 weather.onStrike = (x, y, z) => weatherFx.strike(x, y, z);
 natureSim.fire.rainingAt = (x, y, z) => weather.nearRain(x, y, z);
@@ -683,11 +683,12 @@ const ARMOR_PASS = new Set([...BYPASSES_ARMOR, "jet_crash", "jet_down", "ufo_dow
 // (Round 11) Then the Protection enchantments (survival.js protectedDamage:
 // Protection, Fire, Blast, Projectile Protection, Feather Falling on falls,
 // also against what armor points don't stop), and Thorns strikes back.
+let hitFrom = null; // (the last filtered hit's source point)
 player.damageFilter = (amount, cause, from) => {
   if (player.creative) return amount;
+  hitFrom = from; // (for Thorns, in armorWear: only a hit that lands strikes back)
   if (ARMOR_PASS.has(cause)) return protectedDamage(amount, cause, inventory.armor);
   if (shieldBlocks(amount, from)) return 0;
-  thorns(cause, from);
   const red = inventory.armorReduction();
   return protectedDamage(red <= 0 ? amount : Math.max(1, Math.round(amount * (1 - red))), cause, inventory.armor);
 };
@@ -734,7 +735,11 @@ function shieldBlocks(amount, from) {
 // (Worn only by the hits that land: Player.damage calls this after the hurt
 // grace time has let the hit through.)
 player.armorWear = (amount, cause) => {
-  if (player.creative || ARMOR_PASS.has(cause) || inventory.armorReduction() <= 0) return;
+  if (player.creative) return;
+  const from = hitFrom;
+  hitFrom = null;
+  thorns(cause, from); // (as vanilla's: only for the hits that land)
+  if (ARMOR_PASS.has(cause) || inventory.armorReduction() <= 0) return;
   const broken = inventory.damageArmor(Math.max(1, Math.floor(amount / 4)));
   if (broken.length) {
     for (const n of broken) toast(`Your ${n} broke!`, 2.5);
@@ -1291,7 +1296,11 @@ if (savedPlayer) {
   inventory.load(savedPlayer.inv);
   inventory.loadArmor(savedPlayer.armor);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
-  if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
+  // (A save from another day length, e.g. a Survival world's from a 600 s day, keeps its hour.)
+  if (Number.isFinite(savedPlayer.time)) {
+    const old = Number(savedPlayer.dayLen) || DAY_LENGTH;
+    sky.time = ((savedPlayer.time * dayLength()) / old) % dayLength();
+  }
   // Worlds from before the loadout flag existed already had their weapons.
   // (An older save's "survivalStash", the inventory set aside in Creative,
   // is no longer used: the inventory a save has is the one it keeps.)
@@ -1307,6 +1316,9 @@ if (savedPlayer) {
 } else {
   // (A new world made from the Creative choice starts in Creative.)
   if (NEW_PICK?.mode === "creative") player.setMode("creative");
+  // (A new Survival world starts at vanilla's tick 0, 6:00: a whole day to punch
+  // trees and build a shelter; a Missions world keeps its 17:50 golden hour.)
+  if (isVanilla()) sky.setHours(6);
   player.spawnAt(spawnX, spawnZ);
 }
 let newWorld = !savedPlayer;
@@ -1724,6 +1736,7 @@ function playerState() {
     armor: kept ? kept.armor : inventory.serializeArmor(),
     sel: kept ? kept.sel : inventory.selected,
     time: round3(sky.time),
+    dayLen: dayLength(), // (the day the time is on: a Survival world's is vanilla's 1200 s)
     modStash: mods.serialize(),
     loadout: loadoutGiven,
     missions: progress.serialize(),
@@ -1749,7 +1762,8 @@ let waterMetaVersion;
 function savedWaterMeta() {
   const ver = waterSim.metaVersion;
   if (!waterMetaList || ver === undefined || ver !== waterMetaVersion) {
-    waterMetaList = waterSim.serializeMeta(3000);
+    // (A Survival world's flows reach 7 blocks, about three times the cells: a bigger cap.)
+    waterMetaList = waterSim.serializeMeta(isVanilla() ? 12000 : 3000);
     waterMetaVersion = ver;
   }
   return waterMetaList;
@@ -2024,7 +2038,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   // host's creatures and UFOs too, as nobody's kill: the guest's copies of
   // them make no claim for it.)
   const worldBlastHere = !info.mirror || (!byPlayer && net.isHost && mp.active);
-  if (worldBlastHere) mobs.explosion(center, radius, byPlayer);
+  if (worldBlastHere) mobs.explosion(center, radius, byPlayer, source);
   // The blast takes the plants with it (the burnt ring too), so none are left floating over the crater.
   if (grass.density > 0 && center.distanceTo(player.position) < 90) grass.clear(center.x, center.z, Math.min(radius + 2.5, 30));
   if (worldBlastHere) ufos.explosion(center, radius, byPlayer);
@@ -2050,6 +2064,9 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer ? (other ? "explosion_other" : "explosion") : source);
   hurtByBlast(center, radius, source);
 };
+// (A Survival world's creeper and TNT hurt as vanilla's, by their power;
+// the mod weapons keep the grenade curve below.)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4 };
 // What a blast does to this player on foot: damage close in, and a shove.
 function hurtByBlast(center, radius, source) {
   // (Seated, the blast already hit the vehicle: Player.damage would hand it
@@ -2061,7 +2078,23 @@ function hurtByBlast(center, radius, source) {
   offset.sub(center);
   const dist = offset.length();
   const hurtReach = radius * 1.8;
-  if (dist < hurtReach && !player.dead) {
+  const power = isVanilla() ? VANILLA_BLAST_POWER[source] : 0;
+  if (power) {
+    // vanilla: from the blast to the feet, reach 2 x power (exposure taken as 1)
+    const q = 1 - player.position.distanceTo(center) / (2 * power);
+    if (q > 0 && !player.dead) {
+      let dmg = Math.floor(((q * q + q) / 2) * 7 * 2 * power + 1);
+      // (TNT isn't a mob's cause, so its difficulty is applied here; a creeper's is in Player.damage)
+      if (source === "tnt") {
+        const s = player.mobDamageScale;
+        dmg = s <= 0 ? 0 : Math.max(1, Math.round(dmg * s));
+      }
+      if (dmg > 0 && player.damage(dmg, source, { from: center })) {
+        lastBlastHitTime = performance.now();
+        lastBlastSource = source;
+      }
+    }
+  } else if (dist < hurtReach && !player.dead) {
     const dmg = Math.floor(30 * size * Math.pow(1 - dist / hurtReach, 1.3));
     if (dmg > 0 && player.damage(dmg, source, { from: center })) {
       lastBlastHitTime = performance.now();

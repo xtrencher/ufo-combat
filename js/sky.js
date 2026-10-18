@@ -4,8 +4,15 @@
 // directional light (sun by day, moon by night) around the player.
 import * as THREE from "three";
 import { worldUniforms, createSkyMaterial } from "./shaders.js";
+import { isVanilla } from "./worldtype.js";
 
-export const DAY_LENGTH = 600; // seconds for a full day/night cycle
+export const DAY_LENGTH = 600; // seconds for a full day/night cycle (a Missions world)
+export const SURVIVAL_DAY_LENGTH = 1200; // a Survival world's: vanilla's 20 minutes
+
+// This world's day (the world type is set at startup, before anything reads it).
+export function dayLength() {
+  return isVanilla() ? SURVIVAL_DAY_LENGTH : DAY_LENGTH;
+}
 const DAY_SHARE = 0.62; // fraction of the cycle with the sun above the horizon
 const SUN_TILT = 0.42; // radians the sun's path is tilted off the zenith
 const START_ANGLE = ((17 + 50 / 60 - 6) / 12) * Math.PI; // a new world starts at 17:50, in the golden hour before sunset
@@ -181,7 +188,7 @@ export class Sky {
   _timeForAngle(angle) {
     const a = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     const phase = a < Math.PI ? (a / Math.PI) * DAY_SHARE : DAY_SHARE + ((a - Math.PI) / Math.PI) * (1 - DAY_SHARE);
-    return phase * DAY_LENGTH;
+    return phase * dayLength();
   }
 
   setSunAngle(angle) {
@@ -190,7 +197,8 @@ export class Sky {
 
   // The sun's angle along its path for the current cycle time.
   _angleForTime(time) {
-    const phase = (((time % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH) / DAY_LENGTH;
+    const len = dayLength();
+    const phase = (((time % len) + len) % len) / len;
     return phase < DAY_SHARE ? (phase / DAY_SHARE) * Math.PI : Math.PI + ((phase - DAY_SHARE) / (1 - DAY_SHARE)) * Math.PI;
   }
 
@@ -226,7 +234,7 @@ export class Sky {
     const uw = worldUniforms.uWind.value;
     uw.set(Math.cos(wind.angle), Math.sin(wind.angle), wind.strength, uw.w + dt * 0.1 * wind.strength);
     // A locked clock (settings menu) keeps the sun where it is.
-    if (!this.locked) this.time = (this.time + dt * (this.timeScale ?? 1)) % DAY_LENGTH;
+    if (!this.locked) this.time = (this.time + dt * (this.timeScale ?? 1)) % dayLength();
     const angle = this._angleForTime(this.time);
     this.sunAngle = angle;
 

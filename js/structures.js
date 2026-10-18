@@ -35,6 +35,7 @@ import { VILLAGE_REACH } from "./village.js";
 import { SPAWNER, SPAWNER_KINDS } from "./content/nature.js";
 import { LIB, ITEM } from "./content/base.js";
 import * as V from "./content/ids.js";
+import { enchantedBook } from "./enchant.js";
 
 const S = CHUNK_SIZE;
 const idx = (x, y, z) => (y * S + z) * S + x;
@@ -451,6 +452,21 @@ export class StructureGrower {
     for (const t of this._templesNear(x, z, x, z)) {
       if (t.chests.some((c) => c[0] === x && c[1] === y && c[2] === z)) return "desert_pyramid";
     }
+    // A dungeon's chest: on a try's floor inside its walls, the try's
+    // spawner in the generated blocks (so one a player broke, or ground the
+    // host hasn't loaded, still counts; rooms are kept inside their chunk).
+    let gen = null;
+    for (const d of this.dungeonCandidates(x >> 4, z >> 4)) {
+      if (Math.abs(x - d.x) > d.rx || Math.abs(z - d.z) > d.rz) continue;
+      const span = Math.min(DUNGEON_MAX_Y, this.terrain.heightAt(d.x, d.z) - 5) - 2;
+      if (span < 1 || y !== 2 + Math.floor(d.h * span)) continue;
+      if (getBlock && isSpawner(getBlock(d.x, y, d.z))) return "dungeon";
+      if (!gen) {
+        gen = new Uint16Array(S * S * WORLD_HEIGHT); // (as Chunk.blocks; only on a chest's first open)
+        this.terrain.generate({ cx: x >> 4, cz: z >> 4, blocks: gen });
+      }
+      if (isSpawner(gen[idx(d.x & 15, y, d.z & 15)])) return "dungeon";
+    }
     if (getBlock) {
       for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) if (isSpawner(getBlock(x + dx, y, z + dz))) return "dungeon";
     }
@@ -660,26 +676,27 @@ function rotateDir(rot, du, dv) {
 // ---------- Loot ----------
 
 // Vanilla's chest tables (1.17): pools of [rolls min, max, entries [id,
-// weight, min, max]]; id null: an item the game doesn't have (a saddle, a
-// name tag, horse armour, music discs, rails, an enchanted book), which
-// takes its share and gives nothing.
+// weight, min, max]]; id "book": an enchanted book (one random
+// enchantment); id null: an item the game doesn't have (a saddle, a name
+// tag, horse armour, music discs, rails), which takes its share and gives
+// nothing.
 const LOOT = {
   dungeon: [
-    [1, 3, [[null, 20], [ITEM.GOLDEN_APPLE, 15, 1, 1], [null, 2], [null, 15], [null, 15], [null, 20], [null, 10], [null, 15], [null, 5], [null, 10]]],
+    [1, 3, [[null, 20], [ITEM.GOLDEN_APPLE, 15, 1, 1], [null, 2], [null, 15], [null, 15], [null, 20], [null, 10], [null, 15], [null, 5], ["book", 10]]],
     [1, 4, [[V.IRON_INGOT, 10, 1, 4], [ITEM.GOLD_INGOT, 5, 1, 4], [V.BREAD, 20, 1, 1], [V.WHEAT, 20, 1, 4], [V.BUCKET, 10, 1, 1], [V.REDSTONE, 15, 1, 4], [ITEM.COAL, 15, 1, 4], [V.MELON_SEEDS, 10, 2, 4], [V.PUMPKIN_SEEDS, 10, 2, 4], [V.BEETROOT_SEEDS, 10, 2, 4]]],
     [3, 3, [[V.BONE, 10, 1, 8], [V.GUNPOWDER, 10, 1, 8], [V.ROTTEN_FLESH, 10, 1, 8], [V.STRING, 10, 1, 8]]],
   ],
   mineshaft: [
-    [1, 1, [[ITEM.GOLDEN_APPLE, 20, 1, 1], [null, 1], [null, 30], [null, 10], [ITEM.IRON_PICKAXE, 5, 1, 1], [null, 5]]],
+    [1, 1, [[ITEM.GOLDEN_APPLE, 20, 1, 1], [null, 1], [null, 30], ["book", 10], [ITEM.IRON_PICKAXE, 5, 1, 1], [null, 5]]],
     [2, 4, [[V.IRON_INGOT, 10, 1, 5], [ITEM.GOLD_INGOT, 5, 1, 3], [V.REDSTONE, 5, 4, 9], [V.LAPIS_LAZULI, 5, 4, 9], [V.DIAMOND, 3, 1, 2], [ITEM.COAL, 10, 3, 8], [V.BREAD, 15, 1, 3], [null, 15], [V.MELON_SEEDS, 10, 2, 4], [V.PUMPKIN_SEEDS, 10, 2, 4], [V.BEETROOT_SEEDS, 10, 2, 4]]],
     [3, 3, [[null, 20], [null, 5], [null, 5], [null, 5], [BLOCK.TORCH, 15, 1, 16]]],
   ],
   desert_pyramid: [
-    [2, 4, [[V.DIAMOND, 5, 1, 3], [V.IRON_INGOT, 15, 1, 5], [ITEM.GOLD_INGOT, 15, 2, 7], [V.EMERALD, 15, 1, 3], [V.BONE, 25, 4, 6], [V.SPIDER_EYE, 25, 1, 3], [V.ROTTEN_FLESH, 25, 3, 7], [null, 20], [null, 15], [null, 10], [null, 5], [null, 20], [ITEM.GOLDEN_APPLE, 20, 1, 1], [null, 2], [null, 15]]],
+    [2, 4, [[V.DIAMOND, 5, 1, 3], [V.IRON_INGOT, 15, 1, 5], [ITEM.GOLD_INGOT, 15, 2, 7], [V.EMERALD, 15, 1, 3], [V.BONE, 25, 4, 6], [V.SPIDER_EYE, 25, 1, 3], [V.ROTTEN_FLESH, 25, 3, 7], [null, 20], [null, 15], [null, 10], [null, 5], ["book", 20], [ITEM.GOLDEN_APPLE, 20, 1, 1], [null, 2], [null, 15]]],
     [4, 4, [[V.BONE, 10, 1, 8], [V.GUNPOWDER, 10, 1, 8], [V.ROTTEN_FLESH, 10, 1, 8], [V.STRING, 10, 1, 8], [BLOCK.SAND, 10, 1, 8]]],
   ],
 };
-// Rolls a structure's table: [[id, count], ...].
+// Rolls a structure's table: [[id, count, tag?], ...].
 export function rollStructureLoot(kind, rand = Math.random) {
   const pools = LOOT[kind];
   if (!pools) return null;
@@ -693,7 +710,10 @@ export function rollStructureLoot(kind, rand = Math.random) {
       for (const [id, weight, min = 1, max = 1] of entries) {
         w -= weight;
         if (w >= 0) continue;
-        if (have(id)) out.push([id, min + Math.floor(rand() * (max - min + 1))]);
+        if (id === "book") {
+          const b = enchantedBook(rand);
+          if (b && have(b.id)) out.push([b.id, 1, b.tag]);
+        } else if (have(id)) out.push([id, min + Math.floor(rand() * (max - min + 1))]);
         break;
       }
     }

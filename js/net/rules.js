@@ -6,7 +6,7 @@
 // Missions or Survival, comes with the welcome: net/multiplayer.js.) A
 // guest's own settings are never overwritten: the host's values are applied
 // on top and the guest's rows are locked ("set by the host") until they leave.
-import { DAY_LENGTH } from "../sky.js";
+import { dayLength } from "../sky.js";
 
 // (Round 11) The room's modes. The room plays the host's world, whose type
 // is fixed: "survival" is that world's own game (named Missions in a
@@ -174,7 +174,7 @@ export class RulesSync {
     // (The host's clock moved on while the message travelled.)
     const ahead = m.locked ? 0 : Math.max(0, this.net.time - (m.ts ?? this.net.time)) * (m.scale ?? 1);
     const target = m.time + ahead;
-    const len = DAY_LENGTH;
+    const len = dayLength(); // (this world's day: a Survival world's is 20 minutes)
     let d = target - sky.time;
     if (Math.abs(d) > len / 2) d -= Math.sign(d) * len;
     // Small drift: eased in; a jump (a mission skipping to the night): at once.

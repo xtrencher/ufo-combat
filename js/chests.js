@@ -169,7 +169,7 @@ export class Chests {
     // (Round 11) A Survival world's dungeons, mineshafts and desert temples
     // have vanilla's own tables (structures.js).
     const loot = (isVanilla() && structureLootAt(this.world, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
-    for (const [id, n] of loot) {
+    for (const [id, n, tag] of loot) {
       let left = n;
       while (left > 0) {
         const k = Math.min(left, maxStack(id));
@@ -178,7 +178,7 @@ export class Chests {
         const free = [];
         for (let i = 0; i < CHEST_SLOTS; i++) if (!slots[i]) free.push(i);
         if (!free.length) return slots;
-        slots[free[Math.floor(rand() * free.length)]] = makeStack(id, k);
+        slots[free[Math.floor(rand() * free.length)]] = makeStack(id, k, undefined, tag);
       }
     }
     return slots;

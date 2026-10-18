@@ -463,6 +463,11 @@ export class WeaponSystem {
         this._spend("bow");
         const ench = bow?.tag?.ench ? { power: enchLevel(bow, "power"), punch: enchLevel(bow, "punch"), flame: enchLevel(bow, "flame") } : null;
         this.shootArrow(power, { pickup: this._needsArrows() && !infinity, ench });
+        // (Survival, out of Creative: a shot wears the bow by 1, Unbreaking aside.)
+        if (this._needsArrows()) {
+          if (this.inventory.damageSelected(1)) this.audio.playToolBreak?.();
+          this.onChange?.();
+        }
       }
       return;
     }

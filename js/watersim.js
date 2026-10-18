@@ -17,7 +17,7 @@
 // borrowing support from a cell that only ever existed because of it in the
 // first place (the same class of bug a naive flood-fill removal hits, and
 // the reason the voxel light engine two-phases its own removal).
-import { BLOCK, IS_REPLACEABLE, IS_WET } from "./blocks.js";
+import { BLOCK, IS_REPLACEABLE, IS_WET, IS_SOLID } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { isVanilla } from "./worldtype.js";
 import { isLava } from "./content/nature.js";
@@ -131,6 +131,17 @@ export class WaterSim {
     this.world.setBlocks(list);
   }
 
+  // A source: water the sim did not make.
+  _isSource(x, y, z) {
+    return this._get(x, y, z) === BLOCK.WATER && !this.meta.has(this._key(x, y, z));
+  }
+
+  _sourceSides(x, y, z) {
+    let n = 0;
+    for (const [dx, dz] of SIDES) if (this._isSource(x + dx, y, z + dz)) n++;
+    return n;
+  }
+
   _tick(key) {
     const world = this.world;
     const [x, y, z] = key.split(",").map(Number);
@@ -154,7 +165,20 @@ export class WaterSim {
         this._wakeAround(x, y, z);
         return;
       }
-      level = info.level;
+      // (Survival: vanilla's infinite water, a flow between two sources
+      // over solid ground or a source becomes one; its neighbours may then
+      // meet the rule too)
+      if (isVanilla() && this._sourceSides(x, y, z) >= 2 && (y === 0 || IS_SOLID[this._get(x, y - 1, z)] || this._isSource(x, y - 1, z))) {
+        this.meta.delete(key);
+        this.metaVersion++;
+        this._wakeAround(x, y, z);
+      } else level = info.level;
+    } else if (isVanilla()) {
+      // (a new source, a bucket poured onto flow: the flow beside it checks the rule)
+      for (const [dx, dz] of SIDES) {
+        const k = this._key(x + dx, y, z + dz);
+        if (this.meta.has(k)) this.active.add(k);
+      }
     }
 
     // Fall: an open cell directly below becomes full-strength falling water.

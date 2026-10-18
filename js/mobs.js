@@ -32,8 +32,9 @@ import { isVanilla } from "./worldtype.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { dyeColorOf, mixDyeColors } from "./content/decor.js";
-import { makeOffers, PROFESSION_NAMES, NITWIT } from "./trading.js";
+import { makeOffers, encodeOffers, decodeOffers, PROFESSION_NAMES, NITWIT } from "./trading.js";
 import { SEA_LEVEL } from "./constants.js";
+import { SNOWY_GRASS } from "./content/nature.js";
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
@@ -373,6 +374,14 @@ const r2 = (v) => Math.round(v * 100) / 100;
 // (Fences and walls: a 1.5-tall collision box no mob can jump.)
 const TALL = new Uint8Array(COLLISION_BOXES.length);
 for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.some((b) => b[4] > 1)) TALL[id] = 1;
+// (The top of a block's collision in its cell: a slab 0.5, farmland 0.9375, a full block 1.)
+const TOP = new Float32Array(COLLISION_BOXES.length).fill(1);
+for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.length) TOP[id] = Math.min(1, Math.max(...COLLISION_BOXES[id].map((b) => b[4])));
+// The floor a creature stands on in cell (x, y, z): y + the top of its box (-Infinity: not solid).
+const surface = (w, x, y, z) => {
+  const id = w.getBlock(x, y, z);
+  return IS_SOLID[id] ? y + TOP[id] : -Infinity;
+};
 
 // Ranged weapons: the shoulder pivot of the arm holding it and the reach
 // from there to the muzzle (the bow's grip), in model pixels (mob-models.js).
@@ -391,12 +400,17 @@ const HOSTILE_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].hostile && !
 const OTHER_HOSTILE_KINDS = HOSTILE_KINDS.filter((k) => k !== "zombie" && !SPECIES[k].special);
 const FLYER_KINDS = Object.keys(SPECIES).filter((k) => SPECIES[k].flies);
 const VILLAGERS_PER_VILLAGE = 5;
+// (A snowy grass block is a grass block: animals spawn and graze on it.)
+const isGrassy = (id) => id === BLOCK.GRASS || id === SNOWY_GRASS;
+const villageKey = (v) => `${Math.round(v.x)},${Math.round(v.z)}`;
 const MAX_FLYERS = 10;
 const MAX_TOTAL_MOBS = 34;
 const VILLAGE_SEARCH_RADIUS = 60;
 
 // Seconds for a full-strength swing with the given tool.
 function attackCooldown(tool) {
+  // (A Survival world: Java's attack speeds, 1 / the tool's vSpeed (items.js); the hand 4 a second.)
+  if (isVanilla() && (!tool || tool.vSpeed)) return tool ? 1 / tool.vSpeed : 0.25;
   if (!tool) return 0.35;
   if (tool.type === "sword") return 0.6;
   if (tool.type === "axe") return 0.9;
@@ -447,6 +461,7 @@ export class MobManager {
     this.enabled = true;
     this.lastAttackTime = -10; // game time of the player's last swing
     this.time = 0;
+    this._golemCd = new Map(); // village key -> the time it may have a new iron golem (one was killed)
     this.kills = 0;
     this.killsByKind = {}; // stats
     // Zombie settings (Mobs tab): spawn rate multiplier, cap, toughness,
@@ -490,6 +505,7 @@ export class MobManager {
     this._kept = [];
     this.inventory = null; // this player's (main.js): what they hold tempts animals; using creatures
     this.localPid = 1; // this player's id online (net/entities.js; 1: the host, or single player): a tame wolf's owner
+    this.nickOf = null; // (pid) => their lower-case nickname online (net/entities.js): a wolf's owner across rejoins
     this.onTrade = null; // (session) => false if it can't open: a villager's trade screen (main.js, trading.js)
     this.tradeSession = null;
     this.onRemoteXp = null; // (pid, amount, pos) => void: online (host), another player's breeding experience
@@ -544,6 +560,9 @@ export class MobManager {
     if (kind === "villager" && !isVanilla()) variant = 0;
     if (baby) spec = babySpec(spec);
     const model = createMobModel(kind, variant);
+    // (Online the host's hostile creatures are a little tougher for a bigger
+    // group, in a Missions world only: vanilla's health does not scale.)
+    const health = spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile && !isVanilla() ? this.groupHealth ?? 1 : 1);
     const m = {
       id: this._nextId++,
       kind,
@@ -559,9 +578,8 @@ export class MobManager {
       yaw: Math.random() * Math.PI * 2,
       headYaw: 0,
       headPitch: 0,
-      // (Online the host's hostile creatures are a little tougher for a bigger group.)
-      health: spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile ? this.groupHealth ?? 1 : 1),
-      maxHealth: spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile ? this.groupHealth ?? 1 : 1),
+      health,
+      maxHealth: health,
       hurtTime: 99,
       invulnerable: 0,
       dead: false,
@@ -711,7 +729,7 @@ export class MobManager {
     const z = Math.floor(p.z + Math.sin(a) * d);
     if (!this._chunkReady(x, z)) return 0;
     const top = this.world.surfaceY(x, z);
-    if (top < 0 || this.world.getBlock(x, top, z) !== BLOCK.GRASS) return 0;
+    if (top < 0 || !isGrassy(this.world.getBlock(x, top, z))) return 0;
     if (this.world.lightAt(x + 0.5, top + 1.5, z + 0.5).sky < 10) return 0;
     const kind = this._pickPassive(x, z);
     // (A Survival world's herds: vanilla's up to four.)
@@ -722,7 +740,7 @@ export class MobManager {
       const sx = x + (i === 0 ? 0 : Math.floor(Math.random() * 5) - 2);
       const sz = z + (i === 0 ? 0 : Math.floor(Math.random() * 5) - 2);
       const st = this.world.surfaceY(sx, sz);
-      if (st < 0 || this.world.getBlock(sx, st, sz) !== BLOCK.GRASS || !this._chunkReady(sx, sz)) continue;
+      if (st < 0 || !isGrassy(this.world.getBlock(sx, st, sz)) || !this._chunkReady(sx, sz)) continue;
       if (!this._freeAt(sx, st + 1, sz, SPECIES[kind].h)) continue;
       this.spawn(kind, sx + 0.5, st + 1, sz + 0.5);
       spawned++;
@@ -847,19 +865,35 @@ export class MobManager {
       }
     }
     if (!village) return;
-    const nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && Math.hypot(m.pos.x - village.x, m.pos.z - village.z) < radius).length;
-    if (nearby >= cap && !(isVanilla() && !this.mobs.some((m) => !m.dead && m.kind === "iron_golem" && Math.hypot(m.pos.x - village.x, m.pos.z - village.z) < radius + 16))) return;
+    const vanilla = isVanilla();
+    const near = (x, z, r) => Math.hypot(x - village.x, z - village.z) < r;
+    let nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && near(m.pos.x, m.pos.z, radius)).length;
+    let hasGolem = this.mobs.some((m) => !m.dead && m.kind === "iron_golem" && near(m.pos.x, m.pos.z, radius + 16));
+    // (A Survival world keeps its villagers: the saved ones not back yet count too.)
+    for (const e of this._kept) {
+      if (e[0] === "villager" && near(e[1], e[3], radius)) nearby++;
+      else if (e[0] === "iron_golem" && near(e[1], e[3], radius + 16)) hasGolem = true;
+    }
+    // A Survival world's village has its iron golem too, vanilla's way: with three
+    // villagers about, and after one is killed not for 5-10 minutes (an
+    // endless iron farm otherwise).
+    const vkey = villageKey(village);
+    const golem = vanilla && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
+    if (nearby >= cap && !golem) return;
     const ang = Math.random() * Math.PI * 2;
     const d = 3 + Math.random() * spread;
     const sx = Math.floor(village.x + Math.cos(ang) * d);
     const sz = Math.floor(village.z + Math.sin(ang) * d);
     if (!this._chunkReady(sx, sz)) return;
     const top = this.world.surfaceY(sx, sz);
-    // (Round 11) A Survival world's village has its iron golem too.
-    const golem = isVanilla() && !this.mobs.some((m) => !m.dead && m.kind === "iron_golem" && Math.hypot(m.pos.x - village.x, m.pos.z - village.z) < radius + 16);
     const kind = golem ? "iron_golem" : "villager";
     if (top < 0 || !this._freeAt(sx, top + 1, sz, SPECIES[kind].h)) return;
-    this.spawn(kind, sx + 0.5, top + 1, sz + 0.5);
+    const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5);
+    // (Survival: kept with the world, with their trades, as vanilla's never despawn.)
+    if (m && vanilla) {
+      m.persist = true;
+      if (golem) m.villageKey = vkey;
+    }
   }
 
   // Butterflies near flowers, parrots in the jungle canopy, fish in open water.
@@ -1099,7 +1133,7 @@ export class MobManager {
 
   _keptAnimals() {
     let n = 0;
-    for (const m of this.mobs) if (m.persist && !m.dead && !m.spec.hostile && !m.spec.flies) n++;
+    for (const m of this.mobs) if (m.persist && !m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager" && !m.spec.village) n++;
     return n;
   }
 
@@ -1144,12 +1178,17 @@ export class MobManager {
     const solid = (y) => IS_SOLID[w.getBlock(bx, y, bz)] === 1;
     // (Round 11) A fence or a wall can't be jumped.
     if (TALL[w.getBlock(bx, by, bz)] || TALL[w.getBlock(bx, by - 1, bz)]) return "wall";
-    if (solid(by)) {
+    // (A rise is the floor ahead above the feet: the next slab or farmland
+    // at the same height is level ground, not a step.)
+    const level = solid(by) && surface(w, bx, by, bz) - m.pos.y <= 0.01;
+    if (solid(by) && !level) {
       for (let k = 1; k <= cells; k++) if (solid(by + k)) return "wall";
       if (IS_SOLID[w.getBlock(Math.floor(m.pos.x), by + cells, Math.floor(m.pos.z))]) return "wall"; // no room to jump
       return "step";
     }
-    for (let k = 1; k < cells; k++) if (solid(by + k)) return "wall";
+    const head = level ? Math.ceil(m.pos.y + m.spec.h - by) - 1 : cells - 1;
+    for (let k = 1; k <= head; k++) if (solid(by + k)) return "wall";
+    if (level) return "open";
     if (IS_WET[w.getBlock(bx, by, bz)]) return "water";
     let drop = 0;
     while (drop < 6 && !solid(by - 1 - drop)) {
@@ -2047,6 +2086,22 @@ export class MobManager {
     }
   }
 
+  // Online (host): the tame wolves of players who left (test(owner pid))
+  // wait for whoever clicks them next, or for their owner's return.
+  ownerGone(test) {
+    for (const m of this.mobs) {
+      if (m.kind !== "wolf" || !m.tamed || m.net || !m.owner || !test(m.owner)) continue;
+      m.owner = 0;
+      m.foe = m.revenge = null;
+    }
+  }
+
+  // Online (host): a player (back) in the game gets their waiting wolves again.
+  ownerBack(pid, nick) {
+    if (!nick) return;
+    for (const m of this.mobs) if (m.kind === "wolf" && m.tamed && !m.net && !m.owner && m.ownerNick === nick) m.owner = pid;
+  }
+
   // This machine's player's id online (1: the host's, or single player's).
   _pidOf(t) {
     return t === this.localPlayer ? this.localPid : t?.pid ?? 0;
@@ -2231,6 +2286,7 @@ export class MobManager {
   _tame(m, pid) {
     m.tamed = true;
     m.owner = pid;
+    m.ownerNick = (pid && this.nickOf?.(pid)) || ""; // (pids change when a guest rejoins; nicknames don't)
     m.persist = true;
     m.angerT = 0;
     m.foe = null;
@@ -2254,7 +2310,10 @@ export class MobManager {
     const variant = a.kind === "sheep" ? (mixed >= 0 ? mixed : Math.random() < 0.5 ? a.variant : b.variant) : undefined;
     const baby = this.spawn(a.kind, (a.pos.x + b.pos.x) / 2, Math.max(a.pos.y, b.pos.y), (a.pos.z + b.pos.z) / 2, { baby: true, variant });
     if (baby) baby.persist = true;
-    if (baby && a.tamed) this._tame(baby, a.owner); // (a tame pair's pup is their owner's)
+    if (baby && a.tamed) {
+      this._tame(baby, a.owner); // (a tame pair's pup is their owner's)
+      baby.ownerNick = a.ownerNick || baby.ownerNick;
+    }
     this._hearts(a, 7);
     this._giveXp(a.lovePid ?? b.lovePid ?? 1, 1 + Math.floor(Math.random() * 7), a.pos);
     return baby;
@@ -2305,7 +2364,7 @@ export class MobManager {
       const w = this.world;
       let ate = false;
       if (w.getBlock(x, y, z) === BLOCK.TALL_GRASS) ate = w.setBlock(x, y, z, BLOCK.AIR);
-      else if (w.getBlock(x, y - 1, z) === BLOCK.GRASS) ate = w.setBlock(x, y - 1, z, BLOCK.DIRT);
+      else if (isGrassy(w.getBlock(x, y - 1, z))) ate = w.setBlock(x, y - 1, z, BLOCK.DIRT);
       if (ate) {
         m.grazeUntil = this.time + 2;
         m.sheared = false;
@@ -2519,6 +2578,7 @@ export class MobManager {
       if (action === "sit") {
         if (!m.owner) {
           m.owner = pid; // (an owner gone: whoever clicks it now)
+          m.ownerNick = this.nickOf?.(pid) || "";
           m.sitting = false;
         } else m.sitting = !m.sitting;
         m.revenge = null;
@@ -2617,8 +2677,10 @@ export class MobManager {
   // ---------- (Round 11) Kept creatures (saved with the world) ----------
 
   // The creatures players made their own in a Survival world (bred, fed,
-  // shorn: m.persist), for the save: [kind, x, y, z, variant, seconds to
-  // grow up (0: grown), shorn, tame (2: this player's wolf, 1: someone's), sitting].
+  // shorn: m.persist; villagers), for the save: [kind, x, y, z, variant,
+  // seconds to grow up (0: grown), shorn, tame (2: this player's wolf, 1:
+  // someone's), sitting, a villager's offers (trading.js encodeOffers) or 0,
+  // a tame wolf's owner's nickname or 0]. (Older saves stop at sitting.)
   serializeKept() {
     if (this.puppets || !isVanilla()) return undefined;
     const out = [];
@@ -2626,7 +2688,7 @@ export class MobManager {
       if (!m.persist || m.dead || m.net || m.spec.hostile || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
       // (A tame wolf: 2 if this player's, 1 if another's, who may not come back: then whoever clicks it next.)
       const tame = m.tamed ? (m.owner === this.localPid ? 2 : 1) : 0;
-      out.push([m.kind, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), m.variant || 0, m.baby ? Math.max(1, Math.round(m.growT)) : 0, m.sheared ? 1 : 0, tame, m.sitting ? 1 : 0]);
+      out.push([m.kind, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), m.variant || 0, m.baby ? Math.max(1, Math.round(m.growT)) : 0, m.sheared ? 1 : 0, tame, m.sitting ? 1 : 0, m.trades ? encodeOffers(m.trades) : 0, (m.tamed && m.ownerNick) || 0]);
       if (out.length >= 400) break;
     }
     return out.length ? out : undefined;
@@ -2641,7 +2703,7 @@ export class MobManager {
   _spawnKept() {
     const list = this._kept;
     for (let i = list.length - 1; i >= 0; i--) {
-      const [kind, x, y, z, variant, grow, sheared, tame, sitting] = list[i];
+      const [kind, x, y, z, variant, grow, sheared, tame, sitting, offers, nick] = list[i];
       if (!this.world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4)) continue;
       list.splice(i, 1);
       const m = this.spawn(kind, x, y, z, { variant: variant | 0, baby: grow > 0, wet: true });
@@ -2651,8 +2713,14 @@ export class MobManager {
       m.sheared = !!sheared;
       if (kind === "wolf" && tame) {
         this._tame(m, tame === 2 ? this.localPid : 0);
+        if (typeof nick === "string" && !m.ownerNick) m.ownerNick = nick.slice(0, 40);
         m.health = m.maxHealth;
         m.sitting = !!sitting || tame !== 2;
+      }
+      // (A villager keeps its trades and their stock.)
+      if (m.spec.trades && Array.isArray(offers)) {
+        const t = decodeOffers(offers);
+        if (t.length) m.trades = t;
       }
     }
   }
@@ -2778,8 +2846,10 @@ export class MobManager {
     const wx = c[0] + 0.5 - m.pos.x;
     const wz = c[2] + 0.5 - m.pos.z;
     const dh = Math.hypot(wx, wz) || 1;
-    const rise = c[1] - Math.floor(m.pos.y + 0.05);
-    const jump = rise >= 2 ? 2 : rise >= 1 ? 1 : 0;
+    // (From the real floor under the cell: a slab or farmland is no 1-block rise.)
+    const fl = surface(this.world, c[0], c[1] - 1, c[2]);
+    const rise = fl > -Infinity ? fl - m.pos.y : c[1] - Math.floor(m.pos.y + 0.05);
+    const jump = rise > 1.01 ? 2 : rise > 0.01 ? 1 : 0;
     return { x: wx / dh, z: wz / dh, jump: jump && dh < 1.7 ? jump : 0 };
   }
 
@@ -3452,6 +3522,12 @@ export class MobManager {
       if (isVanilla() || m.spec.vanilla) this._vanillaDrops(m, byPlayer);
       if (m.spec.split) this._split(m);
     }
+    // (A killed iron golem's village waits 5-10 minutes for the next.)
+    if (m.kind === "iron_golem" && !m.net) {
+      const v = m.villageKey ? null : this.world.terrain?.villages?.nearestVillage(c.x, c.z, VILLAGE_SEARCH_RADIUS);
+      const key = m.villageKey || (v && villageKey(v));
+      if (key) this._golemCd.set(key, this.time + 300 + Math.random() * 300);
+    }
     this._remove(i);
   }
 
@@ -3549,9 +3625,13 @@ export class MobManager {
     const charge = this.charge(tool);
     this.lastAttackTime = this.time;
     if (mob.dead) return false;
-    let dmg = Math.max(0, meleeDamage(tool) + (extra?.bonus ?? 0)) * (0.2 + 0.8 * charge * charge);
-    // Critical hit: striking while falling.
-    const crit = charge > 0.9 && !player.onGround && !player.inWater && player.velocity.y < -1;
+    const vanilla = isVanilla();
+    // (A Survival world: Java's damage, the tool's vDamage (items.js) when it has one.)
+    const base = vanilla && tool?.vDamage != null ? tool.vDamage : meleeDamage(tool);
+    let dmg = Math.max(0, base + (extra?.bonus ?? 0)) * (0.2 + 0.8 * charge * charge);
+    // Critical hit: striking while falling (in a Survival world as Java: not
+    // sprinting or on a ladder, and any fall counts).
+    const crit = charge > 0.9 && !player.onGround && !player.inWater && player.velocity.y < (vanilla ? 0 : -1) && !(vanilla && (player.sprinting || player.onClimbable));
     if (crit) dmg *= 1.5;
     const dx = mob.pos.x - player.position.x;
     const dz = mob.pos.z - player.position.z;
@@ -3567,8 +3647,31 @@ export class MobManager {
     if (hit) {
       this.audio.playHit(crit);
       if (crit) this._critSparks(mob);
+      // (A Survival world: a full sword swing on the ground, not sprinting
+      // or a crit, sweeps the creatures next to the target, as Java.)
+      if (vanilla && !crit && tool?.type === "sword" && charge > 0.9 && player.onGround && !player.sprinting) this._sweep(mob);
     }
     return hit;
+  }
+
+  // Java's sweep: 1 damage to every other creature within a block of the
+  // target (its box grown by 1 sideways and 0.25 up and down) and within 3
+  // of the player, not the player's own wolves (nor fish and flyers). A guest's hits on the host's
+  // creatures go as claims through _hurt, one each, like the main hit.
+  _sweep(target) {
+    const P = this.player.position;
+    const pid = this.localPid;
+    for (const o of this.mobs) {
+      if (o === target || o.dead || o.spec.flies || (o.tamed && o.owner === pid)) continue;
+      const r = target.spec.r + 1 + o.spec.r;
+      if (Math.abs(o.pos.x - target.pos.x) > r || Math.abs(o.pos.z - target.pos.z) > r) continue;
+      if (o.pos.y > target.pos.y + target.spec.h + 0.25 || o.pos.y + o.spec.h < target.pos.y - 0.25) continue;
+      const dx = o.pos.x - P.x;
+      const dz = o.pos.z - P.z;
+      if (dx * dx + (o.pos.y - P.y) ** 2 + dz * dz > 9) continue;
+      const d = Math.hypot(dx, dz) || 1;
+      this._hurt(o, 1, { x: dx / d, z: dz / d }, 4, true);
+    }
   }
 
   _critSparks(m) {
@@ -3782,7 +3885,7 @@ export class MobManager {
     if (m.burnTimer >= 1) {
       m.burnTimer = 0;
       m.invulnerable = 0;
-      this._hurt(m, 2, null, 0);
+      this._hurt(m, isVanilla() ? 1 : 2, null, 0); // (vanilla's fire: 1 a second)
     }
     if (Math.random() < dt * 14) {
       const c = this._burnC;

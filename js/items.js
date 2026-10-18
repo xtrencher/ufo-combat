@@ -80,8 +80,9 @@ const ITEM_DEFS = {
   [ITEM.LASER_BLASTER]: { name: "Laser Blaster", icon: "blaster", stack: 1, weapon: { kind: "blaster" } },
   [ITEM.RAILGUN]: { name: "Railgun", icon: "railgun", stack: 1, weapon: { kind: "railgun" } },
   [ITEM.MINIGUN]: { name: "Laser Minigun", icon: "minigun", stack: 1, weapon: { kind: "minigun" } },
-  // The skeletons' bow: hold right click to draw, let go to shoot.
-  [ITEM.BOW]: { name: "Bow", icon: "bow", stack: 1, weapon: { kind: "bow" } },
+  // The skeletons' bow: hold right click to draw, let go to shoot. (Its
+  // uses, vanilla's 384, wear only by its shots in a Survival world: weapons.js.)
+  [ITEM.BOW]: { name: "Bow", icon: "bow", stack: 1, weapon: { kind: "bow" }, tool: { type: "bow", durability: 385, damage: HAND_DAMAGE } },
 };
 
 // Armor: four pieces of four materials, worn in the four armor slots (head,
@@ -196,22 +197,27 @@ for (const id of VINES) {
 for (const id of [BLOCK.TALL_GRASS, BLOCK.DEAD_BUSH, BLOCK.SEAGRASS, V.FERN, V.COBWEB, ...VINES]) SHEARABLE[id] = 1;
 for (const id of [V.HAY_BLOCK, V.SPONGE]) HOE_BLOCK[id] = 1;
 for (const id of [V.PUMPKIN, V.MELON, V.CARVED_PUMPKIN, V.CARVED_PUMPKIN + 1, V.CARVED_PUMPKIN + 2, V.CARVED_PUMPKIN + 3]) SWORD_SPEED[id] = 1.5;
+// Blocks of no tier that still need their tool (Survival worlds): a cobweb by
+// hand is mined at the unharvestable rate (vanilla's 20 s) and drops nothing.
+const NEEDS_TOOL = new Uint8Array(BLOCK_LIMIT);
+NEEDS_TOOL[V.COBWEB] = 1;
 
 // Whether `tool` (item info's .tool, or null for the bare hand) gets drops from the block.
 export function canHarvest(blockId, tool) {
   const b = BLOCK_INFO[blockId];
   if (!b || b.hardness < 0) return false;
-  if (b.minTier === 0) return true;
+  if (b.minTier === 0) return !NEEDS_TOOL[blockId] || !isVanilla() || (!!tool && tool.type === b.tool);
   return !!tool && tool.type === b.tool && tool.tier >= b.minTier;
 }
 
 // The held tool's speed multiplier on the block.
 function toolSpeed(b, tool) {
   if (!tool) return 1;
+  // (Before the main tool's: a cobweb's tool is the sword, at 15 whatever its material.)
+  if (tool.type === "sword" && SWORD_SPEED[b.id] && isVanilla()) return SWORD_SPEED[b.id];
   if (tool.type === b.tool) return tool.speed ?? 1;
   if (tool.type === "shears") return SHEARS_SPEED[b.id] || 1;
   if (tool.type === "hoe" && HOE_BLOCK[b.id]) return tool.speed ?? 1;
-  if (tool.type === "sword" && SWORD_SPEED[b.id] && isVanilla()) return SWORD_SPEED[b.id];
   return 1;
 }
 

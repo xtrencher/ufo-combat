@@ -179,6 +179,8 @@ export class EntitySync {
       g.ufos.onDashWarn = (t) => t?.isRemote && this.net.send(t.pid, { t: "dashw" });
       // (Round 11) A guest's breeding experience: theirs, as orbs on their screen.
       g.mobs.onRemoteXp = (pid, amount, pos) => this.net.send(pid, { t: "mxp", a: amount | 0, at: vec1(pos) });
+      // (A tame wolf's owner is also kept by nickname: a guest who rejoins has a new pid.)
+      g.mobs.nickOf = (pid) => (this.net.players.get(pid)?.nick || "").toLowerCase();
     } else {
       // A guest: the host's world, drawn from its states.
       g.mobs.puppets = true;
@@ -201,6 +203,9 @@ export class EntitySync {
     g.airports.positions = null;
     g.ufos.onDashWarn = null;
     g.mobs.onRemoteXp = null;
+    g.mobs.nickOf = null;
+    // (Host: the guests' wolves wait for whoever clicks them next, or for their owner's return.)
+    if (!g.mobs.puppets) g.mobs.ownerGone((pid) => pid !== HOST_PID);
     g.mobs.localPid = HOST_PID;
     g.mobs.puppets = false;
     g.ufos.puppets = false;
@@ -223,7 +228,13 @@ export class EntitySync {
     }
   }
 
+  // Host: a guest who rejoins gets their tame wolves back (by nickname).
+  playerJoined(p) {
+    if (this.net.isHost && p.pid !== this.net.pid) this.game.mobs.ownerBack(p.pid, (p.nick || "").toLowerCase());
+  }
+
   playerLeft(p) {
+    if (this.net.isHost) this.game.mobs.ownerGone((pid) => pid === p.pid);
     this.known.delete(p.pid);
     const px = this.proxies.get(p.pid);
     this.proxies.delete(p.pid);

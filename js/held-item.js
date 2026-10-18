@@ -108,7 +108,36 @@ export class HeldItem {
     this._dialFrame = -1;
     this._rodShown = false;
     this._shieldPose = 0; // 0-1: the shield raised in front
+    // (A Survival world) The off hand's item, low on the left (setOffhand).
+    this.offMesh = null;
+    this.offId = 0;
+    this._offPose = 0;
     this.setItem(0, true);
+  }
+
+  // Shows item `id` in the off hand (0 / null: none), mirrored on the left.
+  setOffhand(id) {
+    id = id || 0;
+    if (id === this.offId) return;
+    this.offId = id;
+    this._offPose = 0;
+    if (this.offMesh) this.pivot.remove(this.offMesh);
+    this.offMesh = null;
+    const model = id ? itemModel(id) : null;
+    if (!model) return;
+    const m = (this.offMesh = new THREE.Mesh(model.geometry, this.materials[model.kind]));
+    if (model.cube) {
+      m.scale.setScalar(0.19);
+      m.position.set(-0.46, -0.27, -0.8);
+      m.rotation.set(0.1, -(Math.PI / 4 + 0.25), 0);
+    } else {
+      m.scale.setScalar(0.42);
+      m.position.set(-0.4, -0.27, -0.62);
+      m.rotation.set(0.05, 1.05, -0.28);
+    }
+    this.offBase = { pos: m.position.clone(), rot: m.rotation.clone() };
+    bindEntityLight(m, () => this.light);
+    this.pivot.add(m);
   }
 
   resize(aspect) {
@@ -435,6 +464,26 @@ export class HeldItem {
     const amount = player.onGround && !player.flying ? 1 : 0;
     m.position.x += Math.sin(phase) * 0.018 * amount;
     m.position.y -= Math.abs(Math.cos(phase)) * 0.028 * amount;
+    const o = this.offMesh;
+    if (o) {
+      o.position.copy(this.offBase.pos);
+      o.rotation.copy(this.offBase.rot);
+      // (The off hand's shield raised in front, a little to the left, while
+      // right click holds it up and the main hand has no shield.)
+      const up = this.offId === SHIELD && this.itemId !== SHIELD && player.shieldRaisedUntil > performance.now() / 1000 ? 1 : 0;
+      this._offPose += (up - this._offPose) * Math.min(1, dt * 14);
+      const k = this._offPose;
+      if (k > 0.001) {
+        o.position.x += (-0.2 - o.position.x) * k;
+        o.position.y += (-0.24 - o.position.y) * k;
+        o.position.z += (-0.66 - o.position.z) * k;
+        o.rotation.x += (0 - o.rotation.x) * k;
+        o.rotation.y += (0.12 - o.rotation.y) * k;
+        o.rotation.z += (0 - o.rotation.z) * k;
+      }
+      o.position.x -= Math.sin(phase) * 0.018 * amount;
+      o.position.y -= Math.abs(Math.cos(phase)) * 0.028 * amount;
+    }
     this.pivot.visible = this.visible;
   }
 }

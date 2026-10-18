@@ -6,7 +6,8 @@
 // (stackLines), a potion's its effects; a custom name (the anvil's) replaces
 // the item's.
 import { BLOCK_INFO } from "./blocks.js";
-import { itemInfo } from "./items.js";
+import { itemInfo, foodHeal } from "./items.js";
+import { isVanilla } from "./worldtype.js";
 import { itemIconCanvas } from "./itemtextures.js";
 import { drawBlockIcon } from "./textures.js";
 import { enchantLines, isEnchanted } from "./enchant.js";
@@ -75,8 +76,10 @@ export function stackLabel(stack) {
   const name = stackName(stack);
   const wear = info.tool || info.armor; // (armor wears out too)
   if (stack.dur !== undefined && wear) return `${name} (${stack.dur}/${wear.durability})`;
-  // (Round 11: a vanilla food is { hunger, saturation }, shown by its name alone, as in vanilla.)
-  if (typeof info.food === "number" && info.food > 0) return `${name} (heals ${info.food / 2} ♥)`;
+  // (A food in a Missions world: what it heals at once; a Survival world shows
+  // the name alone, as vanilla.)
+  const heal = !isVanilla() ? foodHeal(info) : 0;
+  if (heal > 0) return `${name} (heals ${heal / 2} ♥)`;
   return name;
 }
 

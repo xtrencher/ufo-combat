@@ -29,6 +29,8 @@ import { meshChunk, padChunk } from "./mesher.js";
 import { buildBlockTextures } from "./textures.js";
 import { createChunkMaterials } from "./shaders.js";
 import { RANDOM_TICK, TICKS_RANDOMLY, TICKING } from "./content/index.js";
+import { cactusHolds } from "./content/nature.js";
+import { isVanilla } from "./worldtype.js";
 
 export { SEA_LEVEL };
 
@@ -266,13 +268,28 @@ export class World {
     };
     for (let i = 0; i < list.length; i += 4) apply(Math.floor(list[i]), Math.floor(list[i + 1]), Math.floor(list[i + 2]), list[i + 3]);
     // Blocks that needed support from a block that just changed pop off.
+    const pop = (x, y, z, id) => {
+      if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped && !remote) this.onBlockPopped(x, y, z, id);
+    };
+    const cactusRule = isVanilla(); // (Survival: vanilla's cactus, nature.js cactusHolds)
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1] + 1;
       const z = changed[i + 2];
       const above = this.getBlock(x, y, z);
-      if (BLOCK_INFO[above]?.support && !isSupportedBy(above, this.getBlock(x, y - 1, z))) {
-        if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped && !remote) this.onBlockPopped(x, y, z, above);
+      if (BLOCK_INFO[above]?.support && !isSupportedBy(above, this.getBlock(x, y - 1, z))) pop(x, y, z, above);
+      else if (cactusRule && above === BLOCK.CACTUS && !cactusHolds(this, x, y, z)) pop(x, y, z, above);
+      if (!cactusRule) continue;
+      // (a cactus put where it can't stand, or one a block now stands beside)
+      const here = this.getBlock(x, y - 1, z);
+      if (here === BLOCK.CACTUS) {
+        if (!cactusHolds(this, x, y - 1, z)) pop(x, y - 1, z, here);
+      } else if (IS_SOLID[here]) {
+        for (let d = 0; d < 4; d++) {
+          const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0);
+          const nz = z + (d === 2 ? 1 : d === 3 ? -1 : 0);
+          if (this.getBlock(nx, y - 1, nz) === BLOCK.CACTUS) pop(nx, y - 1, nz, BLOCK.CACTUS);
+        }
       }
     }
     if (changed.length === 0) return 0;
@@ -345,6 +362,10 @@ export class World {
       let near = false;
       for (let i = 0; i < cs.length && !near; i += 2) near = (chunk.cx - cs[i]) ** 2 + (chunk.cz - cs[i + 1]) ** 2 <= R2;
       if (!near) continue;
+      // (as vanilla, only chunks whose 8 neighbours are loaded: the handlers
+      // read a few blocks past the edge, where an unloaded chunk reads as air,
+      // so cane would pop, farmland dry out and leaves decay there)
+      if (!this._isReady(chunk)) continue;
       const B = chunk.blocks;
       for (let s = 0; s < sections; s++) {
         for (let k = 0; k < RANDOM_TICK_SPEED; k++) {

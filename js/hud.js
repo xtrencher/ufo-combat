@@ -339,6 +339,19 @@ export class Hud {
       this.hotbarEl.appendChild(view.el);
       this.slots.push(view);
     }
+    // (A Survival world) The off hand, left of the hotbar as vanilla's (shown
+    // while it holds something).
+    this.offhandView = new SlotView(icons, "hotbar-slot hidden");
+    this.offhandView.el.id = "offhand-slot";
+    this.offhandView.el.style.cssText = "position: fixed; bottom: 14px; left: calc(50% - 318px); z-index: 10; pointer-events: none;";
+    this.hotbarEl.parentNode?.insertBefore(this.offhandView.el, this.hotbarEl);
+    if (!document.getElementById("offhand-css")) {
+      const st = document.createElement("style");
+      st.id = "offhand-css";
+      st.textContent = "body.in-vehicle #offhand-slot { display: none; }";
+      document.head.appendChild(st);
+    }
+    this._offhandShown = false;
     this._selected = -1;
     this._nameTimer = 0;
     this._lastName = "";
@@ -364,6 +377,8 @@ export class Hud {
   refreshHotbar() {
     const inv = this.inventory;
     for (let i = 0; i < HOTBAR_SIZE; i++) this.slots[i].set(inv.slots[i]);
+    this.offhandView.set(inv.offhand || null);
+    if (!!inv.offhand !== this._offhandShown) this.offhandView.el.classList.toggle("hidden", !(this._offhandShown = !!inv.offhand));
     // The armor bar: ten chestplates, two defense points each.
     const pts = inv.armorPoints();
     let sig = pts; // (a number built in a loop: this runs every frame)
