@@ -1,7 +1,8 @@
 // Vanilla items (Round 11): ingots and gems, mob drops, foods, buckets, flint
 // and steel, shears, hoes, gold tools, arrows, fishing rods, the compass and
-// the clock, chainmail, the shield; placeholders for the enchanting and
-// brewing items (not in the palette until they do something).
+// the clock, chainmail, the shield; (Round 11, wave C) the potions (drunk,
+// thrown as splash potions), the brewing ingredients, the enchanted book and
+// the bottle o' enchanting, glass bottles filled at water.
 // Ids: items 320-399 and 480-639. What a content module may export, and its rules (imports only
 // ./base.js and other content modules' id constants): see ./index.js.
 //
@@ -11,10 +12,19 @@
 // a snowball, an ender pearl: js/entities.js Throwables), tool { type,
 // material } (a material's numbers, filled in by items.js), shield.
 // The uses that need the engine (the fishing bobber, thrown items) reach it
-// through ctx.interaction.weapons (js/weapons.js builds both).
+// through ctx.interaction.weapons (js/weapons.js builds both). Potions:
+// `potion` { key, color, effects: [{ id, level, seconds }] } (drunk by
+// js/interaction.js, in either world; `splash`: thrown instead, js/brewing.js
+// through LIB.throwPotion, as the bottle o' enchanting).
 import { BLOCK, LIB } from "./base.js";
 import * as V from "./ids.js";
 import { flammability } from "./nature.js";
+
+// (Round 11, wave C) Brewing's two crafted ingredients, and the potions' ids
+// (POTIONS below: 480 on).
+export const FERMENTED_SPIDER_EYE = 394;
+export const GLISTERING_MELON_SLICE = 395;
+const POTION_FIRST = 480;
 
 const food = (hunger, saturation) => ({ hunger, saturation });
 const effect = (id, seconds, chance = 1, level = 1) => ({ id, level, seconds, chance });
@@ -106,16 +116,71 @@ export const items = {
   // (A cake is a block in the classic game, eaten in seven bites: an item
   // here until it has a block.)
   [V.CAKE]: { name: "Cake", icon: "cake", stack: 1 },
-  // (Placeholders for enchanting and brewing: kept out of the palette.)
+  // (An enchanted book holds its enchantments in the stack's tag, js/enchant.js:
+  // made at the table or found; a plain one in the palette would be empty.)
   [V.ENCHANTED_BOOK]: { name: "Enchanted Book", icon: "enchanted_book", stack: 1, creative: false },
-  [V.POTION]: { name: "Potion", icon: "potion", stack: 1, creative: false },
-  [V.EXPERIENCE_BOTTLE]: { name: "Bottle o' Enchanting", icon: "experience_bottle", creative: false },
+  // (The potion item is the water bottle; the brewed ones follow, POTIONS.)
+  [V.POTION]: { name: "Water Bottle", icon: "potion_water", stack: 1, potion: { key: "water", color: 0x385dc6, effects: [] } },
+  // Thrown: 3-11 experience where it breaks (vanilla).
+  [V.EXPERIENCE_BOTTLE]: { name: "Bottle o' Enchanting", icon: "experience_bottle" },
+  [FERMENTED_SPIDER_EYE]: { name: "Fermented Spider Eye", icon: "fermented_spider_eye" },
+  [GLISTERING_MELON_SLICE]: { name: "Glistering Melon Slice", icon: "glistering_melon_slice" },
 };
+
+// ---------- Potions (Round 11) ----------
+// Vanilla's potions of what exists here (no Nether: no awkward potion, the
+// ingredients brew straight from a water bottle, js/brewing.js): each kind
+// with its effect and colour, the base time, the long one (redstone; 0:
+// none) and the strong one (II, IV for slowness; null: none). Times are Java's.
+const POTION_KINDS = [
+  // [key, name, colour, effect, base s, long s, [strong level, strong s] | null]
+  ["healing", "Healing", 0xf82423, "instant_health", 0, 0, [2, 0]],
+  ["harming", "Harming", 0x430a09, "instant_damage", 0, 0, [2, 0]],
+  ["poison", "Poison", 0x4e9331, "poison", 45, 90, [2, 21.6]],
+  ["regeneration", "Regeneration", 0xcd5cab, "regeneration", 45, 90, [2, 22.5]],
+  ["swiftness", "Swiftness", 0x7cafc6, "speed", 180, 480, [2, 90]],
+  ["slowness", "Slowness", 0x5a6c81, "slowness", 90, 240, [4, 20]],
+  ["strength", "Strength", 0x932423, "strength", 180, 480, [2, 90]],
+  ["weakness", "Weakness", 0x484d48, "weakness", 90, 240, null],
+  ["night_vision", "Night Vision", 0x1f1fa1, "night_vision", 180, 480, null],
+  ["invisibility", "Invisibility", 0x7f8392, "invisibility", 180, 480, null],
+  ["fire_resistance", "Fire Resistance", 0xe49a3a, "fire_resistance", 180, 480, null],
+  ["water_breathing", "Water Breathing", 0x2e5299, "water_breathing", 180, 480, null],
+];
+// Every brewed potion: { id, splash (its splash potion's id), key, kind
+// ("base", "long", "strong"), name, color, effects }. Ids from 480 in this
+// order, the splash potions after them (an id never changes meaning).
+export const POTIONS = [];
+{
+  const list = [];
+  for (const [key, name, color, effect, base, long, strong] of POTION_KINDS) {
+    list.push({ key, kind: "base", name, color, effects: [{ id: effect, level: 1, seconds: base }] });
+    if (long) list.push({ key, kind: "long", name, color, effects: [{ id: effect, level: 1, seconds: long }] });
+    if (strong) list.push({ key, kind: "strong", name, color, effects: [{ id: effect, level: strong[0], seconds: strong[1] }] });
+  }
+  list.forEach((p, i) => POTIONS.push({ ...p, id: POTION_FIRST + i, splash: POTION_FIRST + list.length + i }));
+}
+export const SPLASH_FIRST = POTION_FIRST + POTIONS.length;
+for (const p of POTIONS) {
+  const potion = { key: p.key, kind: p.kind, color: p.color, effects: p.effects };
+  items[p.id] = { name: `Potion of ${p.name}`, icon: `potion_${p.key}`, stack: 1, potion };
+  items[p.splash] = { name: `Splash Potion of ${p.name}`, icon: `splash_potion_${p.key}`, stack: 1, potion, splash: true };
+}
+// (A potion by its kind and variant, for the brewing recipes: "swiftness", "long".)
+export function potionId(key, kind = "base", splash = false) {
+  if (key === "water") return splash ? 0 : V.POTION;
+  const p = POTIONS.find((x) => x.key === key && x.kind === kind);
+  return p ? (splash ? p.splash : p.id) : 0;
+}
 
 export const blocks = {};
 export const tiles = {};
 export const shapes = {};
-export const recipes = [];
+// (Round 11) The brewing ingredients (vanilla's recipes).
+export const recipes = () => [
+  { type: "shapeless", ingredients: [V.SPIDER_EYE, V.BROWN_MUSHROOM, V.SUGAR], result: [FERMENTED_SPIDER_EYE, 1] },
+  { type: "shaped", pattern: ["###", "#M#", "###"], key: { "#": V.GOLD_NUGGET, M: V.MELON_SLICE }, result: [GLISTERING_MELON_SLICE, 1] },
+];
 export const randomTick = {};
 export const drops = {};
 
@@ -336,7 +401,42 @@ function throwIt(ctx) {
   return true;
 }
 
+// (Round 11) A glass bottle at water (any water along the view, as vanilla:
+// the water stays) becomes a water bottle.
+function waterAlongView(ctx, reach) {
+  const { BLOCK_INFO } = LIB;
+  const eye = ctx.player.getEyePosition();
+  const [dx, dy, dz] = ctx.forward;
+  const len = Math.hypot(dx, dy, dz) || 1;
+  for (let t = 0; t <= reach; t += 0.1) {
+    const x = Math.floor(eye.x + (dx / len) * t);
+    const y = Math.floor(eye.y + (dy / len) * t);
+    const z = Math.floor(eye.z + (dz / len) * t);
+    const id = ctx.world.getBlock(x, y, z);
+    if (id === BLOCK.WATER) return true;
+    const b = BLOCK_INFO[id];
+    if (id !== BLOCK.AIR && (b?.solid || (b && b.selectable && !b.liquid))) return false;
+  }
+  return false;
+}
+function fillBottle(ctx) {
+  if (!LIB.itemInfo(V.POTION) || !waterAlongView(ctx, ctx.interaction?.reach ?? 5)) return false;
+  ctx.audio.playSplash?.();
+  exchangeHeld(ctx, V.POTION);
+  return true;
+}
+
+// A splash potion or a bottle o' enchanting: thrown (js/brewing.js).
+function throwBottle(ctx) {
+  if (repeated(ctx) || ctx.player.vehicle || typeof LIB.throwPotion !== "function") return false;
+  if (!LIB.throwPotion(ctx.stack.id)) return false;
+  if (!ctx.creative) ctx.inventory.consumeSelected(1);
+  return true;
+}
+
 export const itemUse = {
+  [V.GLASS_BOTTLE]: (ctx) => !repeated(ctx) && fillBottle(ctx),
+  [V.EXPERIENCE_BOTTLE]: throwBottle,
   [V.BUCKET]: (ctx) => !repeated(ctx) && fill(ctx),
   [V.WATER_BUCKET]: (ctx) => !repeated(ctx) && pour(ctx, BLOCK.WATER),
   [V.LAVA_BUCKET]: (ctx) => !repeated(ctx) && pour(ctx, V.LAVA),
@@ -353,6 +453,7 @@ export const itemUse = {
   [V.SNOWBALL]: throwIt,
   [V.SHIELD]: raiseShield,
 };
+for (const p of POTIONS) itemUse[p.splash] = throwBottle;
 
 // ---------- Icons ----------
 // Drawn like the core icons (itemtextures.js): shapes in a colour ramp, lit
@@ -489,6 +590,29 @@ function bottle(kit, liquid) {
   return c.render([R(kit).glass, liquid || R(kit).glass, kit.RAMPS.wood], [30, 40, 48]);
 }
 
+// A five-step ramp around one colour (a potion's liquid).
+function tintRamp(kit, color) {
+  const at = (f) => {
+    const ch = (sh) => {
+      const v = (color >> sh) & 255;
+      return Math.round(f < 1 ? v * f : v + (255 - v) * (f - 1));
+    };
+    return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+  };
+  return kit.ramp(at(0.35), at(0.62), at(1), at(1.3), at(1.65));
+}
+
+// A splash potion's bottle: rounder, with a short flat neck and its lip.
+function splashBottle(kit, liquid) {
+  const c = new kit.Canvas();
+  c.disc(0, 16, 19, 9, 8.5, lit(0.5, 0, 34));
+  c.poly(0, [[12.5, 7], [19.5, 7], [19.5, 11.5], [12.5, 11.5]], () => 0.4);
+  c.poly(0, [[11, 5], [21, 5], [21, 7.5], [11, 7.5]], () => 0.6);
+  c.disc(1, 16, 20, 7.4, 6.8, lit(0.4, -0.1, 34));
+  c.disc(0, 12.5, 16, 1.6, 2.4, () => 1);
+  return c.render([R(kit).glass, liquid], [30, 40, 48]);
+}
+
 // A book: cover, pages and a spine band.
 function book(kit, coverRamp, shine) {
   const c = new kit.Canvas();
@@ -504,6 +628,11 @@ function book(kit, coverRamp, shine) {
 const P = (fn) => (kit) => fn(kit, R(kit));
 
 export const icons = {
+  // (Round 11) One drinkable and one splash icon per kind of potion, by its colour.
+  ...Object.fromEntries(POTION_KINDS.flatMap(([key, , color]) => [
+    [`potion_${key}`, (kit) => bottle(kit, tintRamp(kit, color))],
+    [`splash_potion_${key}`, (kit) => splashBottle(kit, tintRamp(kit, color))],
+  ])),
   iron_ingot: (kit) => kit.ingot(kit.RAMPS.iron),
   copper_ingot: P((kit, r) => kit.ingot(r.copper)),
   iron_nugget: P((kit) => lumps(kit, kit.RAMPS.iron, [[13, 17, 4.5, 3.8], [19, 15, 4, 3.6], [17, 20, 4, 3.4]], [26, 28, 32])),
@@ -618,8 +747,25 @@ export const icons = {
   book: P((kit) => book(kit, kit.RAMPS.leather, false)),
   enchanted_book: P((kit, r) => book(kit, r.purple, true)),
   glass_bottle: P((kit) => bottle(kit, null)),
-  potion: P((kit, r) => bottle(kit, r.pink)),
   experience_bottle: P((kit, r) => bottle(kit, r.xp)),
+  potion_water: P((kit) => bottle(kit, tintRamp(kit, 0x385dc6))),
+  fermented_spider_eye: P((kit) => {
+    const c = new kit.Canvas();
+    c.disc(0, 16, 16, 10, 9, lit(0.3, -0.25, 30));
+    c.disc(1, 17, 17, 4, 4, () => -0.5);
+    // (the mushroom's cap and the sugar on it)
+    c.disc(2, 21, 10, 6, 3.5, (x, y) => (y < 9 ? 0.4 : -0.1));
+    for (const [x, y] of [[9, 18], [12, 23], [19, 22], [23, 17]]) c.disc(3, x, y, 1, 1, () => 1);
+    return c.render([kit.ramp(0x5a1a2a, 0x7e2a3a, 0xa04252, 0xbd6270, 0xd98c96), kit.RAMPS.coal, kit.RAMPS.wood, kit.RAMPS.cloth], [36, 8, 14]);
+  }),
+  glistering_melon_slice: P((kit) => {
+    const c = new kit.Canvas();
+    // (a melon slice: the rind's arc and the red flesh, gold flecks over it)
+    c.fill(0, (x, y) => y > 8 && Math.hypot(x - 16, y - 8) < 16 && Math.hypot(x - 16, y - 8) > 13, () => 0.1);
+    c.fill(1, (x, y) => y > 8 && Math.hypot(x - 16, y - 8) <= 13, (x, y) => (y < 14 ? 0.4 : 0));
+    for (const [x, y] of [[10, 12], [16, 15], [22, 12], [13, 18], [19, 19], [16, 10]]) c.disc(2, x, y, 1.3, 1.3, () => 1);
+    return c.render([kit.RAMPS.leaf, kit.RAMPS.red, kit.RAMPS.gold], [20, 30, 8]);
+  }),
   bowl: P((kit) => bowl(kit, null)),
   mushroom_stew: P((kit, r) => bowl(kit, r.stew, (c) => {
     c.disc(1, 12, 14, 2.5, 1.4, () => 0.6);

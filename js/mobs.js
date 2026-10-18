@@ -31,6 +31,7 @@ import { meleeCause, shooterCause } from "./damage.js";
 import { isVanilla } from "./worldtype.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
+import { dyeColorOf } from "./content/decor.js";
 import { makeOffers, PROFESSION_NAMES, NITWIT } from "./trading.js";
 import { SEA_LEVEL } from "./constants.js";
 
@@ -2384,8 +2385,9 @@ export class MobManager {
   // ---------- (Round 11) Using a creature (right click) ----------
 
   // A right click on creature `m` with `stack` in hand: milk from a cow (a
-  // bucket), wool from a sheep (shears), love or growth from food, an iron
-  // golem mended (iron), a villager's trades. True if something happened.
+  // bucket), wool from a sheep (shears) or its colour (a dye), love or
+  // growth from food, an iron golem mended (iron), a villager's trades.
+  // True if something happened.
   // interaction.js onUseMob (main.js). Online, a guest's use on one of the
   // host's creatures is a claim (onPuppetUse); its own inventory changes here.
   useMob(m, stack, inventory = this.inventory) {
@@ -2411,6 +2413,15 @@ export class MobManager {
         this.audio?.playBreak?.("wool");
       } else this.shear(m);
       if (!creative && inventory.damageSelected(1)) this.audio?.playToolBreak?.();
+      return true;
+    }
+    // A dye on a sheep: its wool that colour (a shorn one has none to dye).
+    const dye = m.kind === "sheep" ? dyeColorOf(id) : -1;
+    if (dye >= 0) {
+      if (m.sheared || m.variant === dye) return false;
+      if (m.net) this.onPuppetUse?.(m, "dye:" + dye); // (the host's answer follows in its states)
+      this.setSheepColor(m, dye);
+      if (!creative) inventory.consumeSelected(1);
       return true;
     }
     if (spec.breed?.includes(id)) {
@@ -2441,6 +2452,18 @@ export class MobManager {
     }
     if (spec.trades && !m.baby && m.variant > 0 && m.variant - 1 !== NITWIT) return this.openTrade(m);
     return false;
+  }
+
+  // A sheep's wool in colour c (a dye, or online the host's word): the
+  // model wears that colour's skin (the skins are shared, built once). A
+  // dyed sheep is kept with the world, as a shorn one is.
+  setSheepColor(m, c) {
+    if (m.kind !== "sheep" || !(c >= 0 && c < 16) || m.variant === c) return;
+    m.variant = c;
+    if (!m.net) m.persist = true;
+    const skin = createMobModel("sheep", c).meshes;
+    const meshes = m.model.meshes;
+    for (let i = 0; i < meshes.length && i < skin.length; i++) meshes[i].material = skin[i].material;
   }
 
   // A wolf: a bone tames a wild one (one in three); its owner's meat heals
@@ -2505,6 +2528,12 @@ export class MobManager {
         return true;
       }
       return false;
+    }
+    if (action.startsWith("dye:") && m.kind === "sheep") {
+      const c = Number(action.slice(4));
+      if (!Number.isInteger(c) || c < 0 || c > 15 || m.sheared || m.variant === c) return false;
+      this.setSheepColor(m, c);
+      return true;
     }
     if (action === "shear") return this.shear(m);
     if (action === "love") return !!m.spec.breed && this.love(m, pid);

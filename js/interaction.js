@@ -10,6 +10,13 @@
 // head; its halves go together, see watchAttached), merge with the block
 // it is placed into (merge: a slab onto its other half), hang under a block
 // (ceiling) or on a wall (support "wall" with a facing: ladders).
+// (Round 11, magic) The held stack's enchantments (js/enchant.js): mining
+// (Efficiency; Silk Touch and Fortune in the drops; Aqua Affinity against
+// the Survival world's slower digging under water, vanilla's 5x), melee (Sharpness, Smite, Bane of Arthropods, Knockback, Fire
+// Aspect, Looting: the last three the creatures' attack takes as extras),
+// Unbreaking (the inventory's wear). Strength and Weakness change a blow's
+// damage. Potions are drunk like food, in either world (Creative too, and
+// there the bottle stays).
 import * as THREE from "three";
 import {
   BLOCK,
@@ -33,6 +40,9 @@ import { HOTBAR_SIZE, makeStack } from "./inventory.js";
 import { SEA_LEVEL } from "./constants.js";
 import { Chests } from "./chests.js";
 import { BLOCK_USE, ITEM_USE } from "./content/index.js";
+import { enchLevel, efficiencyBonus, meleeBonus } from "./enchant.js";
+import { isVanilla } from "./worldtype.js";
+import { GLASS_BOTTLE } from "./content/ids.js";
 
 const REACH_SURVIVAL = 4.5;
 const REACH_CREATIVE = 6;
@@ -165,7 +175,7 @@ export class Interaction {
     this.chests = new Chests({ world });
     this.chests.onDrop = (s, x, y, z) => {
       const vel = new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 2, (Math.random() - 0.5) * 3);
-      this.entities.spawn(s.id, s.count, new THREE.Vector3(x + 0.5, y + 0.4, z + 0.5), vel, { dur: s.dur, pickupDelay: 0.6 });
+      this.entities.spawn(s.id, s.count, new THREE.Vector3(x + 0.5, y + 0.4, z + 0.5), vel, { dur: s.dur, tag: s.tag, pickupDelay: 0.6 });
     };
     this.onOpenChest = null; // (x, y, z): right click on a chest (main.js opens the chest screen)
 
@@ -296,7 +306,7 @@ export class Interaction {
     pos.y -= 0.35;
     const vel = dir.clone().multiplyScalar(5.5);
     vel.y += 1.8;
-    this.entities.spawn(stack.id, stack.count, pos, vel, { dur: stack.dur, pickupDelay: 1.6 });
+    this.entities.spawn(stack.id, stack.count, pos, vel, { dur: stack.dur, tag: stack.tag, pickupDelay: 1.6 });
   }
 
   // ---------- Targeting ----------
@@ -369,7 +379,9 @@ export class Interaction {
     this.held.swing();
     if (this.entityHit) {
       const tool = this._tool();
-      const landed = this.combat.attack(this.entityHit.mob, tool);
+      const mob = this.entityHit.mob;
+      const extra = this._meleeExtras(mob, tool);
+      const landed = this.combat.attack(mob, extra.tool, extra);
       if (landed) this.onAttack?.(); // (Round 11: a hit's hunger, main.js)
       if (landed && tool && !this.player.creative && !OWN_USE_WEAR.has(tool.type)) {
         // Weapons wear with use: swords by 1 per hit, other tools by 2.
@@ -388,6 +400,42 @@ export class Interaction {
     }
   }
 
+  // (Round 11) A blow's enchantments and effects: the tool with its extra
+  // damage (Sharpness, Smite, Bane; Strength +3, Weakness -4 a level), and
+  // for the creatures' attack the bare hand's extra damage, Knockback, Fire
+  // Aspect (seconds of fire) and Looting.
+  _meleeExtras(mob, tool) {
+    const stack = this.inventory.selectedStack;
+    const p = this.player;
+    const ench = stack?.tag?.ench ? stack : null;
+    let bonus = ench && tool ? meleeBonus(stack, mob?.kind) : 0;
+    bonus += 3 * (p.effectLevel?.("strength") ?? 0) - 4 * (p.effectLevel?.("weakness") ?? 0);
+    const out = { tool, bonus: 0, knockback: 0, fire: 0, looting: 0 };
+    if (bonus) {
+      if (tool) out.tool = { ...tool, damage: Math.max(0, tool.damage + bonus) };
+      else out.bonus = bonus;
+    }
+    if (ench && tool) {
+      out.knockback = enchLevel(stack, "knockback");
+      out.fire = 4 * enchLevel(stack, "fire_aspect");
+      out.looting = enchLevel(stack, "looting");
+    }
+    return out;
+  }
+
+  // The seconds to mine block `id` now: the tool and its Efficiency; in a
+  // Survival world vanilla's 5x with the head under water (unless the
+  // helmet has Aqua Affinity). (Vanilla's 5x off the ground is left out, as
+  // before: towering up would be five times slower.)
+  _breakTime(id) {
+    const stack = this.inventory.selectedStack;
+    let t = breakTime(id, this._tool(), stack?.tag ? efficiencyBonus(stack) : 0);
+    if (!isVanilla() || !Number.isFinite(t) || t <= 0) return t;
+    const p = this.player;
+    if (p.headInWater && !enchLevel(this.inventory.armor?.[0], "aqua_affinity")) t *= 5;
+    return t;
+  }
+
   _startMining() {
     const [x, y, z] = this.target.block;
     const id = this.world.getBlock(x, y, z);
@@ -397,7 +445,7 @@ export class Interaction {
       this._breakCooldown = CREATIVE_BREAK_REPEAT;
       return;
     }
-    const time = breakTime(id, this._tool());
+    const time = this._breakTime(id);
     this.mining = { x, y, z, id, progress: 0, time };
     this._digSoundTimer = 0;
     if (time === 0) {
@@ -437,6 +485,8 @@ export class Interaction {
       return;
     }
     if (!this.held.swinging) this.held.swing();
+    // (Round 11: as vanilla, the speed of the moment: the head in the water or not.)
+    m.time = this._breakTime(m.id);
     if (m.time === Infinity) return; // unbreakable (bedrock)
     m.progress += dt / m.time;
     this._digSoundTimer -= dt;
@@ -461,11 +511,16 @@ export class Interaction {
     // A block mined next to the sea lets the water in.
     if (y <= SEA_LEVEL) this.effects.floodInto([x, y, z, id]);
     if (!survival) return;
-    for (const [itemId, count] of blockDrops(id, tool)) {
+    // (Round 11) Silk Touch and Fortune on the tool.
+    const stack = this.inventory.selectedStack;
+    const silk = !!tool && enchLevel(stack, "silk_touch") > 0;
+    const fortune = tool ? enchLevel(stack, "fortune") : 0;
+    for (const [itemId, count] of blockDrops(id, tool, Math.random, silk || fortune ? { silk, fortune } : null)) {
       this.entities.spawn(itemId, count, new THREE.Vector3(x + 0.5, y + 0.25, z + 0.5));
     }
-    // (Round 11) Mining's hunger and an ore's XP (main.js, Survival worlds).
-    this.onBlockBroken?.(x, y, z, id, tool);
+    // (Round 11) Mining's hunger and an ore's XP (main.js, Survival worlds;
+    // none for an ore taken whole with Silk Touch).
+    this.onBlockBroken?.(x, y, z, id, tool, silk);
     if (tool && BLOCK_INFO[id].hardness > 0 && !OWN_USE_WEAR.has(tool.type)) {
       if (this.inventory.damageSelected(1)) this.audio.playToolBreak();
     }
@@ -556,6 +611,12 @@ export class Interaction {
       this._changed();
       return true;
     }
+    // (Round 11) A potion: drunk whenever (vanilla), in either world.
+    if (info?.potion && !info.splash) {
+      if (this.player.dead) return false;
+      this.eating = 0.0001;
+      return true;
+    }
     if (info?.food) {
       // (Round 11) A Survival world: when not full (or food that can always
       // be eaten, milk); a Missions world: when hurt (player.js canEat).
@@ -638,7 +699,8 @@ export class Interaction {
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
     if (this.eating > 0) {
-      if (!info?.food || this.player.creative) {
+      const drink = !!info?.potion && !info.splash;
+      if ((!info?.food && !drink) || (this.player.creative && !drink)) {
         this.eating = 0;
         return;
       }
@@ -648,7 +710,19 @@ export class Interaction {
         this._eatSoundTimer = 0.21;
         this.audio.playEat();
       }
-      if (this.eating >= this.player.eatTime(info, stack.id)) {
+      if (drink && this.eating >= 1.6) {
+        // (Its effects through the player's own; the empty bottle back.)
+        for (const e of info.potion.effects) this.player.addEffect(e.id, e.seconds, e.level);
+        if (!this.player.creative) {
+          this.inventory.consumeSelected(1);
+          if (!this.inventory.selectedStack) this.inventory.slots[this.inventory.selected] = makeStack(GLASS_BOTTLE, 1);
+          else if (this.inventory.add(GLASS_BOTTLE, 1) > 0) this.throwStack(makeStack(GLASS_BOTTLE, 1));
+        }
+        this.eating = 0;
+        this._changed();
+        return;
+      }
+      if (!drink && this.eating >= this.player.eatTime(info, stack.id)) {
         // (Round 11) player.eat: hunger, saturation and the food's effects in
         // a Survival world, health in a Missions world; milk clears effects.
         const back = this.player.eat(info, stack.id);

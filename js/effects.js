@@ -94,6 +94,9 @@ export class EffectsSystem {
     // Called with (position, radius, source) after each explosion, so the
     // game can damage and fling the player and mobs.
     this.onExplosion = null;
+    // (Round 11) Called with (position, removed, radius, { source, mirror })
+    // after each blast: the TNT it caught goes off (js/redstone-sim.js).
+    this.blastListeners = [];
 
     this.debris = new DebrisPool(scene, world, 700);
     this.smoke = new BillboardPool(scene, 520, { additive: false });
@@ -260,12 +263,13 @@ export class EffectsSystem {
   //   mirror (multiplayer): another player's explosion, seen here: the fire,
   //   smoke, flash and sound, and what it does to this player, but no crater
   //   (the blocks it blew away arrive as block edits). by: that player's id.
-  explode(position, { radius = GRENADE_RADIUS, source = "grenade", visual = null, mirror = false, by = 0 } = {}) {
+  //   carve: false for a blast that breaks no blocks (TNT going off in water).
+  explode(position, { radius = GRENADE_RADIUS, source = "grenade", visual = null, mirror = false, by = 0, carve = true } = {}) {
     const scale = explosionScale[source] ?? 1;
     radius *= scale;
     const t0 = performance.now();
-    const removed = mirror ? [] : this._carve(position, radius);
-    if (!mirror) this.floodInto(removed);
+    const removed = mirror || !carve ? [] : this._carve(position, radius);
+    if (removed.length) this.floodInto(removed);
     const carveMs = performance.now() - t0;
     const look = visual ? Math.max(radius, visual * scale) : radius; // the size it looks
     this._spawnExplosionParticles(position, removed, radius, look);
@@ -292,6 +296,7 @@ export class EffectsSystem {
     this.explosionCount++;
     // (What it hurts: the crater's size, a little more for a blast that looks bigger.)
     if (this.onExplosion) this.onExplosion(position, look > radius ? Math.min(look, radius * 1.5) : radius, source, { mirror, by });
+    for (const fn of this.blastListeners) fn(position, removed, radius, { source, mirror });
     // (Round 11) The blocks it blew away (a creeper's drops: mobs.js blastDrops).
     return removed;
   }

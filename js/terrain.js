@@ -11,6 +11,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME, BiomeSource, isSnowy, isOceanBiome } from "./biomes.js";
 import { VillageGrower, VILLAGE_REACH } from "./village.js";
 import { SiteGrower } from "./sites.js";
+import { StructureGrower } from "./structures.js";
 
 const BASE_HEIGHT = 26;
 const AMPLITUDE = 11; // (Round 9: was 14, gentler hills)
@@ -164,6 +165,8 @@ export class TerrainGenerator {
     this.sites = new SiteGrower(this, { off: !this.options.sites }); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
+    // (Round 11) A Survival world's dungeons, mineshafts and desert temples.
+    this.structures = this.options.vanilla ? new StructureGrower(this) : null;
   }
 
   // Height plus the two other large-scale fields the biome map needs
@@ -419,6 +422,7 @@ export class TerrainGenerator {
       this._placeVanillaVeins(blocks, chunk.cx, chunk.cz, biomeAt);
       this._placeLavaPool(blocks, chunk.cx, chunk.cz, hAt, biomeAt);
       this._placeClay(blocks, chunk.cx, chunk.cz, hAt, biomeAt);
+      this.structures.placeUnderground(blocks, chunk.cx, chunk.cz, hAt);
     } else {
       this._placeVeins(blocks, chunk.cx, chunk.cz);
       this._placeCrystals(blocks, baseX, baseZ);
@@ -484,7 +488,10 @@ export class TerrainGenerator {
       }
     }
 
-    if (this.options.vanilla) this._vanillaCover(blocks, chunk.cx, chunk.cz, hAt, biomeAt);
+    if (this.options.vanilla) {
+      this._vanillaCover(blocks, chunk.cx, chunk.cz, hAt, biomeAt);
+      this.structures.placeSurface(blocks, chunk.cx, chunk.cz, hAt, biomeAt);
+    }
 
     // Villages: placed last so they overwrite any trees or ground cover in
     // their footprint with a flattened pad, houses, paths and a farm plot.

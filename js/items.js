@@ -13,6 +13,7 @@ import { ITEM, LIB } from "./content/base.js";
 import { CONTENT_ITEMS, CONTENT_ORDER, BLOCK_DROPS } from "./content/index.js";
 import * as V from "./content/ids.js";
 import { isVanilla } from "./worldtype.js";
+import { fortuneCount } from "./enchant.js";
 
 export { ITEM };
 
@@ -216,17 +217,56 @@ function toolSpeed(b, tool) {
 
 // Seconds to break the block in survival (Infinity if unbreakable):
 // hardness * (harvestable ? 1.5 : 5) / tool speed, as in classic voxel games.
-export function breakTime(blockId, tool) {
+// (Round 11) bonus: Efficiency's (js/enchant.js efficiencyBonus), added to a
+// tool working faster than a hand on the block, as vanilla.
+export function breakTime(blockId, tool, bonus = 0) {
   const b = BLOCK_INFO[blockId];
   if (!b || b.hardness < 0) return Infinity;
   if (b.hardness === 0) return 0;
-  return (b.hardness * (canHarvest(blockId, tool) || (tool?.type === "shears" && SHEARABLE[blockId]) ? 1.5 : 5)) / toolSpeed(b, tool);
+  let speed = toolSpeed(b, tool);
+  if (bonus > 0 && speed > 1) speed += bonus;
+  return (b.hardness * (canHarvest(blockId, tool) || (tool?.type === "shears" && SHEARABLE[blockId]) ? 1.5 : 5)) / speed;
+}
+
+// (Round 11) The enchantments' part in what a block drops (js/enchant.js):
+// Silk Touch takes the block itself where vanilla lets it (not what turns
+// into something else when placed: crops, farmland, a path); Fortune
+// multiplies what ores give (vanilla's ore formula; redstone a few more),
+// raises flint's chance from gravel and a melon's slices.
+const FORTUNE_ORES = new Set([BLOCK.COAL_ORE, BLOCK.IRON_ORE, BLOCK.GOLD_ORE, BLOCK.DIAMOND_ORE, V.LAPIS_ORE, V.EMERALD_ORE, V.COPPER_ORE]);
+const NO_SILK = new Set([V.FARMLAND, V.FARMLAND + 1, V.DIRT_PATH, V.FIRE, V.LAVA, BLOCK.WATER]);
+function silkDrop(blockId) {
+  if (NO_SILK.has(blockId)) return 0;
+  if (blockId === V.REDSTONE_ORE + 1) return V.REDSTONE_ORE; // (lit redstone ore)
+  return ITEM_OF[blockId] === blockId && itemInfo(blockId) ? blockId : 0;
+}
+function enchantedDrops(blockId, tool, rand, ench) {
+  if (ench.silk && canHarvest(blockId, tool)) {
+    const id = silkDrop(blockId);
+    if (id) return [[id, 1]];
+  }
+  const L = ench.fortune | 0;
+  if (L > 0 && blockId === BLOCK.GRAVEL && isVanilla() && itemInfo(V.FLINT) && canHarvest(blockId, tool)) {
+    return [[rand() < [0.1, 0.14, 0.25, 1][Math.min(3, L)] ? V.FLINT : BLOCK.GRAVEL, 1]];
+  }
+  const out = blockDrops(blockId, tool, rand);
+  if (L <= 0) return out;
+  const redstone = blockId === V.REDSTONE_ORE || blockId === V.REDSTONE_ORE + 1;
+  // (New pairs: a module's drops may hand out shared ones.)
+  return out.map(([id, n]) => {
+    if (id === blockId) return [id, n];
+    if (FORTUNE_ORES.has(blockId)) return [id, fortuneCount(n, L, rand)];
+    if (redstone) return [id, n + Math.floor(rand() * (L + 1))];
+    if (blockId === V.MELON) return [id, Math.min(9, n + Math.floor(rand() * (L + 1)))];
+    return [id, n];
+  });
 }
 
 // Items dropped when a block is broken in survival: array of [itemId, count].
 // (A content module's `drops` for the block come first: js/content/index.js;
 // shears before them: what they cut drops whole.)
-export function blockDrops(blockId, tool, rand = Math.random) {
+export function blockDrops(blockId, tool, rand = Math.random, ench = null) {
+  if (ench && (ench.silk || ench.fortune)) return enchantedDrops(blockId, tool, rand, ench);
   if (tool?.type === "shears" && SHEARABLE[blockId]) {
     const item = ITEM_OF[blockId];
     return item && itemInfo(item) ? [[item, 1]] : [];

@@ -20,6 +20,7 @@
 import { BLOCK, BLOCK_INFO, IS_SOLID, IS_OPAQUE, IS_LIQUID, COLLISION_BOXES } from "./blocks.js";
 import { BLOCK_LIMIT, ITEM } from "./content/base.js";
 import * as ID from "./content/ids.js";
+import { protectionShare } from "./enchant.js";
 
 export const MAX_FOOD = 20;
 export const START_SATURATION = 5; // (a new or respawned player: vanilla's 5)
@@ -143,18 +144,26 @@ export function effectsOf(info, id) {
 // ---------- Status effects ----------
 // The effects the game runs (player.js) and shows (hud.js): the vanilla name,
 // the HUD's colour, an icon and whether it is instant.
+// (bad: a harmful one, shown red in a potion's tooltip.) (Round 11) The
+// potions' effects too: night vision (main.js lights the view), invisibility
+// (creatures see you only close by: mobs.js), strength and weakness (a
+// blow's damage: js/interaction.js).
 export const EFFECTS = {
   regeneration: { name: "Regeneration", color: "#cd5cab", icon: "heart" },
-  poison: { name: "Poison", color: "#4e9331", icon: "drop" },
-  hunger: { name: "Hunger", color: "#587653", icon: "drumstick" },
+  poison: { name: "Poison", color: "#4e9331", icon: "drop", bad: true },
+  hunger: { name: "Hunger", color: "#587653", icon: "drumstick", bad: true },
   absorption: { name: "Absorption", color: "#2552a5", icon: "goldheart" },
   saturation: { name: "Saturation", color: "#f82423", icon: "drumstick", instant: true },
   instant_health: { name: "Instant Health", color: "#f82423", icon: "heart", instant: true },
-  instant_damage: { name: "Instant Damage", color: "#430a09", icon: "heart", instant: true },
+  instant_damage: { name: "Instant Damage", color: "#430a09", icon: "heart", instant: true, bad: true },
   fire_resistance: { name: "Fire Resistance", color: "#e49a3a", icon: "flame" },
   water_breathing: { name: "Water Breathing", color: "#2e5299", icon: "bubble" },
   speed: { name: "Speed", color: "#7cafc6", icon: "arrow" },
-  slowness: { name: "Slowness", color: "#5a6c81", icon: "arrow" },
+  slowness: { name: "Slowness", color: "#5a6c81", icon: "arrow", bad: true },
+  night_vision: { name: "Night Vision", color: "#1f1fa1", icon: "eye" },
+  invisibility: { name: "Invisibility", color: "#7f8392", icon: "eye" },
+  strength: { name: "Strength", color: "#932423", icon: "sword" },
+  weakness: { name: "Weakness", color: "#484d48", icon: "sword", bad: true },
 };
 const EFFECT_ALIASES = { regen: "regeneration", heal: "instant_health", harm: "instant_damage", fire_res: "fire_resistance", haste: "speed", slow: "slowness" };
 
@@ -181,4 +190,29 @@ export function formatEffectTime(seconds) {
 // Roman numerals for the level (II, III...; level I shows none).
 export function effectLevelName(level) {
   return ["", "", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][level] ?? String(level);
+}
+
+// ---------- Enchanted armor (Round 11) ----------
+
+// The damage the Protection enchantments of the armor worn let through
+// (js/enchant.js: Protection, Fire, Blast and Projectile Protection, Feather
+// Falling on falls), after the armor's own points (main.js damageFilter).
+// Whole half-hearts: a hurt it takes down to nothing is none.
+export function protectedDamage(amount, cause, armor) {
+  const share = protectionShare(armor, cause);
+  return share > 0 ? Math.round(amount * (1 - share)) : amount;
+}
+
+// How much Night Vision lights the view (0-1): full while it lasts, flickering
+// out over its last 10 s (vanilla). main.js sets the world shader's
+// uNightVision from it.
+export function nightVisionFactor(player) {
+  const list = player?.effects;
+  if (!list?.length) return 0;
+  for (const e of list) {
+    if (e.effect !== "night_vision") continue;
+    if (e.time > 10) return 1;
+    return 0.7 + 0.3 * Math.abs(Math.sin(e.time * Math.PI));
+  }
+  return 0;
 }

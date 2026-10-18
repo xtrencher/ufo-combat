@@ -24,6 +24,7 @@ import { WEAPON_STATS } from "./weapon-stats.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { isVanilla } from "./worldtype.js";
 import { ARROW } from "./content/ids.js";
+import { enchLevel } from "./enchant.js";
 import { Fishing } from "./fishing.js";
 import { Throwables } from "./entities.js";
 export { WEAPON_STATS };
@@ -454,9 +455,14 @@ export class WeaponSystem {
       const power = Math.min(1, this.bow.t / BOW_DRAW);
       this.bow.t = 0;
       // (A click too short to even nock the arrow shoots nothing.)
-      if (power >= 0.1 && (!this._needsArrows() || this._takeArrow())) {
+      // (Round 11) The bow's enchantments: Infinity needs an arrow but keeps
+      // it (and its arrow can't be picked up); Power, Punch and Flame go with the arrow.
+      const bow = this.inventory?.selectedStack;
+      const infinity = enchLevel(bow, "infinity") > 0 && this._needsArrows() && this.inventory.countItem(ARROW) > 0;
+      if (power >= 0.1 && (!this._needsArrows() || infinity || this._takeArrow())) {
         this._spend("bow");
-        this.shootArrow(power, { pickup: this._needsArrows() });
+        const ench = bow?.tag?.ench ? { power: enchLevel(bow, "power"), punch: enchLevel(bow, "punch"), flame: enchLevel(bow, "flame") } : null;
+        this.shootArrow(power, { pickup: this._needsArrows() && !infinity, ench });
       }
       return;
     }
@@ -1202,14 +1208,14 @@ export class WeaponSystem {
   // further it was drawn. It flies with gravity and hurts whatever it hits:
   // creatures, UFOs, vehicles. pickup: once stuck in a block it can be
   // picked up again (an arrow that came from the inventory).
-  shootArrow(power, { pickup = false } = {}) {
+  shootArrow(power, { pickup = false, ench = null } = {}) {
     const p = this.player;
     const dir = p.getForwardVector();
     const speed = ARROW_SPEED_MIN + (ARROW_SPEED_MAX - ARROW_SPEED_MIN) * power * power;
     const pos = this._handPoint(0.5, 0.12, 0.08);
     if (IS_SOLID[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]) pos.copy(p.getEyePosition());
     const mesh = new THREE.Mesh(this.arrowGeometry(), this.material);
-    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, gravity: ARROW_GRAVITY + (ARROW_GRAVITY_FULL - ARROW_GRAVITY) * power * power, stuck: false, pickup, light: { sky: 15, block: 0 } };
+    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, gravity: ARROW_GRAVITY + (ARROW_GRAVITY_FULL - ARROW_GRAVITY) * power * power, stuck: false, pickup, ench, light: { sky: 15, block: 0 } };
     bindEntityLight(mesh, () => a.light);
     mesh.position.copy(pos);
     this.scene.add(mesh);
@@ -1254,7 +1260,9 @@ export class WeaponSystem {
       const blockHit = this.world.raycast(a.pos, dir, len, { solidOnly: true });
       const mobHit = this.mobs.raycast(a.pos, dir, blockHit ? blockHit.distance : len);
       const tHit = this._targetHit(a.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
-      const dmg = Math.round(ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * a.power * a.power);
+      // (Power: +25% a level and 25% more, as vanilla.)
+      const pw = a.ench?.power || 0;
+      const dmg = Math.round((ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * a.power * a.power) * (pw ? 1 + 0.25 * (pw + 1) : 1));
       if (tHit) {
         const point = a.pos.clone().addScaledVector(dir, tHit.distance);
         tHit.hit(dmg, dir, point);
@@ -1264,7 +1272,14 @@ export class WeaponSystem {
         continue;
       }
       if (mobHit) {
-        if (this.mobs.shoot(mobHit.mob, dmg, dir, 2 + a.power * 2)) this.onHit?.();
+        // (Punch: a harder push; Flame: 5 s of fire, through the creatures' attack extras.)
+        const kb = 2 + a.power * 2 + 3 * (a.ench?.punch || 0);
+        this.mobs.attackExtras = a.ench?.flame ? { fire: 5 } : null;
+        try {
+          if (this.mobs.shoot(mobHit.mob, dmg, dir, kb)) this.onHit?.();
+        } finally {
+          this.mobs.attackExtras = null;
+        }
         this._burst(a.pos.clone().addScaledVector(dir, mobHit.distance), dir.clone().negate(), this._c.blood, 5, 2.5);
         this.audio.playArrowHit?.(0);
         this.scene.remove(a.mesh);

@@ -54,7 +54,11 @@ export const SNOWY_GRASS = 1654;
 // jungle, acacia, dark oak; they look and drop like the natural ones but
 // never decay (vanilla's persistent leaves).
 export const PERSISTENT_LEAVES = 1655;
-// (nature.js blocks: next free 1661)
+// Monster spawners (Round 11: js/structures.js puts them in dungeons and
+// mineshafts, and runs them): 3 ids, the creature each spawns.
+export const SPAWNER = 1661;
+export const SPAWNER_KINDS = ["zombie", "skeleton", "spider"];
+// (nature.js blocks: next free 1664)
 const NATURAL_LEAVES = [BLOCK.LEAVES, BLOCK.PINE_LEAVES, BLOCK.BIRCH_LEAVES, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES];
 
 // The same id ranges as numbers (hot paths).
@@ -535,6 +539,23 @@ FACINGS.forEach(([dx, dz], k) => {
 // Cobweb: slows whatever moves through it (`slows` for the survival part);
 // a sword cuts it fast and gets string, shears get the web.
 def(COBWEB, { ...PLANT, name: "Cobweb", faces: "cobweb", wave: false, lightFilter: 1, hardness: 4, tool: "sword", sound: "cloth", slows: true });
+// Monster spawners: an iron cage (light and sky pass through), mined slowly,
+// dropping nothing but 15-43 experience (vanilla).
+SPAWNER_KINDS.forEach((kind, i) => {
+  def(SPAWNER + i, {
+    name: `${kind[0].toUpperCase()}${kind.slice(1)} Spawner`,
+    faces: "spawner",
+    render: RENDER.CUTOUT,
+    opaque: false,
+    skyPass: true,
+    hardness: 5,
+    tool: "pickaxe",
+    minTier: 1,
+    sound: "stone",
+    xp: [15, 43],
+    spawns: kind,
+  });
+});
 def(PODZOL, { name: "Podzol", faces: { top: "podzol_top", bottom: "dirt", side: "podzol_side" }, hardness: 0.5, tool: "shovel", sound: "dirt" });
 // (Mycelium's sides are plain dirt: it only grows where players spread it.)
 def(MYCELIUM, { name: "Mycelium", faces: { top: "mycelium_top", bottom: "dirt", side: "dirt" }, hardness: 0.6, tool: "shovel", sound: "grass" });
@@ -857,6 +878,7 @@ drops[SNOWY_GRASS] = fixed([[BLOCK.DIRT, 1]]);
 // Ferns: shears take them, otherwise wheat seeds 1 in 8 (like grass).
 drops[FERN] = (tool, rand) => (isShears(tool) ? [[FERN, 1]] : rand() < 0.125 ? [[WHEAT_SEEDS, 1]] : []);
 for (let k = 0; k < 4; k++) drops[VINE + k] = (tool) => (isShears(tool) ? [[VINE, 1]] : []);
+for (let i = 0; i < SPAWNER_KINDS.length; i++) drops[SPAWNER + i] = () => [];
 drops[COBWEB] = (tool) => (isShears(tool) ? [[COBWEB, 1]] : tool?.type === "sword" ? [[ID.STRING, 1]] : []);
 
 // ---------- Growth (random ticks: the host's, online) ----------
@@ -1788,6 +1810,21 @@ export const tiles = {
   dirt_path_top: (t, kit) => paintSoil(t, kit, [0x7a5c30, 0x8a6a3a, 0x9a7a45, 0xa8884f, 0xb5955a], { n: 20, colors: [0x6a4e28, 0xc0a068] }),
   hay_side: (t, kit) => paintStraw(t, kit, false),
   hay_top: (t, kit) => paintStraw(t, kit, true),
+  // The spawner's cage: dark iron bars round a frame, open between them.
+  spawner: (t, kit) => {
+    clear(t);
+    const ramp = [0x10161e, 0x1c2632, 0x2a3746, 0x3c4c5e, 0x56687c].map(kit.hex);
+    t.forEach((x, y) => {
+      const frame = x < 2 || x > 29 || y < 2 || y > 29;
+      const bar = x % 8 < 2 || y % 8 < 2;
+      if (!frame && !bar) return;
+      // (lit along the bars' top-left edges, darker where they cross)
+      let f = 0.45 + (t.rand() - 0.5) * 0.2;
+      if (x % 8 === 0 || y % 8 === 0 || x === 0 || y === 0) f += 0.3;
+      if (!frame && x % 8 < 2 && y % 8 < 2) f -= 0.2;
+      t.set(x, y, kit.ramp(ramp, f), 255);
+    });
+  },
 };
 export const tileRelief = {
   lava: [0.8, 0.5, 1],
