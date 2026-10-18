@@ -50,6 +50,7 @@ import { SNOWY_GRASS, isLava } from "./content/nature.js";
 import { potionId } from "./content/items-vanilla.js";
 import { WITHER_SKELETON_SKULL } from "./content/mobs-vanilla.js";
 import { DIMS, PORTAL_BLOCKS } from "./dim-registry.js";
+import * as NetherGen from "./dim-nether.js";
 
 const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, ghast: 1 }; // (a Survival world's blasts: explosion(); Round 12: a ghast's fireball)
 
@@ -546,8 +547,12 @@ const VANILLA_VOICES = {
     death: [{ noise: { type: "lowpass", f: 600, q: 2, d: 0.6, v: 0.26, fEnd: 120 } }],
   },
 };
-// (A zoglin is a hoarser hoglin; the magma cubes share one set.)
+// (A zoglin is a hoarser hoglin; the magma cubes share one set. Online, a
+// guest hears a shot leave as its fireball or bullet appears: "launch".)
 VANILLA_VOICES.zoglin = VANILLA_VOICES.hoglin;
+VANILLA_VOICES.ghast_fireball = { launch: VANILLA_VOICES.ghast.shoot };
+VANILLA_VOICES.small_fireball = { launch: VANILLA_VOICES.blaze.shoot };
+VANILLA_VOICES.shulker_bullet = { launch: VANILLA_VOICES.shulker.shoot };
 // (Round 12) The Nether's spawns by its biome, and inside a fortress
 // (vanilla 1.20's lists: [kind, weight, smallest group, biggest]); the
 // End's. (A magma cube's size and a baby are picked when it is made.)
@@ -564,7 +569,11 @@ const END_SPAWNS = [["enderman", 10, 4, 4]];
 // the block light is at most this; every other kind of the Nether comes at
 // any light (vanilla's own spawn checks).
 const NETHER_DARK = { skeleton: 7, wither_skeleton: 7, enderman: 7, blaze: 11 };
+// The generator's biome numbers (js/dim-nether.js NETHER_BIOME) to the lists' names.
+const NB = NetherGen.NETHER_BIOME || {};
+const NETHER_BIOME_KEYS = { [NB.WASTES ?? 0]: "nether_wastes", [NB.SOUL_SAND_VALLEY ?? 1]: "soul_sand_valley", [NB.CRIMSON_FOREST ?? 2]: "crimson_forest", [NB.WARPED_FOREST ?? 3]: "warped_forest", [NB.BASALT_DELTAS ?? 4]: "basalt_deltas" };
 const NETHER_REACH = 96; // blocks: how far out the Nether's creatures come
+const BASTION_PIGLINS = 3; // at most, in each chunk of a bastion remnant (vanilla's stand in its rooms)
 const NETHER_MAX_STRIDERS = 8; // per player (vanilla's creature cap, for the lava)
 const END_MAX_HOSTILE = 24; // per player (the End's endermen are many)
 const MAGMA_SIZES = ["magma_cube_small", "magma_cube_medium", "magma_cube"];
@@ -625,6 +634,9 @@ for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.som
 // (The top of a block's collision in its cell: a slab 0.5, farmland 0.9375, a full block 1.)
 const TOP = new Float32Array(COLLISION_BOXES.length).fill(1);
 for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.length) TOP[id] = Math.min(1, Math.max(...COLLISION_BOXES[id].map((b) => b[4])));
+// (Round 12) A floor a creature may come into being on: solid and opaque,
+// whole or nearly (soul sand's 14/16 too, as vanilla: its top face is sturdy).
+const spawnFloor = (id) => IS_SOLID[id] === 1 && IS_OPAQUE[id] === 1 && (!COLLISION_BOXES[id] || TOP[id] >= 0.875);
 // The floor a creature stands on in cell (x, y, z): y + the top of its box (-Infinity: not solid).
 const surface = (w, x, y, z) => {
   const id = w.getBlock(x, y, z);
@@ -882,6 +894,7 @@ export class MobManager {
       fireT: 0,
     };
     if (spec.lays) m.eggT = 300 + Math.random() * 300;
+    if (spec.still) m.persist = true; // (Round 12: a shulker never despawns, as vanilla's)
     if (m.baby) this._babyLook(m);
     bindEntityLight(model.root, () => m.light);
     this.group.add(model.root);
@@ -3071,7 +3084,8 @@ export class MobManager {
       if (out.length >= 400) break;
     }
     // (Round 12) The chunks whose structures' creatures were put down: ["@s", "cx,cz", ...].
-    if (this._structDone.size) out.push(["@s", ...[...this._structDone].slice(-4000)]);
+    // (first: a list cut at 400 keeps it)
+    if (this._structDone.size) out.unshift(["@s", ...[...this._structDone].slice(-4000)]);
     return out.length ? out : undefined;
   }
 
@@ -3183,13 +3197,18 @@ export class MobManager {
     if (!col) return false;
     const [x, z] = col;
     const y = this._floorBelow(x, Math.floor(this.player.position.y + (Math.random() * 2 - 1) * 32), z, 24);
-    if (y < 0) return false;
+    return y > 0 && this.netherSpawnAt(x, y, z) > 0;
+  }
+
+  // A group for the spot (x, y, z) (its floor under it), by the Nether's
+  // lists: how many came.
+  netherSpawnAt(x, y, z) {
     const floor = this.world.getBlock(x, y - 1, z);
     const fortress = this._inFortress(x, y, z, floor);
     const list = fortress ? FORTRESS_SPAWNS : NETHER_SPAWNS[this._netherBiome(x, y, z, floor)] || NETHER_SPAWNS.nether_wastes;
     const kind = pickWeighted(list);
     const [, , min, max] = list.find((e) => e[0] === kind);
-    return this._spawnGroup(kind, x, y, z, min + Math.floor(Math.random() * (max - min + 1))) > 0;
+    return this._spawnGroup(kind, x, y, z, min + Math.floor(Math.random() * (max - min + 1)));
   }
 
   _trySpawnEnd() {
@@ -3205,8 +3224,11 @@ export class MobManager {
   // A strider on the lava's surface (vanilla: in lava with air above it).
   _trySpawnStrider() {
     const col = this._spawnColumn(NETHER_REACH);
-    if (!col) return false;
-    const [x, z] = col;
+    return !!col && this.striderSpawnAt(col[0], col[1]);
+  }
+
+  // One or two striders on the lava under column (x, z), near this player's height.
+  striderSpawnAt(x, z) {
     const w = this.world;
     let y = Math.min(WORLD_TOP, Math.floor(this.player.position.y + 16));
     for (let k = 0; k < 48 && y > 1; k++, y--) {
@@ -3256,7 +3278,7 @@ export class MobManager {
     const spec = SPECIES[kind];
     const w = this.world;
     const floor = w.getBlock(x, y - 1, z);
-    if (!IS_SOLID[floor] || !IS_OPAQUE[floor] || COLLISION_BOXES[floor] || floor === BLOCK.BEDROCK) return false;
+    if (!spawnFloor(floor) || floor === BLOCK.BEDROCK) return false;
     if (floor === V.MAGMA_BLOCK && !spec.fireproof) return false;
     if (floor === V.NETHER_WART_BLOCK && (kind === "piglin" || kind === "zombified_piglin" || kind === "hoglin")) return false;
     const dark = NETHER_DARK[kind] ?? (this.world.dim === "end" ? 7 : 15);
@@ -3280,8 +3302,7 @@ export class MobManager {
   _floorBelow(x, y, z, n) {
     const w = this.world;
     for (let k = 0, yy = Math.max(2, Math.min(WORLD_TOP - 2, y)); k < n && yy > 1; k++, yy--) {
-      const below = w.getBlock(x, yy - 1, z);
-      if (!IS_SOLID[below] || !IS_OPAQUE[below] || COLLISION_BOXES[below]) continue;
+      if (!spawnFloor(w.getBlock(x, yy - 1, z))) continue;
       const here = w.getBlock(x, yy, z);
       if (IS_SOLID[here] || IS_WET[here] || isLava(here)) continue;
       return yy;
@@ -3313,7 +3334,7 @@ export class MobManager {
   _netherBiome(x, y, z, floor) {
     const t = this.world.terrain;
     let b = typeof t?.biomeNameAt === "function" ? t.biomeNameAt(x, y, z) : t?.biomeAt?.(x, z, y);
-    if (typeof b === "number") b = t?.biomeNames?.[b];
+    if (typeof b === "number") b = t?.biomeNames?.[b] ?? NETHER_BIOME_KEYS[b];
     if (typeof b === "string" && NETHER_SPAWNS[b]) return b;
     if (floor === V.CRIMSON_NYLIUM || floor === V.NETHER_WART_BLOCK || floor === V.SHROOMLIGHT || floor === V.CRIMSON_STEM) return "crimson_forest";
     if (floor === V.WARPED_NYLIUM || floor === V.WARPED_WART_BLOCK || floor === V.WARPED_STEM) return "warped_forest";
@@ -3331,12 +3352,13 @@ export class MobManager {
     return floor === V.NETHER_BRICKS || floor === V.CRACKED_NETHER_BRICKS || floor === V.CHISELED_NETHER_BRICKS;
   }
 
-  // The creatures a structure puts down, once (an end city's shulkers, a
-  // bastion's piglins and hoglins: the generator's structures.mobSpots(cx,
-  // cz) -> [[kind, x, y, z, variant], ...]), kept with the world as vanilla's.
+  // The creatures a structure puts down, once, kept with the world as
+  // vanilla's: an end city's shulkers (the End's structures.shulkerSpots(cx,
+  // cz) -> [[x, y, z], ...]), a bastion's piglins (bastionAt: _bastionSpots),
+  // or any generator's structures.mobSpots(cx, cz) -> [[kind, x, y, z, variant], ...].
   _structureMobs() {
     const s = this.world.terrain?.structures;
-    if (typeof s?.mobSpots !== "function") return;
+    if (!s || (typeof s.mobSpots !== "function" && typeof s.shulkerSpots !== "function" && typeof s.bastionAt !== "function")) return;
     const p = this.player.position;
     const pcx = Math.floor(p.x) >> 4;
     const pcz = Math.floor(p.z) >> 4;
@@ -3346,7 +3368,7 @@ export class MobManager {
         const cz = pcz + dz;
         const key = `${cx},${cz}`;
         if (this._structDone.has(key) || this._structNone.has(key) || !this._chunkReady(cx * 16 + 8, cz * 16 + 8)) continue;
-        const list = s.mobSpots(cx, cz);
+        const list = typeof s.mobSpots === "function" ? s.mobSpots(cx, cz) : typeof s.shulkerSpots === "function" ? s.shulkerSpots(cx, cz).map((c) => ["shulker", c[0] + 0.5, c[1], c[2] + 0.5]) : this._bastionSpots(s, cx, cz);
         if (!Array.isArray(list) || !list.length) {
           if (this._structNone.size > 4096) this._structNone.clear();
           this._structNone.add(key);
@@ -3360,6 +3382,22 @@ export class MobManager {
         }
       }
     }
+  }
+
+  // Where a bastion remnant's piglins stand in chunk (cx, cz) (vanilla's are
+  // put in its rooms as it is made: js/nether-structures.js bastionAt says
+  // where its walls are): a few floors inside it, near this player's height.
+  _bastionSpots(s, cx, cz) {
+    const out = [];
+    const py = Math.floor(this.player.position.y);
+    for (let k = 0; k < 24 && out.length < BASTION_PIGLINS; k++) {
+      const x = cx * 16 + Math.floor(Math.random() * 16);
+      const z = cz * 16 + Math.floor(Math.random() * 16);
+      const y = this._floorBelow(x, py + 16 - Math.floor(Math.random() * 32), z, 16);
+      if (y < 0 || !s.bastionAt(x, y, z) || !this._freeBox(x + 0.5, y, z + 0.5, 0.3, 2) || this._nearPlayer(x, y, z, 12)) continue;
+      out.push(["piglin", x + 0.5, y, z + 0.5]);
+    }
+    return out;
   }
 
   // (The Overworld) A nether portal lets a zombified piglin through now and
@@ -5533,6 +5571,7 @@ export class MobManager {
           this._physicsFly(m, step, want);
         } else if (m.spec.floats || m.spec.still) {
           // (Round 12) A ghast floats; a shulker never moves.
+          m.angerT = Math.max(0, (m.angerT ?? 0) - step);
           if (m.spec.floats) this._physicsFloat(m, step, this._brainGhast(m, step));
           else this._brainShulker(m, step);
           this._sounds(m, step);

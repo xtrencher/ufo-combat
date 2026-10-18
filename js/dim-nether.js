@@ -131,7 +131,7 @@ export class NetherGenerator {
     const roof = y > 98 ? (y - 98) / 13 : 0;
     // (a little more rock in the middle heights: shelves and bridges between the caverns)
     const mid = 0.08 - Math.abs(y - 62) / 400;
-    return big * 1.05 + small * 0.48 + floor + roof + mid - 0.06;
+    return big * 1.05 + small * 0.48 + floor + roof + mid - 0.16;
   }
 
   _grid(cx, cz) {

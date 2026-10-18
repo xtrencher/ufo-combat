@@ -806,13 +806,14 @@ function paintSoulSand(t, kit, soil) {
     for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [4, 0], [5, 0], [5, 1], [2, 4], [3, 4], [2, 5], [3, 5], [1, 5], [4, 5]]) t.set(fx + dx, fy + dy, dark);
   }
 }
+// (drawn glowing, which brightens it: kept to warm mid tones, the dark seams between the crystals)
 function paintGlowstone(t, kit) {
-  const ramp = R(kit, [0x6a3e14, 0x9c6224, 0xd09038, 0xf4c25a, 0xffe08a, 0xfff4c8]);
-  const v = t.voronoi(18, 2);
+  const ramp = R(kit, [0x5a3210, 0x8a561c, 0xb47c2c, 0xd49c40, 0xe8b85a, 0xf4d07a]);
+  const v = t.voronoi(22, 2);
   t.forEach((x, y) => {
     const c = v(x, y);
-    let f = 0.75 - c.d1 / 7 + (c.value - 0.5) * 0.4 + (t.rand() - 0.5) * 0.15;
-    if (c.d2 - c.d1 < 1) f -= 0.35;
+    let f = 0.62 - c.d1 / 9 + (c.value - 0.5) * 0.35 + (t.rand() - 0.5) * 0.12;
+    if (c.d2 - c.d1 < 1.2) f = 0.08 + t.rand() * 0.1;
     t.set(x, y, kit.ramp(ramp, f));
   });
 }
@@ -1010,7 +1011,7 @@ function paintFlamesBlue(t, kit) {
   }
 }
 function paintPortal(t, kit) {
-  const ramp = R(kit, [0x2a0656, 0x4a0c96, 0x6a1ad0, 0x8a3af0, 0xb070ff, 0xd8b0ff]);
+  const ramp = R(kit, [0x16032e, 0x280660, 0x3e0c98, 0x5816c8, 0x7a30e6, 0xa060f6]);
   t.forEach((x, y) => {
     const dx = x - 15.5;
     const dy = y - 15.5;

@@ -843,6 +843,8 @@ export class EntitySync {
       if (e.ld && !mob.dead) g.mobs.setCarry(mob, e.ld);
       mob.interp = new Interp({ angles: ["y", "hy"], snap: 12 });
       this.mobById.set(e.id, mob);
+      // (Round 12) A fireball or a bullet: the shot's sound, where it leaves.
+      if (mob.spec.projectile) g.mobs._voice(mob, "launch");
     }
     for (const e of m.j || []) {
       if (this.jetById.has(e.id)) continue;
@@ -1045,14 +1047,21 @@ export class EntitySync {
     m.owner = st.o | 0;
     if (m.tamed && m.kind === "wolf" && m.maxHealth < 20) m.maxHealth = 20;
     // (Round 12) The Nether's and the End's states (see _mobOut).
+    // (Their sounds here too: a ghast about to shoot, a blaze catching fire,
+    // a piglin taking gold, a shulker's lid.)
     const n = st.n | 0;
+    if (n & 1 && !(m.admireT > 0)) g.mobs._voice(m, "admire");
+    if (n & 2 && !m.shootFace) g.mobs._voice(m, "charge");
+    if (n & 4 && !m.charged) g.mobs._voice(m, "charge");
     m.admireT = n & 1 ? 1 : 0;
     m.shootFace = !!(n & 2);
     m.charged = !!(n & 4);
     m.cold = !!(n & 8);
     m.shakeT = n & 16 ? 1 : 0;
     if (n & 32) m.variant = (n >> 8) & 7;
-    m.peek = st.pk || 0;
+    const peek = st.pk || 0;
+    if (m.spec.still && !(m.peek > 0) !== !(peek > 0)) g.mobs._voice(m, peek > 0 ? "open" : "close");
+    m.peek = peek;
     g.mobs.puppetTick?.(m, dt);
     // (An enderman's teleport: the flash where it was and where it is.)
     if (m.kind === "enderman" && Math.hypot(m.pos.x - ox, m.pos.z - oz) > 4 && m.interp.last) {

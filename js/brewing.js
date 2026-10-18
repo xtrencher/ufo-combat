@@ -2,22 +2,27 @@
 // the ingredients exist, and the thrown bottles (splash potions, the bottle
 // o' enchanting).
 //
-// A brewing stand has four slots: 0-2 the bottles (glass bottles, water
-// bottles, potions), 3 the ingredient. While the ingredient turns at least
-// one bottle into something, it brews for vanilla's 20 s (400 ticks), then
-// every bottle it acts on changes and one ingredient is used up. Taking the
-// ingredient out (or a change that leaves nothing to brew) stops it.
-// Decisions (there is no Nether): the stand needs no fuel (vanilla's blaze
-// powder doesn't exist); with no nether wart there is no awkward potion: the
-// ingredients brew straight from a water bottle. Vanilla's own: sugar
-// (swiftness), a spider eye (poison), a glistering melon slice (healing), a
-// golden carrot (night vision), a fermented spider eye (weakness; it also
-// turns healing and poison into harming, swiftness into slowness, night
-// vision into invisibility), redstone (longer), gunpowder (splash). The
-// Nether's stand in for: a golden apple (the ghast tear: regeneration), an
-// ender pearl (blaze powder: strength), a slimeball (magma cream: fire
-// resistance), raw salmon (the pufferfish: water breathing), a lumen crystal
-// (glowstone: level II).
+// A brewing stand has five slots: 0-2 the bottles (glass bottles, water
+// bottles, potions), 3 the ingredient, 4 the fuel (blaze powder). While the
+// ingredient turns at least one bottle into something and there is fuel, it
+// brews for vanilla's 20 s (400 ticks), then every bottle it acts on changes
+// and one ingredient is used up. Taking the ingredient out (or a change that
+// leaves nothing to brew) stops it.
+// (Round 12) Vanilla's chain, the Nether's ingredients real: one blaze
+// powder fuels 20 brews (each brew started takes one); nether wart makes a
+// water bottle awkward, glowstone dust thick, redstone (and the other
+// ingredients) mundane, a fermented spider eye weakness; the awkward potion
+// takes sugar (swiftness), a glistering melon slice (healing), a spider eye
+// (poison), a ghast tear (regeneration), magma cream (fire resistance),
+// blaze powder (strength), a golden carrot (night vision); redstone makes a
+// potion longer, glowstone dust stronger (II), gunpowder a splash potion; a
+// fermented spider eye turns healing and poison into harming, swiftness into
+// slowness, night vision into invisibility. The pufferfish isn't in the
+// game: raw salmon stays its stand-in (water breathing). The Round 11
+// stand-ins (no fuel; a golden apple, an ender pearl, a slimeball, a lumen
+// crystal; straight from a water bottle) are gone: an old save's stand-in
+// potions are ordinary potions, and an old stand's ingredient stays in its
+// slot (it brews nothing) until taken out.
 //
 // Brewing stands work like the furnaces (js/furnace.js): they tick at 20 a
 // second while their ground is loaded (online: on the host, which owns them,
@@ -26,7 +31,6 @@
 // player's own: the thrower's game flies it and says where it broke; every
 // game applies the splash to its own player, the host to the creatures.
 import * as THREE from "three";
-import { BLOCK } from "./blocks.js";
 import { itemInfo } from "./items.js";
 import { makeStack, encodeStack, decodeStack, sameStack } from "./inventory.js";
 import { itemModel } from "./models.js";
@@ -39,7 +43,8 @@ import { POTIONS, potionId, FERMENTED_SPIDER_EYE, GLISTERING_MELON_SLICE } from 
 import { isUndead } from "./enchant.js";
 import { EFFECTS } from "./survival.js";
 
-export const BREWING_SLOTS = 4; // three bottles, the ingredient
+export const BREWING_SLOTS = 5; // three bottles, the ingredient, the fuel
+export const BREWING_FUEL = 20; // brews from one blaze powder (vanilla)
 const TICK = 1 / 20;
 const MAX_TICKS = 20 * 60;
 export const BREW_TICKS = 400; // (vanilla: 20 s)
@@ -50,17 +55,29 @@ export const isBrewingStand = (id) => id === V.BREWING_STAND;
 
 // ---------- Recipes ----------
 
-// What each ingredient makes of a water bottle.
-const FROM_WATER = {
+// What each ingredient makes of an awkward potion (vanilla's; raw salmon
+// for the pufferfish).
+const FROM_AWKWARD = {
   [V.SUGAR]: "swiftness",
   [V.SPIDER_EYE]: "poison",
   [GLISTERING_MELON_SLICE]: "healing",
   [V.GOLDEN_CARROT]: "night_vision",
-  [FERMENTED_SPIDER_EYE]: "weakness",
-  [262]: "regeneration", // (the golden apple: ITEM.GOLDEN_APPLE)
-  [V.ENDER_PEARL]: "strength",
-  [V.SLIME_BALL]: "fire_resistance",
+  [V.GHAST_TEAR]: "regeneration",
+  [V.BLAZE_POWDER]: "strength",
+  [V.MAGMA_CREAM]: "fire_resistance",
   [V.SALMON]: "water_breathing",
+};
+// What a water bottle becomes (vanilla: the base potions).
+const FROM_WATER = {
+  [V.NETHER_WART]: V.AWKWARD_POTION,
+  [V.GLOWSTONE_DUST]: V.THICK_POTION,
+  [V.REDSTONE]: V.MUNDANE_POTION,
+  [V.SUGAR]: V.MUNDANE_POTION,
+  [GLISTERING_MELON_SLICE]: V.MUNDANE_POTION,
+  [V.SPIDER_EYE]: V.MUNDANE_POTION,
+  [V.GHAST_TEAR]: V.MUNDANE_POTION,
+  [V.BLAZE_POWDER]: V.MUNDANE_POTION,
+  [V.MAGMA_CREAM]: V.MUNDANE_POTION,
 };
 // The fermented spider eye's corruptions: [from key, from kind, to key, to kind].
 const CORRUPT = [
@@ -78,13 +95,15 @@ const CORRUPT = [
 const BREW = new Map(); // "potion,ingredient" -> result id
 {
   const put = (from, ing, to) => from && to && BREW.set(`${from},${ing}`, to);
-  for (const [ing, key] of Object.entries(FROM_WATER)) put(V.POTION, Number(ing), potionId(key));
+  for (const [ing, to] of Object.entries(FROM_WATER)) put(V.POTION, Number(ing), to);
+  put(V.POTION, FERMENTED_SPIDER_EYE, potionId("weakness"));
+  for (const [ing, key] of Object.entries(FROM_AWKWARD)) put(V.AWKWARD_POTION, Number(ing), potionId(key));
   for (const p of POTIONS) {
     for (const splash of [false, true]) {
       const from = splash ? p.splash : p.id;
       if (p.kind === "base") {
         put(from, V.REDSTONE, potionId(p.key, "long", splash));
-        put(from, BLOCK.LUMEN, potionId(p.key, "strong", splash));
+        put(from, V.GLOWSTONE_DUST, potionId(p.key, "strong", splash));
       }
       if (!splash) put(from, V.GUNPOWDER, p.splash);
     }
@@ -101,12 +120,14 @@ export function brewResult(id, ingredient) {
   return BREW.get(`${id},${ingredient}`) || 0;
 }
 export const isIngredient = (id) => INGREDIENTS.has(id);
-const BOTTLES = new Set([V.GLASS_BOTTLE, V.POTION, ...POTIONS.flatMap((p) => [p.id, p.splash])]);
+const BOTTLES = new Set([V.GLASS_BOTTLE, V.POTION, V.AWKWARD_POTION, V.MUNDANE_POTION, V.THICK_POTION, ...POTIONS.flatMap((p) => [p.id, p.splash])]);
 export const isBottle = (id) => BOTTLES.has(id);
+export const isBrewingFuel = (id) => id === V.BLAZE_POWDER;
 
 // Whether a stack of `id` may go in slot `i`.
 export function brewingAccepts(i, id) {
   if (i < 3) return isBottle(id);
+  if (i === 4) return isBrewingFuel(id);
   return i === 3 && isIngredient(id);
 }
 
@@ -147,7 +168,7 @@ export class BrewingStands {
   contents(x, y, z, dim = this.world.dim ?? OVERWORLD) {
     const key = this.keyOf(x, y, z, dim);
     let b = this.store.get(key);
-    if (!b) this.store.set(key, (b = { x, y, z, dim, key, slots: new Array(BREWING_SLOTS).fill(null), brew: 0, ing: 0 }));
+    if (!b) this.store.set(key, (b = { x, y, z, dim, key, slots: new Array(BREWING_SLOTS).fill(null), brew: 0, ing: 0, fuel: 0 }));
     return b;
   }
 
@@ -167,13 +188,21 @@ export class BrewingStands {
 
   // One tick (vanilla's BrewingStandBlockEntity). True if a slot changed.
   _tick(b) {
+    let fueled = false;
+    // (out of fuel: a blaze powder from the fuel slot, 20 brews' worth)
+    if (b.fuel <= 0 && b.slots[4] && isBrewingFuel(b.slots[4].id)) {
+      b.fuel = BREWING_FUEL;
+      b.slots[4].count -= 1;
+      if (b.slots[4].count <= 0) b.slots[4] = null;
+      fueled = true;
+    }
     const can = BrewingStands.canBrew(b);
     if (b.brew > 0) {
       if (!can || b.slots[3].id !== b.ing) {
         b.brew = 0;
-        return false;
+        return fueled;
       }
-      if (--b.brew > 0) return false;
+      if (--b.brew > 0) return fueled;
       const ing = b.slots[3];
       for (let i = 0; i < 3; i++) {
         const s = b.slots[i];
@@ -185,19 +214,24 @@ export class BrewingStands {
       this.onBrewed?.(b.x, b.y, b.z);
       return true;
     }
-    if (can) {
+    if (can && b.fuel > 0) {
+      b.fuel -= 1;
       b.brew = BREW_TICKS;
       b.ing = b.slots[3].id;
     }
-    return false;
+    return fueled;
   }
 
+  // (nothing to brew, or nothing to brew it with)
   static idle(b) {
-    return b.brew <= 0 && !BrewingStands.canBrew(b);
+    if (b.brew > 0) return false;
+    // (a blaze powder goes in as fuel at once, as vanilla's)
+    if (b.fuel <= 0 && b.slots[4] && isBrewingFuel(b.slots[4].id)) return false;
+    return b.fuel <= 0 || !BrewingStands.canBrew(b);
   }
 
   static empty(b) {
-    return b.slots.every((s) => !s) && b.brew <= 0;
+    return b.slots.every((s) => !s) && b.brew <= 0 && !(b.fuel > 0);
   }
 
   _blockAt(b) {
@@ -355,12 +389,15 @@ export class BrewingStands {
   }
 
   _bars(b, bars) {
-    if (b && Array.isArray(bars) && Number.isInteger(bars[0]) && bars[0] >= 0 && bars[0] <= BREW_TICKS) b.brew = bars[0];
+    if (!b || !Array.isArray(bars)) return;
+    if (Number.isInteger(bars[0]) && bars[0] >= 0 && bars[0] <= BREW_TICKS) b.brew = bars[0];
+    if (Number.isInteger(bars[1]) && bars[1] >= 0 && bars[1] <= BREWING_FUEL) b.fuel = bars[1];
   }
 
+  // [brew ticks left, fuel left] (online: the stand's bars).
   bars(key) {
     const b = this.store.get(key);
-    return b ? [b.brew] : null;
+    return b ? [b.brew, b.fuel | 0] : null;
   }
 
   // ---------- Stands going ----------
@@ -396,14 +433,14 @@ export class BrewingStands {
 
   // ---------- Save ----------
 
-  // { "x,y,z": [[slots], brew] } for the stands that hold something.
+  // { "x,y,z": [[slots], brew, fuel] } for the stands that hold something.
   serialize() {
     if (!this.authority || !this.store.size) return undefined;
     const out = {};
     let any = false;
     for (const b of this.store.values()) {
       if (BrewingStands.empty(b)) continue;
-      out[b.key] = [b.slots.map(encodeStack), b.brew];
+      out[b.key] = [b.slots.map(encodeStack), b.brew, b.fuel | 0];
       any = true;
     }
     return any ? out : undefined;
@@ -418,9 +455,11 @@ export class BrewingStands {
       const b = this.contents(x, y, z, dim);
       for (let i = 0; i < BREWING_SLOTS; i++) {
         const s = decodeStack(e[0][i]);
-        b.slots[i] = s && brewingAccepts(i, s.id) ? s : null;
+        // (an older stand's ingredient that brews nothing now stays, to be taken out)
+        b.slots[i] = s && (brewingAccepts(i, s.id) || i === 3) ? s : null;
       }
       b.brew = Number.isInteger(e[1]) && e[1] > 0 && e[1] <= BREW_TICKS ? e[1] : 0;
+      b.fuel = Number.isInteger(e[2]) && e[2] > 0 && e[2] <= BREWING_FUEL ? e[2] : 0;
       b.ing = b.slots[3]?.id ?? 0;
     }
   }

@@ -466,7 +466,7 @@ export function anvilResult(left, right, name = "", creative = false) {
 // ---------- What enchantments do (asked by the game's systems) ----------
 
 // Undead and arthropods (Smite, Bane of Arthropods).
-const UNDEAD = new Set(["zombie", "skeleton", "husk", "drowned", "stray", "zombie_villager", "wither_skeleton", "phantom"]);
+const UNDEAD = new Set(["zombie", "skeleton", "husk", "drowned", "stray", "zombie_villager", "wither_skeleton", "phantom", "zombified_piglin", "zoglin"]);
 const ARTHROPODS = new Set(["spider", "cave_spider", "silverfish", "endermite", "bee"]);
 export const isUndead = (kind) => UNDEAD.has(kind);
 

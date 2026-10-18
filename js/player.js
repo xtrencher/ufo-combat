@@ -56,7 +56,7 @@ const SPRINT_JUMP_BOOST = 2.6;
 const AIR_DRAG = 1.886; // 1/s (0.91 a tick)
 // Creature attacks scaled by difficulty (settings menu).
 // (Round 9: a skeleton's blow up close has its own death message; Round 11: the vanilla mobs.)
-const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider", "creeper", "enderman", "slime", "witch", "cave_spider", "husk", "drowned", "stray", "zombie_villager", "iron_golem", "wolf"]);
+const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider", "creeper", "enderman", "slime", "witch", "cave_spider", "husk", "drowned", "stray", "zombie_villager", "iron_golem", "wolf", "ghast", "blaze", "zombified_piglin", "piglin", "hoglin", "zoglin", "magma_cube", "wither_skeleton", "endermite", "silverfish", "shulker"]); // (Round 12: the Nether's and the End's)
 
 const CAMERA_PROBE = [[0, 0, 0], [0.12, 0.12, 0.12], [-0.12, 0.12, -0.12], [0.12, -0.12, -0.12], [-0.12, -0.12, 0.12]];
 
@@ -494,6 +494,13 @@ export class Player {
         if (e.acc >= every - TICK_EPS) {
           e.acc -= every;
           if (this.health > 1) this.damage(1, "poison");
+        }
+      } else if (e.effect === "wither") {
+        // (Round 12: a half-heart every 40 ticks at I, 20 at II...; unlike poison it can kill)
+        const every = Math.max(0.05, 2 / (1 << (L - 1)));
+        if (e.acc >= every - TICK_EPS) {
+          e.acc -= every;
+          this.damage(1, "wither");
         }
       } else if (e.effect === "hunger") this.addExhaustion(0.1 * L * dt);
       else e.acc = 0;
@@ -943,6 +950,11 @@ export class Player {
       if (space) vy += 1;
       if (shift) vy -= 1;
       this.velocity.y = vy * speed;
+    } else if (this.effectLevel("levitation") > 0) {
+      // (Round 12) Levitation: up 0.9 blocks a second a level, no gravity (vanilla's); the fall counts from where it ends.
+      const up = 0.9 * this.effectLevel("levitation");
+      this.velocity.y += (up - this.velocity.y) * Math.min(1, dt * 4);
+      this._airborneMaxY = null;
     } else if (this.inWater) {
       this.velocity.y = Math.max(this.velocity.y + WATER_GRAVITY * dt, WATER_MAX_SINK);
       if (space) this.velocity.y = Math.min(this.velocity.y + 28 * dt, 3.6);

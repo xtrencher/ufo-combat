@@ -9,6 +9,10 @@
 // hopper with tall ears), the Mossback (a slow tortoise whose shell grows moss
 // and flowers, and who hides inside it when hurt) and the Zombie (a hunched,
 // pallid shambler in torn maroon rags with glowing amber eyes).
+// (Round 12) The Nether's and the End's creatures, in vanilla's shapes: the
+// ghast, the blaze, the magma cube, the piglins, the hoglin and zoglin, the
+// wither skeleton, the strider, the endermite, the silverfish, the shulker,
+// and the fireballs and bullets they shoot.
 import * as THREE from "three";
 import { createEntityMaterial } from "./shaders.js";
 
@@ -1863,9 +1867,9 @@ const BLAZE = {
     ...Array.from({ length: BLAZE_RODS }, (_, i) => ({ name: `rod${i}`, size: [2, 8, 2], pivot: [0, 12, 0], from: [-1, -4, -1] })),
   ],
   paint(s) {
-    const gold = hex(0xf2c43a);
-    const deep = hex(0xc87a16);
-    const ember = hex(0xffe58a);
+    const gold = hex(0xd99a24);
+    const deep = hex(0x9a5410);
+    const ember = hex(0xeec24a);
     s.part("head", (f, x, y, w, h) => {
       let c = grain(mix(gold, deep, hash(x >> 1, y >> 1, 321) * 0.55), x, y, 322, 0.12);
       if (f === "top") c = grain(mix(gold, ember, 0.4), x, y, 323, 0.12);
@@ -1910,18 +1914,20 @@ const MAGMA = {
     { name: "core", size: [4, 4, 4], pivot: [0, 2, 0], from: [-2, 0, -2], parent: "l2", rigid: true },
   ],
   paint(s) {
-    const crust = hex(0x3a0d0a);
-    const crust2 = hex(0x5a1810);
-    const lava = hex(0xff7a1e);
-    const hot = hex(0xffc444);
+    const crust = hex(0x340b09);
+    const crust2 = hex(0x58170e);
+    const lava = hex(0xe8541a);
+    const hot = hex(0xffb030);
     for (let i = 0; i < 8; i++) {
       s.part(`l${i}`, (f, x, y, w, h) => {
-        let c = grain(mix(crust, crust2, hash(x >> 1, i, 351) * 0.7), x, y, 352 + i, 0.12);
-        // Glowing seams in the crust.
-        if ((f === "top" || f === "bottom") && hash(x >> 1, y >> 1, 360 + i) > 0.72) c = grain(lava, x, y, 361, 0.15);
-        else if (f !== "top" && f !== "bottom" && hash(x >> 1, i, 370) > 0.66) c = grain(mix(lava, hot, hash(x, i, 371)), x, y, 372, 0.1);
-        if (f === "front" && i === 5 && ((x >= 2 && x < 5) || (x >= 11 && x < 14))) c = hot; // eyes
-        if (f === "front" && i === 4 && ((x >= 3 && x < 5) || (x >= 11 && x < 13))) c = lava;
+        let c = grain(mix(crust, crust2, hash(x >> 1, (y >> 1) + i, 351) * 0.8), x, y, 352 + i, 0.14);
+        // Thin glowing cracks in the dark crust.
+        if (f === "top" || f === "bottom") {
+          if ((x + 3 * i) % 7 === 0 || (y + 2 * i) % 9 === 0) c = grain(hash(x, y, 361) > 0.5 ? lava : hot, x, y, 362, 0.15);
+        } else if (hash(x >> 1, i, 370) > 0.78 && y === 0) c = grain(lava, x, y, 372, 0.12);
+        else if (hash(x >> 1, i, 373) > 0.9) c = grain(mix(lava, hot, 0.4), x, y, 374, 0.1);
+        if (f === "front" && i === 5 && ((x >= 3 && x < 6) || (x >= 10 && x < 13))) c = hex(0xffd23c); // eyes
+        if (f === "front" && i === 4 && ((x >= 3 && x < 6) || (x >= 10 && x < 13))) c = hex(0xc0280e);
         return c;
       });
     }
@@ -1969,12 +1975,12 @@ function paintPiglin(s, zombified) {
   const skinB = zombified ? hex(0x8fa06a) : hex(0xc98572);
   const rot = hex(0x6f8a4e);
   const bone = hex(0xe2dccb);
-  const leather = hex(0x5b3a1e);
-  const leatherDark = hex(0x3d2614);
+  const leather = hex(0x7a5030);
+  const leatherDark = hex(0x4e3018);
   const gold = hex(0xf2c842);
   const flesh = (x, y, seed) => {
     let c = grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * (zombified ? 0.25 : 0.4)), x, y, seed + 1, 0.1);
-    if (zombified && hash(x >> 2, y >> 2, seed + 2) > 0.62) c = grain(rot, x, y, seed + 3, 0.15); // rot
+    if (zombified && hash(x >> 2, y >> 2, seed + 2) > 0.72) c = grain(rot, x, y, seed + 3, 0.15); // rot
     else if (hash(x, y, seed + 4) > 0.95) c = shade(c, 0.82); // bristles
     return c;
   };
@@ -2072,9 +2078,9 @@ const HOGLIN = {
   parts: [
     { name: "body", size: [16, 13, 24], pivot: [0, 10, 0], from: [-8, 0, -12] },
     { name: "mane", size: [1, 5, 18], pivot: [0, 23, 0], from: [-0.5, 0, -10], parent: "body", rigid: true },
-    { name: "head", size: [14, 7, 16], pivot: [0, 17, 11], from: [-7, -4, 0], parent: "body" },
-    { name: "tuskL", size: [2, 8, 2], pivot: [0, 17, 11], from: [-7.5, -2, 12], parent: "head", rigid: true },
-    { name: "tuskR", size: [2, 8, 2], pivot: [0, 17, 11], from: [5.5, -2, 12], parent: "head", rigid: true },
+    { name: "head", size: [14, 7, 14], pivot: [0, 17, 11], from: [-7, -4, 0], parent: "body" },
+    { name: "tuskL", size: [2, 10, 2], pivot: [0, 17, 11], from: [-7.5, -3, 10], parent: "head", rigid: true },
+    { name: "tuskR", size: [2, 10, 2], pivot: [0, 17, 11], from: [5.5, -3, 10], parent: "head", rigid: true },
     { name: "earL", size: [6, 1, 4], pivot: [0, 17, 11], from: [-12, 2, 2], parent: "head", rigid: true },
     { name: "earR", size: [6, 1, 4], pivot: [0, 17, 11], from: [6, 2, 2], parent: "head", rigid: true },
     { name: "legFL", size: [6, 11, 6], pivot: [-4.5, 11, 8], from: [-3, -11, -3] },
@@ -2084,14 +2090,14 @@ const HOGLIN = {
   ],
   paint(s, v = 0) {
     const zog = v === 1;
-    const hideA = zog ? hex(0xb88a86) : hex(0xc48a6a);
-    const hideB = zog ? hex(0x7f9466) : hex(0x9a6248);
+    const hideA = zog ? hex(0xc49890) : hex(0xd49c7a);
+    const hideB = zog ? hex(0x8a9c70) : hex(0xa8705a);
     const maneC = zog ? hex(0x5d6a48) : hex(0x5e3a26);
     const bone = hex(0xe8e0cc);
     const hide = (x, y, seed) => {
       let c = grain(mix(hideA, hideB, hash(x >> 1, y >> 1, seed) * 0.55), x, y, seed + 1, 0.12);
       if (hash(x, y >> 1, seed + 2) > 0.9) c = shade(c, 0.78); // bristles
-      if (zog && hash(x >> 2, y >> 2, seed + 3) > 0.8) c = grain(bone, x, y, seed + 4, 0.08);
+      if (zog && hash(x >> 2, y >> 2, seed + 3) > 0.86) c = grain(bone, x, y, seed + 4, 0.08);
       return c;
     };
     s.part("body", (f, x, y, w, h) => {
@@ -2109,9 +2115,9 @@ const HOGLIN = {
       }
       if ((f === "left" || f === "right") && y >= 3 && y < 5) {
         const d = fromFront(f, x, w);
-        if (d >= 18 && d < 21) c = zog ? [200, 60, 50] : [26, 18, 16]; // eyes
+        if (d >= 16 && d < 19) c = zog ? [200, 60, 50] : [26, 18, 16]; // eyes
       }
-      if (zog && f === "top" && hash(x >> 1, y >> 1, 437) > 0.55) c = grain(bone, x, y, 438, 0.08);
+      if (zog && f === "top" && hash(x >> 1, y >> 1, 437) > 0.78) c = grain(bone, x, y, 438, 0.08);
       return c;
     });
     for (const t of ["tuskL", "tuskR"]) s.part(t, (f, x, y, w, h) => (y < 3 ? hex(0xfaf2dc) : hex(0xe7dcbc)));
@@ -2126,7 +2132,7 @@ const HOGLIN = {
     p.legBL.rotation.x = -swing;
     // Head low; an attack heaves it up (the toss).
     const toss = st.attack < 1 ? Math.sin(st.attack * Math.PI) : 0;
-    p.head.rotation.x = 0.75 - toss * 1.1 - st.headPitch * 0.4;
+    p.head.rotation.x = 0.5 - toss * 0.9 - st.headPitch * 0.4;
     p.head.rotation.y = st.headYaw * 0.6;
     p.body.rotation.x = -toss * 0.08;
   },
@@ -2143,9 +2149,9 @@ const WITHER_SKELETON = {
     { name: "blade", size: [1, 1.5, 9], pivot: [4.5, 21.5, 0], from: [-0.5, -11.25, 3], parent: "armR", rigid: true },
   ],
   paint(s) {
-    const coal = hex(0x2b2b2d);
-    const coalLight = hex(0x434346);
-    const coalDark = hex(0x161617);
+    const coal = hex(0x353538);
+    const coalLight = hex(0x4f4f53);
+    const coalDark = hex(0x1a1a1b);
     const charred = (x, y, seed) => {
       let c = grain(mix(coal, coalLight, hash(x, y >> 1, seed) * 0.5), x, y, seed + 1, 0.12);
       if (hash(x, y >> 1, seed + 2) > 0.9) c = coalDark;
@@ -2242,9 +2248,9 @@ const STRIDER = {
     p.body.rotation.y = st.headYaw * 0.3;
     p.body.position.y = (13 - Math.abs(Math.sin(st.walkPhase)) * 1.2 * st.walk) * PX;
     // Bristles: upright and swaying when warm, drooping flat when cold.
-    for (const [k, hair] of [["hairF", 0.35], ["hairM", 0], ["hairB", -0.35]].entries()) {
-      const part = p[hair[0]];
-      part.rotation.x = cold ? hair[1] * 1.8 + (k - 1) * 0.6 : hair[1] + Math.sin(st.time * 3 + k) * 0.08;
+    for (const [k, [name, lean]] of [["hairF", 0.35], ["hairM", 0], ["hairB", -0.35]].entries()) {
+      const part = p[name];
+      part.rotation.x = cold ? (k === 1 ? 0.55 : Math.sign(lean) * 1.25) : lean + Math.sin(st.time * 3 + k) * 0.08;
     }
   },
 };
@@ -2317,9 +2323,9 @@ const SHULKER = {
     { name: "head", size: [6, 6, 6], pivot: [0, 6, 0], from: [-3, 0, -3] },
   ],
   paint(s) {
-    const shell = hex(0x8e5f98);
-    const shellDark = hex(0x6a4573);
-    const shellLight = hex(0xae80b6);
+    const shell = hex(0xa070a8);
+    const shellDark = hex(0x76507e);
+    const shellLight = hex(0xbf8fc5);
     const plated = (x, y, seed) => {
       let c = grain(mix(shell, shellLight, hash(x >> 2, y >> 2, seed) * 0.4), x, y, seed + 1, 0.06);
       if (x % 8 === 0 || y % 8 === 0) c = shade(c, 0.88);
@@ -2348,7 +2354,7 @@ const SHULKER = {
   animate(p, st) {
     const open = Math.max(0, Math.min(1, st.open ?? 0));
     p.lid.position.y = (4 + open * 8) * PX;
-    p.lid.rotation.y = open * Math.PI * 0.75;
+    p.lid.rotation.y = open * open * open * open * Math.PI * 0.125; // (vanilla's small twist as it opens)
     p.head.position.y = (4 + open * 4) * PX;
     p.head.rotation.y = st.headYaw;
     p.head.rotation.x = -st.headPitch * open;
@@ -2359,16 +2365,17 @@ const SHULKER = {
 // fireball (it can be hit back), the blaze's small one, the shulker's
 // homing bullet. Each spins as it flies.
 function fireballPaint(s, name, seed) {
-  const core = hex(0x3c0e04);
-  const flame = hex(0xff8a1c);
-  const hot = hex(0xffd85a);
+  const core = hex(0x3a1206);
+  const deep = hex(0x8a2208);
+  const flame = hex(0xff6a12);
+  const hot = hex(0xffc838);
   s.part(name, (f, x, y, w, h) => {
-    const cx = (x + 0.5) / w - 0.5;
-    const cy = (y + 0.5) / h - 0.5;
-    const r = Math.hypot(cx, cy);
+    // A dark, smouldering ball swirled with flame (vanilla's fire charge).
     const n = hash(x >> 1, y >> 1, seed);
-    if (r < 0.22 + n * 0.08) return grain(mix(core, hex(0x6e1e08), n), x, y, seed + 1, 0.2);
-    return grain(mix(flame, hot, hash(x, y, seed + 2) * (1 - r)), x, y, seed + 3, 0.15);
+    const swirl = Math.sin((x + y * 0.7) * 0.9 + n * 4);
+    if (swirl > 0.55 && n > 0.35) return grain(hot, x, y, seed + 1, 0.1);
+    if (swirl > -0.1 || n > 0.8) return grain(mix(flame, deep, hash(x, y, seed + 2) * 0.5), x, y, seed + 3, 0.12);
+    return grain(mix(core, deep, n * 0.6), x, y, seed + 4, 0.15);
   });
 }
 const GHAST_FIREBALL = {

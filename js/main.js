@@ -712,7 +712,7 @@ player.damageFilter = (amount, cause, from) => {
 };
 // Thorns on the armor worn: a creature's blow (from: where it stands) may
 // cost it 1-4 damage; the piece wears 2 more.
-const THORNS_CAUSES = new Set(["zombie", "skeleton_melee", "spider", "enderman", "slime", "iron_golem", "wolf", "husk", "drowned", "cave_spider", "zombie_villager"]);
+const THORNS_CAUSES = new Set(["zombie", "skeleton_melee", "spider", "enderman", "slime", "iron_golem", "wolf", "husk", "drowned", "cave_spider", "zombie_villager", "zombified_piglin", "piglin", "hoglin", "zoglin", "blaze", "magma_cube", "wither_skeleton", "endermite", "silverfish"]); // (Round 12)
 function thorns(cause, from) {
   if (!from || !THORNS_CAUSES.has(cause) || !armorLevel(inventory.armor, "thorns")) return;
   const dmg = thornsDamage(inventory.armor, Math.random, (i, n) => {
@@ -2092,7 +2092,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
 };
 // (A Survival world's creeper and TNT hurt as vanilla's, by their power;
 // the mod weapons keep the grenade curve below.)
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5 }; // (Round 12: a bed in the Nether or the End)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5, ghast: 1 }; // (Round 12: a bed in the Nether or the End, a ghast's fireball)
 // What a blast does to this player on foot: damage close in, and a shove.
 function hurtByBlast(center, radius, source) {
   // (Seated, the blast already hit the vehicle: Player.damage would hand it

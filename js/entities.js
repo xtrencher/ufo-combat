@@ -398,6 +398,7 @@ export class Throwables {
         const d = mob ? mob.distance : block.distance;
         const at = t.pos.clone().addScaledVector(dir, Math.max(0, d - 0.05));
         this._land(t, at, mob ? null : block);
+        if (mob && t.kind === "snowball") this.mobs?.snowballHit?.(mob.mob, dir); // (Round 12: a blaze takes 3)
         this.scene.remove(t.mesh);
         this.list.splice(i, 1);
         continue;
@@ -448,6 +449,7 @@ export class Throwables {
     const fz = Math.floor(z);
     let fy = Math.floor(y);
     for (let k = 0; k < 3 && (IS_SOLID[this.world.getBlock(fx, fy, fz)] || IS_SOLID[this.world.getBlock(fx, fy + 1, fz)]); k++) fy++;
+    LIB.pearlLanded?.(p.position.x, p.position.y, p.position.z); // (Round 12: one time in twenty an endermite, mobs.js)
     p.position.set(x, Math.max(y, fy), z);
     p.velocity?.set(0, 0, 0);
     p.resetFall?.();

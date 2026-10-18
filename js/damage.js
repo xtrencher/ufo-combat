@@ -98,6 +98,21 @@ export const DEATH_MESSAGES = {
   iron_golem: "Crushed by an iron golem",
   wolf: "Mauled by a wolf",
   arrow: "Shot by an arrow",
+  // (Round 12) The Nether's and the End's (vanilla's wording).
+  ghast: "Was fireballed by a ghast",
+  ghast_fall: "Blown off your feet by a ghast's fireball",
+  fireball: "Was fireballed",
+  blaze: "Was fireballed by a blaze",
+  zombified_piglin: "Was slain by a zombified piglin",
+  piglin: "Was slain by a piglin",
+  hoglin: "Was slain by a hoglin",
+  zoglin: "Was slain by a zoglin",
+  magma_cube: "Was slain by a magma cube",
+  wither_skeleton: "Was slain by a wither skeleton",
+  wither: "Withered away",
+  endermite: "Was slain by an endermite",
+  silverfish: "Was slain by a silverfish",
+  shulker: "Was shot by a shulker",
   lightning: "Was struck by lightning",
   // Your own weapons.
   grenade: "Blown up by your own grenade",
@@ -178,4 +193,4 @@ export function pilotCause(vehicleType, cause) {
 // armor" sources: falls, drowning, the void, hunger, burning (after leaving
 // the fire), suffocation and magic (a witch's potions too). They cost no
 // hunger either (player.js).
-export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch"]);
+export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch", "wither"]);

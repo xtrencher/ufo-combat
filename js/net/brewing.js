@@ -4,7 +4,8 @@
 // change of slots with what each held before ("brop"), applied by the host
 // only if the stand still holds that; the host answers ("brres") and passes
 // the new slots to everyone else with it open ("brset"), the brew time when
-// it starts or stops ("brbar"). Closing tells the host ("brclose").
+// it starts or stops and (Round 12) the fuel left ("brbar": [brew, fuel]).
+// Closing tells the host ("brclose").
 // Thrown bottles: a player's throw is drawn by everyone ("pth": the bottle,
 // where and how fast), and where it broke is the thrower's word ("psp"):
 // each game applies the splash to its own player, the host to its

@@ -77,7 +77,7 @@ export const DIMS = {
     heightfield: false,
     minView: 4,
     maxView: 8,
-    lightFloor: 0.3,
+    lightFloor: 0.62, // (Round 12: vanilla's Nether is lit dimly everywhere, its dark rock still read)
     lavaStep: 0.5, // (vanilla: 10 game ticks a step, the Overworld's 30)
     // (vanilla's Nether Wastes fog, #330808; no sun, moon, stars or clouds)
     sky: { zenith: [0.03, 0.0025, 0.0025], horizon: [0.04, 0.004, 0.003], ambSky: [0.07, 0.035, 0.03], ambGround: [0.05, 0.025, 0.02], stars: false, fog: "thick", exposure: 1.1 },
@@ -164,8 +164,8 @@ export function parseDimKey(key) {
 // The generator of a dimension's chunks (the same on the main thread and in
 // the workers). Each has generate(chunk) (chunk.blocks: 16-bit ids, index
 // y * 256 + z * 16 + x), heightAt(x, z) and biomeAt(x, z); the Overworld's
-// is today's terrain. The Nether's and the End's are js/dim-nether.js and
-// js/dim-end.js (stand-ins until their parts replace them).
+// is today's terrain. The Nether's is js/dim-nether.js (its biomes,
+// features and structures: js/nether-structures.js), the End's js/dim-end.js.
 const GENERATORS = {
   [OVERWORLD]: (seed, opts) => new TerrainGenerator(seed, opts),
   [NETHER]: (seed, opts) => new NetherGenerator(seed, opts),

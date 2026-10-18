@@ -183,6 +183,8 @@ export const EFFECTS = {
   invisibility: { name: "Invisibility", color: "#7f8392", icon: "eye" },
   strength: { name: "Strength", color: "#932423", icon: "sword" },
   weakness: { name: "Weakness", color: "#484d48", icon: "sword", bad: true },
+  wither: { name: "Wither", color: "#736156", icon: "heart", bad: true }, // (Round 12: a wither skeleton's blow; player.js)
+  levitation: { name: "Levitation", color: "#ceffff", icon: "arrow", bad: true }, // (Round 12: a shulker's bullet; player.js)
 };
 const EFFECT_ALIASES = { regen: "regeneration", heal: "instant_health", harm: "instant_damage", fire_res: "fire_resistance", haste: "speed", slow: "slowness" };
 
