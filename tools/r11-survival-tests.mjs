@@ -779,12 +779,15 @@ await check("lava burns (4 a hit, burning after it, water puts it out); a cactus
     t.set(x, y, z, t.BLOCK.AIR);
     t.set(x, y + 1, z, t.BLOCK.AIR);
     if (t.oldGrass !== undefined) S.BODY_FLAGS[t.BLOCK.TALL_GRASS] = t.oldGrass;
-    // A cactus next door, touched.
+    // A cactus next door (on sand, as it must stand), touched.
+    const under = g.world.getBlock(x + 1, y - 1, z);
+    t.set(x + 1, y - 1, z, t.BLOCK.SAND);
     t.set(x + 1, y, z, t.BLOCK.CACTUS);
     t.place(x + 1 - 0.31, y, z + 0.5);
     t.run(1.05);
     const cactus = p.health;
     t.set(x + 1, y, z, t.BLOCK.AIR);
+    t.set(x + 1, y - 1, z, under);
     // The eyes inside stone.
     t.place(x + 0.5, y, z + 0.5);
     t.set(x, y + 1, z, t.BLOCK.STONE);

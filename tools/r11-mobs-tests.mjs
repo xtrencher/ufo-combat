@@ -227,6 +227,11 @@ await check("a creeper near the player hisses, swells and bursts: blocks broken,
     const at = H.pad();
     g.sky.setHours(0);
     g.player.health = 20;
+    // (Vanilla's blast, power 3, takes about 24 from an unarmored player 2
+    // blocks off on Normal: iron armor, so the player lives for the next checks.)
+    const inv = g.inventory;
+    const worn = inv.armor.slice();
+    for (const id of [308, 309, 310, 311]) inv.armor[inv.constructor.armorSlotOf(id)] = { id, count: 1 };
     const M = g.mobs;
     const c = M.spawn("creeper", at.x + 2.5, at.y, at.z + 0.5);
     const solidBefore = (() => {
@@ -242,11 +247,14 @@ await check("a creeper near the player hisses, swells and bursts: blocks broken,
     }
     let solidAfter = 0;
     for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let dy = -3; dy <= 0; dy++) if (g.world.getBlock(at.x + dx, at.y + dy, at.z + dz)) solidAfter++;
-    return { gone: !M.mobs.includes(c), exploded: !!c.exploded, fused, blasts: g.effects.explosionCount - count0, source: g.effects.lastExplosion?.source, solidBefore, solidAfter, health: g.player.health };
+    const health = g.player.health;
+    worn.forEach((s, i) => (inv.armor[i] = s));
+    g.player.health = 20;
+    return { gone: !M.mobs.includes(c), exploded: !!c.exploded, fused, blasts: g.effects.explosionCount - count0, source: g.effects.lastExplosion?.source, solidBefore, solidAfter, health };
   });
   assert(r.fused > 1 && r.gone && r.exploded && r.blasts === 1 && r.source === "creeper", `the creeper burst: ${JSON.stringify(r)}`);
   assert(r.solidAfter < r.solidBefore - 4, `blocks broken: ${JSON.stringify(r)}`);
-  assert(r.health < 20 && r.health > 0, `the player hurt (not killed at 2 blocks): ${JSON.stringify(r)}`);
+  assert(r.health < 20 && r.health > 0, `the player hurt (in iron armor, not killed at 2 blocks): ${JSON.stringify(r)}`);
 });
 
 await check("a sheep can be shorn (wool drops) and its wool grows back eating grass", async () => {
@@ -724,6 +732,8 @@ async function online() {
       await vp(guest, (g) => {
         window.__ts?.close();
         g.player.health = 20;
+        // (Iron armor: vanilla's blast this close would kill an unarmored player.)
+        for (const id of [308, 309, 310, 311]) g.inventory.armor[g.inventory.constructor.armorSlotOf(id)] = { id, count: 1 };
         return true;
       });
       await vp(host, (g) => {
