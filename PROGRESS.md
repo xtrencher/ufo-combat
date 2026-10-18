@@ -2556,7 +2556,7 @@ Decisions:
 - [x] 11.B6 Mobs: creepers, endermen, slimes, witches, sheep (wool, shearing), vanilla drops, breeding, villager trading.
 - [x] 11.C Extras as far as they go: structures (dungeons, mineshafts, temples), enchanting, anvils, brewing, redstone basics, weather. Left out: the Nether (brewing uses stand-in ingredients: no fuel, no awkward potion; an iron ingot for the stand's blaze rod, a golden apple for the ghast tear, an ender pearl for blaze powder, js/brewing.js).
   - Vanilla staples not built yet (for the 11.D pass to choose from): boats, minecarts and rails, maps and item frames, the campfire, smoker and blast furnace, double chests (a chest is 27 slots).
-- [ ] 11.D A pass for bugs and un-Minecraft behaviour; every suite; the PR merged.
+- [x] 11.D A pass for bugs and un-Minecraft behaviour; every suite; the PR merged.
 
 ### Round 11 review (11.D)
 A review of waves A-C (40 confirmed findings plus the known gaps), fixed in five groups of disjoint files:
@@ -2565,3 +2565,9 @@ A review of waves A-C (40 confirmed findings plus the known gaps), fixed in five
 - **Mobs:** no hopping on slab/path/farmland floors; Java melee (each tool's damage and attack speed, the sweep, crit rules) in Survival; an iron golem respawns after 5-10 minutes, not 0.4 s; animals on snowy grass; villagers and golems persist with their trades (saved); tame wolves keyed by nickname (a guest who reconnects keeps them); undead burn 1 a second; no co-op health bonus in Survival; creeper and TNT blasts hurt creatures as vanilla's.
 - **World:** blast resistance (obsidian, enchanting tables, anvils, bedrock, liquids survive TNT and creepers in Survival); random ticks only where the neighbours are loaded; dungeon loot fixed when the spawner goes first; enchanted books in structure chests; badlands gold; vanilla infinite water; cactus rules; **cocoa pods** on jungle trees; redstone ore XP; leaf decay drops near a Creative host; flow cells shared online (a guest's bucket no longer takes flowing water for a source), late joiners included.
 - **Clock and the rest:** a 20-minute Survival day starting at 6:00; vanilla blast damage to the player; more flow cells saved; NET_VERSION 8 -> 9.
+
+### Round 11 test status (final code)
+- All green: `unit-tests.mjs` 73/73; `r11-engine16-tests.mjs` 9/9, `r11-modes-tests.mjs` 8/8, `r11-crafting-tests.mjs` 7/7, `r11-building-tests.mjs` 10/10, `r11-nature-tests.mjs` 17/17, `r11-items-tests.mjs` 12/12, `r11-survival-tests.mjs` 17/17, `r11-mobs-tests.mjs` 14/14, `r11-redstone-tests.mjs` 19/19, `r11-magic-tests.mjs` 11/11, `r11-world-tests.mjs` 11/11, `r11-decor-tests.mjs` 15/15, `r11-fixes-g1-tests.mjs` 12/12; `r10-*` all green (6/6, 6/6, 6/6, 8/8, 7/7, 17/17); `round9-tests.mjs` 19/19, `round6-tests.mjs` 19/19, `round5-tests.mjs` 11/11, `round4-tests.mjs` 14/14, `round3-tests.mjs` 10/10, `round2-tests.mjs` 38/38, `settings-tests.mjs` 7/7, `smoke-test.mjs` 67/67, `perf-tests.mjs` 5/5, `check-mob-models.mjs` OK, `chaos-tests.mjs` 0 problems.
+- Multiplayer: `mp-tests.mjs` 23/23, `mp-round9-tests.mjs` 8/8, `mp-damage-tests.mjs` 444/444 applicable cells.
+- `ufo-tests.mjs`: 34/35 in each full run on the software renderer, a different check each time (the full jet scenario, a UFO's counter-fire), each passing on its own and in another full run: timing on this slow machine, not a defect.
+- Test updates for Round 11's intended changes: a Missions world has no visible crafting UI (round2, smoke: the module exists now); cocoa's tiles in the nature budget; a cactus stands on sand; vanilla's creeper blast can kill an unarmored player 2 blocks off, so the creeper checks wear iron armor.
