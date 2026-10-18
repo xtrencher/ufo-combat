@@ -498,7 +498,17 @@ void main() {
   vec4 mvPosition = viewMatrix * worldPosition;
   gl_Position = projectionMatrix * mvPosition;
   vec3 transformedNormal = normalMatrix * objectNormal;
-  #include <shadowmap_vertex>
+  // (Round 12) Away from the open sky (a cave mouth, a room, under an
+  // overhang), the shadow lookup is moved a little more off the face: the
+  // shadow map only holds faces turned away from the sun, so where a wall
+  // meets a ceiling the lookup's filter reached past the ceiling's edge into
+  // the rock, where nothing is stored, and lit a thin line along the edge.
+  // Under the open sky (sky light 15) nothing changes.
+  vec4 litPosition = worldPosition;
+  {
+    vec4 worldPosition = litPosition + vec4(objectNormal * (0.12 * (1.0 - smoothstep(0.87, 1.0, aData.y / 255.0))), 0.0);
+    #include <shadowmap_vertex>
+  }
   vTexCoord = vec3(uv, flipbookLayer(aExtra.x + aExtra.w * 256.0, flags, aExtra.y)); // (the layer in two bytes)
   vFlow = (flags & 64) != 0 ? aExtra.y : 0.0;
   vWorldPos = worldPosition.xyz;
