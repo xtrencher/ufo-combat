@@ -283,6 +283,8 @@ export class TerrainGenerator {
       }
       // (a cave cutting into the surface: the player would start at the bottom of its shaft)
       if (this.isCarved(x, h, z) || this.isCarved(x, h - 1, z) || this.isCarved(x + 1, h, z) || this.isCarved(x - 1, h, z) || this.isCarved(x, h, z + 1) || this.isCarved(x, h, z - 1)) return false;
+      // (Round 12) nor on a Survival world's village house (on its roof)
+      if (this.options.vanilla && this.villages.pieceAt(x, z)) return false;
       return !this.trees.coversColumn(x, z);
     };
     for (let r = 0; r <= 240; r += 3) {
@@ -571,7 +573,7 @@ export class TerrainGenerator {
     if (h0 <= SEA_LEVEL + 2 || h0 >= WORLD_HEIGHT - 4 || isOceanBiome(b) || b === BIOME.RIVER || b === BIOME.BEACH || b === BIOME.SWAMP) return;
     const wx0 = cx * S + lx0;
     const wz0 = cz * S + lz0;
-    if (this.villages.nearestVillage(wx0, wz0, this.villages.reach + 12)) return;
+    if (this.villages.nearestVillage(wx0, wz0, this.villages.reach + 12) || this.structures.blocksTree(wx0, wz0, 9)) return;
     const rx = 2 + rand() * 1.6;
     const rz = 2 + rand() * 1.6;
     const cells = [];

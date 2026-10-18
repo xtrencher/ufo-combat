@@ -450,7 +450,8 @@ export class StructureGrower {
       const lo = Math.min(...hs);
       const hi = Math.max(...hs);
       const floor = hs.slice().sort((a, b) => a - b)[2];
-      if (hi - lo <= 6 && lo > SEA_LEVEL && floor + JT_LOW > LAVA_TOP + 2 && floor + JT_TOP < WORLD_HEIGHT) {
+      // (never where a village's streets run out into the jungle)
+      if (hi - lo <= 6 && lo > SEA_LEVEL && floor + JT_LOW > LAVA_TOP + 2 && floor + JT_TOP < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + (w >> 1), z0 + (d >> 1), tr.villages.reach + 20)) {
         t = { x0, z0, w, d, floor, rot, chests: [], cells: null };
         for (const [u, v, f] of JT_CHESTS) {
           const [x, z] = jungleWorld(t, u, v);
@@ -505,13 +506,12 @@ export class StructureGrower {
   }
 
   // (Round 12) Whether a tree may not grow at (wx, wz): on a temple or
-  // close beside it (a giant's trunk would stand in it).
-  blocksTree(wx, wz) {
-    const m = 4;
+  // close beside it (a giant's trunk would stand in it), within `m`.
+  blocksTree(wx, wz, m = 4) {
     for (const t of this._jungleTemplesNear(wx - m, wz - m, wx + m, wz + m)) {
       if (wx >= t.x0 - m && wx < t.x0 + t.w + m && wz >= t.z0 - m && wz < t.z0 + t.d + m) return true;
     }
-    return false;
+    return this._templesNear(wx - m, wz - m, wx + m, wz + m).length > 0;
   }
 
   // ---------- Desert wells ----------
@@ -523,6 +523,10 @@ export class StructureGrower {
     const lz = 3 + Math.floor(hash2((this.seed ^ WELL_SALT ^ 0x93) >>> 0, cx, cz) * 10);
     const y = hAt(lx, lz);
     if (biomeAt(lx, lz) !== BIOME.DESERT || y + 5 >= WORLD_HEIGHT || y <= SEA_LEVEL + 1 || blocks[idx(lx, y, lz)] !== BLOCK.SAND) return;
+    // (Round 12) never in a village or a temple
+    const wx = cx * S + lx;
+    const wz = cz * S + lz;
+    if (this.terrain.villages.nearestVillage(wx, wz, this.terrain.villages.reach + 4) || this._templesNear(wx - 3, wz - 3, wx + 3, wz + 3).length) return;
     for (let dx = -2; dx <= 2; dx++) {
       for (let dz = -2; dz <= 2; dz++) if (!IS_SOLID[blocks[idx(lx + dx, y - 1, lz + dz)]] && !IS_SOLID[blocks[idx(lx + dx, y - 2, lz + dz)]]) return;
     }

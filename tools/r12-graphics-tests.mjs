@@ -276,7 +276,12 @@ async function browserChecks() {
   const browserCheck = async (name, fn) => {
     const before = errors.length;
     await check(name, async () => {
-      await fn();
+      try {
+        await fn();
+      } catch (err) {
+        if (errors.length > before) err.message += ` (console errors: ${errors.slice(before, before + 3).join(" | ")})`;
+        throw err;
+      }
       if (errors.length > before) throw new Error(`console errors: ${errors.slice(before, before + 3).join(" | ")}`);
     });
   };

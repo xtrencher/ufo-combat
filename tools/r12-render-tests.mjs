@@ -250,17 +250,17 @@ async function browserChecks() {
     // second page: a fire frame, orange on black).
     const sample = async () => {
       await frames(4);
-      return v((g) => g.samplePixels([[0.5, 0.42]])[0]);
+      return v((g) => g.samplePixels([[0.5, 0.5]])[0]);
     };
-    await v((g, a) => g.world.setBlocks([a.x0, a.y + 1, a.z0 + 2, 4095, a.x0 + 1, a.y, a.z0 + 3, 17]), room);
+    await v((g, a) => g.world.setBlocks([a.x0, a.y + 2, a.z0 + 2, 4095, a.x0 + 1, a.y, a.z0 + 3, 17]), room);
     const before = await sample();
     await shot("page1");
     const layer = await v(async (g, a) => {
       const B = await import("/js/blocks.js");
       const l = B.TILE_NAMES.length + 3;
       for (let f = 0; f < 6; f++) B.FACE_TILES[4095 * 6 + f] = l;
-      g.world.setBlocks([a.x0, a.y + 1, a.z0 + 2, 0]);
-      g.world.setBlocks([a.x0, a.y + 1, a.z0 + 2, 4095]);
+      g.world.setBlocks([a.x0, a.y + 2, a.z0 + 2, 0]);
+      g.world.setBlocks([a.x0, a.y + 2, a.z0 + 2, 4095]);
       return l;
     }, room);
     const after = await sample();
@@ -268,7 +268,7 @@ async function browserChecks() {
     await v(async (g, a) => {
       const B = await import("/js/blocks.js");
       for (let f = 0; f < 6; f++) B.FACE_TILES[4095 * 6 + f] = B.TILE.debug;
-      g.world.setBlocks([a.x0, a.y + 1, a.z0 + 2, 0, a.x0 + 1, a.y, a.z0 + 3, 0]);
+      g.world.setBlocks([a.x0, a.y + 2, a.z0 + 2, 0, a.x0 + 1, a.y, a.z0 + 3, 0]);
     }, room);
     console.log(`        debug tile ${JSON.stringify(before)}, layer ${layer} ${JSON.stringify(after)}`);
     assert(layer >= 256, "the layer is on the second page");
@@ -286,29 +286,37 @@ async function browserChecks() {
       g.world.setBlocks(e);
       g.player.pitch = -0.35;
     }, room);
-    await frames(6);
-    const pts = [[0.5, 0.62], [0.42, 0.6], [0.58, 0.6], [0.5, 0.35], [0.4, 0.33], [0.6, 0.33]];
-    const meshes = await v((g) => g.world.stats.meshes);
-    const a = await v((g, p) => g.samplePixels(p), pts);
-    await shot("anim-a");
-    const b = await v((g, p) => {
-      g.uniforms.uTime.value += 0.73;
-      return g.samplePixels(p);
-    }, pts);
-    await shot("anim-b");
-    const meshes2 = await v((g) => g.world.stats.meshes);
-    const diff = (i) => Math.abs(a[i][0] - b[i][0]) + Math.abs(a[i][1] - b[i][1]) + Math.abs(a[i][2] - b[i][2]);
-    console.log(`        fire ${[0, 1, 2].map(diff)}, lava ${[3, 4, 5].map(diff)}`);
-    assert([0, 1, 2].some((i) => diff(i) > 20), "the fire didn't change");
-    assert([3, 4, 5].some((i) => diff(i) > 6), "the lava didn't change");
-    assert(meshes2 === meshes, "it remeshed");
-    await v((g, a) => {
-      const e = [];
-      for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 + 2, 0);
-      for (let dx = -3; dx <= 3; dx++) for (let dz = -2; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, 3);
-      g.world.setBlocks(e);
-      g.player.pitch = 0.1;
-    }, room);
+    try {
+      await frames(6);
+      const pts = [[0.5, 0.62], [0.42, 0.6], [0.58, 0.6], [0.5, 0.35], [0.4, 0.33], [0.6, 0.33]];
+      const meshes = await v((g) => g.world.stats.meshes);
+      const a = await v((g, p) => g.samplePixels(p), pts);
+      await shot("anim-a");
+      // (fire: a frame every 0.05 s; still lava churns slowly: two seconds on)
+      const b = await v((g, p) => {
+        g.uniforms.uTime.value += 0.73;
+        return g.samplePixels(p);
+      }, pts);
+      const c = await v((g, p) => {
+        g.uniforms.uTime.value += 1.5;
+        return g.samplePixels(p);
+      }, pts);
+      await shot("anim-b");
+      const meshes2 = await v((g) => g.world.stats.meshes);
+      const diff = (x, y, i) => Math.abs(x[i][0] - y[i][0]) + Math.abs(x[i][1] - y[i][1]) + Math.abs(x[i][2] - y[i][2]);
+      console.log(`        fire ${[0, 1, 2].map((i) => diff(a, b, i))}, lava ${[3, 4, 5].map((i) => diff(a, c, i))}`);
+      assert([0, 1, 2].some((i) => diff(a, b, i) > 20), "the fire didn't change");
+      assert([3, 4, 5].some((i) => diff(a, c, i) > 12), "the lava didn't change");
+      assert(meshes2 === meshes, "it remeshed");
+    } finally {
+      await v((g, a) => {
+        const e = [];
+        for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 + 2, 0);
+        for (let dx = -3; dx <= 3; dx++) for (let dz = -2; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, 3);
+        g.world.setBlocks(e);
+        g.player.pitch = 0.1;
+      }, room);
+    }
   });
 
   await browserCheck("a closed cave room is as dark by day as by night (no sun, moon or sky haze on its rock); a torch lights it", async () => {

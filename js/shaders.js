@@ -601,7 +601,7 @@ vec2 flowUv(int face, float code, out float glow) {
     drift = vec2(0.0, -0.35);
   }
   vec2 warp = vec2(sin(p.y * 1.7 + t * 0.45) + 0.5 * sin(p.y * 3.9 + p.x * 1.3 - t * 0.7),
-                   sin(p.x * 1.9 - t * 0.4) + 0.5 * sin(p.x * 3.3 - p.y * 1.1 + t * 0.6)) * 0.035;
+                   sin(p.x * 1.9 - t * 0.4) + 0.5 * sin(p.x * 3.3 - p.y * 1.1 + t * 0.6)) * 0.045;
   glow = 0.92 + 0.1 * sin(p.x * 0.9 + p.y * 0.7 + t * 0.8) * sin(p.x * 0.5 - p.y * 1.1 - t * 0.55);
   return p - drift * t + warp;
 }

@@ -392,6 +392,15 @@ export class VillageGrower {
     return false;
   }
 
+  // (Round 12) Whether a Survival world's village has a building, farm or
+  // pen on column (wx, wz) (or the ring round one).
+  pieceAt(wx, wz) {
+    for (const c of this._villagesNear(wx, wz, wx, wz)) {
+      if (c.style && Math.abs(wx - c.x) <= V_RADIUS && Math.abs(wz - c.z) <= V_RADIUS && this.layout(c).occAt(wx - c.x, wz - c.z) === 2) return true;
+    }
+    return false;
+  }
+
   // (Round 12) The loot table of a Survival world's village chest at
   // (x, y, z) ("village_plains_house", "village_weaponsmith", ...), or null.
   chestLoot(x, y, z) {
@@ -702,7 +711,9 @@ class VillagePlan {
         for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (Math.abs(x + dx) <= V_RADIUS && Math.abs(z + dz) <= V_RADIUS) clear[key2(x + dx, z + dz)] = 1;
       }
     }
-    const ops = this.shaping.concat(this.paths, this.blocks);
+    // (kept compact: a worker holds the plans of every village it has met)
+    const ops = Int16Array.from(this.shaping.concat(this.paths, this.blocks));
+    this.shaping = this.paths = this.blocks = this.heights = null;
     return {
       ops,
       houses: this.houses,
@@ -711,9 +722,10 @@ class VillagePlan {
       chests: this.chests,
       residents: this.residents,
       pens: this.pens,
-      streetCells: this.streetCells,
+      streetCells: Int16Array.from(this.streetCells),
       pieces: this.pieces.map((p) => ({ kind: p.kind, x: p.ox, z: p.oz, w: p.W, d: p.D, y: p.F })),
       clearAt: (x, z) => Math.abs(x) <= V_RADIUS && Math.abs(z) <= V_RADIUS && clear[key2(x, z)] === 1,
+      occAt: (x, z) => this.occAt(x, z),
     };
   }
 
