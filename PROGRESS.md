@@ -2543,6 +2543,7 @@ Decisions:
 - **Block ids widen to 16 bits** (one byte left no room: doors, stairs, slabs, crops and colours need several hundred ids). Ids 0-255 keep their meaning; items keep 256-1023; new blocks from 1024. Old saves and edits load unchanged.
 - **Content in modules** (blocks, items, recipes, textures, block and item "use" handlers by area), so several builders can work at once without editing the same files.
 - Missions worlds keep their balance: crafting, hunger and XP are Survival-world systems (Creative gets every new block and item in its palette in both).
+- **Day length (11.D):** a Survival world's day is vanilla's 20 minutes (`sky.js` `SURVIVAL_DAY_LENGTH` 1200 s, `dayLength()`); a Missions world's stays 10 minutes (600 s, the missions' timings are built on it). Saves write the day length and rescale the clock on load; weather durations are in vanilla ticks scaled to the day. A new Survival world starts at 6:00.
 
 ## Round 11 checklist
 - [x] 11.A1 16-bit block ids (storage, meshing in workers, light, saves, online edits, LOD) with old saves intact; content registries.

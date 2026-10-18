@@ -472,6 +472,12 @@ health comes back on its own, as always) or in **Creative**. Every new block
 and item is in the Creative palette in both world types; a Missions world's
 items, drops, bow and chests are unchanged.
 
+A Survival world's day is vanilla's **20 minutes** (a Missions world's stays
+10), and a new one starts at 6:00 in the morning.
+
+Not in this game (yet): the Nether, boats, minecarts and rails, maps and item
+frames, the campfire, smoker and blast furnace, double chests.
+
 ### Crafting and smelting
 
 (How the grid and the furnace screen work: see **Controls**.)
@@ -661,16 +667,15 @@ died; the rest is lost.
 
 ### Weather
 
-- **Rain** comes and goes as in vanilla: clear for 5 to 75 minutes, rain for
-  5 to 10 (this world's day is 10 minutes, half vanilla's, and the weather
-  keeps to its days). The sky turns grey and darker, the clouds close in, the
+- **Rain** comes and goes as in vanilla: clear for 10 minutes to 2.5 hours,
+  rain for 10 to 20 minutes (a Survival world's day is vanilla's 20 minutes). The sky turns grey and darker, the clouds close in, the
   haze thickens, and you hear it (muffled under a roof). Rain falls only
   where the sky is open: not under roofs or trees.
 - **Snow** falls instead in the snowy plains, the snowy taigas, the
   mountains and over the cold seas and rivers, and settles a layer on the
   ground; nothing falls in deserts, savannas or badlands. Still water in
   the cold freezes over from its shores (rain or not).
-- **Thunderstorms** (now and then while it rains, 1.5 to 6.5 minutes): an
+- **Thunderstorms** (now and then while it rains, 3 to 13 minutes): an
   even darker sky, and **lightning**, a bolt every 15 seconds or so near you
   where it rains. It strikes the ground or a creature or player within 3
   blocks of where it falls: 2.5 hearts and 8 seconds of burning to anything
