@@ -1,11 +1,13 @@
 // Menus around the game: the main menu (Round 8: Play with the mode and
 // "New world", Multiplayer, Settings; Mods and the key list are in
-// Settings) over a slow camera flyover of the world with a UFO
-// drifting across the sky, and the sub-screens shared by the main menu and
-// the pause menu (settings, mods, controls, stats). Opening a sub-screen
-// hides the menu it came from; Back (or Esc) returns to it.
+// Settings) over a slow camera flyover of the world (Round 12: with a UFO
+// drifting across the sky only for a Missions world), and the sub-screens
+// shared by the main menu and the pause menu (settings, mods, controls,
+// stats). Opening a sub-screen hides the menu it came from; Back (or Esc)
+// returns to it.
 import * as THREE from "three";
 import { createUfoModel, randomUfoSpec } from "./ufo-models.js";
+import { isVanilla } from "./worldtype.js";
 
 // The controls reference: [section, [[keys, action], ...]].
 export const CONTROLS = [
@@ -22,7 +24,7 @@ export const CONTROLS = [
     ["E", "Inventory (all items in Creative)"],
     ["Q", "Drop the held item (whole stack with Ctrl)"],
     ["Middle click", "Pick the targeted block (Creative)"],
-    ["F11 or Alt+Enter", "Fullscreen (or the corner button, top right, when the mouse is free). In Chromium browsers fullscreen also locks the keyboard, so Ctrl+W, Ctrl+R and the like reach the game; hold Esc to leave fullscreen then"],
+    ["F11 or Alt+Enter", "Fullscreen (or the Fullscreen button on the main and pause menus; Settings > Graphics > Fullscreen keeps it on). In Chrome and Edge fullscreen also locks the keyboard, so Ctrl+W, Ctrl+R and the like reach the game instead of closing or reloading the page; hold Esc to leave fullscreen then"],
   ]],
   ["Weapons (Mods on)", [
     ["Grenade", "Hold right click to charge, release to throw"],
@@ -161,12 +163,16 @@ export const MENU_TIPS = [
   "UFOs are mostly peaceful: they turn hostile if you shoot them or stare at them too long.",
   "Patrol fighters hunt UFOs and leave you alone, unless you shoot at one of them.",
   "Want plain Minecraft? The Survival card makes a Survival world: no UFOs, no missions, no mod weapons.",
+  "Multiplayer works in every mode: Multiplayer > Host a game, and pick Survival, Creative, Missions or Dogfight.",
+  "Settings > Graphics > Fullscreen: in fullscreen, Ctrl+W can't close the page while you sprint (Chrome and Edge).",
 ];
 export const SURVIVAL_TIPS = [
   "A Survival world is normal Minecraft: you start with nothing. Punch a tree for wood.",
   "Esc > Game mode switches a Survival world to Creative and back: it stays a Survival world.",
-  "The Missions card opens the UFO war: missions, loot, supply drops and vehicles, in a world of its own.",
+  "The Missions card is the mods add-on: the UFO war, with missions, loot, supply drops and vehicles, in a world of its own.",
   "Creatures come out at night: build a shelter before the first dusk.",
+  "Multiplayer works in every mode: Multiplayer > Host a game, and friends join with the room code.",
+  "Settings > Graphics > Fullscreen: in fullscreen, Ctrl+W can't close the page while you sprint (Chrome and Edge).",
 ];
 
 // The main menu's frame rate readout and its low-FPS advice: a live counter,
@@ -265,13 +271,17 @@ export class MenuPerf {
 // high over the start of the world, looking out over the land, while a UFO
 // (a different one each time: saucers, spheres, all sorts) crosses the sky.
 // It can be shot: click it (a few hits and it blows up, then the next one
-// comes by sooner).
+// comes by sooner). (Round 12) The UFOs only for a Missions world (the menu
+// shows Survival and Creative as plain Minecraft): setUfos, as the menu's
+// cards change; switched on, one flies in, switched off, it climbs away.
 export class MenuFlyover {
-  constructor(scene, world, { effects = null, audio = null } = {}) {
+  constructor(scene, world, { effects = null, audio = null, ufos = !isVanilla() } = {}) {
     this.world = world;
     this.scene = scene;
     this.effects = effects;
     this.audio = audio;
+    this.ufos = !!ufos;
+    this._leaving = 0; // > 0: seconds the UFO in the sky has been flying off
     this.time = 0;
     this.center = new THREE.Vector3();
     this.ufo = null;
@@ -298,6 +308,22 @@ export class MenuFlyover {
 
   setCenter(v) {
     this.center.copy(v);
+  }
+
+  // (Round 12) UFOs over the menu, or none (a Survival world shown).
+  setUfos(on) {
+    on = !!on;
+    if (on === this.ufos) return;
+    this.ufos = on;
+    if (on) {
+      // (One flies in shortly; one still flying off comes back as the next pass.)
+      if (this._passT < 0) this._gap = Math.min(this._gap, 1.5);
+    } else if (this._passT >= 0 && this.ufoVisible) {
+      this._leaving = 1e-3;
+    } else {
+      this._passT = -1;
+      if (this.ufo) this.ufo.root.visible = false;
+    }
   }
 
   _groundAt(x, z) {
@@ -348,7 +374,7 @@ export class MenuFlyover {
 
     // A UFO crosses the view: a pass lasts ~22 s, with a few seconds between.
     const DUR = 22;
-    if (this._passT < 0) {
+    if (this._passT < 0 && this.ufos) {
       this._gap -= dt;
       if (this._gap <= 0) {
         this._newUfo();
@@ -366,17 +392,23 @@ export class MenuFlyover {
       this._boost = Math.max(0, this._boost - dt);
       this._flash = Math.max(0, this._flash - dt * 4);
       this._passT += dt * (1 + this._boost * 1.2);
+      // (Flying off: faster along its way, and up and out of the sky.)
+      if (this._leaving > 0) {
+        this._leaving += dt;
+        this._passT += dt * 1.5;
+      }
       const u = this._passT / DUR;
-      if (u > 1) {
+      if (u > 1 || this._leaving > 4) {
         this._passT = -1;
-        this._gap = 5 + Math.random() * 3;
+        this._gap = this._leaving > 0 && this.ufos ? 1.5 : 5 + Math.random() * 3;
+        this._leaving = 0;
         ufo.root.visible = false;
       } else {
         ufo.root.visible = !this.dead;
         // Slow in the middle (it pauses to "look"), faster at the ends.
         const s = u + Math.sin(u * Math.PI * 2) * -0.08;
         ufo.root.position.lerpVectors(this._from, this._to, s);
-        ufo.root.position.y += Math.sin(t * 1.3) * 1.2;
+        ufo.root.position.y += Math.sin(t * 1.3) * 1.2 + this._leaving * this._leaving * 7;
         ufo.body.rotation.z = Math.sin(t * 0.9) * 0.08 + this._boost * 0.25;
         ufo.body.rotation.y = t * 0.8;
         ufo.light.flash?.setRGB(this._flash * 0.9, this._flash * 0.25, 0);
@@ -386,7 +418,7 @@ export class MenuFlyover {
   }
 
   get ufoVisible() {
-    return !!this.ufo && this.ufo.root.visible && !this.dead;
+    return !!this.ufo && this.ufo.root.visible && !this.dead && this._leaving === 0;
   }
 
   // Whether a screen point (normalized device coordinates) is over the UFO.
@@ -405,7 +437,10 @@ export class MenuFlyover {
   }
 
   // Fire at a screen point. Returns { hit, killed } (or null when the shot missed).
+  // (Round 12) No UFOs over this menu: nothing to shoot at, not even a miss
+  // ({ hit: false }: no whiz past either).
   shoot(ndcX, ndcY) {
+    if (!this.ufos) return { hit: false, killed: false };
     const at = this._hit(ndcX, ndcY);
     if (!at) return null;
     const fx = this.effects;

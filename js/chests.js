@@ -13,6 +13,11 @@
 // shows the host's contents, and its clicks are asked of the host, applied
 // in the host's order and passed on to everyone with that chest open.
 //
+// (Round 12) Every dimension's chests are in the one store: a chest of the
+// Nether or the End is keyed "n:x,y,z" / "e:x,y,z" (js/dim-registry.js
+// dimKey; the Overworld's keep "x,y,z"), so a chest at the same place in two
+// dimensions is two chests, and the host keeps them all wherever it is.
+//
 // Pure logic (no three.js, no DOM): the game sets the hooks.
 import { IS_CHEST, BLOCK } from "./blocks.js";
 import { ITEM, itemInfo, maxStack, itemAllowed } from "./items.js";
@@ -23,6 +28,7 @@ import { chunkKey, blockIndex } from "./constants.js";
 import { isVanilla } from "./worldtype.js";
 import * as V from "./content/ids.js";
 import { structureLootAt } from "./structures.js";
+import { dimKey, DIM_KEY_RE, OVERWORLD, codeOf } from "./dim-registry.js";
 
 export const CHEST_SLOTS = 27;
 // (A batch this big is a big blast: the chests in it that were never opened
@@ -134,30 +140,41 @@ export class Chests {
     this._wrapWorld();
   }
 
+  // (The Overworld's key; a key in any dimension: keyOf.)
   static key(x, y, z) {
     return `${x},${y},${z}`;
   }
 
+  // (Round 12) The chest at (x, y, z) in `dim` (default: the world's own).
+  keyOf(x, y, z, dim = this.world.dim ?? OVERWORLD) {
+    return dimKey(dim, x, y, z);
+  }
+
+  _edits(dim) {
+    return this.world.editsOf ? this.world.editsOf(dim ?? this.world.dim) : this.world.edits;
+  }
+
   // Whether the chest at (x, y, z) was placed by a player (an edit), not generated.
-  isPlaced(x, y, z) {
-    const id = this.world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
+  isPlaced(x, y, z, dim = this.world.dim) {
+    const id = this._edits(dim).get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
     return id !== undefined && IS_CHEST[id] === 1;
   }
 
   // The contents of the chest at (x, y, z) (the authority only): rolled on
   // first open for a generated chest, empty for a placed one.
-  contents(x, y, z) {
-    const key = Chests.key(x, y, z);
+  contents(x, y, z, dim = this.world.dim) {
+    const key = this.keyOf(x, y, z, dim);
     let slots = this.store.get(key);
     if (!slots) {
-      slots = this.isPlaced(x, y, z) ? new Array(CHEST_SLOTS).fill(null) : this._roll(x, y, z);
+      slots = this.isPlaced(x, y, z, dim) ? new Array(CHEST_SLOTS).fill(null) : this._roll(x, y, z, dim);
       this.store.set(key, slots);
     }
     return slots;
   }
 
-  _roll(x, y, z) {
-    const seed = (this.world.seed ^ Math.imul(x, 0x2f6b1d35) ^ Math.imul(y, 0x5bd1e995) ^ Math.imul(z, 0x1b873593) ^ 0xc4e57a) >>> 0;
+  _roll(x, y, z, dim = this.world.dim) {
+    // (Round 12: another dimension's chest at the same place rolls its own.)
+    const seed = (this.world.seed ^ Math.imul(x, 0x2f6b1d35) ^ Math.imul(y, 0x5bd1e995) ^ Math.imul(z, 0x1b873593) ^ 0xc4e57a ^ Math.imul(codeOf(dim), 0x68e31da4)) >>> 0;
     const rand = mulberry32(seed);
     let owned;
     try {
@@ -168,7 +185,9 @@ export class Chests {
     const slots = new Array(CHEST_SLOTS).fill(null);
     // (Round 11) A Survival world's dungeons, mineshafts and desert temples
     // have vanilla's own tables (structures.js).
-    const loot = (isVanilla() && structureLootAt(this.world, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
+    // (Round 12: the chest's own dimension's structures, there or not.)
+    const w = !this.world.dim || dim === this.world.dim ? this.world : { terrain: this.world.terrainOf(dim), getBlock: (bx, by, bz) => this.world.blockIn(dim, bx, by, bz) };
+    const loot = (isVanilla() && structureLootAt(w, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
     for (const [id, n, tag] of loot) {
       let left = n;
       while (left > 0) {
@@ -189,7 +208,7 @@ export class Chests {
   // Opens the chest at (x, y, z) for this player's screen; onUpdate() is
   // called whenever its contents change (or it is gone: view.gone).
   openView(x, y, z, onUpdate) {
-    const key = Chests.key(x, y, z);
+    const key = this.keyOf(x, y, z);
     if (this.view && this.view.key === key) {
       this.view.onUpdate = onUpdate;
       return this.view;
@@ -305,22 +324,24 @@ export class Chests {
         else (fresh ||= []).push([x, y, z]);
       }
       const n = setBlocks(list, opts);
-      if (fresh) for (const [x, y, z] of fresh) if (IS_CHEST[world.getBlock(x, y, z)]) this.store.delete(Chests.key(x, y, z));
+      if (fresh) for (const [x, y, z] of fresh) if (IS_CHEST[world.getBlock(x, y, z)]) this.store.delete(this.keyOf(x, y, z));
       if (gone) for (const [x, y, z, placed] of gone) if (!IS_CHEST[world.getBlock(x, y, z)]) this._gone(x, y, z, placed, list.length, opts?.remote);
       return n;
     };
-    // (A chest blown up far out, in ground not loaded here: its record goes.)
+    // (A chest blown up far out, in ground not loaded here: its record goes.
+    // Round 12: or in another dimension.)
     const queueEdit = world.queueEdit?.bind(world);
     if (queueEdit) {
-      world.queueEdit = (x, y, z, id) => {
-        if (!IS_CHEST[id] && !world.getChunk?.(Math.floor(x) >> 4, Math.floor(z) >> 4)) this.store.delete(Chests.key(Math.floor(x), Math.floor(y), Math.floor(z)));
-        return queueEdit(x, y, z, id);
+      world.queueEdit = (x, y, z, id, dim = world.dim) => {
+        const here = dim === world.dim && world.getChunk?.(Math.floor(x) >> 4, Math.floor(z) >> 4);
+        if (!IS_CHEST[id] && !here) this.store.delete(this.keyOf(Math.floor(x), Math.floor(y), Math.floor(z), dim));
+        return queueEdit(x, y, z, id, dim);
       };
     }
   }
 
   _gone(x, y, z, placed, batch, remote) {
-    const key = Chests.key(x, y, z);
+    const key = this.keyOf(x, y, z);
     const v = this.view;
     if (v && v.key === key) {
       v.gone = true;
@@ -342,23 +363,32 @@ export class Chests {
   }
 
   // The authority: a chest in ground not loaded here was replaced by a
-  // remote edit (it never passes setBlocks): its stored contents spill.
-  goneUnloaded(x, y, z) {
+  // remote edit (it never passes setBlocks): its stored contents spill
+  // (Round 12: in its own dimension, the world there or not).
+  goneUnloaded(x, y, z, dim = this.world.dim) {
     if (!this.authority) return false;
-    const key = Chests.key(x, y, z);
+    const key = this.keyOf(x, y, z, dim);
     const slots = this.store.get(key);
     if (!slots) return false;
     this.store.delete(key);
     this.onGone?.(key);
-    for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
+    this._spill(slots, x, y, z, dim);
     return true;
   }
 
   // The authority: a generated chest nobody opened, broken by a guest in
   // ground not loaded here: its loot rolls and spills as if seen.
-  goneGenerated(x, y, z) {
-    if (!this.authority || this.store.has(Chests.key(x, y, z))) return;
-    for (const s of this._roll(x, y, z)) if (s) this.onDrop?.(s, x, y, z);
+  goneGenerated(x, y, z, dim = this.world.dim) {
+    if (!this.authority || this.store.has(this.keyOf(x, y, z, dim))) return;
+    this._spill(this._roll(x, y, z, dim), x, y, z, dim);
+  }
+
+  _spill(slots, x, y, z, dim) {
+    const drop = () => {
+      for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
+    };
+    if (this.world.inDim && dim !== this.world.dim) this.world.inDim(dim, drop);
+    else drop();
   }
 
   // ---------- Save ----------
@@ -382,7 +412,7 @@ export class Chests {
     this.store.clear();
     if (!data || typeof data !== "object") return;
     for (const [key, list] of Object.entries(data)) {
-      if (!/^-?\d+,-?\d+,-?\d+$/.test(key) || !Array.isArray(list)) continue;
+      if (!DIM_KEY_RE.test(key) || !Array.isArray(list)) continue;
       const slots = new Array(CHEST_SLOTS).fill(null);
       for (const e of list) {
         if (!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0 || e[0] >= CHEST_SLOTS) continue;

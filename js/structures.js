@@ -31,7 +31,6 @@ import { hash2, mulberry32 } from "./noise.js";
 import { BLOCK, BLOCK_INFO, IS_SOLID, IS_WET, chest } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, chunkKey } from "./constants.js";
 import { BIOME } from "./biomes.js";
-import { VILLAGE_REACH } from "./village.js";
 import { SPAWNER, SPAWNER_KINDS } from "./content/nature.js";
 import { LIB, ITEM } from "./content/base.js";
 import * as V from "./content/ids.js";
@@ -354,7 +353,7 @@ export class StructureGrower {
       const lo = Math.min(...hs);
       const hi = Math.max(...hs);
       // (on fairly level, dry sand, never in a village)
-      if (hi - lo <= 4 && lo > SEA_LEVEL + 1 && lo - TEMPLE_DEPTH > 3 && lo + TEMPLE_HEIGHT < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + mid, z0 + mid, VILLAGE_REACH + 20)) {
+      if (hi - lo <= 4 && lo > SEA_LEVEL + 1 && lo - TEMPLE_DEPTH > 3 && lo + TEMPLE_HEIGHT < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + mid, z0 + mid, tr.villages.reach + 20)) {
         t = { x0, z0, floor: lo, rot, chests: [] };
         for (const [u, v, f] of TEMPLE_CHESTS) {
           const [x, z] = templeWorld(t, u, v);

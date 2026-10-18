@@ -13,12 +13,20 @@
 // host drops a broken chest's contents, and dropped items are shared
 // (js/net/items.js). Peers from before Round 11 are refused at the handshake
 // (NET_VERSION 9).
-import { Chests, encodeStack, decodeStack, CHEST_SLOTS } from "../chests.js";
+//
+// (Round 12) Every message about a chest of the Nether or the End carries
+// its dimension ("dm": js/dim-registry.js; none: the Overworld's), and the
+// host keeps every dimension's chests: a guest in the Nether opens the
+// Nether's chest at that place, whatever dimension the host is in.
+import { encodeStack, decodeStack, CHEST_SLOTS } from "../chests.js";
 import { IS_CHEST } from "../blocks.js";
 import { chunkKey, blockIndex } from "../constants.js";
+import { dimOfCode, dmOf, parseDimKey } from "../dim-registry.js";
 
 const posOf = (p) => (Array.isArray(p) && p.length === 3 && p.every(Number.isInteger) && p[1] >= 0 && p[1] < 256 ? p : null);
-const keyPos = (key) => key.split(",").map(Number);
+// [x, y, z] of a key, and its dimension's field for a message.
+const keyPos = (key) => parseDimKey(key)?.slice(0, 3) ?? key.split(",").map(Number);
+const keyDm = (key) => dmOf(parseDimKey(key)?.[3]);
 
 export class ChestSync {
   constructor(mp) {
@@ -69,13 +77,13 @@ export class ChestSync {
   // ---------- A guest: asking the host (js/chests.js calls these) ----------
 
   open(view) {
-    if (this.mp.active) this.net.toHost({ t: "chopen", p: [view.x, view.y, view.z] });
+    if (this.mp.active) this.net.toHost({ t: "chopen", p: [view.x, view.y, view.z], ...keyDm(view.key) });
   }
 
   // (A click already sent still settles from the host's "chres": the channel
   // is ordered, so the host applies it before this close.)
   close(view) {
-    if (this.mp.active) this.net.toHost({ t: "chclose", p: [view.x, view.y, view.z] });
+    if (this.mp.active) this.net.toHost({ t: "chclose", p: [view.x, view.y, view.z], ...keyDm(view.key) });
   }
 
   // A generated chest this guest broke: the host spills its loot if it
@@ -88,7 +96,7 @@ export class ChestSync {
     if (!this.mp.active) return done(false);
     const n = this._n++;
     this._ops.set(n, done);
-    this.net.toHost({ t: "chop", p: [view.x, view.y, view.z], n, c: changes.map(([i, b, a]) => [i, encodeStack(b), encodeStack(a)]) });
+    this.net.toHost({ t: "chop", p: [view.x, view.y, view.z], n, c: changes.map(([i, b, a]) => [i, encodeStack(b), encodeStack(a)]), ...keyDm(view.key) });
   }
 
   // ---------- The host ----------
@@ -99,31 +107,33 @@ export class ChestSync {
     if (!p) return;
     const [x, y, z] = p;
     const world = this.game.world;
-    // (Ground the host hasn't loaded: the guest's word that a chest is
-    // there, unless a recorded edit says it is something else now.)
+    const dim = dimOfCode(m.dm);
+    // (Ground the host hasn't loaded, or another dimension's: the guest's
+    // word that a chest is there, unless a recorded edit says it is
+    // something else now.)
     let ok;
-    if (world.getChunk(x >> 4, z >> 4)) ok = IS_CHEST[world.getBlock(x, y, z)] === 1;
+    if (dim === world.dim && world.getChunk(x >> 4, z >> 4)) ok = IS_CHEST[world.getBlock(x, y, z)] === 1;
     else {
-      const id = world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
+      const id = world.editsOf(dim).get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
       ok = id === undefined || IS_CHEST[id] === 1;
     }
     if (!ok) {
-      this.net.send(from, { t: "chst", p, s: 0 });
+      this.net.send(from, { t: "chst", p, s: 0, ...dmOf(dim) });
       return;
     }
-    const slots = this.chests.contents(x, y, z);
-    const key = Chests.key(x, y, z);
+    const slots = this.chests.contents(x, y, z, dim);
+    const key = this.chests.keyOf(x, y, z, dim);
     let set = this.watchers.get(key);
     if (!set) this.watchers.set(key, (set = new Set()));
     set.add(from);
-    this.net.send(from, { t: "chst", p, s: slots.map(encodeStack) });
+    this.net.send(from, { t: "chst", p, s: slots.map(encodeStack), ...dmOf(dim) });
   }
 
   _onClose(m, from) {
     if (!this.net.isHost) return;
     const p = posOf(m.p);
     if (!p) return;
-    const key = Chests.key(p[0], p[1], p[2]);
+    const key = this.chests.keyOf(p[0], p[1], p[2], dimOfCode(m.dm));
     const set = this.watchers.get(key);
     if (!set) return;
     set.delete(from);
@@ -134,7 +144,8 @@ export class ChestSync {
     if (!this.net.isHost || !this.chests) return;
     const p = posOf(m.p);
     if (!p || !Number.isInteger(m.n)) return;
-    const key = Chests.key(p[0], p[1], p[2]);
+    const dim = dimOfCode(m.dm);
+    const key = this.chests.keyOf(p[0], p[1], p[2], dim);
     let ok = false;
     if (this.watchers.get(key)?.has(from) && Array.isArray(m.c) && m.c.length <= CHEST_SLOTS) {
       // (A stack that doesn't decode makes the whole change invalid.)
@@ -148,10 +159,10 @@ export class ChestSync {
       }
       if (changes.length === m.c.length) ok = this.chests.apply(key, changes, from);
     }
-    if (ok) this.net.send(from, { t: "chres", p, n: m.n, ok: 1 });
+    if (ok) this.net.send(from, { t: "chres", p, n: m.n, ok: 1, ...dmOf(dim) });
     else {
       const slots = this.chests.store.get(key);
-      this.net.send(from, { t: "chres", p, n: m.n, ok: 0, s: slots ? slots.map(encodeStack) : 0 });
+      this.net.send(from, { t: "chres", p, n: m.n, ok: 0, s: slots ? slots.map(encodeStack) : 0, ...dmOf(dim) });
     }
   }
 
@@ -160,7 +171,7 @@ export class ChestSync {
     if (!this.mp.active || !this.net.isHost) return;
     const set = this.watchers.get(key);
     if (!set || !set.size) return;
-    const msg = { t: "chset", p: keyPos(key), c: list.map(([i, s]) => [i, encodeStack(s)]) };
+    const msg = { t: "chset", p: keyPos(key), c: list.map(([i, s]) => [i, encodeStack(s)]), ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
   }
 
@@ -174,7 +185,7 @@ export class ChestSync {
   _onState(m) {
     if (this.net.isHost || !this.chests) return;
     const p = posOf(m.p);
-    if (p) this.chests.remoteState(Chests.key(p[0], p[1], p[2]), this._slotsOf(m.s));
+    if (p) this.chests.remoteState(this.chests.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), this._slotsOf(m.s));
   }
 
   _onSet(m) {
@@ -183,7 +194,7 @@ export class ChestSync {
     if (!p || !Array.isArray(m.c) || m.c.length > CHEST_SLOTS) return;
     const list = [];
     for (const ch of m.c) if (Array.isArray(ch) && Number.isInteger(ch[0])) list.push([ch[0], decodeStack(ch[1])]);
-    this.chests.remoteSet(Chests.key(p[0], p[1], p[2]), list);
+    this.chests.remoteSet(this.chests.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), list);
   }
 
   _onResult(m) {
@@ -192,7 +203,7 @@ export class ChestSync {
     this._ops.delete(m.n);
     const p = posOf(m.p);
     // (Refused: the chest as it is now, or gone.)
-    if (!m.ok && p && m.s !== undefined) this.chests.remoteState(Chests.key(p[0], p[1], p[2]), this._slotsOf(m.s));
+    if (!m.ok && p && m.s !== undefined) this.chests.remoteState(this.chests.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), this._slotsOf(m.s));
     done?.(!!m.ok);
   }
 }

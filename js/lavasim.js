@@ -14,6 +14,9 @@
 // around it (World.changeListeners), and a lava cell's random tick (the
 // host's) wakes it too (a flow saved mid-way). Online each player runs it for
 // their own edits (another player's arrive already flowed, as for water).
+// (Round 12) In the Nether a flow steps every 0.5 s, vanilla's 10 game ticks
+// there (js/dim-registry.js lavaStep); its farther reach needs more flowing
+// ids than the Overworld's three (the Nether's part).
 import { BLOCK, IS_REPLACEABLE, IS_WET } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { LAVA, OBSIDIAN } from "./content/ids.js";
@@ -49,6 +52,18 @@ export class LavaSim {
     return this._now.size + this._queued.size;
   }
 
+  // (Round 12) The world goes to another dimension: this one's woken cells
+  // are handed back (their flows go on when it comes back), `next`'s put in
+  // their place. This update's writes go first.
+  swapDim(next = null) {
+    this._flush();
+    const prev = { now: this._now, later: this._later, queued: this._queued };
+    this._now = next?.now || new Set();
+    this._later = next?.later || [];
+    this._queued = next?.queued || new Set();
+    return prev;
+  }
+
   _key(x, y, z) {
     return `${x},${y},${z}`;
   }
@@ -76,7 +91,7 @@ export class LavaSim {
     }
     if (this._queued.has(key)) return;
     this._queued.add(key);
-    this._later.push(this.time + LAVA_STEP, key);
+    this._later.push(this.time + (this.world.dimInfo?.lavaStep ?? LAVA_STEP), key);
   }
 
   _onEdit(changed, { recordEdit = true, remote = false } = {}) {

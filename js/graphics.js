@@ -173,7 +173,7 @@ export const GFX_OPTIONS = {
   },
   plants: {
     label: "3D plants",
-    choices: [["0", "Off"], ["1", "Normal"], ["2", "Dense"]],
+    choices: [["0", "Off"], ["1", "Normal"], ["2", "Far-reaching"]], // (Round 12: Ultra's are no longer denser, see grass.js)
     get: (p) => String(p.grass),
     apply: (p, v) => {
       p.grass = Math.max(0, Math.min(2, Number(v) || 0));

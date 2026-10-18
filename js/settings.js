@@ -183,6 +183,7 @@ export const DEFAULT_SETTINGS = {
   gfxOverrides: {},
   volume: { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,
+  fullscreen: false, // (Round 12: play fullscreen, applied on the next click into the game: fullscreen.js)
 };
 for (const e of SCHEMA) setPath(DEFAULT_SETTINGS, e.key, e.def);
 
@@ -220,6 +221,7 @@ export function normalizeSettings(raw, opts = {}) {
     out.volume[k] = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : (k === "master" ? DEFAULT_SETTINGS.volume.master : 1);
   }
   out.mods = s.mods !== false;
+  out.fullscreen = s.fullscreen === true;
   // Upgrades from older versions. (Round 2 raised the jet's default top
   // speed to 220; Round 3 went back to 160: a value still at that old
   // default follows it, once. Saves before Round 3 had no `v` and no `rev`.)

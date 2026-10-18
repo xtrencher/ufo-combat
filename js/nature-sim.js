@@ -44,6 +44,14 @@ export class FireSim {
     return this._due.size;
   }
 
+  // (Round 12) The world goes to another dimension: this one's fires are
+  // handed back (they burn on when it comes back), `next`'s put in their place.
+  swapDim(next = null) {
+    const prev = this._due;
+    this._due = next || new Map();
+    return prev;
+  }
+
   // (Every edit, a guest's too: the host runs the fires.)
   _onEdit(changed) {
     if (!this.enabled()) return;

@@ -150,6 +150,24 @@ export class FallingBlocks {
     while (this.entities.length) this._remove(this.entities.length - 1);
   }
 
+  // (Round 12) The world is about to go to another dimension: every block in
+  // the air lands at once where it would (it isn't lost), and the cells left
+  // to check are forgotten (they were this dimension's).
+  landAll() {
+    const w = this.world;
+    const list = this.entities.slice();
+    this.clear();
+    list.sort((a, b) => a.y - b.y);
+    for (const e of list) {
+      if (!w.getChunk(e.x >> 4, e.z >> 4)) continue;
+      let y = Math.max(0, Math.floor(e.y));
+      while (y > 0 && !IS_SOLID[w.getBlock(e.x, y - 1, e.z)]) y--;
+      e.landY = y;
+      this._land(e);
+    }
+    this._pending.length = 0;
+  }
+
   update(dt) {
     this._processPending();
     const w = this.world;

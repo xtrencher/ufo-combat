@@ -3,7 +3,8 @@
 // same way.
 //
 // Lighting model (per fragment, HDR linear):
-//   direct   = sun (or moon) color * N.L * shadow map * (only where sky light is high)
+//   direct   = sun (or moon) color * N.L * shadow map * (only where sky light is high;
+//              Round 12: none at all where the sky can't be seen, see skyGate)
 //   ambient  = hemisphere sky color * f(voxel sky light)   -> dark caves, bright meadows
 //   torch    = warm light color * f(voxel block light)     -> torches and glowing blocks
 //   all scaled by per-vertex ambient occlusion
@@ -12,6 +13,7 @@
 // fades distant geometry into *that* sky color in the view direction, so
 // terrain melts into the horizon, warmer toward a setting sun.
 import * as THREE from "three";
+import { TILE_PAGE } from "./content/base.js";
 
 // Shared uniform objects. Materials reference these same objects, so
 // updating a value here updates every material at once.
@@ -30,6 +32,9 @@ export const worldUniforms = {
   uTime: { value: 0 },
   uNight: { value: 0 },
   uNightVision: { value: 0 }, // (Round 11: the potion: 0-1, main.js)
+  // (Round 12) The eye's own voxel sky light (0-1, eased; main.js): the air
+  // around a viewer in a cave glows with no sky haze or mist (applyFogLit).
+  uEyeSky: { value: 1 },
   uFog: { value: new THREE.Vector4(80, 150, 0.004, 0.0) }, // start, end, haze density, (unused)
   // Low mist over water: density (per block, at the water), thickness
   // (blocks), drift speed, water level. Set per frame by main.js (denser at
@@ -89,6 +94,7 @@ uniform vec3 uTorchColor;
 uniform float uTime;
 uniform float uNight;
 uniform float uNightVision;
+uniform float uEyeSky;
 uniform vec4 uFog;
 uniform vec4 uMist;
 uniform float uUnderwater;
@@ -145,7 +151,11 @@ float hazeNoise(vec2 p) {
 //   low mist: a thin, drifting layer hugging the water, denser at dawn and
 //     dusk (uMist);
 //   and the fog wall at the render distance.
-vec3 applyFog(vec3 color, vec3 worldPos) {
+// (Round 12) sky: the point's voxel sky light. The haze and mist are sky
+// light scattered by the air, so they only glow where the air is out under
+// the sky: not between a viewer in a cave and the cave's rock (there the
+// fog wall fades to darkness, not to the sky).
+vec3 applyFogLit(vec3 color, vec3 worldPos, float sky) {
   vec3 d = worldPos - cameraPosition;
   float dist = length(d);
   if (uUnderwater > 0.5) {
@@ -153,26 +163,30 @@ vec3 applyFog(vec3 color, vec3 worldPos) {
     // the sun (light scattered forward by the water).
     vec3 dir = d / max(dist, 0.001);
     vec3 murk = uWaterFogColor * (0.75 + 1.6 * smoothstep(-0.3, 0.95, dir.y));
-    murk += uWaterFogColor * vec3(1.2, 1.6, 1.3) * pow(max(dot(dir, uLightDir), 0.0), 6.0) * 2.0 * smoothstep(-0.05, 0.1, uLightDir.y);
+    murk += uWaterFogColor * vec3(1.2, 1.6, 1.3) * pow(max(dot(dir, uLightDir), 0.0), 6.0) * 2.0 * smoothstep(-0.05, 0.1, uLightDir.y) * uEyeSky;
     return mix(color, murk, 1.0 - exp(-dist * uUnderwaterFog));
   }
   vec3 dir = d / max(dist, 0.001);
+  float airLit = max(smoothstep(0.1, 0.6, sky), uEyeSky);
   float edge = smoothstep(uFog.x, uFog.y, dist);
-  float haze = (1.0 - exp(-dist * uFog.z * heightFog(cameraPosition.y, worldPos.y, 24.0, 40.0))) * 0.62;
+  float haze = (1.0 - exp(-dist * uFog.z * heightFog(cameraPosition.y, worldPos.y, 24.0, 40.0))) * 0.62 * airLit;
   float f = 1.0 - (1.0 - edge) * (1.0 - haze);
   vec3 fogCol = skyColor(normalize(vec3(dir.x, max(dir.y, 0.0) * 0.35 + 0.02, dir.z)));
   float mu = max(dot(dir, uSunDir), 0.0);
   float sunUp = smoothstep(-0.05, 0.1, uSunDir.y);
   fogCol += uSunGlowColor * (pow(mu, 6.0) * 0.22 + pow(mu, 32.0) * 0.3) * sunUp;
-  color = mix(color, fogCol, clamp(f, 0.0, 1.0));
-  if (uMist.x > 0.0) {
+  color = mix(color, fogCol * airLit, clamp(f, 0.0, 1.0));
+  if (uMist.x > 0.0 && airLit > 0.0) {
     vec2 drift = vec2(uTime * 0.012, uTime * 0.007) * uMist.z;
     float patches = 0.35 + 1.3 * hazeNoise(mix(cameraPosition.xz, worldPos.xz, 0.7) * 0.05 + drift);
     float mist = 1.0 - exp(-dist * uMist.x * patches * heightFog(cameraPosition.y, worldPos.y, uMist.w, uMist.y));
     vec3 mistCol = mix(uSkyHorizon, vec3(1.0), 0.3) * (0.3 + 0.7 * (1.0 - uNight)) + uSunGlowColor * pow(mu, 4.0) * 0.45 * sunUp;
-    color = mix(color, mistCol, clamp(mist * (1.0 - edge), 0.0, 0.8));
+    color = mix(color, mistCol, clamp(mist * (1.0 - edge) * airLit, 0.0, 0.8));
   }
   return color;
+}
+vec3 applyFog(vec3 color, vec3 worldPos) {
+  return applyFogLit(color, worldPos, 1.0);
 }
 
 // Converts a 0-1 light level to brightness (gentle falloff, like classic voxel lighting).
@@ -195,12 +209,24 @@ float shadowCoverage() {
   #endif
 }
 
+// (Round 12) Whether a surface can see the sky at all, from its voxel sky
+// light (0-1): none from about sky light 3 down, all from 9 up (a cave mouth,
+// a room by its window, the ground under trees keep their sun).
+float skyGate(float sky) {
+  return smoothstep(0.2, 0.6, sky);
+}
+
 // How much direct sun (or moon) light reaches a surface. The shadow map
 // decides where it covers the scene; beyond it, the voxel sky light stands
-// in, so distant caves and overhangs stay dark.
+// in, so distant caves and overhangs stay dark. (Round 12) And never where
+// the sky can't be seen (skyGate): the shadow map alone let the sun and
+// moon onto cave rock deep underground, and through the seams along the
+// edges of faces (it only holds the faces turned away from the light, which
+// leave cracks where two faces meet), lighting thin lines along a cave's
+// corners and the rims of its walls.
 float sunVisibility(float sky, float shadow) {
   float skyVis = smoothstep(0.55, 0.95, clamp(sky, 0.0, 1.0));
-  return mix(skyVis, shadow, shadowCoverage());
+  return mix(skyVis, shadow, shadowCoverage()) * skyGate(sky);
 }
 
 // sky / blk: voxel sky and block light (0-1) at the surface; ao: ambient
@@ -349,6 +375,86 @@ const FRAGMENT_LIGHT_INCLUDES = /* glsl */ `
 ${SUN_SHADOW}
 `;
 
+// (Round 12) The block textures come in pages of TILE_PAGE layers (one
+// texture array each: 256 is all WebGL2 promises in one; textures.js).
+// A shader reads layer l through atlasTex (and reliefTex / reliefTexLod),
+// which pick its page: one branch, the same across a face (its layer is),
+// none at all with one page. ATLAS_PAGES (a define) is how many there are.
+function pagedSampler(name, fn, lod) {
+  const args = lod ? "vec3 uvw, float lod" : "vec3 uvw";
+  const call = (u, q) => (lod ? `textureLod(${u}, ${q}, lod)` : `texture(${u}, ${q})`);
+  return /* glsl */ `
+vec4 ${fn}(${args}) {
+  #if ATLAS_PAGES > 1
+    float page = floor((uvw.z + 0.5) * ${(1 / TILE_PAGE).toFixed(8)});
+    if (page > 0.5) {
+      vec3 q = vec3(uvw.xy, uvw.z - page * ${TILE_PAGE.toFixed(1)});
+      #if ATLAS_PAGES > 3
+        if (page > 2.5) return ${call(name + "3", "q")};
+      #endif
+      #if ATLAS_PAGES > 2
+        if (page > 1.5) return ${call(name + "2", "q")};
+      #endif
+      return ${call(name + "1", "q")};
+    }
+  #endif
+  return ${call(name, "uvw")};
+}
+`;
+}
+function pagedUniforms(name) {
+  let s = `uniform highp sampler2DArray ${name};\n`;
+  for (let p = 1; p < 4; p++) s += `#if ATLAS_PAGES > ${p}\nuniform highp sampler2DArray ${name}${p};\n#endif\n`;
+  return s;
+}
+const ATLAS_GLSL = /* glsl */ `
+#ifndef ATLAS_PAGES
+  #define ATLAS_PAGES 1
+#endif
+${pagedUniforms("uAtlas")}
+${pagedSampler("uAtlas", "atlasTex", false)}
+`;
+const RELIEF_GLSL = /* glsl */ `
+${pagedUniforms("uRelief")}
+${pagedSampler("uRelief", "reliefTex", false)}
+${pagedSampler("uRelief", "reliefTexLod", true)}
+`;
+
+// The uniforms and define for a texture's pages (`texture.userData.pages`,
+// textures.js; a texture without them is its own only page), into `uniforms`
+// and `defines`.
+function bindPages(uniforms, defines, name, texture) {
+  const pages = texture?.userData?.pages || [texture];
+  uniforms[name] = { value: pages[0] };
+  for (let p = 1; p < pages.length; p++) uniforms[name + p] = { value: pages[p] };
+  defines.ATLAS_PAGES = Math.max(defines.ATLAS_PAGES || 1, pages.length);
+}
+
+// (Round 12) Flipbook tiles (fire: js/content/base.js TILE_FLIPBOOKS): a
+// face the mesher marked (FLAG.ANIM, its flipbook in aExtra.y) shows the
+// running frame, picked in the vertex shader (uFlipbook[k]: the first
+// frame's layer, frames, frames a second).
+const FLIPBOOK_GLSL = /* glsl */ `
+#ifndef FLIPBOOKS
+  #define FLIPBOOKS 0
+#endif
+#if FLIPBOOKS > 0
+uniform vec4 uFlipbook[FLIPBOOKS];
+float flipbookLayer(float layer, int flags, float k) {
+  if ((flags & 32) == 0) return layer;
+  vec4 fb = uFlipbook[clamp(int(k + 0.5), 0, FLIPBOOKS - 1)];
+  return fb.x + mod(floor(uTime * fb.z), fb.y);
+}
+#else
+float flipbookLayer(float layer, int flags, float k) { return layer; }
+#endif
+`;
+function bindFlipbooks(uniforms, defines, atlas) {
+  const fbs = atlas?.userData?.flipbooks || [];
+  defines.FLIPBOOKS = fbs.length;
+  if (fbs.length) uniforms.uFlipbook = { value: fbs.map((f) => new THREE.Vector4(f.layer, f.frames, f.fps, 0)) };
+}
+
 // ---------------------------------------------------------------------------
 // Terrain (opaque + cutout)
 // ---------------------------------------------------------------------------
@@ -365,11 +471,13 @@ flat varying float vFlags;
 flat varying float vFace;
 flat varying float vTint;
 varying vec3 vViewPosition;
+flat varying float vFlow;
 uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
 #include <shadowmap_pars_vertex>
 ${WIND_GLSL}
+${FLIPBOOK_GLSL}
 
 const vec3 FACE_NORMALS[6] = vec3[6](
   vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
@@ -391,7 +499,8 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
   vec3 transformedNormal = normalMatrix * objectNormal;
   #include <shadowmap_vertex>
-  vTexCoord = vec3(uv, aExtra.x + aExtra.w * 256.0); // (the layer in two bytes)
+  vTexCoord = vec3(uv, flipbookLayer(aExtra.x + aExtra.w * 256.0, flags, aExtra.y)); // (the layer in two bytes)
+  vFlow = (flags & 64) != 0 ? aExtra.y : 0.0;
   vWorldPos = worldPosition.xyz;
   vNormal = objectNormal;
   vLight = aData.yz / 255.0;
@@ -404,8 +513,8 @@ void main() {
 `;
 
 const chunkFragment = /* glsl */ `
-uniform highp sampler2DArray uAtlas;
-uniform highp sampler2DArray uRelief;
+${ATLAS_GLSL}
+${RELIEF_GLSL}
 uniform float uEmissiveBoost;
 uniform float uCaustics;
 varying vec3 vTexCoord;
@@ -417,6 +526,7 @@ flat varying float vFlags;
 flat varying float vFace;
 flat varying float vTint;
 varying vec3 vViewPosition;
+flat varying float vFlow;
 ${FRAGMENT_LIGHT_INCLUDES}
 ${WORLD_COMMON}
 ${POINT_LIGHTS}
@@ -442,17 +552,17 @@ vec2 parallaxUv(vec3 uvw, vec3 vts, float depthScale) {
   vec2 hi = vec2(1.0 - 0.5 / 32.0);
   vec2 uv = clamp(uvw.xy, lo, hi);
   float cur = 0.0;
-  float depth = 1.0 - textureLod(uRelief, vec3(uv, uvw.z), 0.0).b;
+  float depth = 1.0 - reliefTexLod(vec3(uv, uvw.z), 0.0).b;
   for (int i = 0; i < 28; i++) {
     if (float(i) >= steps || cur >= depth) break;
     uv = clamp(uv - delta, lo, hi);
     cur += layer;
-    depth = 1.0 - textureLod(uRelief, vec3(uv, uvw.z), 0.0).b;
+    depth = 1.0 - reliefTexLod(vec3(uv, uvw.z), 0.0).b;
   }
   // Refine between the last two steps.
   vec2 prev = clamp(uv + delta, lo, hi);
   float after = depth - cur;
-  float before = (1.0 - textureLod(uRelief, vec3(prev, uvw.z), 0.0).b) - (cur - layer);
+  float before = (1.0 - reliefTexLod(vec3(prev, uvw.z), 0.0).b) - (cur - layer);
   float w = clamp(after / (after - before + 1e-5), 0.0, 1.0);
   return mix(uv, prev, w);
 }
@@ -470,11 +580,39 @@ float caustics(vec2 p, float t) {
   return pow(1.0 - abs(v), 12.0);
 }
 
+// (Round 12) A flowing tile (lava, FLAG.FLOW) drawn moving, in world space
+// so it runs on from cell to cell: a slow churn of travelling waves bending
+// it (as the water's ripples), sliding along the flow on a flowing surface
+// (code: 0 still, else 1 + one of 16 directions from +X toward +Z, see
+// mesher.js flowCode) and down the sides; glow: a slow swell of brightness
+// drifting across it.
+vec2 flowUv(int face, float code, out float glow) {
+  float t = uTime;
+  vec2 p;
+  vec2 drift = vec2(0.0);
+  if (face == 2 || face == 3) {
+    p = vWorldPos.xz;
+    if (code > 0.5) {
+      float a = (code - 1.0) * 0.39269908;
+      drift = vec2(cos(a), sin(a)) * 0.3;
+    }
+  } else {
+    p = vec2(face < 2 ? vWorldPos.z : vWorldPos.x, vWorldPos.y);
+    drift = vec2(0.0, -0.35);
+  }
+  vec2 warp = vec2(sin(p.y * 1.7 + t * 0.45) + 0.5 * sin(p.y * 3.9 + p.x * 1.3 - t * 0.7),
+                   sin(p.x * 1.9 - t * 0.4) + 0.5 * sin(p.x * 3.3 - p.y * 1.1 + t * 0.6)) * 0.035;
+  glow = 0.92 + 0.1 * sin(p.x * 0.9 + p.y * 0.7 + t * 0.8) * sin(p.x * 0.5 - p.y * 1.1 - t * 0.55);
+  return p - drift * t + warp;
+}
+
 void main() {
   vec3 uvw = vTexCoord;
   vec3 N = vNormal;
   float dist = length(vViewPosition);
   int flags = int(vFlags + 0.5);
+  float glow = 1.0;
+  if ((flags & 64) != 0) uvw.xy = flowUv(int(vFace + 0.5), vFlow, glow);
   #ifdef USE_NORMALMAP
     int fi = int(vFace + 0.5);
     vec3 T = FACE_T[fi];
@@ -483,10 +621,11 @@ void main() {
     #if defined(USE_POM) && !defined(CUTOUT)
       // Up close, pixels get real depth; faded out with distance.
       float pomFade = 1.0 - smoothstep(10.0, 20.0, dist);
-      if (pomFade > 0.0) uvw.xy = parallaxUv(uvw, vec3(dot(V, T), dot(V, B), dot(V, N)), 0.065 * pomFade);
+      // (not on a flowing tile: its world-space uv runs off the tile, which the march keeps to)
+      if (pomFade > 0.0 && (flags & 64) == 0) uvw.xy = parallaxUv(uvw, vec3(dot(V, T), dot(V, B), dot(V, N)), 0.065 * pomFade);
     #endif
   #endif
-  vec4 tex = texture(uAtlas, uvw);
+  vec4 tex = atlasTex(uvw);
   #ifdef CUTOUT
     // Thin cutout textures (grass, leaves) would dissolve at a distance as
     // mipmapping averages their alpha down; boost alpha with the mip level.
@@ -496,7 +635,7 @@ void main() {
     tex.a *= 1.0 + max(lod, 0.0) * 0.3;
     if (tex.a < 0.5) discard;
   #endif
-  vec3 albedo = tex.rgb;
+  vec3 albedo = tex.rgb * glow;
   // Natural color variation of leaves and grass (see mesher.js; 0.5 = none):
   // warmer, yellower one way, cooler and darker the other.
   albedo *= 1.0 + (vTint - 0.502) * vec3(0.34, 0.16, -0.3);
@@ -512,7 +651,7 @@ void main() {
   #ifdef USE_NORMALMAP
     // Per-pixel relief: bumps catch and lose the light, with a specular
     // highlight whose sharpness follows the material's roughness.
-    vec4 relief = texture(uRelief, uvw);
+    vec4 relief = reliefTex(uvw);
     vec2 nxy = (relief.xy * 2.0 - 1.0) * (1.0 - smoothstep(24.0, 56.0, dist));
     vec3 nts = vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.0)));
     N = normalize(T * nts.x + B * nts.y + vNormal * nts.z);
@@ -548,7 +687,7 @@ void main() {
     float c = caustics(vWorldPos.xz * 0.6 + vWorldPos.y * 0.2, uTime * 0.7);
     color += albedo * uLightColor * c * shadow * 0.35 * uCaustics * smoothstep(0.2, 0.7, vLight.x);
   }
-  color = applyFog(color, vWorldPos);
+  color = applyFogLit(color, vWorldPos, vLight.x);
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -565,6 +704,7 @@ uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
 ${WIND_GLSL}
+${FLIPBOOK_GLSL}
 vec3 windOffset(vec3 p) {
   return windSway(p, uTime) * 0.11 * uWaveStrength;
 }
@@ -573,17 +713,17 @@ void main() {
   vec4 worldPosition = modelMatrix * vec4(position, 1.0);
   if ((flags & 1) != 0) worldPosition.xyz += windOffset(worldPosition.xyz);
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
-  vTexCoord = vec3(uv, aExtra.x + aExtra.w * 256.0); // (the layer in two bytes)
+  vTexCoord = vec3(uv, flipbookLayer(aExtra.x + aExtra.w * 256.0, flags, aExtra.y)); // (the layer in two bytes)
 }
 `;
 
 const cutoutDepthFragment = /* glsl */ `
-uniform highp sampler2DArray uAtlas;
+${ATLAS_GLSL}
 varying vec3 vTexCoord;
 #include <common>
 #include <packing>
 void main() {
-  if (texture(uAtlas, vTexCoord).a < 0.5) discard;
+  if (atlasTex(vTexCoord).a < 0.5) discard;
   gl_FragColor = packDepthToRGBA(gl_FragCoord.z);
 }
 `;
@@ -637,7 +777,7 @@ void main() {
 `;
 
 const waterFragment = /* glsl */ `
-uniform highp sampler2DArray uAtlas;
+${ATLAS_GLSL}
 uniform float uWaterLayer;
 varying vec3 vWorldPos;
 varying vec3 vNormal;
@@ -705,6 +845,13 @@ vec4 traceReflection(vec3 origin, vec3 dir) {
 }
 #endif
 #endif
+
+// How much of the sky the water mirrors, by its voxel sky light: dimmed
+// where it is shaded from the sky, (Round 12) and none where the sky can't
+// be seen (a lake in a cave mirrors no sky; it used to keep a fifth).
+float skyReflection(float skyL) {
+  return mix(0.2, 1.0, smoothstep(0.35, 0.9, skyL)) * smoothstep(0.0, 0.35, skyL);
+}
 
 // Surface normal from a sum of travelling waves (analytic derivatives)
 // plus fine ripples from the water texture.
@@ -778,7 +925,7 @@ void main() {
 
       vec3 R = reflect(-V, N);
       vec3 Rs = vec3(R.x, abs(R.y), R.z);
-      vec3 refl = skyColor(Rs) * mix(0.2, 1.0, smoothstep(0.35, 0.9, skyL));
+      vec3 refl = skyColor(Rs) * skyReflection(skyL);
       #ifdef WATER_SSR
         vec4 ssr = traceReflection(-vViewPosition, normalize((viewMatrix * vec4(R, 0.0)).xyz));
         refl = mix(refl, ssr.rgb, ssr.a);
@@ -794,7 +941,7 @@ void main() {
         color += vec3(0.85) * foam * 0.4 * lightAmt;
       }
     }
-    color = applyFog(color, vWorldPos);
+    color = applyFogLit(color, vWorldPos, skyL);
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -806,21 +953,21 @@ void main() {
   float depth = max(vDepth, 0.05);
   float deepness = 1.0 - exp(-depth * 0.42);
   vec3 body = mix(vec3(0.07, 0.36, 0.40), vec3(0.015, 0.08, 0.2), deepness) * lightAmt;
-  float tex = texture(uAtlas, vec3(vWorldPos.xz * 0.25 + uTime * 0.02, uWaterLayer)).b;
+  float tex = atlasTex(vec3(vWorldPos.xz * 0.25 + uTime * 0.02, uWaterLayer)).b;
   body *= 0.85 + tex * 0.3;
   float alpha = mix(0.5, 0.93, deepness);
 
   vec3 color;
   if (fromBelow) {
     // Looking up at the surface from under water: a bright, watery window.
-    color = mix(uWaterFogColor * 2.0, skyColor(vec3(0.0, 1.0, 0.0)) * 0.6, 0.35) * max(skyCurve(skyL), 0.15);
+    color = mix(uWaterFogColor * 2.0, skyColor(vec3(0.0, 1.0, 0.0)) * 0.6 * skyGate(skyL), 0.35) * max(skyCurve(skyL), 0.15);
     alpha = 0.8;
   } else {
     // Reflection of the sky (dimmed where the water is shaded from the sky)
     // plus a sharp glint of the sun.
     vec3 R = reflect(-V, N);
     R.y = abs(R.y);
-    vec3 refl = skyColor(R) * mix(0.2, 1.0, smoothstep(0.35, 0.9, skyL));
+    vec3 refl = skyColor(R) * skyReflection(skyL);
     float rs = max(dot(R, uLightDir), 0.0);
     float spec = pow(rs, 400.0) * 7.0 + pow(rs, 60.0) * 0.35;
     refl += uLightColor * spec * shadow * smoothstep(0.5, 0.95, skyL);
@@ -834,7 +981,7 @@ void main() {
       alpha = clamp(alpha + foam * 0.35, 0.0, 1.0);
     }
   }
-  color = applyFog(color, vWorldPos);
+  color = applyFogLit(color, vWorldPos, skyL);
   gl_FragColor = vec4(color, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -918,7 +1065,7 @@ void main() {
 `;
 
 const grassFragment = /* glsl */ `
-uniform highp sampler2DArray uAtlas;
+${ATLAS_GLSL}
 varying vec3 vUvw;
 varying float vTip;
 varying vec2 vLight;
@@ -928,7 +1075,7 @@ varying float vTint;
 ${FRAGMENT_LIGHT_INCLUDES}
 ${WORLD_COMMON}
 void main() {
-  vec4 tex = texture(uAtlas, vUvw);
+  vec4 tex = atlasTex(vUvw);
   // Keep thin blades from dissolving at a distance (see the chunk shader).
   vec2 tdx = dFdx(vUvw.xy * 32.0);
   vec2 tdy = dFdy(vUvw.xy * 32.0);
@@ -945,7 +1092,7 @@ void main() {
   vec3 V = normalize(cameraPosition - vWorldPos);
   float through = pow(max(dot(-V, uLightDir), 0.0), 4.0) * sunVisibility(vLight.x, shadow);
   vec3 color = albedo * light + albedo * vec3(1.0, 1.05, 0.7) * uLightColor * through * 0.8 * vTip;
-  color = applyFog(color, vWorldPos);
+  color = applyFogLit(color, vWorldPos, vLight.x);
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -953,12 +1100,15 @@ void main() {
 `;
 
 export function createGrassMaterial(atlas) {
+  const uniforms = litUniforms({
+    uPlayer: { value: new THREE.Vector3() },
+    uRadius: { value: 16 },
+  });
+  const defines = {};
+  bindPages(uniforms, defines, "uAtlas", atlas);
   return new THREE.ShaderMaterial({
-    uniforms: litUniforms({
-      uAtlas: { value: atlas },
-      uPlayer: { value: new THREE.Vector3() },
-      uRadius: { value: 16 },
-    }),
+    uniforms,
+    defines,
     vertexShader: grassVertex,
     fragmentShader: grassFragment,
     lights: true,
@@ -1191,24 +1341,39 @@ function litUniforms(extra) {
   return { ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights), ...worldUniforms, ...extra };
 }
 
+// (Round 12) The terrain's textures (the pages of the atlas and the relief,
+// the flipbooks) as uniforms and defines.
+function terrainTextures(atlas, relief, { reliefToo = true, flipbooks = true } = {}) {
+  const uniforms = {};
+  const defines = {};
+  bindPages(uniforms, defines, "uAtlas", atlas);
+  if (reliefToo) bindPages(uniforms, defines, "uRelief", relief);
+  if (flipbooks) bindFlipbooks(uniforms, defines, atlas);
+  return { uniforms, defines };
+}
+
 export function createChunkMaterials(atlas, waterLayer, relief) {
+  const ot = terrainTextures(atlas, relief);
   const opaque = new THREE.ShaderMaterial({
-    uniforms: litUniforms({ uAtlas: { value: atlas }, uRelief: { value: relief }, uEmissiveBoost: { value: 4.0 } }),
+    uniforms: litUniforms({ ...ot.uniforms, uEmissiveBoost: { value: 4.0 } }),
     vertexShader: chunkVertex,
     fragmentShader: chunkFragment,
     lights: true,
+    defines: ot.defines,
   });
+  const ct = terrainTextures(atlas, relief);
   const cutout = new THREE.ShaderMaterial({
-    uniforms: litUniforms({ uAtlas: { value: atlas }, uRelief: { value: relief }, uEmissiveBoost: { value: 4.0 } }),
+    uniforms: litUniforms({ ...ct.uniforms, uEmissiveBoost: { value: 4.0 } }),
     vertexShader: chunkVertex,
     fragmentShader: chunkFragment,
     lights: true,
     side: THREE.DoubleSide,
-    defines: { CUTOUT: "" },
+    defines: { ...ct.defines, CUTOUT: "" },
   });
+  const wt = terrainTextures(atlas, relief, { reliefToo: false, flipbooks: false });
   const water = new THREE.ShaderMaterial({
     uniforms: litUniforms({
-      uAtlas: { value: atlas },
+      ...wt.uniforms,
       uWaterLayer: { value: waterLayer },
       tSceneColor: { value: null },
       tSceneDepth: { value: null },
@@ -1220,14 +1385,17 @@ export function createChunkMaterials(atlas, waterLayer, relief) {
     vertexShader: waterVertex,
     fragmentShader: waterFragment,
     lights: true,
+    defines: wt.defines,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  const dt = terrainTextures(atlas, relief, { reliefToo: false });
   const cutoutDepth = new THREE.ShaderMaterial({
-    uniforms: { uAtlas: { value: atlas }, uTime: worldUniforms.uTime, uWaveStrength: worldUniforms.uWaveStrength, uWind: worldUniforms.uWind },
+    uniforms: { ...dt.uniforms, uTime: worldUniforms.uTime, uWaveStrength: worldUniforms.uWaveStrength, uWind: worldUniforms.uWind },
     vertexShader: cutoutDepthVertex,
     fragmentShader: cutoutDepthFragment,
+    defines: dt.defines,
     side: THREE.DoubleSide,
   });
   // Emissive blocks share the materials above; `uEmissiveBoost` is kept in
@@ -1317,7 +1485,7 @@ uniform float uGlow;   // 0-1: how much bright texels glow (mob eyes)
 uniform float uOpacity;
 uniform float uFill;   // extra ambient (the held item stays readable when backlit)
 #ifdef USE_ARRAY_TEX
-  uniform highp sampler2DArray uAtlas;
+  ${ATLAS_GLSL}
   varying float vLayer;
 #endif
 #ifdef USE_MAP
@@ -1363,7 +1531,7 @@ ${POINT_LIGHTS}
 void main() {
   vec4 albedo = vec4(1.0);
   #ifdef USE_ARRAY_TEX
-    albedo = texture(uAtlas, vec3(vUv, vLayer));
+    albedo = atlasTex(vec3(vUv, vLayer));
   #endif
   #ifdef USE_MAP
     albedo = texture2D(uMap, vUv);
@@ -1446,7 +1614,7 @@ void main() {
     // (Round 9: a matte texel, alpha just below 1, never glows: see mob-models.js MATTE.)
     color = mix(color, albedo.rgb * 5.0, uGlow * smoothstep(0.55, 0.9, lum) * step(0.985, albedo.a));
   }
-  color = applyFog(color, vWorldPos);
+  color = applyFogLit(color, vWorldPos, uLight.x);
   gl_FragColor = vec4(color, uOpacity);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -1468,7 +1636,7 @@ export function createEntityMaterial(kind, texture = null, { transparent = false
   });
   if (kind === "array") {
     defines.USE_ARRAY_TEX = "";
-    uniforms.uAtlas = { value: texture };
+    bindPages(uniforms, defines, "uAtlas", texture);
   } else if (kind === "map") {
     defines.USE_MAP = "";
     uniforms.uMap = { value: texture };

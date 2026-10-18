@@ -61,6 +61,25 @@ for (const info of Object.values(BLOCK_INFO)) {
   }
 }
 
+// (Round 12) Whether a cactus touches an upright box (feet center `pos`,
+// half-width r, height h): vanilla's cactus is 1/16 thinner than its cell,
+// so anything against its side or standing on it is in its cell; here it
+// fills the cell, so the box is grown by a hair to reach it. For the
+// creatures (mobs.js); the player's own scan is player.js _scanBody.
+export function touchesCactus(world, pos, r, h) {
+  const e = 0.05;
+  for (let bx = Math.floor(pos.x - r - e); bx <= Math.floor(pos.x + r + e); bx++) {
+    for (let bz = Math.floor(pos.z - r - e); bz <= Math.floor(pos.z + r + e); bz++) {
+      const inXZ = bx + 1 > pos.x - r && bx < pos.x + r && bz + 1 > pos.z - r && bz < pos.z + r;
+      for (let by = Math.floor(pos.y - e); by <= Math.floor(pos.y + h + e); by++) {
+        // (across a face, not just at an edge)
+        if (BODY_FLAGS[world.getBlock(bx, by, bz)] & BODY.CACTUS && (inXZ || (by + 1 > pos.y && by < pos.y + h))) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // XP for mining an ore (vanilla; Survival worlds): the def's `xp` ([min,
 // max], { min, max } or a number), else vanilla's for the known ores (coal
 // 0-2, diamond and emerald 3-7, lapis 2-5, redstone 1-5; iron, gold and

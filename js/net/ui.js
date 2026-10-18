@@ -12,7 +12,10 @@ export class MpMenus {
   constructor(mp) {
     this.mp = mp;
     this.game = mp.game;
+    // (Round 12) The Host tab's pick: a room mode in a world type (one of the
+    // other type opens that world first). null: this world's own game.
     this.hostMode = "survival";
+    this.hostWt = null;
     this._feedEls = [];
     this._hudT = 0;
     this._build();
@@ -30,6 +33,7 @@ export class MpMenus {
     for (const card of document.querySelectorAll("[data-mpmode]")) {
       card.addEventListener("click", () => {
         this.hostMode = card.dataset.mpmode;
+        this.hostWt = card.dataset.wt || null;
         this._hostCards();
       });
     }
@@ -80,6 +84,9 @@ export class MpMenus {
     });
     g.screens.onOpen["mp-lobby"] = () => this.refresh();
     g.screens.onOpen["mp-screen"] = () => {
+      // (Opened: this world's game in the mode played now, lit.)
+      this.hostWt = null;
+      this.hostMode = g.player?.creative ? "creative" : "survival";
       this._hostCards();
       $("mp-screen-error").classList.add("hidden");
       $("mp-screen-status").textContent = "";
@@ -88,18 +95,29 @@ export class MpMenus {
     };
   }
 
-  // (Round 11) The Host tab's mode cards: the ones this world's type has
-  // (a Missions world: Missions, Creative, Dogfight; a Survival world:
-  // Survival, Creative), the picked one lit.
+  // (Round 11) The Host tab's mode cards. (Round 12) Every mode, named as on
+  // the main menu: Survival and Creative (a Survival world), Missions and
+  // Dogfight (a Missions world); a card of the other world type opens that
+  // world (your last one of the type, or a new one) and the room opens there.
+  // The picked one is lit; a Missions world played in Creative lights
+  // Missions (its Creative room is in the lobby's mode list).
   _hostCards() {
-    const modes = roomModes(this.game.worldType);
-    if (!modes.includes(this.hostMode)) this.hostMode = modes[0];
     const wt = this.game.worldType;
+    const pickWt = this.hostWt || wt;
+    if (!roomModes(pickWt).includes(this.hostMode)) this.hostMode = "survival";
+    // (A Missions world's own Creative has no card: its Missions card stands for it.)
+    const mode = pickWt === "missions" && this.hostMode === "creative" ? "survival" : this.hostMode;
     for (const c of document.querySelectorAll("[data-mpmode]")) {
-      // (The world's own game has a card per type: Missions or Survival.)
-      const shown = modes.includes(c.dataset.mpmode) && (!c.dataset.wt || c.dataset.wt === wt);
-      c.classList.toggle("hidden", !shown);
-      c.classList.toggle("active", shown && c.dataset.mpmode === this.hostMode);
+      c.classList.remove("hidden");
+      c.classList.toggle("active", (c.dataset.wt || wt) === pickWt && c.dataset.mpmode === mode);
+    }
+    const where = $("mp-host-where");
+    if (where) {
+      const name = pickWt === "survival" ? "Survival" : "Missions";
+      where.textContent =
+        pickWt === wt
+          ? `The room plays this ${name} world${wt === "missions" && this.hostMode === "creative" ? ", in Creative" : ""} (seed ${this.game.SEED}).`
+          : `The room plays your ${name} world: it opens first (the page reloads, your world here is saved), then the room opens there.`;
     }
   }
 
@@ -130,6 +148,13 @@ export class MpMenus {
       return;
     }
     saveNick(nick);
+    // (Round 12) A mode of the other world type: into that world, which opens the room as it starts.
+    if (this.hostWt && this.hostWt !== this.game.worldType && this.game.hostInWorld) {
+      status.textContent = "Opening that world...";
+      status.classList.add("busy");
+      this.game.hostInWorld(this.hostWt, this.hostMode);
+      return;
+    }
     const btn = $("mp-host-btn");
     btn.disabled = true;
     status.textContent = "Opening a room...";
@@ -148,6 +173,25 @@ export class MpMenus {
       showError(err, e);
     } finally {
       btn.disabled = false;
+    }
+  }
+
+  // (Round 12) The room asked for on the Multiplayer screen of another world,
+  // opened as this world starts (menu-go.js; main.js): no screen, the room
+  // code in a toast and the HUD chip (Esc > Multiplayer has the lobby).
+  async hostNow(mode) {
+    if (this.mp.active || this.game.GUEST) return;
+    const nick = loadNick();
+    if (!nick) return;
+    this.hostWt = null;
+    this.hostMode = mode;
+    try {
+      const code = await this.mp.host(nick, mode);
+      this.game.hostStarted?.(mode);
+      this.game.toast?.(`Room ${code} is open: share the code (or the invite link: Esc > Multiplayer) with your friends.`, 8);
+    } catch (e) {
+      const t = netErrorText(e);
+      this.game.toast?.(`${t.title}. Esc > Multiplayer to try again.`, 8);
     }
   }
 

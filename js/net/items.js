@@ -118,7 +118,8 @@ export class ItemSync {
     const it = this.byKey.get(m.k);
     this.byKey.delete(m.k);
     const g = this.game;
-    if (it) g.entities.removeWhere((x) => x === it);
+    // (Round 12) It flies into whoever took it (vanilla's pickup animation), here or another player.
+    if (it) g.entities.collect(it, m.by === this.net.pid ? g.player.position : m.by ? this.mp.players?.get?.(m.by)?.position ?? null : null);
     if (m.by !== this.net.pid || !it) return;
     // Ours: into the inventory (what doesn't fit is thrown back out, for anyone).
     const left = g.inventory.add(it.id, m.n ?? it.count, it.dur, it.tag);

@@ -24,6 +24,10 @@
 // Online the host owns the weather and sends it (js/net/weather.js): every
 // guest sees the same rain and the same bolts, and is hurt by a bolt near
 // it on its own screen. Pure logic (no three.js): js/weather-fx.js draws it.
+// - (Round 12) The weather is the Overworld's: in the Nether and the End
+//   nothing falls and nothing it touches happens there, but its cycle goes
+//   on (the host's, wherever the host is), and back in the Overworld it is
+//   raining at once if it rains there.
 import { BLOCK, IS_SOLID, IS_WET, IS_LEAVES, IS_OPAQUE, BLOCK_INFO } from "./blocks.js";
 import { WORLD_HEIGHT, CHUNK_SIZE } from "./constants.js";
 import { BIOME } from "./biomes.js";
@@ -93,6 +97,13 @@ export class Weather {
     LIB.isThundering = () => this.enabled() && this.isThundering;
   }
 
+  // (Round 12) The world went to another dimension: the column cache held its chunks.
+  dimChanged() {
+    this._keyX.fill(NO_KEY);
+    this._chunk.fill(null);
+    this._precip.clear();
+  }
+
   // Vanilla's isRaining and isThundering: the levels, not the cycle's flags.
   get isRaining() {
     return this.levels.rain > 0.2;
@@ -122,6 +133,19 @@ export class Weather {
       return;
     }
     if (this.authority) this._advance(dt);
+    // (Round 12) Another dimension: none of it here.
+    if (this.world.dimInfo?.weather === false) {
+      this.levels.rain = this.levels.thunder = 0;
+      this._thunderLevel = 0;
+      this._away = true;
+      return;
+    }
+    if (this._away) {
+      this._away = false;
+      this.levels.rain = this.raining ? 1 : 0;
+      this._thunderLevel = this.thundering ? 1 : 0;
+      this.levels.thunder = this._thunderLevel * this.levels.rain;
+    }
     const step = FADE * dt;
     const r = this.levels.rain;
     this.levels.rain = this.raining ? Math.min(1, r + step) : Math.max(0, r - step);

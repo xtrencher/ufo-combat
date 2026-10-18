@@ -33,6 +33,7 @@ import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { chunkKey, blockIndex } from "./constants.js";
 import { LIB } from "./content/base.js";
+import { dimKey, DIM_KEY_RE, parseDimKey, OVERWORLD } from "./dim-registry.js";
 import * as V from "./content/ids.js";
 import { POTIONS, potionId, FERMENTED_SPIDER_EYE, GLISTERING_MELON_SLICE } from "./content/items-vanilla.js";
 import { isUndead } from "./enchant.js";
@@ -110,6 +111,9 @@ export function brewingAccepts(i, id) {
 }
 
 // ---------- Brewing stands ----------
+// (Round 12) As the furnaces (js/furnace.js): every dimension's stands in the
+// one store ("n:x,y,z" for the Nether's, js/dim-registry.js), each with its
+// `dim`; the host brews in its own loaded ground and near every guest in theirs.
 
 export class BrewingStands {
   constructor({ world }) {
@@ -131,15 +135,26 @@ export class BrewingStands {
     world.changeListeners?.push((changed) => this._blocksChanged(changed));
   }
 
+  // (The Overworld's key; a key in any dimension: keyOf.)
   static key(x, y, z) {
     return `${x},${y},${z}`;
   }
 
-  contents(x, y, z) {
-    const key = BrewingStands.key(x, y, z);
+  keyOf(x, y, z, dim = this.world.dim ?? OVERWORLD) {
+    return dimKey(dim, x, y, z);
+  }
+
+  contents(x, y, z, dim = this.world.dim ?? OVERWORLD) {
+    const key = this.keyOf(x, y, z, dim);
     let b = this.store.get(key);
-    if (!b) this.store.set(key, (b = { x, y, z, key, slots: new Array(BREWING_SLOTS).fill(null), brew: 0, ing: 0 }));
+    if (!b) this.store.set(key, (b = { x, y, z, dim, key, slots: new Array(BREWING_SLOTS).fill(null), brew: 0, ing: 0 }));
     return b;
+  }
+
+  // Whether the stand's ground is loaded here (its dimension's).
+  _here(b) {
+    const w = this.world;
+    return b.dim === (w.dim ?? OVERWORLD) && !!w.getChunk(b.x >> 4, b.z >> 4);
   }
 
   // Whether the stand's ingredient acts on any of its bottles.
@@ -187,8 +202,9 @@ export class BrewingStands {
 
   _blockAt(b) {
     const world = this.world;
-    if (world.getChunk(b.x >> 4, b.z >> 4)) return world.getBlock(b.x, b.y, b.z);
-    const id = world.edits?.get(chunkKey(b.x >> 4, b.z >> 4))?.get(blockIndex(b.x & 15, b.y, b.z & 15));
+    if (this._here(b)) return world.getBlock(b.x, b.y, b.z);
+    const edits = world.editsOf ? world.editsOf(b.dim) : world.edits;
+    const id = edits?.get(chunkKey(b.x >> 4, b.z >> 4))?.get(blockIndex(b.x & 15, b.y, b.z & 15));
     return id === undefined ? -1 : id;
   }
 
@@ -231,7 +247,7 @@ export class BrewingStands {
         }
         continue;
       }
-      if (!world.getChunk(b.x >> 4, b.z >> 4) && !this.nearGuest?.(b.x, b.z)) continue;
+      if (!this._here(b) && !this.nearGuest?.(b.x, b.z, b.dim)) continue;
       const was = b.brew > 0;
       let changed = false;
       for (let k = 0; k < n; k++) {
@@ -249,7 +265,7 @@ export class BrewingStands {
   // ---------- The stand open on this screen ----------
 
   openView(x, y, z, onUpdate) {
-    const key = BrewingStands.key(x, y, z);
+    const key = this.keyOf(x, y, z);
     if (this.view && this.view.key === key) {
       this.view.onUpdate = onUpdate;
       return this.view;
@@ -353,11 +369,11 @@ export class BrewingStands {
     if (!this.authority || !this.store.size) return;
     const world = this.world;
     if (changed.length / 3 > this.store.size * 4) {
-      for (const b of this.store.values()) if (world.getChunk(b.x >> 4, b.z >> 4) && !isBrewingStand(world.getBlock(b.x, b.y, b.z))) this._gone(b);
+      for (const b of this.store.values()) if (this._here(b) && !isBrewingStand(world.getBlock(b.x, b.y, b.z))) this._gone(b);
       return;
     }
     for (let i = 0; i < changed.length; i += 3) {
-      const b = this.store.get(BrewingStands.key(changed[i], changed[i + 1], changed[i + 2]));
+      const b = this.store.get(this.keyOf(changed[i], changed[i + 1], changed[i + 2]));
       if (b && !isBrewingStand(world.getBlock(b.x, b.y, b.z))) this._gone(b);
     }
   }
@@ -370,7 +386,12 @@ export class BrewingStands {
       v.onUpdate?.();
     }
     this.onGone?.(b.key);
-    for (const s of b.slots) if (s) this.onDrop?.(s, b.x, b.y, b.z);
+    // (Round 12: in its own dimension.)
+    const drop = () => {
+      for (const s of b.slots) if (s) this.onDrop?.(s, b.x, b.y, b.z);
+    };
+    if (!this.world.inDim || b.dim === this.world.dim) drop();
+    else this.world.inDim(b.dim, drop);
   }
 
   // ---------- Save ----------
@@ -392,9 +413,9 @@ export class BrewingStands {
     this.store.clear();
     if (!data || typeof data !== "object") return;
     for (const [key, e] of Object.entries(data)) {
-      if (!/^-?\d+,-?\d+,-?\d+$/.test(key) || !Array.isArray(e) || !Array.isArray(e[0])) continue;
-      const [x, y, z] = key.split(",").map(Number);
-      const b = this.contents(x, y, z);
+      if (!DIM_KEY_RE.test(key) || !Array.isArray(e) || !Array.isArray(e[0])) continue;
+      const [x, y, z, dim] = parseDimKey(key);
+      const b = this.contents(x, y, z, dim);
       for (let i = 0; i < BREWING_SLOTS; i++) {
         const s = decodeStack(e[0][i]);
         b.slots[i] = s && brewingAccepts(i, s.id) ? s : null;

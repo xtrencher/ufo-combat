@@ -9,7 +9,7 @@ import * as V from "./content/ids.js";
 import { SNOWY_GRASS } from "./content/nature.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME, BiomeSource, isSnowy, isOceanBiome } from "./biomes.js";
-import { VillageGrower, VILLAGE_REACH } from "./village.js";
+import { VillageGrower } from "./village.js";
 import { SiteGrower } from "./sites.js";
 import { StructureGrower } from "./structures.js";
 
@@ -161,7 +161,7 @@ export class TerrainGenerator {
     this.options = { sites: opts?.sites !== false, vanilla: opts?.vanilla ?? opts?.sites === false };
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
-    this.biomes = new BiomeSource(this.seed);
+    this.biomes = new BiomeSource(this.seed, { vanilla: this.options.vanilla });
     this.sites = new SiteGrower(this, { off: !this.options.sites }); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
@@ -446,14 +446,16 @@ export class TerrainGenerator {
           const r = hash2(this.seed ^ PLANT_SALT, wx, wz);
           const patch = this.noise.perlin2(wx * 0.045 + 31.7, wz * 0.045 - 12.3); // -0.7..0.7
           const meadow = biomeAt(lx, lz) === BIOME.MEADOW;
-          const flowerChance = meadow ? 0.06 + Math.max(0, patch) * 0.16 : Math.max(0, patch - 0.15) * 0.25;
+          // (Round 12) a Survival world's jungle floor: thick with grass and ferns, few flowers
+          const jungle = this.options.vanilla && biomeAt(lx, lz) === BIOME.JUNGLE;
+          const flowerChance = meadow ? 0.06 + Math.max(0, patch) * 0.16 : Math.max(0, patch - 0.15) * (jungle ? 0.06 : 0.25);
           if (r < flowerChance) {
             const pick = hash2(this.seed ^ 0x2f6b, wx, wz);
             if (this.options.vanilla) {
               const list = FLOWERS[biomeAt(lx, lz)] || DEFAULT_FLOWERS;
               blocks[above] = list[Math.floor(pick * list.length)];
             } else blocks[above] = pick < 0.5 ? BLOCK.FLOWER_RED : BLOCK.FLOWER_YELLOW;
-          } else if (r < flowerChance + (meadow ? 0.2 : 0.11) + Math.max(0, -patch) * 0.1) {
+          } else if (r < flowerChance + (meadow ? 0.2 : jungle ? 0.3 : 0.11) + Math.max(0, -patch) * 0.1) {
             blocks[above] = BLOCK.TALL_GRASS;
             // (a Survival world's taigas and jungles: ferns among the grass)
             if (this.options.vanilla) {
@@ -569,7 +571,7 @@ export class TerrainGenerator {
     if (h0 <= SEA_LEVEL + 2 || h0 >= WORLD_HEIGHT - 4 || isOceanBiome(b) || b === BIOME.RIVER || b === BIOME.BEACH || b === BIOME.SWAMP) return;
     const wx0 = cx * S + lx0;
     const wz0 = cz * S + lz0;
-    if (this.villages.nearestVillage(wx0, wz0, VILLAGE_REACH + 12)) return;
+    if (this.villages.nearestVillage(wx0, wz0, this.villages.reach + 12)) return;
     const rx = 2 + rand() * 1.6;
     const rz = 2 + rand() * 1.6;
     const cells = [];

@@ -8,9 +8,11 @@
 //   uv        Float32 x2  texture coordinate within the block's tile
 //   aData     Uint8   x4  [normalIndex * 4 + ao (0-3), sky light * 17, block light * 17, flags]
 //   aExtra    Uint8   x4  [texture layer (low byte), water depth * 16, color tint (128 = none), texture layer (high byte)]
+//             (Round 12: on an animated face, not water, the second byte is
+//             its flipbook (FLAG.ANIM) or its flow direction (FLAG.FLOW))
 //
 // (Round 11) Block ids are 16-bit (the padded volume is a Uint16Array) and
-// the texture layer takes two bytes (up to 1024 tiles). A content module's
+// the texture layer takes two bytes (TILE_CAPACITY tiles, js/content/base.js). A content module's
 // shapes (SHAPE_MESH, see js/content/index.js) are meshed here through
 // `shapeApi`, the same on the main thread and in the workers.
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
@@ -32,10 +34,28 @@ import {
   BLOCK_LIMIT,
   SHAPE_CUSTOM,
   SHAPE_MESH,
+  TILE,
 } from "./blocks.js";
+import { TILE_CAPACITY, TILE_FLIPBOOKS, TILE_FLOWING } from "./content/base.js";
+import { isLava, lavaLevel } from "./content/nature.js";
 
-// FOLIAGE: leaves and plants (sunlight shines through them).
-export const FLAG = Object.freeze({ WAVE: 1, EMISSIVE: 2, SURFACE: 4, UNDERWATER: 8, FOLIAGE: 16 });
+// FOLIAGE: leaves and plants (sunlight shines through them). (Round 12)
+// ANIM: a flipbook tile (the shader plays its frames); FLOW: a flowing
+// liquid's tile (lava: drawn moving, along its flow direction).
+export const FLAG = Object.freeze({ WAVE: 1, EMISSIVE: 2, SURFACE: 4, UNDERWATER: 8, FOLIAGE: 16, ANIM: 32, FLOW: 64 });
+
+// (Round 12) Per texture layer: 0, a flipbook's index + 1, or ANIM_FLOW.
+const ANIM_FLOW = 255;
+const TILE_ANIM = new Uint8Array(TILE_CAPACITY);
+TILE_FLIPBOOKS.forEach((f, k) => {
+  if (TILE[f.tile] !== undefined) TILE_ANIM[TILE[f.tile]] = k + 1;
+});
+for (const name of TILE_FLOWING) if (TILE[name] !== undefined) TILE_ANIM[TILE[name]] = ANIM_FLOW;
+// Blocks with a flowing tile on a face (their flow direction is worked out when meshed).
+const FLOWS = new Uint8Array(BLOCK_LIMIT);
+for (let id = 0; id < BLOCK_LIMIT; id++) {
+  for (let f = 0; f < 6; f++) if (TILE_ANIM[FACE_TILES[id * 6 + f]] === ANIM_FLOW) FLOWS[id] = 1;
+}
 export const WATER_SURFACE_HEIGHT = 0.875;
 
 const S = CHUNK_SIZE;
@@ -98,6 +118,7 @@ class GeoBuilder {
     this.vc = 0;
     this.ic = 0;
     this.tint = 128; // color tint written with every vertex (128 = none)
+    this.flow = 0; // (Round 12) the flow direction written on a flowing tile's vertices (see flowCode)
   }
   _alloc(cap) {
     const old = this.cap ? this : null;
@@ -126,6 +147,16 @@ class GeoBuilder {
   }
   vertex(x, y, z, u, v, d0, sky, blk, flags, layer, depth) {
     if (this.vc >= this.cap) this._alloc(this.cap * 2);
+    const anim = TILE_ANIM[layer] | 0; // (| 0: a layer past the table)
+    if (anim !== 0) {
+      if (anim === ANIM_FLOW) {
+        flags |= FLAG.FLOW;
+        depth = this.flow;
+      } else {
+        flags |= FLAG.ANIM;
+        depth = anim - 1;
+      }
+    }
     const i = this.vc++;
     this.pos[i * 3] = x;
     this.pos[i * 3 + 1] = y;
@@ -591,8 +622,47 @@ const shapeApi = {
   },
 };
 
+// (Round 12) Lava's surface height in the padded cell pi (as js/content/
+// nature.js draws it: 8/9 for a source, 2/9 less a block of flow, the full
+// cell under more lava), or -1 if it isn't lava.
+function lavaSurface(pi) {
+  const id = padBlocks[pi];
+  if (!isLava(id)) return -1;
+  return isLava(padBlocks[pi + OY]) ? 1 : (8 - 2 * lavaLevel(id)) / 9;
+}
+const SIDE_STEPS = [
+  [1, 0, OX],
+  [-1, 0, -OX],
+  [0, 1, OZ],
+  [0, -1, -OZ],
+];
+// The flow direction of the lava in cell pi, for its vertices: 0 still (no
+// lower lava beside it), else 1 + one of 16 directions (around from +X
+// toward +Z). Downhill toward lower lava beside it, as vanilla's, and toward
+// an edge where it falls (lava below the open cell beside it).
+function flowCode(pi) {
+  const h = lavaSurface(pi);
+  if (h < 0) return 0;
+  let fx = 0;
+  let fz = 0;
+  for (const [dx, dz, step] of SIDE_STEPS) {
+    let nh = lavaSurface(pi + step);
+    if (nh < 0) {
+      if (IS_OPAQUE[padBlocks[pi + step]]) continue;
+      nh = lavaSurface(pi + step - OY);
+      if (nh < 0) continue;
+      nh -= 1;
+    }
+    fx += dx * (h - nh);
+    fz += dz * (h - nh);
+  }
+  if (fx * fx + fz * fz < 1e-6) return 0;
+  return 1 + (Math.round(Math.atan2(fz, fx) / (Math.PI / 8)) & 15);
+}
+
 function emitShape(b, x, y, z, wx, wz, id, pi, shape) {
   const m = shapeApi;
+  b.flow = FLOWS[id] ? flowCode(pi) : 0;
   m.id = id;
   m.x = x;
   m.y = y;
@@ -603,6 +673,7 @@ function emitShape(b, x, y, z, wx, wz, id, pi, shape) {
   m._b = b;
   SHAPE_MESH[shape](m);
   b.tint = 128;
+  b.flow = 0;
 }
 
 // neighbors: 9 chunks as described in fillPadded (center at index 4).

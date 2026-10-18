@@ -17,6 +17,12 @@
 // words), and its clicks are asked of the host, checked against what each
 // slot held, applied in the host's order and passed on to everyone with that
 // furnace open. Pure logic (no three.js, no DOM): the game sets the hooks.
+//
+// (Round 12) Every dimension's furnaces are in the one store (a Nether
+// furnace's key "n:x,y,z": js/dim-registry.js dimKey), each with its `dim`:
+// the host smelts in the ground it has loaded in its own dimension and near
+// every guest in theirs; a furnace of another dimension lights and goes out
+// as an edit there (world.queueEdit's dim), and spills there when it goes.
 import { FURNACE, BUCKET } from "./content/ids.js";
 import { maxStack } from "./items.js";
 import { makeStack } from "./inventory.js";
@@ -24,6 +30,7 @@ import { encodeStack, decodeStack, sameStack } from "./chests.js";
 import { smeltingOf, burnTicks, craftRemainder, TICKS_PER_SECOND } from "./crafting.js";
 import { chunkKey, blockIndex } from "./constants.js";
 import { LIB } from "./content/base.js";
+import { dimKey, DIM_KEY_RE, parseDimKey, OVERWORLD } from "./dim-registry.js";
 
 export const FURNACE_SLOTS = 3; // input, fuel, output
 const TICK = 1 / TICKS_PER_SECOND;
@@ -71,20 +78,32 @@ export class Furnaces {
     this.onBars = null; // (key): the authority, the fire lit or went out, or cooking started or stopped
     this.onGone = null; // (key): the authority, a furnace went
     this.watched = null; // (key) => true while someone online has it open
-    this.nearGuest = null; // (x, z) => true when a guest is near (the host)
+    this.nearGuest = null; // (x, z, dim) => true when a guest is near (the host)
     world.changeListeners?.push((changed) => this._blocksChanged(changed));
   }
 
+  // (The Overworld's key; a key in any dimension: keyOf.)
   static key(x, y, z) {
     return `${x},${y},${z}`;
   }
 
+  // (Round 12) The furnace at (x, y, z) in `dim` (default: the world's own).
+  keyOf(x, y, z, dim = this.world.dim ?? OVERWORLD) {
+    return dimKey(dim, x, y, z);
+  }
+
   // The record of the furnace at (x, y, z), made empty on first use (the authority).
-  contents(x, y, z) {
-    const key = Furnaces.key(x, y, z);
+  contents(x, y, z, dim = this.world.dim ?? OVERWORLD) {
+    const key = this.keyOf(x, y, z, dim);
     let f = this.store.get(key);
-    if (!f) this.store.set(key, (f = { x, y, z, key, slots: new Array(FURNACE_SLOTS).fill(null), lit: 0, litDur: 0, prog: 0, total: COOK_TICKS, xp: 0, cooking: false }));
+    if (!f) this.store.set(key, (f = { x, y, z, dim, key, slots: new Array(FURNACE_SLOTS).fill(null), lit: 0, litDur: 0, prog: 0, total: COOK_TICKS, xp: 0, cooking: false }));
     return f;
+  }
+
+  // (Round 12) Whether the furnace's ground is loaded here (its dimension's).
+  _here(f) {
+    const w = this.world;
+    return (f.dim === (w.dim ?? OVERWORLD)) && !!w.getChunk(f.x >> 4, f.z >> 4);
   }
 
   // ---------- Smelting ----------
@@ -150,8 +169,9 @@ export class Furnaces {
   // loaded here and no recorded edit says what is there.
   _blockAt(f) {
     const world = this.world;
-    if (world.getChunk(f.x >> 4, f.z >> 4)) return world.getBlock(f.x, f.y, f.z);
-    const id = world.edits?.get(chunkKey(f.x >> 4, f.z >> 4))?.get(blockIndex(f.x & 15, f.y, f.z & 15));
+    if (this._here(f)) return world.getBlock(f.x, f.y, f.z);
+    const edits = world.editsOf ? world.editsOf(f.dim) : world.edits;
+    const id = edits?.get(chunkKey(f.x >> 4, f.z >> 4))?.get(blockIndex(f.x & 15, f.y, f.z & 15));
     return id === undefined ? -1 : id;
   }
 
@@ -196,7 +216,7 @@ export class Furnaces {
         }
       }
       if (n <= 0 || Furnaces.idle(f)) continue;
-      if (!world.getChunk(f.x >> 4, f.z >> 4) && !this.nearGuest?.(f.x, f.z)) continue;
+      if (!this._here(f) && !this.nearGuest?.(f.x, f.z, f.dim)) continue;
       const wasLit = f.lit > 0;
       const wasCooking = f.cooking;
       let changed = false;
@@ -221,8 +241,8 @@ export class Furnaces {
   _showLit(f, lit) {
     const id = this._blockAt(f);
     if (!isFurnace(id) || furnaceLit(id) === lit) return;
-    if (this.world.getChunk(f.x >> 4, f.z >> 4)) this.world.setBlock(f.x, f.y, f.z, furnaceAs(id, lit));
-    else this.world.queueEdit?.(f.x, f.y, f.z, furnaceAs(id, lit));
+    if (this._here(f)) this.world.setBlock(f.x, f.y, f.z, furnaceAs(id, lit));
+    else this.world.queueEdit?.(f.x, f.y, f.z, furnaceAs(id, lit), f.dim);
   }
 
   // ---------- The furnace open on this screen ----------
@@ -231,7 +251,7 @@ export class Furnaces {
   // its slots change (or it is gone: view.gone). view.f has the bars (lit,
   // litDur, prog, total).
   openView(x, y, z, onUpdate) {
-    const key = Furnaces.key(x, y, z);
+    const key = this.keyOf(x, y, z);
     if (this.view && this.view.key === key) {
       this.view.onUpdate = onUpdate;
       return this.view;
@@ -373,11 +393,11 @@ export class Furnaces {
     if (!this.authority || !this.store.size) return;
     const world = this.world;
     if (changed.length / 3 > this.store.size * 4) {
-      for (const f of this.store.values()) if (world.getChunk(f.x >> 4, f.z >> 4) && !isFurnace(world.getBlock(f.x, f.y, f.z))) this._gone(f);
+      for (const f of this.store.values()) if (this._here(f) && !isFurnace(world.getBlock(f.x, f.y, f.z))) this._gone(f);
       return;
     }
     for (let i = 0; i < changed.length; i += 3) {
-      const f = this.store.get(Furnaces.key(changed[i], changed[i + 1], changed[i + 2]));
+      const f = this.store.get(this.keyOf(changed[i], changed[i + 1], changed[i + 2]));
       if (f && !isFurnace(world.getBlock(f.x, f.y, f.z))) this._gone(f);
     }
   }
@@ -390,9 +410,15 @@ export class Furnaces {
       v.onUpdate?.();
     }
     this.onGone?.(f.key);
-    for (const s of f.slots) if (s) this.onDrop?.(s, f.x, f.y, f.z);
+    // (Round 12: in its own dimension; its experience only where the world is.)
+    const here = !this.world.inDim || f.dim === this.world.dim;
+    const drop = () => {
+      for (const s of f.slots) if (s) this.onDrop?.(s, f.x, f.y, f.z);
+    };
+    if (here) drop();
+    else this.world.inDim(f.dim, drop);
     const xp = this._takeXp(f);
-    if (xp > 0) this.onDropXp?.(xp, f.x, f.y, f.z);
+    if (xp > 0 && here) this.onDropXp?.(xp, f.x, f.y, f.z);
   }
 
   // ---------- Save ----------
@@ -417,9 +443,9 @@ export class Furnaces {
     if (!data || typeof data !== "object") return;
     const int = (n) => (Number.isInteger(n) && n >= 0 && n <= 1e6 ? n : 0);
     for (const [key, e] of Object.entries(data)) {
-      if (!/^-?\d+,-?\d+,-?\d+$/.test(key) || !Array.isArray(e) || !Array.isArray(e[0])) continue;
-      const [x, y, z] = key.split(",").map(Number);
-      const f = this.contents(x, y, z);
+      if (!DIM_KEY_RE.test(key) || !Array.isArray(e) || !Array.isArray(e[0])) continue;
+      const [x, y, z, dim] = parseDimKey(key);
+      const f = this.contents(x, y, z, dim);
       for (let i = 0; i < FURNACE_SLOTS; i++) f.slots[i] = decodeStack(e[0][i]);
       f.lit = int(e[1]);
       f.litDur = Math.max(f.lit, int(e[2]));

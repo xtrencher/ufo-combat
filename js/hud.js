@@ -4,7 +4,7 @@
 // and level over the hotbar, status effects top right, the burning overlay.
 // All pixel art (hearts, bubbles, drumsticks, effect icons) is drawn in code.
 import { HOTBAR_SIZE } from "./inventory.js";
-import { MAX_HEALTH, MAX_AIR } from "./player.js";
+import { MAX_HEALTH, MAX_AIR, CAMERA_MODES } from "./player.js";
 import { SlotView, stackLabel } from "./slot-view.js";
 import { isVanilla } from "./worldtype.js";
 import { EFFECTS, MAX_FOOD, formatEffectTime, effectLevelName } from "./survival.js";
@@ -206,6 +206,23 @@ function goldHeartArt(half = false) {
   });
 }
 
+// (Round 12) The F3 screen's facing line, as vanilla's: the direction, the
+// axis it runs along, and vanilla's yaw (0 south, 90 west, 180 north, -90
+// east) and pitch (down is positive). The game's yaw 0 looks north (-Z).
+const FACINGS = [
+  ["north", "Towards negative Z"],
+  ["west", "Towards negative X"],
+  ["south", "Towards positive Z"],
+  ["east", "Towards positive X"],
+];
+export function debugFacing(yaw, pitch) {
+  const turn = (((yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 2);
+  const [name, axis] = FACINGS[Math.round(turn) % 4];
+  let mc = 180 - (yaw * 180) / Math.PI;
+  mc = ((((mc + 180) % 360) + 360) % 360) - 180;
+  return `Facing: ${name} (${axis}) (${mc.toFixed(1)} / ${((-pitch * 180) / Math.PI).toFixed(1)})`;
+}
+
 export class Hud {
   constructor({ icons, inventory }) {
     this.icons = icons;
@@ -360,6 +377,12 @@ export class Hud {
     this._flashTime = 99;
     this._mode = null;
     this._wasLow = false;
+    // (Round 12) The crosshair, hidden in the camera that faces the player
+    // (F5's third mode: it would point nowhere); the death screen's score.
+    this.crosshairEl = document.getElementById("crosshair");
+    this._crossHidden = false;
+    this._score = 0;
+    this.scoreEl = null;
   }
 
   show(visible) {
@@ -441,6 +464,14 @@ export class Hud {
   update(dt, player) {
     this._time = (this._time || 0) + dt;
     this.refreshHotbar();
+    const front = !player.vehicle && player.thirdPerson && CAMERA_MODES[player.cameraMode] === "front";
+    if (front !== this._crossHidden && this.crosshairEl) {
+      this._crossHidden = front;
+      this.crosshairEl.style.opacity = front ? "0" : ""; // (its visibility is the scope's: ui.js)
+    }
+    // (The score the death screen shows: vanilla's, the XP collected. Kept
+    // from before dying: dying spills the XP.)
+    if (!player.dead) this._score = player.xpTotal | 0;
     this._nameTimer -= dt;
     const nameOpacity = String(Math.max(0, Math.min(1, this._nameTimer / 0.4)));
     if (nameOpacity !== this._nameOpacity) {
@@ -649,6 +680,15 @@ export class Hud {
 
   showDeath(message) {
     this.deathCauseEl.textContent = message;
+    // (Round 12) A Survival world's death screen shows the score, as vanilla's.
+    if (!this.scoreEl) {
+      this.scoreEl = document.createElement("div");
+      this.scoreEl.id = "death-score";
+      this.scoreEl.style.cssText = "margin-top: 10px; font-size: 18px; color: #fff; text-shadow: 2px 2px 0 #300; animation: death-fade 0.8s ease-out 0.4s both;";
+      this.deathCauseEl.after(this.scoreEl);
+    }
+    this.scoreEl.classList.toggle("hidden", !isVanilla());
+    this.scoreEl.innerHTML = `Score: <span style="color: #ffff55">${this._score}</span>`;
     this.deathEl.classList.remove("hidden");
     // Replaying the entrance animation.
     this.deathEl.classList.remove("show");

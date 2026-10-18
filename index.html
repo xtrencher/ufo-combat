@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>UFO COMBAT</title>
+<title>MINECLAUDE</title>
 <style>
   html, body {
     margin: 0;
@@ -1327,6 +1327,7 @@
   .link-btn { font: 700 11px var(--ui-font); letter-spacing: 1.5px; text-transform: uppercase; color: var(--ui-accent); background: none; border: none; border-bottom: 1px solid transparent; padding: 2px 0; cursor: pointer; transition: border-color 0.16s, color 0.16s; }
   .link-btn:hover { color: #8cc6ff; border-bottom-color: currentColor; }
   .link-btn::before { content: "+ "; }
+  .link-btn { white-space: nowrap; } /* (Round 12: a long seed keeps "New world" on one line) */
   .menu-sep { height: 1px; background: var(--ui-line); margin: 6px 0; }
   .menu-tip { text-align: left; padding: 0 2px; margin-top: 12px; font-size: 11px; color: var(--ui-dim); opacity: 1; }
   .menu-corner { position: absolute; right: 18px; bottom: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: 360px; }
@@ -1358,6 +1359,27 @@
     #play-btn { padding: 11px 14px; }
     .mode-card small { display: none; }
   }
+  /* (Round 12) The MINECLAUDE logo: js/menu-logo.js draws it in blocks; its
+     text, styled here, stands in until then (and stays its accessible name). */
+  .mc-logo { position: relative; margin: 0 0 16px; padding: 0; line-height: 1; font: 900 44px Impact, "Arial Black", sans-serif; letter-spacing: 3px; color: #a3a3a3; text-shadow: 0 3px 0 #4b4b4b, 0 6px 12px rgba(0,0,0,0.6); -webkit-text-stroke: 1px #141414; -webkit-user-select: none; user-select: none; }
+  .mc-logo.drawn { font-size: 0; letter-spacing: 0; -webkit-text-stroke: 0; text-shadow: none; }
+  .mc-logo .mc-logo-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .mc-logo-art { display: block; width: 100%; height: auto; filter: drop-shadow(0 8px 14px rgba(0,0,0,0.55)); }
+  .mc-splash { position: absolute; right: -34px; bottom: 2px; font: 800 15px var(--ui-font); letter-spacing: 0.3px; color: #ffff55; text-shadow: 2px 2px 0 #3f3f15; white-space: nowrap; transform: rotate(-14deg); pointer-events: none; }
+  .mc-splash.pop { animation: mc-splash 0.45s ease-in-out infinite alternate; }
+  @keyframes mc-splash { from { transform: rotate(-14deg) scale(1); } to { transform: rotate(-14deg) scale(1.09); } }
+  .panel h1.mc-logo { width: min(320px, 100%); margin: 4px auto 16px; font-size: 34px; text-align: center; }
+  .menu-logo { width: min(300px, 78%); margin: 0 4px 22px; }
+  @media (max-height: 640px) {
+    .menu-logo { width: 240px; margin-bottom: 14px; }
+    .mc-splash { font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .mc-splash.pop { animation: none; } }
+  /* (Round 12) "Click to play" while the graphics are still being prepared. */
+  #click-to-play.waiting { cursor: progress; }
+  #click-to-play.waiting b { opacity: 0.8; }
+  /* (Round 12) Fullscreen buttons and setting (js/fullscreen.js); none where the browser has no fullscreen. */
+  body.no-fullscreen .fs-toggle, body.no-fullscreen #fullscreen-row { display: none; }
 </style>
 </head>
 <body>
@@ -1422,14 +1444,17 @@
         <button class="mp-tab" data-tab="join" type="button">Join a game</button>
       </div>
       <div class="mp-tab-page" data-tab="host">
-        <div class="mp-note">Your current world becomes the shared world (a Missions world, or a Survival world: normal Minecraft). You get a short room code: friends enter it (or open your invite link) to join. Free and peer-to-peer: no server, no account.</div>
+        <div class="mp-note">Your world becomes the shared world. You get a short room code: friends enter it (or open your invite link) to join. Free and peer-to-peer: no server, no account.</div>
         <div class="mp-mode-cards" role="group" aria-label="Game mode">
-          <!-- (Round 11: the modes this world's type has show: net/ui.js) -->
-          <button class="mp-mode active" data-mpmode="survival" data-wt="missions" type="button"><b>Missions</b><small>Missions together</small></button>
-          <button class="mp-mode hidden" data-mpmode="survival" data-wt="survival" type="button"><b>Survival</b><small>Normal Minecraft</small></button>
-          <button class="mp-mode" data-mpmode="creative" type="button"><b>Creative</b><small>Build and fly</small></button>
-          <button class="mp-mode" data-mpmode="dogfight" type="button"><b>Dogfight</b><small>Jets, scoreboard</small></button>
+          <!-- (Round 12: every mode, named as on the main menu; each is a world
+               type and a room mode, and one of the other type opens that
+               world first: net/ui.js) -->
+          <button class="mp-mode" data-mpmode="survival" data-wt="survival" type="button"><b>Survival</b><small>Normal Minecraft</small></button>
+          <button class="mp-mode" data-mpmode="creative" data-wt="survival" type="button"><b>Creative</b><small>Build and fly</small></button>
+          <button class="mp-mode" data-mpmode="survival" data-wt="missions" type="button"><b>Missions</b><small>With mods, together</small></button>
+          <button class="mp-mode" data-mpmode="dogfight" data-wt="missions" type="button"><b>Dogfight</b><small>Jets, scoreboard</small></button>
         </div>
+        <div id="mp-host-where" class="hint"></div>
         <div class="menu-buttons"><button class="btn big primary" id="mp-host-btn" type="button">Open room</button></div>
       </div>
       <div class="mp-tab-page hidden" data-tab="join">
@@ -1549,7 +1574,7 @@
        what to try (filled in by the script at the end of the page). -->
   <div id="boot" class="overlay">
     <div class="panel">
-      <h1>UFO COMBAT</h1>
+      <h1 class="mc-logo">MINECLAUDE</h1>
       <div id="boot-status" class="subtitle">Loading&hellip;</div>
       <div id="boot-error" class="hidden">
         <h2 id="boot-error-title"></h2>
@@ -1563,23 +1588,26 @@
     </div>
   </div>
 
-  <!-- Main menu (Round 8): no logo, just what you need, over a slow flyover
-       of the world (drawn by the game behind this transparent overlay).
-       Play continues this world in the chosen mode; "New world" (with an
-       optional seed) is part of the same card. Graphics, Mods and the key
-       list live in Settings. (Round 11) Three cards: Missions and Survival
-       are world types (a card of the other type opens or makes a world of
-       it), Creative plays this world in Creative. The Missions card keeps
-       the old id: it is the survival game this world always had. -->
+  <!-- Main menu (Round 8): just what you need, over a slow flyover of the
+       world (drawn by the game behind this transparent overlay). Play
+       continues this world in the chosen mode; "New world" (with an optional
+       seed) is part of the same card. Graphics, Mods and the key list live
+       in Settings. (Round 12) The MINECLAUDE logo (js/menu-logo.js) and three
+       cards, each a world type and a mode: Survival (the default) and
+       Creative play a Survival world (plain Minecraft), Missions a Missions
+       world (the mods add-on); a card of the other type opens or makes a
+       world of it. (The Missions card keeps its old id, mode-card-survival:
+       it is the survival game a Missions world always had.) -->
   <div id="start-menu" class="overlay menu-overlay hidden">
     <div class="menu-col">
+      <h1 class="mc-logo menu-logo" id="menu-logo" data-splash>MINECLAUDE</h1>
       <div class="menu-card">
         <div class="main-buttons">
           <button class="btn big primary" id="play-btn">Play</button>
           <div class="mode-cards" role="group" aria-label="Game mode">
-            <button class="mode-card" id="mode-card-survival" data-mode="survival" data-type="missions" type="button"><b>Missions</b><small>The UFO war: missions, loot, supply drops, vehicles</small></button>
-            <button class="mode-card" id="mode-card-creative" data-mode="creative" type="button"><b>Creative</b><small>Build with everything, fly, no damage</small></button>
             <button class="mode-card" id="mode-card-vanilla" data-mode="survival" data-type="survival" type="button"><b>Survival</b><small>Normal Minecraft: gather, craft, survive</small></button>
+            <button class="mode-card" id="mode-card-creative" data-mode="creative" data-type="survival" type="button"><b>Creative</b><small>Every block, flight, no damage</small></button>
+            <button class="mode-card" id="mode-card-survival" data-mode="survival" data-type="missions" type="button"><b>Missions</b><small>With mods: UFOs, missions, weapons, vehicles</small></button>
           </div>
           <div class="row mode-row mode-select-row">
             <label for="mode-select">Game mode</label>
@@ -1595,7 +1623,10 @@
           </div>
           <div class="menu-sep"></div>
           <button class="btn big" id="menu-mp-btn">Multiplayer</button>
-          <button class="btn big" id="menu-settings-btn">Settings</button>
+          <div class="button-pair">
+            <button class="btn big" id="menu-settings-btn">Settings</button>
+            <button class="btn big fs-toggle" id="menu-fs-btn" type="button" title="Fullscreen (F11)">Fullscreen</button>
+          </div>
         </div>
         <div id="start-notice" class="hint"></div>
       </div>
@@ -1626,9 +1657,9 @@
     <div class="panel">
       <h2>New World</h2>
       <div class="mp-mode-cards nw-types" role="group" aria-label="World type">
-        <button class="mp-mode" data-nwtype="missions" type="button"><b>Missions</b><small>The UFO war</small></button>
         <button class="mp-mode" data-nwtype="survival" type="button"><b>Survival</b><small>Normal Minecraft</small></button>
         <button class="mp-mode" data-nwtype="creative" type="button"><b>Creative</b><small>Build and fly</small></button>
+        <button class="mp-mode" data-nwtype="missions" type="button"><b>Missions</b><small>With mods: the UFO war</small></button>
       </div>
       <div id="new-type-hint" class="hint"></div>
       <div class="row">
@@ -1649,7 +1680,10 @@
       <h2>Paused</h2>
       <div class="pause-buttons">
         <button class="btn big primary" id="resume-btn">Resume</button>
-        <button class="btn big" id="pause-settings-btn">Settings</button>
+        <div class="button-pair">
+          <button class="btn big" id="pause-settings-btn">Settings</button>
+          <button class="btn big fs-toggle" id="pause-fs-btn" type="button" title="Fullscreen (F11)">Fullscreen</button>
+        </div>
         <div class="button-pair">
           <button class="btn big" id="pause-missions-btn">Missions</button>
           <button class="btn big" id="pause-stats-btn">Stats</button>
@@ -1685,7 +1719,7 @@
     <div class="panel wide settings-panel">
       <h2>Settings</h2>
       <div class="settings-links">
-        <button class="btn small" id="settings-mods-btn" type="button">Mods <span id="settings-mods-state" class="pill on">ON</span></button>
+        <button class="btn small" id="settings-mods-btn" type="button">Missions mods <span id="settings-mods-state" class="pill on">ON</span></button>
         <button class="btn small" id="settings-keys-btn" type="button">Key bindings</button>
       </div>
       <div class="settings-tabs">
@@ -1701,6 +1735,12 @@
       </div>
 
       <div class="settings-page" data-page="video">
+        <!-- (Round 12) Fullscreen: js/fullscreen.js. -->
+        <div class="row" id="fullscreen-row">
+          <label for="fullscreen-setting">Fullscreen</label>
+          <input type="checkbox" id="fullscreen-setting" />
+        </div>
+        <div id="fullscreen-hint" class="hint"></div>
         <div class="row">
           <label>Render distance (chunks)</label>
           <input type="range" id="render-distance" min="2" max="256" step="1" value="10" />
@@ -1826,9 +1866,9 @@
 
   <div id="mods-screen" class="overlay hidden">
     <div class="panel wide">
-      <h2>Mods</h2>
+      <h2>Missions mods</h2>
       <div class="row mods-master">
-        <label for="mods-enabled"><b>UFO COMBAT mods</b></label>
+        <label for="mods-enabled"><b>Missions mods</b></label>
         <input type="checkbox" id="mods-enabled" />
       </div>
       <div class="hint">On: guns, explosives, the laser blaster, UFOs, aliens and vehicles. Off: the Missions world without them (swords and tools stay). For normal Minecraft (crafting, hunger, XP, vanilla mobs), make a Survival world. Switching takes effect at once: mod items are put away (and come back when you switch mods on again), and UFOs, aliens and vehicles leave the world. (A Survival world never has Mods.)</div>
@@ -1874,7 +1914,7 @@
     <div class="panel">
       <h2>WebGL 2 Required</h2>
       <p style="font-size:14px; line-height:1.5; opacity:0.9;">
-        UFO COMBAT needs a browser with WebGL 2 support (any recent version of
+        MINECLAUDE needs a browser with WebGL 2 support (any recent version of
         Chrome, Edge, Firefox or Safari). Please update your browser, or enable
         hardware acceleration in its settings, and reload the page.
       </p>
@@ -1904,7 +1944,7 @@
     <div class="panel">
       <h2>Keyboard &amp; Mouse Required</h2>
       <p style="font-size:14px; line-height:1.5; opacity:0.9;">
-        UFO COMBAT is a first-person 3D game that needs a physical keyboard and mouse
+        MINECLAUDE is a first-person 3D game that needs a physical keyboard and mouse
         for movement and looking around. Please open this page on a desktop or laptop
         computer to play.
       </p>
@@ -1978,6 +2018,8 @@
     }
   }
   </script>
+  <!-- (Round 12) The logo first: it needs nothing else, so the loading screen has it at once. -->
+  <script type="module" src="./js/menu-logo.js"></script>
   <script type="module" src="./js/main.js" onerror="__ufoBoot.loadFailed()"></script>
 </body>
 </html>
