@@ -3173,6 +3173,9 @@ function updateEnvironment(dt) {
   const wl = Math.max(0.15, (eyeLight.sky / 15) * sky.daylight + 0.1);
   worldUniforms.uWaterFogColor.value.setRGB(0.03 * wl, 0.135 * wl, 0.15 * wl); // teal murk
   eyeSkyLight = eyeLight.sky / 15;
+  // (Round 12) The eye's sky light, eased, for the world shaders: no sky
+  // haze or mist in the air of a cave (shaders.js uEyeSky).
+  worldUniforms.uEyeSky.value += (eyeSkyLight - worldUniforms.uEyeSky.value) * Math.min(1, dt * 3);
   if (underwater) {
     // The surface above (for the light shafts), and sunlight bent into the water.
     let y = Math.floor(eye.y);

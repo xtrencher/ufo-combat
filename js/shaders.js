@@ -277,6 +277,11 @@ vec3 pointLighting(vec3 N, vec3 viewPos) {
 // with its distance (percentage-closer soft shadows), so a shadow is crisp
 // where an object meets the ground and soft farther away.
 const SUN_SHADOW = /* glsl */ `
+// (Round 12) How much of the lights' depth bias a shader takes (see the
+// chunk shader: none to speak of for solid terrain).
+#ifndef SHADOW_BIAS_SCALE
+  #define SHADOW_BIAS_SCALE 1.0
+#endif
 uniform vec4 uCascadeSoft;
 uniform float uPcssScale;
 uniform float uShadowQuality;
@@ -335,7 +340,7 @@ float cascadeFade(vec3 c) {
 #define SUN_CASCADE(i, soft) { \
   vec4 sc = vDirectionalShadowCoord[i]; \
   vec3 c = sc.xyz / sc.w; \
-  c.z += directionalLightShadows[i].shadowBias; \
+  c.z += directionalLightShadows[i].shadowBias * SHADOW_BIAS_SCALE; \
   float f = cascadeFade(c) * weight; \
   if (f > 0.0) { \
     vec2 texel = 1.0 / directionalLightShadows[i].shadowMapSize; \
@@ -365,13 +370,26 @@ float sunShadow() { return 1.0; }
 #endif
 `;
 
+// (Round 12) The sun's shadow-map coordinates, interpolated at the centroid
+// (inside the face) as the voxel light is: with MSAA, a pixel on a face's
+// edge is shaded at its centre, which may lie past the face, and the
+// coordinates carried on past it reached into the rock behind, where the
+// shadow map (holding only the faces turned away from the sun) has nothing:
+// a thin lit line along every edge of a shaded room or cave, by day and
+// (the moon) by night. Every world shader's vertex and fragment stage use
+// these two in place of three's own.
+const centroidShadow = (chunk) => chunk.replace(/varying vec4 vDirectionalShadowCoord/g, "centroid varying vec4 vDirectionalShadowCoord");
+const SHADOW_PARS_VERTEX = centroidShadow(THREE.ShaderChunk.shadowmap_pars_vertex);
+const SHADOW_PARS_FRAGMENT = centroidShadow(THREE.ShaderChunk.shadowmap_pars_fragment);
+if (!SHADOW_PARS_VERTEX.includes("centroid") || !SHADOW_PARS_FRAGMENT.includes("centroid")) throw new Error("three's shadow-map varyings have moved");
+
 const FRAGMENT_LIGHT_INCLUDES = /* glsl */ `
 #define WORLD_LIT
 #include <common>
 #include <packing>
 #include <bsdfs>
 #include <lights_pars_begin>
-#include <shadowmap_pars_fragment>
+${SHADOW_PARS_FRAGMENT}
 ${SUN_SHADOW}
 `;
 
@@ -475,7 +493,7 @@ flat varying float vFlow;
 uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
-#include <shadowmap_pars_vertex>
+${SHADOW_PARS_VERTEX}
 ${WIND_GLSL}
 ${FLIPBOOK_GLSL}
 
@@ -499,14 +517,14 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
   vec3 transformedNormal = normalMatrix * objectNormal;
   // (Round 12) Away from the open sky (a cave mouth, a room, under an
-  // overhang), the shadow lookup is moved a little more off the face: the
-  // shadow map only holds faces turned away from the sun, so where a wall
-  // meets a ceiling the lookup's filter reached past the ceiling's edge into
-  // the rock, where nothing is stored, and lit a thin line along the edge.
+  // overhang) the shadow lookup starts a tenth of a block off the face: the
+  // shadow map holds only the faces turned away from the sun, so where a
+  // wall meets a ceiling the filter's taps reached past the ceiling's edge
+  // into the rock, where nothing is stored, and lit a thin line along it.
   // Under the open sky (sky light 15) nothing changes.
   vec4 litPosition = worldPosition;
   {
-    vec4 worldPosition = litPosition + vec4(objectNormal * (0.12 * (1.0 - smoothstep(0.87, 1.0, aData.y / 255.0))), 0.0);
+    vec4 worldPosition = litPosition + vec4(objectNormal * (0.1 * (1.0 - smoothstep(0.87, 1.0, aData.y / 255.0))), 0.0);
     #include <shadowmap_vertex>
   }
   vTexCoord = vec3(uv, flipbookLayer(aExtra.x + aExtra.w * 256.0, flags, aExtra.y)); // (the layer in two bytes)
@@ -523,6 +541,15 @@ void main() {
 `;
 
 const chunkFragment = /* glsl */ `
+#ifndef CUTOUT
+  // (Round 12) Solid terrain takes a tenth of the shadow's depth bias (about
+  // a hundredth of a block). The shadow map holds only the faces turned away
+  // from the sun, so a lit face never meets its own depth there (the bias
+  // guards against that); the full bias, a tenth of a block, let the sun
+  // under every ceiling: a lit line along the top of a shaded wall, in a
+  // cave mouth, a room, under an overhang.
+  #define SHADOW_BIAS_SCALE 0.1
+#endif
 ${ATLAS_GLSL}
 ${RELIEF_GLSL}
 uniform float uEmissiveBoost;
@@ -657,6 +684,12 @@ void main() {
   albedo *= 1.0 + (vTint - 0.502) * vec3(0.34, 0.16, -0.3);
   #ifdef USE_NORMALMAP
     float shadow = sunShadow();
+    // (Round 12) Only a face turned toward the sun (or moon) takes its light:
+    // the relief tilts a face's pixels, and on a face turned away (which the
+    // shadow map can't shade: it holds that very face) the ones tilted
+    // toward the light glittered with sun and glints. Leaves and plants keep
+    // their light from behind.
+    if ((flags & 16) == 0) shadow *= smoothstep(0.0, 0.12, dot(vNormal, uLightDir));
   #else
     // (Perf) A face turned away from the sun gets no direct sunlight, the
     // only thing the shadow changes here: its shadow lookups (6-16 texture
@@ -760,7 +793,7 @@ varying vec2 vUv;
 uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
-#include <shadowmap_pars_vertex>
+${SHADOW_PARS_VERTEX}
 
 const vec3 FACE_NORMALS[6] = vec3[6](
   vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
@@ -1033,7 +1066,7 @@ varying vec3 vWorldPos;
 varying vec3 vNormal;
 varying float vTint;
 #include <common>
-#include <shadowmap_pars_vertex>
+${SHADOW_PARS_VERTEX}
 ${WIND_GLSL}
 // Keep in sync with the water shader and js/water.js (surfaceHeight).
 float plantWaveHeight(vec2 p, float t) {
@@ -1463,7 +1496,7 @@ varying vec2 vUv;
   varying vec3 vLocal;
 #endif
 #include <common>
-#include <shadowmap_pars_vertex>
+${SHADOW_PARS_VERTEX}
 void main() {
   vec4 localPos = vec4(position, 1.0);
   #ifdef USE_SPEC

@@ -1795,6 +1795,609 @@ const SALMON = {
   animate: FISH.animate,
 };
 
+// ---------- (Round 12) The creatures of the Nether and the End ----------
+
+// The ghast: a huge pale cube (scale 4: four blocks across) with nine
+// tentacles swaying under it. Its eyes are shut, weeping, until it shoots:
+// then a second face (st.shoot) opens red eyes and a wide mouth.
+const GHAST_TENTACLES = [[-5, -5, 9], [0, -5, 12], [5, -5, 8], [-2.5, 0, 13], [2.5, 0, 10], [-5.5, 5, 11], [0, 5, 9], [5.5, 5, 12], [0, 0, 7]];
+const GHAST = {
+  scale: 4,
+  parts: [
+    { name: "body", size: [16, 16, 16], pivot: [0, 0, 0], from: [-8, 0, -8] },
+    { name: "faceShoot", size: [16, 16, 0.2], pivot: [0, 0, 8], from: [-8, 0, 0.02], parent: "body" },
+    ...GHAST_TENTACLES.map(([x, z, len], i) => ({ name: `t${i}`, size: [2, len, 2], pivot: [x, 0, z], from: [-1, -len, -1], parent: "body" })),
+  ],
+  paint(s) {
+    const pale = hex(0xf1f0ee);
+    const greyed = hex(0xcfcbc6);
+    const skin = (x, y, seed) => {
+      let c = grain(mix(pale, greyed, hash(x >> 2, y >> 2, seed) * 0.45), x, y, seed + 1, 0.05);
+      if (hash(x >> 1, y >> 1, seed + 2) > 0.94) c = shade(c, 0.9);
+      return c;
+    };
+    s.part("body", (f, x, y, w, h) => {
+      let c = skin(x, y, 301);
+      if (f === "bottom") c = shade(c, 0.86);
+      if (f !== "front") return c;
+      const px = x >> 1;
+      const py = y >> 1;
+      // Shut eyes: two sagging dark lids, a tear running down under each.
+      if (py === 6 && (px === 3 || px === 4 || px === 5 || px === 10 || px === 11 || px === 12)) c = hex(0x4a4746);
+      if (py === 5 && (px === 3 || px === 5 || px === 10 || px === 12)) c = hex(0x6d6966);
+      if (py >= 7 && py <= 9 && (px === 4 || px === 11)) c = py === 9 ? hex(0x9ab3c4) : hex(0xb8c8d2);
+      // A small, sad mouth.
+      if (py >= 11 && py <= 12 && px >= 6 && px <= 9) c = py === 11 ? hex(0x3a3434) : hex(0x5b5252);
+      return c;
+    });
+    s.part("faceShoot", (f, x, y, w, h) => {
+      if (f !== "front") return hex(0xe6e3df);
+      let c = skin(x, y, 301);
+      const px = x >> 1;
+      const py = y >> 1;
+      // Wide open: red eyes in dark sockets and a gaping, red-lit mouth.
+      if (py >= 4 && py <= 7 && ((px >= 2 && px <= 5) || (px >= 10 && px <= 13))) c = hex(0x2c2424);
+      if (py >= 5 && py <= 6 && (px === 3 || px === 4 || px === 11 || px === 12)) c = py === 5 ? [255, 120, 96] : [230, 36, 30];
+      if (py >= 9 && py <= 13 && px >= 5 && px <= 10) c = py === 9 || px === 5 || px === 10 ? hex(0x3a2626) : py >= 12 ? [168, 30, 22] : [92, 16, 14];
+      return c;
+    });
+    for (let i = 0; i < GHAST_TENTACLES.length; i++) s.part(`t${i}`, (f, x, y, w, h) => shade(skin(x, y, 311 + i), 0.97 - (y / h) * 0.12));
+  },
+  animate(p, st) {
+    p.faceShoot.visible = !!st.shoot;
+    p.body.position.y = Math.sin(st.time * 1.3) * 0.5 * PX;
+    for (let i = 0; i < GHAST_TENTACLES.length; i++) {
+      const t = p[`t${i}`];
+      t.rotation.x = 0.12 + Math.sin(st.time * 1.7 + i * 1.3) * 0.22 + Math.max(-0.4, Math.min(0.4, -(st.vy ?? 0) * 0.1));
+      t.rotation.z = Math.sin(st.time * 1.3 + i * 2.1) * 0.12;
+    }
+  },
+};
+
+// The blaze: a golden head over twelve smouldering rods that wheel around it
+// in three rings (faster while it is charged: st.charged).
+const BLAZE_RODS = 12;
+const BLAZE = {
+  parts: [
+    { name: "head", size: [8, 8, 8], pivot: [0, 20, 0], from: [-4, 0, -4] },
+    ...Array.from({ length: BLAZE_RODS }, (_, i) => ({ name: `rod${i}`, size: [2, 8, 2], pivot: [0, 12, 0], from: [-1, -4, -1] })),
+  ],
+  paint(s) {
+    const gold = hex(0xf2c43a);
+    const deep = hex(0xc87a16);
+    const ember = hex(0xffe58a);
+    s.part("head", (f, x, y, w, h) => {
+      let c = grain(mix(gold, deep, hash(x >> 1, y >> 1, 321) * 0.55), x, y, 322, 0.12);
+      if (f === "top") c = grain(mix(gold, ember, 0.4), x, y, 323, 0.12);
+      if (f === "front") {
+        // Dark brows over black eyes, a dark scowl below.
+        if (y >= 5 && y < 7 && ((x >= 2 && x < 7) || (x >= 9 && x < 14))) c = hex(0x6a3a08);
+        if (y >= 7 && y < 9 && ((x >= 3 && x < 6) || (x >= 10 && x < 13))) c = [24, 14, 6];
+        if (y >= 11 && y < 13 && x >= 4 && x < 12) c = hex(0x7a420a);
+      }
+      return c;
+    });
+    for (let i = 0; i < BLAZE_RODS; i++) {
+      s.part(`rod${i}`, (f, x, y, w, h) => {
+        let c = grain(mix(ember, gold, hash(x, y >> 1, 331 + i) * 0.7), x, y, 341 + i, 0.1);
+        if ((y + i) % 6 === 0) c = shade(deep, 0.9); // the rings of soot
+        return c;
+      });
+    }
+  },
+  animate(p, st) {
+    const spin = st.time * (st.charged ? 4.5 : 1.6);
+    const rings = [[9, 16.5, 1], [7, 9, -1], [5, 2, 1]];
+    for (let i = 0; i < BLAZE_RODS; i++) {
+      const [r, y, dir] = rings[i >> 2];
+      const a = spin * dir + (i & 3) * (Math.PI / 2) + (i >> 2) * 0.7;
+      const rod = p[`rod${i}`];
+      rod.position.set(Math.cos(a) * r * PX, (y + Math.sin(st.time * 2.2 + i) * 1.2) * PX, Math.sin(a) * r * PX);
+    }
+    p.head.position.y = (20 + Math.sin(st.time * 1.8) * 0.6) * PX;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch;
+  },
+};
+
+// The magma cube: eight slabs of crust over a glowing core, in four pairs
+// that pull apart into an accordion as it leaps (st.vy) and squash back on
+// landing. One model for every size (MODELS: scale), as the slime's.
+const MAGMA = {
+  parts: [
+    ...[0, 2, 4, 6].map((i) => ({ name: `l${i}`, size: [8, 1, 8], pivot: [0, i, 0], from: [-4, 0, -4] })),
+    ...[1, 3, 5, 7].map((i) => ({ name: `l${i}`, size: [8, 1, 8], pivot: [0, i, 0], from: [-4, 0, -4], parent: `l${i - 1}`, rigid: true })),
+    { name: "core", size: [4, 4, 4], pivot: [0, 2, 0], from: [-2, 0, -2], parent: "l2", rigid: true },
+  ],
+  paint(s) {
+    const crust = hex(0x3a0d0a);
+    const crust2 = hex(0x5a1810);
+    const lava = hex(0xff7a1e);
+    const hot = hex(0xffc444);
+    for (let i = 0; i < 8; i++) {
+      s.part(`l${i}`, (f, x, y, w, h) => {
+        let c = grain(mix(crust, crust2, hash(x >> 1, i, 351) * 0.7), x, y, 352 + i, 0.12);
+        // Glowing seams in the crust.
+        if ((f === "top" || f === "bottom") && hash(x >> 1, y >> 1, 360 + i) > 0.72) c = grain(lava, x, y, 361, 0.15);
+        else if (f !== "top" && f !== "bottom" && hash(x >> 1, i, 370) > 0.66) c = grain(mix(lava, hot, hash(x, i, 371)), x, y, 372, 0.1);
+        if (f === "front" && i === 5 && ((x >= 2 && x < 5) || (x >= 11 && x < 14))) c = hot; // eyes
+        if (f === "front" && i === 4 && ((x >= 3 && x < 5) || (x >= 11 && x < 13))) c = lava;
+        return c;
+      });
+    }
+    s.part("core", (f, x, y, w, h) => grain(mix(hot, lava, hash(x, y, 381) * 0.6), x, y, 382, 0.1));
+  },
+  animate(p, st) {
+    const vy = st.vy ?? 0;
+    // Pulled apart rising (the core shows between), flattened landing.
+    const gap = vy > 0.5 ? Math.min(1.6, vy * 0.18) : vy < -0.5 ? 0.35 : 0;
+    const squash = vy > 0.5 || vy < -0.5 ? 1 : 0.94 + Math.sin(st.time * 2.5) * 0.02;
+    for (const i of [0, 2, 4, 6]) {
+      p[`l${i}`].position.y = (i * squash + (i / 2) * gap) * PX;
+      p[`l${i}`].scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
+    }
+  },
+};
+
+// The piglins' rig (vanilla's): a wide head with a snout, tusks and floppy
+// ears, a golden sword in the right hand and (piglins) a gold ingot held up
+// in the left to admire (st.admire).
+function piglinParts(ingot) {
+  const parts = [
+    { name: "legL", size: [4, 12, 4], pivot: [-2, 12, 0], from: [-2, -12, -2] },
+    { name: "legR", size: [4, 12, 4], pivot: [2, 12, 0], from: [-2, -12, -2] },
+    { name: "body", size: [8, 12, 4], pivot: [0, 12, 0], from: [-4, 0, -2] },
+    { name: "head", size: [10, 8, 8], pivot: [0, 24, 0], from: [-5, 0, -4], parent: "body" },
+    { name: "snout", size: [4, 4, 1], pivot: [0, 24, 4], from: [-2, 0, 0], parent: "head", rigid: true },
+    { name: "tuskL", size: [1, 2, 1], pivot: [0, 24, 4], from: [-3, 0.5, 0], parent: "head", rigid: true },
+    { name: "tuskR", size: [1, 2, 1], pivot: [0, 24, 4], from: [2, 0.5, 0], parent: "head", rigid: true },
+    { name: "earL", size: [1, 5, 4], pivot: [-5, 31, 0], from: [-1, -5, -2], parent: "head" },
+    { name: "earR", size: [1, 5, 4], pivot: [5, 31, 0], from: [0, -5, -2], parent: "head" },
+    { name: "armL", size: [4, 12, 4], pivot: [-6, 22, 0], from: [-2, -10, -2], parent: "body" },
+    { name: "armR", size: [4, 12, 4], pivot: [6, 22, 0], from: [-2, -10, -2], parent: "body" },
+    // The sword out of the right fist, forward along the arm's +Z.
+    { name: "grip", size: [1, 1, 3], pivot: [6, 22, 0], from: [-0.5, -10.5, -1], parent: "armR", rigid: true },
+    { name: "guard", size: [3, 1, 1], pivot: [6, 22, 0], from: [-1.5, -10.5, 2], parent: "armR", rigid: true },
+    { name: "blade", size: [1, 1.5, 9], pivot: [6, 22, 0], from: [-0.5, -10.75, 3], parent: "armR", rigid: true },
+  ];
+  if (ingot) parts.push({ name: "ingot", size: [2, 1.5, 4], pivot: [-6, 22, 0], from: [-1, -11.5, 0], parent: "armL" });
+  return parts;
+}
+
+function paintPiglin(s, zombified) {
+  const skinA = zombified ? hex(0xd99a8a) : hex(0xe7a58f);
+  const skinB = zombified ? hex(0x8fa06a) : hex(0xc98572);
+  const rot = hex(0x6f8a4e);
+  const bone = hex(0xe2dccb);
+  const leather = hex(0x5b3a1e);
+  const leatherDark = hex(0x3d2614);
+  const gold = hex(0xf2c842);
+  const flesh = (x, y, seed) => {
+    let c = grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * (zombified ? 0.25 : 0.4)), x, y, seed + 1, 0.1);
+    if (zombified && hash(x >> 2, y >> 2, seed + 2) > 0.62) c = grain(rot, x, y, seed + 3, 0.15); // rot
+    else if (hash(x, y, seed + 4) > 0.95) c = shade(c, 0.82); // bristles
+    return c;
+  };
+  s.part("head", (f, x, y, w, h) => {
+    let c = flesh(x, y, 401);
+    if (f === "top" && hash(x >> 1, y >> 1, 402) > 0.5) c = shade(c, 0.85);
+    // (Zombified: the skull shows through on its left side.)
+    if (zombified && (f === "left" || (f === "front" && x < 6) || (f === "top" && x < 7)) && hash(x >> 1, y >> 1, 403) > 0.35) c = grain(bone, x, y, 404, 0.08);
+    if (f === "front") {
+      // Small eyes under a heavy brow.
+      if (y === 5 && x >= 2 && x < w - 2) c = shade(c, 0.72);
+      for (const ex of [3, w - 6]) {
+        if (y >= 6 && y < 8 && x >= ex && x < ex + 3) c = zombified ? [236, 232, 214] : [246, 240, 226];
+        if (y >= 6 && y < 8 && x === ex + (ex < 8 ? 2 : 0) && !zombified) c = [30, 22, 20];
+      }
+      if (zombified && y >= 5 && y < 9 && x >= 3 && x < 6) c = [34, 26, 22]; // an empty socket
+    }
+    return c;
+  });
+  s.part("snout", (f, x, y, w, h) => {
+    if (f === "front" && y >= 3 && y < 6 && (x === 1 || x === 2 || x === w - 2 || x === w - 3)) return [58, 30, 26]; // nostrils
+    return grain(zombified ? hex(0xd08d80) : hex(0xeaa898), x, y, 405, 0.08);
+  });
+  for (const t of ["tuskL", "tuskR"]) s.part(t, () => hex(0xf0e6c8));
+  for (const ear of ["earL", "earR"]) s.part(ear, (f, x, y, w, h) => (zombified && ear === "earL" && y > h * 0.5 ? grain(rot, x, y, 406, 0.2) : flesh(x, y, 407)));
+  s.part("body", (f, x, y, w, h) => {
+    // A leather loincloth and belt (a gold buckle); zombified, torn, ribs showing.
+    if (y >= h - 9) {
+      if (y < h - 7) return f === "front" && x >= 6 && x < 10 ? gold : grain(leatherDark, x, y, 408, 0.12);
+      if (zombified && hash(x >> 1, y >> 1, 409) > 0.7) return flesh(x, y, 410);
+      return grain(leather, x, y, 411, 0.14);
+    }
+    let c = flesh(x, y, 412);
+    if (zombified && f === "front" && x >= 2 && x < 7 && y >= 4 && y < 13) c = y % 3 === 0 ? grain(bone, x, y, 413, 0.08) : [52, 30, 28];
+    if (!zombified && f === "front" && y >= 2 && y < 4 && x >= 2 && x < w - 2) c = grain(gold, x, y, 414, 0.1); // a gold chain
+    return c;
+  });
+  for (const arm of ["armL", "armR"]) {
+    s.part(arm, (f, x, y, w, h) => {
+      if (!zombified && y >= 6 && y < 8) return grain(gold, x, y, 415, 0.12); // gold bands
+      if (zombified && arm === "armR" && y > 8 && f !== "top") return grain(bone, x, y, 416, 0.1);
+      return flesh(x, y, 417);
+    });
+  }
+  for (const leg of ["legL", "legR"]) {
+    s.part(leg, (f, x, y, w, h) => {
+      if (y >= h - 3 || f === "bottom") return grain(leatherDark, x, y, 418, 0.12); // hooves
+      if (y < 8) return grain(leather, x, y, 419, 0.14);
+      return flesh(x, y, 420);
+    });
+  }
+  s.part("grip", (f, x, y) => grain(hex(0x6b4a2b), x, y, 421, 0.2));
+  s.part("guard", (f, x, y) => grain(gold, x, y, 422, 0.15));
+  s.part("blade", (f, x, y, w, h) => (f === "top" ? hex(0xfff1a0) : grain(mix(gold, hex(0xfff1a0), 0.3), x, y, 423, 0.1)));
+  if (!zombified) s.part("ingot", (f, x, y) => (f === "top" ? hex(0xfff3a2) : grain(gold, x, y, 424, 0.1)));
+}
+
+function animatePiglin(p, st, zombified) {
+  const swing = Math.sin(st.walkPhase) * 0.6 * st.walk;
+  p.legL.rotation.x = swing;
+  p.legR.rotation.x = -swing;
+  const hit = st.attack < 1 ? Math.sin(st.attack * Math.PI) : 0;
+  const admire = st.admire ?? 0;
+  // The sword arm: raised to strike while angry (zombified: both arms out, as a zombie).
+  const angry = (st.aim ?? 0) > 0;
+  p.armR.rotation.x = (angry ? (zombified ? -1.4 : -0.9) : -swing * 0.6 - 0.1) - hit * 1.3;
+  p.armL.rotation.x = admire ? -1.25 : angry && zombified ? -1.4 + hit * 0.4 : swing * 0.6;
+  p.armL.rotation.z = admire ? 0.45 : -0.06;
+  p.armR.rotation.z = 0.06;
+  if (p.ingot) p.ingot.visible = !!admire;
+  // Ears flop with the walk.
+  p.earL.rotation.z = -0.35 - Math.abs(Math.sin(st.walkPhase)) * 0.25 * st.walk - Math.sin(st.time * 1.7) * 0.04;
+  p.earR.rotation.z = 0.35 + Math.abs(Math.sin(st.walkPhase)) * 0.25 * st.walk + Math.sin(st.time * 1.9) * 0.04;
+  p.head.rotation.y = admire ? 0.35 : st.headYaw;
+  p.head.rotation.x = admire ? 0.45 : -st.headPitch;
+  // (Shaking: turning into a zombified one in the Overworld.)
+  p.body.rotation.z = (st.shake ? Math.sin(st.time * 40) * 0.06 : 0) + Math.sin(st.walkPhase * 0.5) * 0.04 * st.walk;
+}
+
+const PIGLIN = {
+  parts: piglinParts(true),
+  paint: (s) => paintPiglin(s, false),
+  animate: (p, st) => animatePiglin(p, st, false),
+};
+const ZOMBIFIED_PIGLIN = {
+  parts: piglinParts(false),
+  paint: (s) => paintPiglin(s, true),
+  animate: (p, st) => animatePiglin(p, st, true),
+};
+
+// The hoglin: a massive bristly beast, head held low with tusks curving up,
+// a dark mane along its spine. A zoglin (variant 1) is its rotting,
+// zombified form, its ribs and skull showing.
+const HOGLIN = {
+  parts: [
+    { name: "body", size: [16, 13, 24], pivot: [0, 10, 0], from: [-8, 0, -12] },
+    { name: "mane", size: [1, 5, 18], pivot: [0, 23, 0], from: [-0.5, 0, -10], parent: "body", rigid: true },
+    { name: "head", size: [14, 7, 16], pivot: [0, 17, 11], from: [-7, -4, 0], parent: "body" },
+    { name: "tuskL", size: [2, 8, 2], pivot: [0, 17, 11], from: [-7.5, -2, 12], parent: "head", rigid: true },
+    { name: "tuskR", size: [2, 8, 2], pivot: [0, 17, 11], from: [5.5, -2, 12], parent: "head", rigid: true },
+    { name: "earL", size: [6, 1, 4], pivot: [0, 17, 11], from: [-12, 2, 2], parent: "head", rigid: true },
+    { name: "earR", size: [6, 1, 4], pivot: [0, 17, 11], from: [6, 2, 2], parent: "head", rigid: true },
+    { name: "legFL", size: [6, 11, 6], pivot: [-4.5, 11, 8], from: [-3, -11, -3] },
+    { name: "legFR", size: [6, 11, 6], pivot: [4.5, 11, 8], from: [-3, -11, -3] },
+    { name: "legBL", size: [5, 11, 5], pivot: [-4.5, 11, -8], from: [-2.5, -11, -2.5] },
+    { name: "legBR", size: [5, 11, 5], pivot: [4.5, 11, -8], from: [-2.5, -11, -2.5] },
+  ],
+  paint(s, v = 0) {
+    const zog = v === 1;
+    const hideA = zog ? hex(0xb88a86) : hex(0xc48a6a);
+    const hideB = zog ? hex(0x7f9466) : hex(0x9a6248);
+    const maneC = zog ? hex(0x5d6a48) : hex(0x5e3a26);
+    const bone = hex(0xe8e0cc);
+    const hide = (x, y, seed) => {
+      let c = grain(mix(hideA, hideB, hash(x >> 1, y >> 1, seed) * 0.55), x, y, seed + 1, 0.12);
+      if (hash(x, y >> 1, seed + 2) > 0.9) c = shade(c, 0.78); // bristles
+      if (zog && hash(x >> 2, y >> 2, seed + 3) > 0.8) c = grain(bone, x, y, seed + 4, 0.08);
+      return c;
+    };
+    s.part("body", (f, x, y, w, h) => {
+      let c = hide(x, y, 431);
+      if (f === "top") c = grain(mix(c, maneC, 0.35), x, y, 432, 0.1);
+      if (zog && (f === "left" || f === "right") && y > 6 && y < 20 && x % 4 === 0) c = grain(bone, x, y, 433, 0.08); // ribs
+      return c;
+    });
+    s.part("mane", (f, x, y, w, h) => grain(maneC, x, y, 434, 0.2));
+    s.part("head", (f, x, y, w, h) => {
+      let c = hide(x, y, 435);
+      if (f === "front") {
+        c = grain(zog ? hex(0xc49c96) : hex(0xd99f86), x, y, 436, 0.1); // the snout's flat end
+        if (y >= 5 && y < 9 && (x === 7 || x === 8 || x === w - 8 || x === w - 9)) c = [60, 30, 26]; // nostrils
+      }
+      if ((f === "left" || f === "right") && y >= 3 && y < 5) {
+        const d = fromFront(f, x, w);
+        if (d >= 18 && d < 21) c = zog ? [200, 60, 50] : [26, 18, 16]; // eyes
+      }
+      if (zog && f === "top" && hash(x >> 1, y >> 1, 437) > 0.55) c = grain(bone, x, y, 438, 0.08);
+      return c;
+    });
+    for (const t of ["tuskL", "tuskR"]) s.part(t, (f, x, y, w, h) => (y < 3 ? hex(0xfaf2dc) : hex(0xe7dcbc)));
+    for (const ear of ["earL", "earR"]) s.part(ear, (f, x, y) => hide(x, y, 439));
+    for (const leg of ["legFL", "legFR", "legBL", "legBR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 || f === "bottom" ? grain(hex(0x3a2a22), x, y, 440, 0.1) : hide(x, y, 441)));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.55 * st.walk;
+    p.legFL.rotation.x = swing;
+    p.legBR.rotation.x = swing;
+    p.legFR.rotation.x = -swing;
+    p.legBL.rotation.x = -swing;
+    // Head low; an attack heaves it up (the toss).
+    const toss = st.attack < 1 ? Math.sin(st.attack * Math.PI) : 0;
+    p.head.rotation.x = 0.75 - toss * 1.1 - st.headPitch * 0.4;
+    p.head.rotation.y = st.headYaw * 0.6;
+    p.body.rotation.x = -toss * 0.08;
+  },
+};
+
+// The wither skeleton: the skeleton's frame, a fifth taller (MODELS: scale),
+// in charred black bone, a stone sword in its right hand.
+const WITHER_SKELETON = {
+  scale: 1.22,
+  parts: [
+    ...SKELETON.parts.filter((q) => !q.name.startsWith("bow") && q.name !== "string"),
+    { name: "grip", size: [1, 1, 3], pivot: [4.5, 21.5, 0], from: [-0.5, -11, -1], parent: "armR", rigid: true },
+    { name: "guard", size: [3, 1, 1], pivot: [4.5, 21.5, 0], from: [-1.5, -11, 2], parent: "armR", rigid: true },
+    { name: "blade", size: [1, 1.5, 9], pivot: [4.5, 21.5, 0], from: [-0.5, -11.25, 3], parent: "armR", rigid: true },
+  ],
+  paint(s) {
+    const coal = hex(0x2b2b2d);
+    const coalLight = hex(0x434346);
+    const coalDark = hex(0x161617);
+    const charred = (x, y, seed) => {
+      let c = grain(mix(coal, coalLight, hash(x, y >> 1, seed) * 0.5), x, y, seed + 1, 0.12);
+      if (hash(x, y >> 1, seed + 2) > 0.9) c = coalDark;
+      return c;
+    };
+    s.part("head", (f, x, y, w, h) => {
+      let c = charred(x, y, 451);
+      if (f === "front") {
+        for (const ex of [2, w - 7]) if (y >= 5 && y < 9 && x >= ex && x < ex + 5) c = y === 5 || x === ex ? coalDark : [6, 6, 6];
+        if (y >= 10 && y < 12 && x >= w / 2 - 1 && x < w / 2 + 1) c = [8, 8, 8];
+        if (y >= 12 && y < 15 && x >= 3 && x < w - 3) c = (x + 1) % 2 === 0 ? coalDark : coalLight; // teeth
+      }
+      return c;
+    });
+    s.part("body", (f, x, y, w, h) => {
+      let c = charred(x, y, 452);
+      if (f === "front") {
+        const mid = Math.abs(x - (w - 1) / 2);
+        if (y < h - 3 && y % 3 === 1 && mid > 1) c = coalLight;
+        else if (y < h - 3 && mid > 1) c = [8, 8, 8];
+      }
+      return c;
+    });
+    s.part("pelvis", (f, x, y) => charred(x, y, 453));
+    s.part("spine", () => coalDark);
+    for (const arm of ["armL", "armR"]) s.part(arm, (f, x, y) => (y % 8 === 4 ? coalDark : charred(x, y, 454)));
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y) => (y % 12 === 6 || y % 12 === 7 ? coalDark : charred(x, y, 455)));
+    s.part("grip", (f, x, y) => grain(hex(0x6b4a2b), x, y, 456, 0.2));
+    s.part("guard", (f, x, y) => grain(hex(0x6e6e6e), x, y, 457, 0.15));
+    s.part("blade", (f, x, y, w, h) => (f === "top" ? hex(0xa8a8a8) : grain(hex(0x828282), x, y, 458, 0.18)));
+  },
+  animate(p, st) {
+    const swing = Math.sin(st.walkPhase) * 0.6 * st.walk;
+    p.legL.rotation.x = swing;
+    p.legR.rotation.x = -swing;
+    const hit = st.attack < 1 ? Math.sin(st.attack * Math.PI) : 0;
+    const angry = (st.aim ?? 0) > 0;
+    p.armR.rotation.x = (angry ? -1.1 : -swing * 0.5 - 0.1) - hit * 1.3;
+    p.armL.rotation.x = angry ? -0.5 + swing * 0.3 : swing * 0.5;
+    p.armL.rotation.z = -0.1;
+    p.armR.rotation.z = 0.1;
+    p.body.rotation.z = Math.sin(st.walkPhase * 0.5) * 0.04 * st.walk;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch;
+  },
+};
+
+// The strider: a warm red body on two long legs, a crest of bristles on top;
+// out of the lava it turns cold (variant 1: purple-grey), its bristles droop
+// and it shivers (st.cold).
+const STRIDER = {
+  parts: [
+    { name: "legL", size: [4, 13, 4], pivot: [-4, 13, 0], from: [-2, -13, -2] },
+    { name: "legR", size: [4, 13, 4], pivot: [4, 13, 0], from: [-2, -13, -2] },
+    { name: "body", size: [16, 14, 16], pivot: [0, 13, 0], from: [-8, 0, -8] },
+    { name: "hairF", size: [14, 6, 0.5], pivot: [0, 27, 4], from: [-7, 0, -0.25], parent: "body" },
+    { name: "hairM", size: [14, 7, 0.5], pivot: [0, 27, 0], from: [-7, 0, -0.25], parent: "body" },
+    { name: "hairB", size: [14, 6, 0.5], pivot: [0, 27, -4], from: [-7, 0, -0.25], parent: "body" },
+  ],
+  paint(s, v = 0) {
+    const cold = v === 1;
+    const skinA = cold ? hex(0x7c5f86) : hex(0xa63a33);
+    const skinB = cold ? hex(0x5d4568) : hex(0x83281f);
+    const hairC = cold ? hex(0x9a8ea3) : hex(0x4a1d18);
+    const hide = (x, y, seed) => {
+      let c = grain(mix(skinA, skinB, hash(x >> 1, y >> 1, seed) * 0.6), x, y, seed + 1, 0.1);
+      if (hash(x >> 1, y >> 1, seed + 2) > 0.92) c = shade(c, 0.75); // warts
+      return c;
+    };
+    s.part("body", (f, x, y, w, h) => {
+      let c = hide(x, y, 461);
+      if (f === "front") {
+        // Small pale eyes and a long thin mouth.
+        if (y >= 7 && y < 10 && ((x >= 6 && x < 9) || (x >= w - 9 && x < w - 6))) c = cold ? [222, 214, 236] : [255, 214, 120];
+        if (y === 18 && x >= 6 && x < w - 6) c = shade(skinB, 0.55);
+      }
+      return c;
+    });
+    for (const hair of ["hairF", "hairM", "hairB"]) {
+      s.part(hair, (f, x, y, w, h) => (x % 3 === 0 && f !== "top" ? null : grain(mix(hairC, skinB, hash(x, y, 462) * 0.4), x, y, 463, 0.15)));
+    }
+    for (const leg of ["legL", "legR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 2 ? shade(skinB, 0.6) : hide(x, y, 464)));
+  },
+  animate(p, st) {
+    const cold = st.cold ?? 0;
+    const swing = Math.sin(st.walkPhase) * 0.6 * st.walk;
+    p.legL.rotation.x = swing;
+    p.legR.rotation.x = -swing;
+    p.legL.rotation.z = -swing * 0.15;
+    p.legR.rotation.z = -swing * 0.15;
+    // A rolling, waddling gait; shivering when cold.
+    const shiver = cold ? Math.sin(st.time * 45) * 0.05 : 0;
+    p.body.rotation.z = Math.sin(st.walkPhase) * 0.12 * st.walk + shiver;
+    p.body.rotation.y = st.headYaw * 0.3;
+    p.body.position.y = (13 - Math.abs(Math.sin(st.walkPhase)) * 1.2 * st.walk) * PX;
+    // Bristles: upright and swaying when warm, drooping flat when cold.
+    for (const [k, hair] of [["hairF", 0.35], ["hairM", 0], ["hairB", -0.35]].entries()) {
+      const part = p[hair[0]];
+      part.rotation.x = cold ? hair[1] * 1.8 + (k - 1) * 0.6 : hair[1] + Math.sin(st.time * 3 + k) * 0.08;
+    }
+  },
+};
+
+// The endermite: a small segmented violet-grey grub, wriggling.
+const ENDERMITE = {
+  parts: [
+    { name: "s0", size: [4, 3, 2], pivot: [0, 0, 3.5], from: [-2, 0, 0] },
+    { name: "s1", size: [6, 4, 5], pivot: [0, 0, 1], from: [-3, 0, -2.5] },
+    { name: "s2", size: [3, 3, 1], pivot: [0, 0, -2], from: [-1.5, 0, -0.5] },
+    { name: "s3", size: [1, 2, 1], pivot: [0, 0, -3], from: [-0.5, 0, -0.5] },
+  ],
+  paint(s) {
+    const a = hex(0x2a1e33);
+    const b = hex(0x4c3a5a);
+    for (const [i, seg] of ["s0", "s1", "s2", "s3"].entries()) {
+      s.part(seg, (f, x, y, w, h) => {
+        let c = grain(mix(a, b, hash(x, y, 471 + i) * 0.6), x, y, 475 + i, 0.15);
+        if (hash(x, y, 480 + i) > 0.9) c = hex(0xb090d0); // violet specks
+        if (seg === "s0" && f === "front" && y === 2 && (x === 1 || x === w - 2)) c = [196, 96, 220];
+        return c;
+      });
+    }
+  },
+  animate(p, st) {
+    const t = st.time * 9 + st.walkPhase * 2;
+    for (let i = 0; i < 4; i++) p[`s${i}`].rotation.y = Math.sin(t + i * 1.4) * 0.25 * (0.4 + st.walk);
+  },
+};
+
+// The silverfish: a long, grey, plated bug of seven segments (in four that
+// move), its back plates rigid on them.
+const SILVERFISH = {
+  parts: [
+    { name: "s0", size: [3, 2, 2], pivot: [0, 0, 5], from: [-1.5, 0, 0] },
+    { name: "s1", size: [4, 3, 2], pivot: [0, 0, 3], from: [-2, 0, 0], parent: "s0", rigid: true },
+    { name: "s2", size: [6, 4, 3], pivot: [0, 0, 0], from: [-3, 0, 0] },
+    { name: "plate1", size: [8, 2, 3], pivot: [0, 0, 0], from: [-4, 4, 0], parent: "s2", rigid: true },
+    { name: "s3", size: [3, 3, 3], pivot: [0, 0, -3], from: [-1.5, 0, 0] },
+    { name: "plate2", size: [6, 2.5, 3], pivot: [0, 0, -3], from: [-3, 3, 0], parent: "s3", rigid: true },
+    { name: "s4", size: [2, 2, 3], pivot: [0, 0, -6], from: [-1, 0, 0] },
+    { name: "s5", size: [2, 1, 2], pivot: [0, 0, -8], from: [-1, 0, 0], parent: "s4", rigid: true },
+    { name: "s6", size: [1, 1, 2], pivot: [0, 0, -10], from: [-0.5, 0, 0], parent: "s4", rigid: true },
+  ],
+  paint(s) {
+    const a = hex(0x7d7d7d);
+    const b = hex(0xa6a6a6);
+    for (const [i, seg] of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "plate1", "plate2"].entries()) {
+      s.part(seg, (f, x, y, w, h) => {
+        let c = grain(mix(a, b, hash(x >> 1, y, 491 + i) * 0.6), x, y, 501 + i, 0.12);
+        if (seg.startsWith("plate") && y % 2 === 0) c = shade(c, 0.82);
+        if (seg === "s0" && f === "front" && y === 2 && (x === 0 || x === w - 1)) c = [28, 28, 28];
+        return c;
+      });
+    }
+  },
+  animate(p, st) {
+    const t = st.time * 10 + st.walkPhase * 2;
+    for (const [i, seg] of ["s0", "s2", "s3", "s4"].entries()) p[seg].rotation.y = Math.sin(t + i * 1.2) * 0.22 * (0.4 + st.walk);
+  },
+};
+
+// The shulker: a purple shell, its lid lifting and turning to show the pale
+// head inside (st.open 0-1). It faces +Y from the block it is stuck to
+// (mobs.js turns the whole model to that face).
+const SHULKER = {
+  parts: [
+    { name: "base", size: [16, 8, 16], pivot: [0, 0, 0], from: [-8, 0, -8] },
+    { name: "lid", size: [16, 12, 16], pivot: [0, 4, 0], from: [-8, 0, -8] },
+    { name: "head", size: [6, 6, 6], pivot: [0, 6, 0], from: [-3, 0, -3] },
+  ],
+  paint(s) {
+    const shell = hex(0x8e5f98);
+    const shellDark = hex(0x6a4573);
+    const shellLight = hex(0xae80b6);
+    const plated = (x, y, seed) => {
+      let c = grain(mix(shell, shellLight, hash(x >> 2, y >> 2, seed) * 0.4), x, y, seed + 1, 0.06);
+      if (x % 8 === 0 || y % 8 === 0) c = shade(c, 0.88);
+      return c;
+    };
+    s.part("base", (f, x, y, w, h) => {
+      let c = plated(x, y, 511);
+      if (f === "top") c = grain(hex(0x2c1c30), x, y, 512, 0.1); // inside, dark
+      if (f !== "top" && f !== "bottom" && y < 2) c = shellDark; // the rim
+      return c;
+    });
+    s.part("lid", (f, x, y, w, h) => {
+      let c = plated(x, y, 513);
+      if (f === "bottom") c = grain(hex(0x3a2440), x, y, 514, 0.1);
+      if (f !== "top" && f !== "bottom" && y >= h - 2) c = shellDark;
+      if (f === "top" && (Math.abs(x - w / 2 + 0.5) < 1.5 || Math.abs(y - w / 2 + 0.5) < 1.5)) c = shade(c, 0.9);
+      return c;
+    });
+    s.part("head", (f, x, y, w, h) => {
+      let c = grain(mix(hex(0xe2e6a6), hex(0xc3cc82), hash(x, y, 515) * 0.5), x, y, 516, 0.06);
+      if (f === "front" && y >= 4 && y < 6 && (x === 2 || x === w - 3)) c = [40, 30, 44];
+      if (f === "front" && y === 8 && x >= 4 && x < w - 4) c = [120, 120, 80];
+      return c;
+    });
+  },
+  animate(p, st) {
+    const open = Math.max(0, Math.min(1, st.open ?? 0));
+    p.lid.position.y = (4 + open * 8) * PX;
+    p.lid.rotation.y = open * Math.PI * 0.75;
+    p.head.position.y = (4 + open * 4) * PX;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch * open;
+  },
+};
+
+// Projectiles drawn as creatures (mobs.js `projectile`): the ghast's big
+// fireball (it can be hit back), the blaze's small one, the shulker's
+// homing bullet. Each spins as it flies.
+function fireballPaint(s, name, seed) {
+  const core = hex(0x3c0e04);
+  const flame = hex(0xff8a1c);
+  const hot = hex(0xffd85a);
+  s.part(name, (f, x, y, w, h) => {
+    const cx = (x + 0.5) / w - 0.5;
+    const cy = (y + 0.5) / h - 0.5;
+    const r = Math.hypot(cx, cy);
+    const n = hash(x >> 1, y >> 1, seed);
+    if (r < 0.22 + n * 0.08) return grain(mix(core, hex(0x6e1e08), n), x, y, seed + 1, 0.2);
+    return grain(mix(flame, hot, hash(x, y, seed + 2) * (1 - r)), x, y, seed + 3, 0.15);
+  });
+}
+const GHAST_FIREBALL = {
+  parts: [{ name: "ball", size: [12, 12, 12], pivot: [0, 6, 0], from: [-6, -6, -6] }],
+  paint: (s) => fireballPaint(s, "ball", 521),
+  animate(p, st) {
+    p.ball.rotation.set(st.time * 3.1, st.time * 2.3, st.time * 1.7);
+  },
+};
+const SMALL_FIREBALL = {
+  parts: [{ name: "ball", size: [5, 5, 5], pivot: [0, 2.5, 0], from: [-2.5, -2.5, -2.5] }],
+  paint: (s) => fireballPaint(s, "ball", 531),
+  animate(p, st) {
+    p.ball.rotation.set(st.time * 7, st.time * 5, 0);
+  },
+};
+const SHULKER_BULLET = {
+  parts: [{ name: "ball", size: [5, 5, 5], pivot: [0, 2.5, 0], from: [-2.5, -2.5, -2.5] }],
+  paint(s) {
+    s.part("ball", (f, x, y, w, h) => {
+      const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
+      return edge === 0 ? hex(0x9a6aa8) : grain(mix(hex(0xfffbe0), hex(0xf2e6a0), hash(x, y, 541)), x, y, 542, 0.08);
+    });
+  },
+  animate(p, st) {
+    p.ball.rotation.set(st.time * 6, st.time * 4.5, st.time * 3);
+  },
+};
+
 export const MODELS = {
   fluffalo: FLUFFALO,
   hoplet: HOPLET,
@@ -1827,6 +2430,24 @@ export const MODELS = {
   wolf: WOLF,
   cod: COD,
   salmon: SALMON,
+  // (Round 12) The Nether's and the End's (the magma cubes: one model at three sizes).
+  ghast: GHAST,
+  blaze: BLAZE,
+  magma_cube: { ...MAGMA, scale: 4 },
+  magma_cube_medium: { ...MAGMA, scale: 2 },
+  magma_cube_small: MAGMA,
+  piglin: PIGLIN,
+  zombified_piglin: ZOMBIFIED_PIGLIN,
+  hoglin: HOGLIN,
+  zoglin: { ...HOGLIN, paint: (s) => HOGLIN.paint(s, 1) },
+  wither_skeleton: WITHER_SKELETON,
+  strider: STRIDER,
+  endermite: ENDERMITE,
+  silverfish: SILVERFISH,
+  shulker: SHULKER,
+  ghast_fireball: GHAST_FIREBALL,
+  small_fireball: SMALL_FIREBALL,
+  shulker_bullet: SHULKER_BULLET,
 };
 
 // Shared per species: skin texture, material and part geometries.

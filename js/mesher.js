@@ -12,9 +12,10 @@
 //             its flipbook (FLAG.ANIM) or its flow direction (FLAG.FLOW))
 //
 // (Round 11) Block ids are 16-bit (the padded volume is a Uint16Array) and
-// the texture layer takes two bytes (TILE_CAPACITY tiles, js/content/base.js). A content module's
-// shapes (SHAPE_MESH, see js/content/index.js) are meshed here through
-// `shapeApi`, the same on the main thread and in the workers.
+// the texture layer takes two bytes (Round 12: TILE_CAPACITY layers, see
+// js/content/base.js). A content module's shapes (SHAPE_MESH, see
+// js/content/index.js) are meshed here through `shapeApi`, the same on the
+// main thread and in the workers.
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
 import {
   BLOCK,

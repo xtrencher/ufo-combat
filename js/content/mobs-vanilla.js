@@ -2,7 +2,9 @@
 // recipe; a right click on a block makes the creature there, mobs.js
 // requestSpawn through LIB.spawnMob; online a guest's is asked of the host).
 // The mobs' drops are other modules' items (leather, wool, rotten flesh...:
-// ids.js). Ids: items 640-703. What a content module may export, and its
+// ids.js). Ids: items 640-703. (Round 12) The Nether's and the End's
+// creatures' eggs, and the wither skeleton's skull (its rare drop: an item
+// here, kept for the Wither). What a content module may export, and its
 // rules (imports only ./base.js and other content modules' id constants):
 // see ./index.js.
 import { LIB } from "./base.js";
@@ -25,7 +27,21 @@ const EGGS = [
   [653, "cod", "Cod", 0xc1a76a, 0xe5c48b],
   [654, "salmon", "Salmon", 0xa00f10, 0x0e8474],
   [655, "wolf", "Wolf", 0xd7d3d3, 0xceaf96],
+  // (Round 12)
+  [656, "ghast", "Ghast", 0xf9f9f9, 0xbcbcbc],
+  [657, "zombified_piglin", "Zombified Piglin", 0xea9393, 0x4c7129],
+  [658, "piglin", "Piglin", 0x995f40, 0xf9f3a4],
+  [659, "hoglin", "Hoglin", 0xc66e55, 0x5f6464],
+  [660, "blaze", "Blaze", 0xf6b201, 0xfff87e],
+  [661, "magma_cube", "Magma Cube", 0x340000, 0xfcfc00],
+  [662, "wither_skeleton", "Wither Skeleton", 0x141414, 0x474d4d],
+  [663, "strider", "Strider", 0x9c3436, 0x4d494d],
+  [664, "endermite", "Endermite", 0x161616, 0x6e6e6e],
+  [665, "shulker", "Shulker", 0x946794, 0x4d3852],
+  [666, "silverfish", "Silverfish", 0x6e6e6e, 0x303030],
+  [667, "zoglin", "Zoglin", 0xc66e55, 0xe6e6e6],
 ];
+export const WITHER_SKELETON_SKULL = 680;
 export const SPAWN_EGG_KIND = Object.fromEntries(EGGS.map(([id, kind]) => [id, kind]));
 
 export const blocks = {};
@@ -38,6 +54,18 @@ function ramp(kit, color) {
   const [r, g, b] = kit.hex(color);
   return [0.5, 0.72, 0.9, 1.08, 1.25].map((k) => [Math.min(255, r * k + 6), Math.min(255, g * k + 6), Math.min(255, b * k + 6)]);
 }
+
+// The wither skeleton's skull: charcoal, two hollow eyes and a grin.
+items[WITHER_SKELETON_SKULL] = { name: "Wither Skeleton Skull", icon: "wither_skeleton_skull", stack: 64 };
+icons.wither_skeleton_skull = (kit) => {
+  const c = new kit.Canvas();
+  const N = kit.N;
+  const box = (x0, y0, x1, y1) => (x, y) => x >= N * x0 && x < N * x1 && y >= N * y0 && y < N * y1;
+  c.fill(0, box(0.19, 0.16, 0.81, 0.84), (x, y) => -((x - N / 2) / N + (y - N / 2) / N) * 0.9);
+  c.fill(1, (x, y) => box(0.28, 0.38, 0.44, 0.54)(x, y) || box(0.56, 0.38, 0.72, 0.54)(x, y) || box(0.47, 0.57, 0.53, 0.64)(x, y));
+  c.fill(1, (x, y) => box(0.31, 0.7, 0.69, 0.76)(x, y) && Math.floor(x / (N / 16)) % 2 === 0);
+  return c.render([ramp(kit, 0x3b3b3e), ramp(kit, 0x0a0a0a)]);
+};
 
 for (const [id, kind, name, shell, spots] of EGGS) {
   items[id] = { name: `${name} Spawn Egg`, icon: `spawn_egg_${kind}`, stack: 64, spawns: kind };

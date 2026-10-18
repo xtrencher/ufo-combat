@@ -657,7 +657,8 @@ await check("every nature block and item is defined and named, within the textur
   for (const id of ids) assert(BLOCK_INFO[id] && BLOCK_INFO[id].name, `block ${id}`);
   for (const id of Object.keys(N.items).map(Number)) assert(itemInfo(id)?.name && itemInfo(id).icon, `item ${id}`);
   assert(Object.keys(N.tiles).length <= 74, `nature tiles: ${Object.keys(N.tiles).length}`); // (70, the world part's spawner cage, the cocoa pod's 3 ages)
-  assert(TILE_NAMES.length <= 256, `all tiles: ${TILE_NAMES.length}`);
+  const BASE = await imp("js/content/base.js");
+  assert(TILE_NAMES.length + BASE.FLIPBOOK_LAYERS <= BASE.TILE_CAPACITY, `all tiles: ${TILE_NAMES.length}`);
   // A chunk with one of every shaped block, meshed.
   const blocks = new Uint16Array(16 * 128 * 16);
   const light = new Uint8Array(blocks.length).fill(0xf0);

@@ -9,7 +9,7 @@
 //              merged below before the tables are built, so the tables are
 //              built once at load, the same on the main thread and in workers)
 // Every lookup table has BLOCK_LIMIT (4096) entries; chunks are Uint16Arrays.
-import { BLOCK, RENDER, SHAPE, SHAPE_CUSTOM, FACE, BLOCK_LIMIT, ITEM_MIN, NEW_BLOCK_MIN, isBlockId, LIB } from "./content/base.js";
+import { BLOCK, RENDER, SHAPE, SHAPE_CUSTOM, FACE, BLOCK_LIMIT, ITEM_MIN, NEW_BLOCK_MIN, isBlockId, LIB, TILE_CAPACITY, FLIPBOOK_LAYERS } from "./content/base.js";
 import { CONTENT_BLOCKS, CONTENT_TILES, CONTENT_SHAPES } from "./content/index.js";
 
 export { BLOCK, RENDER, SHAPE, SHAPE_CUSTOM, FACE, BLOCK_LIMIT, ITEM_MIN, NEW_BLOCK_MIN, isBlockId };
@@ -82,10 +82,10 @@ const CORE_TILE_NAMES = [
 ];
 export const TILE_NAMES = [...CORE_TILE_NAMES, ...CONTENT_TILES];
 for (const name of CONTENT_TILES) if (CORE_TILE_NAMES.includes(name)) throw new Error(`Content tile "${name}" is already a core tile`);
-// (The mesher's vertices carry the layer in two bytes: room for 1024 tiles.
-// A GPU only promises 256 layers in one texture array, so past that the
-// array would have to be split.)
-if (TILE_NAMES.length > 1024) throw new Error(`Too many texture tiles (${TILE_NAMES.length}; at most 1024)`);
+// (Round 12) The texture layers come in pages of 256, all a GPU promises in
+// one texture array (textures.js, js/content/base.js): room for
+// TILE_CAPACITY (1024) layers, these tiles and the flipbooks' frames after them.
+if (TILE_NAMES.length + FLIPBOOK_LAYERS > TILE_CAPACITY) throw new Error(`Too many texture tiles (${TILE_NAMES.length} and ${FLIPBOOK_LAYERS} flipbook frames; at most ${TILE_CAPACITY})`);
 export const TILE = Object.freeze(Object.fromEntries(TILE_NAMES.map((name, i) => [name, i])));
 
 // The content modules' shapes: SHAPE_CUSTOM + their place in CONTENT_SHAPES.

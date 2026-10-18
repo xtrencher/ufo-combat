@@ -148,7 +148,8 @@ await check("dyeing in the grid: wool, carpets, terracotta, glass and panes, con
 await check("textures: the decor tiles within the part's share (30) and every tile layer within 256", async () => {
   const B = await mod("js/blocks.js");
   const n = Object.keys(D.tiles).length;
-  assert(n <= 30 && B.TILE_NAMES.length <= 256, `decor ${n}, all ${B.TILE_NAMES.length}`);
+  const BASE = await mod("js/content/base.js");
+  assert(n <= 30 && B.TILE_NAMES.length + BASE.FLIPBOOK_LAYERS <= BASE.TILE_CAPACITY, `decor ${n}, all ${B.TILE_NAMES.length}`);
 });
 
 if (args.nobrowser) await finish();
