@@ -171,7 +171,7 @@ export function validValue(e, raw) {
 // The settings object's format version (the `v` field). Older saves (no
 // version) are read and upgraded; unknown or broken values fall back to
 // their defaults.
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 
 export const DEFAULT_SETTINGS = {
   v: SETTINGS_VERSION,
@@ -181,6 +181,9 @@ export const DEFAULT_SETTINGS = {
   renderDistanceCustom: false,
   graphics: "medium",
   gfxOverrides: {},
+  // (Round 12) Automatic graphics (js/autotune.js): on for a new install,
+  // off for good once the player picks their own; `level` is where it settled.
+  autoGraphics: { on: true, level: 0 },
   volume: { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,
   fullscreen: false, // (Round 12: play fullscreen, applied on the next click into the game: fullscreen.js)
@@ -212,6 +215,19 @@ export function normalizeSettings(raw, opts = {}) {
       if (opts.isOverride && !opts.isOverride(k, val)) continue;
       out.gfxOverrides[k] = val;
     }
+  }
+  // (Round 12) Automatic graphics. A save from before it that is still on
+  // every old graphics and performance default (a player who never chose)
+  // gets it too, once; one with a choice of its own keeps that choice.
+  const ag = s.autoGraphics;
+  if (ag && typeof ag === "object" && !Array.isArray(ag)) {
+    const lv = Math.floor(Number(ag.level));
+    out.autoGraphics = { on: ag.on === true, level: Number.isFinite(lv) ? Math.max(0, Math.min(31, lv)) : 0 };
+  } else {
+    const fresh = s.graphics === undefined;
+    const p = out.perf;
+    const untouched = (!Number.isFinite(s.v) || s.v < 6) && s.graphics === "medium" && Object.keys(out.gfxOverrides).length === 0 && !out.renderDistanceCustom && out.renderDistance === DEFAULT_SETTINGS.renderDistance && p.detailDistance === 0 && p.lodQuality === "medium" && p.resolution === 1 && p.effects === "high";
+    out.autoGraphics = { on: fresh || untouched, level: 0 };
   }
   // Volumes 0-1 per category.
   out.volume = {};
@@ -513,6 +529,8 @@ export class SettingsPanel {
       const v = validValue(e, raw);
       setPath(this.settings, e.key, v);
       if (label) label.textContent = fmt(v);
+      // (Round 12) A Performance setting of the player's own ends the automatic graphics (js/autotune.js).
+      if (e.group === "performance") this.onTuningChange?.(e.key);
       this._apply(e.key, v);
       this.save();
     };

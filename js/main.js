@@ -73,7 +73,8 @@ import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
 import { roomMode, playerModeOf } from "./net/rules.js";
-import { setWorldType, worldType, isVanilla, normalizeWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
+import { setWorldType, worldType, isVanilla, normalizeWorldType, newWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
+import { goUrl, takeGo } from "./menu-go.js";
 import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
 import { Sleep } from "./sleep.js";
 import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
@@ -130,7 +131,8 @@ const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
 // known before the world is built (a Survival world's terrain has no
 // airports or cities): the save's (an old save without one is Missions),
 // else what "New world" picked for this seed (?type= in its link, or the
-// last-world record), else Missions. A guest plays the host's.
+// last-world record), else (Round 12) Survival, the default (a ?seed= link
+// without a type: Missions, as before). A guest plays the host's.
 // (A saved player: position, inventory, ...; a guest's session reads none.)
 const savedPlayer = GUEST ? null : loadPlayer(SEED);
 function newWorldPick() {
@@ -139,9 +141,12 @@ function newWorldPick() {
   const lastHere = last && last.seed === SEED ? last : null;
   const type = params.get("type") ?? lastHere?.type;
   const mode = params.get("mode") ?? lastHere?.mode;
-  return { type: normalizeWorldType(type), mode: mode === "creative" ? "creative" : "survival" };
+  return { type: newWorldType(type, { link: params.has("seed") }), mode: mode === "creative" ? "creative" : "survival" };
 }
 const NEW_PICK = savedPlayer || GUEST ? null : newWorldPick();
+// (Round 12) Reloaded into a world picked on the main menu: straight into the
+// game (menu-go.js; the end of this file). Read at once: it leaves the address.
+const GO = GUEST ? null : takeGo(SEED);
 setWorldType(GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : NEW_PICK.type);
 
 // ---------- Renderer / scene / camera ----------
@@ -1147,7 +1152,7 @@ function removePlayerJets() {
 function callIn(kind) {
   if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight" || isVanilla()) return false;
   if (!mods.enabled) {
-    toast("Switch mods on first (Settings > Mods).", 3);
+    toast("Switch the mods on first (Settings > Missions mods).", 3);
     return false;
   }
   if (vehicles.active) vehicles.exit({ force: true });
@@ -1659,6 +1664,8 @@ if (GUEST) {
 // The main menu's background: a slow flyover with a UFO drifting by.
 const flyover = new MenuFlyover(scene, world, { effects, audio });
 flyover.setCenter(player.position);
+// (Round 12) Its UFOs only while the menu shows a Missions world (this one, or the Missions card picked).
+ui.onShownType = (type) => flyover.setUfos(type === "missions");
 // Shoot it: click the saucer that flies by (a few hits and it blows up).
 const menuScoreEl = document.getElementById("menu-score");
 const menuScoreN = document.getElementById("menu-score-n");
@@ -2565,6 +2572,8 @@ function requestLock() {
   // Newer browsers return a promise that rejects if the lock is refused
   // (e.g. right after Esc); the pause menu then offers to resume.
   if (result && typeof result.catch === "function") result.catch(() => showPause());
+  // (Round 12) The Fullscreen setting: this click into the game is the one a page needs to go fullscreen.
+  fullscreen.applySetting();
 }
 
 function showPause() {
@@ -2621,7 +2630,7 @@ ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
   // (Round 11: the other type's card was picked: into that world instead.)
   if (worldPick) {
-    openWorld(worldPick.seed, worldPick.type);
+    openWorld(worldPick.seed, worldPick.type, worldPick.mode);
     return;
   }
   enterGame();
@@ -2645,23 +2654,28 @@ function rememberedWorld(type) {
   return normalizeWorldType(loadPlayer(seed)?.worldType) === type ? seed : null;
 }
 if (savedPlayer) rememberWorld(); // (a world from before Round 11 is remembered as it is opened)
-function pickWorld(type) {
+// (Round 12) A card is a world type and a mode: Creative is a Survival world's.
+function pickWorld(type, mode = "survival") {
   // (Online the room plays this world.)
   if (type && mp.active) {
-    toast("The room plays this world: close the room first (Multiplayer).", 3);
+    toast("The room plays this world: close the room first (Multiplayer), or change the room's mode in its lobby.", 3.5);
     return;
   }
-  worldPick = type ? { type, seed: rememberedWorld(type) } : null;
+  mode = mode === "creative" ? "creative" : "survival";
+  worldPick = type ? { type, mode, seed: rememberedWorld(type) } : null;
   const name = WORLD_TYPE_NAMES[type];
-  const where = !worldPick ? "" : worldPick.seed !== null ? `Opens your ${name} world (seed ${worldPick.seed}) where you left it.` : `Makes a new ${name} world ("New world" below picks its seed).`;
-  ui.setPick(worldPick && { type, hint: `${where} ${MODE_HINTS[type]}` });
-  ui.setPlayLabel(worldPick ? `${worldPick.seed !== null ? "Continue" : "New"} ${name} world` : savedPlayer ? "Continue" : "Play");
+  const inCreative = mode === "creative" ? " in Creative" : "";
+  const where = !worldPick ? "" : worldPick.seed !== null ? `Opens your ${name} world (seed ${worldPick.seed})${inCreative} where you left it.` : `Makes a new ${name} world${inCreative} ("New world" below picks its seed).`;
+  ui.setPick(worldPick && { type, mode, hint: `${where} ${MODE_HINTS[mode === "creative" ? "creative" : type]}` });
+  ui.setPlayLabel(worldPick ? `${worldPick.seed !== null ? "Continue" : "New"} ${mode === "creative" ? "Creative" : name} world` : savedPlayer ? "Continue" : "Play");
 }
 ui.onPickType = pickWorld;
 // Into another world: this one saved, then the page reloads into that one (a
 // new world's type and mode go along in its link). A seed that already has a
-// saved world opens it as it is, in its own type.
-function openWorld(seed, type, mode = "survival") {
+// saved world opens it as it is, in its own type. (Round 12) The reload goes
+// straight into the game, in `mode` (null: the world's own), and opens a room
+// in `hostMode` there when the Multiplayer screen asked for one (menu-go.js).
+function openWorld(seed, type, mode = "survival", hostMode = null) {
   if (seed === null) seed = randomSeed();
   // (This very world, never played and made again as another type: nothing
   // of it to keep, and a save now would make it its old type again.)
@@ -2675,6 +2689,7 @@ function openWorld(seed, type, mode = "survival") {
     url.searchParams.set("type", type);
     if (mode === "creative") url.searchParams.set("mode", "creative");
   }
+  goUrl(url, mode, hostMode);
   window.location.href = url.toString();
 }
 
@@ -2736,25 +2751,28 @@ newSeedInput.addEventListener("input", () => {
   const old = seed !== null && hasSavedWorld(seed) ? loadPlayer(seed) : null;
   newSeedNote.textContent = old ? `You already have a ${worldLabel(old.worldType, old.mode)} with seed ${seed}: it will be continued where you left it.` : "";
 });
-// (Round 11) Its type: Missions, Survival, or Creative (a Missions world, in
-// Creative: today's Creative with every block, item and call-in).
+// (Round 11) Its type. (Round 12) Survival (the default), Creative (a
+// Survival world, in Creative: plain Minecraft) or Missions (the mods add-on;
+// its own Creative, with every mod item and the call-ins, is in its pause menu).
 const NEW_TYPE_HINTS = {
-  missions: "A Missions world: the UFO war, with missions, loot, supply drops, vehicles and the mod weapons.",
   survival: "A Survival world: normal Minecraft. You start with nothing; no UFOs, missions, airports, cities or mod weapons. (Creative is in its pause menu too.)",
-  creative: "A Missions world in Creative: every block and item, flight, the call-ins. The pause menu switches it to Missions any time.",
+  creative: "A Survival world in Creative: every block, flight, no damage, in plain Minecraft. The pause menu switches it to Survival any time.",
+  missions: "A Missions world, with the mods: the UFO war, with missions, loot, supply drops, vehicles and the mod weapons. (Its Creative, with every mod item and the call-ins, is in its pause menu.)",
 };
-let newType = "missions";
+let newType = "survival";
 function pickNewType(t) {
-  newType = NEW_TYPE_HINTS[t] ? t : "missions";
+  newType = NEW_TYPE_HINTS[t] ? t : "survival";
   for (const b of document.querySelectorAll("[data-nwtype]")) b.classList.toggle("active", b.dataset.nwtype === newType);
   document.getElementById("new-type-hint").textContent = NEW_TYPE_HINTS[newType];
 }
 for (const b of document.querySelectorAll("[data-nwtype]")) b.addEventListener("click", () => pickNewType(b.dataset.nwtype));
 // (Opened: the card picked on the main menu.)
-screens.onOpen["new-world-screen"] = () => pickNewType(worldPick?.type ?? (player.creative && !isVanilla() ? "creative" : worldType()));
+screens.onOpen["new-world-screen"] = () => pickNewType(worldPick ? (worldPick.mode === "creative" ? "creative" : worldPick.type) : isVanilla() && player.creative ? "creative" : worldType());
 pickNewType(worldType());
 document.getElementById("new-world-create").addEventListener("click", () => {
-  openWorld(parseSeedInput() ?? randomSeed(), newType === "survival" ? "survival" : "missions", newType === "creative" ? "creative" : "survival");
+  // (A seed that already has a world: continued as it is, in its own mode.)
+  const seed = parseSeedInput() ?? randomSeed();
+  openWorld(seed, newType === "missions" ? "missions" : "survival", hasSavedWorld(seed) ? null : newType === "creative" ? "creative" : "survival");
 });
 
 // Back to the main menu: save and reload this world's page (the menu
@@ -2775,7 +2793,7 @@ document.getElementById("main-menu-btn").addEventListener("click", () => {
 let leavingToMenu = false;
 
 // Fullscreen button, F11 / Alt+Enter and the Keyboard Lock API (js/fullscreen.js).
-const fullscreen = new FullscreenControl({ isInGame: () => gameState === "playing" || gameState === "inventory" });
+const fullscreen = new FullscreenControl({ isInGame: () => gameState === "playing" || gameState === "inventory", settings, save: persistSettings });
 // With the keyboard locked (fullscreen in Chromium) Esc reaches the page as a
 // key press and the browser no longer drops the pointer lock itself: do it here.
 window.addEventListener("keydown", (e) => {
@@ -2977,7 +2995,7 @@ function updateDebug(dt, frameTime) {
   const info = renderer.info;
   const target = interaction.target;
   const lines = [
-    `UFO COMBAT  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (sim ${perf.simMs.toFixed(1)} ms, draw ${perf.renderMs.toFixed(1)} ms)  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
+    `MINECLAUDE  ${Math.round(1 / Math.max(1e-3, frameTime))} fps  (sim ${perf.simMs.toFixed(1)} ms, draw ${perf.renderMs.toFixed(1)} ms)  (${graphicsPreset}${Object.keys(settings.gfxOverrides).length ? ", custom" : ""})`,
     `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
@@ -3418,6 +3436,14 @@ const game = {
   // Leaving the page on purpose (no "are you sure" prompt).
   allowUnload() {
     leavingToMenu = true;
+  },
+  // (Round 12) A room in a world of the other type (the Multiplayer screen's
+  // card): into that world (the last one of the type, else a new one), whose
+  // page opens the room as it starts (menu-go.js).
+  hostInWorld(type, mode) {
+    if (GUEST || mp.active) return;
+    type = normalizeWorldType(type);
+    openWorld(rememberedWorld(type), type, playerModeOf(mode), mode);
   },
   // A room was opened from a menu: the game mode follows the room's.
   hostStarted(mode) {
@@ -4181,5 +4207,13 @@ if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
+// (Round 12) Reloaded into a world picked on the main menu (or for a room the
+// Multiplayer screen asked for there): straight into the game, in the mode
+// picked, one click to take the mouse ("Click to play", as a guest's join).
+if (GO) {
+  if (GO.mode) ui.setModeShown(GO.mode);
+  enterAsGuest();
+  if (GO.host) mp.ui.hostNow(GO.host);
+}
 // A guest: the world is built, now the game state comes from the host.
 if (GUEST) mp.startGuest();

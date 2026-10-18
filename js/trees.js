@@ -170,7 +170,7 @@ export class TreeGrower {
     // streets and buildings.
     const vg = this.terrain.villages;
     if (this.vanilla) {
-      if (vg?.blocksTree(wx, wz)) return null;
+      if (vg?.blocksTree(wx, wz) || this.terrain.structures?.blocksTree(wx, wz)) return null;
     } else {
       const v = vg?.nearestVillage(wx, wz, VILLAGE_REACH + 8);
       if (v && (v.x - wx) ** 2 + (v.z - wz) ** 2 <= (VILLAGE_REACH + 6) ** 2) return null;

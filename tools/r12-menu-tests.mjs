@@ -10,10 +10,11 @@
 // off, Missions brings one in; Play on a picked world reloads straight into
 // the game (Click to play, the flag gone; a reload shows the menu again);
 // New world > Creative makes a Survival world in Creative, in one go; the
-// Fullscreen setting is saved and its buttons follow fullscreen; Ctrl+W and
-// friends are held back in the game; the Multiplayer screen offers Survival,
-// Creative, Missions and Dogfight, and a Dogfight asked for in a Survival
-// world opens a Missions world with the room open (a local signaling server).
+// Fullscreen setting is saved, its buttons follow fullscreen and Play goes
+// fullscreen with it on; Ctrl+W and friends are held back in the game; the
+// Multiplayer screen offers Survival, Creative, Missions and Dogfight, and a
+// Dogfight asked for in a Survival world opens a Missions world with the
+// room open (a local signaling server).
 //
 //   node r12-menu-tests.mjs [--only=substring] [--node]
 // (GAME_ROOT=dir runs another copy of the game.)
@@ -282,6 +283,15 @@ async function browserChecks() {
     await p.click("#menu-fs-btn");
     s = await until(p, () => !document.fullscreenElement && { on: document.getElementById("fullscreen-setting").checked, btn: document.getElementById("menu-fs-btn").textContent }, 10000);
     assert(s && !s.on && s.btn === "Fullscreen", `the button leaves it and the setting follows: ${JSON.stringify(s)}`);
+    // On again, then left the browser's way (the setting stays): Play goes back to fullscreen, with the mouse, in one click.
+    await p.click("#menu-fs-btn");
+    assert(await until(p, () => !!document.fullscreenElement, 10000), "the button enters it");
+    await v(p, () => document.exitFullscreen());
+    s = await until(p, () => !document.fullscreenElement && { on: document.getElementById("fullscreen-setting").checked }, 10000);
+    assert(s && s.on, "a browser exit keeps the setting");
+    await p.click("#play-btn");
+    s = await until(p, (g) => g.gameState === "playing" && { fs: !!document.fullscreenElement, lock: !!document.pointerLockElement }, 30000);
+    assert(s && s.fs && s.lock, `Play: fullscreen and the mouse: ${JSON.stringify(s)}`);
     await p.close();
   });
 
