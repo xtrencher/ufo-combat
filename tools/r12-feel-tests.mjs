@@ -260,11 +260,12 @@ const cactusRun = (below) =>
       t.place(x0 + 12.69, Y + 2, z0 + 0.69);
       t.run(1.02);
       out.edge = { hp: p.health, cactus: g.world.getBlock(x0 + 13, Y + 1, z0 + 1) === C };
-      // An item lying against a cactus's side is destroyed (after its first 0.5 s).
+      // An item lying against a cactus's side is destroyed (after its first
+      // 0.5 s); another (a different block: no merging) half a block off isn't.
       t.set(x0 + 16, Y, z0, t.BLOCK.SAND);
       t.set(x0 + 16, Y + 1, z0, C);
       const it = g.entities.spawn(t.BLOCK.DIRT, 1, new g.THREE.Vector3(x0 + 15.73, Y + 1, z0 + 0.5), new g.THREE.Vector3(0, 0, 0), { pickupDelay: 99 });
-      const kept = g.entities.spawn(t.BLOCK.DIRT, 1, new g.THREE.Vector3(x0 + 15.3, Y + 1, z0 + 0.5), new g.THREE.Vector3(0, 0, 0), { pickupDelay: 99 });
+      const kept = g.entities.spawn(t.BLOCK.SAND, 1, new g.THREE.Vector3(x0 + 15.2, Y + 1, z0 + 0.5), new g.THREE.Vector3(0, 0, 0), { pickupDelay: 99 });
       t.place(x0 + 0.5, Y + 1, z0 - 3.5);
       t.run(0.4);
       const young = g.entities.items.includes(it);
