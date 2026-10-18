@@ -23,7 +23,7 @@
 import * as THREE from "three";
 import { BLOCK, TILE } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
-import { createGrassMaterial } from "./shaders.js";
+import { createGrassMaterial, worldUniforms } from "./shaders.js";
 import { grassTint } from "./mesher.js";
 
 const REGROW = 150; // seconds a cut or burnt patch stays bare
@@ -217,6 +217,11 @@ export class GrassField {
   constructor(scene, world) {
     this.world = world;
     this.material = createGrassMaterial(world.atlas);
+    // (Round 12) The blades' sun shadows are the plain 6-tap filter whatever
+    // the preset: Ultra's soft penumbrae (32 shadow-map reads a pixel) on a
+    // field of thin blades that cover the lower screen cost a fifth of a
+    // frame, for no visible difference. (Read live: presets change it.)
+    this.material.uniforms.uShadowQuality = { get value() { return Math.min(1, worldUniforms.uShadowQuality.value); } };
     this.mesh = new THREE.Group(); // all plant types
     this.mesh.visible = false;
     scene.add(this.mesh);
