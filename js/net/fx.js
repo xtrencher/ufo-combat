@@ -181,6 +181,8 @@ export class FxSync {
     for (const r of w.rockets || []) add(r, "rk");
     for (const gr of w.grenades || []) add(gr, "gr");
     for (const a of w.arrows || []) if (!a.stuck || a.age < 0.3) add(a, "ar");
+    for (const t of w.throwables?.list || []) add(t, w.throwables.netKind(t));
+    if (w.fishing?.bobber) add(w.fishing.bobber, "fb");
     if (this.net.isHost) for (const a of g.mobs.arrows || []) add(a, "ar");
     for (const v of g.vehicles.vehicles) {
       if (v.puppet || v.type === "ufo") continue;
@@ -329,6 +331,8 @@ export class FxSync {
       mesh.add(ex);
     } else if (kind === "gr") mesh = new THREE.Mesh(w._grenadeGeo, w.material);
     else if (kind === "ar") mesh = new THREE.Mesh(w.arrowGeometry(), w.material);
+    else if (kind === "eg" || kind === "sb" || kind === "ep") mesh = w.throwables?.remoteMesh(kind);
+    else if (kind === "fb") mesh = w.fishing?.remoteMesh();
     else if (kind === "ms") mesh = new THREE.Mesh(this._missileGeo || (this._missileGeo = missileGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
     else if (kind === "nb") {
       mesh = new THREE.Group();
@@ -340,7 +344,8 @@ export class FxSync {
       mesh.add(chute);
       mesh.userData.chute = chute;
     } else return null;
-    if (kind === "rk" || kind === "gr" || kind === "ar") bindEntityLight(mesh, () => light);
+    if (!mesh) return null;
+    if (kind === "rk" || kind === "gr" || kind === "ar" || kind === "eg" || kind === "sb" || kind === "ep" || kind === "fb") bindEntityLight(mesh, () => light);
     g.scene.add(mesh);
     return { kind, mesh, light, pos: new THREE.Vector3(), target: new THREE.Vector3(), vel: new THREE.Vector3(), t: 0, extra: 0, trail: 0 };
   }

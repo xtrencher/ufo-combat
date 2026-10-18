@@ -292,6 +292,8 @@ export class EffectsSystem {
     this.explosionCount++;
     // (What it hurts: the crater's size, a little more for a blast that looks bigger.)
     if (this.onExplosion) this.onExplosion(position, look > radius ? Math.min(look, radius * 1.5) : radius, source, { mirror, by });
+    // (Round 11) The blocks it blew away (a creeper's drops: mobs.js blastDrops).
+    return removed;
   }
 
   _spawnExplosionParticles(center, removed, radius, look = radius) {

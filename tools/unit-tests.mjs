@@ -817,8 +817,10 @@ await test("quick-move: a stack moves between the hotbar and the main area", () 
   assert.ok(inv.slots.findIndex((s) => s && s.id === BLOCK.SAND) >= 9, "hotbar -> main");
 });
 
-await test("no crafting: the module is gone; Survival starts with basic gear (sword, pickaxe, apples), Creative with every weapon and the bow", async () => {
-  await assert.rejects(() => import("../js/crafting.js"));
+await test("crafting is back for Survival worlds; Survival starts with basic gear (sword, pickaxe, apples), Creative with every weapon and the bow", async () => {
+  // (Round 11: crafting is back for Survival worlds; tools/r11-crafting-tests.mjs has the screens.)
+  const { craftResult } = await import("../js/crafting.js");
+  assert.deepEqual(craftResult([0, BLOCK.WOOD, 0, 0], 2), { id: BLOCK.PLANKS, count: 4 });
   const { SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ALL_WEAPONS } = await import("../js/items.js");
   assert.deepEqual(SURVIVAL_LOADOUT, [ITEM.STONE_SWORD, ITEM.STONE_PICKAXE, [ITEM.APPLE, 5]]);
   for (const e of SURVIVAL_LOADOUT) assert.ok(!itemInfo(Array.isArray(e) ? e[0] : e)?.weapon, "no weapon in the Survival start");

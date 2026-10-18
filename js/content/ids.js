@@ -152,7 +152,9 @@ export const BROWN_CARPET = 1397;
 export const GREEN_CARPET = 1398;
 export const RED_CARPET = 1399;
 export const BLACK_CARPET = 1400;
-// (building.js blocks: next free 1401)
+// (building.js blocks, more in its own range: OAK_DOOR_RIGHT 1401, SPRUCE_DOOR_RIGHT 1417,
+// BIRCH_DOOR_RIGHT 1433, IRON_DOOR_RIGHT 1449 (16 ids each: the doors hinged on the
+// right, laid out as the doors'), LANTERN_HANGING 1465; next free 1466)
 
 // ---- nature.js blocks ----
 export const REDSTONE_ORE = 1536; // 2 ids: unlit, lit

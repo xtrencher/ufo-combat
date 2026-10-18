@@ -150,7 +150,7 @@ export function itemInfo(id) {
   // (A block that counts as another item, e.g. a wall torch, is no item itself.)
   if (id > 0 && isBlockId(id) && BLOCK_INFO[id] && ITEM_OF[id] === id) {
     const b = BLOCK_INFO[id];
-    info = { id, name: b.name, stack: 64, block: id, icon: null };
+    info = { id, name: b.name, stack: b.stack ?? 64, block: id, icon: null };
   } else if (ITEM_DEFS[id]) {
     info = { id, stack: 64, ...ITEM_DEFS[id] };
   }
