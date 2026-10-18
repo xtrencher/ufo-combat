@@ -7,6 +7,10 @@
 // a nameplate over their head or over their vehicle. (Round 11) A player
 // asleep in a bed (sleep.js) lies in it: their state's feet are at the bed's
 // foot, facing it (an older peer ignores the flag and sees them standing).
+// (Round 12) A state carries its player's dimension ("dm", stamped by
+// js/net/session.js): a player in another dimension is not drawn and is
+// nobody's target here (`seen` is false: active() leaves them out); all()
+// still has them (the host's furnaces near a guest in their dimension).
 import * as THREE from "three";
 import { PlayerAvatar } from "../player-avatar.js";
 import { Parachute } from "../vehicles.js";
@@ -49,7 +53,8 @@ export class RemotePlayer {
     this.heldId = 0;
     this.swing = 1;
     this.vehicleNid = 0;
-    this.seen = false; // a state has arrived
+    this.heard = false; // a state has arrived
+    this.dim = 0; // (Round 12) the dimension they are in (code, js/dim-registry.js)
     this.lastHeard = 0;
     // The newest known state (AI targets aim at where the player is now, not
     // where they are drawn).
@@ -61,6 +66,12 @@ export class RemotePlayer {
     return this.creative ? "creative" : "survival";
   }
 
+  // In the game and in this player's dimension (what the AI, the drawing
+  // and every "players here" list go by).
+  get seen() {
+    return this.heard && this.dim === (this.sync.net.dimCode | 0);
+  }
+
   // The vehicle this player sits in (a puppet here), if any.
   get vehicle() {
     return this.vehicleNid ? this.sync.mp.vehicles?.byNid(this.vehicleNid) ?? null : null;
@@ -69,9 +80,14 @@ export class RemotePlayer {
   receive(msg, now) {
     this.interp.push(msg, now);
     this.lastHeard = now;
-    this.seen = true;
+    this.heard = true;
     const last = this.interp.last;
     if (last === msg) {
+      const dim = msg.dm | 0;
+      if (dim !== this.dim) {
+        this.dim = dim;
+        this.sync.onDimChange?.(this);
+      }
       this.livePos.fromArray(msg.p);
       this.liveVel.fromArray(msg.v || [0, 0, 0]);
       this.vehicleNid = msg.veh || 0;
@@ -84,8 +100,9 @@ export class RemotePlayer {
   }
 
   update(dt, now) {
-    const st = this.interp.sample(now);
+    const st = this.seen ? this.interp.sample(now) : null;
     if (!st) {
+      if (this.chute?.active) this.chute.close(null);
       this.avatar.root.visible = false;
       this.plate.place(0, -1000, 0, false);
       return;
@@ -286,9 +303,15 @@ export class PlayerSync {
     for (const r of this.remotes.values()) r.update(dt, now);
   }
 
-  // Every remote player that is in the game (has sent a state).
+  // Every remote player that is in the game (has sent a state) and in this
+  // player's dimension (Round 12).
   *active() {
     for (const r of this.remotes.values()) if (r.seen) yield r;
+  }
+
+  // (Round 12) Every remote player in the game, whatever their dimension (r.dim).
+  *all() {
+    for (const r of this.remotes.values()) if (r.heard) yield r;
   }
 }
 

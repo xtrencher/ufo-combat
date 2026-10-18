@@ -26,9 +26,10 @@ const CLAY = [["#dd7b5a", "#d06e4e", "#e58a68", "#c86449", "#d87555", "#ea9370"]
 const S = 4; // sub-units per block: the edge is one sub-unit wide, on whole units (crisp)
 
 // Splash lines (Minecraft's yellow ones), per world type shown on the menu.
+// (Short: the splash may not run past the menu's column.)
 const SPLASHES = {
-  survival: ["Punch a tree!", "Now in your browser!", "Also try Missions!", "Survival is the default!", "Multiplayer in every mode!", "No build step!", "Press F11!", "Made of blocks!", "Mind the cactus!"],
-  missions: ["UFOs incoming!", "With mods!", "Shoot the saucer!", "Jets at the airports!", "Missions together!", "Now with lasers!", "The sky is watching!"],
+  survival: ["Punch a tree!", "Also try Missions!", "Made of blocks!", "Press F11!", "No build step!", "Mind the cactus!", "Play together!", "100% voxels!", "Now in a browser!"],
+  missions: ["UFOs incoming!", "With mods!", "Shoot the saucer!", "Watch the sky!", "Jets at airports!", "Now with lasers!", "Missions together!"],
 };
 
 function hash(x, y) {

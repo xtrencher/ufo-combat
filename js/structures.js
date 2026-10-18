@@ -35,6 +35,7 @@ import { SPAWNER, SPAWNER_KINDS } from "./content/nature.js";
 import { LIB, ITEM } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { enchantedBook } from "./enchant.js";
+import { FLOWER_POT, WHITE_DYE, SPRUCE_SIGN } from "./content/decor.js";
 
 const S = CHUNK_SIZE;
 const idx = (x, y, z) => (y * S + z) * S + x;
@@ -445,6 +446,9 @@ export class StructureGrower {
   // asks only about those). getBlock(x, y, z): the world's (a dungeon's chest
   // is the one with a spawner beside it on its floor).
   chestAt(x, y, z, getBlock) {
+    // (Round 12) a village's chest: its house's table (village.js)
+    const village = this.terrain.villages?.chestLoot?.(x, y, z);
+    if (village) return village;
     for (const p of this._minesNear(x, z, x, z)) {
       if (p.chests.some((c) => c[0] === x && c[1] === y && c[2] === z)) return "mineshaft";
     }
@@ -694,6 +698,27 @@ const LOOT = {
     [2, 4, [[V.DIAMOND, 5, 1, 3], [V.IRON_INGOT, 15, 1, 5], [ITEM.GOLD_INGOT, 15, 2, 7], [V.EMERALD, 15, 1, 3], [V.BONE, 25, 4, 6], [V.SPIDER_EYE, 25, 1, 3], [V.ROTTEN_FLESH, 25, 3, 7], [null, 20], [null, 15], [null, 10], [null, 5], ["book", 20], [ITEM.GOLDEN_APPLE, 20, 1, 1], [null, 2], [null, 15]]],
     [4, 4, [[V.BONE, 10, 1, 8], [V.GUNPOWDER, 10, 1, 8], [V.ROTTEN_FLESH, 10, 1, 8], [V.STRING, 10, 1, 8], [BLOCK.SAND, 10, 1, 8]]],
   ],
+  // (Round 12) The jungle temple's (bamboo, a saddle and horse armour are not in the game).
+  jungle_temple: [[2, 6, [[V.DIAMOND, 3, 1, 3], [V.IRON_INGOT, 10, 1, 5], [ITEM.GOLD_INGOT, 15, 2, 7], [null, 15], [V.EMERALD, 2, 1, 3], [V.BONE, 20, 4, 6], [V.ROTTEN_FLESH, 16, 3, 7], [null, 3], [null, 1], [null, 1], [null, 1], ["book", 1]]]],
+  // (Round 12) The villages' (village.js names each chest's table): the
+  // trades' houses and the houses of each style. (Missing: maps, saddles,
+  // horse armour, large ferns, tall grass, sweet berries, blue ice.)
+  village_weaponsmith: [[3, 8, [[V.DIAMOND, 3, 1, 3], [V.IRON_INGOT, 10, 1, 5], [ITEM.GOLD_INGOT, 5, 1, 3], [V.BREAD, 15, 1, 3], [ITEM.APPLE, 15, 1, 3], [ITEM.IRON_PICKAXE, 5], [ITEM.IRON_SWORD, 5], [ITEM.IRON_CHESTPLATE, 5], [ITEM.IRON_HELMET, 5], [ITEM.IRON_LEGGINGS, 5], [ITEM.IRON_BOOTS, 5], [V.OBSIDIAN, 5, 3, 7], [V.OAK_SAPLING, 5, 3, 7], [null, 3], [null, 1], [null, 1], [null, 1]]]],
+  village_toolsmith: [[3, 8, [[V.DIAMOND, 1, 1, 3], [V.IRON_INGOT, 5, 1, 5], [ITEM.GOLD_INGOT, 1, 1, 3], [V.BREAD, 15, 1, 3], [ITEM.IRON_PICKAXE, 5], [ITEM.COAL, 1, 1, 3], [ITEM.STICK, 20, 1, 3], [ITEM.IRON_SHOVEL, 5]]]],
+  village_armorer: [[1, 5, [[V.IRON_INGOT, 2, 1, 3], [V.BREAD, 4, 1, 4], [ITEM.IRON_HELMET, 1], [V.EMERALD, 1]]]],
+  village_cartographer: [[1, 5, [[null, 10], [V.PAPER, 15, 1, 5], [V.COMPASS, 5], [V.BREAD, 15, 1, 4], [ITEM.STICK, 5, 1, 2]]]],
+  village_mason: [[1, 5, [[V.CLAY_BALL, 1, 1, 3], [FLOWER_POT, 1], [BLOCK.STONE, 2], [V.STONE_BRICKS, 2], [V.BREAD, 4, 1, 4], [WHITE_DYE + 4, 1], [V.SMOOTH_STONE, 1], [V.EMERALD, 1]]]],
+  village_shepherd: [[1, 5, [[BLOCK.WOOL, 6, 1, 8], [V.BLACK_WOOL, 3, 1, 3], [V.GRAY_WOOL, 2, 1, 3], [V.BROWN_WOOL, 2, 1, 3], [V.LIGHT_GRAY_WOOL, 2, 1, 3], [V.EMERALD, 1], [V.SHEARS, 1], [V.WHEAT, 6, 1, 6]]]],
+  village_butcher: [[1, 5, [[V.EMERALD, 1], [V.PORKCHOP, 6, 1, 3], [V.WHEAT, 6, 1, 3], [V.BEEF, 6, 1, 3], [V.MUTTON, 6, 1, 3], [ITEM.COAL, 3, 1, 3]]]],
+  village_fletcher: [[1, 5, [[V.EMERALD, 1], [V.ARROW, 2, 1, 3], [V.FEATHER, 6, 1, 3], [V.EGG, 2, 1, 3], [V.FLINT, 6, 1, 3], [ITEM.STICK, 6, 1, 3]]]],
+  village_fisher: [[1, 5, [[V.EMERALD, 1], [V.COD, 2, 1, 3], [V.SALMON, 1, 1, 3], [V.WATER_BUCKET, 1], [V.BARREL, 1], [V.WHEAT_SEEDS, 3, 1, 3], [ITEM.COAL, 2, 1, 3]]]],
+  village_tannery: [[1, 5, [[V.LEATHER, 1, 1, 3], [ITEM.LEATHER_CHESTPLATE, 2], [ITEM.LEATHER_BOOTS, 2], [ITEM.LEATHER_HELMET, 2], [V.BREAD, 5, 1, 4], [ITEM.LEATHER_LEGGINGS, 2], [null, 1], [V.EMERALD, 1, 1, 4]]]],
+  village_temple: [[3, 8, [[V.REDSTONE, 2, 1, 4], [V.BREAD, 7, 1, 4], [V.ROTTEN_FLESH, 7, 1, 4], [V.LAPIS_LAZULI, 1, 1, 4], [ITEM.GOLD_INGOT, 1, 1, 4], [V.EMERALD, 1, 1, 4]]]],
+  village_plains_house: [[3, 8, [[V.GOLD_NUGGET, 1, 1, 3], [BLOCK.FLOWER_YELLOW, 2], [BLOCK.FLOWER_RED, 1], [V.POTATO, 10, 1, 5], [V.BREAD, 10, 1, 4], [ITEM.APPLE, 10, 1, 5], [V.BOOK, 1], [V.FEATHER, 1], [V.EMERALD, 2, 1, 4], [V.OAK_SAPLING, 5, 1, 2]]]],
+  village_taiga_house: [[3, 8, [[V.IRON_NUGGET, 1, 1, 5], [V.FERN, 2], [null, 2], [V.POTATO, 10, 1, 7], [null, 5], [V.BREAD, 10, 1, 4], [V.PUMPKIN_SEEDS, 5, 1, 5], [V.PUMPKIN_PIE, 1], [V.EMERALD, 2, 1, 4], [V.SPRUCE_SAPLING, 5, 1, 5], [SPRUCE_SIGN, 1], [BLOCK.PINE_LOG, 10, 1, 5]]]],
+  village_savanna_house: [[3, 8, [[V.GOLD_NUGGET, 1, 1, 3], [BLOCK.TALL_GRASS, 5], [null, 5], [V.BREAD, 10, 1, 4], [V.WHEAT_SEEDS, 10, 1, 5], [V.EMERALD, 2, 1, 4], [V.ACACIA_SAPLING, 10, 1, 2], [null, 1], [BLOCK.TORCH, 1, 1, 2], [V.BUCKET, 1]]]],
+  village_snowy_house: [[3, 8, [[null, 1], [BLOCK.SNOW, 4], [V.POTATO, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BEETROOT_SEEDS, 10, 1, 5], [V.BEETROOT_SOUP, 1], [V.FURNACE, 1], [V.EMERALD, 1, 1, 4], [V.SNOWBALL, 10, 1, 7], [ITEM.COAL, 5, 1, 4]]]],
+  village_desert_house: [[3, 8, [[V.CLAY_BALL, 1], [WHITE_DYE + 13, 1], [BLOCK.CACTUS, 10, 1, 4], [V.WHEAT, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BOOK, 1], [BLOCK.DEAD_BUSH, 2, 1, 3], [V.EMERALD, 1, 1, 3]]]],
 };
 // Rolls a structure's table: [[id, count, tag?], ...].
 export function rollStructureLoot(kind, rand = Math.random) {

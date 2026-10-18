@@ -925,6 +925,16 @@ export class World {
     if (this.onEdit) this.onEdit();
   }
 
+  // A chunk of `dim` whose recorded edits changed without passing setBlocks
+  // (another peer's, js/net/world.js): saved next time, its distant tiles
+  // rebuilt (the Overworld's).
+  markDirtyIn(dim, key) {
+    const bag = this._bag(dim);
+    bag.dirty.add(key);
+    if (dim === OVERWORLD) bag.lodDirty.add(key);
+    this._scratch.delete(`${dim}:${key}`);
+  }
+
   // A dimension's terrain generator (made once).
   terrainOf(dim) {
     let t = this._terrains.get(dim);

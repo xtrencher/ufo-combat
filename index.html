@@ -1365,13 +1365,14 @@
   .mc-logo.drawn { font-size: 0; letter-spacing: 0; -webkit-text-stroke: 0; text-shadow: none; }
   .mc-logo .mc-logo-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .mc-logo-art { display: block; width: 100%; height: auto; filter: drop-shadow(0 8px 14px rgba(0,0,0,0.55)); }
-  .mc-splash { position: absolute; right: -34px; bottom: 2px; font: 800 15px var(--ui-font); letter-spacing: 0.3px; color: #ffff55; text-shadow: 2px 2px 0 #3f3f15; white-space: nowrap; transform: rotate(-14deg); pointer-events: none; }
+  /* (The splash sits on the logo's lower right corner, as Minecraft's does.) */
+  .mc-splash { position: absolute; right: 0; bottom: 0; font: 800 14px var(--ui-font); letter-spacing: 0.3px; color: #ffff55; text-shadow: 2px 2px 0 #3f3f15; white-space: nowrap; transform: translate(42%, 70%) rotate(-12deg); pointer-events: none; }
   .mc-splash.pop { animation: mc-splash 0.45s ease-in-out infinite alternate; }
-  @keyframes mc-splash { from { transform: rotate(-14deg) scale(1); } to { transform: rotate(-14deg) scale(1.09); } }
+  @keyframes mc-splash { from { transform: translate(42%, 70%) rotate(-12deg) scale(1); } to { transform: translate(42%, 70%) rotate(-12deg) scale(1.08); } }
   .panel h1.mc-logo { width: min(320px, 100%); margin: 4px auto 16px; font-size: 34px; text-align: center; }
-  .menu-logo { width: min(300px, 78%); margin: 0 4px 22px; }
+  .menu-logo { width: min(280px, 74%); margin: 0 4px 24px; }
   @media (max-height: 640px) {
-    .menu-logo { width: 240px; margin-bottom: 14px; }
+    .menu-logo { width: 230px; margin-bottom: 18px; }
     .mc-splash { font-size: 12px; }
   }
   @media (prefers-reduced-motion: reduce) { .mc-splash.pop { animation: none; } }
@@ -1605,9 +1606,9 @@
         <div class="main-buttons">
           <button class="btn big primary" id="play-btn">Play</button>
           <div class="mode-cards" role="group" aria-label="Game mode">
-            <button class="mode-card" id="mode-card-vanilla" data-mode="survival" data-type="survival" type="button"><b>Survival</b><small>Normal Minecraft: gather, craft, survive</small></button>
-            <button class="mode-card" id="mode-card-creative" data-mode="creative" data-type="survival" type="button"><b>Creative</b><small>Every block, flight, no damage</small></button>
-            <button class="mode-card" id="mode-card-survival" data-mode="survival" data-type="missions" type="button"><b>Missions</b><small>With mods: UFOs, missions, weapons, vehicles</small></button>
+            <button class="mode-card" id="mode-card-vanilla" data-mode="survival" data-type="survival" type="button"><b>Survival</b><small>Normal Minecraft</small></button>
+            <button class="mode-card" id="mode-card-creative" data-mode="creative" data-type="survival" type="button"><b>Creative</b><small>Build and fly</small></button>
+            <button class="mode-card" id="mode-card-survival" data-mode="survival" data-type="missions" type="button"><b>Missions</b><small>With mods: UFOs</small></button>
           </div>
           <div class="row mode-row mode-select-row">
             <label for="mode-select">Game mode</label>

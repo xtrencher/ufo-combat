@@ -18,9 +18,18 @@
 // format while its ids fit in a byte, else the "wide" one (storage.js), which
 // an older peer can't decode (it skips that chunk) rather than misreading.
 // A string this peer can't read is skipped with a warning (stats.unreadable).
+//
+// (Round 12) Dimensions (js/dimensions.js): each batch is one dimension's
+// ("dm": its code, js/dim-registry.js; none: the Overworld's). A peer in
+// that dimension applies it as before; any other records it among that
+// dimension's edits (applied when it goes there), so every peer keeps every
+// dimension's edits and a player coming back sees what was changed while
+// away. The host relays every batch to everyone and keeps (and saves) all
+// of them; a joining player gets every dimension's.
 import { CHUNK_SIZE, WORLD_HEIGHT, chunkKey, blockIndex } from "../constants.js";
 import { encodeChunkEdits, decodeChunkEdits, setEdit } from "../storage.js";
 import { IS_CHEST, BLOCK } from "../blocks.js";
+import { OVERWORLD, DIM_IDS, codeOf, dimOfCode, dmOf } from "../dim-registry.js";
 
 const FLUSH_INTERVAL = 0.05; // seconds between batches
 const MAX_BATCH_CHUNKS = 48; // chunks per message (a nuke's crater goes out in several)
@@ -34,11 +43,11 @@ export class WorldSync {
     this.game = mp.game;
     this.net = mp.net;
     this.world = mp.game.world;
-    this.out = new Map(); // chunkKey -> Map<index, id>: our edits waiting to go
+    this.out = new Map(); // dim -> Map<chunkKey, Map<index, id>>: our edits waiting to go
     this.outGone = []; // a guest: [x, y, z] of generated chests it broke, with those edits
     this.applying = false;
     this._t = 0;
-    this.recent = new Map(); // host: "x,y,z" -> { pid, t }
+    this.recent = new Map(); // host: "x,y,z" (another dimension's: "code|x,y,z") -> { pid, t }
     this._recentT = 0;
     this.stats = { sent: 0, received: 0, unreadable: 0 };
     const world = this.world;
@@ -48,11 +57,12 @@ export class WorldSync {
       for (let i = 0; i < changed.length; i += 3) this._queue(changed[i], changed[i + 1], changed[i + 2], world.getBlock(changed[i], changed[i + 1], changed[i + 2]));
     });
     // Blasts far out, in chunks that are not loaded here (recorded only).
+    // (Round 12: or another dimension's block, the host's furnace there.)
     const queueEdit = world.queueEdit.bind(world);
-    world.queueEdit = (x, y, z, id) => {
-      const loaded = !!world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4);
-      queueEdit(x, y, z, id);
-      if (!loaded && this.mp.active && !this.applying) this._queue(Math.floor(x), Math.floor(y), Math.floor(z), id);
+    world.queueEdit = (x, y, z, id, dim = world.dim) => {
+      const loaded = dim === world.dim && !!world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4);
+      queueEdit(x, y, z, id, dim);
+      if (!loaded && this.mp.active && !this.applying) this._queue(Math.floor(x), Math.floor(y), Math.floor(z), id, dim);
     };
     this.net.on("ed", (m, from) => this._onEdits(m, from));
     this.net.registerSync("world", {
@@ -61,15 +71,28 @@ export class WorldSync {
     });
   }
 
-  _queue(x, y, z, id) {
+  _queue(x, y, z, id, dim = this.world.dim) {
     if (y < 0 || y >= WORLD_HEIGHT) return;
     const cx = x >> 4;
     const cz = z >> 4;
     const key = chunkKey(cx, cz);
-    let map = this.out.get(key);
-    if (!map) this.out.set(key, (map = new Map()));
+    let chunks = this.out.get(dim);
+    if (!chunks) this.out.set(dim, (chunks = new Map()));
+    let map = chunks.get(key);
+    if (!map) chunks.set(key, (map = new Map()));
     map.set(blockIndex(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE), id);
-    if (this.net.isHost) this.recent.set(`${x},${y},${z}`, { pid: this.net.pid, t: performance.now() });
+    if (this.net.isHost) this.recent.set(this._rkey(dim, x, y, z), { pid: this.net.pid, t: performance.now() });
+  }
+
+  // (A race record's key: the Overworld's as before.)
+  _rkey(dim, x, y, z) {
+    const c = codeOf(dim);
+    return c ? `${c}|${x},${y},${z}` : `${x},${y},${z}`;
+  }
+
+  // (Round 12) What is waiting goes now (the player is about to change dimension).
+  flushNow() {
+    if (this.out.size && this.mp.active) this._flush();
   }
 
   // A guest broke a generated chest (js/net/chests.js): named with its edit.
@@ -93,20 +116,30 @@ export class WorldSync {
   }
 
   _flush() {
+    // (Round 12: one dimension's batch at a time, the world's own last: the
+    // broken chests named go with its last part.)
+    const dims = [...this.out.keys()].sort((a, b) => (a === this.world.dim) - (b === this.world.dim));
+    for (const dim of dims) this._flushDim(dim, this.out.get(dim), dim === this.world.dim);
+    this.out.clear();
+    this.outGone = [];
+  }
+
+  _flushDim(dim, chunks, here) {
     let c = {};
     let n = 0;
-    let left = this.out.size;
+    let left = chunks.size;
     // (Round 11) The water cells among the edits: a flow cell's level and
     // parent (w), or that it is a source (ws), so every peer's bucket and
     // water sim tell them apart as the sim that made them does.
-    const sim = this.world.waterSim;
+    const sim = here ? this.world.waterSim : null;
+    const dm = dmOf(dim);
     let w = [];
     let ws = [];
     const send = () => {
       if (!n) return;
-      const msg = { t: "ed", c };
+      const msg = { t: "ed", c, ...dm };
       // (The broken chests go with the last part: their edits are in it or before.)
-      if (!left && this.outGone.length) msg.cg = this.outGone;
+      if (!left && here && this.outGone.length) msg.cg = this.outGone;
       if (w.length) msg.w = w;
       if (ws.length) msg.ws = ws;
       if (this.net.isHost) this.net.broadcast(msg);
@@ -116,11 +149,11 @@ export class WorldSync {
       w = [];
       ws = [];
     };
-    for (const [key, map] of this.out) {
+    for (const [key, map] of chunks) {
       // What the blocks are *now* (a race settled meanwhile ends the same
       // everywhere); a chunk that isn't loaded here keeps the recorded value.
       const [cx, cz] = key.split(",").map(Number);
-      const chunk = this.world.getChunk(cx, cz);
+      const chunk = here ? this.world.getChunk(cx, cz) : null;
       if (chunk) {
         for (const index of map.keys()) {
           const id = chunk.blocks[index];
@@ -140,8 +173,6 @@ export class WorldSync {
       if (++n >= MAX_BATCH_CHUNKS) send();
     }
     send();
-    this.out.clear();
-    this.outGone = [];
   }
 
   stop() {
@@ -155,11 +186,20 @@ export class WorldSync {
   _onEdits(m, from) {
     if (!m.c || typeof m.c !== "object") return;
     const world = this.world;
-    const gone = this.net.isHost && Array.isArray(m.cg) ? this._goneBefore(m.cg) : null;
-    const changed = this._apply(m.c, from);
-    if (m.w || m.ws) this.world.waterSim?.applyRemoteMeta(m.w, m.ws);
+    const dim = dimOfCode(m.dm);
+    const here = dim === world.dim;
+    const gone = this.net.isHost && Array.isArray(m.cg) ? this._goneBefore(m.cg, dim) : null;
+    const changed = this._apply(m.c, from, dim);
+    if (m.w || m.ws) {
+      // (Round 12: another dimension's water cells, kept with its other state.)
+      if (here) this.world.waterSim?.applyRemoteMeta(m.w, m.ws);
+      else {
+        const meta = world.dims?.waterMeta?.(dim);
+        if (meta) this.world.waterSim?.applyRemoteMeta(m.w, m.ws, meta);
+      }
+    }
     if (!this.net.isHost) return;
-    if (gone) this._goneAfter(gone);
+    if (gone) this._goneAfter(gone, dim);
     // Host: pass it on, and settle races with the sender.
     this.net.broadcast(m, { except: from });
     if (!changed.raced.length) return;
@@ -170,51 +210,59 @@ export class WorldSync {
       const key = chunkKey(cx, cz);
       let map = fix.get(key);
       if (!map) fix.set(key, (map = new Map()));
-      map.set(blockIndex(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE), world.getBlock(x, y, z));
+      const index = blockIndex(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE);
+      const id = here ? world.getBlock(x, y, z) : world.editsOf(dim).get(key)?.get(index);
+      if (id !== undefined) map.set(index, id);
     }
     const c = {};
-    for (const [key, map] of fix) c[key] = encodeChunkEdits(map);
-    this.net.send(from, { t: "ed", c, fix: 1 });
+    for (const [key, map] of fix) if (map.size) c[key] = encodeChunkEdits(map);
+    this.net.send(from, { t: "ed", c, fix: 1, ...dmOf(dim) });
   }
 
   // Host: the generated chests a guest says it broke, in ground not loaded
   // here (loaded ground spills through js/chests.js's own wrapper): only
   // where no edit was recorded before this batch (generated, not placed)
   // and nobody opened it (a record spills in _apply).
-  _goneBefore(list) {
+  _goneBefore(list, dim = this.world.dim) {
     const world = this.world;
     const chests = this.game.interaction?.chests;
     if (!chests) return null;
     const out = [];
+    const edits = world.editsOf(dim);
     for (const p of list.slice(0, MAX_GONE)) {
       if (!Array.isArray(p) || p.length !== 3 || !p.every(Number.isInteger) || p[1] < 0 || p[1] >= WORLD_HEIGHT) continue;
       const [x, y, z] = p;
-      if (world.getChunk(x >> 4, z >> 4) || chests.store.has(`${x},${y},${z}`)) continue;
-      if (world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)) === undefined) out.push(p);
+      if ((dim === world.dim && world.getChunk(x >> 4, z >> 4)) || chests.store.has(chests.keyOf(x, y, z, dim))) continue;
+      if (edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)) === undefined) out.push(p);
     }
     return out.length ? out : null;
   }
 
   // ... and once the batch is in: where it recorded a non-chest, the loot spills.
-  _goneAfter(list) {
+  _goneAfter(list, dim = this.world.dim) {
     const chests = this.game.interaction?.chests;
     if (!chests) return;
+    const edits = this.world.editsOf(dim);
     for (const [x, y, z] of list) {
-      const id = this.world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
-      if (id !== undefined && !IS_CHEST[id]) chests.goneGenerated(x, y, z);
+      const id = edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
+      if (id !== undefined && !IS_CHEST[id]) chests.goneGenerated(x, y, z, dim);
     }
   }
 
   // Applies a batch: loaded chunks in one bulk edit, the others recorded
-  // (applied when they load). Returns { raced: [[x, y, z]] } (host).
-  _apply(chunks, from) {
+  // (applied when they load; Round 12: all of them when the batch is
+  // another dimension's). Returns { raced: [[x, y, z]] } (host).
+  _apply(chunks, from, dim = this.world.dim) {
     const world = this.world;
+    const here = dim === world.dim;
+    const edits = world.editsOf(dim);
     const list = [];
     const raced = [];
     const t = performance.now();
     const host = this.net.isHost;
     // (Host: a chest with a record here, in ground not loaded, replaced: it spills.)
     const chests = host ? this.game.interaction?.chests : null;
+    const awayKeys = new Set();
     let count = 0;
     for (const [key, enc] of Object.entries(chunks)) {
       const m = /^(-?\d+),(-?\d+)$/.exec(key);
@@ -228,7 +276,7 @@ export class WorldSync {
         this._unreadable(key, err);
         continue;
       }
-      const loaded = !!world.getChunk(cx, cz);
+      const loaded = here && !!world.getChunk(cx, cz);
       for (const [index, id] of map) {
         const lx = index & 15;
         const lz = (index >> 4) & 15;
@@ -237,21 +285,27 @@ export class WorldSync {
         const z = cz * CHUNK_SIZE + lz;
         count++;
         if (host) {
-          const k = `${x},${y},${z}`;
+          const k = this._rkey(dim, x, y, z);
           const r = this.recent.get(k);
           if (r && r.pid !== from && t - r.t < RACE_WINDOW) raced.push([x, y, z]);
           this.recent.set(k, { pid: from, t });
         }
         if (loaded) list.push(x, y, z, id);
-        else {
+        else if (here) {
           if (chests?.store.size && !IS_CHEST[id]) chests.goneUnloaded(x, y, z);
           setEdit(world.edits, cx, cz, index, id);
           world.dirtyEditChunks.add(key);
-          world.lodDirty.add(key);
+          if (dim === OVERWORLD) world.lodDirty.add(key);
+        } else {
+          if (chests?.store.size && !IS_CHEST[id]) chests.goneUnloaded(x, y, z, dim);
+          setEdit(edits, cx, cz, index, id);
+          awayKeys.add(key);
         }
       }
     }
     this.stats.received += count;
+    // (Another dimension's: marked for its save, and its distant tiles if it is the Overworld.)
+    for (const key of awayKeys) world.markDirtyIn(dim, key);
     if (list.length) {
       this.applying = true;
       try {
@@ -275,20 +329,30 @@ export class WorldSync {
 
   // ---------- Joining ----------
 
+  // (Round 12) The Overworld's edits and flow cells as before (chunks,
+  // water), every other dimension's under dims[code].
   _snapshot() {
-    const chunks = {};
-    for (const [key, map] of this.world.edits) if (map.size) chunks[key] = encodeChunkEdits(map);
-    // (Round 11: the flow cells too, js/watersim.js, or a guest's bucket takes them for sources.)
-    const water = this.world.waterSim?.meta.size ? this.world.waterSim.serializeMeta(20000) : undefined;
-    return { chunks, water };
+    const one = (dim) => {
+      const chunks = {};
+      for (const [key, map] of this.world.editsOf(dim)) if (map.size) chunks[key] = encodeChunkEdits(map);
+      // (Round 11: the flow cells too, js/watersim.js, or a guest's bucket takes them for sources.)
+      const sim = this.world.waterSim;
+      const meta = dim === this.world.dim ? sim?.meta : this.world.dims?.waterMeta?.(dim);
+      const water = sim && meta?.size ? sim.serializeMeta(20000, meta) : undefined;
+      return { chunks, water };
+    };
+    const out = one(OVERWORLD);
+    for (const dim of DIM_IDS) {
+      if (dim === OVERWORLD) continue;
+      const d = one(dim);
+      if (Object.keys(d.chunks).length || d.water) (out.dims ||= {})[codeOf(dim)] = d;
+    }
+    return out;
   }
 
-  _loadSnapshot(data) {
-    if (!data?.chunks) return;
-    const world = this.world;
-    // The host's edits replace whatever this page had (a guest has none of its own).
+  _decodeAll(chunks) {
     const edits = new Map();
-    for (const [key, enc] of Object.entries(data.chunks)) {
+    for (const [key, enc] of Object.entries(chunks || {})) {
       if (typeof enc !== "string" || !/^-?\d+,-?\d+$/.test(key)) continue;
       try {
         edits.set(key, decodeChunkEdits(enc));
@@ -296,8 +360,32 @@ export class WorldSync {
         this._unreadable(key, err);
       }
     }
+    return edits;
+  }
+
+  _loadSnapshot(data) {
+    if (!data?.chunks) return;
+    // (Round 12) Every other dimension's too: kept aside until this player goes there.
+    if (data.dims && typeof data.dims === "object") {
+      for (const [code, d] of Object.entries(data.dims)) {
+        const dim = dimOfCode(Number(code));
+        if (dim !== OVERWORLD && d?.chunks) this._loadDim(dim, d.chunks, d.water);
+      }
+    }
+    this._loadDim(OVERWORLD, data.chunks, data.water);
+  }
+
+  // The host's edits of `dim` replace whatever this page had (a guest has none of its own).
+  _loadDim(dim, chunks, water) {
+    const world = this.world;
+    const edits = this._decodeAll(chunks);
+    if (dim !== world.dim) {
+      world.loadEdits(edits, dim);
+      if (Array.isArray(water)) world.dims?.loadWaterMeta?.(dim, water);
+      return;
+    }
     world.loadEdits(edits);
-    if (Array.isArray(data.water)) world.waterSim?.loadMeta(data.water);
+    if (Array.isArray(water)) world.waterSim?.loadMeta(water);
     // Chunks already built: apply their edits now (in one bulk edit).
     const list = [];
     for (const chunk of world.chunks.values()) {
@@ -308,7 +396,7 @@ export class WorldSync {
         list.push(chunk.cx * CHUNK_SIZE + (index & 15), index >> 8, chunk.cz * CHUNK_SIZE + ((index >> 4) & 15), id);
       }
     }
-    for (const key of edits.keys()) world.lodDirty.add(key);
+    if (dim === OVERWORLD) for (const key of edits.keys()) world.lodDirty.add(key);
     if (list.length) {
       this.applying = true;
       try {
