@@ -94,7 +94,7 @@ export class World {
   constructor(scene, seed, terrainOptions = {}) {
     this.scene = scene;
     this.seed = seed >>> 0;
-    this.terrainOptions = { sites: terrainOptions?.sites !== false };
+    this.terrainOptions = { sites: terrainOptions?.sites !== false, vanilla: terrainOptions?.vanilla ?? terrainOptions?.sites === false };
     this.terrain = new TerrainGenerator(this.seed, this.terrainOptions);
     this.chunks = new Map(); // numKey -> Chunk
     // Player/explosion edits on top of generated terrain, grouped per chunk:

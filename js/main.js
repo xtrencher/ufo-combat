@@ -29,6 +29,7 @@ import { TradeScreen } from "./trading.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
+import { NatureSim } from "./nature-sim.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
 import { LaserBolts, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
@@ -419,6 +420,10 @@ LIB.giveXp = (amount, x, y, z) => {
 const falling = new FallingBlocks(scene, world);
 const waterSim = new WaterSim(world);
 world.waterSim = waterSim; // (a bucket tells flowing water from a source: js/content/items-vanilla.js)
+// (Round 11) Flowing lava and fire (js/nature-sim.js): lava runs for this
+// player's own edits, like the water; fire is the host's (enabled below,
+// once the multiplayer exists).
+const natureSim = new NatureSim(world);
 const decals = new BulletHoles(scene, world);
 // Laser bolts (the blaster; later UFOs and aliens), with scorch marks.
 const scorches = new BulletHoles(scene, world, { kind: "scorch" });
@@ -3098,6 +3103,7 @@ const game = {
   held,
   falling,
   waterSim,
+  natureSim,
   xp,
   sleep,
   toast,
@@ -3297,6 +3303,7 @@ const game = {
 };
 const mp = new Multiplayer(net, game);
 mpLate = mp;
+natureSim.fire.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's fires burn at the host; the results arrive as edits)
 // No solid block placed inside another player (it would shove them out on
 // their screen). Their newest position, with a little margin for its age.
 interaction.othersOverlap = (bx, by, bz) => {
@@ -3351,6 +3358,7 @@ window.__ufo = window.__voxelands = {
   mobs,
   falling,
   waterSim,
+  natureSim,
   weapons,
   lasers,
   nuke,
@@ -3886,6 +3894,7 @@ function simulate(dt, frameTime) {
     mobs.update(dt);
     falling.update(dt);
     waterSim.update();
+    natureSim.update(dt);
     // (Round 11) Random ticks (crops, saplings, fire: js/content/index.js), near
     // every player; the host simulates them, a guest gets the results as edits.
     if (!mp.active || mp.isHost) world.randomTick(dt, randomTickCenters());
