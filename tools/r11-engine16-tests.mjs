@@ -373,7 +373,8 @@ await check("random ticks reach loaded blocks near the player (and cost nothing 
     const off = w.randomTick(1, [g.player.position]); // (nothing registered: nothing runs)
     return { calls, wrong, ran, counted: (w.stats.randomTicks || 0) - before, off, any: content.TICKING.any };
   });
-  assert(r.calls > 50 && r.wrong === 0 && r.ran === r.calls && r.counted === r.calls && r.off === 0 && !r.any, JSON.stringify(r));
+  // (The nature module's crops, leaves and fire tick too now: count stone's calls among all the ticks.)
+  assert(r.calls > 50 && r.wrong === 0 && r.ran >= r.calls && r.counted === r.ran + r.off, JSON.stringify(r));
 });
 
 await check("broken in survival it drops as an item, is picked up, carried and placed again", async () => {
