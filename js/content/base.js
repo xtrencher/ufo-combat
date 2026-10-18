@@ -9,7 +9,7 @@
 //   256-1023   items (tools, materials, food, weapons): never a block
 //   1024-4095  the blocks added from Round 11 on (16-bit ids), by area:
 //              1024-1535 building, 1536-1791 nature, 1792-1855 containers,
-//              1856-2047 redstone, 2048-4063 free, 4064-4095 debug
+//              1856-2047 redstone, 2048-2303 decor, 2304-4063 free, 4064-4095 debug
 // A block id is also the id of its item (when it is its own item: a wall
 // torch counts as a torch). Chunks store ids in a Uint16Array; every
 // per-block lookup table has BLOCK_LIMIT entries.
