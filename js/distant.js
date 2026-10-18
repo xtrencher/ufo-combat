@@ -155,10 +155,13 @@ export class DistantStructures {
     for (const h of this.villages.houses?.(v) || []) {
       const x0 = v.x + h.x;
       const z0 = v.z + h.z;
-      const y0 = v.groundY + 1;
-      this._add(acc, x0, y0, z0, x0 + h.w, y0 + h.h, z0 + h.d, planks, planks);
-      this._add(acc, x0 - 1, y0 + h.h, z0 - 1, x0 + h.w + 1, y0 + h.h + 1, z0 + h.d + 1, roof, roof);
-      this._add(acc, x0 + 1, y0 + h.h + 1, z0 + 1, x0 + h.w - 1, y0 + h.h + 3, z0 + h.d - 1, roof, roof);
+      // (Round 12: a Survival world's houses stand at their own heights, in their own materials)
+      const y0 = (h.y ?? v.groundY) + 1;
+      const wall = h.wall ? this._color(h.wall) : planks;
+      const top = h.roof ? this._color(h.roof) : roof;
+      this._add(acc, x0, y0, z0, x0 + h.w, y0 + h.h, z0 + h.d, wall, wall);
+      this._add(acc, x0 - 1, y0 + h.h, z0 - 1, x0 + h.w + 1, y0 + h.h + 1, z0 + h.d + 1, top, top);
+      this._add(acc, x0 + 1, y0 + h.h + 1, z0 + 1, x0 + h.w - 1, y0 + h.h + 3, z0 + h.d - 1, top, top);
     }
     return acc;
   }

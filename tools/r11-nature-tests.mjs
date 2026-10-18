@@ -361,11 +361,18 @@ await check("a Survival world grows its own trees: jungle, acacia and dark oak w
   for (let k = 0; k < 20 && !vines; k++) {
     const j = gen.trees.shape(found[5]);
     const at = new Map();
-    for (let i = 0; i < j.length; i += 4) if (j[i + 3] === V.JUNGLE_LOG) at.set(`${j[i]},${j[i + 1]},${j[i + 2]}`, j[i + 3]); // (logs win over leaves, as placed)
+    // (logs win, else the first block put in a cell, as placed)
     for (let i = 0; i < j.length; i += 4) {
-      if (j[i + 3] < V.VINE || j[i + 3] >= V.VINE + 4) continue;
+      const k = `${j[i]},${j[i + 1]},${j[i + 2]}`;
+      if (j[i + 3] === V.JUNGLE_LOG || !at.has(k)) at.set(k, j[i + 3]);
+    }
+    const isVine = (id) => id >= V.VINE && id < V.VINE + 4;
+    for (let i = 0; i < j.length; i += 4) {
+      if (!isVine(j[i + 3]) || at.get(`${j[i]},${j[i + 1]},${j[i + 2]}`) !== j[i + 3]) continue;
       const [wx, wz] = BLOCK_INFO[j[i + 3]].wall;
-      assert(at.get(`${j[i] + wx},${j[i + 1]},${j[i + 2] + wz}`) === V.JUNGLE_LOG, `a vine at ${j[i]},${j[i + 1]},${j[i + 2]} faces its trunk`);
+      // (Round 12: on its trunk, on its leaves, or hanging from a vine above)
+      const wall = at.get(`${j[i] + wx},${j[i + 1]},${j[i + 2] + wz}`);
+      assert(wall === V.JUNGLE_LOG || wall === V.JUNGLE_LEAVES || isVine(at.get(`${j[i]},${j[i + 1] + 1},${j[i + 2]}`)), `a vine at ${j[i]},${j[i + 1]},${j[i + 2]} hangs on nothing`);
       vines++;
     }
   }

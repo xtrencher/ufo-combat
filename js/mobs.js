@@ -851,7 +851,7 @@ export class MobManager {
     const villages = terrain?.villages;
     if (!villages) return;
     const p = this.player.position;
-    let village = villages.nearestVillage(p.x, p.z, VILLAGE_SEARCH_RADIUS);
+    let village = villages.nearestVillage(p.x, p.z, Math.max(VILLAGE_SEARCH_RADIUS, villages.reach ?? 0));
     let radius = 34;
     let cap = VILLAGERS_PER_VILLAGE;
     let spread = 20;
@@ -868,6 +868,15 @@ export class MobManager {
       }
     }
     if (!village) return;
+    // (Round 12) A Survival world's village (village.js): a villager a bed (up
+    // to 10 about at once, for weak PCs), each at its house's door with its
+    // house's trade; its golem on a street; two animals in each pen.
+    const homes = village.style ? villages.residents(village) : null;
+    if (homes?.length) {
+      cap = Math.min(10, homes.length);
+      radius = villages.villageBounds(village).radius + 4;
+      this._fillPens(villages, village);
+    }
     const vanilla = isVanilla();
     const near = (x, z, r) => Math.hypot(x - village.x, z - village.z) < r;
     let nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && near(m.pos.x, m.pos.z, radius)).length;
@@ -883,19 +892,60 @@ export class MobManager {
     const vkey = villageKey(village);
     const golem = vanilla && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
     if (nearby >= cap && !golem) return;
-    const ang = Math.random() * Math.PI * 2;
-    const d = 3 + Math.random() * spread;
-    const sx = Math.floor(village.x + Math.cos(ang) * d);
-    const sz = Math.floor(village.z + Math.sin(ang) * d);
-    if (!this._chunkReady(sx, sz)) return;
-    const top = this.world.surfaceY(sx, sz);
+    let sx;
+    let sz;
+    let top;
+    let variant;
+    if (homes?.length) {
+      // (each newcomer the next house's: at its door, with its trade)
+      const spot = golem ? villages.streetSpot(village) : homes[nearby % homes.length];
+      if (!spot) return;
+      sx = spot.x;
+      sz = spot.z;
+      top = spot.y - 1;
+      if (!golem && spot.profession >= 0) variant = spot.profession + 1;
+      if (!this._chunkReady(sx, sz)) return;
+    } else {
+      const ang = Math.random() * Math.PI * 2;
+      const d = 3 + Math.random() * spread;
+      sx = Math.floor(village.x + Math.cos(ang) * d);
+      sz = Math.floor(village.z + Math.sin(ang) * d);
+      if (!this._chunkReady(sx, sz)) return;
+      top = this.world.surfaceY(sx, sz);
+    }
     const kind = golem ? "iron_golem" : "villager";
     if (top < 0 || !this._freeAt(sx, top + 1, sz, SPECIES[kind].h)) return;
-    const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5);
+    const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5, { variant });
     // (Survival: kept with the world, with their trades, as vanilla's never despawn.)
     if (m && vanilla) {
       m.persist = true;
       if (golem) m.villageKey = vkey;
+    }
+  }
+
+  // (Round 12) A Survival world's village's animal pens get two of their
+  // animal each, once a session (kept with the world like any animal a
+  // player keeps; vanilla fills its pens once, as they are made).
+  _fillPens(villages, village) {
+    const key = villageKey(village);
+    if ((this._penned ??= new Set()).has(key)) return;
+    const pens = villages.pens(village);
+    if (!pens.every((pen) => this._chunkReady(pen.x, pen.z))) return;
+    this._penned.add(key);
+    for (const pen of pens) {
+      const inPen = (x, z) => Math.abs(x - pen.x - 0.5) <= pen.r + 1 && Math.abs(z - pen.z - 0.5) <= pen.r + 1;
+      let have = this.mobs.filter((m) => !m.dead && m.kind === pen.animal && inPen(m.pos.x, m.pos.z)).length;
+      for (const e of this._kept) if (e[0] === pen.animal && inPen(e[1], e[3])) have++;
+      for (let k = 0; k < 6 && have < 2; k++) {
+        const x = pen.x + Math.round((Math.random() * 2 - 1) * pen.r);
+        const z = pen.z + Math.round((Math.random() * 2 - 1) * pen.r);
+        if (!this._freeAt(x, pen.y, z, SPECIES[pen.animal].h)) continue;
+        const a = this.spawn(pen.animal, x + 0.5, pen.y, z + 0.5);
+        if (a) {
+          a.persist = true;
+          have++;
+        }
+      }
     }
   }
 
