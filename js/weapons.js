@@ -22,6 +22,11 @@ import { LASER_COLORS } from "./lasers.js";
 import { LAYER_FX } from "./layers.js";
 import { WEAPON_STATS } from "./weapon-stats.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { isVanilla } from "./worldtype.js";
+import { ARROW } from "./content/ids.js";
+import { enchLevel } from "./enchant.js";
+import { Fishing } from "./fishing.js";
+import { Throwables } from "./entities.js";
 export { WEAPON_STATS };
 
 export const THROW_CHARGE_TIME = 1.5; // seconds to a full-strength throw
@@ -58,6 +63,11 @@ const ARROW_GRAVITY = -20;
 const ARROW_GRAVITY_FULL = -7; // a fully drawn arrow drops far less (gravity scales down with the draw)
 const ARROW_DAMAGE = [2, 10]; // a quick flick ... a full draw
 const ARROW_LIFE = 10;
+// (Round 11) In a Survival world the bow shoots arrows from the inventory
+// (none needed in Creative; a Missions world's bow never runs out), and one
+// stuck in a block can be picked up again for a minute, as in the classic game.
+const ARROW_PICKUP_LIFE = 60;
+const ARROW_PICKUP_RADIUS = 1.4;
 
 // Railgun: about a second of charging (glowing coils, a rising whine), then
 // an extremely bright beam that cuts through everything in a straight line:
@@ -186,6 +196,14 @@ export class WeaponSystem {
     // The bow: drawing (seconds held), and arrows in flight.
     this.bow = { drawing: false, t: 0 };
     this.arrows = [];
+    // (Round 11) The fishing rod's bobber and thrown eggs, snowballs and ender
+    // pearls (the items' uses reach them through interaction.weapons).
+    this.fishing = new Fishing({ scene, world, player, audio, effects, held, inventory });
+    this.fishing.onChange = () => this.onChange?.();
+    // (Counts the right button's releases: an item use tells a fresh press
+    // from the button held down by it, js/content/items-vanilla.js.)
+    this.rightReleases = 0;
+    this.throwables = new Throwables({ scene, world, player, audio, effects, mobs });
     this.onMessage = null; // (text) => void: a short HUD notice
     this.onHit = null; // () => void: a gun, rail or arrow hit a creature (the HUD's hit marker)
     // Bazooka lock-on: { target, progress, locked }.
@@ -346,6 +364,10 @@ export class WeaponSystem {
     switch (kind) {
       case "bow":
         if (!this._ready("bow")) return;
+        if (this._needsArrows() && !this.inventory.countItem(ARROW)) {
+          this._notice("No arrows");
+          return;
+        }
         this.bow.drawing = true;
         this.bow.t = 0;
         this.audio.playBowDraw?.();
@@ -424,6 +446,7 @@ export class WeaponSystem {
   // Right button released: a drawn grenade is thrown, a drawn bow shoots;
   // automatic fire stops.
   release() {
+    this.rightReleases++;
     this._mgFiring = false;
     this._blasterFiring = false;
     this.minigun.held = false;
@@ -432,9 +455,19 @@ export class WeaponSystem {
       const power = Math.min(1, this.bow.t / BOW_DRAW);
       this.bow.t = 0;
       // (A click too short to even nock the arrow shoots nothing.)
-      if (power >= 0.1) {
+      // (Round 11) The bow's enchantments: Infinity needs an arrow but keeps
+      // it (and its arrow can't be picked up); Power, Punch and Flame go with the arrow.
+      const bow = this.inventory?.selectedStack;
+      const infinity = enchLevel(bow, "infinity") > 0 && this._needsArrows() && this.inventory.countItem(ARROW) > 0;
+      if (power >= 0.1 && (!this._needsArrows() || infinity || this._takeArrow())) {
         this._spend("bow");
-        this.shootArrow(power);
+        const ench = bow?.tag?.ench ? { power: enchLevel(bow, "power"), punch: enchLevel(bow, "punch"), flame: enchLevel(bow, "flame") } : null;
+        this.shootArrow(power, { pickup: this._needsArrows() && !infinity, ench });
+        // (Survival, out of Creative: a shot wears the bow by 1, Unbreaking aside.)
+        if (this._needsArrows()) {
+          if (this.inventory.damageSelected(1)) this.audio.playToolBreak?.();
+          this.onChange?.();
+        }
       }
       return;
     }
@@ -478,6 +511,7 @@ export class WeaponSystem {
   // Switching items, opening a screen or dying drops a drawn throw, stops
   // the machine gun and un-scopes the sniper.
   cancel() {
+    this.rightReleases++;
     this._queued = null;
     this.bow.drawing = false;
     this.bow.t = 0;
@@ -1158,17 +1192,35 @@ export class WeaponSystem {
 
   // ---------- Bow ----------
 
+  // Whether the bow uses up arrows: a Survival world, out of Creative.
+  _needsArrows() {
+    return isVanilla() && !this.player.creative && !!this.inventory;
+  }
+
+  // Takes one arrow from the inventory (the first stack); false if none.
+  _takeArrow() {
+    const slots = this.inventory.slots;
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i]?.id !== ARROW) continue;
+      this.inventory.takeFromSlot(i, 1);
+      this.onChange?.();
+      return true;
+    }
+    return false;
+  }
+
   // Shoots an arrow drawn to `power` (0-1): faster, flatter and harder the
   // further it was drawn. It flies with gravity and hurts whatever it hits:
-  // creatures, UFOs, vehicles.
-  shootArrow(power) {
+  // creatures, UFOs, vehicles. pickup: once stuck in a block it can be
+  // picked up again (an arrow that came from the inventory).
+  shootArrow(power, { pickup = false, ench = null } = {}) {
     const p = this.player;
     const dir = p.getForwardVector();
     const speed = ARROW_SPEED_MIN + (ARROW_SPEED_MAX - ARROW_SPEED_MIN) * power * power;
     const pos = this._handPoint(0.5, 0.12, 0.08);
     if (IS_SOLID[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]) pos.copy(p.getEyePosition());
     const mesh = new THREE.Mesh(this.arrowGeometry(), this.material);
-    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, gravity: ARROW_GRAVITY + (ARROW_GRAVITY_FULL - ARROW_GRAVITY) * power * power, stuck: false, light: { sky: 15, block: 0 } };
+    const a = { pos, vel: dir.multiplyScalar(speed), age: 0, mesh, power, gravity: ARROW_GRAVITY + (ARROW_GRAVITY_FULL - ARROW_GRAVITY) * power * power, stuck: false, pickup, ench, light: { sky: 15, block: 0 } };
     bindEntityLight(mesh, () => a.light);
     mesh.position.copy(pos);
     this.scene.add(mesh);
@@ -1195,7 +1247,12 @@ export class WeaponSystem {
       const a = this.arrows[i];
       a.age += dt;
       if (a.stuck) {
-        if (a.age > ARROW_LIFE) {
+        if (a.pickup && this._pickArrow(a)) {
+          this.scene.remove(a.mesh);
+          this.arrows.splice(i, 1);
+          continue;
+        }
+        if (a.age > (a.pickup ? ARROW_PICKUP_LIFE : ARROW_LIFE)) {
           this.scene.remove(a.mesh);
           this.arrows.splice(i, 1);
         }
@@ -1208,7 +1265,9 @@ export class WeaponSystem {
       const blockHit = this.world.raycast(a.pos, dir, len, { solidOnly: true });
       const mobHit = this.mobs.raycast(a.pos, dir, blockHit ? blockHit.distance : len);
       const tHit = this._targetHit(a.pos, dir, mobHit ? mobHit.distance : blockHit ? blockHit.distance : len);
-      const dmg = Math.round(ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * a.power * a.power);
+      // (Power: +25% a level and 25% more, as vanilla.)
+      const pw = a.ench?.power || 0;
+      const dmg = Math.round((ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * a.power * a.power) * (pw ? 1 + 0.25 * (pw + 1) : 1));
       if (tHit) {
         const point = a.pos.clone().addScaledVector(dir, tHit.distance);
         tHit.hit(dmg, dir, point);
@@ -1218,7 +1277,14 @@ export class WeaponSystem {
         continue;
       }
       if (mobHit) {
-        if (this.mobs.shoot(mobHit.mob, dmg, dir, 2 + a.power * 2)) this.onHit?.();
+        // (Punch: a harder push; Flame: 5 s of fire, through the creatures' attack extras.)
+        const kb = 2 + a.power * 2 + 3 * (a.ench?.punch || 0);
+        this.mobs.attackExtras = a.ench?.flame ? { fire: 5 } : null;
+        try {
+          if (this.mobs.shoot(mobHit.mob, dmg, dir, kb)) this.onHit?.();
+        } finally {
+          this.mobs.attackExtras = null;
+        }
         this._burst(a.pos.clone().addScaledVector(dir, mobHit.distance), dir.clone().negate(), this._c.blood, 5, 2.5);
         this.audio.playArrowHit?.(0);
         this.scene.remove(a.mesh);
@@ -1244,6 +1310,19 @@ export class WeaponSystem {
         this.arrows.splice(i, 1);
       }
     }
+  }
+
+  // A stuck arrow the player walks into goes back into the inventory.
+  _pickArrow(a) {
+    const p = this.player;
+    if (p.dead || p.vehicle || a.age < 0.2) return false;
+    const pp = p.position;
+    const dy = a.pos.y - Math.min(Math.max(a.pos.y, pp.y), pp.y + 1.8);
+    if ((a.pos.x - pp.x) ** 2 + dy * dy + (a.pos.z - pp.z) ** 2 > ARROW_PICKUP_RADIUS * ARROW_PICKUP_RADIUS) return false;
+    if (this.inventory.add(ARROW, 1) > 0) return false;
+    this.audio.playPickup?.();
+    this.onChange?.();
+    return true;
   }
 
   // ---------- Bazooka lock-on ----------
@@ -1349,6 +1428,13 @@ export class WeaponSystem {
     this.held.bowDraw = this.bow.drawing ? Math.min(1, this.bow.t / BOW_DRAW) : 0;
     this.held.windUp = this.charge;
     this._updateArrows(dt);
+    this.fishing.update(dt);
+    this.throwables.update(dt);
+    // (The compass in hand points at the world spawn.)
+    if (this.held && !this.held.compassTarget && this.world.terrain?.spawnColumn) {
+      const [sx, sz] = this.world.terrain.spawnColumn();
+      this.held.compassTarget = { x: sx + 0.5, z: sz + 0.5 };
+    }
 
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i];
@@ -1444,6 +1530,8 @@ export class WeaponSystem {
   // Removes every grenade, rocket and meteor in flight and every pending
   // airstrike (mods switched off).
   clearProjectiles() {
+    this.throwables.clear();
+    this.fishing.cancel();
     for (const g of this.grenades) this.scene.remove(g.mesh);
     for (const r of this.rockets) this.scene.remove(r.mesh);
     for (const a of this.arrows) this.scene.remove(a.mesh);

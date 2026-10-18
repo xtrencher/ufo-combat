@@ -1848,7 +1848,8 @@ try {
     await page.waitForFunction(() => window.__voxelands.gameState === "inventory", null, { timeout: 10000 });
     const visible = await page.$eval("#inventory-screen", (el) => !el.classList.contains("hidden"));
     assert(visible, "inventory screen should be visible");
-    assert((await page.$$(".craft-grid, .recipe-book, .result-slot")).length === 0, "there is no crafting UI");
+    // (Round 11: crafting is a Survival world's; a Missions world shows none of it.)
+    assert(await page.$$eval(".craft-grid, .recipe-book, .result-slot", (els) => !els.some((e) => e.offsetParent !== null)), "there is no crafting UI");
     // Pick up the logs, put one into another slot, the rest back.
     await page.click(".inv-hotbar .slot:nth-child(1)", { timeout: 20000 });
     await page.click(".inv-hotbar .slot:nth-child(2)", { button: "right", timeout: 20000 });

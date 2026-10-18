@@ -16,37 +16,76 @@
 // Pure logic (no three.js, no DOM): the game sets the hooks.
 import { IS_CHEST, BLOCK } from "./blocks.js";
 import { ITEM, itemInfo, maxStack, itemAllowed } from "./items.js";
-import { makeStack } from "./inventory.js";
+import { makeStack, encodeStack, decodeStack, sameStack } from "./inventory.js";
 import { pickCrateWeapon, pickTool, rollArmorDrop } from "./progression.js";
 import { mulberry32 } from "./noise.js";
 import { chunkKey, blockIndex } from "./constants.js";
+import { isVanilla } from "./worldtype.js";
+import * as V from "./content/ids.js";
+import { structureLootAt } from "./structures.js";
 
 export const CHEST_SLOTS = 27;
 // (A batch this big is a big blast: the chests in it that were never opened
 // burn with their loot instead of each spilling a fresh roll.)
 const BIG_BATCH = 2048;
 
-// A stack for the save and the wire: [id, count] or [id, count, dur]; 0 for none.
-export function encodeStack(s) {
-  return s ? (s.dur !== undefined ? [s.id, s.count, s.dur] : [s.id, s.count]) : 0;
-}
+// A stack for the save and the wire, and back (Round 11: the inventory's,
+// which carry a stack's tag: enchantments, a name).
+export { encodeStack, decodeStack, sameStack };
 
-// The stack back (checked: a real item, a sane count and wear), or null.
-export function decodeStack(e) {
-  if (!Array.isArray(e)) return null;
-  const [id, count, dur] = e;
-  if (!Number.isInteger(id) || !itemInfo(id) || !Number.isInteger(count) || count < 1 || count > maxStack(id)) return null;
-  return makeStack(id, count, Number.isInteger(dur) && dur > 0 ? dur : undefined);
-}
+// (Round 11) A Survival world's village chests hold the classic game's
+// village loot: each chest is one of the village's buildings (a house most
+// often, else a smith's, a butcher's...), and rolls that building's table
+// (rolls: how many draws; entries [id, weight, min, max]). Items not built
+// yet (another module's) are skipped.
+const VILLAGE_LOOT = [
+  // [share of chests, rolls [min, max], entries]
+  [40, [3, 8], [[V.GOLD_NUGGET, 1, 1, 3], [BLOCK.FLOWER_YELLOW, 2, 1, 1], [BLOCK.FLOWER_RED, 1, 1, 1], [V.POTATO, 10, 1, 7], [V.BREAD, 10, 1, 4], [ITEM.APPLE, 10, 1, 5], [V.BOOK, 1, 1, 1], [V.FEATHER, 1, 1, 1], [V.EMERALD, 2, 1, 4], [V.OAK_SAPLING, 5, 1, 2]]], // a plains house
+  [10, [3, 8], [[V.DIAMOND, 3, 1, 3], [V.IRON_INGOT, 10, 1, 5], [ITEM.GOLD_INGOT, 5, 1, 3], [V.BREAD, 15, 1, 3], [ITEM.APPLE, 15, 1, 3], [ITEM.IRON_PICKAXE, 5, 1, 1], [ITEM.IRON_SWORD, 5, 1, 1], [ITEM.IRON_CHESTPLATE, 5, 1, 1], [ITEM.IRON_HELMET, 5, 1, 1], [ITEM.IRON_LEGGINGS, 5, 1, 1], [ITEM.IRON_BOOTS, 5, 1, 1], [V.OBSIDIAN, 5, 3, 7], [V.OAK_SAPLING, 5, 3, 7]]], // a weaponsmith
+  [10, [3, 8], [[V.DIAMOND, 1, 1, 3], [V.IRON_INGOT, 5, 1, 5], [ITEM.GOLD_INGOT, 1, 1, 3], [V.BREAD, 15, 1, 3], [ITEM.IRON_PICKAXE, 1, 1, 1], [ITEM.COAL, 1, 1, 3], [ITEM.STICK, 20, 1, 3], [ITEM.IRON_SHOVEL, 5, 1, 1]]], // a toolsmith
+  [6, [1, 5], [[V.IRON_INGOT, 2, 1, 3], [V.BREAD, 4, 1, 4], [ITEM.IRON_HELMET, 1, 1, 1], [V.EMERALD, 1, 1, 1]]], // an armorer
+  [8, [1, 5], [[V.EMERALD, 1, 1, 1], [V.PORKCHOP, 6, 1, 3], [V.WHEAT, 6, 1, 3], [V.BEEF, 6, 1, 3], [V.MUTTON, 6, 1, 3], [ITEM.COAL, 3, 1, 3]]], // a butcher
+  [5, [1, 5], [[V.PAPER, 15, 1, 5], [V.COMPASS, 5, 1, 1], [V.BREAD, 15, 1, 4], [ITEM.STICK, 5, 1, 2]]], // a cartographer
+  [6, [1, 5], [[V.EMERALD, 1, 1, 1], [V.COD, 2, 1, 3], [V.SALMON, 1, 1, 3], [V.WATER_BUCKET, 1, 1, 1], [V.WHEAT_SEEDS, 3, 1, 3], [ITEM.COAL, 2, 1, 3]]], // a fisherman
+  [5, [1, 5], [[BLOCK.WOOL, 6, 1, 8], [V.BLACK_WOOL, 3, 1, 3], [V.GRAY_WOOL, 2, 1, 3], [V.BROWN_WOOL, 2, 1, 3], [V.LIGHT_GRAY_WOOL, 2, 1, 3], [V.EMERALD, 1, 1, 1], [V.SHEARS, 1, 1, 1], [V.WHEAT, 6, 1, 6]]], // a shepherd
+  [4, [1, 5], [[V.CLAY_BALL, 1, 1, 3], [BLOCK.STONE, 2, 1, 1], [V.STONE_BRICKS, 2, 1, 1], [V.BREAD, 4, 1, 4], [V.SMOOTH_STONE, 1, 1, 1], [V.EMERALD, 1, 1, 1]]], // a mason
+  [3, [1, 5], [[V.LEATHER, 1, 1, 3], [ITEM.LEATHER_CHESTPLATE, 2, 1, 1], [ITEM.LEATHER_BOOTS, 2, 1, 1], [ITEM.LEATHER_HELMET, 2, 1, 1], [V.BREAD, 5, 1, 4], [ITEM.LEATHER_LEGGINGS, 2, 1, 1], [V.EMERALD, 1, 1, 4]]], // a tanner
+  [3, [3, 8], [[V.REDSTONE, 2, 1, 4], [V.BREAD, 7, 1, 4], [V.ROTTEN_FLESH, 7, 1, 4], [V.LAPIS_LAZULI, 1, 1, 4], [ITEM.GOLD_INGOT, 1, 1, 4], [V.EMERALD, 1, 1, 4]]], // a temple
+];
 
-export function sameStack(a, b) {
-  if (!a || !b) return !a && !b;
-  return a.id === b.id && a.count === b.count && (a.dur ?? -1) === (b.dur ?? -1);
+export function rollVillageLoot(rand = Math.random) {
+  let r = rand() * VILLAGE_LOOT.reduce((n, t) => n + t[0], 0);
+  let table = VILLAGE_LOOT[0];
+  for (const t of VILLAGE_LOOT) {
+    r -= t[0];
+    if (r < 0) {
+      table = t;
+      break;
+    }
+  }
+  const [, [lo, hi], all] = table;
+  const entries = all.filter(([id]) => itemInfo(id));
+  const total = entries.reduce((n, e) => n + e[1], 0);
+  const out = [];
+  if (!total) return out;
+  const rolls = lo + Math.floor(rand() * (hi - lo + 1));
+  for (let k = 0; k < rolls; k++) {
+    let w = rand() * total;
+    for (const [id, weight, min, max] of entries) {
+      w -= weight;
+      if (w >= 0) continue;
+      out.push([id, min + Math.floor(rand() * (max - min + 1))]);
+      break;
+    }
+  }
+  return out;
 }
 
 // What a chest holds when first opened: [[itemId, count], ...]. `owned`: a
 // Set of the item ids the player (online: the group) has already.
+// (A Survival world's: the classic village loot, rollVillageLoot.)
 export function rollChestLoot(tier, owned, rand = Math.random) {
+  if (isVanilla()) return rollVillageLoot(rand);
   const out = [];
   const have = new Set(owned);
   const add = (id, n = 1) => {
@@ -127,7 +166,10 @@ export class Chests {
       owned = new Set();
     }
     const slots = new Array(CHEST_SLOTS).fill(null);
-    for (const [id, n] of rollChestLoot(this.getTier() | 0, owned, rand)) {
+    // (Round 11) A Survival world's dungeons, mineshafts and desert temples
+    // have vanilla's own tables (structures.js).
+    const loot = (isVanilla() && structureLootAt(this.world, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
+    for (const [id, n, tag] of loot) {
       let left = n;
       while (left > 0) {
         const k = Math.min(left, maxStack(id));
@@ -136,7 +178,7 @@ export class Chests {
         const free = [];
         for (let i = 0; i < CHEST_SLOTS; i++) if (!slots[i]) free.push(i);
         if (!free.length) return slots;
-        slots[free[Math.floor(rand() * free.length)]] = makeStack(id, k);
+        slots[free[Math.floor(rand() * free.length)]] = makeStack(id, k, undefined, tag);
       }
     }
     return slots;

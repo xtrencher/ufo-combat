@@ -3,8 +3,17 @@
 // no player/mob code here (see mobs.js for the villagers that walk around
 // one once the player gets close). One village per world grid cell, at most,
 // decided by a hash so no chunk needs to generate to know where they are.
+//
+// (Round 11) In a Survival world (vanilla) a village has vanilla's touches:
+// wooden doors in the doorways, beds (and a carpet) in some houses, glass
+// panes for windows, stair-edged roofs, fence posts under the well's roof
+// and farmland with wheat. They come from a generator of their own, so the
+// village's layout is the same as without them; a Missions world's villages
+// (old saves' too) are exactly as before.
 import { hash2, mulberry32 } from "./noise.js";
-import { BLOCK, wallTorch, chest } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, wallTorch, chest } from "./blocks.js";
+import * as V from "./content/ids.js";
+import { OAK_DOOR_RIGHT } from "./content/building.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
 
@@ -36,6 +45,9 @@ export class VillageGrower {
     this.seed = terrain.seed;
     this._centers = new Map(); // "cellX,cellZ" -> center or null (cache)
     this._shapes = new Map(); // "x,z" -> flat [dx, dy, dz, id, ...]
+    // (A Survival world's terrain: no airports or cities, see terrain.js.)
+    const o = terrain.options || {};
+    this.vanilla = o.vanilla ?? o.sites === false;
   }
 
   _cellCenter(cellX, cellZ) {
@@ -141,13 +153,16 @@ export class VillageGrower {
         } else out.push(dx, 1, dz, BLOCK.COBBLESTONE);
       }
     }
-    for (const [px, pz] of [[-1, -1], [1, 1]]) for (let dy = 2; dy <= 3; dy++) out.push(px, dy, pz, BLOCK.WOOD);
+    const fencePost = this.vanilla && BLOCK_INFO[V.OAK_FENCE] ? V.OAK_FENCE : BLOCK.WOOD;
+    for (const [px, pz] of [[-1, -1], [1, 1]]) for (let dy = 2; dy <= 3; dy++) out.push(px, dy, pz, fencePost);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) out.push(dx, 4, dz, BLOCK.PLANKS);
     // Houses, doors on the street. (Round 10) Wall torches inside and beside
     // every door, and chests in about half the houses, one more in the
     // biggest: from a generator of their own, so the village's other random
     // choices (and old saves' villages) stay as they were.
     const furnish = mulberry32((this.seed ^ Math.imul(center.x, 0x632be5ab) ^ Math.imul(center.z, 0x2c1b3c6d) ^ 0x3c6ef3) >>> 0);
+    // (Round 11) The vanilla touches' own generator (null in a Missions world).
+    const touch = this.vanilla ? mulberry32((this.seed ^ Math.imul(center.x, 0x4cf5ad43) ^ Math.imul(center.z, 0x7feb352d) ^ 0x5bd1e9) >>> 0) : null;
     let biggest = 0;
     lay.houses.forEach((h, i) => {
       const b = lay.houses[biggest];
@@ -159,7 +174,7 @@ export class VillageGrower {
     lay.houses.forEach((h, i) => {
       const chestRoll = furnish();
       const torchRoll = furnish();
-      house(out, h, { chests: (chestRoll < 0.5 ? 1 : 0) + (i === biggest ? 1 : 0), torches: torchRoll < 0.5 || h.w * h.d >= 48 ? 2 : 1, blocked });
+      house(out, h, { chests: (chestRoll < 0.5 ? 1 : 0) + (i === biggest ? 1 : 0), torches: torchRoll < 0.5 || h.w * h.d >= 48 ? 2 : 1, blocked, touch });
     });
     // Farm plots: tilled rows of crops with a water channel down the middle.
     for (const f of lay.farms) {
@@ -177,6 +192,19 @@ export class VillageGrower {
       // A log border.
       for (let dx = f.x - 1; dx <= f.x + f.w; dx++) for (const dz of [f.z - 1, f.z + f.d]) out.push(dx, 1, dz, BLOCK.OAK_BARK);
       for (let dz = f.z; dz < f.z + f.d; dz++) for (const dx of [f.x - 1, f.x + f.w]) out.push(dx, 1, dz, BLOCK.OAK_BARK);
+      // (Round 11) Vanilla: tilled farmland (moist by the channel) and wheat
+      // at every stage, where the nature blocks are there.
+      if (touch && BLOCK_INFO[V.FARMLAND] && BLOCK_INFO[V.WHEAT_CROP]) {
+        const farmland = BLOCK_INFO[V.FARMLAND + 1] ? V.FARMLAND + 1 : V.FARMLAND;
+        for (let dz = f.z; dz < f.z + f.d; dz++) {
+          for (let dx = f.x; dx < f.x + f.w; dx++) {
+            if (f.w >= f.d ? dz === f.z + (f.d >> 1) : dx === f.x + (f.w >> 1)) continue;
+            out.push(dx, 0, dz, farmland);
+            const stage = Math.floor(touch() * 8);
+            out.push(dx, 1, dz, BLOCK_INFO[V.WHEAT_CROP + stage] ? V.WHEAT_CROP + stage : BLOCK.AIR);
+          }
+        }
+      }
     }
     // Lamp posts along the streets.
     for (const [lx, lz] of lay.lamps) {
@@ -275,7 +303,8 @@ export class VillageGrower {
 // two inside at head height (on the back wall, and a side wall), and
 // `chests` chests (0-2) in the back corners, their latches toward the room.
 // blocked(dx, dz): whether something else of the village stands in that column.
-function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torches = 1, blocked = null } = {}) {
+// (Round 11) touch: the vanilla touches' generator, or null (see the top).
+function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torches = 1, blocked = null, touch = null } = {}) {
   const midX = Math.floor((W - 1) / 2);
   const midZ = Math.floor((D - 1) / 2);
   const isDoor = (x, z) =>
@@ -292,7 +321,7 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torc
     if (dr && y <= 2) return 0;
     if (ex && ez) return BLOCK.WOOD;
     if (y === 1) return BLOCK.COBBLESTONE;
-    if (y === 2 && !dr && ((ex && z % 3 === 1 && z < D - 1) || (ez && x % 3 === 1 && x < W - 1))) return BLOCK.GLASS;
+    if (y === 2 && !dr && ((ex && z % 3 === 1 && z < D - 1) || (ez && x % 3 === 1 && x < W - 1))) return touch ? V.GLASS_PANE : BLOCK.GLASS;
     return BLOCK.PLANKS;
   };
   for (let x = 0; x < W; x++) {
@@ -310,7 +339,8 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torc
       }
     }
   }
-  // A stepped roof.
+  // A stepped roof. (Round 11: in vanilla, each step's edge is spruce stairs
+  // rising inward; the corners make themselves, see building.js.)
   let k = 0;
   for (let y = H + 1; ; y++, k++) {
     const x0 = -1 + k;
@@ -318,14 +348,25 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torc
     const z0 = -1 + k;
     const z1 = D - k;
     if (x0 > x1 || z0 > z1) break;
-    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) out.push(ox + x, y, oz + z, BLOCK.OAK_BARK);
+    for (let x = x0; x <= x1; x++) {
+      for (let z = z0; z <= z1; z++) {
+        let id = BLOCK.OAK_BARK;
+        if (touch && x1 - x0 >= 2 && z1 - z0 >= 2) {
+          if (x === x0) id = V.SPRUCE_STAIRS + 2;
+          else if (x === x1) id = V.SPRUCE_STAIRS + 3;
+          else if (z === z0) id = V.SPRUCE_STAIRS + 0;
+          else if (z === z1) id = V.SPRUCE_STAIRS + 1;
+        }
+        out.push(ox + x, y, oz + z, id);
+      }
+    }
     if (k >= 2) break;
   }
   // A wall torch at (x, y, z) facing (dx, dz), only on a real wall block
   // (never on glass or in a doorway: no floating torches).
   const torch = (x, y, z, dx, dz) => {
     const wall = wallAt(x - dx, y, z - dz);
-    if (!wall || wall === BLOCK.GLASS || blocked?.(ox + x + dx, oz + z + dz)) return;
+    if (!wall || wall === BLOCK.GLASS || wall === V.GLASS_PANE || blocked?.(ox + x + dx, oz + z + dz)) return;
     out.push(ox + x, y, oz + z, wallTorch(dx, dz));
   };
   // The door's side: (fx, fz) points out through it. Beside the doorway, on
@@ -334,7 +375,8 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torc
   const fz = door === "z+" ? 1 : door === "z-" ? -1 : 0;
   const beside = fx ? [[fx > 0 ? W : -1, midZ - 1], [fx > 0 ? W : -1, midZ + 2]] : [[midX - 1, fz > 0 ? D : -1], [midX + 2, fz > 0 ? D : -1]];
   for (const [bx, bz] of beside) {
-    const y = wallAt(bx - fx, 2, bz - fz) === BLOCK.GLASS ? 3 : 2;
+    const win = wallAt(bx - fx, 2, bz - fz);
+    const y = win === BLOCK.GLASS || win === V.GLASS_PANE ? 3 : 2;
     torch(bx, y, bz, fx, fz);
   }
   // Inside: the back wall's cells (along it, from one corner to the other),
@@ -353,5 +395,47 @@ function house(out, { x: ox, z: oz, w: W, d: D, h: H, door }, { chests = 0, torc
   for (let i = 0; i < Math.min(2, chests); i++) {
     const [qx, qz] = back[i === 0 ? 0 : back.length - 1];
     out.push(ox + qx, 1, oz + qz, chest(fx, fz));
+  }
+  if (touch) vanillaHouse(out, { ox, oz, W, D, door, fx, fz, midX, midZ }, touch);
+}
+
+// (Round 11) A house's vanilla touches: oak doors in the doorway (a double
+// door, both facing in, hinged at the two sides), and in some houses a bed
+// along a side wall with its head to the back wall, a carpet beside it.
+// Facings as building.js's: 0 +Z, 1 -Z, 2 +X, 3 -X.
+const FACING_X = [0, 0, 1, -1];
+const FACING_Z = [1, -1, 0, 0];
+const LEFT_OF = [2, 3, 1, 0];
+function vanillaHouse(out, { ox, oz, W, D, door, fx, fz, midX, midZ }, touch) {
+  const bedRoll = touch();
+  const sideRoll = touch();
+  const carpetRoll = touch();
+  // In: the way through the door into the house.
+  const inward = fx > 0 ? 3 : fx < 0 ? 2 : fz > 0 ? 1 : 0;
+  if (BLOCK_INFO[V.OAK_DOOR]) {
+    const cells = fx ? [[fx > 0 ? W - 1 : 0, midZ], [fx > 0 ? W - 1 : 0, midZ + 1]] : [[midX, fz > 0 ? D - 1 : 0], [midX + 1, fz > 0 ? D - 1 : 0]];
+    const L = LEFT_OF[inward];
+    const cx = (cells[0][0] + cells[1][0]) / 2;
+    const cz = (cells[0][1] + cells[1][1]) / 2;
+    for (const [x, z] of cells) {
+      // (the cell on the left, seen from outside, hinged on the left)
+      const left = (x - cx) * FACING_X[L] + (z - cz) * FACING_Z[L] > 0;
+      const base = left ? V.OAK_DOOR : OAK_DOOR_RIGHT;
+      out.push(ox + x, 1, oz + z, base + inward, ox + x, 2, oz + z, base + inward + 8);
+    }
+  }
+  if (bedRoll < 0.6 && BLOCK_INFO[V.RED_BED]) {
+    // House frame: a runs from the back wall toward the door, c across.
+    const across = fx ? D : W;
+    const at = (a, c) => (fx > 0 ? [a, c] : fx < 0 ? [W - 1 - a, c] : fz > 0 ? [c, a] : [c, D - 1 - a]);
+    const c = sideRoll < 0.5 ? 1 : across - 2;
+    // (its head toward the back wall: the way in)
+    const [hx, hz] = at(2, c);
+    const [fx2, fz2] = at(3, c);
+    out.push(ox + hx, 1, oz + hz, V.RED_BED + inward + 4, ox + fx2, 1, oz + fz2, V.RED_BED + inward);
+    if (carpetRoll < 0.7 && BLOCK_INFO[V.WHITE_CARPET]) {
+      const [kx, kz] = at(3, c === 1 ? 2 : across - 3);
+      out.push(ox + kx, 1, oz + kz, V.WHITE_CARPET + Math.floor(touch() * 16));
+    }
   }
 }

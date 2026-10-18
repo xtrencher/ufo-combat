@@ -7,7 +7,12 @@
 //   position  Float32 x3  chunk-local position
 //   uv        Float32 x2  texture coordinate within the block's tile
 //   aData     Uint8   x4  [normalIndex * 4 + ao (0-3), sky light * 17, block light * 17, flags]
-//   aExtra    Uint8   x4  [texture layer, water depth * 16, color tint (128 = none), 0]
+//   aExtra    Uint8   x4  [texture layer (low byte), water depth * 16, color tint (128 = none), texture layer (high byte)]
+//
+// (Round 11) Block ids are 16-bit (the padded volume is a Uint16Array) and
+// the texture layer takes two bytes (up to 1024 tiles). A content module's
+// shapes (SHAPE_MESH, see js/content/index.js) are meshed here through
+// `shapeApi`, the same on the main thread and in the workers.
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
 import {
   BLOCK,
@@ -24,6 +29,9 @@ import {
   IS_WATERLOGGED,
   BLOCK_INFO,
   CHEST_BOX,
+  BLOCK_LIMIT,
+  SHAPE_CUSTOM,
+  SHAPE_MESH,
 } from "./blocks.js";
 
 // FOLIAGE: leaves and plants (sunlight shines through them).
@@ -42,7 +50,7 @@ function pidx(x, y, z) {
   return ((y + 1) * P + (z + 1)) * P + (x + 1);
 }
 
-const padBlocks = new Uint8Array(P * P * PY);
+const padBlocks = new Uint16Array(P * P * PY);
 const padLight = new Uint8Array(P * P * PY);
 
 // Faces in FACE order (+X, -X, +Y, -Y, +Z, -Z). Corners are counter-
@@ -79,7 +87,8 @@ const FACES = FACE_DEFS.map((def, f) => {
       corner: offsetOf(nx + t1[0] + t2[0], ny + t1[1] + t2[1], nz + t1[2] + t2[2]),
     };
   });
-  return { index: f, n: def.n, neighbor: offsetOf(nx, ny, nz), corners, uvOf: def.uv };
+  // (axis, positive: the side of the cell the face is on, for boxes)
+  return { index: f, n: def.n, axis, positive: nx + ny + nz > 0, neighbor: offsetOf(nx, ny, nz), corners, uvOf: def.uv };
 });
 
 // ---------- Growable vertex buffer builder (reused between chunks) ----------
@@ -127,9 +136,10 @@ class GeoBuilder {
     this.data[i * 4 + 1] = sky;
     this.data[i * 4 + 2] = blk;
     this.data[i * 4 + 3] = flags;
-    this.extra[i * 4] = layer;
+    this.extra[i * 4] = layer & 255;
     this.extra[i * 4 + 1] = depth;
     this.extra[i * 4 + 2] = this.tint;
+    this.extra[i * 4 + 3] = layer >> 8;
   }
   // Indices for the last 4 vertices; `flip` picks the other diagonal.
   quad(flip) {
@@ -433,7 +443,7 @@ function emitTorch(b, x, y, z, id, pi) {
 // numbers on the main thread and in the workers.
 const WALL_TORCH_TILT = Math.PI / 8;
 const WALL_TORCH_GEOM = [];
-for (let id = 0; id < 256; id++) {
+for (let id = 0; id < BLOCK_LIMIT; id++) {
   const facing = SHAPE_OF[id] === SHAPE.WALL_TORCH ? BLOCK_INFO[id].facing : null;
   if (!facing) continue;
   const [dx, dz] = facing;
@@ -506,6 +516,95 @@ function emitChest(b, x, y, z, id, pi) {
   }
 }
 
+// (Round 11) A box inside the cell (a content shape's m.box): each face lit
+// and shaded like a cube's from the cells around it, or, for a face inside
+// the cell (a slab's top), from the block's own cell; a face on the cell's
+// side is skipped against an opaque neighbour. The uv is the corner's place
+// in the block, so the texture is cut to the box (as in vanilla). skip: a
+// bit mask (1 << face) of faces left out (one hidden inside another box);
+// uv: [u0, v0, u1, v1], the part of the tile the cell's 0-1 uv maps onto
+// (a tile holding a door's two halves, or a few small things).
+const boxLo = [0, 0, 0];
+const boxHi = [0, 0, 0];
+const boxCorner = [0, 0, 0];
+function emitBox(b, x, y, z, id, pi, x0, y0, z0, x1, y1, z1, tiles, skip, uv) {
+  boxLo[0] = x0;
+  boxLo[1] = y0;
+  boxLo[2] = z0;
+  boxHi[0] = x1;
+  boxHi[1] = y1;
+  boxHi[2] = z1;
+  const base = (WAVES[id] ? FLAG.WAVE : 0) | (EMISSIVE[id] ? FLAG.EMISSIVE : 0);
+  for (let f = 0; f < 6; f++) {
+    if (skip & (1 << f)) continue;
+    const face = FACES[f];
+    const onSide = face.positive ? boxHi[face.axis] >= 1 : boxLo[face.axis] <= 0;
+    const nid = padBlocks[pi + face.neighbor];
+    if (onSide && IS_OPAQUE[nid]) continue;
+    shadeCorners(onSide ? pi : pi - face.neighbor, face);
+    const flags = onSide && IS_WET[nid] ? base | FLAG.UNDERWATER : base;
+    const layer = tiles ? tiles[f] : FACE_TILES[id * 6 + f];
+    for (let c = 0; c < 4; c++) {
+      const p = face.corners[c].pos;
+      for (let a = 0; a < 3; a++) boxCorner[a] = p[a] ? boxHi[a] : boxLo[a];
+      let [u, v] = face.uvOf(boxCorner);
+      if (uv) {
+        u = uv[0] + u * (uv[2] - uv[0]);
+        v = uv[1] + v * (uv[3] - uv[1]);
+      }
+      b.vertex(x + boxCorner[0], y + boxCorner[1], z + boxCorner[2], u, v, f * 4 + aoVals[c], skyVals[c], blkVals[c], flags, layer, 0);
+    }
+    const a02 = aoVals[0] + aoVals[2];
+    const a13 = aoVals[1] + aoVals[3];
+    b.quad(a02 < a13 || (a02 === a13 && skyVals[0] + skyVals[2] + blkVals[0] + blkVals[2] < skyVals[1] + skyVals[3] + blkVals[1] + blkVals[3]));
+  }
+}
+
+// What a content shape's mesh(m) gets (see js/content/index.js): the cell
+// being meshed and a few ways to emit geometry into its block's bucket.
+const shapeApi = {
+  id: 0,
+  x: 0,
+  y: 0,
+  z: 0,
+  wx: 0,
+  wz: 0,
+  _pi: 0,
+  _b: null,
+  box(x0, y0, z0, x1, y1, z1, tiles = null, skip = 0, uv = null) {
+    emitBox(this._b, this.x, this.y, this.z, this.id, this._pi, x0, y0, z0, x1, y1, z1, tiles, skip, uv);
+  },
+  quad(corners, uvs, face, tile) {
+    const l = padLight[this._pi];
+    const flags = (WAVES[this.id] ? FLAG.WAVE : 0) | (EMISSIVE[this.id] ? FLAG.EMISSIVE : 0);
+    for (let c = 0; c < 4; c++) {
+      const p = corners[c];
+      this._b.vertex(this.x + p[0], this.y + p[1], this.z + p[2], uvs[c][0], uvs[c][1], face * 4 + 3, (l >> 4) * 17, (l & 15) * 17, flags, tile, 0);
+    }
+    this._b.quad(false);
+  },
+  neighbor(dx, dy, dz) {
+    return padBlocks[this._pi + dx * OX + dy * OY + dz * OZ];
+  },
+  tile(face) {
+    return FACE_TILES[this.id * 6 + face];
+  },
+};
+
+function emitShape(b, x, y, z, wx, wz, id, pi, shape) {
+  const m = shapeApi;
+  m.id = id;
+  m.x = x;
+  m.y = y;
+  m.z = z;
+  m.wx = wx;
+  m.wz = wz;
+  m._pi = pi;
+  m._b = b;
+  SHAPE_MESH[shape](m);
+  b.tint = 128;
+}
+
 // neighbors: 9 chunks as described in fillPadded (center at index 4).
 // options: { fancyLeaves } (see emitLeafCards).
 // Returns { opaque, cutout, water } where each is null or a buffer set.
@@ -546,23 +645,19 @@ function meshBody(cx, cz, maxY, options) {
         if (rt === RENDER.NONE) continue;
         const b = builders[rt];
         const shape = SHAPE_OF[id];
-        if (shape === SHAPE.CROSS) {
-          emitCross(b, x, y, z, baseX + x, baseZ + z, id, pi);
-          // A waterlogged plant (seagrass, kelp) stands in water: its cell
-          // is drawn as water too, so it never looks like an air pocket.
-          if (IS_WATERLOGGED[id]) emitCube(builders[RENDER.WATER], BLOCK.WATER, RENDER.WATER, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);
-          continue;
-        }
-        if (shape === SHAPE.TORCH) {
-          emitTorch(b, x, y, z, id, pi);
-          continue;
-        }
-        if (shape === SHAPE.WALL_TORCH) {
-          emitWallTorch(b, x, y, z, id, pi);
-          continue;
-        }
-        if (shape === SHAPE.CHEST) {
-          emitChest(b, x, y, z, id, pi);
+        if (shape !== SHAPE.CUBE) {
+          if (shape === SHAPE.CROSS) {
+            emitCross(b, x, y, z, baseX + x, baseZ + z, id, pi);
+            // A waterlogged plant (seagrass, kelp) stands in water: its cell
+            // is drawn as water too, so it never looks like an air pocket.
+            if (IS_WATERLOGGED[id]) emitCube(builders[RENDER.WATER], BLOCK.WATER, RENDER.WATER, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);
+          } else if (shape === SHAPE.TORCH) emitTorch(b, x, y, z, id, pi);
+          else if (shape === SHAPE.WALL_TORCH) emitWallTorch(b, x, y, z, id, pi);
+          else if (shape === SHAPE.CHEST) emitChest(b, x, y, z, id, pi);
+          else if (shape >= SHAPE_CUSTOM) {
+            emitShape(b, x, y, z, baseX + x, baseZ + z, id, pi, shape);
+            if (IS_WATERLOGGED[id]) emitCube(builders[RENDER.WATER], BLOCK.WATER, RENDER.WATER, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);
+          }
           continue;
         }
         emitCube(b, id, rt, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);

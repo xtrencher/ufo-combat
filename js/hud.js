@@ -1,9 +1,13 @@
 // In-game HUD: the inventory-backed hotbar, health hearts, air bubbles, the
 // name of the selected item, a red flash when hurt, and the death screen.
-// All pixel art (hearts, bubbles) is drawn in code.
+// (Round 11, Survival worlds) The hunger bar right of the hearts, the XP bar
+// and level over the hotbar, status effects top right, the burning overlay.
+// All pixel art (hearts, bubbles, drumsticks, effect icons) is drawn in code.
 import { HOTBAR_SIZE } from "./inventory.js";
 import { MAX_HEALTH, MAX_AIR } from "./player.js";
 import { SlotView, stackLabel } from "./slot-view.js";
+import { isVanilla } from "./worldtype.js";
+import { EFFECTS, MAX_FOOD, formatEffectTime, effectLevelName } from "./survival.js";
 
 const PX = 2; // screen pixels per art pixel
 
@@ -31,8 +35,69 @@ const BUBBLE = [
   "..kkkkk..",
 ];
 
+// 9x9 drumstick (the hunger bar): M meat, H highlight, D shade, W bone.
+const DRUMSTICK = [
+  "..kkkk...",
+  ".kMMHHk..",
+  "kMMMMHMk.",
+  "kMMMMMMk.",
+  "kDMMMMDk.",
+  ".kDDDDWk.",
+  "..kkkWWWk",
+  ".....kWWk",
+  "......kk.",
+];
+
+// Status effect icons (9x9): a drop (poison), a flame, an arrow (speed).
+const DROP = [
+  "....k....",
+  "...kSk...",
+  "..kSTSk..",
+  ".kSTSSSk.",
+  ".kSTSSSk.",
+  "kSSSSSSUk",
+  "kSSSSSUUk",
+  ".kSSUUUk.",
+  "..kkkkk..",
+];
+const FLAME = [
+  "....k....",
+  "...kFk...",
+  "..kFOFk..",
+  ".kFOFOFk.",
+  "kFOOyOOFk",
+  "kFOyyyOFk",
+  "kFOyyyOFk",
+  ".kFOOOFk.",
+  "..kkkkk..",
+];
+const ARROW = [
+  "....k....",
+  "...kXk...",
+  "..kXXXk..",
+  ".kXXXXXk.",
+  "kkkXXXkkk",
+  "...kXk...",
+  "...kXk...",
+  "...kXk...",
+  "...kkk...",
+];
+
 const COLORS = {
   k: "#1a0606",
+  M: "#c4702c",
+  H: "#eaa45e",
+  D: "#7a3e14",
+  W: "#efe6cf",
+  P: "#7d9a3a",
+  Q: "#a9c25c",
+  R: "#4b5e1e",
+  S: "#8f9e24",
+  T: "#d2dc78",
+  U: "#5a6414",
+  F: "#e8501a",
+  O: "#ff9a1a",
+  X: "#9fd4ff",
   r: "#e3222c",
   h: "#ffb7b0",
   d: "#9e1119",
@@ -94,6 +159,39 @@ function heartArt(kind, flash = false) {
     return ch;
   };
   return drawArt(HEART, inner);
+}
+
+// (Round 11) A poisoned heart: the red turned sickly green, as vanilla's.
+function poisonHeartArt(kind, flash = false) {
+  return drawArt(HEART, (x, ch) => {
+    if (ch === "k") return flash ? "w" : "k";
+    if (ch === ".") return ".";
+    if (kind === "empty" || (kind === "half" && x > 4)) return "e";
+    return ch === "r" ? "S" : ch === "h" ? "T" : ch === "d" ? "U" : ch;
+  });
+}
+
+// A drumstick: full, half (the bar fills from the right, so the right half)
+// or empty; green with the hunger effect.
+function foodArt(kind, hungry = false) {
+  return drawArt(DRUMSTICK, (x, ch) => {
+    if (ch === "." || ch === "k") return ch;
+    if (kind === "empty" || (kind === "half" && x < 4)) return "e";
+    if (hungry) return ch === "M" ? "P" : ch === "H" ? "Q" : ch === "D" ? "R" : ch;
+    return ch;
+  });
+}
+
+// A status effect's icon, by survival.js EFFECTS[...].icon.
+function effectArt(icon) {
+  if (icon === "drop") return drawArt(DROP);
+  if (icon === "flame") return drawArt(FLAME);
+  if (icon === "arrow") return drawArt(ARROW);
+  if (icon === "bubble") return drawArt(BUBBLE);
+  if (icon === "drumstick") return foodArt("full", true);
+  if (icon === "goldheart") return goldHeartArt();
+  // (regeneration and the rest: a pink heart)
+  return drawArt(HEART, (x, ch) => (ch === "r" ? "h" : ch === "h" ? "w" : ch));
 }
 
 // A golden heart (absorption): the red shades swapped for gold.
@@ -191,6 +289,45 @@ export class Hud {
       this.bubbles.push(c);
     }
 
+    // (Round 11) The hunger bar: ten drumsticks right of the hearts, filling
+    // from the right (mirrored to the hearts, as vanilla's).
+    this.foodEl = document.getElementById("food");
+    this.art.poison = {};
+    for (const k of ["full", "half", "empty"]) {
+      this.art.poison[k] = poisonHeartArt(k);
+      this.art.poison[`${k}Flash`] = poisonHeartArt(k, true);
+    }
+    this.foodArt = {};
+    for (const k of ["full", "half", "empty"]) {
+      this.foodArt[k] = foodArt(k);
+      this.foodArt[`${k}Hungry`] = foodArt(k, true);
+    }
+    this.food = [];
+    for (let i = 0; i < MAX_FOOD / 2; i++) {
+      const c = document.createElement("canvas");
+      c.width = this.foodArt.full.width;
+      c.height = this.foodArt.full.height;
+      c.className = "heart";
+      this.foodEl.appendChild(c);
+      this.food.push({ el: c, ctx: c.getContext("2d"), y: 0 });
+    }
+    this._shownFood = "";
+    this._foodShake = 0;
+    // The XP bar and level, over the hotbar.
+    this.xpEl = document.getElementById("xp-bar");
+    this.xpFill = this.xpEl.querySelector(".xp-fill");
+    this.xpLevelEl = this.xpEl.querySelector(".xp-level");
+    this._shownXp = "";
+    // Status effects (top right) and the burning overlay.
+    this.effectsEl = document.getElementById("effects-bar");
+    this._effectViews = new Map(); // effect name -> { el, time, shown }
+    this._effectArt = {};
+    this._effectsT = 0;
+    this.fireEl = document.getElementById("fire-overlay");
+    this._burning = false;
+    this._survivalHud = null;
+    this._regenWave = false;
+
     this.slots = [];
     this.hotbarEl.innerHTML = "";
     for (let i = 0; i < HOTBAR_SIZE; i++) {
@@ -202,6 +339,19 @@ export class Hud {
       this.hotbarEl.appendChild(view.el);
       this.slots.push(view);
     }
+    // (A Survival world) The off hand, left of the hotbar as vanilla's (shown
+    // while it holds something).
+    this.offhandView = new SlotView(icons, "hotbar-slot hidden");
+    this.offhandView.el.id = "offhand-slot";
+    this.offhandView.el.style.cssText = "position: fixed; bottom: 14px; left: calc(50% - 318px); z-index: 10; pointer-events: none;";
+    this.hotbarEl.parentNode?.insertBefore(this.offhandView.el, this.hotbarEl);
+    if (!document.getElementById("offhand-css")) {
+      const st = document.createElement("style");
+      st.id = "offhand-css";
+      st.textContent = "body.in-vehicle #offhand-slot { display: none; }";
+      document.head.appendChild(st);
+    }
+    this._offhandShown = false;
     this._selected = -1;
     this._nameTimer = 0;
     this._lastName = "";
@@ -219,13 +369,16 @@ export class Hud {
   // The item name sits above the extra rows (golden hearts, armor).
   _nameLift() {
     const rows = (this._hasGold ? 1 : 0) + (this._hasArmor ? 1 : 0);
-    this.itemNameEl.style.bottom = rows === 0 ? "" : `${94 + rows * 24}px`;
+    const xp = this._survivalHud ? 12 : 0; // (the XP bar lifts the rows above it)
+    this.itemNameEl.style.bottom = rows === 0 && !xp ? "" : `${94 + rows * 24 + xp}px`;
   }
 
   // Refreshes the hotbar slots and selection (cheap when nothing changed).
   refreshHotbar() {
     const inv = this.inventory;
     for (let i = 0; i < HOTBAR_SIZE; i++) this.slots[i].set(inv.slots[i]);
+    this.offhandView.set(inv.offhand || null);
+    if (!!inv.offhand !== this._offhandShown) this.offhandView.el.classList.toggle("hidden", !(this._offhandShown = !!inv.offhand));
     // The armor bar: ten chestplates, two defense points each.
     const pts = inv.armorPoints();
     let sig = pts; // (a number built in a loop: this runs every frame)
@@ -286,6 +439,7 @@ export class Hud {
   }
 
   update(dt, player) {
+    this._time = (this._time || 0) + dt;
     this.refreshHotbar();
     this._nameTimer -= dt;
     const nameOpacity = String(Math.max(0, Math.min(1, this._nameTimer / 0.4)));
@@ -301,19 +455,31 @@ export class Hud {
       this.heartsEl.classList.toggle("hidden", player.creative);
       this._shownHealth = -1;
     }
+    // (Round 11) A Survival world's bars: hunger and XP (not in Creative).
+    const survival = isVanilla() && !player.creative;
+    if (survival !== this._survivalHud) {
+      this._survivalHud = survival;
+      this.foodEl.classList.toggle("hidden", !survival);
+      this.xpEl.classList.toggle("hidden", !survival);
+      document.body.classList.toggle("xp-on", survival);
+      this._shownFood = this._shownXp = "";
+      this._nameLift();
+    }
 
     // Hearts: re-drawn when health changes or while flashing after damage.
     this._flashTime += dt;
     const flashing = this._flashTime < 0.6 && Math.floor(this._flashTime * 10) % 2 === 0;
     const hp = Math.ceil(player.health);
-    const sig = `${hp}:${flashing}`;
+    const poisoned = player.effects?.length ? player.effectLevel("poison") > 0 : false;
+    const sig = `${hp}:${flashing}:${poisoned}`;
     if (sig !== this._shownHealth && !player.creative) {
       this._shownHealth = sig;
+      const set = poisoned ? this.art.poison : this.art;
       for (let i = 0; i < this.hearts.length; i++) {
         const h = this.hearts[i];
         const v = hp - i * 2;
         const kind = v >= 2 ? "full" : v === 1 ? "half" : "empty";
-        const art = this.art[flashing ? `${kind}Flash` : kind];
+        const art = set[flashing ? `${kind}Flash` : kind];
         h.ctx.clearRect(0, 0, h.el.width, h.el.height);
         h.ctx.drawImage(art, 0, 0);
       }
@@ -332,14 +498,24 @@ export class Hud {
         if (v >= 1) g.ctx.drawImage(v >= 2 ? this.goldArt.full : this.goldArt.half, 0, 0);
       }
     }
-    // Low health: the hearts jitter.
+    // Low health: the hearts jitter. (Regeneration: a wave runs along them, as vanilla's.)
     const low = !player.creative && !player.dead && hp <= 4;
-    if (low || this._wasLow) {
+    const regen = !player.creative && !player.dead && player.effects?.length > 0 && player.effectLevel("regeneration") > 0;
+    if (low || regen || this._wasLow) {
+      const wave = regen ? Math.floor(this._time * 20) % (this.hearts.length + 5) : -1;
       for (let i = 0; i < this.hearts.length; i++) {
-        const y = low ? Math.round((Math.random() - 0.5) * 3) : 0;
-        this.hearts[i].el.style.transform = y ? `translateY(${y}px)` : "";
+        const y = (low ? Math.round((Math.random() - 0.5) * 3) : 0) - (i === wave ? 3 : 0);
+        const t = y ? `translateY(${y}px)` : "";
+        if (this.hearts[i].el.style.transform !== t) this.hearts[i].el.style.transform = t;
       }
-      this._wasLow = low;
+      this._wasLow = low || regen;
+    }
+    if (this._survivalHud) this._updateSurvival(dt, player);
+    this._updateEffects(dt, player);
+    const burning = !player.creative && !player.dead && player.fireTime > 0 && !player.vehicle;
+    if (burning !== this._burning) {
+      this._burning = burning;
+      this.fireEl.classList.toggle("hidden", !burning);
     }
 
     // Air bubbles: only while breath is being used.
@@ -355,7 +531,6 @@ export class Hud {
 
     // Red vignette flash when hurt.
     // (plus a slow pulse while health is low).
-    this._time = (this._time || 0) + dt;
     const f = Math.max(0, 1 - this._flashTime / 0.5) * 0.8;
     const pulse = low ? 0.22 + 0.12 * Math.sin(this._time * 5) : 0;
     const opacity = Math.round(Math.max(f, pulse) * 100) / 100;
@@ -363,6 +538,89 @@ export class Hud {
       this._shownFlash = opacity;
       this.damageEl.style.opacity = String(opacity);
     }
+  }
+
+  // (Round 11) The hunger and XP bars (a Survival world in survival mode).
+  _updateSurvival(dt, player) {
+    // Drumsticks: redrawn when the food changes; green with the hunger
+    // effect. With no saturation left they shake (vanilla: more often the
+    // lower the food).
+    const food = Math.max(0, Math.min(MAX_FOOD, Math.ceil(player.food)));
+    const hungry = player.effects.length > 0 && player.effectLevel("hunger") > 0;
+    const sig = `${food}:${hungry}`;
+    if (sig !== this._shownFood) {
+      this._shownFood = sig;
+      for (let i = 0; i < this.food.length; i++) {
+        const f = this.food[i];
+        const v = food - i * 2;
+        const kind = v >= 2 ? "full" : v === 1 ? "half" : "empty";
+        f.ctx.clearRect(0, 0, f.el.width, f.el.height);
+        f.ctx.drawImage(this.foodArt[hungry ? `${kind}Hungry` : kind], 0, 0);
+      }
+    }
+    // (A jolt of one frame, every food * 3 + 1 ticks, as vanilla's.)
+    const shake = !player.dead && player.saturation <= 0;
+    this._foodShake += dt;
+    const jolt = shake && this._foodShake >= (food * 3 + 1) / 20;
+    if (jolt) this._foodShake = 0;
+    for (const f of this.food) {
+      const y = jolt ? Math.round(Math.random() * 3) - 1 : 0;
+      if (y !== f.y) {
+        f.y = y;
+        f.el.style.transform = y ? `translateY(${y}px)` : "";
+      }
+    }
+    // The XP bar (the way to the next level) and the level, in green.
+    const fill = Math.round(Math.max(0, Math.min(1, player.xpProgress)) * 182);
+    const xsig = `${player.xpLevel}:${fill}`;
+    if (xsig !== this._shownXp) {
+      this._shownXp = xsig;
+      this.xpFill.style.width = `${(fill / 182) * 100}%`;
+      this.xpLevelEl.textContent = player.xpLevel > 0 ? String(player.xpLevel) : "";
+    }
+  }
+
+  // Status effects, top right: an icon each, its level and time left (it
+  // blinks in its last 10 s, as vanilla's). Refreshed 4 times a second.
+  _updateEffects(dt, player) {
+    this._effectsT -= dt;
+    if (this._effectsT > 0) return;
+    this._effectsT = 0.25;
+    const list = player.creative || player.dead ? [] : player.effects || [];
+    const views = this._effectViews;
+    for (const [name, v] of views) {
+      if (list.some((e) => e.effect === name)) continue;
+      v.el.remove();
+      views.delete(name);
+    }
+    for (const e of list) {
+      let v = views.get(e.effect);
+      if (!v) {
+        const info = EFFECTS[e.effect] || { name: e.effect, color: "#9aa", icon: "heart" };
+        const el = document.createElement("div");
+        el.className = "fx";
+        el.style.borderColor = info.color;
+        el.title = info.name;
+        const icon = info.icon;
+        this._effectArt[icon] ||= effectArt(icon);
+        const c = document.createElement("canvas");
+        c.width = this._effectArt[icon].width;
+        c.height = this._effectArt[icon].height;
+        c.getContext("2d").drawImage(this._effectArt[icon], 0, 0);
+        const time = document.createElement("span");
+        el.append(c, time);
+        this.effectsEl.appendChild(el);
+        v = { el, time, shown: "" };
+        views.set(e.effect, v);
+      }
+      const text = `${effectLevelName(e.level)}${e.level > 1 ? " " : ""}${formatEffectTime(e.time)}`;
+      if (text !== v.shown) {
+        v.shown = text;
+        v.time.textContent = text;
+      }
+      v.el.classList.toggle("ending", e.time < 10);
+    }
+    this.effectsEl.classList.toggle("hidden", list.length === 0);
   }
 
   // The weapon in hand: rounds left and the reload / cooldown (st from

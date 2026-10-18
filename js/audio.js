@@ -347,6 +347,13 @@ export class Audio {
     this._hit({ type: "bandpass", f: 1400, q: 1.2, d: 0.05, v: 0.14, n: 3, spread: 0.022, jitter: 0.4 });
   }
 
+  // A gulp (a potion, milk): a low rising bubble and a soft splash.
+  playDrink() {
+    this._cat("ui");
+    this._tone(170, 0.1, { type: "sine", vol: 0.12, fEnd: 380, attack: 0.012 });
+    this._hit({ type: "lowpass", f: 600, q: 2, d: 0.05, v: 0.08 }, 0.03);
+  }
+
   // A tool breaking: a sharp snap and a few small bits.
   playToolBreak() {
     this._cat("player");

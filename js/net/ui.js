@@ -4,9 +4,9 @@
 // small status chip in the HUD.
 import { normalizeRoomCode, isRoomCode, cleanNick, netErrorText, NET_ERRORS, HOST_PID } from "./session.js";
 import { loadNick, saveNick, markAutoJoin, inviteUrl, showError, soloUrl } from "./boot-join.js";
+import { modeName, roomModes } from "./rules.js";
 
 const $ = (id) => document.getElementById(id);
-const MODE_NAMES = { survival: "Survival", creative: "Creative", dogfight: "Dogfight" };
 
 export class MpMenus {
   constructor(mp) {
@@ -30,9 +30,10 @@ export class MpMenus {
     for (const card of document.querySelectorAll("[data-mpmode]")) {
       card.addEventListener("click", () => {
         this.hostMode = card.dataset.mpmode;
-        for (const c of document.querySelectorAll("[data-mpmode]")) c.classList.toggle("active", c === card);
+        this._hostCards();
       });
     }
+    this._hostCards();
     $("mp-host-btn").addEventListener("click", () => this._host());
     $("mp-join-btn").addEventListener("click", () => this._join());
     $("mp-code").addEventListener("keydown", (e) => e.key === "Enter" && this._join());
@@ -79,11 +80,27 @@ export class MpMenus {
     });
     g.screens.onOpen["mp-lobby"] = () => this.refresh();
     g.screens.onOpen["mp-screen"] = () => {
+      this._hostCards();
       $("mp-screen-error").classList.add("hidden");
       $("mp-screen-status").textContent = "";
       $("mp-screen-status").classList.remove("busy");
       nickEl.value = nickEl.value || loadNick();
     };
+  }
+
+  // (Round 11) The Host tab's mode cards: the ones this world's type has
+  // (a Missions world: Missions, Creative, Dogfight; a Survival world:
+  // Survival, Creative), the picked one lit.
+  _hostCards() {
+    const modes = roomModes(this.game.worldType);
+    if (!modes.includes(this.hostMode)) this.hostMode = modes[0];
+    const wt = this.game.worldType;
+    for (const c of document.querySelectorAll("[data-mpmode]")) {
+      // (The world's own game has a card per type: Missions or Survival.)
+      const shown = modes.includes(c.dataset.mpmode) && (!c.dataset.wt || c.dataset.wt === wt);
+      c.classList.toggle("hidden", !shown);
+      c.classList.toggle("active", shown && c.dataset.mpmode === this.hostMode);
+    }
   }
 
   _tab(name) {
@@ -212,6 +229,13 @@ export class MpMenus {
     }
     const hostBox = $("mp-lobby-host");
     hostBox.classList.toggle("locked", !net.isHost);
+    // (The lobby offers the modes of this world's type only.)
+    const modes = roomModes(this.game.worldType);
+    for (const o of $("mp-lobby-mode").options) {
+      o.hidden = !modes.includes(o.value);
+      o.disabled = o.hidden;
+      o.textContent = modeName(o.value, this.game.worldType);
+    }
     $("mp-lobby-mode").value = mp.mode;
     $("mp-lobby-mode").disabled = !net.isHost;
     $("mp-lobby-deaths").disabled = !net.isHost;
@@ -224,7 +248,7 @@ export class MpMenus {
       ? ""
       : net.isHost
         ? `You are the host: your world, your rules. Only you can change the mode and the game settings. Friends join with the code ${net.code} (Multiplayer > Join), or with the invite link.`
-        : `Mode: ${MODE_NAMES[mp.mode] || mp.mode}. The host (${mp.playerName(HOST_PID)}) picks the mode and the game settings.`;
+        : `Mode: ${modeName(mp.mode, this.game.worldType)}. The host (${mp.playerName(HOST_PID)}) picks the mode and the game settings.`;
     $("mp-leave-btn").textContent = net.isHost ? "Close room" : "Leave game";
     $("mp-lobby-status").textContent = mp.active && !mp.stateLoaded ? "Receiving the world from the host..." : "";
   }
@@ -267,7 +291,7 @@ export class MpMenus {
     const host = net.players.get(HOST_PID);
     const lag = net.isClient ? Math.round((net.links.get(HOST_PID)?.rtt ?? 0) * 1000) : 0;
     const silent = net.isClient ? performance.now() / 1000 - (net.links.get(HOST_PID)?.lastHeard ?? 0) : 0;
-    const parts = [`${MODE_NAMES[mp.mode] || mp.mode} · Room ${net.code} · ${net.playerCount} player${net.playerCount === 1 ? "" : "s"}`];
+    const parts = [`${modeName(mp.mode, this.game.worldType)} · Room ${net.code} · ${net.playerCount} player${net.playerCount === 1 ? "" : "s"}`];
     if (net.isClient) parts.push(`${lag} ms`);
     let html = `<div class="mp-chip">${parts.join(" · ")}</div>`;
     const df = mp.dogfight?.hudLine();

@@ -2,10 +2,10 @@ import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
-import { UI, isMobileDevice } from "./ui.js";
+import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
-import { Sky } from "./sky.js";
+import { Sky, DAY_LENGTH, dayLength } from "./sky.js";
 import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, lastEditsBytes } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
@@ -14,19 +14,32 @@ import { normalizeSettings, DEFAULT_SETTINGS, SCHEMA, SettingsPanel, AUDIO_CATEG
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
-import { Inventory, HOTBAR_SIZE, makeStack } from "./inventory.js";
-import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS } from "./items.js";
+import { Inventory, HOTBAR_SIZE, makeStack, encodeStack } from "./inventory.js";
+import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS, canHarvest } from "./items.js";
 const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
 import { InventoryScreen } from "./inventory-ui.js";
+import { Furnaces } from "./furnace.js";
+import { BrewingStands, PotionThrows } from "./brewing.js";
+import { BrewingSync } from "./net/brewing.js";
+import { armorLevel, thornsDamage, isEnchanted } from "./enchant.js";
 import { ItemEntities } from "./entities.js";
 import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
-import { MobManager } from "./mobs.js";
+import { MobManager, specOf } from "./mobs.js";
+import { TradeScreen } from "./trading.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
+import { Signs, SignSync } from "./signs.js";
+import { DecorSim } from "./decor-sim.js";
 import { WaterSim } from "./watersim.js";
+import { NatureSim } from "./nature-sim.js";
+import { Weather } from "./weather.js";
+import { WeatherFx } from "./weather-fx.js";
+import { WeatherSync } from "./net/weather.js";
+import { Spawners } from "./structures.js";
+import { RedstoneSim } from "./redstone-sim.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
 import { LaserBolts, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
@@ -35,7 +48,7 @@ import { LodSystem } from "./lod.js";
 import { DistantStructures } from "./distant.js";
 import { GrassField } from "./grass.js";
 import { UnderwaterMotes } from "./motes.js";
-import { MenuScreens, MenuFlyover, MenuPerf, renderControls } from "./menu.js";
+import { MenuScreens, MenuFlyover, MenuPerf, renderControls, MENU_TIPS, SURVIVAL_TIPS } from "./menu.js";
 import { MouseChord, Binoculars } from "./binoculars.js";
 import { Mods } from "./mods.js";
 import { VehicleManager } from "./vehicles.js";
@@ -54,11 +67,18 @@ import { createJetModel } from "./jet-model.js";
 import { createB2Model } from "./b2-model.js";
 import { TractorBeam } from "./tractor-beam.js";
 import { Stats, formatPlayTime } from "./stats.js";
-import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause, baseCause } from "./damage.js";
+import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause, baseCause, BYPASSES_ARMOR } from "./damage.js";
 import { FullscreenControl } from "./fullscreen.js";
 import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
+import { roomMode, playerModeOf } from "./net/rules.js";
+import { setWorldType, worldType, isVanilla, normalizeWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
+import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
+import { Sleep } from "./sleep.js";
+import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
+import { LIB } from "./content/base.js";
+import { shieldRaised, shieldInOffhand } from "./content/items-vanilla.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -104,6 +124,25 @@ const JOIN_PARAM = new URLSearchParams(window.location.search).get("join");
 const joinWelcome = JOIN_PARAM !== null ? await bootJoin(net, normalizeRoomCode(JOIN_PARAM)) : null;
 const GUEST = !!joinWelcome;
 const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
+
+// ---------- World type ----------
+// (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
+// known before the world is built (a Survival world's terrain has no
+// airports or cities): the save's (an old save without one is Missions),
+// else what "New world" picked for this seed (?type= in its link, or the
+// last-world record), else Missions. A guest plays the host's.
+// (A saved player: position, inventory, ...; a guest's session reads none.)
+const savedPlayer = GUEST ? null : loadPlayer(SEED);
+function newWorldPick() {
+  const params = new URLSearchParams(window.location.search);
+  const last = loadJSON("last");
+  const lastHere = last && last.seed === SEED ? last : null;
+  const type = params.get("type") ?? lastHere?.type;
+  const mode = params.get("mode") ?? lastHere?.mode;
+  return { type: normalizeWorldType(type), mode: mode === "creative" ? "creative" : "survival" };
+}
+const NEW_PICK = savedPlayer || GUEST ? null : newWorldPick();
+setWorldType(GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : NEW_PICK.type);
 
 // ---------- Renderer / scene / camera ----------
 const canvas = document.getElementById("game-canvas");
@@ -261,8 +300,13 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- World ----------
-const world = new World(scene, SEED);
+// (sites: false: no airports or cities in a Survival world's terrain; the
+// generators in the workers and the LOD get the same options from the world.)
+const world = new World(scene, SEED, { sites: !isVanilla(), vanilla: isVanilla() });
 if (!GUEST) world.loadEdits(loadEdits(SEED));
+// (Round 11) Concrete powder against water, and the colours of blocks that
+// share a tile (js/decor-sim.js: before the LOD system reads them).
+const decorSim = new DecorSim(world);
 // (Perf) Terrain generation off the main thread, in a worker or two (the
 // streaming's heaviest part; world.js). ?genWorkers=0 keeps it on the main thread.
 {
@@ -302,8 +346,6 @@ const encodedEditCache = new Map();
 
 const [spawnX, spawnZ] = world.terrain.spawnColumn();
 
-// A saved player (position, inventory, ...) for this world, if any.
-const savedPlayer = GUEST ? null : loadPlayer(SEED);
 const savedPos = Array.isArray(savedPlayer?.pos) && savedPlayer.pos.length === 3 && savedPlayer.pos.every(Number.isFinite) ? savedPlayer.pos : null;
 const startX = savedPos ? savedPos[0] : spawnX + 0.5;
 const startZ = savedPos ? savedPos[2] : spawnZ + 0.5;
@@ -359,8 +401,57 @@ interaction.onCut = (x, y, z, n) => {
 const mobs = new MobManager({ scene, world, player, entities, audio, effects, sky });
 // The player's own body, drawn in the third-person camera modes (F5).
 const avatar = new PlayerAvatar(scene, world.atlas);
+// (Round 11) Survival worlds: experience orbs (local to whoever caused them,
+// online too: js/xp.js) and beds (the spawn point and skipping the night:
+// js/sleep.js). Other code gives XP through LIB.giveXp and the building
+// part's bed calls LIB.onBedUse.
+const xp = new XpOrbs({ scene, world, player, audio });
+xp.enabled = isVanilla();
+const sleep = new Sleep({
+  player,
+  sky,
+  world,
+  mobs,
+  toast: (t, s) => toast(t, s),
+  players: () => (mpLate?.active ? mpLate.players.active() : []),
+  online: () => !!mpLate?.active,
+  isHost: () => !!mpLate?.isHost,
+  inGame: () => gameState !== "start", // (a host on the main menu isn't one of the sleepers)
+  // (The host's clock jumped: everyone gets it now, not at the next 2 s update.)
+  sendTime: () => net.broadcast({ t: "time", time: sky.time, scale: sky.timeScale ?? 1, locked: !!sky.locked, ts: net.time }),
+  onSpawnSet: () => (playerDirty = true),
+  onSkip: () => {
+    playerDirty = true;
+    weather.clearAfterSleep(); // (Round 11: a night slept through ends the rain)
+  },
+  thundering: () => weather.isThundering, // (a bed works in a thunderstorm)
+});
+LIB.onBedUse = (ctx) => sleep.useBed(ctx);
+// XP points at (x, y, z) (default: the player): a whole number of them, a
+// fraction being the chance of one more (smelting's 0.7 an ingot).
+LIB.giveXp = (amount, x, y, z) => {
+  if (!isVanilla() || player.dead) return;
+  const p = player.position;
+  xp.spawn(Number.isFinite(x) ? x : p.x, Number.isFinite(y) ? y : p.y + 1, Number.isFinite(z) ? z : p.z, wholeXp(amount));
+};
 const falling = new FallingBlocks(scene, world);
 const waterSim = new WaterSim(world);
+world.waterSim = waterSim; // (a bucket tells flowing water from a source: js/content/items-vanilla.js)
+// (Round 11) Flowing lava and fire (js/nature-sim.js): lava runs for this
+// player's own edits, like the water; fire is the host's (enabled below,
+// once the multiplayer exists).
+const natureSim = new NatureSim(world);
+// (Round 11) A Survival world's weather (js/weather.js; drawn and heard
+// through js/weather-fx.js; the host's online: js/net/weather.js), and the
+// monster spawners of its dungeons and mineshafts (js/structures.js).
+const weather = new Weather({ world, player, mobs, dayLength: dayLength(), difficulty: () => difficulty() });
+const weatherFx = new WeatherFx({ scene, weather, audio, sky });
+weather.onStrike = (x, y, z) => weatherFx.strike(x, y, z);
+natureSim.fire.rainingAt = (x, y, z) => weather.nearRain(x, y, z);
+const spawners = new Spawners({ world, mobs, effects });
+// (Round 11) Redstone and TNT (js/redstone-sim.js): the host's, like the fire
+// (enabled below, once the multiplayer exists); every player draws primed TNT.
+const redstone = new RedstoneSim({ scene, world, effects, audio, entities, mobs, player, players: () => (mpLate?.active ? mpLate.players.active() : []) });
 const decals = new BulletHoles(scene, world);
 // Laser bolts (the blaster; later UFOs and aliens), with scorch marks.
 const scorches = new BulletHoles(scene, world, { kind: "scorch" });
@@ -587,17 +678,70 @@ weapons.getLockables = () => {
 // with a full diamond set) and wears out as it takes hits. It does nothing
 // against the environment (falls, drowning, the void, starving) or crashes
 // and the nuke.
-const ARMOR_PASS = new Set(["fall", "drown", "void", "starve", "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
-player.damageFilter = (amount, cause) => {
-  if (player.creative || ARMOR_PASS.has(cause)) return amount;
+// (Round 11: vanilla's own, damage.js BYPASSES_ARMOR: burning, suffocation, poison...)
+const ARMOR_PASS = new Set([...BYPASSES_ARMOR, "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
+// (Round 11) Then the Protection enchantments (survival.js protectedDamage:
+// Protection, Fire, Blast, Projectile Protection, Feather Falling on falls,
+// also against what armor points don't stop), and Thorns strikes back.
+let hitFrom = null; // (the last filtered hit's source point)
+player.damageFilter = (amount, cause, from) => {
+  if (player.creative) return amount;
+  hitFrom = from; // (for Thorns, in armorWear: only a hit that lands strikes back)
+  if (ARMOR_PASS.has(cause)) return protectedDamage(amount, cause, inventory.armor);
+  if (shieldBlocks(amount, from)) return 0;
   const red = inventory.armorReduction();
-  if (red <= 0) return amount;
-  return Math.max(1, Math.round(amount * (1 - red)));
+  return protectedDamage(red <= 0 ? amount : Math.max(1, Math.round(amount * (1 - red))), cause, inventory.armor);
 };
+// Thorns on the armor worn: a creature's blow (from: where it stands) may
+// cost it 1-4 damage; the piece wears 2 more.
+const THORNS_CAUSES = new Set(["zombie", "skeleton_melee", "spider", "enderman", "slime", "iron_golem", "wolf", "husk", "drowned", "cave_spider", "zombie_villager"]);
+function thorns(cause, from) {
+  if (!from || !THORNS_CAUSES.has(cause) || !armorLevel(inventory.armor, "thorns")) return;
+  const dmg = thornsDamage(inventory.armor, Math.random, (i, n) => {
+    const s = inventory.armor[i];
+    if (s?.dur === undefined) return;
+    s.dur -= n;
+    if (s.dur <= 0) inventory.armor[i] = null;
+  });
+  markInventoryChanged();
+  if (!dmg) return;
+  let best = null;
+  let bestD = 2.5;
+  for (const m of mobs.mobs) {
+    if (m.dead) continue;
+    const d = Math.hypot(m.pos.x - from.x, m.pos.z - from.z);
+    if (d < bestD) {
+      bestD = d;
+      best = m;
+    }
+  }
+  if (!best) return;
+  best.invulnerable = 0;
+  mobs._hurt(best, dmg, null, 0, true);
+}
+// (Round 11) A raised shield (js/content/items-vanilla.js) turns away a hit
+// from in front (vanilla: the half the player faces): a blow, an arrow, a
+// shot; not a witch's potion or the world's hurts (they come from nowhere).
+// It wears by 1 + the damage for a hit of 3 or more, as vanilla's.
+function shieldBlocks(amount, from) {
+  if (!from || !shieldRaised(player, inventory)) return false;
+  const f = player.getForwardVector();
+  if ((from.x - player.position.x) * f.x + (from.z - player.position.z) * f.z <= 0) return false;
+  audio.playBreak?.("wood");
+  player.shieldBlockedAt = performance.now() / 1000; // (js/mobs.js: the attacker is pushed back)
+  const wear = 1 + Math.floor(amount);
+  if (amount >= 3 && (shieldInOffhand(inventory) ? inventory.damageOffhand(wear) : inventory.damageSelected(wear))) audio.playToolBreak();
+  markInventoryChanged();
+  return true;
+}
 // (Worn only by the hits that land: Player.damage calls this after the hurt
 // grace time has let the hit through.)
 player.armorWear = (amount, cause) => {
-  if (player.creative || ARMOR_PASS.has(cause) || inventory.armorReduction() <= 0) return;
+  if (player.creative) return;
+  const from = hitFrom;
+  hitFrom = null;
+  thorns(cause, from); // (as vanilla's: only for the hits that land)
+  if (ARMOR_PASS.has(cause) || inventory.armorReduction() <= 0) return;
   const broken = inventory.damageArmor(Math.max(1, Math.floor(amount / 4)));
   if (broken.length) {
     for (const n of broken) toast(`Your ${n} broke!`, 2.5);
@@ -807,6 +951,9 @@ function dropArmor(who, at) {
 // kill, counted for the shared missions by the host).
 function mobKilled(m, { mine = true } = {}) {
   const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
+  // (Round 11) A Survival world: the killer's XP orbs (online, a guest's kill
+  // reaches here on the guest's own machine, as m: its kind and place).
+  if (mine && isVanilla() && m.pos) xp.spawn(m.pos.x, m.pos.y + 0.5, m.pos.z, killXp(m, m.spec && "hostile" in m.spec ? null : specOf(m.kind)));
   if (m.spec.alien) add("aliensKilled");
   else if (m.kind === "guard") add("guardsKilled");
   else if (m.kind === "zombie") add("zombiesKilled");
@@ -815,6 +962,7 @@ function mobKilled(m, { mine = true } = {}) {
 }
 // What a killed creature leaves for a player: the loot kind and detail.
 function mobLootKind(m) {
+  if (isVanilla()) return null; // (Round 11) a Survival world's creatures drop their own vanilla things (mobs.js), not the missions' loot
   if (m.spec.alien) return ["alien", alienColour(m.kind)];
   if (m.kind === "guard" || m.kind === "zombie") return [m.kind, null];
   // Skeletons drop their bow (if you don't have one yet): a plain
@@ -997,7 +1145,7 @@ function removePlayerJets() {
 // in that nobody sits in goes. Online the aircraft is shared like any other
 // player's (net/vehicles.js), for the host and guests alike.
 function callIn(kind) {
-  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight") return false;
+  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight" || isVanilla()) return false;
   if (!mods.enabled) {
     toast("Switch mods on first (Settings > Mods).", 3);
     return false;
@@ -1027,9 +1175,10 @@ function callIn(kind) {
   toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3);
   return true;
 }
-// The call-ins show in the pause menu in Creative only.
+// The call-ins show in the pause menu in Creative only (and never in a
+// Survival world: no aircraft there).
 function refreshCallIns() {
-  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight");
+  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight" || isVanilla());
 }
 for (const b of document.querySelectorAll("#pause-callins [data-callin]")) {
   b.addEventListener("click", () => {
@@ -1089,6 +1238,23 @@ vehicles.onPilotHurt = () => {
 };
 interaction.weapons = weapons;
 interaction.combat = mobs;
+// (Round 11) Using creatures with what's in hand (shears, a bucket, food,
+// bones, a villager's trades: mobs.js useMob), and the trade screen beside
+// the inventory (js/trading.js; it closes with the inventory screen).
+mobs.inventory = inventory;
+interaction.onUseMob = (mob, stack) => mobs.useMob(mob, stack);
+const trading = new TradeScreen({ icons, inventory, audio, mobs, player });
+trading.onChange = () => markInventoryChanged();
+trading.onDrop = (stack) => interaction.throwStack(stack);
+trading.onCloseRequest = () => closeInventory();
+mobs.onTrade = (session) => {
+  if (gameState !== "playing") return false;
+  trading.open(session);
+  openInventory("inventory");
+  if (gameState === "inventory") return true;
+  trading.close();
+  return false;
+};
 
 // A brand new game (mods on) starts with its loadout: Survival basic gear
 // (everything else is loot), Creative every weapon, filling the hotbar
@@ -1096,9 +1262,10 @@ interaction.combat = mobs;
 // mods off gets it (in free slots) the first time it's played with mods on.
 // (Round 9: that is the only time anything is given. Switching between
 // Creative and Survival never touches the inventory: see setMode.)
+// (Round 11: a Survival world starts empty-handed, like vanilla.)
 let loadoutGiven = false;
 function fillStartingWeapons(fresh) {
-  if (loadoutGiven || !mods.enabled) return;
+  if (loadoutGiven || !mods.enabled || isVanilla()) return;
   loadoutGiven = true;
   (player.creative ? CREATIVE_LOADOUT : SURVIVAL_LOADOUT).forEach((entry, i) => {
     const [id, n] = Array.isArray(entry) ? entry : [entry, 1];
@@ -1131,14 +1298,29 @@ if (savedPlayer) {
   inventory.load(savedPlayer.inv);
   inventory.loadArmor(savedPlayer.armor);
   if (Number.isInteger(savedPlayer.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, savedPlayer.sel));
-  if (Number.isFinite(savedPlayer.time)) sky.time = savedPlayer.time;
+  // (A save from another day length, e.g. a Survival world's from a 600 s day, keeps its hour.)
+  if (Number.isFinite(savedPlayer.time)) {
+    const old = Number(savedPlayer.dayLen) || DAY_LENGTH;
+    sky.time = ((savedPlayer.time * dayLength()) / old) % dayLength();
+  }
   // Worlds from before the loadout flag existed already had their weapons.
   // (An older save's "survivalStash", the inventory set aside in Creative,
   // is no longer used: the inventory a save has is the one it keeps.)
   loadoutGiven = savedPlayer.loadout !== false;
+  // (Round 11) A Survival world's hunger, effects, XP and bed (an older save: full and none).
+  if (isVanilla()) {
+    player.loadSurvival(savedPlayer.surv);
+    sleep.load(savedPlayer.bed);
+    weather.load(savedPlayer.weather);
+  }
   nuke.loadZones(savedPlayer.blastZones);
   waterSim.loadMeta(savedPlayer.water);
 } else {
+  // (A new world made from the Creative choice starts in Creative.)
+  if (NEW_PICK?.mode === "creative") player.setMode("creative");
+  // (A new Survival world starts at vanilla's tick 0, 6:00: a whole day to punch
+  // trees and build a shelter; a Missions world keeps its 17:50 golden hour.)
+  if (isVanilla()) sky.setHours(6);
   player.spawnAt(spawnX, spawnZ);
 }
 let newWorld = !savedPlayer;
@@ -1148,7 +1330,9 @@ mods.onChange((on) => {
   vehicles.setEnabled(on);
   if (!on) mobs.removeKind("alien");
 });
-mods.set(settings.mods, { initial: true });
+// (A Survival world: Mods off for that world, whatever the setting, which is
+// left as it is for the Missions worlds.)
+mods.set(settings.mods && !isVanilla(), { initial: true });
 stats.loadWorld(savedPlayer?.stats);
 
 // ---------- Missions, loot, supply crates ----------
@@ -1172,12 +1356,56 @@ const chests = interaction.chests;
 chests.getTier = progressTier;
 chests.getOwned = ownedItems;
 chests.load(savedPlayer?.chests);
+mobs.loadKept(savedPlayer?.mobs);
 invScreen.chests = chests;
 invScreen.onCloseRequest = () => closeInventory();
 interaction.onOpenChest = (x, y, z) => {
   invScreen.chestPos = [x, y, z];
   openInventory("chest");
 };
+// (Round 11) Furnaces (js/furnace.js): they smelt while their ground is
+// loaded, saved with the world like the chests. The crafting table's and the
+// furnace's screens open from their blocks (js/content/containers.js).
+const furnaces = new Furnaces({ world });
+furnaces.onDrop = chests.onDrop;
+furnaces.load(savedPlayer?.furnaces);
+invScreen.furnaces = furnaces;
+invScreen.world = world;
+interaction.onOpenScreen = (kind, x, y, z) => {
+  invScreen.screenPos = [x, y, z];
+  openInventory(kind);
+};
+// (Round 11) Brewing stands (js/brewing.js: saved with the world like the
+// furnaces) and thrown bottles: splash potions, the bottle o' enchanting.
+// The enchanting table and the anvil spend the player's levels.
+const brewing = new BrewingStands({ world });
+brewing.onDrop = chests.onDrop;
+brewing.onBrewed = () => audio.playSplash?.();
+brewing.load(savedPlayer?.brewing);
+invScreen.brewing = brewing;
+invScreen.player = player;
+invScreen.onEnchanted = () => markInventoryChanged();
+const potionThrows = new PotionThrows({ scene, world, player, effects, audio, mobs });
+// (Round 11) Signs (js/signs.js): their text, saved with the world like the
+// chests. Placing one, or a right click on one, opens its editor, which
+// takes the controls as the inventory screen does.
+const signs = new Signs({ scene, world });
+signs.load(savedPlayer?.signs);
+signs.onOpen = () => {
+  if (gameState !== "playing" || mp.dogfight?.watching) return false;
+  chord.reset();
+  interaction.release();
+  vehicles.releaseAll();
+  gameState = "inventory";
+  document.exitPointerLock();
+  return true;
+};
+signs.onClose = () => {
+  if (gameState !== "inventory") return;
+  gameState = "paused";
+  requestLock();
+};
+signs.inGame = () => gameState === "inventory";
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
 function dropLoot(list, at) {
   for (const [id, n] of list) {
@@ -1233,7 +1461,8 @@ const testFlags = { noMissions: false };
 let survivalPaused = false;
 let progressOffAt = null; // (the mission stats when the chain went off)
 function refreshSurvivalSystems() {
-  const on = mods.enabled && !player.creative && !survivalPaused;
+  // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
+  const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla();
   settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   const wasOn = progress.enabled;
@@ -1307,7 +1536,18 @@ function giveMissionReward(m) {
 
 // ---------- Mods screen ----------
 const modsCheckbox = document.getElementById("mods-enabled");
-modsCheckbox.checked = settings.mods;
+modsCheckbox.checked = settings.mods && !isVanilla();
+// (Round 11) A Survival world is vanilla: the switch shows off and locked,
+// with a note; the setting itself stays the player's, for Missions worlds.
+if (isVanilla()) {
+  modsCheckbox.disabled = true;
+  const note = document.getElementById("mods-world-note");
+  if (note) {
+    note.textContent = `This is a Survival world (normal Minecraft): Mods are off here. Your Mods setting (${settings.mods ? "on" : "off"}) is kept for your Missions worlds.`;
+    note.classList.remove("hidden");
+  }
+  document.getElementById("mods-tools")?.classList.add("hidden");
+}
 function refreshModsPills() {
   for (const id of ["settings-mods-state"]) {
     const el = document.getElementById(id);
@@ -1330,6 +1570,8 @@ function setModsEnabled(on, persist = true) {
     settings.mods = on;
     persistSettings();
   }
+  // (A Survival world: the setting is saved, the world stays without Mods.)
+  if (isVanilla()) on = false;
   modsCheckbox.checked = on;
   if (!on) stashCursorMod();
   mods.set(on);
@@ -1360,7 +1602,8 @@ for (const design of UFO_DESIGNS) {
 }
 function creativeToolCheck() {
   const note = document.getElementById("mods-tools-note");
-  if (!mods.enabled) note.textContent = "Switch mods on first.";
+  if (isVanilla()) note.textContent = "Not in a Survival world: no UFOs there.";
+  else if (!mods.enabled) note.textContent = "Switch mods on first.";
   else if (gameState === "start") note.textContent = "Start playing first: these place things in front of you.";
   else if (!player.creative) note.textContent = "Only in Creative mode (switch it in the pause menu).";
   else return true;
@@ -1392,10 +1635,13 @@ for (const [id, kind, dist, up] of [["summon-ufo", "roam", 60, 30], ["summon-ufo
     requestLock();
   });
 }
+ui.setWorldType(worldType());
 ui.setModeShown(player.mode);
 ui.showStartMenu(SEED);
 ui.setPlayLabel(savedPlayer ? "Continue" : "Play");
-document.getElementById("world-state").textContent = savedPlayer ? `(saved ${savedPlayer.mode === "creative" ? "creative" : "survival"} world)` : "(new world)";
+document.getElementById("world-state").textContent = `(${savedPlayer ? "saved" : "new"} ${worldLabel(worldType(), player.mode)})`;
+// (Round 11) No missions in a Survival world: no Missions button in its pause menu.
+document.getElementById("pause-missions-btn").classList.toggle("hidden", isVanilla());
 if (GUEST) {
   // A guest's main menu: into the host's game (the host picks the mode; no new worlds from here).
   ui.setPlayLabel("Join the game");
@@ -1444,6 +1690,7 @@ const menuPerf = new MenuPerf({
   recTextEl: document.getElementById("fps-recommend-text"),
   recBtn: document.getElementById("fps-recommend-apply"),
   tipEl: document.getElementById("menu-tip"),
+  tips: isVanilla() ? SURVIVAL_TIPS : MENU_TIPS,
   onApply: (preset) => {
     if (!PRESET_ORDER.includes(preset)) {
       document.getElementById("fps-recommend").classList.add("hidden");
@@ -1460,10 +1707,11 @@ held.setItem(inventory.selectedStack?.id ?? 0, true);
 // e.g. the tab closed, would lose it).
 function serializeInvWithCursor() {
   const inv = inventory.serialize();
-  const c = invScreen.isOpen ? invScreen.cursor : null;
-  if (c) {
+  // (Round 11: and what is in a crafting grid.)
+  for (const c of invScreen.heldStacks()) {
     const i = inv.indexOf(0);
-    if (i >= 0) inv[i] = c.dur !== undefined ? [c.id, c.count, c.dur] : [c.id, c.count];
+    if (i < 0) break;
+    inv[i] = encodeStack(c); // (Round 11: with its tag)
   }
   return inv;
 }
@@ -1474,6 +1722,7 @@ function playerState() {
   // (Watching a Dogfight: Creative only for the flight; the things kept aside are the player's.)
   const kept = mp.dogfight?.keptInventory;
   return {
+    worldType: worldType(),
     mode: kept ? "survival" : player.mode,
     pos: p ? [round3(p.x), round3(p.y), round3(p.z)] : null,
     yaw: round3(player.yaw),
@@ -1481,14 +1730,23 @@ function playerState() {
     health: player.dead ? MAX_HEALTH : player.health,
     air: player.dead ? MAX_AIR : round3(player.air),
     absorb: player.dead ? 0 : player.absorption,
+    // (Round 11) A Survival world: food, effects, XP (a dead player: as respawned) and the bed.
+    surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined,
+    bed: isVanilla() ? sleep.serialize() : undefined,
+    weather: isVanilla() ? weather.serialize() : undefined, // (Round 11) the rain and thunder's cycle
     inv: kept ? kept.slots : serializeInvWithCursor(),
     armor: kept ? kept.armor : inventory.serializeArmor(),
     sel: kept ? kept.sel : inventory.selected,
     time: round3(sky.time),
+    dayLen: dayLength(), // (the day the time is on: a Survival world's is vanilla's 1200 s)
     modStash: mods.serialize(),
     loadout: loadoutGiven,
     missions: progress.serialize(),
     chests: chests.serialize(),
+    furnaces: furnaces.serialize(),
+    brewing: brewing.serialize(), // (Round 11)
+    signs: signs.serialize(),
+    mobs: mobs.serializeKept(), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
@@ -1506,7 +1764,8 @@ let waterMetaVersion;
 function savedWaterMeta() {
   const ver = waterSim.metaVersion;
   if (!waterMetaList || ver === undefined || ver !== waterMetaVersion) {
-    waterMetaList = waterSim.serializeMeta(3000);
+    // (A Survival world's flows reach 7 blocks, about three times the cells: a bigger cap.)
+    waterMetaList = waterSim.serializeMeta(isVanilla() ? 12000 : 3000);
     waterMetaVersion = ver;
   }
   return waterMetaList;
@@ -1586,16 +1845,26 @@ function markInventoryChanged() {
 
 interaction.onChange = markInventoryChanged;
 interaction.onMessage = (t) => toast(t, 2.5);
+// (Round 11) A block the player broke: mining's bit of hunger and, in a
+// Survival world, an ore's XP (its def's `xp`; only when the tool harvests
+// it, as vanilla). An attack that lands costs a little hunger too.
+interaction.onBlockBroken = (x, y, z, id, tool, silk) => {
+  player.addExhaustion(0.005);
+  const spec = oreXp(id);
+  // (Round 11: an ore taken whole with Silk Touch gives no experience, as vanilla.)
+  if (spec != null && isVanilla() && !silk && canHarvest(id, tool)) xp.spawn(x + 0.5, y + 0.5, z + 0.5, rollXp(spec));
+};
+interaction.onAttack = () => player.addExhaustion(0.1);
 weapons.onChange = markInventoryChanged;
 weapons.onMessage = (t) => toast(t, 1.6);
 invScreen.onChange = markInventoryChanged;
 invScreen.onDrop = (stack) => interaction.throwStack(stack);
-world.onBlockPopped = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
+world.onBlockPopped = (x, y, z, id, natural) => interaction.blockPopped(x, y, z, id, natural);
 falling.onBreak = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
 
 entities.onPickup = (item) => {
   if (player.dead) return item.count;
-  const left = inventory.add(item.id, item.count, item.dur);
+  const left = inventory.add(item.id, item.count, item.dur, item.tag);
   if (left < item.count) {
     audio.playPickup();
     markInventoryChanged();
@@ -1664,14 +1933,19 @@ function dropEverything() {
   at.y += 0.8;
   // (Online they land in everyone's world: a friend can bring them back.)
   mp.items.share(() => {
-    for (const s of [...inventory.slots, ...inventory.armor]) {
+    for (const s of [...inventory.slots, ...inventory.armor, inventory.offhand]) {
       if (!s) continue;
       const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
-      entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
+      entities.spawn(s.id, s.count, at, vel, { dur: s.dur, tag: s.tag, pickupDelay: 2 });
     }
   });
   inventory.clear();
   markInventoryChanged();
+  // (Round 11) A Survival world: 7 XP a level (at most 100) as orbs, the rest lost.
+  if (isVanilla()) {
+    xp.spawn(at.x, at.y, at.z, deathXp(player));
+    resetXp(player);
+  }
 }
 
 // The column nearest the world spawn with open air (not water) above solid
@@ -1712,9 +1986,21 @@ function respawn(at = null) {
   }
   hud.hideDeath();
   const spot = Array.isArray(at) ? at : missionRespawnSpot();
-  world.prepareArea(spot ? spot[0] : spawnX + 0.5, spot ? spot[1] : spawnZ + 0.5, INITIAL_SYNC_RADIUS);
+  // (Round 11) A Survival world: at the bed, if it is still there with room to stand.
+  let bedSpot = null;
+  if (!spot && sleep.spawn) {
+    world.prepareArea(sleep.spawn[0] + 0.5, sleep.spawn[2] + 0.5, INITIAL_SYNC_RADIUS);
+    bedSpot = sleep.respawnSpot();
+    if (bedSpot === false) toast("Your home bed was missing or obstructed", 4);
+  }
+  if (!bedSpot) world.prepareArea(spot ? spot[0] : spawnX + 0.5, spot ? spot[1] : spawnZ + 0.5, INITIAL_SYNC_RADIUS);
   player.revive();
-  if (spot) player.spawnAt(Math.floor(spot[0]), Math.floor(spot[1]));
+  if (bedSpot) {
+    player.position.copy(bedSpot);
+    player.velocity.set(0, 0, 0);
+    player.knockback.set(0, 0, 0);
+    player.resetFall();
+  } else if (spot) player.spawnAt(Math.floor(spot[0]), Math.floor(spot[1]));
   else player.spawnAt(...safeSpawnColumn());
   player.yaw = 0;
   player.pitch = 0;
@@ -1754,7 +2040,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   // host's creatures and UFOs too, as nobody's kill: the guest's copies of
   // them make no claim for it.)
   const worldBlastHere = !info.mirror || (!byPlayer && net.isHost && mp.active);
-  if (worldBlastHere) mobs.explosion(center, radius, byPlayer);
+  if (worldBlastHere) mobs.explosion(center, radius, byPlayer, source);
   // The blast takes the plants with it (the burnt ring too), so none are left floating over the crater.
   if (grass.density > 0 && center.distanceTo(player.position) < 90) grass.clear(center.x, center.z, Math.min(radius + 2.5, 30));
   if (worldBlastHere) ufos.explosion(center, radius, byPlayer);
@@ -1780,6 +2066,9 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   if (vehicles.active) vehicles.explosionOn(vehicles.active, center, radius, byPlayer ? (other ? "explosion_other" : "explosion") : source);
   hurtByBlast(center, radius, source);
 };
+// (A Survival world's creeper and TNT hurt as vanilla's, by their power;
+// the mod weapons keep the grenade curve below.)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4 };
 // What a blast does to this player on foot: damage close in, and a shove.
 function hurtByBlast(center, radius, source) {
   // (Seated, the blast already hit the vehicle: Player.damage would hand it
@@ -1791,7 +2080,23 @@ function hurtByBlast(center, radius, source) {
   offset.sub(center);
   const dist = offset.length();
   const hurtReach = radius * 1.8;
-  if (dist < hurtReach && !player.dead) {
+  const power = isVanilla() ? VANILLA_BLAST_POWER[source] : 0;
+  if (power) {
+    // vanilla: from the blast to the feet, reach 2 x power (exposure taken as 1)
+    const q = 1 - player.position.distanceTo(center) / (2 * power);
+    if (q > 0 && !player.dead) {
+      let dmg = Math.floor(((q * q + q) / 2) * 7 * 2 * power + 1);
+      // (TNT isn't a mob's cause, so its difficulty is applied here; a creeper's is in Player.damage)
+      if (source === "tnt") {
+        const s = player.mobDamageScale;
+        dmg = s <= 0 ? 0 : Math.max(1, Math.round(dmg * s));
+      }
+      if (dmg > 0 && player.damage(dmg, source, { from: center })) {
+        lastBlastHitTime = performance.now();
+        lastBlastSource = source;
+      }
+    }
+  } else if (dist < hurtReach && !player.dead) {
     const dmg = Math.floor(30 * size * Math.pow(1 - dist / hurtReach, 1.3));
     if (dmg > 0 && player.damage(dmg, source, { from: center })) {
       lastBlastHitTime = performance.now();
@@ -1876,6 +2181,7 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, 
   activePreset = preset;
   lod.configure({ detailDistance: settings.perf.detailDistance > 0 ? settings.perf.detailDistance : preset.detailDistance });
   grass.configure({ level: preset.grass });
+  weatherFx.setQuality(graphicsPreset); // (no rain or snow drawn on Low)
   world.setMeshOptions({ fancyLeaves: preset.fancyLeaves });
   // A preset suggests a render distance; it is adopted only while the player
   // hasn't set one of their own (see PROGRESS.md, "Settings persistence").
@@ -2096,6 +2402,7 @@ let hostDifficulty = null;
 const difficulty = () => hostDifficulty ?? settings.difficulty;
 function applyDifficulty() {
   player.mobDamageScale = DIFFICULTY_DAMAGE[difficulty()] ?? 1;
+  player.difficulty = difficulty(); // (Round 11: starving's floor, Peaceful's full food)
   mobs.spawning = settingsPanel.effective("mobSpawning");
   mobs.hostileSpawning = difficulty() !== "peaceful";
   if (difficulty() === "peaceful") mobs.removeHostiles();
@@ -2301,17 +2608,75 @@ let entered = false; // enterGame has run (respawn checks it)
 function enterGame() {
   entered = true;
   // Online the room decides the mode (Dogfight plays by Survival's rules, in a jet).
-  setMode(mp.active ? (mp.mode === "creative" ? "creative" : "survival") : ui.modeSelect.value);
+  setMode(mp.active ? playerModeOf(mp.mode) : ui.modeSelect.value);
   fillStartingWeapons(newWorld);
   markInventoryChanged();
-  if (!GUEST) saveJSON("last", { seed: SEED });
+  if (!GUEST) {
+    saveJSON("last", { seed: SEED, type: worldType() });
+    rememberWorld();
+  }
 }
 
 ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
+  // (Round 11: the other type's card was picked: into that world instead.)
+  if (worldPick) {
+    openWorld(worldPick.seed, worldPick.type);
+    return;
+  }
   enterGame();
   requestLock();
 });
+
+// ---------- World types on the main menu (Round 11) ----------
+// The last world of each type played ("worlds": { missions, survival } seeds):
+// the card of the other type opens it again, or makes a new one.
+let worldPick = null; // { type, seed (null: a new world) }: the other type's card
+function rememberWorld() {
+  if (GUEST) return;
+  const rec = loadJSON("worlds") || {};
+  if (rec[worldType()] === SEED) return;
+  rec[worldType()] = SEED;
+  saveJSON("worlds", rec);
+}
+function rememberedWorld(type) {
+  const seed = loadJSON("worlds")?.[type];
+  if (!Number.isInteger(seed) || seed < 0 || seed === SEED || !hasSavedWorld(seed)) return null;
+  return normalizeWorldType(loadPlayer(seed)?.worldType) === type ? seed : null;
+}
+if (savedPlayer) rememberWorld(); // (a world from before Round 11 is remembered as it is opened)
+function pickWorld(type) {
+  // (Online the room plays this world.)
+  if (type && mp.active) {
+    toast("The room plays this world: close the room first (Multiplayer).", 3);
+    return;
+  }
+  worldPick = type ? { type, seed: rememberedWorld(type) } : null;
+  const name = WORLD_TYPE_NAMES[type];
+  const where = !worldPick ? "" : worldPick.seed !== null ? `Opens your ${name} world (seed ${worldPick.seed}) where you left it.` : `Makes a new ${name} world ("New world" below picks its seed).`;
+  ui.setPick(worldPick && { type, hint: `${where} ${MODE_HINTS[type]}` });
+  ui.setPlayLabel(worldPick ? `${worldPick.seed !== null ? "Continue" : "New"} ${name} world` : savedPlayer ? "Continue" : "Play");
+}
+ui.onPickType = pickWorld;
+// Into another world: this one saved, then the page reloads into that one (a
+// new world's type and mode go along in its link). A seed that already has a
+// saved world opens it as it is, in its own type.
+function openWorld(seed, type, mode = "survival") {
+  if (seed === null) seed = randomSeed();
+  // (This very world, never played and made again as another type: nothing
+  // of it to keep, and a save now would make it its old type again.)
+  if (seed !== SEED || entered) flushSave();
+  const fresh = !hasSavedWorld(seed);
+  saveJSON("last", fresh ? { seed, type, mode } : { seed });
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("seed", String(seed));
+  if (fresh) {
+    url.searchParams.set("type", type);
+    if (mode === "creative") url.searchParams.set("mode", "creative");
+  }
+  window.location.href = url.toString();
+}
 
 // A guest lands in the host's world as soon as it has arrived: no main menu.
 // (The browser only captures the mouse after a click: "Click to play".)
@@ -2368,16 +2733,28 @@ function parseSeedInput() {
 }
 newSeedInput.addEventListener("input", () => {
   const seed = parseSeedInput();
-  newSeedNote.textContent = seed !== null && hasSavedWorld(seed) ? `You already have a world with seed ${seed}: it will be continued where you left it.` : "";
+  const old = seed !== null && hasSavedWorld(seed) ? loadPlayer(seed) : null;
+  newSeedNote.textContent = old ? `You already have a ${worldLabel(old.worldType, old.mode)} with seed ${seed}: it will be continued where you left it.` : "";
 });
+// (Round 11) Its type: Missions, Survival, or Creative (a Missions world, in
+// Creative: today's Creative with every block, item and call-in).
+const NEW_TYPE_HINTS = {
+  missions: "A Missions world: the UFO war, with missions, loot, supply drops, vehicles and the mod weapons.",
+  survival: "A Survival world: normal Minecraft. You start with nothing; no UFOs, missions, airports, cities or mod weapons. (Creative is in its pause menu too.)",
+  creative: "A Missions world in Creative: every block and item, flight, the call-ins. The pause menu switches it to Missions any time.",
+};
+let newType = "missions";
+function pickNewType(t) {
+  newType = NEW_TYPE_HINTS[t] ? t : "missions";
+  for (const b of document.querySelectorAll("[data-nwtype]")) b.classList.toggle("active", b.dataset.nwtype === newType);
+  document.getElementById("new-type-hint").textContent = NEW_TYPE_HINTS[newType];
+}
+for (const b of document.querySelectorAll("[data-nwtype]")) b.addEventListener("click", () => pickNewType(b.dataset.nwtype));
+// (Opened: the card picked on the main menu.)
+screens.onOpen["new-world-screen"] = () => pickNewType(worldPick?.type ?? (player.creative && !isVanilla() ? "creative" : worldType()));
+pickNewType(worldType());
 document.getElementById("new-world-create").addEventListener("click", () => {
-  const seed = parseSeedInput() ?? randomSeed();
-  flushSave();
-  saveJSON("last", { seed });
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.searchParams.set("seed", String(seed));
-  window.location.href = url.toString();
+  openWorld(parseSeedInput() ?? randomSeed(), newType === "survival" ? "survival" : "missions", newType === "creative" ? "creative" : "survival");
 });
 
 // Back to the main menu: save and reload this world's page (the menu
@@ -2478,6 +2855,10 @@ ui.copyLinkBtn.addEventListener("click", () => {
   }
   const url = new URL(window.location.href);
   url.searchParams.set("seed", String(SEED));
+  // (Round 11: the type too, for a friend who makes this world from the link.)
+  if (isVanilla()) url.searchParams.set("type", "survival");
+  else url.searchParams.delete("type");
+  url.searchParams.delete("mode");
   navigator.clipboard?.writeText(url.toString()).catch(() => {});
   toast("World link copied", 2);
 });
@@ -2537,9 +2918,13 @@ window.addEventListener("keydown", (e) => {
   if (idx !== -1) selectSlot(idx);
   if (e.repeat) return;
   if (mp.dogfight?.watching) return; // (only watching: no dropping, reloading or inventory)
+  if (player.sleeping) return; // (Round 11: in bed, Shift gets up first)
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
-  else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
+  else if (e.code === "KeyF") {
+    if (mods.enabled) vehicles.toggle();
+    else if (isVanilla() && inventory.swapOffhand()) markInventoryChanged();
+  }
   else if (e.code === "KeyR") {
     // Reload the weapon in hand early.
     const kind = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
@@ -2597,8 +2982,9 @@ function updateDebug(dt, frameTime) {
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
-    `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
-    `Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
+    `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}${isVanilla() ? `   Weather: ${weather.kind}` : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
+    `World: ${worldType()}   Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
+    ...(isVanilla() ? [`Food: ${player.food} (saturation ${player.saturation.toFixed(1)}, exhaustion ${player.exhaustion.toFixed(2)})   XP: level ${player.xpLevel} + ${Math.round(player.xpProgress * 100)}% (${player.xpTotal} in all)   Orbs: ${xp.orbs.length}${sleep.spawn ? `   Bed: ${sleep.spawn.join(" ")}` : ""}`] : []),
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
     `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
     `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
@@ -2649,6 +3035,7 @@ document.addEventListener("mousedown", (e) => {
     return;
   }
   if (mp.dogfight?.watching) return; // (no mining or placing in the shared world)
+  if (player.sleeping) return; // (Round 11: in bed, hands off; Shift gets up)
   chord.down(e.button);
 });
 
@@ -2708,6 +3095,7 @@ function updateEnvironment(dt) {
     refractedSun.set(h > 1e-4 ? (L.x / h) * hr : 0, Math.sqrt(Math.max(0, 1 - hr * hr)), h > 1e-4 ? (L.z / h) * hr : 0);
   }
   motes.update(eye, worldUniforms.uTime.value, underwater, wl, drawingSize.y || window.innerHeight);
+  weatherFx.update(dt, eye); // (Round 11: rain, snow, lightning, their sounds)
 
   // Low mist over the water, thickest around sunrise and sunset.
   const e = worldUniforms.uSunDir.value.y;
@@ -2720,6 +3108,9 @@ function updateEnvironment(dt) {
   const ambient = Math.max((eyeLight.sky / 15) * (0.25 + 0.75 * sky.daylight), (eyeLight.block / 15) * 0.9);
   const target = 1 + (1 - ambient) * 0.45;
   eyeAdaptation += (target - eyeAdaptation) * Math.min(1, dt * 1.5);
+  // (Round 11) Night Vision (the world shader's light floor) and Respiration (the helmet's).
+  worldUniforms.uNightVision.value = nightVisionFactor(player);
+  player.respiration = armorLevel(inventory.armor, "respiration");
 
   scene.fog.color.copy(sky.horizonColor);
 }
@@ -2813,6 +3204,11 @@ const game = {
   SEED,
   GUEST,
   joinWelcome,
+  // (Round 11) "missions" | "survival" (worldtype.js; fixed for the page).
+  get worldType() {
+    return worldType();
+  },
+  isVanilla,
   world,
   scene,
   camera,
@@ -2845,6 +3241,10 @@ const game = {
   held,
   falling,
   waterSim,
+  natureSim,
+  redstone,
+  xp,
+  sleep,
   toast,
   setMode,
   respawn,
@@ -2865,7 +3265,7 @@ const game = {
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
     const air = vehicles.active || player.parachute;
     const kept = mp.dogfight?.keptInventory;
-    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven };
+    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined, bed: isVanilla() ? sleep.serialize() : undefined };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
@@ -2878,6 +3278,11 @@ const game = {
     if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
     if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
     if (Number.isFinite(d.absorb)) player.absorption = Math.max(0, Math.min(20, d.absorb));
+    // (Round 11) A Survival room: the guest's food, XP and bed, kept by the host.
+    if (isVanilla()) {
+      player.loadSurvival(d.surv);
+      sleep.load(d.bed);
+    }
     loadoutGiven = d.loadout !== false;
     // (Things of their own: a loadout still owed goes into free slots, not over them.)
     newWorld = false;
@@ -2942,6 +3347,8 @@ const game = {
   mobKilled,
   mobLootKind,
   hooks,
+  furnaces,
+  trading,
   progressTier,
   ownedItems,
   myItems,
@@ -2963,6 +3370,7 @@ const game = {
   // The host's Mods switch (a guest's own setting is not touched).
   setModsFromHost(on) {
     modsCheckbox.disabled = true;
+    if (isVanilla()) on = false; // (the host's Survival world: no Mods, as for the host)
     if (mods.enabled === on) return;
     if (!on) stashCursorMod();
     mods.set(on);
@@ -3014,7 +3422,9 @@ const game = {
   // A room was opened from a menu: the game mode follows the room's.
   hostStarted(mode) {
     // (Dogfight plays by Survival's rules: a Creative host's pilot could never die.)
-    const pm = mode === "creative" ? "creative" : mode === "survival" || mode === "dogfight" ? "survival" : null;
+    const pm = roomMode(mode, worldType()) ? playerModeOf(mode) : null;
+    // (The room plays this world: no other world picked on the main menu.)
+    if (worldPick) pickWorld(null);
     if (pm) {
       ui.modeSelect.value = pm;
       ui.pauseModeSelect.value = pm;
@@ -3032,6 +3442,16 @@ const game = {
 };
 const mp = new Multiplayer(net, game);
 mpLate = mp;
+// (Round 11) Brewing stands (the host's) and thrown bottles online (js/net/brewing.js).
+mp.brewing = mp.addModule(new BrewingSync(mp, { brewing, throws: potionThrows }));
+mp.addModule(new WeatherSync(mp, weather)); // (Round 11: the host's weather and bolts)
+mp.addModule(new SignSync(mp, signs)); // (Round 11: the signs' text online)
+natureSim.fire.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's fires burn at the host; the results arrive as edits)
+redstone.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
+redstone.send = (m) => mp.active && net.isHost && net.broadcast(m); // (primed TNT and the circuits' sounds, for the guests)
+net.on("rs", (m, from) => {
+  if (!net.isHost && from === 1) redstone.onMessage(m); // (1: the host)
+});
 // No solid block placed inside another player (it would shove them out on
 // their screen). Their newest position, with a little margin for its age.
 interaction.othersOverlap = (bx, by, bz) => {
@@ -3064,6 +3484,9 @@ screens.onOpen["mp-lobby"] = ((prev) => () => {
 
 window.__ufo = window.__voxelands = {
   THREE,
+  get worldType() {
+    return worldType();
+  },
   mp,
   net,
   world,
@@ -3077,10 +3500,21 @@ window.__ufo = window.__voxelands = {
   inventory,
   entities,
   interaction,
+  furnaces,
+  brewing, // (Round 11)
+  potionThrows,
+  trading,
   invScreen,
   mobs,
   falling,
+  signs,
+  decorSim,
   waterSim,
+  natureSim,
+  redstone,
+  weather,
+  weatherFx,
+  spawners,
   weapons,
   lasers,
   nuke,
@@ -3117,6 +3551,8 @@ window.__ufo = window.__voxelands = {
   hud,
   held,
   avatar,
+  xp,
+  sleep,
   settings,
   settingsPanel,
   screens,
@@ -3507,7 +3943,7 @@ screens.onOpen["missions-screen"] = () => {
   const el = document.getElementById("missions-list");
   const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   const reward = (r) => r.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ");
-  const intro = player.creative ? `<p class="hint">Missions run in Survival (switch the game mode in the pause menu). Creative is free play.</p>` : "";
+  const intro = player.creative ? `<p class="hint">Missions run in the Missions mode (switch the game mode in the pause menu). Creative is free play.</p>` : "";
   const list = progress.list(stats.world);
   let act = 0;
   const rows = [];
@@ -3565,6 +4001,15 @@ const MAX_DT = 0.05;
 // One step of the game: everything but drawing. (In a hidden tab during a
 // multiplayer game the background clock calls it without animate().)
 let loopsQuiet = false; // (the looping sounds were stopped for a frozen world)
+// Where random ticks happen (world.randomTick): around this player and,
+// hosting, around every guest (in the chunks loaded here).
+const tickCenters = [];
+function randomTickCenters() {
+  tickCenters.length = 0;
+  tickCenters.push(player.position);
+  if (mp.active) for (const r of mp.players.active()) tickCenters.push(r.position);
+  return tickCenters;
+}
 function simulate(dt, frameTime) {
   // The world keeps running behind the inventory and death screens; only
   // the pause and start menus freeze it. Online nothing pauses: the pause
@@ -3574,7 +4019,12 @@ function simulate(dt, frameTime) {
   const online = mp.active;
   const running = gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || gameState === "start"));
   if (running) {
-    if (gameState !== "start") player.update(dt);
+    if (gameState !== "start") {
+      player.update(dt);
+      xp.update(dt); // (Round 11: XP orbs, Survival worlds)
+    }
+    // (Round 11) Beds: a host still on the main menu skips the night for its sleeping guests.
+    sleep.update(dt);
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
     if (player.splashEvent) audio.playSplash();
     // Vehicles (the seated player rides along) and UFOs.
@@ -3583,6 +4033,10 @@ function simulate(dt, frameTime) {
     enemyJets.update(dt);
     airports.update(dt);
     crates.update(dt);
+    furnaces.update(dt);
+    brewing.update(dt); // (Round 11)
+    potionThrows.update(dt);
+    signs.update(dt, camera.position);
     updateJetWatch(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     updateAltitudeView(dt);
@@ -3599,6 +4053,15 @@ function simulate(dt, frameTime) {
     mobs.update(dt);
     falling.update(dt);
     waterSim.update();
+    natureSim.update(dt);
+    // (Round 11) The weather and the monster spawners: the host's (or a single
+    // player's); a guest's weather fades to the host's, its spawners only flicker.
+    weather.update(dt, randomTickCenters());
+    spawners.update(dt, randomTickCenters(), !mp.active || mp.isHost);
+    redstone.update(dt); // (Round 11: redstone ticks; primed TNT falling and going off)
+    // (Round 11) Random ticks (crops, saplings, fire: js/content/index.js), near
+    // every player; the host simulates them, a guest gets the results as edits.
+    if (!mp.active || mp.isHost) world.randomTick(dt, randomTickCenters());
     // A drawn throw is dropped if the grenade leaves the hand (thrown away, swapped).
     if (weapons.charging && itemInfo(inventory.selectedStack?.id)?.weapon?.kind !== "grenade") weapons.cancel();
     weapons.update(dt);
@@ -3645,7 +4108,7 @@ function simulate(dt, frameTime) {
 
   chord.update();
   binoculars.update(dt, gameState === "playing");
-  interaction.updateTarget(gameState === "playing" && !vehicles.active);
+  interaction.updateTarget(gameState === "playing" && !vehicles.active && !player.sleeping);
   vehicles.updateHud(dt, gameState === "playing");
   // (Play time is wall-clock: not the step clamped for the physics.)
   stats.tick(Math.min(frameTime, 1), gameState === "playing");
@@ -3655,7 +4118,7 @@ function simulate(dt, frameTime) {
   updateHints(dt);
   updateMissions(dt);
   updateStatsOverlay(dt);
-  if (gameState === "playing") interaction.update(dt);
+  if (gameState === "playing" && !player.sleeping) interaction.update(dt);
   if (gameState === "inventory") invScreen.refresh();
 
   const now = performance.now();
@@ -3671,8 +4134,12 @@ function simulate(dt, frameTime) {
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
+  held.setOffhand(inventory.offhand?.id ?? 0);
+  held.setGlint?.(isEnchanted(inventory.selectedStack)); // (Round 11)
+  held.visible = !player.sleeping; // (Round 11: no hand in bed)
   held.update(dt, player, heldLight, camera, interaction.eating);
-  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
+  player.usingItem = gameState === "playing" && (interaction.eating > 0 || weapons.bow.drawing || shieldRaised(player, inventory));
+  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
   updateDebug(dt, frameTime);
   mp.update(dt);
 }

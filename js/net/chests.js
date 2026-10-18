@@ -11,8 +11,8 @@
 //
 // The chest block itself is an ordinary block edit (js/net/world.js); the
 // host drops a broken chest's contents, and dropped items are shared
-// (js/net/items.js). Peers from before Round 10 are refused at the handshake
-// (NET_VERSION 8).
+// (js/net/items.js). Peers from before Round 11 are refused at the handshake
+// (NET_VERSION 9).
 import { Chests, encodeStack, decodeStack, CHEST_SLOTS } from "../chests.js";
 import { IS_CHEST } from "../blocks.js";
 import { chunkKey, blockIndex } from "../constants.js";

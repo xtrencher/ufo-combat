@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { r2, r1 } from "./interp.js";
 import { HOST_PID } from "./session.js";
+import { cleanTag } from "../enchant.js";
 
 export class ItemSync {
   constructor(mp) {
@@ -62,8 +63,7 @@ export class ItemSync {
       // where it is, as offline. Asking would have the host hand it over, the
       // inventory refuse it and it be thrown out again, over and over.
       const inv = g.inventory;
-      const aslot = inv.constructor.armorSlotOf?.(item.id) ?? -1;
-      if (g.player.dead || (!inv.canFit(item.id, 1) && !(aslot >= 0 && !inv.armor[aslot]))) return item.count;
+      if (g.player.dead || (!inv.canFit(item.id, 1) && !inv.wouldWear(item.id))) return item.count;
       // Asked of the host; until it answers the item waits where it is.
       if (item.asked && performance.now() - item.asked < 1500) return item.count;
       item.asked = performance.now();
@@ -76,7 +76,7 @@ export class ItemSync {
 
   _info(it) {
     // (Round 9: with its age, so a joiner's copy despawns when everyone's does.)
-    return { k: it.shared, id: it.id, n: it.count, dur: it.dur, p: [r2(it.pos.x), r2(it.pos.y), r2(it.pos.z)], v: [r1(it.vel.x), r1(it.vel.y), r1(it.vel.z)], d: r1(Math.max(0, it.pickupDelay)), a: Math.round(it.age ?? 0), ...(it.keep ? { kp: 1 } : {}) };
+    return { k: it.shared, id: it.id, n: it.count, dur: it.dur, p: [r2(it.pos.x), r2(it.pos.y), r2(it.pos.z)], v: [r1(it.vel.x), r1(it.vel.y), r1(it.vel.z)], d: r1(Math.max(0, it.pickupDelay)), a: Math.round(it.age ?? 0), ...(it.keep ? { kp: 1 } : {}), ...(it.tag ? { tg: it.tag } : {}) };
   }
 
   _onDrop(m, from) {
@@ -85,7 +85,7 @@ export class ItemSync {
     this._receiving = true;
     let it;
     try {
-      it = g.entities.spawn(m.id, m.n, new THREE.Vector3(m.p[0], m.p[1], m.p[2]), new THREE.Vector3(m.v[0], m.v[1], m.v[2]), { dur: m.dur, pickupDelay: m.d ?? 1, keep: !!m.kp });
+      it = g.entities.spawn(m.id, m.n, new THREE.Vector3(m.p[0], m.p[1], m.p[2]), new THREE.Vector3(m.v[0], m.v[1], m.v[2]), { dur: m.dur, tag: cleanTag(m.tg), pickupDelay: m.d ?? 1, keep: !!m.kp });
     } finally {
       this._receiving = false;
     }
@@ -121,10 +121,10 @@ export class ItemSync {
     if (it) g.entities.removeWhere((x) => x === it);
     if (m.by !== this.net.pid || !it) return;
     // Ours: into the inventory (what doesn't fit is thrown back out, for anyone).
-    const left = g.inventory.add(it.id, m.n ?? it.count, it.dur);
+    const left = g.inventory.add(it.id, m.n ?? it.count, it.dur, it.tag);
     g.audio.playPickup?.();
     g.markInventoryChanged();
-    if (left > 0) this.share(() => g.entities.spawn(it.id, left, g.player.position.clone().add(new THREE.Vector3(0, 1, 0)), null, { dur: it.dur, pickupDelay: 1.5 }));
+    if (left > 0) this.share(() => g.entities.spawn(it.id, left, g.player.position.clone().add(new THREE.Vector3(0, 1, 0)), null, { dur: it.dur, tag: it.tag, pickupDelay: 1.5 }));
   }
 
   // Host: what already lies in its world when the room opens is shared too

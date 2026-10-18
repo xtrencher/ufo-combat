@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { SEA_LEVEL } from "./constants.js";
 import { itemInfo } from "./items.js";
 import { BLOCK, IS_LEAVES, IS_LOG, IS_WET } from "./blocks.js";
-import { DAY_LENGTH } from "./sky.js";
+import { dayLength } from "./sky.js";
 
 
 const _v = new THREE.Vector3();
@@ -161,9 +161,10 @@ export class MissionDirector {
   // not even: the night's run faster than the day's).
   _secondsUntil(h) {
     const sky = this.sky;
-    if (!sky._timeForAngle) return ((h - sky.hours + 24) % 24) * (DAY_LENGTH / 24);
+    const len = dayLength();
+    if (!sky._timeForAngle) return ((h - sky.hours + 24) % 24) * (len / 24);
     const t = sky._timeForAngle((((((h - 6) % 24) + 24) % 24) / 12) * Math.PI);
-    return (((t - sky.time) % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
+    return (((t - sky.time) % len) + len) % len;
   }
 
   // Called every frame (cheap: the checks run a few times a second).
@@ -874,7 +875,7 @@ export class MissionDirector {
     const real = w.last != null ? (now - w.last) / 1000 : 0;
     w.last = now;
     w.tau = Math.min(w.D, w.tau + Math.min(0.5, Math.max(dt, real)));
-    const len = DAY_LENGTH;
+    const len = dayLength();
     let d = warpTime(w.t0, w.dist, w.D, w.tau) - sky.time;
     d = (((d % len) + len * 1.5) % len) - len / 2;
     if (Math.abs(d) > 90) {

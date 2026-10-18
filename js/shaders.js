@@ -29,6 +29,7 @@ export const worldUniforms = {
   uTorchColor: { value: new THREE.Color(1.05, 0.62, 0.28) },
   uTime: { value: 0 },
   uNight: { value: 0 },
+  uNightVision: { value: 0 }, // (Round 11: the potion: 0-1, main.js)
   uFog: { value: new THREE.Vector4(80, 150, 0.004, 0.0) }, // start, end, haze density, (unused)
   // Low mist over water: density (per block, at the water), thickness
   // (blocks), drift speed, water level. Set per frame by main.js (denser at
@@ -87,6 +88,7 @@ uniform vec3 uAmbientGround;
 uniform vec3 uTorchColor;
 uniform float uTime;
 uniform float uNight;
+uniform float uNightVision;
 uniform vec4 uFog;
 uniform vec4 uMist;
 uniform float uUnderwater;
@@ -216,7 +218,8 @@ vec3 worldLighting(vec3 N, float sky, float blk, float ao, float shadow) {
   vec3 direct = uLightColor * ndl * sunVisibility(sky, shadow);
   vec3 hemi = mix(uAmbientGround, uAmbientSky, N.y * 0.5 + 0.5);
   float aoF = 0.32 + 0.68 * ao;
-  vec3 indirect = (hemi * skyCurve(sky) + uTorchColor * torchCurve(blk) + vec3(0.006, 0.007, 0.01)) * aoF;
+  // (Round 11: Night Vision lifts the darkest light to a bright floor.)
+  vec3 indirect = (max(hemi * skyCurve(sky) + uTorchColor * torchCurve(blk), vec3(0.42 * uNightVision)) + vec3(0.006, 0.007, 0.01)) * aoF;
   // Slight per-axis shading so walls in full shade still read as distinct faces.
   return (direct + indirect) * (1.0 - abs(N.x) * 0.07);
 }
@@ -352,7 +355,7 @@ ${SUN_SHADOW}
 
 const chunkVertex = /* glsl */ `
 attribute vec4 aData;  // normal*4+ao, sky*17, block*17, flags
-attribute vec4 aExtra; // texture layer, water depth*16
+attribute vec4 aExtra; // texture layer (low byte), water depth*16, tint, texture layer (high byte)
 varying vec3 vTexCoord;
 varying vec3 vWorldPos;
 varying vec3 vNormal;
@@ -388,7 +391,7 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
   vec3 transformedNormal = normalMatrix * objectNormal;
   #include <shadowmap_vertex>
-  vTexCoord = vec3(uv, aExtra.x);
+  vTexCoord = vec3(uv, aExtra.x + aExtra.w * 256.0); // (the layer in two bytes)
   vWorldPos = worldPosition.xyz;
   vNormal = objectNormal;
   vLight = aData.yz / 255.0;
@@ -570,7 +573,7 @@ void main() {
   vec4 worldPosition = modelMatrix * vec4(position, 1.0);
   if ((flags & 1) != 0) worldPosition.xyz += windOffset(worldPosition.xyz);
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
-  vTexCoord = vec3(uv, aExtra.x);
+  vTexCoord = vec3(uv, aExtra.x + aExtra.w * 256.0); // (the layer in two bytes)
 }
 `;
 

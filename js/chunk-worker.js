@@ -6,10 +6,11 @@
 // It also meshes chunks (the costly half of mesher.js; world.js takes the
 // padded volume on the main thread, where the chunks and their light live).
 //
-// Messages in:  { type: "init", seed }
+// Messages in:  { type: "init", seed, opts }
 //               { type: "gen", cx, cz }
 //               { type: "mesh", token, cx, cz, maxY, fancy, blocks, light }
-// Messages out: { type: "chunk", cx, cz, blocks }   (blocks transferred)
+//                 (the padded volume: blocks Uint16Array, light Uint8Array)
+// Messages out: { type: "chunk", cx, cz, blocks }   (Uint16Array, transferred)
 //               { type: "mesh", token, buffers }    (the arrays transferred)
 import { TerrainGenerator } from "./terrain.js";
 import { meshPadded } from "./mesher.js";
@@ -20,9 +21,9 @@ let terrain = null;
 self.onmessage = (e) => {
   const m = e.data;
   if (m.type === "init") {
-    terrain = new TerrainGenerator(m.seed);
+    terrain = new TerrainGenerator(m.seed, m.opts);
   } else if (m.type === "gen" && terrain) {
-    const chunk = { cx: m.cx, cz: m.cz, blocks: new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE) };
+    const chunk = { cx: m.cx, cz: m.cz, blocks: new Uint16Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE) };
     terrain.generate(chunk);
     self.postMessage({ type: "chunk", cx: m.cx, cz: m.cz, blocks: chunk.blocks }, [chunk.blocks.buffer]);
   } else if (m.type === "mesh") {

@@ -3,6 +3,7 @@
 // lines, discs, polygons) filled with a material's color ramp, lit from the
 // top-left, and outlined in a dark color: the classic item-sprite look.
 import { itemInfo } from "./items.js";
+import { ICON_PAINTERS } from "./content/index.js";
 
 const N = 32;
 
@@ -152,6 +153,11 @@ function paintTool(type, mat) {
     c.line(HANDLE, 5, 28, 22, 11, 2.7);
     // A blade on one side of the handle with a curved cutting edge.
     c.poly(HEAD, [[14, 17], [21, 10], [18, 4], [13, 2.5], [8.5, 5], [7, 10], [9, 14]], (x, y) => (x + y < 18 ? 0.4 : -0.1));
+  } else if (type === "hoe") {
+    // (Round 11) A long handle and a flat blade bent off its tip, pointing back.
+    c.line(HANDLE, 5, 28, 23, 10, 2.7);
+    c.poly(HEAD, [[19, 9.5], [23.5, 5], [27.5, 9], [23, 13.5]], () => 0.2); // the socket on the tip
+    c.poly(HEAD, [[21, 5.5], [24, 2.5], [14, 3], [10.5, 5.5], [11.5, 8], [17, 7.5]], (x, y) => (y < 5 ? 0.45 : -0.05));
   } else {
     // Shovel.
     c.line(HANDLE, 5, 28, 19, 14, 2.7);
@@ -469,9 +475,94 @@ export function bowPullPixels(stage) {
   return px;
 }
 
+// (Round 11) The compass: a dial with a red needle turned `a` radians
+// clockwise from straight up (where it points: the world spawn, as seen on
+// screen), and a grey tail. frame/frames for the held compass's turning needle.
+function paintCompass(a) {
+  const c = new Canvas();
+  const CASE = 0;
+  const FACE = 1;
+  const NEEDLE = 2;
+  const TAIL = 3;
+  c.disc(CASE, 16, 16, 12.5, 12.5, (x, y) => (x + y < 30 ? 0.4 : -0.25));
+  c.disc(FACE, 16, 16, 9.5, 9.5, () => -0.15);
+  const sx = Math.sin(a);
+  const sy = -Math.cos(a);
+  c.line(TAIL, 16, 16, 16 - sx * 7, 16 - sy * 7, 2.2, () => 0.2);
+  c.line(NEEDLE, 16, 16, 16 + sx * 8, 16 + sy * 8, 2.4, () => 0.5);
+  c.disc(CASE, 16, 16, 1.3, 1.3, () => 0.6); // the pin
+  return c.render([RAMPS.iron, RAMPS.coal, RAMPS.red, RAMPS.cloth], [22, 24, 28]);
+}
+const COMPASS_CACHE = new Map();
+export function compassPixels(frame, frames = 32) {
+  const k = ((frame % frames) + frames) % frames;
+  if (!COMPASS_CACHE.has(k)) COMPASS_CACHE.set(k, paintCompass((k / frames) * Math.PI * 2));
+  return COMPASS_CACHE.get(k);
+}
+
+// The clock: a gold case and a dial of day (blue sky, the sun) and night
+// (dark sky, the moon) turning behind a fixed pointer at the top, as in the
+// classic game. `sun`: the sun's angle along its path (0 sunrise, PI/2 noon,
+// PI sunset): at noon the sun sits under the pointer.
+function paintClock(sun) {
+  const c = new Canvas();
+  const CASE = 0;
+  const DAY = 1;
+  const NIGHT = 2;
+  const SUN = 3;
+  const MOON = 4;
+  c.disc(CASE, 16, 16, 12.5, 12.5, (x, y) => (x + y < 30 ? 0.4 : -0.25));
+  const rot = Math.PI / 2 - sun; // the dial's turn (0 at noon)
+  const ca = Math.cos(rot);
+  const sa = Math.sin(rot);
+  // (dial coordinates: the day half is "up" at noon)
+  const dial = (x, y) => [(x - 16) * ca + (y - 16) * sa, -(x - 16) * sa + (y - 16) * ca];
+  c.fill(DAY, (x, y) => (x - 16) ** 2 + (y - 16) ** 2 <= 9.5 * 9.5 && dial(x, y)[1] < 0, () => 0.1);
+  c.fill(NIGHT, (x, y) => (x - 16) ** 2 + (y - 16) ** 2 <= 9.5 * 9.5 && dial(x, y)[1] >= 0, () => -0.2);
+  c.fill(SUN, (x, y) => {
+    const [u, v] = dial(x, y);
+    return u * u + (v + 5.5) ** 2 <= 9 && (x - 16) ** 2 + (y - 16) ** 2 <= 9.5 * 9.5;
+  }, () => 0.5);
+  c.fill(MOON, (x, y) => {
+    const [u, v] = dial(x, y);
+    return u * u + (v - 5.5) ** 2 <= 7 && (x - 16) ** 2 + (y - 16) ** 2 <= 9.5 * 9.5;
+  }, (x, y) => {
+    const [u, v] = dial(x, y);
+    return (u - 0.8) ** 2 + (v - 6) ** 2 < 1.2 ? -0.8 : 0.5; // (a crater)
+  });
+  c.poly(CASE, [[14, 3], [18, 3], [16, 8]], () => -0.6); // the pointer
+  return c.render([RAMPS.gold, RAMPS.plasma, RAMPS.coal, RAMPS.amber, RAMPS.cloth], [40, 24, 4]);
+}
+const CLOCK_CACHE = new Map();
+export function clockPixels(frame, frames = 64) {
+  const k = ((frame % frames) + frames) % frames;
+  if (!CLOCK_CACHE.has(k)) CLOCK_CACHE.set(k, paintClock((k / frames) * Math.PI * 2));
+  return CLOCK_CACHE.get(k);
+}
+// (In the inventory: the needle up, the clock at noon.)
+PAINTERS.compass = () => compassPixels(0);
+PAINTERS.clock = () => clockPixels(16);
+
+// (Round 11) A content module's icon painter gets this kit (js/content/index.js):
+// ramp(...hexes) makes a colour ramp (dark to light, five steps); ingot,
+// apple, meat and armor are the core paintings in another ramp.
+const KIT = {
+  N,
+  Canvas,
+  RAMPS,
+  hex,
+  ramp: (...hexes) => hexes.map(hex),
+  tool: (type, mat) => paintTool(type, mat),
+  ingot: (ramp) => paintIngot(ramp),
+  apple: (ramp) => paintApple(ramp),
+  meat: (ramp, cooked) => paintMeat(ramp, cooked),
+  armor: (piece, ramp, outline) => paintArmor(piece, ramp, outline),
+};
+
 export function paintItemIcon(iconName) {
   if (PAINTERS[iconName]) return PAINTERS[iconName]();
-  const m = /^(sword|pickaxe|axe|shovel)_(wood|stone|iron|diamond)$/.exec(iconName);
+  if (ICON_PAINTERS[iconName]) return ICON_PAINTERS[iconName](KIT);
+  const m = /^(sword|pickaxe|axe|shovel|hoe)_(wood|stone|iron|diamond|gold)$/.exec(iconName);
   if (m) return paintTool(m[1], m[2]);
   throw new Error(`No item icon painter for "${iconName}"`);
 }

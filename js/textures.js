@@ -8,7 +8,8 @@
 // per tile, so mipmapping never bleeds between tiles); canvases of the
 // same pixels are kept for UI icons.
 import * as THREE from "three";
-import { TILE_NAMES, BLOCK_INFO, SHAPE } from "./blocks.js";
+import { TILE_NAMES, BLOCK_INFO, SHAPE, BLOCK_LIMIT } from "./blocks.js";
+import { TILE_PAINTERS, TILE_RELIEF } from "./content/index.js";
 
 export const TEX = 32;
 
@@ -1214,8 +1215,29 @@ const PAINTERS = {
   chest_front: (t) => paintChestSide(t, true),
 };
 
+// (Round 11) The content modules' tiles are painted by their own painters,
+// given this kit (see js/content/index.js).
+const KIT = {
+  TEX,
+  hex,
+  ramp,
+  mixRgb,
+  scaleRgb,
+  clamp01,
+  makeRand,
+  hashInt,
+  base: (name, t) => PAINTERS[name](t),
+  ore: (t, colors) => paintOre(t, colors),
+  flower: (t, petals) => paintFlower(t, petals),
+};
+function painterOf(name) {
+  if (PAINTERS[name]) return PAINTERS[name];
+  const custom = TILE_PAINTERS[name];
+  return custom ? (t) => custom(t, KIT) : null;
+}
+
 export function paintTile(name) {
-  const painter = PAINTERS[name];
+  const painter = painterOf(name);
   if (!painter) throw new Error(`No texture painter for tile "${name}"`);
   const t = new Tile(name);
   painter(t);
@@ -1298,7 +1320,7 @@ function structureHeight(name, t) {
 }
 
 function paintRelief(name, t) {
-  const [strength, rough, lumWeight] = RELIEF[name] || [1.2, 0.85, 1];
+  const [strength, rough, lumWeight] = RELIEF[name] || TILE_RELIEF[name] || [1.2, 0.85, 1];
   const p = t.data;
   const structure = structureHeight(name, t);
   const height = new Float32Array(TEX * TEX);
@@ -1356,7 +1378,7 @@ function paintRelief(name, t) {
 
 // Pixels and relief map of one tile.
 function paintTileWithRelief(name) {
-  const painter = PAINTERS[name];
+  const painter = painterOf(name);
   if (!painter) throw new Error(`No texture painter for tile "${name}"`);
   const t = new Tile(name);
   painter(t);
@@ -1376,7 +1398,7 @@ function tileCanvas(pixels) {
 //   reliefTexture: the matching normal / height / roughness layers
 //   canvases: tile name -> 32x32 canvas (for UI icons)
 //   blockColors: block id -> [r, g, b] (sRGB 0-1) average visible color
-//   facePalette: { top, side }: Float32Array(256 * 3), each block's average
+//   facePalette: { top, side }: Float32Array(BLOCK_LIMIT * 3), each block's average
 //     top / side texture color in linear light (for distant terrain)
 const SRGB_TO_LINEAR = new Float32Array(256).map((_, i) => {
   const c = i / 255;
@@ -1455,12 +1477,91 @@ export function buildBlockTextures() {
     const side = tileAvg[info.faces.side];
     blockColors[info.id] = [(top[0] + side[0]) / 2, (top[1] + side[1]) / 2, (top[2] + side[2]) / 2];
   }
-  const facePalette = { top: new Float32Array(256 * 3), side: new Float32Array(256 * 3) };
+  const facePalette = { top: new Float32Array(BLOCK_LIMIT * 3), side: new Float32Array(BLOCK_LIMIT * 3) };
   for (const info of Object.values(BLOCK_INFO)) {
     facePalette.top.set(tileLinear[info.faces.top], info.id * 3);
     facePalette.side.set(tileLinear[info.faces.side], info.id * 3);
   }
   return { texture, reliefTexture, canvases, blockColors, facePalette };
+}
+
+// (Round 11) A shaped block's item sprite (a content def's `itemSprite`: a
+// door, a ladder, a lantern, a bed): 32x32 RGBA pixels put together from
+// parts of its tiles, each [tile, sx, sy, sw, sh, dx, dy, dw, dh] in pixels
+// (nearest-neighbour scaled). Used for its icon and its 3D item (models.js).
+const spriteCache = new Map();
+export function blockSpritePixels(info) {
+  if (spriteCache.has(info.id)) return spriteCache.get(info.id);
+  const out = new Uint8ClampedArray(TEX * TEX * 4);
+  for (const [tile, sx, sy, sw, sh, dx, dy, dw, dh] of info.itemSprite) {
+    const src = paintTile(tile);
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        const tx = dx + x;
+        const ty = dy + y;
+        if (tx < 0 || ty < 0 || tx >= TEX || ty >= TEX) continue;
+        const i = ((sy + Math.floor((y * sh) / dh)) * TEX + sx + Math.floor((x * sw) / dw)) * 4;
+        if (src[i + 3] < 128) continue;
+        out.set(src.subarray(i, i + 4), (ty * TEX + tx) * 4);
+      }
+    }
+  }
+  spriteCache.set(info.id, out);
+  return out;
+}
+
+// (Round 11) The boxes of a shaped block's item (a content def's
+// `itemBoxes`: [x0, y0, z0, x1, y1, z1, uv?], uv as the mesher's), drawn
+// isometrically like the cube icon: back to front, each box's top and its
+// two faces toward the viewer, the texture cut to the box.
+function drawBoxesIcon(ctx, canvases, info, size) {
+  const s = size / 2;
+  const h = size / 4;
+  const shadedCache = new Map();
+  const tile = (f, dark) => {
+    const key = f * 10 + dark;
+    if (!shadedCache.has(key)) {
+      const c = document.createElement("canvas");
+      c.width = TEX;
+      c.height = TEX;
+      const cctx = c.getContext("2d");
+      cctx.drawImage(canvases[TILE_NAMES[info.faceTiles[f]]], 0, 0);
+      if (dark) {
+        cctx.globalCompositeOperation = "source-atop";
+        cctx.fillStyle = `rgba(0,0,0,${dark / 100})`;
+        cctx.fillRect(0, 0, TEX, TEX);
+      }
+      shadedCache.set(key, c);
+    }
+    return shadedCache.get(key);
+  };
+  // A face: the tile's part [u0, v0]-[u1, v1] (uv as the mesher's, then the
+  // box's uv rectangle) drawn with the transform (a, b, c, d, e, f) from tile pixels.
+  const face = (src, uv, u0, v0, u1, v1, m) => {
+    if (uv) {
+      [u0, u1] = [uv[0] + u0 * (uv[2] - uv[0]), uv[0] + u1 * (uv[2] - uv[0])];
+      [v0, v1] = [uv[1] + v0 * (uv[3] - uv[1]), uv[1] + v1 * (uv[3] - uv[1])];
+    }
+    const sx = Math.min(u0, u1) * TEX;
+    const sy = (1 - Math.max(v0, v1)) * TEX;
+    const sw = Math.abs(u1 - u0) * TEX;
+    const sh = Math.abs(v1 - v0) * TEX;
+    if (sw < 0.5 || sh < 0.5) return;
+    ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    ctx.drawImage(src, sx, sy, sw, sh, m[6], m[7], m[8], m[9]);
+  };
+  const boxes = [...info.itemBoxes].sort((p, q) => p[0] + p[3] + p[2] + p[5] + p[1] + p[4] - (q[0] + q[3] + q[2] + q[5] + q[1] + q[4]));
+  for (const b of boxes) {
+    const [x0, y0, z0, x1, y1, z1, uv] = b;
+    const k = TEX;
+    // Top (y1): tile u = x, v = 1 - z; screen x = s(x - z + 1), y = h(x + z) + s(1 - y1).
+    face(tile(2, 0), uv, x0, 1 - z1, x1, 1 - z0, [s / k, h / k, -s / k, h / k, s, s * (1 - y1), x0 * k, z0 * k, (x1 - x0) * k, (z1 - z0) * k]);
+    // The +Z face (left), u = x, v = y.
+    face(tile(4, 24), uv, x0, y0, x1, y1, [s / k, h / k, 0, s / k, s * (1 - z1), h * z1, x0 * k, (1 - y1) * k, (x1 - x0) * k, (y1 - y0) * k]);
+    // The +X face (right), u = 1 - z, v = y.
+    face(tile(0, 42), uv, 1 - z1, y0, 1 - z0, y1, [s / k, -h / k, 0, s / k, s * x1, h * x1 + h, (1 - z1) * k, (1 - y1) * k, (z1 - z0) * k, (y1 - y0) * k]);
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 // Draws a block as a small isometric cube icon (or a flat sprite for
@@ -1472,6 +1573,14 @@ export function drawBlockIcon(canvases, info, size = 32) {
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
   const tileName = (idx) => TILE_NAMES[idx];
+  if (info.itemSprite) {
+    ctx.drawImage(tileCanvas(blockSpritePixels(info)), 0, 0, size, size);
+    return canvas;
+  }
+  if (info.itemBoxes) {
+    drawBoxesIcon(ctx, canvases, info, size);
+    return canvas;
+  }
   if (info.shape !== SHAPE.CUBE && info.shape !== SHAPE.CHEST) {
     ctx.drawImage(canvases[tileName(info.faces.side)], 0, 0, size, size);
     return canvas;

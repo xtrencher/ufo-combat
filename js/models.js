@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { BLOCK_INFO, SHAPE, TILE_NAMES, CHEST_BOX } from "./blocks.js";
 import { itemInfo } from "./items.js";
 import { itemIconPixels, bowPullPixels } from "./itemtextures.js";
-import { paintTile } from "./textures.js";
+import { paintTile, blockSpritePixels } from "./textures.js";
 
 // Face corners/uv orientation matching the terrain mesher (+X, -X, +Y, -Y, +Z, -Z).
 const CUBE_FACES = [
@@ -40,6 +40,40 @@ export function blockCubeGeometry(blockId) {
     }
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("aLayer", new THREE.Float32BufferAttribute(layer, 1));
+  g.setIndex(idx);
+  return g;
+}
+
+// (Round 11) A shaped block's item as its boxes (a content def's
+// `itemBoxes`: [x0, y0, z0, x1, y1, z1, uv?] in the cell, uv the part of
+// the tile it uses), textured from the block's layers like the cube above.
+export function blockBoxesGeometry(blockId) {
+  const info = BLOCK_INFO[blockId];
+  const pos = [];
+  const nor = [];
+  const uv = [];
+  const layer = [];
+  const idx = [];
+  for (const b of info.itemBoxes) {
+    const rect = b[6] || null;
+    CUBE_FACES.forEach((f, fi) => {
+      const base = pos.length / 3;
+      for (const c of f.c) {
+        const p = [c[0] ? b[3] : b[0], c[1] ? b[4] : b[1], c[2] ? b[5] : b[2]];
+        pos.push(p[0] - 0.5, p[1] - 0.5, p[2] - 0.5);
+        nor.push(...f.n);
+        const [u, v] = f.uv(p);
+        uv.push(rect ? rect[0] + u * (rect[2] - rect[0]) : u, rect ? rect[1] + v * (rect[3] - rect[1]) : v);
+        layer.push(info.faceTiles[fi]);
+      }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    });
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
@@ -349,6 +383,9 @@ export function itemModel(id) {
   if (info?.block) {
     const b = BLOCK_INFO[info.block];
     if (b.shape === SHAPE.CUBE || b.shape === SHAPE.CHEST) model = { geometry: blockCubeGeometry(info.block), kind: "array", cube: true };
+    // (Round 11) Shaped blocks: their own boxes (stairs, slabs, fences), or a sprite (a door, a ladder).
+    else if (b.itemBoxes) model = { geometry: blockBoxesGeometry(info.block), kind: "array", cube: true };
+    else if (b.itemSprite) model = { geometry: spriteGeometry(blockSpritePixels(b)), kind: "color", cube: false };
     else model = { geometry: spriteGeometry(paintTile(TILE_NAMES[b.faces.side])), kind: "color", cube: false };
   } else if (info?.weapon && ["pistol", "bazooka", "machinegun", "sniper", "blaster", "railgun", "minigun"].includes(info.weapon.kind)) {
     const geometry =

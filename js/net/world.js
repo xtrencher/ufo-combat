@@ -13,14 +13,20 @@
 // someone else just changed, the host sends that client the final value.
 //
 // A joining player gets every edit of the world (in parts), then the live stream.
+//
+// (Round 11) Block ids are 16-bit: a chunk's string is in the saves' byte
+// format while its ids fit in a byte, else the "wide" one (storage.js), which
+// an older peer can't decode (it skips that chunk) rather than misreading.
+// A string this peer can't read is skipped with a warning (stats.unreadable).
 import { CHUNK_SIZE, WORLD_HEIGHT, chunkKey, blockIndex } from "../constants.js";
 import { encodeChunkEdits, decodeChunkEdits, setEdit } from "../storage.js";
-import { IS_CHEST } from "../blocks.js";
+import { IS_CHEST, BLOCK } from "../blocks.js";
 
 const FLUSH_INTERVAL = 0.05; // seconds between batches
 const MAX_BATCH_CHUNKS = 48; // chunks per message (a nuke's crater goes out in several)
 const RACE_WINDOW = 1500; // ms
 const MAX_GONE = 64; // a guest's broken chests named per message
+const MAX_WATER = 4096; // (Round 11) water cells told per message (flow or source, js/watersim.js)
 
 export class WorldSync {
   constructor(mp) {
@@ -34,7 +40,7 @@ export class WorldSync {
     this._t = 0;
     this.recent = new Map(); // host: "x,y,z" -> { pid, t }
     this._recentT = 0;
-    this.stats = { sent: 0, received: 0 };
+    this.stats = { sent: 0, received: 0, unreadable: 0 };
     const world = this.world;
     // Everything this peer changes.
     world.changeListeners.push((changed, opts) => {
@@ -90,22 +96,44 @@ export class WorldSync {
     let c = {};
     let n = 0;
     let left = this.out.size;
+    // (Round 11) The water cells among the edits: a flow cell's level and
+    // parent (w), or that it is a source (ws), so every peer's bucket and
+    // water sim tell them apart as the sim that made them does.
+    const sim = this.world.waterSim;
+    let w = [];
+    let ws = [];
     const send = () => {
       if (!n) return;
       const msg = { t: "ed", c };
       // (The broken chests go with the last part: their edits are in it or before.)
       if (!left && this.outGone.length) msg.cg = this.outGone;
+      if (w.length) msg.w = w;
+      if (ws.length) msg.ws = ws;
       if (this.net.isHost) this.net.broadcast(msg);
       else this.net.toHost(msg);
       c = {};
       n = 0;
+      w = [];
+      ws = [];
     };
     for (const [key, map] of this.out) {
       // What the blocks are *now* (a race settled meanwhile ends the same
       // everywhere); a chunk that isn't loaded here keeps the recorded value.
       const [cx, cz] = key.split(",").map(Number);
       const chunk = this.world.getChunk(cx, cz);
-      if (chunk) for (const index of map.keys()) map.set(index, chunk.blocks[index]);
+      if (chunk) {
+        for (const index of map.keys()) {
+          const id = chunk.blocks[index];
+          map.set(index, id);
+          if (id !== BLOCK.WATER || !sim || w.length / 7 + ws.length / 3 >= MAX_WATER) continue;
+          const x = cx * CHUNK_SIZE + (index & 15);
+          const y = index >> 8;
+          const z = cz * CHUNK_SIZE + ((index >> 4) & 15);
+          const info = sim.meta.get(`${x},${y},${z}`);
+          if (info) w.push(x, y, z, info.level, info.parent[0], info.parent[1], info.parent[2]);
+          else ws.push(x, y, z);
+        }
+      }
       c[key] = encodeChunkEdits(map);
       this.stats.sent += map.size;
       left--;
@@ -129,6 +157,7 @@ export class WorldSync {
     const world = this.world;
     const gone = this.net.isHost && Array.isArray(m.cg) ? this._goneBefore(m.cg) : null;
     const changed = this._apply(m.c, from);
+    if (m.w || m.ws) this.world.waterSim?.applyRemoteMeta(m.w, m.ws);
     if (!this.net.isHost) return;
     if (gone) this._goneAfter(gone);
     // Host: pass it on, and settle races with the sender.
@@ -195,7 +224,8 @@ export class WorldSync {
       let map;
       try {
         map = decodeChunkEdits(enc);
-      } catch {
+      } catch (err) {
+        this._unreadable(key, err);
         continue;
       }
       const loaded = !!world.getChunk(cx, cz);
@@ -237,12 +267,20 @@ export class WorldSync {
     return { raced };
   }
 
+  // A chunk's edits in a format this version can't read (a newer peer, or
+  // damaged): skipped, and said once (not silently wrong blocks).
+  _unreadable(key, err) {
+    if (this.stats.unreadable++ === 0) console.warn(`UFO COMBAT: block edits from another player could not be read (chunk ${key}: ${err?.message ?? err}); is everyone on the same version?`);
+  }
+
   // ---------- Joining ----------
 
   _snapshot() {
     const chunks = {};
     for (const [key, map] of this.world.edits) if (map.size) chunks[key] = encodeChunkEdits(map);
-    return { chunks };
+    // (Round 11: the flow cells too, js/watersim.js, or a guest's bucket takes them for sources.)
+    const water = this.world.waterSim?.meta.size ? this.world.waterSim.serializeMeta(20000) : undefined;
+    return { chunks, water };
   }
 
   _loadSnapshot(data) {
@@ -254,9 +292,12 @@ export class WorldSync {
       if (typeof enc !== "string" || !/^-?\d+,-?\d+$/.test(key)) continue;
       try {
         edits.set(key, decodeChunkEdits(enc));
-      } catch {}
+      } catch (err) {
+        this._unreadable(key, err);
+      }
     }
     world.loadEdits(edits);
+    if (Array.isArray(data.water)) world.waterSim?.loadMeta(data.water);
     // Chunks already built: apply their edits now (in one bulk edit).
     const list = [];
     for (const chunk of world.chunks.values()) {

@@ -3,9 +3,23 @@
 // clips into walls. Animated with a swing (mining, attacking, placing), an
 // equip dip when switching items, and a little walk bob.
 import * as THREE from "three";
-import { itemModel, MUZZLE, minigunBarrels, bowPullGeometry } from "./models.js";
+import { itemModel, MUZZLE, minigunBarrels, bowPullGeometry, spriteGeometry } from "./models.js";
 import { itemInfo } from "./items.js";
-import { createEntityMaterial, bindEntityLight } from "./shaders.js";
+import { createEntityMaterial, bindEntityLight, worldUniforms } from "./shaders.js";
+import { compassPixels, clockPixels, paintItemIcon } from "./itemtextures.js";
+import { COMPASS, CLOCK, FISHING_ROD, SHIELD } from "./content/ids.js";
+
+// (Round 11) The compass's needle and the clock's dial turn in hand: one
+// geometry per frame, made the first time it shows.
+const COMPASS_FRAMES = 32;
+const CLOCK_FRAMES = 64;
+const dialGeos = { compass: new Map(), clock: new Map() };
+function dialGeometry(kind, frame) {
+  const cache = dialGeos[kind];
+  if (!cache.has(frame)) cache.set(frame, spriteGeometry(kind === "compass" ? compassPixels(frame, COMPASS_FRAMES) : clockPixels(frame, CLOCK_FRAMES)));
+  return cache.get(frame);
+}
+let rodCastGeo = null; // (the rod with its line out)
 
 const SWING_TIME = 0.28;
 let barrelsGeo = null; // (built once and shared: never disposed)
@@ -87,12 +101,64 @@ export class HeldItem {
     this.bowDraw = 0; // 0-1: how far the bow is drawn
     this._bowStage = 0;
     this._bowPose = 0; // 0-1: the bow raised to shoot
+    // (Round 11) Set by the game: where the compass points ({ x, z }: the
+    // world spawn); whether the fishing rod's line is out.
+    this.compassTarget = null;
+    this.rodCast = false;
+    this._dialFrame = -1;
+    this._rodShown = false;
+    this._shieldPose = 0; // 0-1: the shield raised in front
+    // (A Survival world) The off hand's item, low on the left (setOffhand).
+    this.offMesh = null;
+    this.offId = 0;
+    this._offPose = 0;
     this.setItem(0, true);
+  }
+
+  // Shows item `id` in the off hand (0 / null: none), mirrored on the left.
+  setOffhand(id) {
+    id = id || 0;
+    if (id === this.offId) return;
+    this.offId = id;
+    this._offPose = 0;
+    if (this.offMesh) this.pivot.remove(this.offMesh);
+    this.offMesh = null;
+    const model = id ? itemModel(id) : null;
+    if (!model) return;
+    const m = (this.offMesh = new THREE.Mesh(model.geometry, this.materials[model.kind]));
+    if (model.cube) {
+      m.scale.setScalar(0.19);
+      m.position.set(-0.46, -0.27, -0.8);
+      m.rotation.set(0.1, -(Math.PI / 4 + 0.25), 0);
+    } else {
+      m.scale.setScalar(0.42);
+      m.position.set(-0.4, -0.27, -0.62);
+      m.rotation.set(0.05, 1.05, -0.28);
+    }
+    this.offBase = { pos: m.position.clone(), rot: m.rotation.clone() };
+    bindEntityLight(m, () => this.light);
+    this.pivot.add(m);
   }
 
   resize(aspect) {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
+  }
+
+  // (Round 11) The enchantment glint over the item in hand: a copy of its
+  // mesh in additive violet, its brightness rolling (one more draw call,
+  // only while the item is enchanted).
+  setGlint(on) {
+    on = !!on && !!this.mesh && this.mesh !== this.arm;
+    if (on && this._glintFor !== this.mesh) {
+      this._glintMesh?.parent?.remove(this._glintMesh);
+      this._glintMat ||= new THREE.MeshBasicMaterial({ color: 0x9050ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, depthFunc: THREE.LessEqualDepth });
+      this._glintMesh = new THREE.Mesh(this.mesh.geometry, this._glintMat);
+      this._glintMesh.renderOrder = 2;
+      this.mesh.add(this._glintMesh);
+      this._glintFor = this.mesh;
+    }
+    if (this._glintMesh) this._glintMesh.visible = on && this._glintFor === this.mesh;
   }
 
   // Shows item `id` (0 / null = bare arm). Animates the switch unless `instant`.
@@ -115,6 +181,9 @@ export class HeldItem {
     this.itemId = id;
     this._bowStage = 0;
     this._bowPose = 0;
+    this._dialFrame = -1;
+    this._rodShown = false;
+    this._shieldPose = 0;
     if (this.mesh) this.pivot.remove(this.mesh);
     const model = id ? itemModel(id) : null;
     if (!model) {
@@ -170,6 +239,12 @@ export class HeldItem {
         this.mesh.position.set(0.36, -0.28, -0.58);
         this.mesh.rotation.set(0.1, -0.7, 0.15);
         this.kind = "item";
+      } else if (id === COMPASS || id === CLOCK) {
+        // (held up and turned toward you, so the dial reads)
+        this.mesh.scale.setScalar(0.2);
+        this.mesh.position.set(0.24, -0.21, -0.5);
+        this.mesh.rotation.set(-0.3, -0.18, 0.02);
+        this.kind = "item";
       } else {
         this.mesh.scale.setScalar(0.42);
         this.mesh.position.set(0.4, -0.27, -0.62);
@@ -220,10 +295,64 @@ export class HeldItem {
     return this._swing < 1;
   }
 
+  // (Round 11) The vanilla items' looks in hand: the compass needle toward
+  // its target (as seen from where you look), the clock's dial by the sun,
+  // the fishing rod without its line while cast, the shield raised in front
+  // while right click holds it up.
+  _updateVanilla(dt, player, m) {
+    const id = this.itemId;
+    if (id === COMPASS || id === CLOCK) {
+      let frame;
+      if (id === COMPASS) {
+        const t = this.compassTarget;
+        // The needle's turn, clockwise from straight ahead: the target's
+        // direction on the view's forward (f) and right (r) axes.
+        const fx = -Math.sin(player.yaw);
+        const fz = -Math.cos(player.yaw);
+        const dx = t ? t.x - player.position.x : 0;
+        const dz = t ? t.z - player.position.z : 0;
+        const a = t && dx * dx + dz * dz > 0.01 ? Math.atan2(dx * -fz + dz * fx, dx * fx + dz * fz) : performance.now() / 300; // (no target, or on it: it spins)
+        frame = Math.round((a / (Math.PI * 2)) * COMPASS_FRAMES);
+        frame = ((frame % COMPASS_FRAMES) + COMPASS_FRAMES) % COMPASS_FRAMES;
+      } else {
+        const s = worldUniforms.uSunDir.value;
+        const sun = Math.atan2(Math.sign(s.y) * Math.hypot(s.y, s.z), s.x); // (0 sunrise, PI/2 noon)
+        frame = Math.round((sun / (Math.PI * 2)) * CLOCK_FRAMES);
+        frame = ((frame % CLOCK_FRAMES) + CLOCK_FRAMES) % CLOCK_FRAMES;
+      }
+      if (frame !== this._dialFrame) {
+        this._dialFrame = frame;
+        m.geometry = dialGeometry(id === COMPASS ? "compass" : "clock", frame);
+      }
+    } else if (id === FISHING_ROD) {
+      if (this.rodCast !== this._rodShown) {
+        this._rodShown = this.rodCast;
+        m.geometry = this.rodCast ? (rodCastGeo ??= spriteGeometry(paintItemIcon("fishing_rod_cast"))) : itemModel(id).geometry;
+      }
+    } else if (id === SHIELD) {
+      const up = player.shieldRaisedUntil > performance.now() / 1000 ? 1 : 0;
+      this._shieldPose += (up - this._shieldPose) * Math.min(1, dt * 14);
+      const k = this._shieldPose;
+      if (k > 0.001) {
+        // In front of the body, face on, a little to the right.
+        m.position.x += (0.2 - m.position.x) * k;
+        m.position.y += (-0.24 - m.position.y) * k;
+        m.position.z += (-0.66 - m.position.z) * k;
+        m.rotation.x += (0 - m.rotation.x) * k;
+        m.rotation.y += (-0.12 - m.rotation.y) * k;
+        m.rotation.z += (0 - m.rotation.z) * k;
+      }
+    }
+  }
+
   // camera: the world camera (the held item is lit as if it faced the same
   // way). eating: seconds spent eating so far (0 = not eating).
   update(dt, player, light, camera, eating = 0) {
     this.light = light;
+    if (this._glintMesh?.visible) {
+      this._glintMat.opacity = 0.22 + 0.14 * Math.sin(performance.now() / 380);
+      if (this._glintMesh.geometry !== this.mesh.geometry) this._glintMesh.geometry = this.mesh.geometry; // (a bow being drawn)
+    }
     this.camera.quaternion.copy(camera.quaternion);
     this.pivot.quaternion.copy(camera.quaternion);
     this._swing = Math.min(1, this._swing + dt / SWING_TIME);
@@ -305,6 +434,7 @@ export class HeldItem {
         }
       }
     }
+    this._updateVanilla(dt, player, m);
     this._flash += dt;
     this._flashFrames = this._flash === dt ? 0 : (this._flashFrames || 0) + 1;
     // Visible for 50 ms, and always for at least one rendered frame.
@@ -334,6 +464,26 @@ export class HeldItem {
     const amount = player.onGround && !player.flying ? 1 : 0;
     m.position.x += Math.sin(phase) * 0.018 * amount;
     m.position.y -= Math.abs(Math.cos(phase)) * 0.028 * amount;
+    const o = this.offMesh;
+    if (o) {
+      o.position.copy(this.offBase.pos);
+      o.rotation.copy(this.offBase.rot);
+      // (The off hand's shield raised in front, a little to the left, while
+      // right click holds it up and the main hand has no shield.)
+      const up = this.offId === SHIELD && this.itemId !== SHIELD && player.shieldRaisedUntil > performance.now() / 1000 ? 1 : 0;
+      this._offPose += (up - this._offPose) * Math.min(1, dt * 14);
+      const k = this._offPose;
+      if (k > 0.001) {
+        o.position.x += (-0.2 - o.position.x) * k;
+        o.position.y += (-0.24 - o.position.y) * k;
+        o.position.z += (-0.66 - o.position.z) * k;
+        o.rotation.x += (0 - o.rotation.x) * k;
+        o.rotation.y += (0.12 - o.rotation.y) * k;
+        o.rotation.z += (0 - o.rotation.z) * k;
+      }
+      o.position.x -= Math.sin(phase) * 0.018 * amount;
+      o.position.y -= Math.abs(Math.cos(phase)) * 0.028 * amount;
+    }
     this.pivot.visible = this.visible;
   }
 }

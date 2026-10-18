@@ -4,8 +4,15 @@
 // directional light (sun by day, moon by night) around the player.
 import * as THREE from "three";
 import { worldUniforms, createSkyMaterial } from "./shaders.js";
+import { isVanilla } from "./worldtype.js";
 
-export const DAY_LENGTH = 600; // seconds for a full day/night cycle
+export const DAY_LENGTH = 600; // seconds for a full day/night cycle (a Missions world)
+export const SURVIVAL_DAY_LENGTH = 1200; // a Survival world's: vanilla's 20 minutes
+
+// This world's day (the world type is set at startup, before anything reads it).
+export function dayLength() {
+  return isVanilla() ? SURVIVAL_DAY_LENGTH : DAY_LENGTH;
+}
 const DAY_SHARE = 0.62; // fraction of the cycle with the sun above the horizon
 const SUN_TILT = 0.42; // radians the sun's path is tilted off the zenith
 const START_ANGLE = ((17 + 50 / 60 - 6) / 12) * Math.PI; // a new world starts at 17:50, in the golden hour before sunset
@@ -160,6 +167,12 @@ export class Sky {
     // over minutes (drives leaves, plants and water waves via uWind).
     this.windTime = 0;
     this.windOverride = null; // { angle, strength } to pin it (tests, screenshots)
+    // (Round 11) A Survival world's weather (js/weather.js levels, 0-1: rain,
+    // thunder, a lightning flash), or null: clear.
+    this.weather = null;
+    this._cloudCover = this.material.uniforms.uCloudCoverage.value;
+    this._fogBase = new THREE.Vector4();
+    this._fogSet = new THREE.Vector4(NaN, 0, 0, 0);
   }
 
   // Current wind: { angle (radians, direction it blows toward), strength }.
@@ -175,7 +188,7 @@ export class Sky {
   _timeForAngle(angle) {
     const a = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     const phase = a < Math.PI ? (a / Math.PI) * DAY_SHARE : DAY_SHARE + ((a - Math.PI) / Math.PI) * (1 - DAY_SHARE);
-    return phase * DAY_LENGTH;
+    return phase * dayLength();
   }
 
   setSunAngle(angle) {
@@ -184,7 +197,8 @@ export class Sky {
 
   // The sun's angle along its path for the current cycle time.
   _angleForTime(time) {
-    const phase = (((time % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH) / DAY_LENGTH;
+    const len = dayLength();
+    const phase = (((time % len) + len) % len) / len;
     return phase < DAY_SHARE ? (phase / DAY_SHARE) * Math.PI : Math.PI + ((phase - DAY_SHARE) / (1 - DAY_SHARE)) * Math.PI;
   }
 
@@ -197,6 +211,12 @@ export class Sky {
   setHours(h) {
     const t = ((((Number(h) || 0) - 6) % 24) + 24) % 24;
     this.setSunAngle((t / 12) * Math.PI);
+  }
+
+  // (Round 11) Sleeping through the night (sleep.js): straight to the next
+  // morning, 6:00 (vanilla wakes everyone at the day's first tick).
+  skipToMorning(hours = 6) {
+    this.setHours(hours);
   }
 
   get isNight() {
@@ -214,7 +234,7 @@ export class Sky {
     const uw = worldUniforms.uWind.value;
     uw.set(Math.cos(wind.angle), Math.sin(wind.angle), wind.strength, uw.w + dt * 0.1 * wind.strength);
     // A locked clock (settings menu) keeps the sun where it is.
-    if (!this.locked) this.time = (this.time + dt * (this.timeScale ?? 1)) % DAY_LENGTH;
+    if (!this.locked) this.time = (this.time + dt * (this.timeScale ?? 1)) % dayLength();
     const angle = this._angleForTime(this.time);
     this.sunAngle = angle;
 
@@ -253,6 +273,8 @@ export class Sky {
     this.hemiLight.groundColor.copy(u.uAmbientGround.value);
     this.hemiLight.intensity = Math.PI;
 
+    this._applyWeather();
+
     // Horizon color in the view direction, for three's built-in fog.
     this.horizonColor.copy(u.uSkyHorizon.value);
 
@@ -262,6 +284,64 @@ export class Sky {
     for (let i = 0; i < this.cascades.length; i++) this._placeShadowLight(this.shadowLights[i], this.cascades[i], center, forward);
     this._scheduleShadows();
     this.dome.position.copy(center);
+  }
+
+  // (Round 11) Rain and thunder: vanilla's sky colour formula (each greys
+  // and darkens the sky toward its own brightness, by up to three quarters),
+  // the clouds closing in, the sun hidden, less direct light, thicker haze
+  // and the fog wall nearer; a lightning flash whitens the sky and lights
+  // everything for a moment. Nothing to do on a clear day.
+  _applyWeather() {
+    const w = this.weather;
+    const u = worldUniforms;
+    const rain = w ? w.rain : 0;
+    const thunder = w ? w.thunder : 0;
+    const flash = w ? w.flash : 0;
+    // (the view distance's fog, kept as main.js last set it)
+    const fog = u.uFog.value;
+    if (!fog.equals(this._fogSet)) this._fogBase.copy(fog);
+    const b = this._fogBase;
+    fog.set(b.x * (1 - 0.4 * rain), b.y, b.z * (1 + 2.5 * rain + thunder), b.w);
+    this._fogSet.copy(fog);
+    this.material.uniforms.uCloudCoverage.value = this._cloudCover + (0.97 - this._cloudCover) * rain;
+    if (rain <= 0 && flash <= 0) return;
+    const grey = (c) => {
+      const lum = c.r * 0.3 + c.g * 0.59 + c.b * 0.11;
+      if (rain > 0) {
+        const k = 1 - rain * 0.75;
+        const g = lum * 0.6 * (1 - k);
+        c.setRGB(c.r * k + g, c.g * k + g, c.b * k + g);
+      }
+      if (thunder > 0) {
+        const k = 1 - thunder * 0.75;
+        const g = lum * 0.2 * (1 - k);
+        c.setRGB(c.r * k + g, c.g * k + g, c.b * k + g);
+      }
+      if (flash > 0) {
+        const f = Math.min(1, flash) * 0.45;
+        c.setRGB(c.r * (1 - f) + 0.8 * f, c.g * (1 - f) + 0.8 * f, c.b * (1 - f) + f);
+      }
+    };
+    const m = this.material.uniforms;
+    grey(u.uSkyZenith.value);
+    grey(u.uSkyHorizon.value);
+    grey(m.uCloudLit.value);
+    grey(m.uCloudShade.value);
+    const hidden = 1 - rain;
+    u.uSkyGlow.value.multiplyScalar(hidden);
+    u.uSunGlowColor.value.multiplyScalar(hidden);
+    u.uLightColor.value.multiplyScalar(1 - 0.7 * rain - 0.15 * thunder);
+    const amb = (1 + 0.1 * rain) * (1 - 0.3 * thunder);
+    u.uAmbientSky.value.multiplyScalar(amb);
+    u.uAmbientGround.value.multiplyScalar(amb);
+    if (flash > 0) {
+      const f = Math.min(1, flash) * 0.45;
+      u.uAmbientSky.value.lerp(this._tmp.setRGB(0.55, 0.58, 0.7), f);
+      u.uAmbientGround.value.lerp(this._tmp.setRGB(0.25, 0.25, 0.3), f);
+    }
+    this.sunLight.color.copy(u.uLightColor.value);
+    this.hemiLight.color.copy(u.uAmbientSky.value);
+    this.hemiLight.groundColor.copy(u.uAmbientGround.value);
   }
 
   // (Perf) Which shadow maps are redrawn this frame: the finest cascade (the

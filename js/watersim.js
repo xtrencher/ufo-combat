@@ -17,10 +17,17 @@
 // borrowing support from a cell that only ever existed because of it in the
 // first place (the same class of bug a naive flood-fill removal hits, and
 // the reason the voxel light engine two-phases its own removal).
-import { BLOCK, IS_REPLACEABLE, IS_WET } from "./blocks.js";
+import { BLOCK, IS_REPLACEABLE, IS_WET, IS_SOLID } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { isVanilla } from "./worldtype.js";
+import { isLava } from "./content/nature.js";
 
 export const MAX_FLOW_DISTANCE = 4; // sideways reach of a flow from its source, in blocks
+// (Round 11) A Survival world's water runs as far as vanilla's: 7.
+export const VANILLA_FLOW_DISTANCE = 7;
+// Where water may flow: open cells, never lava (lava touched by water
+// hardens instead: lavasim.js).
+const openTo = (id) => !IS_WET[id] && IS_REPLACEABLE[id] && !isLava(id);
 const BUDGET_PER_FRAME = 300;
 // (a frame's writes go to the world as one batch, see _flush: one light
 // update, one rebuild per chunk, one message online; this caps a flood
@@ -62,7 +69,16 @@ export class WaterSim {
   // arenas, world setup), not a real player/explosion edit, so water leaves
   // it alone.
   _onEdit(changed, { recordEdit = true, remote = false } = {}) {
-    if (!recordEdit || remote) return;
+    if (remote) {
+      // (Another peer's edit: a cell no longer water is no flow cell here
+      // either; what the new water is comes with it, applyRemoteMeta.)
+      for (let i = 0; i < changed.length; i += 3) {
+        const key = this._key(changed[i], changed[i + 1], changed[i + 2]);
+        if (this.meta.has(key) && this.world.getBlock(changed[i], changed[i + 1], changed[i + 2]) !== BLOCK.WATER && this.meta.delete(key)) this.metaVersion++;
+      }
+      return;
+    }
+    if (!recordEdit) return;
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1];
@@ -124,6 +140,17 @@ export class WaterSim {
     this.world.setBlocks(list);
   }
 
+  // A source: water the sim did not make.
+  _isSource(x, y, z) {
+    return this._get(x, y, z) === BLOCK.WATER && !this.meta.has(this._key(x, y, z));
+  }
+
+  _sourceSides(x, y, z) {
+    let n = 0;
+    for (const [dx, dz] of SIDES) if (this._isSource(x + dx, y, z + dz)) n++;
+    return n;
+  }
+
   _tick(key) {
     const world = this.world;
     const [x, y, z] = key.split(",").map(Number);
@@ -147,23 +174,36 @@ export class WaterSim {
         this._wakeAround(x, y, z);
         return;
       }
-      level = info.level;
+      // (Survival: vanilla's infinite water, a flow between two sources
+      // over solid ground or a source becomes one; its neighbours may then
+      // meet the rule too)
+      if (isVanilla() && this._sourceSides(x, y, z) >= 2 && (y === 0 || IS_SOLID[this._get(x, y - 1, z)] || this._isSource(x, y - 1, z))) {
+        this.meta.delete(key);
+        this.metaVersion++;
+        this._wakeAround(x, y, z);
+      } else level = info.level;
+    } else if (isVanilla()) {
+      // (a new source, a bucket poured onto flow: the flow beside it checks the rule)
+      for (const [dx, dz] of SIDES) {
+        const k = this._key(x + dx, y, z + dz);
+        if (this.meta.has(k)) this.active.add(k);
+      }
     }
 
     // Fall: an open cell directly below becomes full-strength falling water.
     if (y > 0) {
       const belowId = this._get(x, y - 1, z);
-      if (!IS_WET[belowId] && IS_REPLACEABLE[belowId]) this._place(x, y - 1, z, 0, [x, y, z]);
+      if (openTo(belowId)) this._place(x, y - 1, z, 0, [x, y, z]);
     }
 
     // Spread sideways into open cells, one level weaker each step, up to the
     // flow's reach.
-    if (level < MAX_FLOW_DISTANCE) {
+    if (level < (isVanilla() ? VANILLA_FLOW_DISTANCE : MAX_FLOW_DISTANCE)) {
       for (const [dx, dz] of SIDES) {
         const nx = x + dx;
         const nz = z + dz;
         const id = this._get(nx, y, nz);
-        if (IS_WET[id] || !IS_REPLACEABLE[id]) continue;
+        if (!openTo(id)) continue;
         this._place(nx, y, nz, level + 1, [x, y, z]);
       }
     }
@@ -193,6 +233,29 @@ export class WaterSim {
     }
   }
 
+  // (Online) Another peer's water cells (js/net/world.js): w is flow cells
+  // [x, y, z, level, px, py, pz, ...], ws sources [x, y, z, ...]. The sim is
+  // not woken: the peer whose edit it was runs the flow.
+  applyRemoteMeta(w, ws) {
+    const ok = (v) => Number.isInteger(v) && Math.abs(v) < 1e7;
+    if (Array.isArray(w)) {
+      const n = Math.min(w.length, 4096 * 7);
+      for (let i = 0; i + 6 < n; i += 7) {
+        const v = w.slice(i, i + 7);
+        if (!v.every(ok) || v[3] < 0 || v[3] > 8) continue;
+        this.meta.set(this._key(v[0], v[1], v[2]), { level: v[3], parent: [v[4], v[5], v[6]] });
+      }
+      this.metaVersion++;
+    }
+    if (Array.isArray(ws)) {
+      const n = Math.min(ws.length, 4096 * 3);
+      for (let i = 0; i + 2 < n; i += 3) {
+        if (ok(ws[i]) && ok(ws[i + 1]) && ok(ws[i + 2])) this.meta.delete(this._key(ws[i], ws[i + 1], ws[i + 2]));
+      }
+      this.metaVersion++;
+    }
+  }
+
   _place(x, y, z, level, parent) {
     if (y < 0 || y >= WORLD_HEIGHT) return;
     const world = this.world;
@@ -209,7 +272,7 @@ export class WaterSim {
       }
       return;
     }
-    if (IS_REPLACEABLE[id]) {
+    if (IS_REPLACEABLE[id] && !isLava(id)) {
       this._set(x, y, z, BLOCK.WATER);
       this.meta.set(key, { level, parent });
       this.metaVersion++;

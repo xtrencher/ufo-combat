@@ -10,7 +10,12 @@
 // a big jump: aliens have one), or down by at most `drop`. Diagonals never
 // cut a corner. The search is capped (maxNodes) so a hopeless one can't stall
 // a frame: it then returns the best partial path (toward the target) instead.
-import { IS_SOLID, IS_WET } from "./blocks.js";
+import { IS_SOLID, IS_WET, COLLISION_BOXES } from "./blocks.js";
+
+// (Round 11) Blocks taller than a cell (a fence, a wall: 1.5): nothing stands
+// on top of one, and no creature jumps it.
+const TALL = new Uint8Array(COLLISION_BOXES.length);
+for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.some((b) => b[4] > 1)) TALL[id] = 1;
 
 const DIRS = [
   [1, 0], [-1, 0], [0, 1], [0, -1],
@@ -80,6 +85,7 @@ export class Pathfinder {
     if (y < 1) return 0;
     for (let k = 0; k < h; k++) if (IS_SOLID[w.getBlock(x, y + k, z)] === 1) return 0;
     const below = w.getBlock(x, y - 1, z);
+    if (TALL[below]) return 0;
     if (IS_SOLID[below] === 1) return IS_WET[w.getBlock(x, y, z)] ? (swim ? 2 : 0) : 1;
     if (swim && IS_WET[w.getBlock(x, y, z)]) return 2;
     return 0;

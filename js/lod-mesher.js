@@ -19,9 +19,10 @@
 //   info     Uint8   x4  [normal index (as in the chunk mesher), kind, water depth, 0]
 //   index    Uint16/Uint32
 import { TerrainGenerator, surfaceBlocks } from "./terrain.js";
-import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET, BLOCK_LIMIT } from "./blocks.js";
 import { TREE } from "./trees.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
+import { ICE } from "./content/ids.js";
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
 
 export const LOD_CELLS = 32;
@@ -51,8 +52,8 @@ const EDIT_CACHE_MAX = 256;
 // real blocks of chunks the player has edited (so a crater stays visible
 // from afar).
 export class LodTerrain {
-  constructor(seed) {
-    this.terrain = new TerrainGenerator(seed);
+  constructor(seed, opts) {
+    this.terrain = new TerrainGenerator(seed, opts);
     this.edits = new Map(); // "cx,cz" -> flat [blockIndex, id, ...]
     this._edited = new Map(); // "cx,cz" -> { blocks, top, id, depth } (cache, LRU order)
   }
@@ -71,11 +72,11 @@ export class LodTerrain {
     let c = this._edited.get(key);
     if (c) return c;
     const S = CHUNK_SIZE;
-    const blocks = new Uint8Array(S * WORLD_HEIGHT * S);
+    const blocks = new Uint16Array(S * WORLD_HEIGHT * S);
     this.terrain.generate({ cx, cz, blocks });
     for (let i = 0; i < list.length; i += 2) blocks[list[i]] = list[i + 1];
     const top = new Float32Array(S * S);
-    const id = new Uint8Array(S * S);
+    const id = new Uint16Array(S * S);
     const depth = new Uint8Array(S * S);
     for (let lz = 0; lz < S; lz++) {
       for (let lx = 0; lx < S; lx++) {
@@ -134,13 +135,18 @@ export class LodTerrain {
       hi = Math.max(hi, t.heightAt(wx - spread, wz - spread), t.heightAt(wx + spread, wz - spread), t.heightAt(wx - spread, wz + spread), t.heightAt(wx + spread, wz + spread));
       if (hi > h) h += Math.round((hi - h) * 0.6);
     }
-    if (h < SEA_LEVEL) {
+    if (h < SEA_LEVEL && t.options.vanilla && t.frozenAt(wx, wz)) {
+      // (Round 11: a Survival world's frozen waters)
+      out.top = SEA_LEVEL + 1;
+      out.id = ICE;
+      out.depth = 0;
+    } else if (h < SEA_LEVEL) {
       out.top = LOD_WATER_TOP;
       out.id = BLOCK.WATER;
       out.depth = SEA_LEVEL - h;
     } else {
       out.top = h + 1;
-      out.id = t.sites.surfaceAt(wx, wz) || surfaceBlocks(t.biomeAt(wx, wz), h).top;
+      out.id = t.sites.surfaceAt(wx, wz) || surfaceBlocks(t.biomeAt(wx, wz), h, t.options.vanilla).top;
       out.depth = 0;
     }
     return out;
@@ -277,15 +283,16 @@ function toSrgbByte(v) {
   return Math.round(Math.pow(c, 1 / 2.2) * 255);
 }
 
-// palette: { top: Float32Array(256 * 3), side: Float32Array(256 * 3) } with
+// palette: { top: Float32Array(BLOCK_LIMIT * 3), side: (the same) } with
 // each block's average texture colour (linear 0-1). Returns per-id sRGB
-// byte triplets, plus the tinted "grass with trees" colour.
+// byte triplets, plus the tinted "grass with trees" colour. (A shorter
+// palette, from before the 16-bit ids, leaves the rest black.)
 export function makeLodPalette(palette) {
   const top = [];
   const side = [];
-  for (let id = 0; id < 256; id++) {
-    const t = [palette.top[id * 3], palette.top[id * 3 + 1], palette.top[id * 3 + 2]];
-    const s = [palette.side[id * 3], palette.side[id * 3 + 1], palette.side[id * 3 + 2]];
+  for (let id = 0; id < BLOCK_LIMIT; id++) {
+    const t = [palette.top[id * 3] ?? 0, palette.top[id * 3 + 1] ?? 0, palette.top[id * 3 + 2] ?? 0];
+    const s = [palette.side[id * 3] ?? 0, palette.side[id * 3 + 1] ?? 0, palette.side[id * 3 + 2] ?? 0];
     top.push(t.map(toSrgbByte));
     side.push(s.map(toSrgbByte));
   }
@@ -307,7 +314,7 @@ export function buildLodTile(lt, level, tx, tz, pal) {
   const z0 = tz * span;
   const half = step >> 1;
   const top = new Float32Array(P * P);
-  const id = new Uint8Array(P * P);
+  const id = new Uint16Array(P * P);
   const depth = new Uint8Array(P * P);
   let lowest = Infinity;
   const spread = level >= 2 ? half * 0.7 : 0;
@@ -423,7 +430,7 @@ export function buildLodTile(lt, level, tx, tz, pal) {
         if (id[k] === BLOCK.WATER) continue;
         const base = top[k];
         const crown = grower.crown(root);
-        const c = root.species === TREE.OLD_OAK ? 1 : 0.5; // trunk centre
+        const c = root.wide ? 1 : 0.5; // trunk centre (2x2 trunks: the old oak, dark oak, giant jungle tree)
         const x = wx - x0 + c;
         const z = wz - z0 + c;
         const r = crown.radius;
@@ -438,7 +445,7 @@ export function buildLodTile(lt, level, tx, tz, pal) {
           out.box(x - r, x + r, base + crown.bottom, base + crown.top, z - r, z + r, leafTop, leafSide, LOD_KIND.LEAVES, 190);
         }
         if (level === 1) {
-          const t = root.species === TREE.OLD_OAK ? 0.9 : 0.2;
+          const t = root.wide ? 0.9 : 0.2;
           const wood = pal.side[root.log];
           out.box(x - t, x + t, base, base + Math.max(1, crown.bottom), z - t, z + t, wood, wood, LOD_KIND.LAND, 160);
         }

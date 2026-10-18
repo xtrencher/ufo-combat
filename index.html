@@ -280,6 +280,35 @@
   @media (max-width: 760px) { #weapon-status { left: auto; right: 8px; bottom: 76px; } }
   #bubbles { flex-direction: row-reverse; }
   #hearts canvas, #bubbles canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
+  /* (Round 11) Survival worlds: the hunger bar right of the hearts (filling from the right), the
+     air bubbles above it, and the XP bar with its level over the hotbar, as in vanilla. */
+  #food { display: flex; gap: 1px; flex-direction: row-reverse; }
+  #food.hidden { display: none; }
+  #food canvas { image-rendering: pixelated; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.5)); }
+  #food:not(.hidden) ~ #bubbles { position: absolute; right: 0; bottom: 21px; }
+  body.xp-on #status-bars { bottom: 84px; }
+  #xp-bar { position: fixed; bottom: 71px; left: 50%; width: 464px; height: 6px; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 1px solid rgba(0,0,0,0.85); pointer-events: none; z-index: 10; }
+  #xp-bar.hidden { display: none; }
+  #xp-bar .xp-fill { height: 100%; width: 0; background: linear-gradient(#c6ff6a, #7edc2c 55%, #4a9e18); }
+  #xp-bar .xp-level { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); font: 700 15px ui-monospace, Consolas, monospace; color: #80ff20; text-shadow: 1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000; }
+  body.in-vehicle #xp-bar { display: none; }
+  /* Status effects, top right: an icon in a frame of its colour, the time left under it. */
+  #effects-bar { position: fixed; top: 8px; right: 10px; display: flex; gap: 4px; pointer-events: none; z-index: 10; }
+  #effects-bar.hidden { display: none; }
+  #effects-bar .fx { width: 36px; padding: 3px 0 2px; background: rgba(10,12,18,0.6); border: 2px solid; border-radius: 4px; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  #effects-bar .fx canvas { image-rendering: pixelated; }
+  #effects-bar .fx span { font: 700 9px ui-monospace, Consolas, monospace; color: #fff; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+  #effects-bar .fx.ending { animation: fx-blink 1s steps(2, jump-none) infinite; }
+  @keyframes fx-blink { 50% { opacity: 0.35; } }
+  /* Burning: flames licking up the bottom of the screen. */
+  #fire-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 9; background: linear-gradient(to top, rgba(255,110,10,0.55), rgba(255,70,0,0.18) 28%, rgba(255,60,0,0) 46%); animation: fire-flicker 0.3s steps(3) infinite alternate; }
+  #fire-overlay.hidden { display: none; }
+  @keyframes fire-flicker { from { opacity: 0.75; } to { opacity: 1; } }
+  /* Asleep: the screen darkens (vanilla's 86%), and the line over the hotbar. */
+  #sleep-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 11; background: #101020; opacity: 0; }
+  #sleep-overlay.hidden { display: none; }
+  #sleep-status { position: fixed; bottom: 134px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 600; text-shadow: 1px 1px 0 #000, 0 0 4px rgba(0,0,0,0.8); white-space: nowrap; pointer-events: none; z-index: 12; }
+  #sleep-status.hidden { display: none; }
   #item-name {
     position: fixed;
     bottom: 96px;
@@ -1177,7 +1206,7 @@
   .mp-field input { font: 600 16px var(--ui-font); background: rgba(255,255,255,0.07); color: var(--ui-text); border: 1px solid var(--ui-line-strong); border-radius: 10px; padding: 10px 12px; outline: none; }
   .mp-field input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px rgba(61,155,255,0.15); }
   .mp-field input.mp-code { font: 800 26px ui-monospace, Consolas, monospace; letter-spacing: 10px; text-transform: uppercase; text-align: center; }
-  .mp-mode-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .mp-mode-cards { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin-bottom: 12px; }
   /* (Their own class: the main menu's code owns every .mode-card.) */
   .mp-mode { text-align: left; font: inherit; cursor: pointer; padding: 9px 9px; background: rgba(255,255,255,0.05); border: 1px solid var(--ui-line); border-radius: 12px; color: var(--ui-text); transition: background 0.15s, border-color 0.15s, transform 0.12s; }
   .mp-mode b { display: block; font-size: 15px; letter-spacing: 0.4px; font-weight: 700; }
@@ -1282,6 +1311,7 @@
   .menu-card { background: rgba(8,12,19,0.72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--ui-line); border-left: 2px solid var(--ui-accent); padding: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.45); }
   .main-buttons { gap: 8px; margin-bottom: 0; }
   #play-btn { font-size: 17px; padding: 15px 18px; letter-spacing: 3px; }
+  #play-btn.long { font-size: 13px; letter-spacing: 1.5px; } /* (Round 11: "Continue Survival world" on one line) */
   .mode-cards { gap: 0; border: 1px solid var(--ui-line); }
   .mode-card { background: transparent; border: none; border-radius: 0; padding: 9px 12px; color: var(--ui-dim); box-shadow: inset 0 -2px 0 transparent; transition: background 0.16s, color 0.16s, box-shadow 0.16s; }
   .mode-card + .mode-card { border-left: 1px solid var(--ui-line); }
@@ -1334,6 +1364,8 @@
   <canvas id="game-canvas"></canvas>
 
   <div id="damage-flash"></div>
+  <div id="fire-overlay" class="hidden"></div>
+  <div id="sleep-overlay" class="hidden"></div>
   <div id="nuke-flash"></div>
   <div id="binocular-overlay"><div class="reading" id="binocular-reading"></div></div>
   <div id="scope-overlay"><div id="scope-crosshair"><div id="scope-dot"></div></div></div>
@@ -1344,7 +1376,10 @@
     <div id="fps-counter">FPS: --</div>
     <div id="mode-badge" class="hidden"></div>
     <div id="item-name"></div>
-    <div id="status-bars"><div id="armor-bar" class="hidden"></div><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="status-bars"><div id="armor-bar" class="hidden"></div><div id="absorb" class="hidden"></div><div id="hearts"></div><div id="food" class="hidden"></div><div id="bubbles" class="hidden"></div></div>
+    <div id="xp-bar" class="hidden"><div class="xp-fill"></div><div class="xp-level"></div></div>
+    <div id="effects-bar" class="hidden"></div>
+    <div id="sleep-status" class="hidden"></div>
     <div id="hotbar"></div>
     <div id="weapon-status" class="hidden"><div class="ws-label"></div><div class="ws-ammo"></div><div class="ws-bar"><div></div></div></div>
     <div id="reload-bar" class="hidden"><div></div></div>
@@ -1387,9 +1422,11 @@
         <button class="mp-tab" data-tab="join" type="button">Join a game</button>
       </div>
       <div class="mp-tab-page" data-tab="host">
-        <div class="mp-note">Your current world becomes the shared world. You get a short room code: friends enter it (or open your invite link) to join. Free and peer-to-peer: no server, no account.</div>
+        <div class="mp-note">Your current world becomes the shared world (a Missions world, or a Survival world: normal Minecraft). You get a short room code: friends enter it (or open your invite link) to join. Free and peer-to-peer: no server, no account.</div>
         <div class="mp-mode-cards" role="group" aria-label="Game mode">
-          <button class="mp-mode active" data-mpmode="survival" type="button"><b>Survival</b><small>Missions together</small></button>
+          <!-- (Round 11: the modes this world's type has show: net/ui.js) -->
+          <button class="mp-mode active" data-mpmode="survival" data-wt="missions" type="button"><b>Missions</b><small>Missions together</small></button>
+          <button class="mp-mode hidden" data-mpmode="survival" data-wt="survival" type="button"><b>Survival</b><small>Normal Minecraft</small></button>
           <button class="mp-mode" data-mpmode="creative" type="button"><b>Creative</b><small>Build and fly</small></button>
           <button class="mp-mode" data-mpmode="dogfight" type="button"><b>Dogfight</b><small>Jets, scoreboard</small></button>
         </div>
@@ -1421,7 +1458,7 @@
         <div class="row">
           <label for="mp-lobby-mode">Game mode</label>
           <select id="mp-lobby-mode">
-            <option value="survival">Survival</option>
+            <option value="survival">Missions</option>
             <option value="creative">Creative</option>
             <option value="dogfight">Dogfight</option>
           </select>
@@ -1530,15 +1567,19 @@
        of the world (drawn by the game behind this transparent overlay).
        Play continues this world in the chosen mode; "New world" (with an
        optional seed) is part of the same card. Graphics, Mods and the key
-       list live in Settings. -->
+       list live in Settings. (Round 11) Three cards: Missions and Survival
+       are world types (a card of the other type opens or makes a world of
+       it), Creative plays this world in Creative. The Missions card keeps
+       the old id: it is the survival game this world always had. -->
   <div id="start-menu" class="overlay menu-overlay hidden">
     <div class="menu-col">
       <div class="menu-card">
         <div class="main-buttons">
           <button class="btn big primary" id="play-btn">Play</button>
           <div class="mode-cards" role="group" aria-label="Game mode">
-            <button class="mode-card" id="mode-card-survival" data-mode="survival" type="button"><b>Survival</b><small>Missions, loot, supply drops</small></button>
-            <button class="mode-card" id="mode-card-creative" data-mode="creative" type="button"><b>Creative</b><small>Every block, flight, no damage</small></button>
+            <button class="mode-card" id="mode-card-survival" data-mode="survival" data-type="missions" type="button"><b>Missions</b><small>The UFO war: missions, loot, supply drops, vehicles</small></button>
+            <button class="mode-card" id="mode-card-creative" data-mode="creative" type="button"><b>Creative</b><small>Build with everything, fly, no damage</small></button>
+            <button class="mode-card" id="mode-card-vanilla" data-mode="survival" data-type="survival" type="button"><b>Survival</b><small>Normal Minecraft: gather, craft, survive</small></button>
           </div>
           <div class="row mode-row mode-select-row">
             <label for="mode-select">Game mode</label>
@@ -1580,10 +1621,16 @@
     <div id="menu-score" class="menu-score hidden">Menu UFOs shot down: <b id="menu-score-n">0</b></div>
   </div>
 
-  <!-- New world: an optional seed, then the page reloads into that world. -->
+  <!-- New world: its type (Round 11), an optional seed, then the page reloads into that world. -->
   <div id="new-world-screen" class="overlay hidden">
     <div class="panel">
       <h2>New World</h2>
+      <div class="mp-mode-cards nw-types" role="group" aria-label="World type">
+        <button class="mp-mode" data-nwtype="missions" type="button"><b>Missions</b><small>The UFO war</small></button>
+        <button class="mp-mode" data-nwtype="survival" type="button"><b>Survival</b><small>Normal Minecraft</small></button>
+        <button class="mp-mode" data-nwtype="creative" type="button"><b>Creative</b><small>Build and fly</small></button>
+      </div>
+      <div id="new-type-hint" class="hint"></div>
       <div class="row">
         <label for="new-seed">Seed (optional)</label>
         <input type="text" id="new-seed" placeholder="random" maxlength="12" />
@@ -1761,7 +1808,7 @@
       </div>
 
       <div class="settings-page hidden" data-page="ufos">
-        <div class="hint hidden" id="ufo-survival-note">Survival: the mission chain decides how many UFOs there are and how big (no UFOs at first, then a single one, then more). Every UFO setting (activity, spawn chance, numbers, sizes, aggression, detection, toughness) is a Creative setting.</div>
+        <div class="hint hidden" id="ufo-survival-note">Missions: the mission chain decides how many UFOs there are and how big (no UFOs at first, then a single one, then more). Every UFO setting (activity, spawn chance, numbers, sizes, aggression, detection, toughness) is a Creative setting.</div>
         <div class="auto-rows"></div>
         <button class="advanced-toggle">&#9656; Advanced</button>
         <div class="auto-rows-advanced hidden"></div>
@@ -1784,7 +1831,8 @@
         <label for="mods-enabled"><b>UFO COMBAT mods</b></label>
         <input type="checkbox" id="mods-enabled" />
       </div>
-      <div class="hint">On: guns, explosives, the laser blaster, UFOs, aliens and vehicles. Off: plain vanilla survival and creative (swords and tools stay). Switching takes effect at once: mod items are put away (and come back when you switch mods on again), and UFOs, aliens and vehicles leave the world.</div>
+      <div class="hint">On: guns, explosives, the laser blaster, UFOs, aliens and vehicles. Off: the Missions world without them (swords and tools stay). For normal Minecraft (crafting, hunger, XP, vanilla mobs), make a Survival world. Switching takes effect at once: mod items are put away (and come back when you switch mods on again), and UFOs, aliens and vehicles leave the world. (A Survival world never has Mods.)</div>
+      <div id="mods-world-note" class="hint hidden"></div>
       <div id="mods-tools"></div>
       <div class="menu-buttons">
         <button class="btn back-btn">Back</button>

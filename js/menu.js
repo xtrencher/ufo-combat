@@ -141,9 +141,11 @@ export class MenuScreens {
 }
 
 // Tips shown (one at a time, rotating) at the bottom of the main menu.
+// (Round 11) The tips for a Missions world (the UFO war), then a Survival
+// world's (vanilla), and the ones about both.
 export const MENU_TIPS = [
-  "Survival starts with a sword: skeletons drop bows, supply crates bring guns, alien leaders carry alien weapons.",
-  "Every Survival game draws its own campaign: four acts from small to big, the missions shuffled within them. What comes next is classified.",
+  "Missions starts with a sword: skeletons drop bows, supply crates bring guns, alien leaders carry alien weapons.",
+  "Every Missions game draws its own campaign: four acts from small to big, the missions shuffled within them. What comes next is classified.",
   "Supply crates drop by parachute with orange smoke: walk up to open one.",
   "Hold the right mouse button with the bazooka to lock on; release for a homing rocket.",
   "The railgun's beam goes through everything: blocks, creatures and UFOs.",
@@ -152,20 +154,28 @@ export const MENU_TIPS = [
   "Only the B-2 bomber carries the nuke: find one at an airport (it is the big flying wing).",
   "Press C in the jet for flares: they fool missiles and seeking shots.",
   "Press I in any vehicle for its stats and controls.",
-  "A UFO shot down over land may crash in one piece: board it with F and fly it yourself (in Survival from the Salvage mission).",
+  "A UFO shot down over land may crash in one piece: board it with F and fly it yourself (in Missions from the Salvage mission).",
   "In your own UFO: R dashes you forward (hold it to keep going), B fires a huge laser straight down.",
   "Armor drops from aliens, guards and zombies now and then: put it on with a right click. Better material, less damage taken.",
   "Golden apples add extra hearts on top of your health.",
   "UFOs are mostly peaceful: they turn hostile if you shoot them or stare at them too long.",
   "Patrol fighters hunt UFOs and leave you alone, unless you shoot at one of them.",
+  "Want plain Minecraft? The Survival card makes a Survival world: no UFOs, no missions, no mod weapons.",
+];
+export const SURVIVAL_TIPS = [
+  "A Survival world is normal Minecraft: you start with nothing. Punch a tree for wood.",
+  "Esc > Game mode switches a Survival world to Creative and back: it stays a Survival world.",
+  "The Missions card opens the UFO war: missions, loot, supply drops and vehicles, in a world of its own.",
+  "Creatures come out at night: build a shelter before the first dusk.",
 ];
 
 // The main menu's frame rate readout and its low-FPS advice: a live counter,
 // and after a few seconds of measuring, a suggestion to lower the graphics
 // preset if the menu itself runs poorly.
 export class MenuPerf {
-  constructor({ fpsEl, recEl, recTextEl, recBtn, tipEl, onApply }) {
+  constructor({ fpsEl, recEl, recTextEl, recBtn, tipEl, onApply, tips = MENU_TIPS }) {
     this.fpsEl = fpsEl;
+    this.tips = tips.length ? tips : MENU_TIPS;
     this.recEl = recEl;
     this.recTextEl = recTextEl;
     this.recBtn = recBtn;
@@ -174,7 +184,7 @@ export class MenuPerf {
     this.preset = "ultra";
     this.suggest = null;
     this.reset();
-    this._tip = Math.floor(Math.random() * MENU_TIPS.length);
+    this._tip = Math.floor(Math.random() * this.tips.length);
     this._tipT = 0;
     // (the Low notice has no preset to apply: its OK just closes it)
     if (recBtn) recBtn.addEventListener("click", () => {
@@ -245,7 +255,7 @@ export class MenuPerf {
     this._tipT -= dt;
     if (this._tipT <= 0 && this.tipEl) {
       this._tipT = 8;
-      this.tipEl.textContent = `Tip: ${MENU_TIPS[this._tip % MENU_TIPS.length]}`;
+      this.tipEl.textContent = `Tip: ${this.tips[this._tip % this.tips.length]}`;
       this._tip++;
     }
   }

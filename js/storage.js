@@ -10,7 +10,16 @@
 // Orb crater (~2000 blocks) compresses to ~1 KB instead of ~24 KB as the
 // original flat JSON array, which matters against the ~5 MB storage quota.
 // The original v1 format (a flat [x,y,z,id, ...] array) is still read.
+//
+// (Round 11) Block ids are 16-bit. A chunk whose edits all fit in a byte is
+// still written as above (so a save without the new blocks stays readable
+// by older versions); one with a larger id is written "wide": the prefix
+// WIDE ("!", never in base64, so an older version fails to read it instead
+// of misreading it) and records of [index lo, index hi, run length, id lo,
+// id hi]. A save holding any wide chunk is format v3. The same strings
+// travel online (js/net/world.js).
 import { CHUNK_SIZE, WORLD_HEIGHT, blockIndex, floorDiv, chunkKey } from "./constants.js";
+import { BLOCK_LIMIT } from "./content/base.js";
 
 // Distinct from the original game (Voxelands, "voxelands_v1_"), which may be
 // hosted on the same domain: the two must never share saves or settings.
@@ -37,8 +46,12 @@ function base64ToBytes(str) {
   return out;
 }
 
+export const WIDE = "!";
+
 export function encodeChunkEdits(map) {
   const indices = [...map.keys()].sort((a, b) => a - b);
+  let wide = false;
+  for (const id of map.values()) if (id > 255) wide = true;
   const bytes = [];
   let i = 0;
   while (i < indices.length) {
@@ -48,19 +61,27 @@ export function encodeChunkEdits(map) {
     while (i + len < indices.length && len < 255 && indices[i + len] === start + len && map.get(indices[i + len]) === id) {
       len++;
     }
-    bytes.push(start & 0xff, start >> 8, len, id);
+    if (wide) bytes.push(start & 0xff, start >> 8, len, id & 0xff, id >> 8);
+    else bytes.push(start & 0xff, start >> 8, len, id);
     i += len;
   }
-  return bytesToBase64(bytes);
+  return wide ? WIDE + bytesToBase64(bytes) : bytesToBase64(bytes);
 }
 
+// Throws on a string it can't read (a newer format, or damaged): the caller
+// skips that chunk and says so.
 export function decodeChunkEdits(str) {
   const map = new Map();
-  const bytes = base64ToBytes(str);
-  for (let i = 0; i + 3 < bytes.length; i += 4) {
+  const wide = str.startsWith(WIDE);
+  if (!wide && /^[^A-Za-z0-9+/=]/.test(str)) throw new Error(`unknown edit format "${str.slice(0, 2)}"`);
+  const bytes = base64ToBytes(wide ? str.slice(1) : str);
+  const R = wide ? 5 : 4;
+  if (wide && bytes.length % R !== 0) throw new Error("damaged edits (wide records cut short)");
+  for (let i = 0; i + R - 1 < bytes.length; i += R) {
     const start = bytes[i] | (bytes[i + 1] << 8);
     const len = bytes[i + 2];
-    const id = bytes[i + 3];
+    const id = wide ? bytes[i + 3] | (bytes[i + 4] << 8) : bytes[i + 3];
+    if (id >= BLOCK_LIMIT) throw new Error(`damaged edits (block id ${id})`);
     for (let k = 0; k < len && start + k < BLOCKS_PER_CHUNK; k++) map.set(start + k, id);
   }
   return map;
@@ -83,7 +104,7 @@ function editsFromLegacyArray(arr) {
     const wy = arr[i + 1];
     const wz = arr[i + 2];
     const id = arr[i + 3];
-    if (![wx, wy, wz, id].every(Number.isInteger) || wy < 0 || wy >= WORLD_HEIGHT || id < 0 || id > 255) continue;
+    if (![wx, wy, wz, id].every(Number.isInteger) || wy < 0 || wy >= WORLD_HEIGHT || id < 0 || id > 255) continue; // (v1 only ever held byte ids)
     const cx = floorDiv(wx, CHUNK_SIZE);
     const cz = floorDiv(wz, CHUNK_SIZE);
     setEdit(edits, cx, cz, blockIndex(wx - cx * CHUNK_SIZE, wy, wz - cz * CHUNK_SIZE), id);
@@ -95,7 +116,10 @@ function editsFromLegacyArray(arr) {
 export function parseEdits(data) {
   if (Array.isArray(data)) return editsFromLegacyArray(data);
   const edits = new Map();
-  if (!data || data.v !== 2 || typeof data.chunks !== "object" || data.chunks === null) return edits;
+  if (!data || (data.v !== 2 && data.v !== 3) || typeof data.chunks !== "object" || data.chunks === null) {
+    if (data && data.v > 3) console.warn(`UFO COMBAT: saved edits are format v${data.v}, newer than this version reads; the world's changes are not loaded`);
+    return edits;
+  }
   for (const [key, encoded] of Object.entries(data.chunks)) {
     if (typeof encoded !== "string" || !/^-?\d+,-?\d+$/.test(key)) continue;
     try {
@@ -108,10 +132,12 @@ export function parseEdits(data) {
   return edits;
 }
 
-// Serializes edits to the v2 format. `cache` (Map<chunkKey, string>) keeps
-// each chunk's encoded form between saves so only `dirtyKeys` get re-encoded.
+// Serializes edits to the v2 format (v3 once a chunk holds an id above 255:
+// see the top). `cache` (Map<chunkKey, string>) keeps each chunk's encoded
+// form between saves so only `dirtyKeys` get re-encoded.
 export function serializeEdits(edits, cache = null, dirtyKeys = null) {
   const chunks = {};
+  let wide = false;
   for (const [key, map] of edits) {
     if (map.size === 0) continue;
     let encoded = cache && (!dirtyKeys || !dirtyKeys.has(key)) ? cache.get(key) : undefined;
@@ -119,9 +145,10 @@ export function serializeEdits(edits, cache = null, dirtyKeys = null) {
       encoded = encodeChunkEdits(map);
       if (cache) cache.set(key, encoded);
     }
+    if (encoded.startsWith(WIDE)) wide = true;
     chunks[key] = encoded;
   }
-  return { v: 2, chunks };
+  return { v: wide ? 3 : 2, chunks };
 }
 
 export function loadEdits(seed) {

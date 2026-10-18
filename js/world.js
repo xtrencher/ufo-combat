@@ -18,6 +18,7 @@ import {
   TILE,
   BLOCK_BOX,
   isSupportedBy,
+  isBlockId,
 } from "./blocks.js";
 import { Chunk } from "./chunk.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, blockIndex, floorDiv, chunkKey } from "./constants.js";
@@ -27,6 +28,9 @@ import { LightEngine, sampleLight } from "./light.js";
 import { meshChunk, padChunk } from "./mesher.js";
 import { buildBlockTextures } from "./textures.js";
 import { createChunkMaterials } from "./shaders.js";
+import { RANDOM_TICK, TICKS_RANDOMLY, TICKING } from "./content/index.js";
+import { cactusHolds } from "./content/nature.js";
+import { isVanilla } from "./worldtype.js";
 
 export { SEA_LEVEL };
 
@@ -79,13 +83,21 @@ export function selectionBox(id) {
 }
 
 const EDIT_REMESH_AT_ONCE = 8; // chunks rebuilt immediately after an edit
+// (Round 11) Random ticks, as vanilla: 20 game ticks a second, randomTickSpeed
+// 3 cells per 16-high section, in loaded chunks within 8 chunks of a player.
+const RANDOM_TICK_DT = 0.05;
+const RANDOM_TICK_SPEED = 3;
+const RANDOM_TICK_RANGE = 8;
 const EDIT_REMESH_BUDGET_MS = 10; // extra per-frame time for rebuilding after huge edits
 
 export class World {
-  constructor(scene, seed) {
+  // terrainOptions: { sites } (Round 11: false in a Survival world, no airports
+  // or cities), for the generator here, in the workers and in the LOD (lod.js).
+  constructor(scene, seed, terrainOptions = {}) {
     this.scene = scene;
     this.seed = seed >>> 0;
-    this.terrain = new TerrainGenerator(this.seed);
+    this.terrainOptions = { sites: terrainOptions?.sites !== false, vanilla: terrainOptions?.vanilla ?? terrainOptions?.sites === false };
+    this.terrain = new TerrainGenerator(this.seed, this.terrainOptions);
     this.chunks = new Map(); // numKey -> Chunk
     // Player/explosion edits on top of generated terrain, grouped per chunk:
     // Map<chunkKey string, Map<localBlockIndex, blockId>> (see storage.js).
@@ -134,6 +146,9 @@ export class World {
     this.extraWanted = null; // (cx, cz) => true to generate a chunk outside the plan (requestGen)
     this.chunksHidden = false; // new chunks start hidden (the LOD system shows them)
 
+    this._tickT = 0; // random ticks: time not yet ticked (randomTick)
+    this._tickSeed = (this.seed ^ 0x9e3779b9) >>> 0 || 1;
+    this._tickRand = () => this._nextRand() / 4294967296;
     this.onEdit = null; // () => void, after any recorded edit
     this.onBlockPopped = null; // (x, y, z, id) when a torch/plant loses its support
     this.changeListeners = []; // fns called with (flat [x, y, z, ...]) after every edit batch
@@ -205,7 +220,7 @@ export class World {
     x = Math.floor(x);
     y = Math.floor(y);
     z = Math.floor(z);
-    if (y < 0 || y >= WORLD_HEIGHT) return;
+    if (y < 0 || y >= WORLD_HEIGHT || !isBlockId(id)) return;
     const cx = x >> 4;
     const cz = z >> 4;
     if (this.getChunk(cx, cz)) {
@@ -233,7 +248,7 @@ export class World {
   setBlocks(list, { recordEdit = true, remote = false } = {}) {
     const changed = [];
     const apply = (x, y, z, id) => {
-      if (y < 0 || y >= WORLD_HEIGHT) return false;
+      if (y < 0 || y >= WORLD_HEIGHT || !isBlockId(id)) return false; // (an item id or garbage is never put in the world)
       const chunk = this.getChunk(x >> 4, z >> 4);
       if (!chunk) return false;
       const lx = x & 15;
@@ -253,13 +268,28 @@ export class World {
     };
     for (let i = 0; i < list.length; i += 4) apply(Math.floor(list[i]), Math.floor(list[i + 1]), Math.floor(list[i + 2]), list[i + 3]);
     // Blocks that needed support from a block that just changed pop off.
+    const pop = (x, y, z, id) => {
+      if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped && !remote) this.onBlockPopped(x, y, z, id);
+    };
+    const cactusRule = isVanilla(); // (Survival: vanilla's cactus, nature.js cactusHolds)
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1] + 1;
       const z = changed[i + 2];
       const above = this.getBlock(x, y, z);
-      if (BLOCK_INFO[above]?.support && !isSupportedBy(above, this.getBlock(x, y - 1, z))) {
-        if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped && !remote) this.onBlockPopped(x, y, z, above);
+      if (BLOCK_INFO[above]?.support && !isSupportedBy(above, this.getBlock(x, y - 1, z))) pop(x, y, z, above);
+      else if (cactusRule && above === BLOCK.CACTUS && !cactusHolds(this, x, y, z)) pop(x, y, z, above);
+      if (!cactusRule) continue;
+      // (a cactus put where it can't stand, or one a block now stands beside)
+      const here = this.getBlock(x, y - 1, z);
+      if (here === BLOCK.CACTUS) {
+        if (!cactusHolds(this, x, y - 1, z)) pop(x, y - 1, z, here);
+      } else if (IS_SOLID[here]) {
+        for (let d = 0; d < 4; d++) {
+          const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0);
+          const nz = z + (d === 2 ? 1 : d === 3 ? -1 : 0);
+          if (this.getBlock(nx, y - 1, nz) === BLOCK.CACTUS) pop(nx, y - 1, nz, BLOCK.CACTUS);
+        }
       }
     }
     if (changed.length === 0) return 0;
@@ -285,6 +315,79 @@ export class World {
     if (dx) add(chunk.cx + dx, chunk.cz);
     if (dz) add(chunk.cx, chunk.cz + dz);
     if (dx && dz) add(chunk.cx + dx, chunk.cz + dz);
+  }
+
+  // ---------- Random ticks ----------
+
+  // (Round 11) Gives random cells near the players their block's random tick
+  // (crops growing, saplings, fire: js/content/index.js), as vanilla: 20 ticks
+  // a second, RANDOM_TICK_SPEED cells per 16-high section of each loaded chunk
+  // within RANDOM_TICK_RANGE chunks of one of `centers` ([{ x, z }]: world
+  // positions; none: the streaming plan's centre). A slow frame catches up at
+  // most 5 ticks (like a lagging server, growth then just slows). Costs
+  // nothing while no block has a random tick. The host only, online (its
+  // edits reach the others as edits). Returns the number of handlers run.
+  randomTick(dt, centers = null) {
+    if (!TICKING.any) {
+      this._tickT = 0;
+      return 0;
+    }
+    this._tickT = Math.min(this._tickT + dt, RANDOM_TICK_DT * 5);
+    let n = 0;
+    while (this._tickT >= RANDOM_TICK_DT) {
+      this._tickT -= RANDOM_TICK_DT;
+      n += this._randomTickOnce(centers);
+    }
+    return n;
+  }
+
+  _nextRand() {
+    // (xorshift32: cheap, and its own stream, so ticks never disturb Math.random users)
+    let x = this._tickSeed;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    return (this._tickSeed = x >>> 0);
+  }
+
+  _randomTickOnce(centers) {
+    const cs = [];
+    if (centers && centers.length) for (const c of centers) cs.push(Math.floor(c.x) >> 4, Math.floor(c.z) >> 4);
+    else if (this._planCx !== null) cs.push(this._planCx, this._planCz);
+    if (!cs.length) return 0;
+    const R2 = RANDOM_TICK_RANGE * RANDOM_TICK_RANGE;
+    const sections = WORLD_HEIGHT >> 4;
+    const hits = [];
+    for (const chunk of this.chunks.values()) {
+      let near = false;
+      for (let i = 0; i < cs.length && !near; i += 2) near = (chunk.cx - cs[i]) ** 2 + (chunk.cz - cs[i + 1]) ** 2 <= R2;
+      if (!near) continue;
+      // (as vanilla, only chunks whose 8 neighbours are loaded: the handlers
+      // read a few blocks past the edge, where an unloaded chunk reads as air,
+      // so cane would pop, farmland dry out and leaves decay there)
+      if (!this._isReady(chunk)) continue;
+      const B = chunk.blocks;
+      for (let s = 0; s < sections; s++) {
+        for (let k = 0; k < RANDOM_TICK_SPEED; k++) {
+          const idx = (s << 12) | (this._nextRand() & 4095);
+          if (TICKS_RANDOMLY[B[idx]]) hits.push(chunk, idx);
+        }
+      }
+    }
+    // (Run after the sweep: a handler's edits never change what was picked.)
+    let n = 0;
+    for (let i = 0; i < hits.length; i += 2) {
+      const chunk = hits[i];
+      const idx = hits[i + 1];
+      if (this.chunks.get(numKey(chunk.cx, chunk.cz)) !== chunk) continue;
+      const id = chunk.blocks[idx];
+      const fn = RANDOM_TICK[id];
+      if (!fn) continue;
+      fn(this, chunk.cx * CHUNK_SIZE + (idx & 15), idx >> 8, chunk.cz * CHUNK_SIZE + ((idx >> 4) & 15), id, this._tickRand);
+      n++;
+    }
+    this.stats.randomTicks = (this.stats.randomTicks || 0) + n;
+    return n;
   }
 
   // ---------- Streaming ----------
@@ -544,7 +647,7 @@ export class World {
           if (e && e.preventDefault) e.preventDefault();
           this._stopGenWorkers();
         };
-        w.postMessage({ type: "init", seed: this.seed });
+        w.postMessage({ type: "init", seed: this.seed, opts: this.terrainOptions });
         this._genWorkers.push(w);
       }
       return true;

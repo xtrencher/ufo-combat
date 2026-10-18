@@ -17,6 +17,8 @@
 // cannon) get a hit provider of their own.
 import * as THREE from "three";
 import { r1, r2 } from "./interp.js";
+import { itemInfo } from "../items.js";
+import { shieldRaised, disableShield } from "../content/items-vanilla.js";
 
 const BODY_R = 0.34;
 const BODY_H = 1.85;
@@ -128,7 +130,9 @@ export class PvpSync {
     mobs._hurt = (m, amount, dir, kb, byPlayer = false) => {
       if (!m?.isRemotePlayer) return hurt(m, amount, dir, kb, byPlayer);
       if (!byPlayer || amount <= 0 || !this.allowed) return false;
-      this.hit(m.pid, amount, "pk", dir ? [dir.x * kb, dir.z * kb] : null);
+      // (A blow with an axe in hand knocks a raised shield down for 5 s, as vanilla.)
+      const axe = itemInfo(this.game.inventory.selectedStack?.id)?.tool?.type === "axe";
+      this.hit(m.pid, amount, "pk", dir ? [dir.x * kb, dir.z * kb] : null, null, axe);
       return true;
     };
     // Bolts and bullets (pistol, machine gun, sniper, blaster, minigun, UFO
@@ -152,11 +156,11 @@ export class PvpSync {
   }
 
   // This player hit player `pid`.
-  hit(pid, amount, cause = "pk", push = null, point = null) {
+  hit(pid, amount, cause = "pk", push = null, point = null, axe = false) {
     if (!this.allowed) return;
     const me = this.game.player;
     const from = point || me.getEyePosition();
-    this.net.toPlayer(pid, { t: "pvp", a: r1(amount), c: cause, k: push ? [r2(push[0]), r2(push[1])] : 0, f: [r1(from.x), r1(from.y), r1(from.z)] });
+    this.net.toPlayer(pid, { t: "pvp", a: r1(amount), c: cause, k: push ? [r2(push[0]), r2(push[1])] : 0, f: [r1(from.x), r1(from.y), r1(from.z)], ...(axe && { ax: 1 }) });
     this.game.hud?.hitMarker?.();
     const s = this.stand.get(pid);
     if (s) s.hurtTime = 0;
@@ -171,9 +175,12 @@ export class PvpSync {
     const amount = Math.max(0, Math.min(200, Number(m.a) || 0));
     const at = Array.isArray(m.f) ? new THREE.Vector3(m.f[0], m.f[1], m.f[2]) : null;
     const cause = `pk@${from}`;
-    if (p.damage(amount, cause, { projectile: true, from: at }) && Array.isArray(m.k)) {
+    const blocking = m.ax === 1 && shieldRaised(p, g.inventory);
+    const landed = p.damage(amount, cause, { projectile: true, from: at });
+    if (landed && Array.isArray(m.k)) {
       p.applyImpulse(new THREE.Vector3(m.k[0], 1.5, m.k[1]));
     }
+    if (blocking && !landed) disableShield(p);
   }
 
   // This player died: a player who killed them hears of it.
