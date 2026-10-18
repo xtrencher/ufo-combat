@@ -1025,7 +1025,7 @@ class VillagePlan {
         put(u, 0, v, mossy(u, 0, v));
         for (let y = 1; y <= H; y++) {
           let id = corner ? (spec.corner?.(st) ?? st.frame) : y === 1 ? mossy(u, y, v) : wall;
-          if (!corner && y === H && accent && st.flat) id = accent;
+          if (!corner && y === H && accent) id = accent; // (a band of terracotta under the roof: the desert's and the savanna's)
           if (!corner && y === 2 && this._window(u, v, W, D, du)) id = V.GLASS_PANE;
           if (u === du && v === 0 && y <= 2) id = BLOCK.AIR;
           put(u, y, v, id);
