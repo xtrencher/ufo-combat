@@ -201,8 +201,9 @@ const gateOpen = (id) => VAR[id] >> 2;
 // (a gate joins a fence or wall running along its width)
 const gateAcross = (n, d) => KIND[n] === K.GATE && gateFacing(n) >> 1 !== d >> 1;
 const fenceJoins = (n, d) => KIND[n] === K.FENCE || gateAcross(n, d) || fullTable()[n] === 1;
-const wallJoins = (n, d) => KIND[n] === K.WALL || KIND[n] === K.PANE || gateAcross(n, d) || fullTable()[n] === 1;
-const paneJoins = (n) => KIND[n] === K.PANE || KIND[n] === K.WALL || fullTable()[n] === 1;
+// (LIB.joinsPane: the decor part's stained glass panes)
+const wallJoins = (n, d) => KIND[n] === K.WALL || KIND[n] === K.PANE || LIB.joinsPane?.(n) || gateAcross(n, d) || fullTable()[n] === 1;
+const paneJoins = (n) => KIND[n] === K.PANE || LIB.joinsPane?.(n) || KIND[n] === K.WALL || fullTable()[n] === 1;
 // The neighbours joined (bit d: toward facing d).
 function joinMask(kind, nb) {
   let mask = 0;
@@ -1089,8 +1090,8 @@ export const recipes = () => {
   fuel(I.LADDER, 15);
   shaped(["###", "###"], { "#": BLOCK.GLASS }, I.GLASS_PANE, 16);
   shaped(["###", "###"], { "#": I.IRON_INGOT }, I.IRON_BARS, 16);
-  // (any wool: without dyes a red one can't be had, and a bed is where you sleep)
-  shaped(["WWW", "PPP"], { W: WOOL_IDS, P: ANY_PLANKS }, I.RED_BED, 1);
+  // (red wool: the other colours' beds are the decor part's)
+  shaped(["WWW", "PPP"], { W: I.RED_WOOL, P: ANY_PLANKS }, I.RED_BED, 1);
   shaped(["NNN", "N#N", "NNN"], { N: I.IRON_NUGGET, "#": BLOCK.TORCH }, I.LANTERN, 1);
   shaped(["PPP", "BBB", "PPP"], { P: ANY_PLANKS, B: I.BOOK }, I.BOOKSHELF, 1);
   fuel(I.BOOKSHELF, 15);

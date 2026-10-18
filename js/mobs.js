@@ -31,7 +31,7 @@ import { meleeCause, shooterCause } from "./damage.js";
 import { isVanilla } from "./worldtype.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
-import { dyeColorOf } from "./content/decor.js";
+import { dyeColorOf, mixDyeColors } from "./content/decor.js";
 import { makeOffers, PROFESSION_NAMES, NITWIT } from "./trading.js";
 import { SEA_LEVEL } from "./constants.js";
 
@@ -784,7 +784,9 @@ export class MobManager {
     if (!isVanilla()) return this._effectiveLight(x, y, z) <= 4;
     const l = this.world.lightAt(x + 0.5, y + 0.5, z + 0.5);
     if (l.block > 0) return false;
-    return l.sky * (0.2 + 0.8 * this.sky.daylight) <= Math.floor(Math.random() * 8);
+    // (Round 11: a thunderstorm darkens the day for them: vanilla's sky darkening of 10)
+    const day = this.sky.daylight * (LIB.isThundering?.() ? 0.25 : 1);
+    return l.sky * (0.2 + 0.8 * day) <= Math.floor(Math.random() * 8);
   }
 
   // (Round 11) Slimes: in swamps on the surface at night, and in the dark
@@ -1214,6 +1216,8 @@ export class MobManager {
   // everything else leaves Creative players alone.
   _canTarget(m) {
     const p = this.player;
+    // (Round 11) Invisible (a potion): seen only close by (vanilla: about 2 blocks).
+    if (m && p.effectLevel?.("invisibility") > 0 && Math.hypot(p.position.x - m.pos.x, p.position.z - m.pos.z) > 2) return false;
     return !p.dead && (!p.creative || !!m?.spec.alien);
   }
 
@@ -2245,7 +2249,9 @@ export class MobManager {
     a.breedCd = b.breedCd = BREED_COOLDOWN;
     a.mateTime = b.mateTime = 0;
     a.persist = b.persist = true;
-    const variant = a.kind === "sheep" ? (Math.random() < 0.5 ? a.variant : b.variant) : undefined;
+    // (A lamb: the colour its parents' dyes mix into, else one parent's: vanilla.)
+    const mixed = a.kind === "sheep" ? mixDyeColors(a.variant | 0, b.variant | 0) : -1;
+    const variant = a.kind === "sheep" ? (mixed >= 0 ? mixed : Math.random() < 0.5 ? a.variant : b.variant) : undefined;
     const baby = this.spawn(a.kind, (a.pos.x + b.pos.x) / 2, Math.max(a.pos.y, b.pos.y), (a.pos.z + b.pos.z) / 2, { baby: true, variant });
     if (baby) baby.persist = true;
     if (baby && a.tamed) this._tame(baby, a.owner); // (a tame pair's pup is their owner's)
@@ -3362,6 +3368,14 @@ export class MobManager {
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
     if (byPlayer && m.calmT > 0) this.wake(m);
+    // (Round 11) The enchantments of the blow or arrow (attackExtras, set
+    // around the hit: js/interaction.js, js/weapons.js; a guest's in its
+    // claim): Fire Aspect and Flame set it alight, Looting is kept for its drops.
+    if (byPlayer) {
+      const ex = this.attackExtras;
+      if (ex?.fire > 0 && !m.inWater) m.fireT = Math.max(m.fireT ?? 0, ex.fire);
+      m.looting = ex?.looting | 0;
+    }
     if (m.spec.hides && m.hide > 0.5) amount *= 0.5; // the shell takes most of it
     m.health -= amount;
     m.hurtTime = 0;
@@ -3426,9 +3440,11 @@ export class MobManager {
     const keep = !(this.keepDrops && !this.keepDrops(m));
     const byPlayer = this.time - (m.lastPlayerHit ?? -99) < 6;
     const cooked = m.burning || m.fireT > 0;
+    // (Round 11) Looting (vanilla): up to its level more of each drop, rare drops 1% a level likelier.
+    const looting = byPlayer ? m.looting | 0 : 0;
     for (const [id, min, max, chance, cookedId, playerOnly] of keep ? m.spec.drops : []) {
-      if (Math.random() > chance || (playerOnly && !byPlayer)) continue;
-      const n = min + Math.floor(Math.random() * (max - min + 1));
+      if (Math.random() > chance + (chance < 1 ? 0.01 * looting : 0) || (playerOnly && !byPlayer)) continue;
+      const n = min + Math.floor(Math.random() * (max - min + 1)) + (looting ? Math.floor(Math.random() * (looting + 1)) : 0);
       const item = cooked && cookedId && isValidItem(cookedId) ? cookedId : id;
       if (n > 0 && isValidItem(item)) this.entities.spawn(item, n, new THREE.Vector3(c.x, c.y + 0.4, c.z));
     }
@@ -3526,20 +3542,28 @@ export class MobManager {
 
   // The player hits `mob` with `tool` (item tool info or null). Returns true
   // if the hit landed.
-  attack(mob, tool) {
+  // (Round 11) extra (js/interaction.js): the bare hand's bonus damage
+  // (Strength), and Knockback, Fire Aspect (seconds) and Looting levels.
+  attack(mob, tool, extra = null) {
     const player = this.player;
     const charge = this.charge(tool);
     this.lastAttackTime = this.time;
     if (mob.dead) return false;
-    let dmg = meleeDamage(tool) * (0.2 + 0.8 * charge * charge);
+    let dmg = Math.max(0, meleeDamage(tool) + (extra?.bonus ?? 0)) * (0.2 + 0.8 * charge * charge);
     // Critical hit: striking while falling.
     const crit = charge > 0.9 && !player.onGround && !player.inWater && player.velocity.y < -1;
     if (crit) dmg *= 1.5;
     const dx = mob.pos.x - player.position.x;
     const dz = mob.pos.z - player.position.z;
     const d = Math.hypot(dx, dz) || 1;
-    const kb = (5 + (player.sprinting ? 3 : 0)) * (0.4 + 0.6 * charge);
-    const hit = this._hurt(mob, dmg, { x: dx / d, z: dz / d }, kb, true);
+    const kb = (5 + (player.sprinting ? 3 : 0)) * (0.4 + 0.6 * charge) + 5 * (extra?.knockback ?? 0);
+    this.attackExtras = extra?.fire || extra?.looting ? extra : null;
+    let hit;
+    try {
+      hit = this._hurt(mob, dmg, { x: dx / d, z: dz / d }, kb, true);
+    } finally {
+      this.attackExtras = null;
+    }
     if (hit) {
       this.audio.playHit(crit);
       if (crit) this._critSparks(mob);
@@ -3751,7 +3775,8 @@ export class MobManager {
 
   // Zombies burn in direct daylight.
   _daylight(m, dt, daylight) {
-    m.burning = m.spec.hostile && !m.spec.noBurn && !m.fireproof && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater;
+    // (Round 11: not in the rain, as vanilla)
+    m.burning = m.spec.hostile && !m.spec.noBurn && !m.fireproof && !(m.kind === "zombie" && this.zombies.daylight) && daylight > 0.6 && m.light.sky >= 13 && !m.inWater && !LIB.isRainingAt?.(m.pos.x, m.pos.y + m.spec.h, m.pos.z);
     if (!m.burning) return;
     m.burnTimer += dt;
     if (m.burnTimer >= 1) {

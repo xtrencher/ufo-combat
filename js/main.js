@@ -5,7 +5,7 @@ import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
 import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
-import { Sky } from "./sky.js";
+import { Sky, DAY_LENGTH } from "./sky.js";
 import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, lastEditsBytes } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
@@ -14,13 +14,16 @@ import { normalizeSettings, DEFAULT_SETTINGS, SCHEMA, SettingsPanel, AUDIO_CATEG
 import { PlayerAvatar } from "./player-avatar.js";
 import { BIOME_NAMES } from "./biomes.js";
 import { worldUniforms } from "./shaders.js";
-import { Inventory, HOTBAR_SIZE, makeStack } from "./inventory.js";
+import { Inventory, HOTBAR_SIZE, makeStack, encodeStack } from "./inventory.js";
 import { itemInfo, SURVIVAL_LOADOUT, CREATIVE_LOADOUT, ITEM, MOD_ITEMS, canHarvest } from "./items.js";
 const ITEM_GOLDEN_APPLE = ITEM.GOLDEN_APPLE;
 import { IconCache } from "./slot-view.js";
 import { Hud } from "./hud.js";
 import { InventoryScreen } from "./inventory-ui.js";
 import { Furnaces } from "./furnace.js";
+import { BrewingStands, PotionThrows } from "./brewing.js";
+import { BrewingSync } from "./net/brewing.js";
+import { armorLevel, thornsDamage, isEnchanted } from "./enchant.js";
 import { ItemEntities } from "./entities.js";
 import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
@@ -28,8 +31,15 @@ import { MobManager, specOf } from "./mobs.js";
 import { TradeScreen } from "./trading.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
+import { Signs, SignSync } from "./signs.js";
+import { DecorSim } from "./decor-sim.js";
 import { WaterSim } from "./watersim.js";
 import { NatureSim } from "./nature-sim.js";
+import { Weather } from "./weather.js";
+import { WeatherFx } from "./weather-fx.js";
+import { WeatherSync } from "./net/weather.js";
+import { Spawners } from "./structures.js";
+import { RedstoneSim } from "./redstone-sim.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
 import { LaserBolts, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
@@ -66,7 +76,7 @@ import { roomMode, playerModeOf } from "./net/rules.js";
 import { setWorldType, worldType, isVanilla, normalizeWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
 import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
 import { Sleep } from "./sleep.js";
-import { oreXp } from "./survival.js";
+import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
 import { LIB } from "./content/base.js";
 import { shieldRaised } from "./content/items-vanilla.js";
 
@@ -294,6 +304,9 @@ window.addEventListener("resize", onResize);
 // generators in the workers and the LOD get the same options from the world.)
 const world = new World(scene, SEED, { sites: !isVanilla(), vanilla: isVanilla() });
 if (!GUEST) world.loadEdits(loadEdits(SEED));
+// (Round 11) Concrete powder against water, and the colours of blocks that
+// share a tile (js/decor-sim.js: before the LOD system reads them).
+const decorSim = new DecorSim(world);
 // (Perf) Terrain generation off the main thread, in a worker or two (the
 // streaming's heaviest part; world.js). ?genWorkers=0 keeps it on the main thread.
 {
@@ -407,7 +420,11 @@ const sleep = new Sleep({
   // (The host's clock jumped: everyone gets it now, not at the next 2 s update.)
   sendTime: () => net.broadcast({ t: "time", time: sky.time, scale: sky.timeScale ?? 1, locked: !!sky.locked, ts: net.time }),
   onSpawnSet: () => (playerDirty = true),
-  onSkip: () => (playerDirty = true),
+  onSkip: () => {
+    playerDirty = true;
+    weather.clearAfterSleep(); // (Round 11: a night slept through ends the rain)
+  },
+  thundering: () => weather.isThundering, // (a bed works in a thunderstorm)
 });
 LIB.onBedUse = (ctx) => sleep.useBed(ctx);
 // XP points at (x, y, z) (default: the player): a whole number of them, a
@@ -424,6 +441,17 @@ world.waterSim = waterSim; // (a bucket tells flowing water from a source: js/co
 // player's own edits, like the water; fire is the host's (enabled below,
 // once the multiplayer exists).
 const natureSim = new NatureSim(world);
+// (Round 11) A Survival world's weather (js/weather.js; drawn and heard
+// through js/weather-fx.js; the host's online: js/net/weather.js), and the
+// monster spawners of its dungeons and mineshafts (js/structures.js).
+const weather = new Weather({ world, player, mobs, dayLength: DAY_LENGTH, difficulty: () => difficulty() });
+const weatherFx = new WeatherFx({ scene, weather, audio, sky });
+weather.onStrike = (x, y, z) => weatherFx.strike(x, y, z);
+natureSim.fire.rainingAt = (x, y, z) => weather.nearRain(x, y, z);
+const spawners = new Spawners({ world, mobs, effects });
+// (Round 11) Redstone and TNT (js/redstone-sim.js): the host's, like the fire
+// (enabled below, once the multiplayer exists); every player draws primed TNT.
+const redstone = new RedstoneSim({ scene, world, effects, audio, entities, mobs, player, players: () => (mpLate?.active ? mpLate.players.active() : []) });
 const decals = new BulletHoles(scene, world);
 // Laser bolts (the blaster; later UFOs and aliens), with scorch marks.
 const scorches = new BulletHoles(scene, world, { kind: "scorch" });
@@ -652,13 +680,44 @@ weapons.getLockables = () => {
 // and the nuke.
 // (Round 11: vanilla's own, damage.js BYPASSES_ARMOR: burning, suffocation, poison...)
 const ARMOR_PASS = new Set([...BYPASSES_ARMOR, "jet_crash", "jet_down", "ufo_down", "abducted", "nuke"]);
+// (Round 11) Then the Protection enchantments (survival.js protectedDamage:
+// Protection, Fire, Blast, Projectile Protection, Feather Falling on falls,
+// also against what armor points don't stop), and Thorns strikes back.
 player.damageFilter = (amount, cause, from) => {
-  if (player.creative || ARMOR_PASS.has(cause)) return amount;
+  if (player.creative) return amount;
+  if (ARMOR_PASS.has(cause)) return protectedDamage(amount, cause, inventory.armor);
   if (shieldBlocks(amount, from)) return 0;
+  thorns(cause, from);
   const red = inventory.armorReduction();
-  if (red <= 0) return amount;
-  return Math.max(1, Math.round(amount * (1 - red)));
+  return protectedDamage(red <= 0 ? amount : Math.max(1, Math.round(amount * (1 - red))), cause, inventory.armor);
 };
+// Thorns on the armor worn: a creature's blow (from: where it stands) may
+// cost it 1-4 damage; the piece wears 2 more.
+const THORNS_CAUSES = new Set(["zombie", "skeleton_melee", "spider", "enderman", "slime", "iron_golem", "wolf", "husk", "drowned", "cave_spider", "zombie_villager"]);
+function thorns(cause, from) {
+  if (!from || !THORNS_CAUSES.has(cause) || !armorLevel(inventory.armor, "thorns")) return;
+  const dmg = thornsDamage(inventory.armor, Math.random, (i, n) => {
+    const s = inventory.armor[i];
+    if (s?.dur === undefined) return;
+    s.dur -= n;
+    if (s.dur <= 0) inventory.armor[i] = null;
+  });
+  markInventoryChanged();
+  if (!dmg) return;
+  let best = null;
+  let bestD = 2.5;
+  for (const m of mobs.mobs) {
+    if (m.dead) continue;
+    const d = Math.hypot(m.pos.x - from.x, m.pos.z - from.z);
+    if (d < bestD) {
+      bestD = d;
+      best = m;
+    }
+  }
+  if (!best) return;
+  best.invulnerable = 0;
+  mobs._hurt(best, dmg, null, 0, true);
+}
 // (Round 11) A raised shield (js/content/items-vanilla.js) turns away a hit
 // from in front (vanilla: the half the player faces): a blow, an arrow, a
 // shot; not a witch's potion or the world's hurts (they come from nowhere).
@@ -1241,6 +1300,7 @@ if (savedPlayer) {
   if (isVanilla()) {
     player.loadSurvival(savedPlayer.surv);
     sleep.load(savedPlayer.bed);
+    weather.load(savedPlayer.weather);
   }
   nuke.loadZones(savedPlayer.blastZones);
   waterSim.loadMeta(savedPlayer.water);
@@ -1301,6 +1361,37 @@ interaction.onOpenScreen = (kind, x, y, z) => {
   invScreen.screenPos = [x, y, z];
   openInventory(kind);
 };
+// (Round 11) Brewing stands (js/brewing.js: saved with the world like the
+// furnaces) and thrown bottles: splash potions, the bottle o' enchanting.
+// The enchanting table and the anvil spend the player's levels.
+const brewing = new BrewingStands({ world });
+brewing.onDrop = chests.onDrop;
+brewing.onBrewed = () => audio.playSplash?.();
+brewing.load(savedPlayer?.brewing);
+invScreen.brewing = brewing;
+invScreen.player = player;
+invScreen.onEnchanted = () => markInventoryChanged();
+const potionThrows = new PotionThrows({ scene, world, player, effects, audio, mobs });
+// (Round 11) Signs (js/signs.js): their text, saved with the world like the
+// chests. Placing one, or a right click on one, opens its editor, which
+// takes the controls as the inventory screen does.
+const signs = new Signs({ scene, world });
+signs.load(savedPlayer?.signs);
+signs.onOpen = () => {
+  if (gameState !== "playing" || mp.dogfight?.watching) return false;
+  chord.reset();
+  interaction.release();
+  vehicles.releaseAll();
+  gameState = "inventory";
+  document.exitPointerLock();
+  return true;
+};
+signs.onClose = () => {
+  if (gameState !== "inventory") return;
+  gameState = "paused";
+  requestLock();
+};
+signs.inGame = () => gameState === "inventory";
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
 function dropLoot(list, at) {
   for (const [id, n] of list) {
@@ -1606,7 +1697,7 @@ function serializeInvWithCursor() {
   for (const c of invScreen.heldStacks()) {
     const i = inv.indexOf(0);
     if (i < 0) break;
-    inv[i] = c.dur !== undefined ? [c.id, c.count, c.dur] : [c.id, c.count];
+    inv[i] = encodeStack(c); // (Round 11: with its tag)
   }
   return inv;
 }
@@ -1628,6 +1719,7 @@ function playerState() {
     // (Round 11) A Survival world: food, effects, XP (a dead player: as respawned) and the bed.
     surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined,
     bed: isVanilla() ? sleep.serialize() : undefined,
+    weather: isVanilla() ? weather.serialize() : undefined, // (Round 11) the rain and thunder's cycle
     inv: kept ? kept.slots : serializeInvWithCursor(),
     armor: kept ? kept.armor : inventory.serializeArmor(),
     sel: kept ? kept.sel : inventory.selected,
@@ -1637,6 +1729,8 @@ function playerState() {
     missions: progress.serialize(),
     chests: chests.serialize(),
     furnaces: furnaces.serialize(),
+    brewing: brewing.serialize(), // (Round 11)
+    signs: signs.serialize(),
     mobs: mobs.serializeKept(), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
     vehicles: vehicles.serialize(),
     stats: stats.world,
@@ -1738,10 +1832,11 @@ interaction.onMessage = (t) => toast(t, 2.5);
 // (Round 11) A block the player broke: mining's bit of hunger and, in a
 // Survival world, an ore's XP (its def's `xp`; only when the tool harvests
 // it, as vanilla). An attack that lands costs a little hunger too.
-interaction.onBlockBroken = (x, y, z, id, tool) => {
+interaction.onBlockBroken = (x, y, z, id, tool, silk) => {
   player.addExhaustion(0.005);
   const spec = oreXp(id);
-  if (spec != null && isVanilla() && canHarvest(id, tool)) xp.spawn(x + 0.5, y + 0.5, z + 0.5, rollXp(spec));
+  // (Round 11: an ore taken whole with Silk Touch gives no experience, as vanilla.)
+  if (spec != null && isVanilla() && !silk && canHarvest(id, tool)) xp.spawn(x + 0.5, y + 0.5, z + 0.5, rollXp(spec));
 };
 interaction.onAttack = () => player.addExhaustion(0.1);
 weapons.onChange = markInventoryChanged;
@@ -1753,7 +1848,7 @@ falling.onBreak = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
 
 entities.onPickup = (item) => {
   if (player.dead) return item.count;
-  const left = inventory.add(item.id, item.count, item.dur);
+  const left = inventory.add(item.id, item.count, item.dur, item.tag);
   if (left < item.count) {
     audio.playPickup();
     markInventoryChanged();
@@ -1825,7 +1920,7 @@ function dropEverything() {
     for (const s of [...inventory.slots, ...inventory.armor]) {
       if (!s) continue;
       const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
-      entities.spawn(s.id, s.count, at, vel, { dur: s.dur, pickupDelay: 2 });
+      entities.spawn(s.id, s.count, at, vel, { dur: s.dur, tag: s.tag, pickupDelay: 2 });
     }
   });
   inventory.clear();
@@ -2051,6 +2146,7 @@ function setGraphics(name, { adoptRenderDistance = false, keepOverrides = true, 
   activePreset = preset;
   lod.configure({ detailDistance: settings.perf.detailDistance > 0 ? settings.perf.detailDistance : preset.detailDistance });
   grass.configure({ level: preset.grass });
+  weatherFx.setQuality(graphicsPreset); // (no rain or snow drawn on Low)
   world.setMeshOptions({ fancyLeaves: preset.fancyLeaves });
   // A preset suggests a render distance; it is adopted only while the player
   // hasn't set one of their own (see PROGRESS.md, "Settings persistence").
@@ -2848,7 +2944,7 @@ function updateDebug(dt, frameTime) {
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     `Facing: ${facing}  yaw ${yawDeg.toFixed(1)}  pitch ${((player.pitch * 180) / Math.PI).toFixed(1)}`,
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
-    `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
+    `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}${isVanilla() ? `   Weather: ${weather.kind}` : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `World: ${worldType()}   Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
     ...(isVanilla() ? [`Food: ${player.food} (saturation ${player.saturation.toFixed(1)}, exhaustion ${player.exhaustion.toFixed(2)})   XP: level ${player.xpLevel} + ${Math.round(player.xpProgress * 100)}% (${player.xpTotal} in all)   Orbs: ${xp.orbs.length}${sleep.spawn ? `   Bed: ${sleep.spawn.join(" ")}` : ""}`] : []),
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
@@ -2961,6 +3057,7 @@ function updateEnvironment(dt) {
     refractedSun.set(h > 1e-4 ? (L.x / h) * hr : 0, Math.sqrt(Math.max(0, 1 - hr * hr)), h > 1e-4 ? (L.z / h) * hr : 0);
   }
   motes.update(eye, worldUniforms.uTime.value, underwater, wl, drawingSize.y || window.innerHeight);
+  weatherFx.update(dt, eye); // (Round 11: rain, snow, lightning, their sounds)
 
   // Low mist over the water, thickest around sunrise and sunset.
   const e = worldUniforms.uSunDir.value.y;
@@ -2973,6 +3070,9 @@ function updateEnvironment(dt) {
   const ambient = Math.max((eyeLight.sky / 15) * (0.25 + 0.75 * sky.daylight), (eyeLight.block / 15) * 0.9);
   const target = 1 + (1 - ambient) * 0.45;
   eyeAdaptation += (target - eyeAdaptation) * Math.min(1, dt * 1.5);
+  // (Round 11) Night Vision (the world shader's light floor) and Respiration (the helmet's).
+  worldUniforms.uNightVision.value = nightVisionFactor(player);
+  player.respiration = armorLevel(inventory.armor, "respiration");
 
   scene.fog.color.copy(sky.horizonColor);
 }
@@ -3104,6 +3204,7 @@ const game = {
   falling,
   waterSim,
   natureSim,
+  redstone,
   xp,
   sleep,
   toast,
@@ -3303,7 +3404,16 @@ const game = {
 };
 const mp = new Multiplayer(net, game);
 mpLate = mp;
+// (Round 11) Brewing stands (the host's) and thrown bottles online (js/net/brewing.js).
+mp.brewing = mp.addModule(new BrewingSync(mp, { brewing, throws: potionThrows }));
+mp.addModule(new WeatherSync(mp, weather)); // (Round 11: the host's weather and bolts)
+mp.addModule(new SignSync(mp, signs)); // (Round 11: the signs' text online)
 natureSim.fire.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's fires burn at the host; the results arrive as edits)
+redstone.enabled = () => !GUEST && (!mp.active || mp.isHost); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
+redstone.send = (m) => mp.active && net.isHost && net.broadcast(m); // (primed TNT and the circuits' sounds, for the guests)
+net.on("rs", (m, from) => {
+  if (!net.isHost && from === 1) redstone.onMessage(m); // (1: the host)
+});
 // No solid block placed inside another player (it would shove them out on
 // their screen). Their newest position, with a little margin for its age.
 interaction.othersOverlap = (bx, by, bz) => {
@@ -3353,12 +3463,20 @@ window.__ufo = window.__voxelands = {
   entities,
   interaction,
   furnaces,
+  brewing, // (Round 11)
+  potionThrows,
   trading,
   invScreen,
   mobs,
   falling,
+  signs,
+  decorSim,
   waterSim,
   natureSim,
+  redstone,
+  weather,
+  weatherFx,
+  spawners,
   weapons,
   lasers,
   nuke,
@@ -3878,6 +3996,9 @@ function simulate(dt, frameTime) {
     airports.update(dt);
     crates.update(dt);
     furnaces.update(dt);
+    brewing.update(dt); // (Round 11)
+    potionThrows.update(dt);
+    signs.update(dt, camera.position);
     updateJetWatch(dt);
     if (vehicles.active) vehicles.updateCamera(camera, dt);
     updateAltitudeView(dt);
@@ -3895,6 +4016,11 @@ function simulate(dt, frameTime) {
     falling.update(dt);
     waterSim.update();
     natureSim.update(dt);
+    // (Round 11) The weather and the monster spawners: the host's (or a single
+    // player's); a guest's weather fades to the host's, its spawners only flicker.
+    weather.update(dt, randomTickCenters());
+    spawners.update(dt, randomTickCenters(), !mp.active || mp.isHost);
+    redstone.update(dt); // (Round 11: redstone ticks; primed TNT falling and going off)
     // (Round 11) Random ticks (crops, saplings, fire: js/content/index.js), near
     // every player; the host simulates them, a guest gets the results as edits.
     if (!mp.active || mp.isHost) world.randomTick(dt, randomTickCenters());
@@ -3970,6 +4096,7 @@ function simulate(dt, frameTime) {
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
+  held.setGlint?.(isEnchanted(inventory.selectedStack)); // (Round 11)
   held.visible = !player.sleeping; // (Round 11: no hand in bed)
   held.update(dt, player, heldLight, camera, interaction.eating);
   avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });

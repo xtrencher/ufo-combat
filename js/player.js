@@ -1059,7 +1059,8 @@ export class Player {
     // Breath: drains with the head under water, refills quickly above it.
     // (Survival worlds: the ten bubbles last vanilla's 15 s.)
     if (this.headInWater && !this.creative && !this.effectLevel("water_breathing")) {
-      this.air = Math.max(0, this.air - (isVanilla() ? (dt * MAX_AIR) / VANILLA_AIR_TIME : dt));
+      // (Round 11: Respiration on the helmet, main.js player.respiration: breath lasts 1 + level times longer, as vanilla on average.)
+      this.air = Math.max(0, this.air - (isVanilla() ? (dt * MAX_AIR) / VANILLA_AIR_TIME : dt) / (1 + (this.respiration | 0)));
       if (this.air <= 0) {
         this._drownTimer += dt;
         if (this._drownTimer >= 1) {

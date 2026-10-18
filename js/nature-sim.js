@@ -2,7 +2,8 @@
 // game ticks) while its chunk is loaded, ages, burns the flammable blocks
 // around it (some catch fire themselves, the rest vanish) and spreads to the
 // air beside flammable blocks up to 4 above it; with nothing left to burn it
-// goes out (vanilla's FireBlock.tick, on Normal; there is no rain). The
+// goes out (vanilla's FireBlock.tick, on Normal); rain puts it out (the
+// weather's: rainingAt, js/weather.js). The
 // flammability table is js/content/nature.js's.
 //
 // The host runs every fire (online, `enabled` says when: a guest's fires come
@@ -33,6 +34,7 @@ export class FireSim {
     this.time = 0;
     this.enabled = () => true; // (main.js: the host or a single player)
     this.rand = Math.random;
+    this.rainingAt = null; // (x, y, z) => bool: rain on or beside the cell (main.js: the weather's)
     this._due = new Map(); // "x,y,z" -> { at, age }
     this._out = [];
     world.changeListeners.push((changed) => this._onEdit(changed));
@@ -100,6 +102,11 @@ export class FireSim {
       out.push(x, y, z, BLOCK.AIR); // (nothing holds it)
       return -1;
     }
+    // (Round 11) In the rain: out, one time in five and more as it ages (vanilla).
+    if (this.rainingAt?.(x, y, z) && rand() < 0.2 + age * 0.03) {
+      out.push(x, y, z, BLOCK.AIR);
+      return -1;
+    }
     const next = Math.min(15, age + (Math.floor(rand() * 3) >> 1));
     if (!fuel) {
       if (age > 3) {
@@ -119,7 +126,7 @@ export class FireSim {
       const bz = z + dz;
       const odds = burn[w.getBlock(bx, by, bz)];
       if (!odds || Math.floor(rand() * chance) >= odds) continue;
-      if (Math.floor(rand() * (age + 10)) < 5) {
+      if (Math.floor(rand() * (age + 10)) < 5 && !this.rainingAt?.(bx, by, bz)) {
         out.push(bx, by, bz, FIRE);
         lit.push(bx, by, bz, Math.min(15, age + (Math.floor(rand() * 5) >> 2)));
       } else out.push(bx, by, bz, BLOCK.AIR);
@@ -132,7 +139,7 @@ export class FireSim {
           const px = x + dx;
           const py = y + dy;
           const pz = z + dz;
-          if (py < 1 || py >= WORLD_HEIGHT || w.getBlock(px, py, pz) !== BLOCK.AIR) continue;
+          if (py < 1 || py >= WORLD_HEIGHT || w.getBlock(px, py, pz) !== BLOCK.AIR || this.rainingAt?.(px, py, pz)) continue;
           let odds = 0;
           for (const [sx, sy, sz] of STEPS) odds = Math.max(odds, ignite[w.getBlock(px + sx, py + sy, pz + sz)]);
           if (!odds) continue;

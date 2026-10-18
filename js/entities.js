@@ -35,7 +35,7 @@ export class ItemEntities {
   // Spawns a stack at `pos` with velocity `vel`. pickupDelay: seconds before
   // it can be collected (longer for items the player throws).
   // keep: never despawns (a mission's weapon drop).
-  spawn(id, count, pos, vel = null, { dur, pickupDelay = 0.4, keep = false } = {}) {
+  spawn(id, count, pos, vel = null, { dur, tag, pickupDelay = 0.4, keep = false } = {}) {
     const model = itemModel(id);
     if (!model || count <= 0) return null;
     if (this.items.length >= MAX_ITEMS) {
@@ -50,6 +50,7 @@ export class ItemEntities {
       id,
       count,
       dur,
+      tag, // (Round 11: enchantments, a custom name: js/inventory.js)
       mesh,
       pos: pos.clone(),
       vel: vel ? vel.clone() : new THREE.Vector3((Math.random() - 0.5) * 2, 3 + Math.random() * 1.5, (Math.random() - 0.5) * 2),
@@ -193,10 +194,10 @@ export class ItemEntities {
     for (let i = 0; i < this.items.length; i++) {
       const a = this.items[i];
       // (Items shared online keep to themselves: each is one claim at the host.)
-      if (a.dur !== undefined || a.count >= maxStack(a.id) || a.shared) continue;
+      if (a.dur !== undefined || a.tag || a.count >= maxStack(a.id) || a.shared) continue;
       for (let j = this.items.length - 1; j > i; j--) {
         const b = this.items[j];
-        if (b.id !== a.id || b.dur !== undefined || b.shared) continue;
+        if (b.id !== a.id || b.dur !== undefined || b.tag || b.shared) continue;
         if (a.pos.distanceToSquared(b.pos) > 0.8 * 0.8) continue;
         const room = maxStack(a.id) - a.count;
         const n = Math.min(room, b.count);

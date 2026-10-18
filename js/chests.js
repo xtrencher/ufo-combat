@@ -16,35 +16,22 @@
 // Pure logic (no three.js, no DOM): the game sets the hooks.
 import { IS_CHEST, BLOCK } from "./blocks.js";
 import { ITEM, itemInfo, maxStack, itemAllowed } from "./items.js";
-import { makeStack } from "./inventory.js";
+import { makeStack, encodeStack, decodeStack, sameStack } from "./inventory.js";
 import { pickCrateWeapon, pickTool, rollArmorDrop } from "./progression.js";
 import { mulberry32 } from "./noise.js";
 import { chunkKey, blockIndex } from "./constants.js";
 import { isVanilla } from "./worldtype.js";
 import * as V from "./content/ids.js";
+import { structureLootAt } from "./structures.js";
 
 export const CHEST_SLOTS = 27;
 // (A batch this big is a big blast: the chests in it that were never opened
 // burn with their loot instead of each spilling a fresh roll.)
 const BIG_BATCH = 2048;
 
-// A stack for the save and the wire: [id, count] or [id, count, dur]; 0 for none.
-export function encodeStack(s) {
-  return s ? (s.dur !== undefined ? [s.id, s.count, s.dur] : [s.id, s.count]) : 0;
-}
-
-// The stack back (checked: a real item, a sane count and wear), or null.
-export function decodeStack(e) {
-  if (!Array.isArray(e)) return null;
-  const [id, count, dur] = e;
-  if (!Number.isInteger(id) || !itemInfo(id) || !Number.isInteger(count) || count < 1 || count > maxStack(id)) return null;
-  return makeStack(id, count, Number.isInteger(dur) && dur > 0 ? dur : undefined);
-}
-
-export function sameStack(a, b) {
-  if (!a || !b) return !a && !b;
-  return a.id === b.id && a.count === b.count && (a.dur ?? -1) === (b.dur ?? -1);
-}
+// A stack for the save and the wire, and back (Round 11: the inventory's,
+// which carry a stack's tag: enchantments, a name).
+export { encodeStack, decodeStack, sameStack };
 
 // (Round 11) A Survival world's village chests hold the classic game's
 // village loot: each chest is one of the village's buildings (a house most
@@ -179,7 +166,10 @@ export class Chests {
       owned = new Set();
     }
     const slots = new Array(CHEST_SLOTS).fill(null);
-    for (const [id, n] of rollChestLoot(this.getTier() | 0, owned, rand)) {
+    // (Round 11) A Survival world's dungeons, mineshafts and desert temples
+    // have vanilla's own tables (structures.js).
+    const loot = (isVanilla() && structureLootAt(this.world, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
+    for (const [id, n] of loot) {
       let left = n;
       while (left > 0) {
         const k = Math.min(left, maxStack(id));

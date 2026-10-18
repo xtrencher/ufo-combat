@@ -2038,10 +2038,12 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
     assert.ok(SHAPE_OF[DEBUG.SLAB] >= SHAPE_CUSTOM);
     assert.deepEqual(blocks.BLOCK_BOX[DEBUG.SLAB], [0, 0, 0, 1, 0.5, 1]);
     assert.ok(IS_SOLID[DEBUG.SLAB] && !IS_OPAQUE[DEBUG.SLAB] && IS_OPAQUE[DEBUG.BLOCK]);
-    // Item ids are never blocks; unknown ids are stone-like and drop nothing.
+    // Item ids are never blocks; unknown ids are stone-like and drop nothing
+    // (2400: in no content module's range).
     assert.equal(BLOCK_INFO[300], undefined);
-    assert.ok(IS_SOLID[300] && IS_OPAQUE[300] && IS_SOLID[2000]);
-    assert.equal(ITEM_OF[2000], 0);
+    assert.equal(BLOCK_INFO[2400], undefined);
+    assert.ok(IS_SOLID[300] && IS_OPAQUE[300] && IS_SOLID[2400]);
+    assert.equal(ITEM_OF[2400], 0);
     assert.equal(typeof content.BLOCK_USE[DEBUG.BLOCK], "function");
     assert.ok(blocks.isBlockId(4095) && blocks.isBlockId(0) && !blocks.isBlockId(256) && !blocks.isBlockId(1023) && blocks.isBlockId(1024) && !blocks.isBlockId(4096));
   });
@@ -2052,9 +2054,9 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
     const info = itemInfo(DEBUG.BLOCK);
     assert.equal(info.block, DEBUG.BLOCK);
     assert.equal(info.stack, 64);
-    assert.equal(itemInfo(2000), null, "an id without a def is no item");
+    assert.equal(itemInfo(2400), null, "an id without a def is no item");
     assert.deepEqual(blockDrops(DEBUG.SLAB, null), [[DEBUG.SLAB, 1]]);
-    assert.deepEqual(blockDrops(2000, null), []);
+    assert.deepEqual(blockDrops(2400, null), []);
     assert.ok(!CREATIVE_ITEMS.includes(DEBUG.BLOCK), "test blocks are not in the palette");
     assert.equal(itemInfo(ITEM.STICK).name, "Stick");
     const inv = new Inventory();
@@ -2070,7 +2072,7 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
     const { world, chunkList, rand, W } = makeTestWorld(3, 404);
     const engine = new LightEngine(world);
     for (const c of chunkList) engine.initChunk(c);
-    const palette = [BLOCK.AIR, BLOCK.AIR, DEBUG.BLOCK, DEBUG.SLAB, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.GLASS, 2000];
+    const palette = [BLOCK.AIR, BLOCK.AIR, DEBUG.BLOCK, DEBUG.SLAB, BLOCK.TORCH, BLOCK.LUMEN, BLOCK.GLASS, 2400];
     for (let round = 0; round < 25; round++) {
       const changes = [];
       const n = 1 + Math.floor(rand() * (round % 8 === 0 ? 300 : 6));

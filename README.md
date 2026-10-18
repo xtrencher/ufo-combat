@@ -9,8 +9,8 @@ jets (an F-22 and an F-16, with missiles, flares, radar and a real runway
 takeoff), a B-2 stealth bomber that carries the nuke and, late in the game,
 a flying saucer of your own (stolen from a guarded bunker if need be).
 **Survival** is normal Minecraft in a world of its own: crafting, smelting,
-mining, farming, hunger, experience, beds, and vanilla blocks, items, mobs,
-villagers and terrain. **Creative** builds and flies with everything, in
+mining, farming, hunger, experience, beds, redstone, enchanting, brewing,
+weather, and vanilla blocks, items, mobs, villagers, structures and terrain. **Creative** builds and flies with everything, in
 either kind of world. Play alone or with friends
 (peer-to-peer, up to 8 players, one shared world). Built from scratch with plain JavaScript and
 [Three.js](https://threejs.org/).
@@ -89,12 +89,12 @@ straight in the air at the controls of it).
   zombies, aliens and your own grenades and rockets can all kill you.
 - **Survival:** normal Minecraft (see **Survival (vanilla Minecraft)**
   below). You start with **nothing** (no starter kit), and the world is
-  vanilla: **Mods are off for that world** (no guns, explosives, UFOs, aliens
-  or vehicles; your own Mods setting is kept for your Missions worlds, and the
-  Mods switch shows locked there), no missions, supply crates, call-ins or
-  airport aircraft and guards, no Missions button in the pause menu, and its
-  land has **no airports or cities** (villages stay). Difficulty and Peaceful
-  work as everywhere.
+  vanilla: **Mods are off for that world** (no guns, mod explosives, UFOs,
+  aliens or vehicles; vanilla's TNT stays; your own Mods setting is kept for
+  your Missions worlds, and the Mods switch shows locked there), no missions,
+  supply crates, call-ins or airport aircraft and guards, no Missions button
+  in the pause menu, and its land has **no airports or cities** (villages
+  stay). Difficulty and Peaceful work as everywhere.
 - **Creative:** every block and item in the tabbed **E** palette, instant
   mining, flight, and no damage (in a Missions world also every weapon in
   your hotbar and the pause menu's call-ins).
@@ -120,13 +120,14 @@ new world starts on flat, open, dry ground.
 | Sneak (slow, won't walk off edges; in bed: get up) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
 | Place a block / use / eat or drink (hold) / fire the weapon in hand | Right click |
-| Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball or ender pearl, fill or pour a bucket, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire with flint and steel | Right click |
+| Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball, ender pearl, splash potion or bottle o' enchanting, fill or pour a bucket, fill a glass bottle at water or a cauldron, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire or TNT with flint and steel | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
 | Open a chest (whatever is in your hand) | Right click |
-| Open a crafting table (Survival worlds) or a furnace (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
+| Open a crafting table (Survival worlds), a furnace, an enchanting table, an anvil or a brewing stand (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
 | Open or close a door, trapdoor or fence gate (not an iron one) | Right click |
 | Sleep in a bed / set your spawn point (Survival worlds) | Right click (on the bed) |
-| Trade with a villager, milk a cow (empty bucket), shear a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand (Survival worlds) | Right click (on it, with the item) |
+| Flip a lever, press a button, set a repeater's delay, tune a note block, edit a sign, eat a slice of cake, plant in a flower pot or take the plant back | Right click (on it) |
+| Trade with a villager, milk a cow (empty bucket), shear or dye a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand (Survival worlds) | Right click (on it, with the item) |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Select hotbar slot | `1`-`9` or scroll wheel |
@@ -485,9 +486,12 @@ items, drops, bow and chests are unchanged.
   ingots, the bucket, shears, flint and steel, compass, clock, bow, arrows,
   fishing rod, paper, books, bookshelves, bread, cake, cookies, pumpkin pie,
   golden apples and carrots, bowls, mushroom stew and beetroot soup, wool from
-  string, the bed, ladders, glass panes, iron bars, stone bricks, the shield
-  and more; the building and nature blocks add their own (stairs, slabs,
-  fences, doors...: see **Building blocks** and **Farming and growing**).
+  string, beds, ladders, glass panes, iron bars, stone bricks, the shield
+  and more; the building, nature, decoration, redstone and magic blocks add
+  their own (stairs, slabs, fences, doors, dyes, signs, pistons, TNT, the
+  enchanting table...: see **Building blocks**, **Farming and growing**,
+  **Dyes and decoration**, **Redstone and TNT** and **Enchanting, anvils and
+  brewing**).
   In a Missions world the crafting table does nothing.
 - **Smelting:** a furnace cooks one item every **10 seconds** while its fuel
   burns: coal or charcoal 80 s (8 items), a coal block 800 s, a log or planks
@@ -496,7 +500,7 @@ items, drops, bow and chests are unchanged.
   (and their ores) into ingots, sand and red sand into glass, cobblestone into
   stone, stone into smooth stone, logs into charcoal, clay balls into bricks
   and clay into terracotta, raw meat and fish into cooked, potatoes into baked
-  potatoes, and iron or gold gear back into a nugget. A burning furnace glows
+  potatoes, a cactus into green dye, and iron or gold gear back into a nugget. A burning furnace glows
   (light 13) and keeps working while you are away (as long as its ground is
   loaded); the experience of what it smelted waits in it until someone takes
   from the output. Breaking a furnace drops what is in it. Furnaces are saved
@@ -541,6 +545,38 @@ blocks tall, the sea at 24):
   each with its own wood and leaves.
 - **No airports or cities;** the villages have vanilla touches (see **The
   world**).
+
+### Structures
+
+- **Dungeons:** small mossy cobblestone rooms where a cave opens into the
+  rock (about one every dozen chunks), each with a **monster spawner**
+  (zombies, now and then skeletons or spiders) and one or two chests against
+  the walls: bones, gunpowder, rotten flesh, string, iron and gold, bread,
+  wheat, a bucket, redstone, coal, seeds and sometimes a golden apple.
+- **Abandoned mineshafts:** under the land of about one region in five,
+  winding 3-wide corridors with oak plank and fence supports every 5 blocks,
+  crossings, stairs, plank bridges over the caves and cobwebs in the
+  corners; a dirt-floored room where they start. Some corridors are thick
+  with cobwebs round a spider spawner. Now and then a chest stands by a
+  corridor's wall (golden apples, an iron pickaxe, ingots, redstone, lapis,
+  diamonds, coal, bread, seeds, torches).
+- **Desert temples:** stepped sandstone pyramids with two towers, in the
+  deserts (vanilla's spacing: a few hundred blocks apart at most where the
+  desert is wide). Under the blue terracotta in the middle of the floor a
+  shaft drops 11 blocks into the hidden room: four chests (diamonds, iron,
+  gold, emeralds, bones, spider eyes, rotten flesh, golden apples...), and
+  nine TNT under the pressure plate in its middle. Dig down carefully.
+- **Desert wells:** a little sandstone well with a roof, very rarely.
+- **Monster spawners** work as in vanilla: within 16 blocks of a player, one
+  spawns up to 4 of its creature every 10-40 seconds around itself (4 blocks
+  across, 1 up or down), in light of 11 or less, and stops while 6 of them
+  are near. Light it up with torches (or break it: it drops nothing but a
+  good handful of experience). Flames flicker inside a spawner that is awake.
+  None on Peaceful. A spawner is in the Creative palette (zombie, skeleton
+  and spider) and works in either kind of world.
+- Things vanilla's chests hold that the game doesn't have (saddles, name
+  tags, horse armour, music discs, rails) are left out, and so are their
+  enchanted books for now; the rest keep vanilla's odds.
 
 ### Farming and growing
 
@@ -588,7 +624,8 @@ blocks tall, the sea at 24):
   saturation): bread 5 / 6, steak and cooked porkchop 8 / 12.8, cooked
   chicken, mutton and salmon 6, cooked cod and baked potatoes 5, a golden
   carrot 6 / 14.4 (the best saturation), pumpkin pie 8, cookies 2, mushroom
-  stew and beetroot soup 6. Stews and soups leave their bowl.
+  stew and beetroot soup 6. Stews and soups leave their bowl. A **cake** is
+  placed and eaten a slice at a time (see **Dyes and decoration**).
 - **Side effects:** **rotten flesh** (80%) and **raw chicken** (30%) give
   **Hunger** (green drumsticks: you get hungry fast), a **spider eye** and
   (60%) a **poisonous potato** **Poison** (green hearts: it hurts, but never
@@ -612,15 +649,40 @@ died; the rest is lost.
 ### Beds, sleeping and dying
 
 - **Beds:** right click a bed to set your **spawn point** ("Respawn point
-  set", any time of day) and, at night (from about 18:30 to 5:30), to sleep:
-  not with monsters within 8 blocks ("You may not rest now; there are
-  monsters nearby"). Asleep, the screen darkens; after 5 seconds the night is
+  set", any time of day) and, at night (from about 18:30 to 5:30) or in a
+  thunderstorm, to sleep: not with monsters within 8 blocks ("You may not
+  rest now; there are monsters nearby"). Asleep, the screen darkens; after 5 seconds the night is
   skipped to the morning. `Shift` gets you up (so does being hit).
 - **Dying** shows the **NOOB!** screen and drops everything where you died,
   as in Missions. You respawn next to your bed, with full food; if the bed was
   broken or blocked in, at the world spawn ("Your home bed was missing or
   obstructed"). Your experience is lost (some of it drops as orbs: see
   **Experience**).
+
+### Weather
+
+- **Rain** comes and goes as in vanilla: clear for 5 to 75 minutes, rain for
+  5 to 10 (this world's day is 10 minutes, half vanilla's, and the weather
+  keeps to its days). The sky turns grey and darker, the clouds close in, the
+  haze thickens, and you hear it (muffled under a roof). Rain falls only
+  where the sky is open: not under roofs or trees.
+- **Snow** falls instead in the snowy plains, the snowy taigas, the
+  mountains and over the cold seas and rivers, and settles a layer on the
+  ground; nothing falls in deserts, savannas or badlands. Still water in
+  the cold freezes over from its shores (rain or not).
+- **Thunderstorms** (now and then while it rains, 1.5 to 6.5 minutes): an
+  even darker sky, and **lightning**, a bolt every 15 seconds or so near you
+  where it rains. It strikes the ground or a creature or player within 3
+  blocks of where it falls: 2.5 hearts and 8 seconds of burning to anything
+  near, and fire where it lands (on Normal and Hard). Monsters come out by
+  day in a storm.
+- Rain **puts out fires** (soon, unless they are sheltered) and burning
+  players and creatures, keeps **farmland** wet, fills **cauldrons**, and
+  zombies and skeletons don't burn in daylight while it rains on them.
+- You can **sleep** during a thunderstorm, day or night; a night slept
+  through ends the rain.
+- A Missions world's sky stays clear. Online the host's weather is everyone's
+  (the same rain, the same bolts).
 
 ### Lava, water, fire and other dangers
 
@@ -630,9 +692,9 @@ died; the rest is lost.
   1.5 s), and falls into holes. Water on a lava source makes **obsidian**, on
   flowing lava **cobblestone**; lava pouring onto water makes **stone**.
   Water flows 7 blocks (4 in a Missions world).
-- **Fire** (flint and steel, lava) spreads to planks, logs, leaves, wool,
+- **Fire** (flint and steel, lava, lightning) spreads to planks, logs, leaves, wool,
   hay, grass and flowers, burns them away and goes out once nothing is left.
-  Punch it to put it out.
+  Punch it to put it out. Rain puts it out.
 - **Getting hurt:** lava burns (2 hearts every half second) and sets you on
   fire for 15 s, fire for 8 s (half a heart a second while burning, the
   flames show on screen); water puts you out. A **cactus** pricks (half a
@@ -667,12 +729,12 @@ both world types).
   (6 ingots: 16), the **lantern** (8 iron nuggets around a torch; light 15,
   stands on a block or hangs under one). **Glass panes** (6 glass: 16;
   broken, they drop nothing, like glass).
-- **Colours:** wool in 16 colours, 16 terracottas, 16 concretes and 16
-  **carpets** (2 wool of a colour: 3). Dyes aren't in yet: the coloured
-  blocks come from Creative and from villages until they are.
-- **The red bed:** 3 wool (any colour, as there are no dyes yet) over 3
-  planks: the only bed so far. Right click it to sleep (see **Beds, sleeping
-  and dying**).
+- **Colours:** wool, terracotta, concrete, **concrete powder**, **stained
+  glass**, **stained glass panes**, **carpets** and **beds** in the 16
+  colours, all dyed with the dyes (see **Dyes and decoration**). Carpets: 2
+  wool of a colour: 3. Glass panes of a colour: 6 stained glass: 16.
+- **Beds:** 3 wool of one colour over 3 planks makes that colour's bed. Right
+  click one to sleep (see **Beds, sleeping and dying**).
 
 How they behave, as in vanilla:
 
@@ -684,7 +746,8 @@ How they behave, as in vanilla:
   same kind on its open side makes the full block.
 - **Fences, walls, panes and bars** join their own kind, full blocks and
   gates across them. A fence or a wall is 1.5 blocks tall: it can't be
-  jumped. An open gate is walked through.
+  jumped. An open gate is walked through. Stained glass panes join the plain
+  ones and each other the same way.
 - **Doors** take two blocks; right click opens and closes both halves
   (iron ones don't open by hand); breaking either half breaks the door and
   drops one. A door placed beside another is hinged on the other side, so
@@ -697,6 +760,106 @@ How they behave, as in vanilla:
   **Ladders** (and vines) are climbed by walking into them or holding
   `Space`; `Shift` holds you in place; nothing hurts while you slide down.
   Cobwebs hold you. (Ladders, the step up and cobwebs work in any world.)
+
+### Dyes and decoration
+
+- **The 16 dyes**, from the classic game's sources (one dye each unless said):
+  - white: **bone meal**, a lily of the valley;
+  - red: a poppy (the red flower), a red tulip, a **beetroot**;
+  - yellow: a dandelion (the yellow flower);
+  - blue: **lapis lazuli**, a cornflower;
+  - brown: **cocoa beans** (no cocoa pods grow yet: in a Survival world they
+    come only from Creative);
+  - green: **smelt a cactus** (1 experience);
+  - black: an **ink sac** (fishing now and then brings one up);
+  - orange: an orange tulip, or red + yellow (2);
+  - magenta: an allium, or purple + pink (2), blue + red + pink (3), blue +
+    2 red + white (4);
+  - light blue: a blue orchid, or blue + white (2);
+  - pink: a pink tulip, or red + white (2);
+  - light gray: an azure bluet, an oxeye daisy, a white tulip, or gray +
+    white (2), black + 2 white (3);
+  - lime: green + white (2); gray: black + white (2); cyan: blue + green
+    (2); purple: blue + red (2).
+- **Dyeing:** wool of any colour and a dye (anywhere in the grid): wool of
+  that colour; a bed of any colour and a dye: that bed; 8 carpets, 8
+  terracotta, 8 glass or 8 glass panes around a dye: 8 of that colour
+  (terracotta: the plain one).
+- **A sheep** right clicked with a dye turns that colour (one dye; not a
+  shorn sheep): its wool, shorn or when it dies, is that colour, and it is
+  kept with the world.
+- **Concrete powder:** a dye, 4 sand (or red sand) and 4 gravel: 8. It falls
+  like sand; the moment water touches it (on a side or from above: poured,
+  flowing, or the powder placed or landing by it) it turns into **concrete**
+  of its colour. Powder dropped onto water sinks into it and sets there.
+- **Signs** (oak, spruce, birch; 6 planks over a stick: 3, stacks of 16; the
+  other woods' planks make oak ones): on the top of a block a sign stands,
+  turned to face you (16 ways); on the side of one it hangs on the wall (and
+  comes off with it). Placing one opens its editor: **4 lines of up to 15
+  characters** (`Enter` the next line, `Esc` or Done to finish); the text
+  shows on the sign. Right click a sign to edit it again; right click it with
+  a dye and the text is that colour (one dye). The text is saved with the
+  world.
+- **The cake** (3 milk buckets, 2 sugar, an egg, 3 wheat; the buckets come
+  back): right click with it to place it on a block, right click the cake to
+  eat a slice (7 slices; 2 food points, 0.4 saturation each; only when you
+  aren't full; in a Missions world a slice heals 1 heart). Broken, it drops
+  nothing.
+- **Flower pots** (3 bricks in a V): right click one with a flower, a
+  sapling (oak, spruce, birch, jungle, acacia), a mushroom or a cactus to
+  plant it; right click a planted pot to take it back. Broken, a pot drops
+  itself and its plant.
+- Stained glass and its panes drop nothing when broken (as glass), except
+  with Silk Touch. Stained glass is cut out like the game's glass: its colour
+  is in its frame and streaks, the rest clear.
+
+### Redstone and TNT
+
+Vanilla redstone, with vanilla recipes; Creative has every piece in its
+palette, and circuits work in both world types (in a Missions world only
+Creative can get the pieces).
+
+- **Redstone dust:** right click with redstone dust on top of a block (a
+  full block, glass, a top slab, an upside-down stair, a piston). It joins
+  the dust and the redstone pieces beside it, climbs and drops one block
+  along steps (over glass power goes up, not down), and carries power from
+  15 down to 0, one less a block: 15 blocks of dust at most from a source.
+  Its red is darker the weaker the power.
+- **Power:** a **lever** (a stick on cobblestone; on a wall, a floor or a
+  ceiling; right click flips it), a **stone button** (a stone: 1 s of
+  power) or an **oak button** (any planks: 1.5 s), a **stone pressure
+  plate** (2 stone: players and creatures) or an **oak** one (2 planks:
+  items too), a **redstone torch** (redstone over a stick: on unless the
+  block it stands or hangs on is powered, a tick later, so it inverts; a
+  torch blinking too fast burns out for 8 s) and the **block of
+  redstone**. A lever, button or plate powers the block it is on "strongly"
+  (that block then powers dust beside it); a torch powers the block over
+  it. Any powered block powers the lamps, doors and pistons beside it.
+- **Repeater** (2 redstone torches, a redstone dust and 3 stone): carries
+  power one way, back to front, at full strength, after 1-4 ticks (0.1 s
+  each; right click sets the delay, the second torch moves).
+- **What power does:** a **redstone lamp** (4 redstone round a torch, as
+  long as the game has no glowstone; light 15) lights; **doors**,
+  **trapdoors** and **fence gates** open (the iron ones only this way) and
+  close again when the power goes; a **piston** (3 planks, 4 cobblestone,
+  an iron ingot and a redstone) pushes up to 12 blocks in front of it
+  (never obsidian, bedrock, chests or furnaces; torches, dust, plants and
+  doors in the way break off) and pulls back when the power goes; a
+  **sticky piston** (a slime ball on a piston) pulls the block in front back
+  with it; a **note block** (8 planks round a redstone) plays its note
+  (right click raises it a semitone, two octaves round; the block under it
+  picks the instrument: wood a bass, stone a bass drum, sand a snare, glass
+  clicks, wool a guitar, gold a bell, clay a flute, packed ice chimes, iron
+  a xylophone, anything else a harp).
+- **TNT** (5 gunpowder and 4 sand): set off by power, flint and steel, fire
+  beside it or another blast. It hops, flashes white and goes off after 4 s
+  (one caught by a blast after 0.5-1.5 s) with power 4: bigger than a
+  creeper, it breaks the blocks round it (in water it breaks none) and sets
+  off the TNT it reaches, so TNT goes off in chains. In a Survival world
+  every block it breaks drops.
+- (Simplified: pistons move their blocks at once, with no sliding, and don't
+  shove players or creatures; no comparators, observers, hoppers or
+  repeater locking yet.)
 
 ### Items and tools
 
@@ -723,8 +886,9 @@ A Survival world has the classic game's items, with its numbers:
   lands in water, wait (5-30 s, slower under a roof): bubbles come in, the
   bobber dips with a splash, and a right click within a second or two reels
   in a catch (mostly cod and salmon, sometimes junk such as a bowl, leather,
-  a bone or an old pair of boots, rarely a bow or a fishing rod from open
-  water) that flies to you with a little experience. Reeling in from the
+  a bone, an ink sac or an old pair of boots, rarely, from open water, an
+  enchanted book or an enchanted bow or fishing rod) that flies to you with
+  a little experience. Reeling in from the
   ground costs the rod two uses, a catch one (64 uses in all).
 - **Thrown items:** eggs (a chick hatches one time in eight), snowballs and
   **ender pearls** (you are taken where it lands, for 5 damage; one a second).
@@ -741,6 +905,71 @@ A Survival world has the classic game's items, with its numbers:
   emeralds, iron and gold ingots, now and then diamonds, iron tools and armor
   (a smith's), wool and shears (a shepherd's), fish (a fisherman's), and so
   on.
+
+### Enchanting, anvils and brewing
+
+**Enchanting table** (book, 2 diamonds, 4 obsidian). Right click it, put in the
+item and lapis lazuli: three offers appear, cheap to dear (the top one costs 1
+lapis and 1 level, the middle 2, the bottom 3; each needs the level shown).
+Bookshelves around it raise the offers: place up to 15 in a ring one block away
+(two high, air between the table and the shelves) to reach level 30 offers. The
+offers stay the same until you enchant something. A book becomes an enchanted
+book. In Creative it costs nothing.
+
+All of vanilla's enchantments are in: Efficiency, Silk Touch, Fortune,
+Unbreaking (tools); Sharpness, Smite, Bane of Arthropods, Knockback, Fire Aspect,
+Looting (swords; the damage ones on axes with an anvil); Protection, Fire, Blast
+and Projectile Protection, Feather Falling, Respiration, Aqua Affinity, Thorns
+(armor); Power, Punch, Flame, Infinity (the bow); Lure and Luck of the Sea (the
+fishing rod). They work as in vanilla: Silk Touch keeps stone, ores, glass and
+ice whole; Fortune III gives about 2.2 diamonds an ore; Aqua Affinity mines at
+full speed under water (otherwise 5 times slower); Infinity keeps your last
+arrow; Looting adds drops; Thorns hurts what hits you. Enchanted items shine
+(in the inventory and in your hand) and their tooltips list the enchantments.
+Enchanted books also come from fishing (treasure, more with Luck of the Sea).
+
+**Anvil** (3 iron blocks, 4 iron ingots). Combine two of the same tool or armor
+(their durability adds up, plus 12%), add an enchanted book, raise two equal
+enchantments a level (Efficiency IV + IV = V), repair with the material (diamonds
+for diamond tools, ingots, leather, planks...), or type a new name. The cost is
+in levels (vanilla's: it grows each time an item goes through an anvil;
+"Too Expensive!" from 40). The anvil falls like sand and wears out with use:
+chipped, damaged, then it breaks.
+
+**Brewing stand** (3 cobblestone and an iron ingot: there is no Nether, so no
+blaze rod). It needs no fuel. Put water bottles (a glass bottle right-clicked on
+water, or on a cauldron) in the three bottle slots and an ingredient on top; it
+brews in 20 seconds and acts on every bottle.
+
+| Ingredient (on a water bottle) | Potion |
+| --- | --- |
+| Sugar | Swiftness |
+| Spider eye | Poison |
+| Glistering melon slice (melon slice + 8 gold nuggets) | Healing |
+| Golden carrot | Night Vision |
+| Golden apple | Regeneration |
+| Ender pearl | Strength |
+| Slimeball | Fire Resistance |
+| Raw salmon | Water Breathing |
+| Fermented spider eye (spider eye, brown mushroom, sugar) | Weakness |
+
+Then: redstone makes a potion last longer, a lumen crystal makes it stronger
+(level II), a fermented spider eye turns Healing and Poison into Harming,
+Swiftness into Slowness and Night Vision into Invisibility, and gunpowder makes
+any potion a splash potion. (No Nether, so a few ingredients stand in for
+Nether ones: the golden apple for the ghast tear, the ender pearl for blaze
+powder, the slimeball for magma cream, raw salmon for the pufferfish, the lumen
+crystal for glowstone; and there is no awkward potion: the ingredients go
+straight onto a water bottle. Lumen crystals grow only in a Missions world's
+caves, so in a Survival world they come from Creative.)
+
+Drink a potion by holding right click (you get the bottle back). Throw a splash
+potion with right click: it acts on everyone within 4 blocks (less the farther
+away), creatures too (Healing and Harming; on zombies and skeletons the other
+way round). A Bottle o' Enchanting thrown gives 3-11 experience.
+
+**Cauldron** (7 iron ingots): fill it with a water bucket; a glass bottle takes
+a third of it as a water bottle, a water bottle puts one back.
 
 ### Mobs
 
@@ -773,7 +1002,7 @@ world's (no fluffalos, hoplets, mossbacks or butterflies there):
   **egg** every 5-10 minutes) and **sheep** (mutton and their wool: mostly
   white, sometimes grey, black, brown, very rarely pink). **Shears** on a
   sheep give 1-3 wool of its colour; it grows back when the sheep eats grass
-  (which turns to dirt). Animals that die burning (fire, lava) drop their
+  (which turns to dirt). A **dye** on a sheep dyes it. Animals that die burning (fire, lava) drop their
   meat cooked. **Cod** and **salmon** swim in the sea and the rivers.
 - **Breeding:** hold an animal's food and it follows you (cows and sheep:
   wheat; pigs: carrots, potatoes, beetroot; chickens: seeds). Feed two of a
@@ -959,6 +1188,18 @@ keeps running there (it just isn't drawn).
   players can use one at once), it smelts at the host's world (also near a
   guest far from the host), and the one who takes from the output gets the
   experience. Crafting happens in your own inventory (nothing to wait for).
+- **Brewing stands** are the host's as well (like furnaces: everyone sees the
+  same bottles); the enchanting table and the anvil are each player's own
+  screen. Enchantments and names stay on items in chests, furnaces, on the
+  ground and in saves, and splash potions reach every player and the host's
+  creatures.
+- **Signs** are the host's too: a guest's text goes to the host and on to
+  everyone, a joining player sees every sign's text, and a broken sign's
+  text goes with it. The host saves them with its world.
+- **Redstone** runs at the host: a guest's lever, button or plate works
+  like any block change and the host's circuits answer for everyone; primed
+  TNT is seen falling and flashing on every screen, and note blocks,
+  pistons and buttons are heard by everyone near them.
 - At the end of a **Dogfight** the results screen frees the mouse and its
   buttons work (new match, close).
 - To try it alone, open the game in **two browser tabs or windows** on one
@@ -1328,7 +1569,10 @@ worlds.
 On every preset you get animated water, light that glows through leaves,
 haze that thickens with distance, and low mist over water at sunrise and
 sunset. Under water, High and Ultra add light shafts from the surface, and
-every preset shows drifting particles.
+every preset shows drifting particles. **Rain and snow** (Survival worlds)
+are drawn round the camera on Medium, High and Ultra (more drops on the
+higher presets); Low draws none (the sky still turns grey, and you still
+hear the rain).
 
 **Settings > Performance** has one-click presets for different computers:
 
@@ -1396,8 +1640,8 @@ hundreds of zombies, or a long full-detail distance).
 water are exactly as before Round 11 (its old saves look the same), and the
 new blocks and items are in its Creative palette. A Survival world has the
 same scale, landforms and villages, but vanilla's ores, lava, frozen water,
-biomes and trees, and no airports or cities (see **Survival (vanilla
-Minecraft)**).
+biomes and trees, its structures (dungeons, mineshafts, desert temples) and
+weather, and no airports or cities (see **Survival (vanilla Minecraft)**).
 
 A world at the scale of classic block games, 128 blocks tall, now with very
 different landforms: continents and big oceans; **mountain ranges** with bare
@@ -1484,7 +1728,9 @@ Your block edits, position, inventory and settings are saved in your
 browser's local storage, per seed, on your device only. Other players who
 open the same seed link get the untouched world. Creatures and items lying
 on the ground aren't saved (except, in a Survival world, the animals you
-bred, fed, shore or tamed); chests and furnaces keep their contents.
+bred, fed, shore or tamed); chests, furnaces and brewing stands keep their
+contents, signs their text, redstone circuits their state, and a Survival
+world its weather.
 
 Worlds from older versions open unchanged, with every block edit. A world
 saved with one of the new (Round 11) blocks in it is saved in a newer format
@@ -1544,11 +1790,10 @@ correctly. All imports use relative paths.
 
 ## Tests
 
-`/tools` has twenty-nine test suites (`cd tools && npm install && npm test`
-runs the twenty-one older ones; `npm run test:r10` just the Round 10 ones;
-the eight Round 11 suites run on their own, `node r11-modes-tests.mjs` and so
-on; the browser tests need a Chromium binary, set with the `CHROMIUM_PATH`
-environment variable).
+`/tools` has thirty-three test suites (`cd tools && npm install && npm test`
+runs all of them; `npm run test:r10` just the Round 10 ones, `npm run
+test:r11` just the twelve Round 11 ones; the browser tests need a Chromium
+binary, set with the `CHROMIUM_PATH` environment variable).
 `chaos-tests.mjs` takes 400 random steps (missions, modes, vehicles, blasts,
 screens, saves, respawns) looking for errors; `perf-tests.mjs` checks the
 streaming budget and that worker-built chunks and meshes match the main
@@ -1702,6 +1947,24 @@ thread's byte for byte:
   every building block; every building recipe resolving; in Node, a
   Survival world's village with doors, beds and panes and a Missions world's
   with none of the new blocks (`--nobrowser` runs only that).
+- `r11-decor-tests.mjs` (Round 11): dyes, signs, cakes and the rest. In
+  Node: every dye has a source (a plant or thing of the world, or mixing
+  dyes that have one), the dyeing recipes and their yields, the texture
+  budget (`--nobrowser` runs only these). In a Survival world: a bed of wool
+  of each colour; a sheep dyed (its skin, kept with the world, its wool that
+  colour, a shorn one refused); a sign placed opening its editor, the text
+  typed with the keyboard (15 characters a line) drawn on its front, a dye
+  colouring it, a right click editing it again, the text and colour through a
+  save and a reload and gone with the sign; signs online through a stand-in
+  session (the host keeps a guest's cleaned text and passes it on, refuses one
+  from afar; a guest takes the host's word and sends its own); the cake
+  placed from its item, a slice feeding 2 / 0.4, none when full, gone after
+  seven; a coloured bed's two cells and a night's sleep in it; concrete
+  powder set beside water, sinking into water under it, falling like sand;
+  flower pots; stained panes' joins in the collision; every decor shape
+  meshed byte for byte the same in a worker; icons, item models and recipes
+  for everything. `--overlay=dir` serves files from dir first (to try other
+  files' patches before they are merged).
 - `r11-nature-tests.mjs` (Round 11; Node only, a few seconds): a Survival
   world's terrain (ores at their depths, lava lakes and pools, frozen water,
   snow, red sand, the new trees and their vines, lily pads), a Missions
@@ -1748,6 +2011,56 @@ thread's byte for byte:
   guest): the guest sees the host's mobs as they are, shears, feeds, trades
   and tames through the host, and a creeper's blast reaches the guest.
   `--solo` skips the online part.
+- `r11-redstone-tests.mjs` (Round 11): redstone and TNT. In Node (a world
+  of plain chunks, a second): a lever's dust lights a lamp 10 and 15 blocks
+  away but not 16; a torch inverts a tick late; buttons pulse 1 and 1.5 s;
+  a pressure plate under a player opens an iron door and shuts it after; a
+  repeater delays and is one-way; a piston pushes a row (12 at most, never
+  obsidian) and a sticky one pulls back; dust up and down steps, up glass
+  and not down it, across a chunk border; a torch clock burns out; TNT lit
+  by flint and steel goes off after 4 s and sets off the TNT beside it,
+  powered TNT, a guest's lit TNT and fire prime it; a note block plays once
+  a pulse; an edit far from redstone costs nothing; the recipes. In the
+  game (a Survival world): the same through real right clicks (a lever,
+  redstone dust placed, a button, flint and steel on TNT with its crater
+  and chain, a piston placed facing the player), every redstone shape
+  meshed the same in a worker and on the main thread, icons and item
+  models, and a save and a reload keeping the circuits working.
+  `--nobrowser` runs only the Node part.
+- `r11-world-tests.mjs` (Round 11; the Node part takes seconds, the game
+  part a few minutes): a Survival world's structures over three seeds:
+  dungeons at a plausible rate with their spawner, mossy floor and chests
+  (known as dungeon chests), mineshafts (planks, fences, cobwebs, chests),
+  desert temples only in deserts with the blue terracotta, the shaft, the
+  hidden room's four chests and its TNT when the redstone blocks exist;
+  the chests' loot (vanilla's tables, vanilla's odds for what exists); a
+  Missions world's chunks hash as before and have no structures. The
+  weather: the cycle stays within vanilla's times and fades over 5 s, it is
+  saved, never in a Missions world; rain in the open but not under a roof
+  nor in a desert, snow settling in a snowy biome, water freezing, a
+  cauldron filling; lightning finding a player within 3 blocks, hurting (5)
+  and setting them alight, lighting fire (Normal, not Easy), striking now and
+  then on its own; rain putting a burning player and fires out. A monster
+  spawner spawning in the dark near a player, at most 6 near, not far away,
+  not in the light, not on Peaceful. In the game: a storm darkens the sky,
+  drops fall on Medium (none on Low), a bolt flashes, the weather is saved;
+  `--online` adds a host and a guest: the guest gets the weather on joining
+  and when it turns, can't change it, and a bolt by the guest hurts it.
+  `--node` runs the Node part only.
+- `r11-magic-tests.mjs` (Round 11): enchanting, anvils, brewing and
+  potions in a new Survival world: the magic blocks and items (names,
+  icons, the palette, recipes, the texture budget); an Efficiency V pickaxe
+  mines stone faster, Silk Touch drops stone, Fortune III gives more
+  diamonds on average, Sharpness hits harder (Smite more on a zombie),
+  Protection and Feather Falling take damage away and Unbreaking saves
+  wear; the bow's Power and Infinity, Fire Aspect setting a zombie alight,
+  Looting; the anvil combining worn tools and enchantments, renaming,
+  refusing conflicts and costing levels; the enchanting table counting its
+  bookshelves and making an enchanted book for lapis and levels; healing
+  and poison potions, a splash reaching the player, the brewing stand
+  brewing Swiftness from a water bottle and sugar, a cauldron filling a
+  bottle, a splash of Harming and a Bottle o' Enchanting's experience;
+  enchantments through a chest, a dropped item, and a save and a reload.
 
 All the Round 11 suites take `--only=substring`; the browser ones, like the
 others, fail on any console or page error.
@@ -1868,7 +2181,11 @@ subpath only, like GitHub Pages.
   and smelting (`js/crafting.js`, `js/furnace.js`), hunger, effects and the
   body (`js/survival.js`, `js/player.js`), experience (`js/xp.js`), beds
   (`js/sleep.js`), the vanilla mobs and trades (`js/mobs.js`,
-  `js/trading.js`), and the terrain.
+  `js/trading.js`), the terrain, its structures (`js/structures.js`) and the
+  weather (`js/weather.js`, drawn by `js/weather-fx.js`). Redstone is a
+  block-update-driven simulation the host runs (`js/redstone-sim.js`);
+  enchanting is `js/enchant.js`, brewing and thrown potions `js/brewing.js`,
+  sign text `js/signs.js`.
 - All sounds are synthesized with the Web Audio API (`js/audio.js`).
 - Multiplayer is peer-to-peer WebRTC through PeerJS (loaded only when
   used), host-authoritative, in `js/net/`: the session and rooms

@@ -16,9 +16,11 @@
 import * as THREE from "three";
 import { BLOCK, IS_SOLID } from "./blocks.js";
 import { ITEM, itemInfo, maxStack } from "./items.js";
-import { FISHING_ROD, COD, SALMON, BOWL, LEATHER, ROTTEN_FLESH, STRING, BONE, LILY_PAD, LAVA } from "./content/ids.js";
+import { FISHING_ROD, COD, SALMON, BOWL, LEATHER, ROTTEN_FLESH, STRING, BONE, LILY_PAD, LAVA, ENCHANTED_BOOK } from "./content/ids.js";
+import { INK_SAC } from "./content/decor.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { LIB } from "./content/base.js";
+import { lureSeconds, fishingOdds, randomEnchantTag } from "./enchant.js";
 
 const GRAVITY = -12; // blocks/s² (the classic bobber's 0.03 a tick²)
 const AIR_DRAG = 1.6; // 1/s (0.92 a tick)
@@ -31,12 +33,14 @@ const NIBBLE = [1, 2]; // seconds to reel it in
 
 // The classic loot (luck 0). Fish: cod 60, salmon 25 (the tropical fish and
 // pufferfish have no items: their share goes to the two). Junk and treasure
-// skip what doesn't exist here (ink sacs, tripwire hooks, water bottles,
-// name tags, saddles, nautilus shells, enchanted books: none yet).
+// skip what doesn't exist here (tripwire hooks, water bottles, name tags,
+// saddles, nautilus shells).
 const FISH = [[COD, 60], [SALMON, 25]];
 // (Worn items: [id, weight, least wear, most wear], as fractions of their uses.)
-const JUNK = [[LILY_PAD, 17], [BOWL, 10], [LEATHER, 10], [ITEM.LEATHER_BOOTS, 10, 0.1, 0.9], [ROTTEN_FLESH, 10], [BONE, 10], [STRING, 5], [ITEM.STICK, 5], [FISHING_ROD, 2, 0.1, 0.9]];
-const TREASURE = [[ITEM.BOW, 1], [FISHING_ROD, 1, 0, 0.25]];
+const JUNK = [[LILY_PAD, 17], [BOWL, 10], [LEATHER, 10], [ITEM.LEATHER_BOOTS, 10, 0.1, 0.9], [ROTTEN_FLESH, 10], [BONE, 10], [STRING, 5], [ITEM.STICK, 5], [FISHING_ROD, 2, 0.1, 0.9], [INK_SAC, 10]]; // (the ink sac: vanilla's one in 83 of ten sacs, as ten in 93 of one)
+// (Round 11: the enchanted book, and the bow and rod come enchanted, at
+// level 30 with treasure, as vanilla; the rest (name tags, saddles...) don't exist.)
+const TREASURE = [[ITEM.BOW, 1], [FISHING_ROD, 1, 0, 0.25], [ENCHANTED_BOOK, 1]];
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -210,14 +214,21 @@ export class Fishing {
     return true;
   }
 
+  // (Round 11) Seconds until a fish comes: Lure takes 5 s a level off (vanilla).
+  _wait() {
+    return Math.max(1, rnd(WAIT[0], WAIT[1]) - lureSeconds(this.inventory?.selectedStack));
+  }
+
   _catch(b) {
     const x = Math.floor(b.pos.x);
     const y = Math.floor(b.pos.y);
     const z = Math.floor(b.pos.z);
     const r = Math.random();
     const open = this._openWater(x, y, z);
-    // (Not in open water, the treasure share goes to fish.)
-    const e = pick(r < 0.85 || (!open && r >= 0.95) ? FISH : r < 0.95 ? JUNK : TREASURE);
+    // (Round 11: Luck of the Sea moves the odds. Not in open water, the treasure share goes to fish.)
+    const odds = fishingOdds(this.inventory?.selectedStack);
+    const junkTo = odds.fish + odds.junk;
+    const e = pick(r < odds.fish || (!open && r >= junkTo) ? FISH : r < junkTo ? JUNK : TREASURE);
     if (!e) return;
     const [id, , wearMin, wearMax] = e;
     const info = itemInfo(id);
@@ -230,8 +241,10 @@ export class Fishing {
     const t = 0.9;
     const vel = new THREE.Vector3((p.x - from.x) / t, (p.y + 0.5 - from.y) / t - 0.5 * -20 * t, (p.z - from.z) / t);
     const ents = b.entities;
-    if (ents) ents.spawn(id, Math.min(1, maxStack(id)), from, vel, { dur, pickupDelay: 0 });
-    else this.inventory.add(id, 1, dur);
+    const tag = TREASURE.includes(e) ? randomEnchantTag(id, Math.random, id === ENCHANTED_BOOK ? 0 : 22 + Math.floor(Math.random() * 9)) : undefined;
+    if (id === ENCHANTED_BOOK && !tag) return;
+    if (ents) ents.spawn(id, Math.min(1, maxStack(id)), from, vel, { dur, tag, pickupDelay: 0 });
+    else this.inventory.add(id, 1, dur, tag);
     this.caught++;
     const xp = 1 + Math.floor(Math.random() * 6);
     if (this.onXp) this.onXp(xp, from);
@@ -294,7 +307,7 @@ export class Fishing {
       if (!wasInWater) {
         this.audio.playSplash?.();
         this._splash(b.pos, 5);
-        b.wait = rnd(WAIT[0], WAIT[1]);
+        b.wait = this._wait();
       }
       this._fish(b, dt);
     } else {
@@ -335,7 +348,7 @@ export class Fishing {
       b.nibble -= dt;
       if (b.nibble <= 0) {
         b.nibble = 0;
-        b.wait = rnd(WAIT[0], WAIT[1]); // (it got away: wait for the next)
+        b.wait = this._wait(); // (it got away: wait for the next)
       }
       return;
     }

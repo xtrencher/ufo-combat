@@ -983,7 +983,8 @@ for (const id of Object.keys(SAPLINGS)) {
     if (lightAt(world, x, y + 1, z) >= 9 && rand() < 1 / 7) advanceSapling(world, x, y, z, sid, rand);
   };
 }
-// Farmland: wet with water within 4 blocks (at its level or one up), dry
+// Farmland: wet with water within 4 blocks (at its level or one up) or in
+// the rain (js/weather.js), dry
 // without; dry and bare it turns back into dirt, and under a solid block too.
 function waterNear(world, x, y, z) {
   for (let dy = 0; dy <= 1; dy++) {
@@ -1000,7 +1001,7 @@ for (let wet = 0; wet < 2; wet++) {
       world.setBlock(x, y, z, BLOCK.DIRT);
       return;
     }
-    if (waterNear(world, x, y, z)) {
+    if (waterNear(world, x, y, z) || LIB.isRainingAt?.(x, y + 1, z)) {
       if (!wet) world.setBlock(x, y, z, FARMLAND + 1);
     } else if (wet) world.setBlock(x, y, z, FARMLAND);
     else if (!cropBase(above) && !isStem(above)) world.setBlock(x, y, z, BLOCK.DIRT);

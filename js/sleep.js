@@ -51,7 +51,7 @@ export function standUp(avatar) {
 export class Sleep {
   // deps: { player, sky, world, mobs, toast, players () => remote players,
   // online () => bool, isHost () => bool, inGame () => bool, sendTime () => void,
-  // and the optional onSpawnSet, onSleep, onWake, onSkip }
+  // and the optional onSpawnSet, onSleep, onWake, onSkip, thundering () => bool }
   constructor(deps) {
     this.d = deps;
     this.spawn = null; // [x, y, z]: the bed's head cell, or null (the world spawn)
@@ -67,10 +67,11 @@ export class Sleep {
     return this.d.player;
   }
 
-  // Night by the clock (vanilla's window: a bed works from 18:32 to 5:27).
+  // Night by the clock (vanilla's window: a bed works from 18:32 to 5:27),
+  // or a thunderstorm (deps.thundering: js/weather.js).
   canSleepNow() {
     const h = this.d.sky.hours;
-    return h >= NIGHT_FROM || h < NIGHT_TO;
+    return h >= NIGHT_FROM || h < NIGHT_TO || !!this.d.thundering?.();
   }
 
   // The bed whose cell (x, y, z) was clicked: its head cell and the
@@ -146,7 +147,7 @@ export class Sleep {
       d.onSpawnSet?.();
     }
     if (!this.canSleepNow()) {
-      d.toast(same ? "You can sleep only at night" : "Respawn point set. You can sleep only at night", 2.5);
+      d.toast(same ? "You can sleep only at night or during thunderstorms" : "Respawn point set. You can sleep only at night or during thunderstorms", 2.5);
       return true;
     }
     if (!p.creative && this._monstersNear(bed)) {

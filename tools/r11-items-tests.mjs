@@ -249,7 +249,8 @@ await check("every vanilla item has a name, a painted icon and its stack size; f
   const fd = r.foods;
   assert(String(fd.bread) === "5,6" && String(fd.steak) === "8,12.8" && String(fd.chicken) === "2,1.2" && String(fd.salmon) === "6,9.6" && String(fd.carrot) === "6,14.4" && String(fd.apple) === "4,2.4" && String(fd.golden) === "4,9.6" && fd.stewReturns, `foods ${JSON.stringify(fd)}`);
   assert(String(r.heal) === "4,20,2,8", `a Missions world's heals as before: ${r.heal}`);
-  assert(!r.palette.potion && r.palette.shears && r.palette.rod, `the creative palette ${JSON.stringify(r.palette)}`);
+  // (Round 11, magic: the potion item is the water bottle, in the palette now.)
+  assert(r.palette.potion && r.palette.shears && r.palette.rod, `the creative palette ${JSON.stringify(r.palette)}`);
 });
 
 await check("a bucket picks up a water source and pours it back", async () => {

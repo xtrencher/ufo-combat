@@ -97,6 +97,7 @@ export const DEATH_MESSAGES = {
   iron_golem: "Crushed by an iron golem",
   wolf: "Mauled by a wolf",
   arrow: "Shot by an arrow",
+  lightning: "Was struck by lightning",
   // Your own weapons.
   grenade: "Blown up by your own grenade",
   bazooka: "Blown up by your own bazooka",

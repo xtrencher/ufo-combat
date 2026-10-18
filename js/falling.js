@@ -8,7 +8,7 @@
 // explosions cheap, only MAX_ACTIVE blocks animate at once; any further
 // loose columns settle instantly with one batched edit.
 import * as THREE from "three";
-import { BLOCK, IS_SOLID, IS_REPLACEABLE, HAS_GRAVITY } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_REPLACEABLE, HAS_GRAVITY, ITEM_OF } from "./blocks.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { WORLD_HEIGHT } from "./constants.js";
@@ -129,7 +129,8 @@ export class FallingBlocks {
   }
 
   _spawn(id, x, y, z) {
-    const model = itemModel(id);
+    // (Round 11: a facing variant, an anvil's, is drawn as its item.)
+    const model = itemModel(id) || itemModel(ITEM_OF[id]);
     const mesh = new THREE.Mesh(model.geometry, this.material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;

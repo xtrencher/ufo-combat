@@ -262,7 +262,9 @@ export class EntitySync {
     g.mobs.onPuppetHit = (m, amount, dir, kb, byPlayer) => {
       if (!byPlayer) return;
       // (Round 11: a shot, not a blow, marked: an enderman dodges it, on the host.)
-      this.claims.push(["m", m.net.id, r1(amount), dir ? r2(dir.x) : 0, dir ? r2(dir.z) : 0, r1(kb || 0), g.mobs.projectileHit ? 1 : 0]);
+      // (Round 11: and the blow's Fire Aspect / Flame seconds and Looting level.)
+      const ex = g.mobs.attackExtras;
+      this.claims.push(["m", m.net.id, r1(amount), dir ? r2(dir.x) : 0, dir ? r2(dir.z) : 0, r1(kb || 0), g.mobs.projectileHit ? 1 : 0, ex?.fire || 0, ex?.looting || 0]);
       g.hud?.hitMarker?.();
     };
     // (Round 11) A guest's shears, food or iron on the host's creature; a
@@ -513,7 +515,7 @@ export class EntitySync {
     if (!state) return;
     // (Round 11: the vanilla states, flags 128 and up; a creeper's fuse and an
     // enderman's block after the health, only when there are any.)
-    const vf = (m.baby ? 128 : 0) | (m.sheared ? 256 : 0) | (m.loveT > 0 ? 512 : 0) | (m.angerT > 0 ? 1024 : 0) | (m.drinkT > 0 ? 2048 : 0) | (m.breedCd > 0 || m.loveT > 0 ? 4096 : 0) | (m.tamed ? 8192 : 0) | (m.sitting ? 16384 : 0);
+    const vf = (m.baby ? 128 : 0) | (m.sheared ? 256 : 0) | (m.loveT > 0 ? 512 : 0) | (m.angerT > 0 ? 1024 : 0) | (m.drinkT > 0 ? 2048 : 0) | (m.breedCd > 0 || m.loveT > 0 ? 4096 : 0) | (m.tamed ? 8192 : 0) | (m.sitting ? 16384 : 0) | (m.kind === "sheep" ? 32768 | ((m.variant & 15) << 16) : 0);
     const s = [m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0) | vf, r2(m.attack ?? 1), r1(m.vel?.y ?? 0), Math.round((Math.max(0, m.health) / (m.maxHealth || 1)) * 1000) / 1000];
     if (m.fuse > 0 || m.carry || m.owner) s.push(r2(m.fuse || 0), m.carry || 0, m.owner || 0);
     snap.m.push(s);
@@ -601,12 +603,16 @@ export class EntitySync {
           const prev = g.mobs.player;
           if (px) g.mobs.player = px;
           g.mobs.currentAttacker = from;
+          const fire = Math.min(8, Math.max(0, Number(c[7]) || 0));
+          const looting = Math.min(3, Math.max(0, c[8] | 0));
+          g.mobs.attackExtras = fire || looting ? { fire, looting } : null;
           try {
             if (c[6]) g.mobs.shoot(mob, c[2], { x: c[3], z: c[4] }, c[5], true);
             else g.mobs._hurt(mob, c[2], { x: c[3], z: c[4] }, c[5], true);
           } finally {
             g.mobs.player = prev;
             g.mobs.currentAttacker = null;
+            g.mobs.attackExtras = null;
           }
         } else if (c[0] === "us") {
           // (Round 11) A guest's use: within reach of the creature (their own inventory paid).
@@ -981,6 +987,8 @@ export class EntitySync {
     m.carry = st.h | 0;
     m.tamed = !!(f & 8192);
     m.sitting = !!(f & 16384);
+    // (A sheep's colour: a dye may change it.)
+    if (f & 32768 && m.kind === "sheep") g.mobs.setSheepColor(m, (f >> 16) & 15);
     m.owner = st.o | 0;
     if (m.tamed && m.kind === "wolf" && m.maxHealth < 20) m.maxHealth = 20;
     // (An enderman's teleport: the flash where it was and where it is.)

@@ -116,6 +116,22 @@ export class HeldItem {
     this.camera.updateProjectionMatrix();
   }
 
+  // (Round 11) The enchantment glint over the item in hand: a copy of its
+  // mesh in additive violet, its brightness rolling (one more draw call,
+  // only while the item is enchanted).
+  setGlint(on) {
+    on = !!on && !!this.mesh && this.mesh !== this.arm;
+    if (on && this._glintFor !== this.mesh) {
+      this._glintMesh?.parent?.remove(this._glintMesh);
+      this._glintMat ||= new THREE.MeshBasicMaterial({ color: 0x9050ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, depthFunc: THREE.LessEqualDepth });
+      this._glintMesh = new THREE.Mesh(this.mesh.geometry, this._glintMat);
+      this._glintMesh.renderOrder = 2;
+      this.mesh.add(this._glintMesh);
+      this._glintFor = this.mesh;
+    }
+    if (this._glintMesh) this._glintMesh.visible = on && this._glintFor === this.mesh;
+  }
+
   // Shows item `id` (0 / null = bare arm). Animates the switch unless `instant`.
   setItem(id, instant = false) {
     id = id || 0;
@@ -304,6 +320,10 @@ export class HeldItem {
   // way). eating: seconds spent eating so far (0 = not eating).
   update(dt, player, light, camera, eating = 0) {
     this.light = light;
+    if (this._glintMesh?.visible) {
+      this._glintMat.opacity = 0.22 + 0.14 * Math.sin(performance.now() / 380);
+      if (this._glintMesh.geometry !== this.mesh.geometry) this._glintMesh.geometry = this.mesh.geometry; // (a bow being drawn)
+    }
     this.camera.quaternion.copy(camera.quaternion);
     this.pivot.quaternion.copy(camera.quaternion);
     this._swing = Math.min(1, this._swing + dt / SWING_TIME);

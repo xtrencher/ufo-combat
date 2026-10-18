@@ -113,8 +113,8 @@ export const items = {
   // Held up while right click is held (shieldRaised below; the hits it stops
   // are the damage code's).
   [V.SHIELD]: { name: "Shield", icon: "shield", stack: 1, shield: true, tool: { type: "shield", durability: 337, damage: 1 } },
-  // (A cake is a block in the classic game, eaten in seven bites: an item
-  // here until it has a block.)
+  // (A cake is a block in the classic game, eaten in seven bites: this item
+  // places the decor part's cake block, js/content/decor.js itemUse.)
   [V.CAKE]: { name: "Cake", icon: "cake", stack: 1 },
   // (An enchanted book holds its enchantments in the stack's tag, js/enchant.js:
   // made at the table or found; a plain one in the palette would be empty.)
