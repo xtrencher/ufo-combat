@@ -69,7 +69,16 @@ export class WaterSim {
   // arenas, world setup), not a real player/explosion edit, so water leaves
   // it alone.
   _onEdit(changed, { recordEdit = true, remote = false } = {}) {
-    if (!recordEdit || remote) return;
+    if (remote) {
+      // (Another peer's edit: a cell no longer water is no flow cell here
+      // either; what the new water is comes with it, applyRemoteMeta.)
+      for (let i = 0; i < changed.length; i += 3) {
+        const key = this._key(changed[i], changed[i + 1], changed[i + 2]);
+        if (this.meta.has(key) && this.world.getBlock(changed[i], changed[i + 1], changed[i + 2]) !== BLOCK.WATER && this.meta.delete(key)) this.metaVersion++;
+      }
+      return;
+    }
+    if (!recordEdit) return;
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1];
@@ -221,6 +230,29 @@ export class WaterSim {
       const v = list.slice(i, i + 7);
       if (!v.every(Number.isInteger)) continue;
       this.meta.set(this._key(v[0], v[1], v[2]), { level: v[3], parent: [v[4], v[5], v[6]] });
+    }
+  }
+
+  // (Online) Another peer's water cells (js/net/world.js): w is flow cells
+  // [x, y, z, level, px, py, pz, ...], ws sources [x, y, z, ...]. The sim is
+  // not woken: the peer whose edit it was runs the flow.
+  applyRemoteMeta(w, ws) {
+    const ok = (v) => Number.isInteger(v) && Math.abs(v) < 1e7;
+    if (Array.isArray(w)) {
+      const n = Math.min(w.length, 4096 * 7);
+      for (let i = 0; i + 6 < n; i += 7) {
+        const v = w.slice(i, i + 7);
+        if (!v.every(ok) || v[3] < 0 || v[3] > 8) continue;
+        this.meta.set(this._key(v[0], v[1], v[2]), { level: v[3], parent: [v[4], v[5], v[6]] });
+      }
+      this.metaVersion++;
+    }
+    if (Array.isArray(ws)) {
+      const n = Math.min(ws.length, 4096 * 3);
+      for (let i = 0; i + 2 < n; i += 3) {
+        if (ok(ws[i]) && ok(ws[i + 1]) && ok(ws[i + 2])) this.meta.delete(this._key(ws[i], ws[i + 1], ws[i + 2]));
+      }
+      this.metaVersion++;
     }
   }
 

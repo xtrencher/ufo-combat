@@ -78,7 +78,7 @@ import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
 import { Sleep } from "./sleep.js";
 import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
 import { LIB } from "./content/base.js";
-import { shieldRaised } from "./content/items-vanilla.js";
+import { shieldRaised, shieldInOffhand } from "./content/items-vanilla.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -728,7 +728,9 @@ function shieldBlocks(amount, from) {
   const f = player.getForwardVector();
   if ((from.x - player.position.x) * f.x + (from.z - player.position.z) * f.z <= 0) return false;
   audio.playBreak?.("wood");
-  if (amount >= 3 && inventory.damageSelected(1 + Math.floor(amount))) audio.playToolBreak();
+  player.shieldBlockedAt = performance.now() / 1000; // (js/mobs.js: the attacker is pushed back)
+  const wear = 1 + Math.floor(amount);
+  if (amount >= 3 && (shieldInOffhand(inventory) ? inventory.damageOffhand(wear) : inventory.damageSelected(wear))) audio.playToolBreak();
   markInventoryChanged();
   return true;
 }
@@ -1857,7 +1859,7 @@ weapons.onChange = markInventoryChanged;
 weapons.onMessage = (t) => toast(t, 1.6);
 invScreen.onChange = markInventoryChanged;
 invScreen.onDrop = (stack) => interaction.throwStack(stack);
-world.onBlockPopped = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
+world.onBlockPopped = (x, y, z, id, natural) => interaction.blockPopped(x, y, z, id, natural);
 falling.onBreak = (x, y, z, id) => interaction.blockPopped(x, y, z, id);
 
 entities.onPickup = (item) => {
@@ -1931,7 +1933,7 @@ function dropEverything() {
   at.y += 0.8;
   // (Online they land in everyone's world: a friend can bring them back.)
   mp.items.share(() => {
-    for (const s of [...inventory.slots, ...inventory.armor]) {
+    for (const s of [...inventory.slots, ...inventory.armor, inventory.offhand]) {
       if (!s) continue;
       const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5);
       entities.spawn(s.id, s.count, at, vel, { dur: s.dur, tag: s.tag, pickupDelay: 2 });
@@ -2919,7 +2921,10 @@ window.addEventListener("keydown", (e) => {
   if (player.sleeping) return; // (Round 11: in bed, Shift gets up first)
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
-  else if (e.code === "KeyF" && mods.enabled) vehicles.toggle();
+  else if (e.code === "KeyF") {
+    if (mods.enabled) vehicles.toggle();
+    else if (isVanilla() && inventory.swapOffhand()) markInventoryChanged();
+  }
   else if (e.code === "KeyR") {
     // Reload the weapon in hand early.
     const kind = itemInfo(inventory.selectedStack?.id)?.weapon?.kind;
@@ -4129,9 +4134,11 @@ function simulate(dt, frameTime) {
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
+  held.setOffhand(inventory.offhand?.id ?? 0);
   held.setGlint?.(isEnchanted(inventory.selectedStack)); // (Round 11)
   held.visible = !player.sleeping; // (Round 11: no hand in bed)
   held.update(dt, player, heldLight, camera, interaction.eating);
+  player.usingItem = gameState === "playing" && (interaction.eating > 0 || weapons.bow.drawing || shieldRaised(player, inventory));
   avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
   updateDebug(dt, frameTime);
   mp.update(dt);

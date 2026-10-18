@@ -137,6 +137,7 @@ new world starts on flat, open, dry ground.
 | Pick the targeted block (Creative) | Middle click |
 | Pause menu | `Esc` (also steps back out of any menu screen) |
 | Board / leave a vehicle (Mods on) | `F` |
+| Swap the item in hand with the off hand (Survival worlds) | `F` |
 | Stats and controls of the vehicle you are in | `I` |
 | Fullscreen (and the keyboard lock in Chromium) | `F11` or `Alt+Enter` |
 | Hide the HUD / debug info / camera view | `F1` / `F3` / `F5` |
@@ -150,7 +151,12 @@ right click takes half or places one; `Shift` + click moves a stack between
 the hotbar and the inventory; number keys swap the hovered slot with a hotbar
 slot; `Q` drops from the hovered slot; clicking outside the window drops what
 you're carrying. In Creative the palette has tabs (Weapons, Blocks, Tools,
-Items): click to take a stack, `Shift` + click to add it to the inventory.
+Armor, Items, Search; in a Survival world: Combat, Blocks, Tools, Items,
+Search, opening on Blocks): click to take a stack, `Shift` + click to add it
+to the inventory; the Search tab filters every item by name. In a Survival
+world the armor row has an **off-hand** slot: `F` swaps the item in hand with
+it (or, in the inventory, the hovered slot's), and a shield there blocks with
+right click while the main hand holds a tool or nothing.
 **A chest** (right click on it) opens the same screen with the chest's 27
 slots above your inventory and the same clicks: `Shift` + click moves a stack
 between the chest and your inventory. `E` or `Esc` closes it.
@@ -368,7 +374,9 @@ Minecraft's instead (see **Mobs**).
 - **Zombie:** comes out in the dark (at night, or in unlit caves), chases
   you, and hits hard. Zombies burn in daylight. Swords recharge between
   swings (watch the bar under the crosshair); hit while falling for a
-  critical hit.
+  critical hit. (In a Survival world melee is Java's: each tool's own damage
+  and attack speed, an axe slow and strong, a full-charge sword hit sweeps
+  the creatures around the target, and no crit while sprinting.)
 - **Skeletons** shoot real arrows from their bows (and drop them);
   **spiders** climb walls.
 - (Round 9) Land creatures never appear in water or on it, wherever they
@@ -581,8 +589,8 @@ blocks tall, the sea at 24):
   None on Peaceful. A spawner is in the Creative palette (zombie, skeleton
   and spider) and works in either kind of world.
 - Things vanilla's chests hold that the game doesn't have (saddles, name
-  tags, horse armour, music discs, rails) are left out, and so are their
-  enchanted books for now; the rest keep vanilla's odds.
+  tags, horse armour, music discs, rails) are left out; the rest keep
+  vanilla's odds, enchanted books (one random enchantment) included.
 
 ### Farming and growing
 
@@ -605,7 +613,8 @@ blocks tall, the sea at 24):
 - **Leaves** more than 6 blocks from a log decay once their tree is cut;
   leaves you place yourself never do.
 - **Sugar cane** grows 3 tall beside water (sugar from it); **cactus** grows
-  3 tall too; mushrooms spread slowly in the dark.
+  3 tall too, only on sand with nothing solid beside it (it breaks off
+  otherwise, as vanilla); mushrooms spread slowly in the dark.
 - **Recipes from the land:** hay bale (9 wheat, and back), melon (9 slices),
   seeds from melon slices and pumpkins, sugar, bone meal, the bricks block (4
   bricks), clay (4 clay balls), snow block (4 snowballs) and snow layers,
@@ -773,8 +782,8 @@ How they behave, as in vanilla:
   - red: a poppy (the red flower), a red tulip, a **beetroot**;
   - yellow: a dandelion (the yellow flower);
   - blue: **lapis lazuli**, a cornflower;
-  - brown: **cocoa beans** (no cocoa pods grow yet: in a Survival world they
-    come only from Creative);
+  - brown: **cocoa beans** (cocoa pods grow on jungle trunks; plant beans on
+    a jungle log's side; a ripe pod gives 3);
   - green: **smelt a cactus** (1 experience);
   - black: an **ink sac** (fishing now and then brings one up);
   - orange: an orange tulip, or red + yellow (2);
@@ -861,7 +870,9 @@ Creative can get the pieces).
   (one caught by a blast after 0.5-1.5 s) with power 4: bigger than a
   creeper, it breaks the blocks round it (in water it breaks none) and sets
   off the TNT it reaches, so TNT goes off in chains. In a Survival world
-  every block it breaks drops.
+  every block it breaks drops, and blasts (TNT's and creepers') hurt as
+  vanilla's and leave obsidian, bedrock, enchanting tables, anvils and
+  liquids standing.
 - (Simplified: pistons move their blocks at once, with no sliding, and don't
   shove players or creatures; no comparators, observers, hoppers or
   repeater locking yet.)
@@ -903,7 +914,10 @@ A Survival world has the classic game's items, with its numbers:
 - **Chainmail armor** (2/5/4/1 points, an iron set's wear; not crafted: an
   armorer sells it) and the **shield**: hold right click with it for a quarter of a
   second and it turns away blows, arrows and shots from in front (the half
-  you face); a hit of 3 or more wears it by 1 + the damage. Flint and steel,
+  you face); a hit of 3 or more wears it by 1 + the damage. It works from
+  the off hand too; a blow it turns away pushes the attacker back, and a
+  blow with an axe knocks it down for 5 seconds. Eating, drinking, drawing
+  a bow and a raised shield slow you to a walk, as vanilla. Flint and steel,
   a fishing rod and a shield wear only by their own use, not by breaking
   blocks or hitting.
 - **Village chests** hold the classic village loot: bread, apples, potatoes,
@@ -1046,8 +1060,9 @@ vanilla's 70.)
 
 (Differences from vanilla, kept on purpose: villagers have no levels or
 experience of their own and offer the trades of their first three levels at
-once, at fixed prices; they don't keep their trades after a reload (only bred
-or tamed animals are saved).)
+once, at fixed prices. A village's villagers and its iron golem stay where
+they are and are saved with the world, professions and trades too; a killed
+golem is replaced after 5 to 10 minutes.)
 
 ## How to play with friends (multiplayer)
 

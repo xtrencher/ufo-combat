@@ -43,6 +43,8 @@ import { BLOCK_USE, ITEM_USE } from "./content/index.js";
 import { enchLevel, efficiencyBonus, meleeBonus } from "./enchant.js";
 import { isVanilla } from "./worldtype.js";
 import { GLASS_BOTTLE } from "./content/ids.js";
+import { offhandUse } from "./content/items-vanilla.js";
+import { cactusHolds } from "./content/nature.js";
 
 const REACH_SURVIVAL = 4.5;
 const REACH_CREATIVE = 6;
@@ -414,7 +416,7 @@ export class Interaction {
     bonus += 3 * (p.effectLevel?.("strength") ?? 0) - 4 * (p.effectLevel?.("weakness") ?? 0);
     const out = { tool, bonus: 0, knockback: 0, fire: 0, looting: 0 };
     if (bonus) {
-      if (tool) out.tool = { ...tool, damage: Math.max(0, tool.damage + bonus) };
+      if (tool) out.tool = { ...tool, damage: Math.max(0, tool.damage + bonus), ...(tool.vDamage != null && { vDamage: Math.max(0, tool.vDamage + bonus) }) };
       else out.bonus = bonus;
     }
     if (ench && tool) {
@@ -533,8 +535,10 @@ export class Interaction {
 
   // Items dropped by blocks that break on their own (a torch whose wall was
   // mined, a flower whose soil was removed).
-  blockPopped(x, y, z, id) {
-    if (this.player.creative) return;
+  // (natural: the world did it, a leaf's decay or a cane's pop: it drops even
+  // near a host in Creative.)
+  blockPopped(x, y, z, id, natural = false) {
+    if (this.player.creative && !natural) return;
     // (A block that comes off on its own drops itself even where mining it
     // would take a pickaxe: a lantern whose ceiling went, an iron door.)
     const drops = canHarvest(id, null) ? blockDrops(id, null) : itemInfo(ITEM_OF[id]) ? [[ITEM_OF[id], 1]] : [];
@@ -609,6 +613,8 @@ export class Interaction {
   _use() {
     const stack = this.inventory.selectedStack;
     const info = stack ? itemInfo(stack.id) : null;
+    // (A Survival world) The off hand's shield, when the main hand has no use.
+    if (!(stack && ITEM_USE[stack.id]) && !info?.food && !info?.potion && !info?.block && !info?.weapon && offhandUse(this._useCtx(this.target))) return false;
     // A content item's own use (a bucket, a hoe, bone meal).
     if (stack && ITEM_USE[stack.id] && ITEM_USE[stack.id](this._useCtx(this.target))) {
       this.held.swing();
@@ -676,6 +682,7 @@ export class Interaction {
     if (this._occupied(blockId, px, py, pz)) return false;
     if (more) for (let i = 0; i < more.length; i += 4) if (this._occupied(more[i + 3], more[i], more[i + 1], more[i + 2])) return false;
     if (!merged && !isSupportedBy(blockId, world.getBlock(px, py - 1, pz))) return false;
+    if (blockId === BLOCK.CACTUS && !cactusHolds(world, px, py, pz)) return false;
     if (!world.setBlocks(more ? [px, py, pz, blockId, ...more] : [px, py, pz, blockId]) || world.getBlock(px, py, pz) !== blockId) return false;
     this.audio.playPlace(BLOCK_INFO[blockId].sound);
     this.held.swing();

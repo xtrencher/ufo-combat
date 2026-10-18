@@ -36,6 +36,8 @@ import { makeOffers, encodeOffers, decodeOffers, PROFESSION_NAMES, NITWIT } from
 import { SEA_LEVEL } from "./constants.js";
 import { SNOWY_GRASS } from "./content/nature.js";
 
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4 }; // (a Survival world's blasts: explosion())
+
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
 const MAX_HOSTILE = 8; // skeletons and spiders (zombies have their own cap, a setting)
@@ -2944,6 +2946,11 @@ export class MobManager {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
       if (isVanilla()) this._rallyWolves(this._pidOf(this.player), m); // (Round 11: their wolves defend them)
+    } else if (isVanilla() && this.player.shieldBlockedAt > performance.now() / 1000 - 0.1) {
+      // (A blow turned away by a shield pushes the attacker back, as vanilla.)
+      m.stagger = 0.45;
+      m.knock.x -= nx * 5;
+      m.knock.z -= nz * 5;
     }
     this._voice(m, "attack");
   }
@@ -3532,9 +3539,28 @@ export class MobManager {
   }
 
   // Explosions hurt and fling mobs like they do the player, scaled by size.
-  explosion(center, radius, byPlayer = true) {
+  explosion(center, radius, byPlayer = true, source = null) {
     const reach = radius * 1.8;
     const size = Math.sqrt(radius / 7);
+    // (A Survival world: a creeper's or TNT's blast hurts as vanilla's, power
+    // 3 or 4, reach 2 x power from the feet, exposure taken as 1; main.js
+    // hurtByBlast does the same for the player.)
+    const power = isVanilla() ? VANILLA_BLAST_POWER[source] : 0;
+    if (power) {
+      for (const m of this.mobs) {
+        if (m.dead) continue;
+        const d = this._tmp.set(m.pos.x - center.x, m.pos.y - center.y, m.pos.z - center.z);
+        const dist = d.length();
+        const q = 1 - dist / (2 * power);
+        if (q <= 0) continue;
+        const dmg = Math.floor(((q * q + q) / 2) * 7 * 2 * power + 1);
+        const dir = { x: d.x / (dist || 1), z: d.z / (dist || 1) };
+        m.invulnerable = 0;
+        this._hurt(m, dmg, dir, q * 12, byPlayer);
+        m.vel.y = Math.max(m.vel.y, Math.min(12, q * 8));
+      }
+      return;
+    }
     for (const m of this.mobs) {
       if (m.dead) continue;
       const d = this._tmp.set(m.pos.x - center.x, m.pos.y + m.spec.h / 2 - center.y, m.pos.z - center.z);

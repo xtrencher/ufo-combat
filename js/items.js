@@ -29,12 +29,24 @@ export const MATERIALS = {
   gold: { tier: 1, speed: 12, durability: 33, sword: 4, color: "gold" },
 };
 
+// (Round 11) Java's melee [damage, attacks a second] by tool, for a Survival
+// world's hits (js/mobs.js: vDamage, vSpeed); a Missions world keeps `damage`.
+const VANILLA_MELEE = {
+  sword: { wood: [4, 1.6], stone: [5, 1.6], iron: [6, 1.6], diamond: [7, 1.6], gold: [4, 1.6] },
+  axe: { wood: [7, 0.8], stone: [9, 0.8], iron: [9, 0.9], diamond: [9, 1], gold: [7, 1] },
+  pickaxe: { wood: [2, 1.2], stone: [3, 1.2], iron: [4, 1.2], diamond: [5, 1.2], gold: [2, 1.2] },
+  shovel: { wood: [2.5, 1], stone: [3.5, 1], iron: [4.5, 1], diamond: [5.5, 1], gold: [2.5, 1] },
+  hoe: { wood: [1, 1], stone: [1, 2], iron: [1, 3], diamond: [1, 4], gold: [1, 1] },
+};
+
 // A tool of `type` made of `mat` (a MATERIALS key): what its item's `tool` is.
 // (Hoes hit like a bare hand, as in the classic game.)
 export function toolOf(type, mat) {
   const m = MATERIALS[mat];
   return {
     type,
+    vDamage: VANILLA_MELEE[type]?.[mat]?.[0],
+    vSpeed: VANILLA_MELEE[type]?.[mat]?.[1],
     tier: m.tier,
     speed: m.speed,
     durability: m.durability,

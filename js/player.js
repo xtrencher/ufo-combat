@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { BLOCK, BLOCK_INFO, IS_WET, IS_SOLID } from "./blocks.js";
 import { sweepAxis } from "./physics.js";
 import { isVanilla } from "./worldtype.js";
+import { enchantSeed, setEnchantSeed } from "./enchant.js";
 import { BYPASSES_ARMOR } from "./damage.js";
 import { BODY, BODY_FLAGS, SUFFOCATES, FALL_FACTOR, MAX_FOOD, START_SATURATION, EAT_TIME, EFFECTS, foodOf, missionsHeal, effectsOf, normalizeEffect } from "./survival.js";
 
@@ -569,12 +570,14 @@ export class Player {
       fire: this.fireTime > 0 ? r(this.fireTime) : undefined,
       fx: this.effects.length ? this.effects.map((e) => [e.effect, e.level, r(e.time), r(e.total)]) : undefined,
       xp: [this.xpLevel, r(this.xpProgress), this.xpTotal],
+      es: enchantSeed(), // (the enchanting table's offers, as vanilla's per-player seed)
     };
   }
 
   // (An old save has none: full food, as a new player.)
   loadSurvival(d) {
     if (!d || typeof d !== "object") return;
+    if (Number.isInteger(d.es)) setEnchantSeed(d.es);
     const clamp = (v, lo, hi, def) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def);
     this.food = Math.round(clamp(d.food, 0, MAX_FOOD, MAX_FOOD));
     this.saturation = clamp(d.sat, 0, this.food, START_SATURATION);

@@ -29,7 +29,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
 import { VILLAGE_REACH } from "./village.js";
 import { JUNGLE_LOG, ACACIA_LOG, DARK_OAK_LOG, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES, VINE, MYCELIUM, FARMLAND } from "./content/ids.js";
-import { SNOWY_GRASS } from "./content/nature.js";
+import { SNOWY_GRASS, COCOA, COCOA_AGES, isCocoa } from "./content/nature.js";
 
 export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4, JUNGLE: 5, ACACIA: 6, DARK_OAK: 7, MEGA_JUNGLE: 8 });
 export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak", 5: "jungle", 6: "acacia", 7: "dark oak", 8: "giant jungle" };
@@ -69,6 +69,8 @@ const SAPLING_SPECIES = { oak: 1, birch: 2, spruce: 3, jungle: 5, acacia: 6, dar
 // A vine on the side of a trunk: VINE + the side its wall is on (+Z, -Z,
 // +X, -X: js/content/nature.js's order).
 const isVine = (id) => id >= VINE && id < VINE + 4;
+// (the walls of the vines' and cocoa pods' ids: +Z, -Z, +X, -X)
+const FACINGS4 = [[0, 1], [0, -1], [1, 0], [-1, 0]];
 // Ground a grown trunk turns to dirt.
 const SOIL_TO_DIRT = new Set([BLOCK.GRASS, MYCELIUM, FARMLAND, FARMLAND + 1, SNOWY_GRASS]);
 
@@ -232,7 +234,7 @@ export class TreeGrower {
       const wy = y + dy;
       const wz = rz + shape[i + 2];
       const id = shape[i + 3];
-      const crown = id === root.leaf || isVine(id);
+      const crown = id === root.leaf || isVine(id) || isCocoa(id);
       if (wy < 1 || wy >= WORLD_HEIGHT) {
         if (!crown) return false;
         continue;
@@ -323,6 +325,15 @@ export class TreeGrower {
       // A tall trunk with vines up its sides under a small, rounded crown.
       const T = 5 + Math.floor(rand() * 6);
       trunkTop = T;
+      // Cocoa pods on one tree in 5, round its lowest 3 logs, a side in 4
+      // (vanilla's CocoaDecorator; hashed, so the tree's other draws stay put).
+      if (hash3(jitterSeed, 0, -7, 0) < 0.2) {
+        FACINGS4.forEach(([dx, dz], k) => {
+          for (let y = 0; y < 3; y++) {
+            if (hash3(jitterSeed, dx, y - 11, dz) < 0.25) out.push(-dx, y, -dz, COCOA + Math.floor(hash3(jitterSeed, dz, y - 17, dx) * COCOA_AGES) * 4 + k);
+          }
+        });
+      }
       for (let y = 0; y < T; y++) {
         out.push(0, y, 0, log);
         if (y < 1) continue;
@@ -495,7 +506,7 @@ export class TreeGrower {
         const idx = (y * S + z) * S + x;
         const cur = blocks[idx];
         const id = shape[i + 3];
-        if (id === root.leaf || isVine(id)) {
+        if (id === root.leaf || isVine(id) || isCocoa(id)) {
           if (cur === BLOCK.AIR) blocks[idx] = id;
         } else if (shape[i + 1] === -1) {
           // Roots run through the ground's top block, never through the air.

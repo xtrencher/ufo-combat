@@ -63,8 +63,7 @@ export class ItemSync {
       // where it is, as offline. Asking would have the host hand it over, the
       // inventory refuse it and it be thrown out again, over and over.
       const inv = g.inventory;
-      const aslot = inv.constructor.armorSlotOf?.(item.id) ?? -1;
-      if (g.player.dead || (!inv.canFit(item.id, 1) && !(aslot >= 0 && !inv.armor[aslot]))) return item.count;
+      if (g.player.dead || (!inv.canFit(item.id, 1) && !inv.wouldWear(item.id))) return item.count;
       // Asked of the host; until it answers the item waits where it is.
       if (item.asked && performance.now() - item.asked < 1500) return item.count;
       item.asked = performance.now();

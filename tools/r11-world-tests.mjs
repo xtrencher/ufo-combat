@@ -127,6 +127,8 @@ await check("Survival chunks hold dungeons at a plausible rate: a spawner on a m
               if (!IS_CHEST[c.getBlock(x + dx, y, z + dz)]) continue;
               chests++;
               assert(c.gen.structures.chestAt(x + dx, y, z + dz, (a, b2, d) => c.getBlock(a, b2, d)) === "dungeon", `a dungeon chest at ${x + dx},${y},${z + dz} is not known as one`);
+              // (its spawner broken, or the ground not loaded where it is asked: still a dungeon's)
+              assert(c.gen.structures.chestAt(x + dx, y, z + dz, () => BLOCK.AIR) === "dungeon", `a dungeon chest at ${x + dx},${y},${z + dz} without its spawner is not known as one`);
             }
           }
         }
@@ -225,14 +227,17 @@ await check("desert temples stand in deserts only, a pyramid over a hidden room 
 await check("loot keeps vanilla's odds: what the game lacks gives nothing (a dungeon chest's golden apple about 1 roll in 8)", async () => {
   const rand = seeded(11);
   let apples = 0;
+  let books = 0;
   let rolls = 0;
   for (let i = 0; i < 4000; i++) {
     const loot = ST.rollStructureLoot("dungeon", rand);
     apples += loot.filter(([id]) => id === 262).length;
+    books += loot.filter(([id, n, tag]) => id === V.ENCHANTED_BOOK && n === 1 && tag).length;
     rolls += 2; // (1-3 rolls of the first pool: 2 on average)
   }
   const share = apples / rolls;
   assert(share > 0.09 && share < 0.15, `golden apples per roll: ${share.toFixed(3)} (vanilla 15/127 = 0.118)`);
+  assert(books / rolls > 0.05 && books / rolls < 0.11, `enchanted books per roll: ${(books / rolls).toFixed(3)} (vanilla 10/127 = 0.079)`);
 });
 
 await check("a Missions world's chunks are unchanged (no structures), and the distant terrain of a Survival world still matches its chunks' heights", async () => {

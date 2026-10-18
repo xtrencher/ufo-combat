@@ -58,6 +58,11 @@ export const PERSISTENT_LEAVES = 1655;
 // mineshafts, and runs them): 3 ids, the creature each spawns.
 export const SPAWNER = 1661;
 export const SPAWNER_KINDS = ["zombie", "skeleton", "spider"];
+// Cocoa pods (vanilla's, on jungle trunks): 12 ids, COCOA + age (0-2) * 4 +
+// the wall they hang on (FACINGS order, as the vines).
+export const COCOA = 1664;
+export const COCOA_AGES = 3;
+export const isCocoa = (id) => id >= COCOA && id < COCOA + 4 * COCOA_AGES;
 // (nature.js blocks: next free 1664)
 const NATURAL_LEAVES = [BLOCK.LEAVES, BLOCK.PINE_LEAVES, BLOCK.BIRCH_LEAVES, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES];
 
@@ -536,6 +541,36 @@ FACINGS.forEach(([dx, dz], k) => {
     },
   });
 });
+// Cocoa pods: grown from cocoa beans on a jungle log's side (vanilla's
+// sizes: 4, 6, 8 pixels wide under the same top, a pixel off the bark).
+// `support: "wall"` with `facing` away from the log: interaction.js pops
+// them when it goes.
+for (let age = 0; age < COCOA_AGES; age++) {
+  const w = (4 + 2 * age) / 16;
+  const y0 = (7 - 2 * age) / 16;
+  FACINGS.forEach(([dx, dz], k) => {
+    const span = (d) => (d > 0 ? [15 / 16 - w, 15 / 16] : d < 0 ? [1 / 16, 1 / 16 + w] : [0.5 - w / 2, 0.5 + w / 2]);
+    const [x0, x1] = span(dx);
+    const [z0, z1] = span(dz);
+    def(COCOA + age * 4 + k, {
+      name: "Cocoa",
+      faces: `cocoa_${age}`,
+      render: RENDER.CUTOUT,
+      shape: "cocoa",
+      solid: false,
+      opaque: false,
+      skyPass: true,
+      box: [x0, y0, z0, x1, 12 / 16, z1],
+      hardness: 0.2,
+      tool: "axe",
+      sound: "wood",
+      item: COCOA_BEANS,
+      wall: [dx, dz],
+      support: "wall",
+      facing: [-dx, -dz],
+    });
+  });
+}
 // Cobweb: slows whatever moves through it (`slows` for the survival part);
 // a sword cuts it fast and gets string, shears get the web.
 def(COBWEB, { ...PLANT, name: "Cobweb", faces: "cobweb", wave: false, lightFilter: 1, hardness: 4, tool: "sword", sound: "cloth", slows: true });
@@ -783,6 +818,13 @@ export const shapes = {
       if (!isLava(below) && !LIB.IS_OPAQUE[below]) m.quad(LAVA_BOTTOM.c, LAVA_BOTTOM.uv, FACE.NY, t);
     },
   },
+  // (a cocoa pod: its selection box, drawn with its own tile)
+  cocoa: {
+    mesh(m) {
+      const b = blocks[m.id].box;
+      m.box(b[0], b[1], b[2], b[3], b[4], b[5]);
+    },
+  },
 };
 
 // ---------- Items ----------
@@ -804,7 +846,6 @@ export const items = {
   [CLAY_BALL]: { name: "Clay Ball", icon: "clay_ball" },
   [BRICK]: { name: "Brick", icon: "brick" },
   [SNOWBALL]: { name: "Snowball", icon: "snowball", stack: 16 },
-  // (Cocoa pods on jungle trees are not in this wave: Creative only for now.)
   [COCOA_BEANS]: { name: "Cocoa Beans", icon: "cocoa_beans" },
 };
 
@@ -826,6 +867,8 @@ drops[DIRT_PATH] = fixed([[BLOCK.DIRT, 1]]);
 drops[PODZOL] = fixed([[BLOCK.DIRT, 1]]);
 drops[MYCELIUM] = fixed([[BLOCK.DIRT, 1]]);
 drops[MELON] = (tool, rand) => [[MELON_SLICE, between(3, 7, rand)]];
+// (a ripe cocoa pod gives 3 beans, an unripe one 1: vanilla Java)
+for (let i = 0; i < 4 * COCOA_AGES; i++) drops[COCOA + i] = fixed([[COCOA_BEANS, i >= 4 * (COCOA_AGES - 1) ? 3 : 1]]);
 for (let n = 1; n <= 8; n++) drops[SNOW_LAYER + n - 1] = fixed([[SNOWBALL, n]]);
 // Crops: one seed (or the root) until ripe; then the harvest (vanilla: the
 // seeds are 1 + binomial(3, 4/7), so are the extra carrots and potatoes on
@@ -962,24 +1005,30 @@ function columnTick(id0, needsWater) {
     if (id0 === BLOCK.CACTUS && !isVanilla()) return;
     if (id0 === BLOCK.CACTUS && !cactusHolds(world, x, y, z)) {
       world.setBlock(x, y, z, BLOCK.AIR); // (the rest pops off: world.js)
-      world.onBlockPopped?.(x, y, z, id0);
+      world.onBlockPopped?.(x, y, z, id0, true);
       return;
     }
     let bottom = y;
     while (bottom > 0 && y - bottom < 3 && world.getBlock(x, bottom - 1, z) === id0) bottom--;
     if (needsWater && !waterBeside(world, x, bottom - 1, z)) {
       world.setBlock(x, bottom, z, BLOCK.AIR); // (the rest pops off: world.js)
-      world.onBlockPopped?.(x, bottom, z, id0);
+      world.onBlockPopped?.(x, bottom, z, id0, true);
       return;
     }
     if (world.getBlock(x, y + 1, z) !== BLOCK.AIR || y + 1 - bottom >= 3 || rand() >= 1 / 16) return;
     // (a cactus grown beside a block breaks at once: vanilla's cactus farms)
-    if (id0 === BLOCK.CACTUS && SIDES.some(([dx, dz]) => LIB.IS_SOLID[world.getBlock(x + dx, y + 1, z + dz)])) world.onBlockPopped?.(x, y + 1, z, id0);
+    if (id0 === BLOCK.CACTUS && SIDES.some(([dx, dz]) => LIB.IS_SOLID[world.getBlock(x + dx, y + 1, z + dz)])) world.onBlockPopped?.(x, y + 1, z, id0, true);
     else world.setBlock(x, y + 1, z, id0);
   };
 }
 randomTick[SUGAR_CANE] = columnTick(SUGAR_CANE, true);
 randomTick[BLOCK.CACTUS] = columnTick(BLOCK.CACTUS, false);
+// Cocoa pods ripen a step 1 tick in 5 (vanilla), in any light.
+for (let i = 0; i < 4 * (COCOA_AGES - 1); i++) {
+  randomTick[COCOA + i] = (world, x, y, z, id, rand) => {
+    if (rand() < 1 / 5) world.setBlock(x, y, z, id + 4);
+  };
+}
 
 // Saplings: two steps (1 in 7 per tick in light 9+, vanilla), the second
 // grows the tree. The first step is kept here (by position; not saved: a
@@ -1119,7 +1168,8 @@ for (const leaf of NATURAL_LEAVES) {
     if (!isVanilla() || !world.getChunk(x >> 4, z >> 4)) return;
     for (const [sx, sy, sz] of STEPS6) if (LIB.BLOCK_INFO[world.getBlock(x + sx, y + sy, z + sz)]?.log) return;
     if (leavesHeld(world, x, y, z)) return;
-    if (world.setBlock(x, y, z, BLOCK.AIR)) world.onBlockPopped?.(x, y, z, id);
+    // (true: the world's doing, not a player's break: it drops even for a host in Creative, as vanilla)
+    if (world.setBlock(x, y, z, BLOCK.AIR)) world.onBlockPopped?.(x, y, z, id, true);
   };
 }
 // Ice and snow melt by a bright lamp (block light above 11), as vanilla.
@@ -1295,6 +1345,11 @@ export function applyBoneMeal(world, x, y, z, rand = Math.random) {
     if (rand() < 0.45) advanceSapling(world, x, y, z, id, rand);
     return true;
   }
+  if (isCocoa(id)) {
+    if (id >= COCOA + 4 * (COCOA_AGES - 1)) return false;
+    world.setBlock(x, y, z, id + 4);
+    return true;
+  }
   if (id === BLOCK.GRASS && world.getBlock(x, y + 1, z) === BLOCK.AIR) {
     // (vanilla: 128 short random walks from the block above, grass mostly,
     // a flower of the biome now and then)
@@ -1361,6 +1416,17 @@ itemUse[LILY_PAD] = (ctx) => {
     if (LIB.IS_SOLID[id]) return false;
   }
   return false;
+};
+
+// Cocoa beans plant a pod on a jungle log's side.
+itemUse[COCOA_BEANS] = (ctx) => {
+  const n = ctx.normal;
+  if (ctx.id !== JUNGLE_LOG || !n || n[1] !== 0 || !ctx.place) return false;
+  const [x, y, z] = ctx.place;
+  if (ctx.world.getBlock(x, y, z) !== BLOCK.AIR || !ctx.world.setBlock(x, y, z, COCOA + facingOf(-n[0], -n[2]))) return false;
+  ctx.audio?.playPlace?.("wood");
+  useItem(ctx, false);
+  return true;
 };
 
 // Sugar cane: on sand or soil with water beside that ground, or on cane.
@@ -1845,6 +1911,13 @@ export const tiles = {
     });
   },
 };
+// Cocoa pods: green, then yellow, then orange-brown, with ribs down the pod.
+[[0x4a661a, 0x5e7c22, 0x74942c], [0x8a7024, 0xa2862e, 0xb89a3a], [0x6e3a16, 0x8c4c20, 0xa8622c]].forEach((colors, age) => {
+  tiles[`cocoa_${age}`] = (t, kit) => {
+    const ramp = colors.map(kit.hex);
+    t.forEach((x, y) => t.set(x, y, kit.ramp(ramp, 0.55 + (t.noise(x, y, 6, 1) - 0.5) * 0.5 - (x % 5 === 0 ? 0.3 : 0)), 255));
+  };
+});
 export const tileRelief = {
   lava: [0.8, 0.5, 1],
   obsidian: [2.0, 0.25, 1],
