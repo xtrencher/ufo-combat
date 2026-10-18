@@ -248,9 +248,10 @@ async function browserChecks() {
     // The debug block (magenta and black squares) in front of the camera, lit
     // by a torch; then its faces pointed at layer TILE_NAMES.length + 3 (on the
     // second page: a fire frame, orange on black).
+    // (a column down the block's face: the frame's flame is in its lower half)
     const sample = async () => {
       await frames(4);
-      return v((g) => g.samplePixels([[0.5, 0.5]])[0]);
+      return v((g) => g.samplePixels([0.5, 0.56, 0.62, 0.68, 0.74].map((y) => [0.5, y])));
     };
     await v((g, a) => g.world.setBlocks([a.x0, a.y + 2, a.z0 + 2, 4095, a.x0 + 1, a.y, a.z0 + 3, 17]), room);
     const before = await sample();
@@ -272,23 +273,25 @@ async function browserChecks() {
     }, room);
     console.log(`        debug tile ${JSON.stringify(before)}, layer ${layer} ${JSON.stringify(after)}`);
     assert(layer >= 256, "the layer is on the second page");
-    // Magenta has blue; the flame has none (and is orange where it has colour).
-    assert(before[2] > before[1] + 10 || before[0] + before[1] + before[2] < 60, `the debug tile ${JSON.stringify(before)}`);
-    assert(after[2] < after[0] * 0.6 && after[0] >= after[2], `the second page's flame ${JSON.stringify(after)}`);
+    // Magenta (red and blue, no green) on the first page; on the second, a
+    // flame (red over green over blue) and no magenta.
+    const magenta = (c) => c[0] > 40 && c[2] > 25 && c[1] < c[2] * 0.5;
+    const flame = (c) => c[0] > 60 && c[0] >= c[1] && c[1] > c[2] && c[2] < c[0] * 0.5;
+    assert(before.some(magenta) && !before.some(flame), `the debug tile ${JSON.stringify(before)}`);
+    assert(after.some(flame) && !after.some(magenta), `the second page's flame ${JSON.stringify(after)}`);
   });
 
   await browserCheck("fire's flames and lava move with time (no remeshing)", async () => {
     await v(async (g, a) => {
       const ID = await import("/js/content/ids.js");
       const e = [];
-      for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 + 2, ID.FIRE);
+      for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 - 4, ID.FIRE);
       for (let dx = -3; dx <= 3; dx++) for (let dz = -2; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, ID.LAVA);
       g.world.setBlocks(e);
-      g.player.pitch = -0.35;
     }, room);
     try {
       await frames(6);
-      const pts = [[0.5, 0.62], [0.42, 0.6], [0.58, 0.6], [0.5, 0.35], [0.4, 0.33], [0.6, 0.33]];
+      const pts = [[0.46, 0.5], [0.5, 0.5], [0.54, 0.5], [0.4, 0.62], [0.5, 0.62], [0.6, 0.62]];
       const meshes = await v((g) => g.world.stats.meshes);
       const a = await v((g, p) => g.samplePixels(p), pts);
       await shot("anim-a");
@@ -311,10 +314,9 @@ async function browserChecks() {
     } finally {
       await v((g, a) => {
         const e = [];
-        for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 + 2, 0);
+        for (let dx = -1; dx <= 1; dx++) e.push(a.x0 + dx, a.y, a.z0 - 4, 0);
         for (let dx = -3; dx <= 3; dx++) for (let dz = -2; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, 3);
         g.world.setBlocks(e);
-        g.player.pitch = 0.1;
       }, room);
     }
   });

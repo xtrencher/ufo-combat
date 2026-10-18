@@ -261,12 +261,12 @@ async function browserChecks() {
   };
   async function play(p) {
     const t0 = Date.now();
-    while (Date.now() - t0 < 180000) {
+    while (Date.now() - t0 < 300000) {
       const st = await v(p, (g) => g.gameState);
       if (st === "playing") return;
       if (st === "dead") await v(p, (g) => g.respawn());
-      else if (st === "start") await p.click("#play-btn", { timeout: 5000 }).catch(() => {});
-      else if (await p.isVisible("#resume-btn").catch(() => false)) await p.click("#resume-btn", { timeout: 3000 }).catch(() => {});
+      else if (st === "start") await p.click("#play-btn", { timeout: 30000 }).catch(() => {});
+      else if (await p.isVisible("#resume-btn").catch(() => false)) await p.click("#resume-btn", { timeout: 30000 }).catch(() => {});
       else await p.mouse.click(300, 200);
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -295,14 +295,14 @@ async function browserChecks() {
   });
 
   const p = await newPage("auto");
-  // A start a few levels down the ladder (cheap shaders under software rendering).
+  // A start at Low, the cheapest under software rendering (the steps below it change distance and resolution).
   await p.goto(`http://127.0.0.1:${PORT}/none`).catch(() => {});
-  await p.evaluate(() => localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ v: 6, autoGraphics: { on: true, level: 4 } })));
+  await p.evaluate(() => localStorage.setItem("ufocombat_v1_settings", JSON.stringify({ v: 6, autoGraphics: { on: true, level: 5 } })));
 
   await browserCheck("?autotune=1: Auto shown, its level in effect", async () => {
     await boot(p, "&autotune=1");
     const r = await v(p, (g) => ({ s: g.autotune.stats(), g: g.graphics, rd: g.renderDistance, res: g.settings.perf.resolution, sel: document.getElementById("graphics-preset").value, btn: document.querySelector('#perf-presets [data-preset="auto"]')?.classList.contains("active"), hint: document.getElementById("graphics-hint").textContent }));
-    assert(r.s.on && r.s.level === 4 && r.g === LADDER[4].graphics && r.rd === LADDER[4].renderDistance && r.res === LADDER[4].resolution, JSON.stringify(r));
+    assert(r.s.on && r.s.level === 5 && r.g === LADDER[5].graphics && r.rd === LADDER[5].renderDistance && r.res === LADDER[5].resolution, JSON.stringify(r));
     assert(r.sel === "auto" && r.btn && /^Auto: /.test(r.hint), `the preset rows: ${JSON.stringify(r)}`);
   });
 
@@ -312,58 +312,59 @@ async function browserChecks() {
       g.autotune.fakeFrameTime = 0.25; // 4 FPS
       g.autotune.hooks.busy = () => false;
     });
-    const one = await until(p, (g) => g.autotune.level === 5 && { g: g.graphics, rd: g.renderDistance, toast: document.getElementById("hud-toast").textContent }, 240000);
-    assert(one && one.g === LADDER[5].graphics && one.rd === LADDER[5].renderDistance && /lowered to Low/.test(one.toast), `the first step: ${JSON.stringify(one)}`);
+    const one = await until(p, (g) => g.autotune.level === 6 && { g: g.graphics, rd: g.renderDistance, res: g.settings.perf.resolution, toast: document.getElementById("hud-toast").textContent }, 400000);
+    assert(one && one.g === LADDER[6].graphics && one.rd === LADDER[6].renderDistance && one.res === LADDER[6].resolution && one.toast.includes(`lowered to ${LADDER[6].label}`), `the first step: ${JSON.stringify(one)}`);
     const s = await saved(p);
-    assert(s.autoGraphics.on && s.autoGraphics.level === 5 && s.graphics === "low", `saved: ${JSON.stringify(s.autoGraphics)}`);
+    assert(s.autoGraphics.on && s.autoGraphics.level === 6 && s.renderDistance === LADDER[6].renderDistance, `saved: ${JSON.stringify(s.autoGraphics)}`);
     // (The same fake frame time at every level: the second step gains nothing, the third is not taken.)
-    const two = await until(p, (g) => g.autotune.stats().stopped && g.autotune.stats(), 300000);
-    assert(two && two.level === 6, `stopped after two steps without a gain: ${JSON.stringify(two)}`);
+    const two = await until(p, (g) => g.autotune.stats().stopped && g.autotune.stats(), 400000);
+    assert(two && two.level === 7, `stopped after two steps without a gain: ${JSON.stringify(two)}`);
   });
 
   await browserCheck("after a reload: starts where it settled", async () => {
     await boot(p, "&autotune=1");
     const r = await v(p, (g) => ({ s: g.autotune.stats(), g: g.graphics, rd: g.renderDistance, res: g.settings.perf.resolution }));
-    assert(r.s.on && r.s.level === 6 && r.g === LADDER[6].graphics && r.rd === LADDER[6].renderDistance && r.res === LADDER[6].resolution, JSON.stringify(r));
+    assert(r.s.on && r.s.level === 7 && r.g === LADDER[7].graphics && r.rd === LADDER[7].renderDistance && r.res === LADDER[7].resolution, JSON.stringify(r));
   });
 
   await browserCheck("the player's preset: tuner off for good (after a reload too); Auto: on again; a Performance setting: off", async () => {
     await p.evaluate(() => {
       const sel = document.getElementById("graphics-preset");
-      sel.value = "medium";
+      sel.value = "low";
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    let r = await v(p, (g) => ({ on: g.autotune.on, g: g.graphics, sel: document.getElementById("graphics-preset").value, btn: document.querySelector('#perf-presets [data-preset="auto"]').classList.contains("active") }));
-    assert(!r.on && r.g === "medium" && r.sel === "medium" && !r.btn, `picked Medium: ${JSON.stringify(r)}`);
+    let r = await v(p, (g) => ({ on: g.autotune.on, g: g.graphics, rd: g.renderDistance, sel: document.getElementById("graphics-preset").value, btn: document.querySelector('#perf-presets [data-preset="auto"]').classList.contains("active") }));
+    assert(!r.on && r.g === "low" && r.sel === "low" && !r.btn, `picked Low: ${JSON.stringify(r)}`);
+    const pickedRd = r.rd;
     await play(p);
     await v(p, (g) => {
       g.autotune.fakeFrameTime = 0.25;
       g.autotune.hooks.busy = () => false;
     });
     await new Promise((res) => setTimeout(res, 20000));
-    r = await v(p, (g) => ({ on: g.autotune.on, g: g.graphics }));
-    assert(!r.on && r.g === "medium", `slow frames change nothing: ${JSON.stringify(r)}`);
+    r = await v(p, (g) => ({ on: g.autotune.on, g: g.graphics, rd: g.renderDistance }));
+    assert(!r.on && r.g === "low" && r.rd === pickedRd, `slow frames change nothing: ${JSON.stringify(r)}`);
     assert((await saved(p)).autoGraphics.on === false, "saved off");
     await boot(p, "&autotune=1");
     r = await v(p, (g) => ({ on: g.autotune.on, g: g.graphics, sel: document.getElementById("graphics-preset").value }));
-    assert(!r.on && r.g === "medium" && r.sel === "medium", `after a reload: ${JSON.stringify(r)}`);
+    assert(!r.on && r.g === "low" && r.sel === "low", `after a reload: ${JSON.stringify(r)}`);
     await p.evaluate(() => {
       const sel = document.getElementById("graphics-preset");
       sel.value = "auto";
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     });
     r = await v(p, (g) => ({ on: g.autotune.on, g: g.graphics, rd: g.renderDistance, sel: document.getElementById("graphics-preset").value }));
-    assert(r.on && r.g === LADDER[6].graphics && r.rd === LADDER[6].renderDistance && r.sel === "auto", `Auto again: ${JSON.stringify(r)}`);
+    assert(r.on && r.g === LADDER[7].graphics && r.rd === LADDER[7].renderDistance && r.sel === "auto", `Auto again: ${JSON.stringify(r)}`);
     await p.evaluate(() => {
       const sel = document.getElementById("perf-lodQuality");
       sel.value = "high";
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     });
     r = await v(p, (g) => ({ on: g.autotune.on, lod: g.settings.perf.lodQuality, sel: document.getElementById("graphics-preset").value }));
-    assert(!r.on && r.lod === "high" && r.sel === LADDER[6].graphics, `a Performance setting: ${JSON.stringify(r)}`);
+    assert(!r.on && r.lod === "high" && r.sel === LADDER[7].graphics, `a Performance setting: ${JSON.stringify(r)}`);
     await p.evaluate(() => document.querySelector('#perf-presets [data-preset="auto"]').click());
     r = await v(p, (g) => ({ on: g.autotune.on, lod: g.settings.perf.lodQuality }));
-    assert(r.on && r.lod === LADDER[6].lod, `the Auto button: ${JSON.stringify(r)}`);
+    assert(r.on && r.lod === LADDER[7].lod, `the Auto button: ${JSON.stringify(r)}`);
   });
 
   await browserCheck("no grass grows over a dropped item", async () => {

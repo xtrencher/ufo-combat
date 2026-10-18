@@ -12,14 +12,14 @@
 //            ground, big crooked branches and a huge crown
 // (Round 11) In a Survival world's terrain (terrain.options.vanilla) also:
 //   jungle   a tall trunk hung with vines under a small crown
+//   acacia   the savanna's: a trunk that bends off sideways under flat,
+//            wide layers of leaves, sometimes a second branch
+//   dark oak a 2x2 trunk under a wide, low canopy (dark forests)
 // (Round 12) and, as vanilla's jungles:
 //   giant jungle  a 2x2 trunk 10-31 tall under a wide, flat canopy, its
 //            branches ending in tufts of leaves, vines all over
 //   jungle bush  a jungle log at the ground in a mound of oak leaves
 // with vines hanging from the jungle trees' leaves.
-//   acacia   the savanna's: a trunk that bends off sideways under flat,
-//            wide layers of leaves, sometimes a second branch
-//   dark oak a 2x2 trunk under a wide, low canopy (dark forests)
 // and saplings grow into these shapes (saplingShape).
 // Forests and meadows follow a low-frequency noise field; birches and pines
 // grow in groves, and pines also take over high ground. Trees keep a minimum distance from each
