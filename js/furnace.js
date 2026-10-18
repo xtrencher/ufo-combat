@@ -23,6 +23,7 @@ import { makeStack } from "./inventory.js";
 import { encodeStack, decodeStack, sameStack } from "./chests.js";
 import { smeltingOf, burnTicks, craftRemainder, TICKS_PER_SECOND } from "./crafting.js";
 import { chunkKey, blockIndex } from "./constants.js";
+import { LIB } from "./content/base.js";
 
 export const FURNACE_SLOTS = 3; // input, fuel, output
 const TICK = 1 / TICKS_PER_SECOND;
@@ -62,8 +63,10 @@ export class Furnaces {
     this._check = 0;
     // Hooks set by the game (and the net module).
     this.onDrop = null; // (stack, x, y, z): a furnace that went, its contents into the world
-    this.onTakeXp = null; // (amount, x, y, z): this player took from an output: the smelting's experience
-    this.onDropXp = null; // (amount, x, y, z): a furnace that went with experience in it (the authority)
+    // (The experience: the survival part's orbs (LIB.giveXp, Survival worlds), at
+    // the player who took from the output, as in vanilla; at a furnace that went.)
+    this.onTakeXp = (amount) => LIB.giveXp?.(amount); // (amount, x, y, z): this player took from an output
+    this.onDropXp = (amount, x, y, z) => LIB.giveXp?.(amount, x + 0.5, y + 0.5, z + 0.5); // the authority: a furnace went with experience in it
     this.onChanged = null; // (key, [[i, stack]], fromPid): the authority, slots changed (the bars may have too)
     this.onBars = null; // (key): the authority, the fire lit or went out, or cooking started or stopped
     this.onGone = null; // (key): the authority, a furnace went
@@ -180,7 +183,6 @@ export class Furnaces {
     if (!this.store.size) return;
     const world = this.world;
     for (const f of this.store.values()) {
-      const loaded = !!world.getChunk(f.x >> 4, f.z >> 4);
       if (look) {
         const id = this._blockAt(f);
         if (id >= 0 && !isFurnace(id)) {
@@ -194,7 +196,7 @@ export class Furnaces {
         }
       }
       if (n <= 0 || Furnaces.idle(f)) continue;
-      if (!loaded && !this.nearGuest?.(f.x, f.z)) continue;
+      if (!world.getChunk(f.x >> 4, f.z >> 4) && !this.nearGuest?.(f.x, f.z)) continue;
       const wasLit = f.lit > 0;
       const wasCooking = f.cooking;
       let changed = false;

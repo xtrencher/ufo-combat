@@ -50,7 +50,7 @@ const smelt = (input, result, xp) => ({ type: "smelting", input, result: [result
 const fuel = (input, seconds) => ({ type: "fuel", input, time: seconds });
 
 // The core recipes (vanilla's, for the things that exist).
-function coreRecipes() {
+export function coreRecipes() {
   const R = [];
   // Planks: four from a log of each wood (its own planks; oak while that wood's planks aren't in).
   R.push(shapeless([BLOCK.WOOD], BLOCK.PLANKS, 4), shapeless([BLOCK.OAK_BARK], BLOCK.PLANKS, 4));

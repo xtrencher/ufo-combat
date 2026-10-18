@@ -18,7 +18,7 @@
 //   the host, with the guest's things).
 // Missions worlds keep their own respawn rules: a bed there only says so.
 import * as THREE from "three";
-import { IS_SOLID, IS_WET } from "./blocks.js";
+import { BLOCK_INFO, IS_SOLID, IS_WET } from "./blocks.js";
 import { isVanilla } from "./worldtype.js";
 import { BED_PART, SUFFOCATES, BODY, BODY_FLAGS } from "./survival.js";
 
@@ -50,7 +50,8 @@ export function standUp(avatar) {
 
 export class Sleep {
   // deps: { player, sky, world, mobs, toast, players () => remote players,
-  // online () => bool, isHost () => bool, sendTime () => void }
+  // online () => bool, isHost () => bool, inGame () => bool, sendTime () => void,
+  // and the optional onSpawnSet, onSleep, onWake, onSkip }
   constructor(deps) {
     this.d = deps;
     this.spawn = null; // [x, y, z]: the bed's head cell, or null (the world spawn)
@@ -78,7 +79,9 @@ export class Sleep {
     const part = BED_PART[id];
     if (!part) return null;
     const w = this.d.world;
-    for (const [dx, dz] of SIDES) {
+    // (The building part's beds name their other half: `partner`, [dx, dy, dz].)
+    const pt = BLOCK_INFO[id]?.partner;
+    for (const [dx, dz] of pt ? [[pt[0], pt[2]]] : SIDES) {
       const other = w.getBlock(x + dx, y, z + dz);
       const op = BED_PART[other];
       if (!op || op === part) continue;
@@ -118,7 +121,9 @@ export class Sleep {
       return true;
     }
     if (p.sleeping || p.dead || p.vehicle) return true;
-    const bed = this.bedAt(ctx.x, ctx.y, ctx.z, ctx.id);
+    // (ctx.bed: the building part's own reading of the bed, { foot, head }.)
+    const b = ctx.bed;
+    const bed = b?.head && b?.foot ? { x: b.head[0], y: b.head[1], z: b.head[2], dx: b.head[0] - b.foot[0], dz: b.head[2] - b.foot[2] } : this.bedAt(ctx.x, ctx.y, ctx.z, ctx.id);
     if (!bed) return true;
     // (vanilla: within 3 blocks of the bed, 2 up or down)
     const near = (cx, cz) => Math.max(Math.abs(p.position.x - (cx + 0.5)), Math.abs(p.position.z - (cz + 0.5))) <= 3.5 && Math.abs(p.position.y - bed.y) <= 2.5;
@@ -214,7 +219,7 @@ export class Sleep {
     let asleep = 0;
     let total = 0;
     let ready = true;
-    if (!p.dead) {
+    if (!p.dead && this.d.inGame?.() !== false) {
       total++;
       if (p.sleeping) asleep++;
       if (!p.sleeping || p.sleeping.t < SLEEP_TIME) ready = false;
@@ -233,6 +238,7 @@ export class Sleep {
     const p = this.player;
     const s = p.sleeping;
     if (s) {
+      s.t += dt;
       // (Shift or a hit, the bed gone, the morning, a vehicle: up.)
       const gone = !this.bedAt(s.x, s.y, s.z);
       if (p.wantsToLeaveBed || gone || p.dead || p.vehicle || !isVanilla() || (s.t > 0.5 && !this.canSleepNow())) this.wake();

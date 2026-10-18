@@ -8,6 +8,7 @@ import { maxStack } from "./items.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { EGG, SNOWBALL, ENDER_PEARL } from "./content/ids.js";
+import { LIB } from "./content/base.js";
 
 const GRAVITY = -20;
 const DESPAWN_SECONDS = 300;
@@ -212,7 +213,8 @@ export class ItemEntities {
 // Eggs, snowballs and ender pearls, thrown as in the classic game (30
 // blocks/s, gravity 12, a little drag; the thrower's own motion added). They
 // break on the first block or creature they meet: an egg hatches a chick one
-// time in eight (four chicks one time in 256: onHatch, the creatures'), a
+// time in eight (four chicks one time in 256: onHatch, else the creatures'
+// LIB.spawnMob, which online asks the host), a
 // snowball does nothing but shatter, an ender pearl takes the thrower there
 // (5 damage, as a fall: armor doesn't help). Each throw is the thrower's own
 // (online: their pearl moves only them; a chick is the host's to spawn).
@@ -300,8 +302,13 @@ export class Throwables {
     const d = this.effects?.debris;
     if (d) for (let k = 0; k < 8; k++) d.spawn(at.x, at.y, at.z, (Math.random() - 0.5) * 3, Math.random() * 2.5, (Math.random() - 0.5) * 3, 0.05, SHARDS[t.kind], 0.6);
     if (t.kind === "egg") {
-      if (Math.random() < 1 / 8) this.onHatch?.(at, Math.random() < 1 / 32 ? 4 : 1);
+      if (Math.random() < 1 / 8) this.hatch(at, Math.random() < 1 / 32 ? 4 : 1);
     } else if (t.kind === "pearl") this._teleport(at, block);
+  }
+
+  hatch(at, n) {
+    if (this.onHatch) return this.onHatch(at, n);
+    for (let k = 0; k < n; k++) LIB.spawnMob?.("chicken", at.x + (Math.random() - 0.5) * 0.4, at.y + 0.05, at.z + (Math.random() - 0.5) * 0.4, { baby: true });
   }
 
   // Takes the player to where the pearl broke: onto the face it hit, in a

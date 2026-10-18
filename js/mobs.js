@@ -241,6 +241,14 @@ export const SPECIES = {
     speed: 0.8, chaseSpeed: 1.9, fleeSpeed: 0.8, maxDrop: 3, weight: 0, damage: 7.5, sight: 16, noFall: true, brain: "golem",
     drops: [[V.IRON_INGOT, 3, 5, 1], [BLOCK.FLOWER_RED, 0, 2, 1]],
   },
+  // A wolf: neutral (a pack turns on whoever hits one of them), hunts sheep
+  // and skeletons; tamed with bones, it sits, follows, and fights for its owner.
+  wolf: {
+    name: "Wolf", vanilla: true, hostile: false, health: 8, r: 0.3, h: 0.85, eye: 0.68,
+    speed: 1.4, chaseSpeed: 3.8, fleeSpeed: 3, maxDrop: 3, weight: 0, damage: 4, sight: 16, brain: "wolf", xp: [1, 3],
+    breed: [V.BEEF, V.COOKED_BEEF, V.PORKCHOP, V.COOKED_PORKCHOP, V.CHICKEN, V.COOKED_CHICKEN, V.MUTTON, V.COOKED_MUTTON, V.ROTTEN_FLESH, ITEM.RAW_MEAT, ITEM.COOKED_MEAT],
+    drops: [],
+  },
   cod: {
     name: "Cod", vanilla: true, hostile: false, health: 3, r: 0.25, h: 0.3, eye: 0.15,
     speed: 1.0, maxDrop: 1, weight: 0, flies: true, swims: true, homeRadius: 10, xp: [1, 3],
@@ -289,9 +297,12 @@ function babySpec(spec) {
   return b;
 }
 
-// Vanilla spawn weights: the night's monsters, the grass's animals.
-const VANILLA_HOSTILES = [["zombie", 100], ["skeleton", 100], ["spider", 100], ["creeper", 100], ["enderman", 10], ["witch", 5]];
+// Vanilla spawn weights: the night's monsters (zombies have their own rate
+// and cap, the Mobs settings, in both worlds), the grass's animals.
+const VANILLA_HOSTILES = [["skeleton", 100], ["spider", 100], ["creeper", 100], ["enderman", 10], ["witch", 5]];
 const VANILLA_ANIMALS = [["sheep", 12], ["pig", 10], ["chicken", 10], ["cow", 8]];
+const VANILLA_ANIMALS_FOREST = [...VANILLA_ANIMALS, ["wolf", 5]];
+const VANILLA_ANIMALS_TAIGA = [["sheep", 12], ["pig", 10], ["chicken", 10], ["cow", 8], ["wolf", 8]];
 const VANILLA_MAX_HOSTILE = 20; // per player (vanilla's 70 covers a far bigger area than the game keeps loaded)
 const VANILLA_MAX_PASSIVE = 16;
 const VANILLA_MAX_TOTAL = 56;
@@ -300,6 +311,9 @@ const VANILLA_MAX_TOTAL = 56;
 const SHEEP_ODDS = [[0, 81.836], [7, 5], [8, 5], [15, 5], [12, 3], [6, 0.164]];
 const WOOL_IDS = [BLOCK.WOOL, V.ORANGE_WOOL, V.MAGENTA_WOOL, V.LIGHT_BLUE_WOOL, V.YELLOW_WOOL, V.LIME_WOOL, V.PINK_WOOL, V.GRAY_WOOL, V.LIGHT_GRAY_WOOL, V.CYAN_WOOL, V.PURPLE_WOOL, V.BLUE_WOOL, V.BROWN_WOOL, V.GREEN_WOOL, V.RED_WOOL, V.BLACK_WOOL];
 const woolOf = (c) => (isValidItem(WOOL_IDS[c]) ? WOOL_IDS[c] : BLOCK.WOOL);
+// What each meat heals a tame wolf (vanilla: its food points).
+const MEAT_HEAL = { [V.BEEF]: 3, [V.COOKED_BEEF]: 8, [V.PORKCHOP]: 3, [V.COOKED_PORKCHOP]: 8, [V.CHICKEN]: 2, [V.COOKED_CHICKEN]: 6, [V.MUTTON]: 2, [V.COOKED_MUTTON]: 6, [V.ROTTEN_FLESH]: 4, [ITEM.RAW_MEAT]: 3, [ITEM.COOKED_MEAT]: 8 };
+const WOLF_TAME_HEALTH = 20;
 const LOVE_TIME = 30; // seconds in love (vanilla 600 ticks)
 const BREED_COOLDOWN = 300; // seconds before a parent breeds again (vanilla 6000 ticks)
 const GROW_TIME = 1200; // a baby grows up in 20 minutes (vanilla 24000 ticks)
@@ -474,6 +488,7 @@ export class MobManager {
     this._targetList = [player];
     this._kept = [];
     this.inventory = null; // this player's (main.js): what they hold tempts animals; using creatures
+    this.localPid = 1; // this player's id online (net/entities.js; 1: the host, or single player): a tame wolf's owner
     this.onTrade = null; // (session) => false if it can't open: a villager's trade screen (main.js, trading.js)
     this.tradeSession = null;
     this.onRemoteXp = null; // (pid, amount, pos) => void: online (host), another player's breeding experience
@@ -502,7 +517,6 @@ export class MobManager {
     for (const m of this.mobs) if (!m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager" && !m.spec.village) n++;
     return n;
   }
-
 
   // kind "alien" counts every kind of alien.
   countKind(kind) {
@@ -698,7 +712,7 @@ export class MobManager {
     const top = this.world.surfaceY(x, z);
     if (top < 0 || this.world.getBlock(x, top, z) !== BLOCK.GRASS) return 0;
     if (this.world.lightAt(x + 0.5, top + 1.5, z + 0.5).sky < 10) return 0;
-    const kind = this._pickPassive();
+    const kind = this._pickPassive(x, z);
     // (A Survival world's herds: vanilla's up to four.)
     const herd = kind === "mossback" ? 1 + (Math.random() < 0.3 ? 1 : 0) : 2 + Math.floor(Math.random() * (isVanilla() ? 3 : 2));
     const n = Math.min(herd, room);
@@ -715,8 +729,13 @@ export class MobManager {
     return spawned;
   }
 
-  _pickPassive() {
-    if (isVanilla()) return pickWeighted(VANILLA_ANIMALS);
+  _pickPassive(x, z) {
+    if (isVanilla()) {
+      // (Wolves in forests and the taiga, vanilla's packs.)
+      const b = x === undefined ? -1 : this.world.terrain?.biomeAt?.(x, z);
+      if (b === BIOME.FOREST || b === BIOME.TAIGA || b === BIOME.SNOWY_TAIGA || b === BIOME.DARK_FOREST) return pickWeighted(b === BIOME.FOREST ? VANILLA_ANIMALS_FOREST : VANILLA_ANIMALS_TAIGA);
+      return pickWeighted(VANILLA_ANIMALS);
+    }
     const total = PASSIVE_KINDS.reduce((s, k) => s + SPECIES[k].weight, 0);
     let r = Math.random() * total;
     for (const k of PASSIVE_KINDS) {
@@ -972,7 +991,7 @@ export class MobManager {
   // spawn egg): made here, or on a guest asked of the host (onPuppetSpawn).
   // Not the Missions world's special ones; no monster on Peaceful.
   requestSpawn(kind, x, y, z, { baby = false, variant } = {}) {
-    const spec = SPECIES[kind];
+    const spec = Object.hasOwn(SPECIES, kind) ? SPECIES[kind] : null;
     if (!spec || spec.special || (spec.hostile && this.hostileSpawning === false)) return null;
     if (this.puppets) {
       this.onPuppetSpawn?.(kind, x, y, z, baby, variant);
@@ -1007,7 +1026,6 @@ export class MobManager {
       this._seeded = true;
       for (let i = 0; i < 40 && this.countAnimals() < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countAnimals());
     }
-    this._spawnKept();
     if (isVanilla()) {
       this._updateSpawningVanilla(dt);
       return;
@@ -1457,6 +1475,8 @@ export class MobManager {
         return this._brainWitch(m, dt, dist);
       case "golem":
         return this._brainGolem(m, dt, dist);
+      case "wolf":
+        return this._brainWolf(m, dt, dist);
     }
     return this._wander(m, dt, dist);
   }
@@ -1544,6 +1564,7 @@ export class MobManager {
     if (t.damage(dmg, m.spec.brain === "slime" ? "slime" : meleeCause(m.kind), { from: m.pos })) {
       t.applyImpulse(this._tmp.set((dx / d) * push, lift, (dz / d) * push));
       if (t === this.localPlayer) this.onPlayerHurt?.(m);
+      this._rallyWolves(this._pidOf(t), m);
     }
     this._voice(m, "attack");
   }
@@ -1701,12 +1722,17 @@ export class MobManager {
     const z = Math.floor(m.pos.z + (Math.random() * 2 - 1));
     const below = w.getBlock(x, y - 1, z);
     if (w.getBlock(x, y, z) !== BLOCK.AIR || !IS_OPAQUE[below] || below === BLOCK.BEDROCK || this.overlapsBlock(x, y, z)) return;
+    // (Never into a player.)
+    for (const t of this._targetList) {
+      const p = t.position;
+      if (p.x + 0.3 > x && p.x - 0.3 < x + 1 && p.z + 0.3 > z && p.z - 0.3 < z + 1 && p.y < y + 1 && p.y + 1.8 > y) return;
+    }
     if (w.setBlock(x, y, z, m.carry)) m.carry = 0;
   }
 
   // Teleports to a random spot (around cx, cy, cz, `range` blocks each way)
   // where it can stand, out of water, in a flash of violet. True if it went.
-  _teleport(m, cx = m.pos.x, cy = m.pos.y, cz = m.pos.z, range = 32) {
+  _teleport(m, cx = m.pos.x, cy = m.pos.y, cz = m.pos.z, range = 32, fx = true) {
     const w = this.world;
     for (let k = 0; k < 16; k++) {
       const x = Math.floor(cx + (Math.random() * 2 - 1) * range);
@@ -1716,12 +1742,13 @@ export class MobManager {
       for (let d = 0; d < 32 && y > 1 && !IS_SOLID[w.getBlock(x, y - 1, z)]; d++) y--;
       if (!IS_SOLID[w.getBlock(x, y - 1, z)] || !this._freeAt(x, y, z, m.spec.h)) continue;
       const heard = this._audioDist(m) < 30;
-      this._teleportFx(m);
+      if (fx) this._teleportFx(m);
       m.pos.set(x + 0.5, y, z + 0.5);
       m.vel.set(0, 0, 0);
       m.knock.set(0, 0, 0);
       m.peakY = null;
       m.ai.path = null;
+      if (!fx) return true;
       this._teleportFx(m);
       if (heard || this._audioDist(m) < 30) this.audio?.playTeleport?.();
       return true;
@@ -1888,7 +1915,7 @@ export class MobManager {
       if (a.kind === "harming") {
         const dmg = Math.round(6 * f);
         if (dmg > 0) t.damage(dmg, "witch", { from: at });
-      } else this._effectOn(t, a.kind, a.kind === "poison" ? 33 * f : 67 * f, 0);
+      } else this._effectOn(t, a.kind, a.kind === "poison" ? 33 * f : 67 * f, 1);
     }
   }
 
@@ -1944,6 +1971,87 @@ export class MobManager {
     }
     const look = foe ? this._eyeOf(foe) : this._look.set(prey.pos.x, prey.pos.y + prey.spec.eye, prey.pos.z);
     return this._go(m, dt, dist, dx / d, dz / d, d > reach * 0.8 ? m.spec.chaseSpeed : 0, look);
+  }
+
+  // A wolf. Wild: wanders in its pack, now and then hunts a sheep (and any
+  // skeleton), and the whole pack turns on a player who hits one of them.
+  // Tame (bones, one in three): sits or stands at its owner's click, follows
+  // them (from 10 blocks off, teleporting to them past 12), and goes for what
+  // hurts them and what they hit (never a creeper or their other wolves).
+  _brainWolf(m, dt, dist) {
+    const ai = m.ai;
+    if (m.loveT > 0) {
+      const g = this._animalGoal(m, dt);
+      if (g) return this._go(m, dt, dist, g.x, g.z, g.speed);
+    }
+    const owner = m.tamed ? this._playerByPid(m.owner) : null;
+    if (m.sitting) {
+      ai.target = false;
+      return this._go(m, dt, dist, 0, 0, 0, owner ? this._eyeOf(owner) : null);
+    }
+    let foe = m.angerT > 0 ? this._foeInRange(m, m.foe, 24) : null;
+    if (foe && m.tamed && (foe === owner || !this.targets)) foe = null; // (a tame wolf never bites a player: only PvP could want that)
+    if (!foe) m.foe = null;
+    if (m.revenge && (m.revenge.removed || m.revenge.dead || this.time > m.revengeUntil)) m.revenge = null;
+    let prey = foe ? null : m.revenge;
+    if (!prey && !foe) {
+      if ((ai.preyT = (ai.preyT ?? Math.random() * 2) - dt) <= 0) {
+        ai.preyT = 2 + Math.random();
+        ai.prey = this._nearestMob(m, 16, (o) => o.kind === "skeleton" || (!m.tamed && o.kind === "sheep" && Math.random() < 0.15));
+      }
+      prey = ai.prey && !ai.prey.removed && !ai.prey.dead ? ai.prey : null;
+    }
+    ai.target = !!(foe || prey);
+    if (foe || prey) {
+      const goal = foe ? foe.position : prey.pos;
+      const dx = goal.x - m.pos.x;
+      const dz = goal.z - m.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const reach = m.spec.r + (prey ? prey.spec.r : 0.3) + 0.8;
+      if (m.stagger <= 0 && m.attackCooldown <= 0 && d < reach && Math.abs(goal.y - m.pos.y) < 1.6) {
+        if (foe) this._hitPlayer(m, foe, m.spec.damage, 3, 4);
+        else this._meleeMob(m, prey, m.spec.damage);
+      }
+      const look = foe ? this._eyeOf(foe) : this._look.set(prey.pos.x, prey.pos.y + prey.spec.eye, prey.pos.z);
+      return this._go(m, dt, dist, dx / d, dz / d, d > reach * 0.7 ? m.spec.chaseSpeed : 0, look);
+    }
+    if (owner && !owner.dead) {
+      const p = owner.position;
+      const dx = p.x - m.pos.x;
+      const dz = p.z - m.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      if ((d > 12 || Math.abs(p.y - m.pos.y) > 8) && !owner.vehicle && Math.random() < dt * 4) this._teleport(m, p.x, p.y, p.z, 2, false);
+      ai.following = d > 10 || (ai.following && d > 2.5);
+      if (ai.following) return this._go(m, dt, dist, dx / d, dz / d, Math.min(m.spec.chaseSpeed, m.spec.speed * (d > 6 ? 2.4 : 1.4)), this._eyeOf(owner));
+      return this._go(m, dt, dist, 0, 0, 0, d < 6 ? this._eyeOf(owner) : null);
+    }
+    // (Tame with its owner away: it stays where it is.)
+    if (m.tamed) return this._go(m, dt, dist, 0, 0, 0);
+    return this._wander(m, dt, dist);
+  }
+
+  // The wolves of player `pid` go for creature `target` (it hurt them, or they hit it).
+  _rallyWolves(pid, target) {
+    if (!target || target.isRemotePlayer || !target.spec || target.kind === "creeper" || target.dead) return;
+    for (const o of this.mobs) {
+      if (o.kind !== "wolf" || !o.tamed || o.owner !== pid || o.sitting || o.dead || o === target || o.net) continue;
+      if (target.kind === "wolf" && target.tamed && target.owner === pid) continue;
+      if (o.pos.distanceTo(target.pos) > 20) continue;
+      o.revenge = target;
+      o.revengeUntil = this.time + 20;
+    }
+  }
+
+  // This machine's player's id online (1: the host's, or single player's).
+  _pidOf(t) {
+    return t === this.localPlayer ? this.localPid : t?.pid ?? 0;
+  }
+
+  _playerByPid(pid) {
+    if (!pid) return null;
+    if (pid === this.localPid) return this.localPlayer;
+    for (const t of this._targetList) if (t.pid === pid && !t.gone) return t;
+    return null;
   }
 
   // The nearest living creature within `range` (and 4 blocks up or down) that passes `test`.
@@ -2114,6 +2222,23 @@ export class MobManager {
     return true;
   }
 
+  // A wolf becomes `pid`'s: tame, its health raised to a tame wolf's, kept.
+  _tame(m, pid) {
+    m.tamed = true;
+    m.owner = pid;
+    m.persist = true;
+    m.angerT = 0;
+    m.foe = null;
+    m.revenge = null;
+    const k = m.health / (m.maxHealth || 1);
+    m.maxHealth = WOLF_TAME_HEALTH;
+    m.health = Math.max(1, k * WOLF_TAME_HEALTH);
+  }
+
+  _smoke(m) {
+    for (let k = 0; k < 6; k++) this.effects.smoke.spawn({ x: m.pos.x + (Math.random() - 0.5) * 0.5, y: m.pos.y + m.spec.h, z: m.pos.z + (Math.random() - 0.5) * 0.5, vx: 0, vy: 0.8, vz: 0, life: 0.8, size0: 0.15, size1: 0.35, color0: this._smokeGrey, color1: this._smokeGrey2, alpha: 0.7, drag: 2 });
+  }
+
   _breed(a, b) {
     a.loveT = b.loveT = 0;
     a.breedCd = b.breedCd = BREED_COOLDOWN;
@@ -2122,6 +2247,7 @@ export class MobManager {
     const variant = a.kind === "sheep" ? (Math.random() < 0.5 ? a.variant : b.variant) : undefined;
     const baby = this.spawn(a.kind, (a.pos.x + b.pos.x) / 2, Math.max(a.pos.y, b.pos.y), (a.pos.z + b.pos.z) / 2, { baby: true, variant });
     if (baby) baby.persist = true;
+    if (baby && a.tamed) this._tame(baby, a.owner); // (a tame pair's pup is their owner's)
     this._hearts(a, 7);
     this._giveXp(a.lovePid ?? b.lovePid ?? 1, 1 + Math.floor(Math.random() * 7), a.pos);
     return baby;
@@ -2267,6 +2393,7 @@ export class MobManager {
     const id = stack?.id ?? 0;
     const creative = !!this.localPlayer.creative;
     const spec = m.spec;
+    if (m.kind === "wolf") return this._useWolf(m, id, inventory, creative);
     if (spec.milk && id === V.BUCKET && !m.baby && isValidItem(V.MILK_BUCKET)) {
       if (!creative || !inventory.countItem(V.MILK_BUCKET)) {
         if (!creative) inventory.consumeSelected(1);
@@ -2316,10 +2443,69 @@ export class MobManager {
     return false;
   }
 
+  // A wolf: a bone tames a wild one (one in three); its owner's meat heals
+  // it or (healthy) puts it in love; anything else sits it down or stands it
+  // up. A tame wolf whose owner isn't here (after a reload, a guest gone)
+  // takes whoever clicks it next as its owner.
+  _useWolf(m, id, inventory, creative) {
+    const me = this.localPid;
+    if (!m.tamed) {
+      if (id !== V.BONE || m.angerT > 0 || m.baby) return false;
+      if (!creative) inventory.consumeSelected(1);
+      if (m.net) this.onPuppetUse?.(m, "tame");
+      else this.useFrom(m, "tame", me);
+      return true;
+    }
+    if (m.owner && m.owner !== me) return false;
+    if (MEAT_HEAL[id] && m.owner && (m.health < m.maxHealth - 0.5 || (!m.baby && !(m.loveT > 0) && !(m.breedCd > 0)))) {
+      if (!creative) inventory.consumeSelected(1);
+      if (m.net) this.onPuppetUse?.(m, "wolffeed:" + id);
+      else this.useFrom(m, "wolffeed:" + id, me);
+      return true;
+    }
+    if (m.net) {
+      this.onPuppetUse?.(m, "sit");
+      m.sitting = !m.sitting; // (the host's answer follows in its states)
+    } else this.useFrom(m, "sit", me);
+    return true;
+  }
+
   // A use on one of this machine's real creatures from player `pid` (the
   // host, for a guest's claim): what useMob does there, minus the inventory.
   useFrom(m, action, pid) {
     if (!m || m.dead) return false;
+    if (m.kind === "wolf") {
+      if (action === "tame") {
+        if (m.tamed || m.angerT > 0 || m.baby) return false;
+        if (Math.random() >= 1 / 3) {
+          this._smoke(m);
+          return true;
+        }
+        this._tame(m, pid);
+        m.sitting = true;
+        this._hearts(m, 7);
+        return true;
+      }
+      if (!m.tamed || (m.owner && m.owner !== pid)) return false;
+      if (action === "sit") {
+        if (!m.owner) {
+          m.owner = pid; // (an owner gone: whoever clicks it now)
+          m.sitting = false;
+        } else m.sitting = !m.sitting;
+        m.revenge = null;
+        m.foe = null;
+        return true;
+      }
+      if (action.startsWith("wolffeed:")) {
+        const food = Number(action.slice(9));
+        if (!MEAT_HEAL[food]) return false;
+        if (m.health < m.maxHealth - 0.5) m.health = Math.min(m.maxHealth, m.health + MEAT_HEAL[food]);
+        else this.love(m, pid);
+        this._hearts(m, 2, true);
+        return true;
+      }
+      return false;
+    }
     if (action === "shear") return this.shear(m);
     if (action === "love") return !!m.spec.breed && this.love(m, pid);
     if (action === "grow") return !!m.spec.breed && this.feedBaby(m);
@@ -2397,13 +2583,15 @@ export class MobManager {
 
   // The creatures players made their own in a Survival world (bred, fed,
   // shorn: m.persist), for the save: [kind, x, y, z, variant, seconds to
-  // grow up (0: grown), shorn].
+  // grow up (0: grown), shorn, tame (2: this player's wolf, 1: someone's), sitting].
   serializeKept() {
     if (this.puppets || !isVanilla()) return undefined;
     const out = [];
     for (const m of this.mobs) {
       if (!m.persist || m.dead || m.net || m.spec.hostile || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
-      out.push([m.kind, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), m.variant || 0, m.baby ? Math.max(1, Math.round(m.growT)) : 0, m.sheared ? 1 : 0]);
+      // (A tame wolf: 2 if this player's, 1 if another's, who may not come back: then whoever clicks it next.)
+      const tame = m.tamed ? (m.owner === this.localPid ? 2 : 1) : 0;
+      out.push([m.kind, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), m.variant || 0, m.baby ? Math.max(1, Math.round(m.growT)) : 0, m.sheared ? 1 : 0, tame, m.sitting ? 1 : 0]);
       if (out.length >= 400) break;
     }
     return out.length ? out : undefined;
@@ -2412,13 +2600,13 @@ export class MobManager {
   // The saved ones: they come back as their ground loads (_spawnKept).
   loadKept(list) {
     if (!Array.isArray(list) || !isVanilla()) return;
-    this._kept = list.filter((e) => Array.isArray(e) && SPECIES[e[0]] && !SPECIES[e[0]].hostile && [1, 2, 3].every((k) => Number.isFinite(e[k]))).slice(0, 400);
+    this._kept = list.filter((e) => Array.isArray(e) && Object.hasOwn(SPECIES, e[0]) && !SPECIES[e[0]].hostile && [1, 2, 3].every((k) => Number.isFinite(e[k]))).slice(0, 400);
   }
 
   _spawnKept() {
     const list = this._kept;
     for (let i = list.length - 1; i >= 0; i--) {
-      const [kind, x, y, z, variant, grow, sheared] = list[i];
+      const [kind, x, y, z, variant, grow, sheared, tame, sitting] = list[i];
       if (!this.world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4)) continue;
       list.splice(i, 1);
       const m = this.spawn(kind, x, y, z, { variant: variant | 0, baby: grow > 0, wet: true });
@@ -2426,6 +2614,11 @@ export class MobManager {
       m.persist = true;
       if (grow > 0) m.growT = grow;
       m.sheared = !!sheared;
+      if (kind === "wolf" && tame) {
+        this._tame(m, tame === 2 ? this.localPid : 0);
+        m.health = m.maxHealth;
+        m.sitting = !!sitting || tame !== 2;
+      }
     }
   }
 
@@ -2645,6 +2838,7 @@ export class MobManager {
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
       if (this.onPlayerHurt) this.onPlayerHurt(m);
+      if (isVanilla()) this._rallyWolves(this._pidOf(this.player), m); // (Round 11: their wolves defend them)
     }
     this._voice(m, "attack");
   }
@@ -3124,6 +3318,17 @@ export class MobManager {
           o.angerT = 30;
         }
       }
+      // A wild wolf's pack turns on whoever hit it; a player's own wolves go
+      // for whatever they hit.
+      const pid = this.currentAttacker ?? this.localPid;
+      if (m.kind === "wolf" && !m.tamed) {
+        for (const o of this.mobs) {
+          if (o.kind !== "wolf" || o.tamed || o.dead || o.pos.distanceTo(m.pos) > 16) continue;
+          o.foe = this.player;
+          o.angerT = 30;
+        }
+      }
+      if (isVanilla() && !(m.kind === "wolf" && m.tamed && m.owner === pid)) this._rallyWolves(pid, m);
     }
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
@@ -3559,7 +3764,7 @@ export class MobManager {
     } else if (m.kind === "sheep" && model.parts.wool) {
       model.parts.wool.visible = !m.sheared;
       model.parts.woolHead.visible = !m.sheared;
-    }
+    } else if (m.kind === "wolf" && model.parts.collar) model.parts.collar.visible = !!m.tamed;
     if ((m.carry || 0) !== (m.carryShown || 0)) this._showCarried(m);
     if (m.dead) {
       const t = Math.min(1, m.deathTime / 0.35);
@@ -3584,6 +3789,8 @@ export class MobManager {
       aim: m.ai.target || m.angerT > 0 ? 1 : 0,
       perch: m.perch ?? 0,
       carry: m.carry || m.drinkT > 0 ? 1 : 0,
+      sit: m.sitting ? 1 : 0,
+      tamed: m.tamed ? 1 : 0,
     });
   }
 

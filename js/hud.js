@@ -543,24 +543,16 @@ export class Hud {
         f.ctx.drawImage(this.foodArt[hungry ? `${kind}Hungry` : kind], 0, 0);
       }
     }
+    // (A jolt of one frame, every food * 3 + 1 ticks, as vanilla's.)
     const shake = !player.dead && player.saturation <= 0;
     this._foodShake += dt;
-    if (shake && this._foodShake >= (food * 3 + 1) / 20) {
-      this._foodShake = 0;
-      for (const f of this.food) {
-        const y = Math.round(Math.random() * 3) - 1;
-        if (y !== f.y) {
-          f.y = y;
-          f.el.style.transform = y ? `translateY(${y}px)` : "";
-        }
-      }
-    } else if (!shake && this._foodShake > 0.05) {
-      this._foodShake = 0;
-      for (const f of this.food) {
-        if (f.y) {
-          f.y = 0;
-          f.el.style.transform = "";
-        }
+    const jolt = shake && this._foodShake >= (food * 3 + 1) / 20;
+    if (jolt) this._foodShake = 0;
+    for (const f of this.food) {
+      const y = jolt ? Math.round(Math.random() * 3) - 1 : 0;
+      if (y !== f.y) {
+        f.y = y;
+        f.el.style.transform = y ? `translateY(${y}px)` : "";
       }
     }
     // The XP bar (the way to the next level) and the level, in green.

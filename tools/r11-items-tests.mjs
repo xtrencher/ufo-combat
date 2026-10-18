@@ -56,17 +56,23 @@ const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
   args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage", "--autoplay-policy=no-user-gesture-required"],
 });
-const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 const localThreeRoot = path.join(__dirname, "node_modules", "three");
-await page.route("https://cdn.jsdelivr.net/npm/three@0.160.0/**", (route) => {
-  const rel = new URL(route.request().url()).pathname.replace("/npm/three@0.160.0/", "");
-  route.fulfill({ path: path.join(localThreeRoot, rel), contentType: "text/javascript" });
-});
-page.on("console", (m) => {
-  if (m.type() === "error") errors.push(m.text());
-});
-page.on("pageerror", (e) => errors.push(String(e)));
-page.on("dialog", (d) => d.accept());
+// A page in a context of its own (its own saved worlds).
+async function newPage() {
+  const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+  const p = await ctx.newPage();
+  await p.route("https://cdn.jsdelivr.net/npm/three@0.160.0/**", (route) => {
+    const rel = new URL(route.request().url()).pathname.replace("/npm/three@0.160.0/", "");
+    route.fulfill({ path: path.join(localThreeRoot, rel), contentType: "text/javascript" });
+  });
+  p.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  p.on("pageerror", (e) => errors.push(String(e)));
+  p.on("dialog", (d) => d.accept());
+  return p;
+}
+let page = await newPage();
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -274,6 +280,29 @@ await check("a bucket picks up a water source and pours it back", async () => {
   }, site);
   assert(after.aimed && after.poured === 5 && after.held === 366, `poured back: ${JSON.stringify(after)}`);
   await v((g, s) => g.world.setBlocks([s.x + 3, s.y, s.z, 0, s.x, s.y - 1, s.z, 5], { recordEdit: false }), site);
+});
+
+await check("a bucket takes lava from a lava source and pours it again (when lava exists)", async () => {
+  const r = await v(async (g, s) => {
+    const V = await import("./js/content/ids.js");
+    const { BLOCK_INFO } = await import("./js/blocks.js");
+    if (!BLOCK_INFO[V.LAVA]) return { none: true };
+    g.world.setBlocks([s.x - 3, s.y - 1, s.z + 3, V.LAVA], { recordEdit: false });
+    g.inventory.clear();
+    await window.__ti.hold(g, V.BUCKET);
+    window.__ti.aim(g, [s.x - 3, s.y - 2, s.z + 3], [0, 1, 0], 3.2);
+    window.__ti.rightClick(g);
+    const taken = g.world.getBlock(s.x - 3, s.y - 1, s.z + 3);
+    const held = g.inventory.slots[0]?.id;
+    window.__ti.aim(g, [s.x - 3, s.y - 1, s.z - 3], [0, 1, 0]);
+    window.__ti.rightClick(g);
+    const poured = g.world.getBlock(s.x - 3, s.y, s.z - 3);
+    const back = g.inventory.slots[0]?.id;
+    g.world.setBlocks([s.x - 3, s.y - 1, s.z + 3, 3, s.x - 3, s.y, s.z - 3, 0], { recordEdit: false });
+    return { taken, held, poured, back, lava: V.LAVA, full: V.LAVA_BUCKET };
+  }, site);
+  if (r.none) return;
+  assert(r.taken === 0 && r.held === r.full && r.poured === r.lava && r.back === 366, JSON.stringify(r));
 });
 
 await check("flint and steel sets fire on the face clicked (when the fire block exists)", async () => {
@@ -490,6 +519,9 @@ await check("the compass and the clock turn in hand", async () => {
 });
 
 // ================= A Missions world =================
+// (A fresh browser profile: Play would continue the last world, the Survival one.)
+await page.context().close();
+page = await newPage();
 await boot(`seed=${SEED + 1}`);
 
 await check("a Missions world: the bow needs no arrows, ores and chests as before", async () => {

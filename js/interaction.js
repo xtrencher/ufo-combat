@@ -311,6 +311,7 @@ export class Interaction {
     const origin = this.player.getEyePosition();
     const dir = this.player.getForwardVector();
     this.target = this.world.raycast(origin, dir, this.reach);
+    if (this.target) this._faceHit(this.target, origin, dir);
     // A mob in front of the block takes the crosshair.
     this.entityHit = this.combat ? this.combat.raycast(origin, dir, this.player.creative ? 5 : ENTITY_REACH) : null;
     if (this.entityHit && this.target && this.target.distance < this.entityHit.distance) this.entityHit = null;
@@ -325,6 +326,34 @@ export class Interaction {
     } else {
       this.outline.visible = false;
     }
+  }
+
+  // (Round 11) The face of a shaped block's box the crosshair is on, and the
+  // cell beyond it. (The ray cast names the face of the cell it came in
+  // through: from a low angle a slab's top would read as its side, and a
+  // slab placed there would go beside it instead of onto it.)
+  _faceHit(t, origin, dir) {
+    if (SHAPE_OF[t.id] === SHAPE.CUBE || t.distance <= 0) return;
+    const box = selectionBox(t.id);
+    const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const d = [dir.x / len, dir.y / len, dir.z / len];
+    const p = [origin.x + d[0] * t.distance - t.block[0], origin.y + d[1] * t.distance - t.block[1], origin.z + d[2] * t.distance - t.block[2]];
+    let axis = -1;
+    let sign = 0;
+    for (let a = 0; a < 3; a++) {
+      const s = d[a] < 0 && Math.abs(p[a] - box[a + 3]) < 1e-3 ? 1 : d[a] > 0 && Math.abs(p[a] - box[a]) < 1e-3 ? -1 : 0;
+      if (!s) continue;
+      // (on an edge: the face the cell was entered through, else the one faced most squarely)
+      if (axis < 0 || t.normal[a] === s || (t.normal[axis] !== sign && Math.abs(d[a]) > Math.abs(d[axis]))) {
+        axis = a;
+        sign = s;
+      }
+    }
+    if (axis < 0 || t.normal[axis] === sign) return;
+    const n = [0, 0, 0];
+    n[axis] = sign;
+    t.normal = n;
+    t.place = [t.block[0] + n[0], t.block[1] + n[1], t.block[2] + n[2]];
   }
 
   // ---------- Left button: attack / mine ----------

@@ -24,11 +24,12 @@
 // chunk places all trees whose reach overlaps it, in one fixed order, so
 // each chunk gets exactly its share of every tree.
 import { hash2, mulberry32 } from "./noise.js";
-import { BLOCK } from "./blocks.js";
+import { BLOCK, IS_LEAVES, IS_REPLACEABLE, IS_WET, IS_SOLID } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME } from "./biomes.js";
 import { VILLAGE_REACH } from "./village.js";
-import { JUNGLE_LOG, ACACIA_LOG, DARK_OAK_LOG, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES, VINE } from "./content/ids.js";
+import { JUNGLE_LOG, ACACIA_LOG, DARK_OAK_LOG, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES, VINE, MYCELIUM, FARMLAND } from "./content/ids.js";
+import { SNOWY_GRASS } from "./content/nature.js";
 
 export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4, JUNGLE: 5, ACACIA: 6, DARK_OAK: 7, MEGA_JUNGLE: 8 });
 export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak", 5: "jungle", 6: "acacia", 7: "dark oak", 8: "giant jungle" };
@@ -67,6 +68,8 @@ const BARK = { 1: BLOCK.OAK_BARK, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOC
 const SAPLING_SPECIES = { oak: 1, birch: 2, spruce: 3, jungle: 5, acacia: 6, dark_oak: 7, mega_jungle: 8 };
 // A vine on the side of a trunk: VINE + the side its wall is on (+X, -X, +Z, -Z).
 const isVine = (id) => id >= VINE && id < VINE + 4;
+// Ground a grown trunk turns to dirt.
+const SOIL_TO_DIRT = new Set([BLOCK.GRASS, MYCELIUM, FARMLAND, FARMLAND + 1, SNOWY_GRASS]);
 
 // Small integer hash in [0, 1) for per-voxel jitter.
 function hash3(seed, x, y, z) {
@@ -189,6 +192,70 @@ export class TreeGrower {
     const root = { x: wx, z: wz, h: 0, species, log: LOG[species], bark: BARK[species], leaf: LEAF[species], wide: !!WIDE[species] };
     const rand = mulberry32((this.seed ^ Math.imul(wx, 0x2c1b3c6d) ^ Math.imul(wz, 0x297a2d39) ^ Math.imul(salt | 0, 0x68e31da4) ^ 0x5a9117) >>> 0);
     return { root, shape: this._build(root, rand) };
+  }
+
+  // (Round 11) Grows the sapling `saplingId` (of `kind`, as saplingShape) at
+  // (x, y, z) in the world into its tree, as one edit batch. Four dark oak
+  // saplings in a square make a dark oak (a lone one never grows), four jungle
+  // ones a giant jungle tree. The trunk must have room (air, leaves, plants,
+  // the saplings), or nothing happens and false comes back; leaves only fill
+  // air and plants; the ground under the trunk turns to dirt (vanilla).
+  growTree(world, x, y, z, kind, saplingId, rand = Math.random) {
+    let rx = x;
+    let rz = z;
+    if (kind === "dark_oak" || kind === "jungle") {
+      const at = (ax, az) => world.getBlock(ax, y, az) === saplingId;
+      let corner = null;
+      for (const [ox, oz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+        const cx = x + ox;
+        const cz = z + oz;
+        if (at(cx, cz) && at(cx + 1, cz) && at(cx, cz + 1) && at(cx + 1, cz + 1)) {
+          corner = [cx, cz];
+          break;
+        }
+      }
+      if (corner) {
+        [rx, rz] = corner;
+        if (kind === "jungle") kind = "mega_jungle";
+      } else if (kind === "dark_oak") return false;
+    }
+    const grown = this.saplingShape(kind, rx, rz, Math.floor(rand() * 2147483647));
+    if (!grown) return false;
+    const { root, shape } = grown;
+    const free = (id) => id === BLOCK.AIR || IS_LEAVES[id] === 1 || id === saplingId || (IS_REPLACEABLE[id] === 1 && IS_WET[id] === 0 && IS_SOLID[id] === 0);
+    const logs = [];
+    const leaves = [];
+    for (let i = 0; i < shape.length; i += 4) {
+      const wx = rx + shape[i];
+      const dy = shape[i + 1];
+      const wy = y + dy;
+      const wz = rz + shape[i + 2];
+      const id = shape[i + 3];
+      const crown = id === root.leaf || isVine(id);
+      if (wy < 1 || wy >= WORLD_HEIGHT) {
+        if (!crown) return false;
+        continue;
+      }
+      const cur = world.getBlock(wx, wy, wz);
+      if (crown) {
+        if (cur === BLOCK.AIR || (IS_REPLACEABLE[cur] === 1 && IS_WET[cur] === 0)) leaves.push(wx, wy, wz, id);
+      } else if (dy === -1) {
+        if (cur === BLOCK.GRASS || cur === BLOCK.DIRT) logs.push(wx, wy, wz, id);
+      } else if (free(cur)) {
+        logs.push(wx, wy, wz, id);
+        if (dy === 0 && SOIL_TO_DIRT.has(world.getBlock(wx, wy - 1, wz))) logs.push(wx, wy - 1, wz, BLOCK.DIRT);
+      } else return false; // (the trunk is blocked: the sapling waits)
+    }
+    // Logs first, and no leaf over a cell a log took.
+    const taken = new Set();
+    for (let i = 0; i < logs.length; i += 4) taken.add(`${logs[i]},${logs[i + 1]},${logs[i + 2]}`);
+    for (let i = 0; i < leaves.length; i += 4) {
+      const k = `${leaves[i]},${leaves[i + 1]},${leaves[i + 2]}`;
+      if (taken.has(k)) continue;
+      taken.add(k);
+      logs.push(leaves[i], leaves[i + 1], leaves[i + 2], leaves[i + 3]);
+    }
+    return world.setBlocks(logs) > 0;
   }
 
   _build(root, rand) {

@@ -8,10 +8,11 @@
 //
 // Vanilla values throughout (hardness, tiers shifted by one: wood 1,
 // stone 2, iron 3, diamond 4; drops; growth by random ticks; food), with the
-// deviations named where they are made. Systems that need more than a block
-// (lava flow, fire spread, leaf decay) are js/lavasim.js and
-// js/nature-sim.js; the terrain's ores, lava lakes and plants are
-// js/terrain.js (Survival worlds only).
+// deviations named where they are made. Systems that need more than a
+// random tick (lava flow, fire spread) are js/lavasim.js and
+// js/nature-sim.js; leaf decay is the leaves' random tick here; the
+// terrain's ores, lava lakes and plants are js/terrain.js (Survival worlds
+// only) and the trees js/trees.js.
 import { BLOCK, ITEM, RENDER, FACE, LIB } from "./base.js";
 import * as ID from "./ids.js";
 import { isVanilla } from "../worldtype.js";
@@ -46,6 +47,15 @@ export function lavaLevel(id) {
 export function lavaFlowId(level) {
   return LAVA_FLOWING + level - 1;
 }
+// Grass under snow (a Survival world's snowy ground: the core's snow block
+// look, but it is grass: drops dirt, turns back to grass when the snow goes).
+export const SNOWY_GRASS = 1654;
+// Leaves a player placed (Survival worlds): 6 ids, oak, spruce, birch,
+// jungle, acacia, dark oak; they look and drop like the natural ones but
+// never decay (vanilla's persistent leaves).
+export const PERSISTENT_LEAVES = 1655;
+// (nature.js blocks: next free 1661)
+const NATURAL_LEAVES = [BLOCK.LEAVES, BLOCK.PINE_LEAVES, BLOCK.BIRCH_LEAVES, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES];
 
 // The same id ranges as numbers (hot paths).
 export const CROP_STAGES = { [WHEAT_CROP]: 8, [CARROTS]: 4, [POTATOES]: 4, [BEETROOTS]: 4 };
@@ -139,11 +149,11 @@ const isShears = (tool) => tool?.type === "shears";
 // ---------- Soils ----------
 
 // What saplings, flowers, ferns and mushrooms (on podzol, mycelium) grow on.
-const PLANT_SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, COARSE_DIRT, MYCELIUM, FARMLAND, FARMLAND + 1]);
+const PLANT_SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, COARSE_DIRT, MYCELIUM, FARMLAND, FARMLAND + 1, SNOWY_GRASS]);
 const plantSoil = (below) => PLANT_SOIL.has(below);
-const CANE_SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.SAND, RED_SAND, PODZOL, COARSE_DIRT, MYCELIUM]);
+const CANE_SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.SAND, RED_SAND, PODZOL, COARSE_DIRT, MYCELIUM, SNOWY_GRASS]);
 // Ground a pumpkin or melon may grow onto.
-const FRUIT_SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, COARSE_DIRT, MYCELIUM, FARMLAND, FARMLAND + 1]);
+const FRUIT_SOIL = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, COARSE_DIRT, MYCELIUM, FARMLAND, FARMLAND + 1, SNOWY_GRASS]);
 
 // Water beside a block (sugar cane needs it next to its ground).
 function waterBeside(world, x, y, z) {
@@ -177,7 +187,7 @@ export function flammability() {
   set(range(ID.OAK_FENCE, 6), 5, 20);
   set(range(ID.OAK_FENCE_GATE, 6 * 8), 5, 20);
   set([BLOCK.WOOD, BLOCK.BIRCH_LOG, BLOCK.PINE_LOG, BLOCK.OAK_BARK, JUNGLE_LOG, ACACIA_LOG, DARK_OAK_LOG], 5, 5);
-  set([BLOCK.LEAVES, BLOCK.BIRCH_LEAVES, BLOCK.PINE_LEAVES, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES], 30, 60);
+  set([...NATURAL_LEAVES, ...range(PERSISTENT_LEAVES, 6)], 30, 60);
   set([ID.BOOKSHELF], 30, 20);
   set([ID.TNT], 15, 100);
   set([BLOCK.TALL_GRASS, BLOCK.FLOWER_RED, BLOCK.FLOWER_YELLOW, BLOCK.DEAD_BUSH, FERN, ...NEW_FLOWERS], 60, 100);
@@ -449,6 +459,15 @@ const LEAF = { render: RENDER.CUTOUT, opaque: false, lightFilter: 1, wave: true,
 def(JUNGLE_LEAVES, { ...LEAF, name: "Jungle Leaves", faces: "jungle_leaves" });
 def(ACACIA_LEAVES, { ...LEAF, name: "Acacia Leaves", faces: "acacia_leaves" });
 def(DARK_OAK_LEAVES, { ...LEAF, name: "Dark Oak Leaves", faces: "dark_oak_leaves" });
+[
+  ["Leaves", "leaves"],
+  ["Pine Needles", "pine_leaves"],
+  ["Birch Leaves", "birch_leaves"],
+  ["Jungle Leaves", "jungle_leaves"],
+  ["Acacia Leaves", "acacia_leaves"],
+  ["Dark Oak Leaves", "dark_oak_leaves"],
+].forEach(([name, tile], i) => def(PERSISTENT_LEAVES + i, { ...LEAF, name, faces: tile, item: NATURAL_LEAVES[i], creative: false }));
+def(SNOWY_GRASS, { name: "Grass Block", faces: { top: "snow_top", bottom: "dirt", side: "snow_side" }, hardness: 0.6, tool: "shovel", sound: "grass", creative: false });
 // Mushrooms: on solid ground in the dark (placeAs checks the light), or on
 // podzol and mycelium in any light.
 const mushroomPlace = (id) => (ctx) => {
@@ -621,6 +640,36 @@ const LAVA_BOTTOM = hquad(0);
 function lavaTop(m, id) {
   return isLava(m.neighbor(0, 1, 0)) ? 1 : LAVA_TOPS[lavaLevel(id)];
 }
+// One face `f` of the box lo-hi in the cell, its texture cut to the box (the
+// cube's corners and uvs, as mesher.js; scratch arrays: no allocation).
+const FACE_DEFS = [
+  { corners: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], uv: (c) => [1 - c[2], c[1]] },
+  { corners: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], uv: (c) => [c[2], c[1]] },
+  { corners: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], uv: (c) => [c[0], 1 - c[2]] },
+  { corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], uv: (c) => [c[0], c[2]] },
+  { corners: [[1, 0, 1], [1, 1, 1], [0, 1, 1], [0, 0, 1]], uv: (c) => [c[0], c[1]] },
+  { corners: [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]], uv: (c) => [1 - c[0], c[1]] },
+];
+const QC = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+const QU = [[0, 0], [0, 0], [0, 0], [0, 0]];
+const BOX = [0, 0, 0, 0, 0, 0];
+function boxFace(m, f, x0, y0, z0, x1, y1, z1, tile) {
+  BOX[0] = x0;
+  BOX[1] = y0;
+  BOX[2] = z0;
+  BOX[3] = x1;
+  BOX[4] = y1;
+  BOX[5] = z1;
+  const def = FACE_DEFS[f];
+  for (let c = 0; c < 4; c++) {
+    const p = def.corners[c];
+    for (let a = 0; a < 3; a++) QC[c][a] = BOX[p[a] ? a + 3 : a];
+    const uv = def.uv(QC[c]);
+    QU[c][0] = uv[0];
+    QU[c][1] = uv[1];
+  }
+  m.quad(QC, QU, f, tile);
+}
 const SNOW_H = new Float32Array(4096);
 for (let n = 1; n <= 8; n++) SNOW_H[SNOW_LAYER + n - 1] = n / 8;
 
@@ -663,7 +712,24 @@ export const shapes = {
     },
   },
   farmland: { mesh: (m) => m.box(0, 0, 0, 1, 15 / 16, 1) },
-  snow_layer: { mesh: (m) => m.box(0, 0, 0, 1, SNOW_H[m.id], 1) },
+  // (the top, and sides only where the neighbour is lower: a snowfield costs
+  // one quad a column, not a box's five)
+  snow_layer: {
+    mesh(m) {
+      const opaque = LIB.IS_OPAQUE;
+      const h = SNOW_H[m.id];
+      const t = m.tile(2);
+      boxFace(m, FACE.PY, 0, 0, 0, 1, h, 1, t);
+      for (let s = 0; s < 4; s++) {
+        const n = m.neighbor(SIDES[s][0], 0, SIDES[s][1]);
+        if (opaque[n]) continue;
+        const nh = SNOW_H[n];
+        if (nh >= h) continue;
+        boxFace(m, SIDE_FACE[s], 0, nh, 0, 1, h, 1, t);
+      }
+      if (!opaque[m.neighbor(0, -1, 0)]) boxFace(m, FACE.NY, 0, 0, 0, 1, h, 1, t);
+    },
+  },
   lava: {
     mesh(m) {
       const id = m.id;
@@ -734,8 +800,8 @@ drops[MYCELIUM] = fixed([[BLOCK.DIRT, 1]]);
 drops[MELON] = (tool, rand) => [[MELON_SLICE, between(3, 7, rand)]];
 for (let n = 1; n <= 8; n++) drops[SNOW_LAYER + n - 1] = fixed([[SNOWBALL, n]]);
 // Crops: one seed (or the root) until ripe; then the harvest (vanilla: the
-// seeds are 1 + binomial(3, 4/7); a ripe potato field also gives a poisonous
-// potato 2% of the time).
+// seeds are 1 + binomial(3, 4/7), so are the extra carrots and potatoes on
+// top of the first: 2-5; a ripe potato also gives a poisonous one 2% of the time).
 for (const c of CROPS) {
   const last = CROP_STAGES[c] - 1;
   for (let s = 0; s <= last; s++) {
@@ -746,7 +812,7 @@ for (const c of CROPS) {
       if (c === BEETROOTS) return ripe ? [[BEETROOT, 1], [BEETROOT_SEEDS, extra]] : [[BEETROOT_SEEDS, 1]];
       const root = c === CARROTS ? CARROT : POTATO;
       if (!ripe) return [[root, 1]];
-      const out = [[root, extra]];
+      const out = [[root, 1 + extra]]; // (vanilla's two pools: one root, and 1 + binomial more: 2-5)
       if (c === POTATOES && rand() < 0.02) out.push([POISONOUS_POTATO, 1]);
       return out;
     };
@@ -779,6 +845,8 @@ drops[BLOCK.PINE_LEAVES] = leafDrops(BLOCK.PINE_LEAVES, SPRUCE_SAPLING, 1 / 20, 
 drops[JUNGLE_LEAVES] = leafDrops(JUNGLE_LEAVES, JUNGLE_SAPLING, 1 / 40, false);
 drops[ACACIA_LEAVES] = leafDrops(ACACIA_LEAVES, ACACIA_SAPLING, 1 / 20, false);
 drops[DARK_OAK_LEAVES] = leafDrops(DARK_OAK_LEAVES, DARK_OAK_SAPLING, 1 / 20, true);
+NATURAL_LEAVES.forEach((leaf, i) => (drops[PERSISTENT_LEAVES + i] = drops[leaf]));
+drops[SNOWY_GRASS] = fixed([[BLOCK.DIRT, 1]]);
 // Ferns: shears take them, otherwise wheat seeds 1 in 8 (like grass).
 drops[FERN] = (tool, rand) => (isShears(tool) ? [[FERN, 1]] : rand() < 0.125 ? [[WHEAT_SEEDS, 1]] : []);
 for (let k = 0; k < 4; k++) drops[VINE + k] = (tool) => (isShears(tool) ? [[VINE, 1]] : []);
@@ -838,6 +906,8 @@ for (const [stem, fruit] of [
         world.setBlock(x, y, z, id + 1);
         return;
       }
+      // (a stem already attached to its fruit grows no other: vanilla's attached stem)
+      for (const [sx, sz] of SIDES) if (world.getBlock(x + sx, y, z + sz) === fruit) return;
       const [dx, dz] = SIDES[Math.floor(rand() * 4)];
       if (world.getBlock(x + dx, y, z + dz) !== BLOCK.AIR || !FRUIT_SOIL.has(world.getBlock(x + dx, y - 1, z + dz))) return;
       world.setBlock(x + dx, y, z + dz, fruit);
@@ -917,6 +987,10 @@ function spreadingTick(self) {
       world.setBlock(x, y, z, BLOCK.DIRT);
       return;
     }
+    if (self === BLOCK.GRASS && isSnowLayer(above)) {
+      world.setBlock(x, y, z, SNOWY_GRASS);
+      return;
+    }
     if (lightAt(world, x, y + 1, z) < 9) return;
     for (let k = 0; k < 4; k++) {
       const tx = x + Math.floor(rand() * 3) - 1;
@@ -931,6 +1005,75 @@ function spreadingTick(self) {
 }
 randomTick[BLOCK.GRASS] = spreadingTick(BLOCK.GRASS);
 randomTick[MYCELIUM] = spreadingTick(MYCELIUM);
+// Snowy grass is grass again once its snow is gone (and dirt under a block).
+randomTick[SNOWY_GRASS] = (world, x, y, z) => {
+  const above = world.getBlock(x, y + 1, z);
+  if (LIB.IS_OPAQUE[above] && !isSnowLayer(above)) world.setBlock(x, y, z, BLOCK.DIRT);
+  else if (!isSnowLayer(above) && above !== BLOCK.SNOW) world.setBlock(x, y, z, BLOCK.GRASS);
+};
+// Leaf decay (Survival worlds): natural leaves more than 6 steps (through
+// leaves) from a log fall on their random tick, dropping what a leaf broken
+// by hand drops (vanilla; a player's leaves are PERSISTENT_LEAVES).
+const DECAY = 6;
+const DW = DECAY * 2 + 1;
+const decayMark = new Uint32Array(DW * DW * DW);
+const decayQueue = new Int8Array(DW * DW * DW * 4);
+let decayGen = 0;
+const STEPS6 = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
+export function leavesHeld(world, x, y, z) {
+  const info = LIB.BLOCK_INFO;
+  decayGen = (decayGen + 1) >>> 0 || 1;
+  const at = (dx, dy, dz) => ((dx + DECAY) * DW + (dy + DECAY)) * DW + (dz + DECAY);
+  let head = 0;
+  let tail = 0;
+  decayMark[at(0, 0, 0)] = decayGen;
+  decayQueue[tail++] = 0;
+  decayQueue[tail++] = 0;
+  decayQueue[tail++] = 0;
+  decayQueue[tail++] = 0;
+  while (head < tail) {
+    const dx = decayQueue[head++];
+    const dy = decayQueue[head++];
+    const dz = decayQueue[head++];
+    const d = decayQueue[head++];
+    for (const [sx, sy, sz] of STEPS6) {
+      const nx = dx + sx;
+      const ny = dy + sy;
+      const nz = dz + sz;
+      if (nx < -DECAY || nx > DECAY || ny < -DECAY || ny > DECAY || nz < -DECAY || nz > DECAY) continue;
+      const k = at(nx, ny, nz);
+      if (decayMark[k] === decayGen) continue;
+      decayMark[k] = decayGen;
+      const b = world.getBlock(x + nx, y + ny, z + nz);
+      const bi = info[b];
+      if (!bi) continue;
+      if (bi.log) return true;
+      if (bi.leaves && d + 1 < DECAY) {
+        decayQueue[tail++] = nx;
+        decayQueue[tail++] = ny;
+        decayQueue[tail++] = nz;
+        decayQueue[tail++] = d + 1;
+      }
+    }
+  }
+  return false;
+}
+for (const leaf of NATURAL_LEAVES) {
+  randomTick[leaf] = (world, x, y, z, id) => {
+    // (a log beside it: the common case, without the search)
+    if (!isVanilla() || !world.getChunk(x >> 4, z >> 4)) return;
+    for (const [sx, sy, sz] of STEPS6) if (LIB.BLOCK_INFO[world.getBlock(x + sx, y + sy, z + sz)]?.log) return;
+    if (leavesHeld(world, x, y, z)) return;
+    if (world.setBlock(x, y, z, BLOCK.AIR)) world.onBlockPopped?.(x, y, z, id);
+  };
+}
 // Ice and snow melt by a bright lamp (block light above 11), as vanilla.
 randomTick[ICE] = (world, x, y, z) => {
   if (blockLightAt(world, x, y, z) > 11 || maxNeighbourBlockLight(world, x, y, z) > 11) world.setBlock(x, y, z, BLOCK.WATER);
@@ -980,9 +1123,9 @@ for (let k = 0; k < 4; k++) {
 // know (one saved with the world, or lit while nobody simulated it).
 randomTick[FIRE] = (world, x, y, z) => world.natureSim?.fire?.adopt(x, y, z);
 // Lava sets fire to flammable things near it (vanilla's lava random tick),
-// and wakes its flow (js/lavasim.js) in case it was left mid-flow.
+// and a flow wakes (js/lavasim.js) in case it was left mid-flow.
 function lavaTick(world, x, y, z, id, rand) {
-  world.lavaSim?.wake(x, y, z);
+  if (id !== LAVA) world.lavaSim?.wake(x, y, z); // (a source only moves after an edit, which wakes it)
   const { ignite } = flammability();
   const i = Math.floor(rand() * 3);
   if (i > 0) {
@@ -1048,6 +1191,7 @@ itemUse[MELON_SEEDS] = plantOn(MELON_STEM);
 // when the cell above is open; any face but the bottom.
 const TILLS = new Map([
   [BLOCK.GRASS, FARMLAND],
+  [SNOWY_GRASS, FARMLAND],
   [BLOCK.DIRT, FARMLAND],
   [DIRT_PATH, FARMLAND],
   [COARSE_DIRT, BLOCK.DIRT],
@@ -1063,10 +1207,11 @@ function till(ctx) {
   return true;
 }
 for (const hoe of [ID.WOODEN_HOE, ID.STONE_HOE, ID.IRON_HOE, ID.GOLDEN_HOE, ID.DIAMOND_HOE]) itemUse[hoe] = till;
-// Shovels flatten grass and dirt into a path (vanilla 1.17+), under open air.
-const PATHS = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, MYCELIUM, COARSE_DIRT]);
+// Shovels flatten grass and dirt into a path (vanilla 1.17+), under open air
+// (Survival worlds: a Missions world's shovel does what it always did).
+const PATHS = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, MYCELIUM, COARSE_DIRT, SNOWY_GRASS]);
 function flatten(ctx) {
-  if (!PATHS.has(ctx.id) || !ctx.normal || ctx.normal[1] === -1) return false;
+  if (!isVanilla() || !PATHS.has(ctx.id) || !ctx.normal || ctx.normal[1] === -1) return false;
   const world = ctx.world;
   if (world.getBlock(ctx.x, ctx.y + 1, ctx.z) !== BLOCK.AIR) return false;
   if (!world.setBlock(ctx.x, ctx.y, ctx.z, DIRT_PATH)) return false;
@@ -1140,6 +1285,12 @@ itemUse[BONE_MEAL] = (ctx) => {
   useItem(ctx, false);
   return true;
 };
+
+// Leaves a player places never decay (Survival worlds): placed as their
+// persistent ids, through the game's own placing.
+NATURAL_LEAVES.forEach((leaf, i) => {
+  itemUse[leaf] = (ctx) => (isVanilla() && ctx.interaction?._place ? !!ctx.interaction._place(PERSISTENT_LEAVES + i) : false);
+});
 
 // Lily pads go on the water's surface: the first water cell along the view
 // (water can't be aimed at) with air above it.
@@ -1446,7 +1597,8 @@ export const tiles = {
   coal_block: (t, kit) => mineralBlock(t, kit, [0x0e0e10, 0x18181c, 0x222228, 0x2e2e36, 0x40404a], true),
   copper_block: (t, kit) => mineralBlock(t, kit, [0x8a4426, 0xb05e34, 0xc87444, 0xe08c58, 0xf0a878], false),
   lava: (t, kit) => {
-    const ramp = [0x6a1400, 0xa82c00, 0xd85000, 0xf47a10, 0xffa42a, 0xffcc4a, 0xffec8a].map(kit.hex);
+    // (darker than it looks: it is drawn glowing, which brightens it a lot)
+    const ramp = [0x561000, 0x8a2200, 0xb83a00, 0xd85808, 0xec7812, 0xf89a26, 0xffc04e].map(kit.hex);
     t.forEach((x, y) => {
       let f = t.fbm(x, y, 4, 3) * 0.8 + t.noise(x, y, 8, 2) * 0.3 - 0.05;
       if (t.noise(x, y, 4, 7) < 0.28) f -= 0.45; // the darker crust drifting on it

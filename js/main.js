@@ -23,7 +23,7 @@ import { InventoryScreen } from "./inventory-ui.js";
 import { ItemEntities } from "./entities.js";
 import { HeldItem } from "./held-item.js";
 import { Interaction } from "./interaction.js";
-import { MobManager, SPECIES } from "./mobs.js";
+import { MobManager, specOf } from "./mobs.js";
 import { isUnderwater, surfaceHeight } from "./water.js";
 import { FallingBlocks } from "./falling.js";
 import { WaterSim } from "./watersim.js";
@@ -399,6 +399,7 @@ const sleep = new Sleep({
   players: () => (mpLate?.active ? mpLate.players.active() : []),
   online: () => !!mpLate?.active,
   isHost: () => !!mpLate?.isHost,
+  inGame: () => gameState !== "start", // (a host on the main menu isn't one of the sleepers)
   // (The host's clock jumped: everyone gets it now, not at the next 2 s update.)
   sendTime: () => net.broadcast({ t: "time", time: sky.time, scale: sky.timeScale ?? 1, locked: !!sky.locked, ts: net.time }),
   onSpawnSet: () => (playerDirty = true),
@@ -863,7 +864,7 @@ function mobKilled(m, { mine = true } = {}) {
   const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
   // (Round 11) A Survival world: the killer's XP orbs (online, a guest's kill
   // reaches here on the guest's own machine, as m: its kind and place).
-  if (mine && isVanilla() && m.pos) xp.spawn(m.pos.x, m.pos.y + 0.5, m.pos.z, killXp(m, SPECIES[m.kind]));
+  if (mine && isVanilla() && m.pos) xp.spawn(m.pos.x, m.pos.y + 0.5, m.pos.z, killXp(m, m.spec && "hostile" in m.spec ? null : specOf(m.kind)));
   if (m.spec.alien) add("aliensKilled");
   else if (m.kind === "guard") add("guardsKilled");
   else if (m.kind === "zombie") add("zombiesKilled");
@@ -3799,10 +3800,10 @@ function simulate(dt, frameTime) {
   if (running) {
     if (gameState !== "start") {
       player.update(dt);
-      // (Round 11) Beds and XP orbs (Survival worlds).
-      sleep.update(dt);
-      xp.update(dt);
+      xp.update(dt); // (Round 11: XP orbs, Survival worlds)
     }
+    // (Round 11) Beds: a host still on the main menu skips the night for its sleeping guests.
+    sleep.update(dt);
     if (player.stepEvent) audio.playFootstep(BLOCK_INFO[player.stepBlock]?.sound);
     if (player.splashEvent) audio.playSplash();
     // Vehicles (the seated player rides along) and UFOs.
@@ -3902,8 +3903,9 @@ function simulate(dt, frameTime) {
   hud.setThrowCharge(gameState === "playing" ? weapons.charge : 0);
   ui.setScoped(gameState === "playing" && weapons.scoped);
   held.setItem(inventory.selectedStack?.id ?? 0); // follows the selected slot (no-op when unchanged)
+  held.visible = !player.sleeping; // (Round 11: no hand in bed)
   held.update(dt, player, heldLight, camera, interaction.eating);
-  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
+  avatar.update(dt, player, heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0 });
   updateDebug(dt, frameTime);
   mp.update(dt);
 }

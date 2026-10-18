@@ -254,7 +254,7 @@ export class HeldItem {
   // its target (as seen from where you look), the clock's dial by the sun,
   // the fishing rod without its line while cast, the shield raised in front
   // while right click holds it up.
-  _updateVanilla(dt, player, camera, m) {
+  _updateVanilla(dt, player, m) {
     const id = this.itemId;
     if (id === COMPASS || id === CLOCK) {
       let frame;
@@ -385,7 +385,7 @@ export class HeldItem {
         }
       }
     }
-    this._updateVanilla(dt, player, camera, m);
+    this._updateVanilla(dt, player, m);
     this._flash += dt;
     this._flashFrames = this._flash === dt ? 0 : (this._flashFrames || 0) + 1;
     // Visible for 50 ms, and always for at least one rendered frame.

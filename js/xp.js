@@ -110,10 +110,12 @@ const KILL_XP = {
 // (species: the kind's SPECIES entry, when the mob is only a kind and a
 // place: a guest's kill of the host's creature.)
 export function killXp(mob, species = null) {
-  if (!mob || mob.baby || mob.isRemotePlayer) return 0;
+  if (!mob || mob.isRemotePlayer) return 0;
   const spec = species || mob.spec || {};
   if (typeof spec.xp === "function") return Math.max(0, Math.floor(spec.xp(mob) || 0));
   if (spec.xp != null) return rollXp(spec.xp);
+  // (A baby, or a spec that says none: nothing.)
+  if (mob.baby || spec.baby || "xp" in spec) return 0;
   if (spec.alien || spec.special) return 0; // (the Missions world's foes give loot, not XP)
   const k = KILL_XP[mob.kind];
   if (k != null) return rollXp(k);

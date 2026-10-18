@@ -18,6 +18,7 @@ import { BLOCK, IS_SOLID } from "./blocks.js";
 import { ITEM, itemInfo, maxStack } from "./items.js";
 import { FISHING_ROD, COD, SALMON, BOWL, LEATHER, ROTTEN_FLESH, STRING, BONE, LILY_PAD, LAVA } from "./content/ids.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
+import { LIB } from "./content/base.js";
 
 const GRAVITY = -12; // blocks/s² (the classic bobber's 0.03 a tick²)
 const AIR_DRAG = 1.6; // 1/s (0.92 a tick)
@@ -94,7 +95,7 @@ export class Fishing {
     this.held = held;
     this.inventory = inventory;
     this.bobber = null; // { pos, vel, inWater, onGround, wait, approach, nibble, entities, light }
-    this.onXp = null; // (amount, pos): a catch's experience (the game's XP system, if any)
+    this.onXp = null; // (amount, pos): a catch's experience (else the game's LIB.giveXp, if any)
     this.onChange = null; // () => void: the rod wore
     this.caught = 0; // catches (stats / tests)
     this.material = createEntityMaterial("color");
@@ -232,7 +233,9 @@ export class Fishing {
     if (ents) ents.spawn(id, Math.min(1, maxStack(id)), from, vel, { dur, pickupDelay: 0 });
     else this.inventory.add(id, 1, dur);
     this.caught++;
-    this.onXp?.(1 + Math.floor(Math.random() * 6), from);
+    const xp = 1 + Math.floor(Math.random() * 6);
+    if (this.onXp) this.onXp(xp, from);
+    else LIB.giveXp?.(xp, p.x, p.y + 1, p.z);
     this._splash(b.pos, 10);
   }
 

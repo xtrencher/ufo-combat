@@ -109,7 +109,7 @@ class AiProxy {
   get heldId() {
     return this.r.heldId | 0;
   }
-  addEffect(name, seconds, level = 0) {
+  addEffect(name, seconds, level = 1) {
     if (this.dead || this.creative) return;
     this.sync.net.send(this.pid, { t: "eff", n: String(name), d: r1(seconds), a: level | 0 });
   }
@@ -169,6 +169,7 @@ export class EntitySync {
   start() {
     const g = this.game;
     if (!this._hooked) this._hook();
+    g.mobs.localPid = this.net.pid || HOST_PID; // (Round 11: a tame wolf's owner is this player, online)
     if (this.net.isHost) {
       g.mobs.targets = () => this.targets();
       g.ufos.targets = () => this.targets();
@@ -200,6 +201,7 @@ export class EntitySync {
     g.airports.positions = null;
     g.ufos.onDashWarn = null;
     g.mobs.onRemoteXp = null;
+    g.mobs.localPid = HOST_PID;
     g.mobs.puppets = false;
     g.ufos.puppets = false;
     g.airports.guardsEnabled = true;
@@ -353,6 +355,7 @@ export class EntitySync {
 
   update(dt) {
     if (!this.mp.active) return;
+    this.game.mobs.localPid = this.net.pid || HOST_PID;
     if (this.net.isHost) {
       this._snapT -= dt;
       if (this._snapT <= 0) {
@@ -510,9 +513,9 @@ export class EntitySync {
     if (!state) return;
     // (Round 11: the vanilla states, flags 128 and up; a creeper's fuse and an
     // enderman's block after the health, only when there are any.)
-    const vf = (m.baby ? 128 : 0) | (m.sheared ? 256 : 0) | (m.loveT > 0 ? 512 : 0) | (m.angerT > 0 ? 1024 : 0) | (m.drinkT > 0 ? 2048 : 0) | (m.breedCd > 0 || m.loveT > 0 ? 4096 : 0);
+    const vf = (m.baby ? 128 : 0) | (m.sheared ? 256 : 0) | (m.loveT > 0 ? 512 : 0) | (m.angerT > 0 ? 1024 : 0) | (m.drinkT > 0 ? 2048 : 0) | (m.breedCd > 0 || m.loveT > 0 ? 4096 : 0) | (m.tamed ? 8192 : 0) | (m.sitting ? 16384 : 0);
     const s = [m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0) | vf, r2(m.attack ?? 1), r1(m.vel?.y ?? 0), Math.round((Math.max(0, m.health) / (m.maxHealth || 1)) * 1000) / 1000];
-    if (m.fuse > 0 || m.carry) s.push(r2(m.fuse || 0), m.carry || 0);
+    if (m.fuse > 0 || m.carry || m.owner) s.push(r2(m.fuse || 0), m.carry || 0, m.owner || 0);
     snap.m.push(s);
   }
 
@@ -615,7 +618,7 @@ export class EntitySync {
           // (Round 11) A creature a guest's egg asks for: near them, a few a second at most.
           const px = this.proxy(from);
           const at = new THREE.Vector3(Number(c[2]), Number(c[3]), Number(c[4]));
-          const spec = SPECIES[c[1]];
+          const spec = typeof c[1] === "string" && Object.hasOwn(SPECIES, c[1]) ? SPECIES[c[1]] : null;
           if (!px || !spec || spec.special || !Number.isFinite(at.x + at.y + at.z) || px.position.distanceTo(at) > 24) continue;
           const now = g.mobs.time;
           px._spawnT = Math.max(now - 2, px._spawnT ?? 0) + 0.25;
@@ -854,7 +857,7 @@ export class EntitySync {
     for (const s of m.m || []) {
       const mob = this.mobById.get(s[0]);
       if (!mob) continue;
-      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1, x: s[12] ?? 0, h: s[13] ?? 0 }, now);
+      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1, x: s[12] ?? 0, h: s[13] ?? 0, o: s[14] ?? 0 }, now);
     }
     for (const s of m.j || []) {
       const j = this.jetById.get(s.n);
@@ -976,6 +979,10 @@ export class EntitySync {
     if (fuse > 0 && !(m.fuse > 0)) g.mobs._voice(m, "hiss");
     m.fuse = fuse;
     m.carry = st.h | 0;
+    m.tamed = !!(f & 8192);
+    m.sitting = !!(f & 16384);
+    m.owner = st.o | 0;
+    if (m.tamed && m.kind === "wolf" && m.maxHealth < 20) m.maxHealth = 20;
     // (An enderman's teleport: the flash where it was and where it is.)
     if (m.kind === "enderman" && Math.hypot(m.pos.x - ox, m.pos.z - oz) > 4 && m.interp.last) {
       const to = m.pos.clone();
@@ -1020,7 +1027,7 @@ export class EntitySync {
   _onEffect(m) {
     const p = this.game.player;
     const secs = Math.min(600, Math.max(0, Number(m.d) || 0));
-    if (typeof p.addEffect === "function") p.addEffect(String(m.n), secs, m.a | 0);
+    if (typeof p.addEffect === "function") p.addEffect(String(m.n), secs, Math.max(1, m.a | 0));
     else if (m.n === "poison" && secs >= 1) {
       const dmg = Math.min(4, Math.floor(p.health - 1));
       if (dmg > 0) p.damage(dmg, "witch");

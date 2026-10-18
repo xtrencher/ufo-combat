@@ -1651,7 +1651,8 @@ const SHEEP = {
       if ((f === "left" || f === "right") && y >= 1 && y < 4 && fromFront(f, x, w) >= 6 && fromFront(f, x, w) < 10) c = shade(woolC, 0.8); // ears
       return c;
     });
-    for (const leg of ["legFL", "legFR", "legBL", "legBR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? hex(0x4a3a30) : y < 8 ? fleece(x, y, 255) : grain(skinC, x, y, 256, 0.08)));
+    // (Bare legs: the wool is the coat's, so a shorn sheep shows none.)
+    for (const leg of ["legFL", "legFR", "legBL", "legBR"]) s.part(leg, (f, x, y, w, h) => (y >= h - 3 ? hex(0x4a3a30) : grain(shade(skinC, y < 6 ? 0.82 : 1), x, y, 256, 0.08)));
   },
   animate(p, st) {
     const swing = Math.sin(st.walkPhase) * 0.5 * st.walk;
@@ -1713,6 +1714,64 @@ const IRON_GOLEM = {
   },
 };
 
+// A wolf: grey and cream, a thick mane, a bushy tail held low when wild and
+// high when tame; a tame one wears a red collar (mobs.js shows "collar") and
+// can sit (st.sit).
+const WOLF = {
+  parts: [
+    { name: "legFL", size: [2, 8, 2], pivot: [-1.5, 8, 3.5], from: [-1, -8, -1] },
+    { name: "legFR", size: [2, 8, 2], pivot: [1.5, 8, 3.5], from: [-1, -8, -1] },
+    { name: "legBL", size: [2, 8, 2], pivot: [-1.5, 8, -3.5], from: [-1, -8, -1] },
+    { name: "legBR", size: [2, 8, 2], pivot: [1.5, 8, -3.5], from: [-1, -8, -1] },
+    { name: "body", size: [6, 6, 9], pivot: [0, 8, 0], from: [-3, 0, -5] },
+    { name: "mane", size: [8, 7, 6], pivot: [0, 8, 0], from: [-4, -0.5, 0], parent: "body", rigid: true },
+    { name: "head", size: [6, 6, 4], pivot: [0, 11.5, 6], from: [-3, -2, 0], parent: "body" },
+    { name: "snout", size: [3, 3, 4], pivot: [0, 10.5, 10], from: [-1.5, -1.5, 0], parent: "head", rigid: true },
+    { name: "earL", size: [2, 2, 1], pivot: [-2, 15.5, 7.5], from: [-1, -1, -0.5], parent: "head", rigid: true },
+    { name: "earR", size: [2, 2, 1], pivot: [2, 15.5, 7.5], from: [-1, -1, -0.5], parent: "head", rigid: true },
+    { name: "collar", size: [6.6, 1.4, 2.6], pivot: [0, 11.5, 6], from: [-3.3, -2.3, -0.6], parent: "head" },
+    { name: "tail", size: [2, 8, 2], pivot: [0, 13, -5], from: [-1, -8, -1], parent: "body" },
+  ],
+  paint(s) {
+    const furA = hex(0xd8d2c8);
+    const furB = hex(0x9a9188);
+    const fur = (x, y, seed, dark) => grain(mix(furA, furB, Math.min(1, hash(x >> 1, y >> 1, seed) * 0.5 + dark)), x, y, seed + 1, 0.1);
+    s.part("body", (f, x, y, w, h) => fur(x, y, 281, f === "top" ? 0.5 : f === "bottom" ? 0 : 0.25));
+    s.part("mane", (f, x, y, w, h) => fur(x, y, 282, f === "top" ? 0.45 : 0.15));
+    s.part("head", (f, x, y, w, h) => {
+      let c = fur(x, y, 283, f === "top" ? 0.4 : 0.15);
+      if (f === "front" && y >= 4 && y < 6 && (x === 2 || x === w - 3)) c = [26, 22, 20]; // eyes
+      return c;
+    });
+    s.part("snout", (f, x, y, w, h) => (f === "front" && y < 2 && x >= 2 && x < w - 2 ? [30, 26, 24] : fur(x, y, 284, 0)));
+    for (const ear of ["earL", "earR"]) s.part(ear, (f, x, y, w, h) => fur(x, y, 285, 0.5));
+    s.part("collar", (f, x, y, w, h) => grain(hex(0xb02e26), x, y, 286, 0.12));
+    s.part("tail", (f, x, y, w, h) => fur(x, y, 287, y < 6 ? 0.4 : 0.1));
+    for (const leg of ["legFL", "legFR", "legBL", "legBR"]) s.part(leg, (f, x, y, w, h) => fur(x, y, 288, 0.1));
+  },
+  animate(p, st) {
+    const sit = st.sit ?? 0;
+    const swing = Math.sin(st.walkPhase) * 0.6 * st.walk * (1 - sit);
+    p.legFL.rotation.x = swing;
+    p.legBR.rotation.x = swing;
+    p.legFR.rotation.x = -swing;
+    p.legBL.rotation.x = -swing;
+    // Sitting: the back end down on folded hind legs, the chest up.
+    p.body.rotation.x = -0.55 * sit;
+    p.body.position.y = (8 - 2.5 * sit) * PX;
+    p.legBL.rotation.x += -1.2 * sit;
+    p.legBR.rotation.x += -1.2 * sit;
+    p.legBL.position.y = p.legBR.position.y = (8 - 5 * sit) * PX;
+    p.legBL.position.z = p.legBR.position.z = (-3.5 + 2 * sit) * PX;
+    p.head.rotation.y = st.headYaw;
+    p.head.rotation.x = -st.headPitch + 0.55 * sit;
+    // The tail: low when wild, up and wagging when tame.
+    const tame = st.tamed ?? 0;
+    p.tail.rotation.x = tame ? -0.9 - sit * 0.6 + Math.sin(st.time * 9) * 0.06 * st.walk : -0.35 - Math.sin(st.walkPhase) * 0.1 * st.walk;
+    p.tail.rotation.z = tame ? Math.sin(st.time * 7) * 0.25 : 0;
+  },
+};
+
 // Cod and salmon: a Survival world's fish (FISH's rig, their own colours).
 const COD = {
   parts: FISH.parts,
@@ -1765,6 +1824,7 @@ export const MODELS = {
   witch: WITCH,
   sheep: SHEEP,
   iron_golem: IRON_GOLEM,
+  wolf: WOLF,
   cod: COD,
   salmon: SALMON,
 };

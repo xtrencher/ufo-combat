@@ -24,6 +24,7 @@ const EGGS = [
   [652, "iron_golem", "Iron Golem", 0xdbcdc1, 0x74a332],
   [653, "cod", "Cod", 0xc1a76a, 0xe5c48b],
   [654, "salmon", "Salmon", 0xa00f10, 0x0e8474],
+  [655, "wolf", "Wolf", 0xd7d3d3, 0xceaf96],
 ];
 export const SPAWN_EGG_KIND = Object.fromEntries(EGGS.map(([id, kind]) => [id, kind]));
 

@@ -19,8 +19,15 @@
 // the reason the voxel light engine two-phases its own removal).
 import { BLOCK, IS_REPLACEABLE, IS_WET } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { isVanilla } from "./worldtype.js";
+import { isLava } from "./content/nature.js";
 
 export const MAX_FLOW_DISTANCE = 4; // sideways reach of a flow from its source, in blocks
+// (Round 11) A Survival world's water runs as far as vanilla's: 7.
+export const VANILLA_FLOW_DISTANCE = 7;
+// Where water may flow: open cells, never lava (lava touched by water
+// hardens instead: lavasim.js).
+const openTo = (id) => !IS_WET[id] && IS_REPLACEABLE[id] && !isLava(id);
 const BUDGET_PER_FRAME = 300;
 // (a frame's writes go to the world as one batch, see _flush: one light
 // update, one rebuild per chunk, one message online; this caps a flood
@@ -153,17 +160,17 @@ export class WaterSim {
     // Fall: an open cell directly below becomes full-strength falling water.
     if (y > 0) {
       const belowId = this._get(x, y - 1, z);
-      if (!IS_WET[belowId] && IS_REPLACEABLE[belowId]) this._place(x, y - 1, z, 0, [x, y, z]);
+      if (openTo(belowId)) this._place(x, y - 1, z, 0, [x, y, z]);
     }
 
     // Spread sideways into open cells, one level weaker each step, up to the
     // flow's reach.
-    if (level < MAX_FLOW_DISTANCE) {
+    if (level < (isVanilla() ? VANILLA_FLOW_DISTANCE : MAX_FLOW_DISTANCE)) {
       for (const [dx, dz] of SIDES) {
         const nx = x + dx;
         const nz = z + dz;
         const id = this._get(nx, y, nz);
-        if (IS_WET[id] || !IS_REPLACEABLE[id]) continue;
+        if (!openTo(id)) continue;
         this._place(nx, y, nz, level + 1, [x, y, z]);
       }
     }
@@ -209,7 +216,7 @@ export class WaterSim {
       }
       return;
     }
-    if (IS_REPLACEABLE[id]) {
+    if (IS_REPLACEABLE[id] && !isLava(id)) {
       this._set(x, y, z, BLOCK.WATER);
       this.meta.set(key, { level, parent });
       this.metaVersion++;

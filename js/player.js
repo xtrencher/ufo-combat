@@ -358,7 +358,7 @@ export class Player {
   // food that can always be eaten); a Missions world, when hurt (as before).
   canEat(info, id) {
     if (!info?.food || this.creative || this.dead) return false;
-    if (!isVanilla()) return this.health < MAX_HEALTH || (!!info.absorb && this.absorption < 20);
+    if (!isVanilla()) return this.health < MAX_HEALTH || (!!info.absorb && this.absorption < 20) || !!info.clearEffects;
     const f = foodOf(info, id);
     return !!f && (this.food < MAX_FOOD || f.alwaysEat);
   }
@@ -372,10 +372,12 @@ export class Player {
   // or health (a Missions world). Returns the item left in hand (a stew's
   // bowl), or 0.
   eat(info, id) {
+    // (Milk: every effect gone, in either world.)
+    if (info.clearEffects) this.clearEffects();
     if (!isVanilla()) {
       this.heal(missionsHeal(info, id));
       if (info.absorb) this.addAbsorption(info.absorb);
-      return 0;
+      return foodOf(info, id)?.returns || 0;
     }
     const f = foodOf(info, id);
     if (!f) return 0;
@@ -739,12 +741,13 @@ export class Player {
       for (let bz = Math.floor(p.z - r - e); bz <= Math.floor(p.z + r + e); bz++) {
         const inXZ = bx + 1 > p.x - r && bx < p.x + r && bz + 1 > p.z - r && bz < p.z + r;
         for (let by = Math.floor(p.y - e); by <= Math.floor(p.y + PLAYER_HEIGHT - 0.01); by++) {
-          const f = BODY_FLAGS[w.getBlock(bx, by, bz)];
+          const id = w.getBlock(bx, by, bz);
+          const f = BODY_FLAGS[id];
           if (!f) continue;
           const inside = inXZ && by + 1 > p.y && by < p.y + PLAYER_HEIGHT;
           if (inside) flags |= f & (BODY.LAVA | BODY.FIRE | BODY.WEB);
           if (f & BODY.CACTUS) flags |= BODY.CACTUS;
-          if (f & BODY.CLIMB && by === feetY && (inXZ || IS_SOLID[w.getBlock(bx, by, bz)])) climb = true;
+          if (f & BODY.CLIMB && by === feetY && (inXZ || IS_SOLID[id])) climb = true;
         }
       }
     }
@@ -759,6 +762,7 @@ export class Player {
     this.splashEvent = false;
     this.stepEvent = false;
     this._invulnerable = Math.max(0, this._invulnerable - dt);
+    if (this._invulnerable < TICK_EPS) this._invulnerable = 0;
     this.hurtTime += dt;
     this.recoil *= Math.exp(-14 * dt);
 
@@ -784,7 +788,7 @@ export class Player {
     // (Round 11) In bed: still, the eyes on the pillow; Shift gets up (sleep.js
     // stands the player up next to the bed).
     if (this.sleeping) {
-      this.sleeping.t += dt;
+      // (The time asleep is counted by sleep.js: it goes on behind an online pause menu.)
       this.sprinting = false;
       this.sneaking = false;
       this.inWater = this.inLava = this.headInWater = false;

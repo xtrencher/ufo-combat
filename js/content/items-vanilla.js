@@ -14,6 +14,7 @@
 // through ctx.interaction.weapons (js/weapons.js builds both).
 import { BLOCK, LIB } from "./base.js";
 import * as V from "./ids.js";
+import { flammability } from "./nature.js";
 
 const food = (hunger, saturation) => ({ hunger, saturation });
 const effect = (id, seconds, chance = 1, level = 1) => ({ id, level, seconds, chance });
@@ -136,10 +137,12 @@ function repeated(ctx) {
   return last === n;
 }
 
-// The first liquid cell along the view (water or lava, the way a bucket
-// sees them: through nothing solid or selectable), or null.
-function liquidAlongView(ctx, reach) {
+// The first water or lava source along the view, the way an empty bucket
+// sees them (through air, flowing water and lava, and nothing solid or
+// selectable), or null.
+function sourceAlongView(ctx, reach) {
   const { BLOCK_INFO } = LIB;
+  const world = ctx.world;
   const eye = ctx.player.getEyePosition();
   const [dx, dy, dz] = ctx.forward;
   let x = Math.floor(eye.x);
@@ -156,10 +159,11 @@ function liquidAlongView(ctx, reach) {
   let tz = dz ? (sz > 0 ? z + 1 - eye.z : eye.z - z) * tdz : Infinity;
   let t = 0;
   while (t <= reach) {
-    const id = ctx.world.getBlock(x, y, z);
+    const id = world.getBlock(x, y, z);
     const b = BLOCK_INFO[id];
-    if (b?.liquid) return { x, y, z, id };
-    if (id !== BLOCK.AIR && (!b || b.selectable)) return null;
+    if (id === BLOCK.WATER && isWaterSource(world, x, y, z)) return { x, y, z, id };
+    if (id === V.LAVA) return { x, y, z, id }; // (flowing lava has ids of its own)
+    if (id !== BLOCK.AIR && !b?.liquid && !b?.lava && (!b || b.selectable)) return null;
     if (tx < ty && tx < tz) {
       x += sx;
       t = tx;
@@ -181,11 +185,6 @@ function liquidAlongView(ctx, reach) {
 // its WaterSim (world.waterSim); without one every water cell is a source.
 function isWaterSource(world, x, y, z) {
   return !world.waterSim?.meta?.has(`${x},${y},${z}`);
-}
-
-// Lava sources: the nature module may say (LIB.isLavaSource); else every lava cell.
-function isLavaSource(world, x, y, z) {
-  return LIB.isLavaSource ? !!LIB.isLavaSource(world, x, y, z) : true;
 }
 
 // The held item becomes `id` (one of a stack: the rest stays, the new one
@@ -241,13 +240,9 @@ function pour(ctx, liquid) {
 
 function fill(ctx) {
   const reach = ctx.interaction?.reach ?? 5;
-  const hit = liquidAlongView(ctx, reach);
-  if (!hit) return false;
-  const world = ctx.world;
-  let full = null;
-  if (hit.id === BLOCK.WATER && isWaterSource(world, hit.x, hit.y, hit.z)) full = V.WATER_BUCKET;
-  else if (hit.id === V.LAVA && isLavaSource(world, hit.x, hit.y, hit.z)) full = V.LAVA_BUCKET;
-  if (!full || !world.setBlock(hit.x, hit.y, hit.z, BLOCK.AIR)) return false;
+  const hit = sourceAlongView(ctx, reach);
+  const full = hit ? (hit.id === BLOCK.WATER ? V.WATER_BUCKET : V.LAVA_BUCKET) : null;
+  if (!full || !LIB.itemInfo(full) || !ctx.world.setBlock(hit.x, hit.y, hit.z, BLOCK.AIR)) return false;
   ctx.audio.playSplash?.();
   exchangeHeld(ctx, full);
   return true;
@@ -257,6 +252,16 @@ function fill(ctx) {
 function wear(ctx, n = 1) {
   if (ctx.creative) return;
   if (ctx.inventory.damageSelected(n)) ctx.audio.playToolBreak?.();
+}
+
+// Fire stays on a solid floor or next to something that burns (the classic rule).
+const SIDES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+function fireCanStay(world, x, y, z) {
+  const { IS_SOLID, IS_OPAQUE } = LIB;
+  const below = world.getBlock(x, y - 1, z);
+  if (IS_SOLID[below] && IS_OPAQUE[below]) return true;
+  const ignite = flammability?.().ignite;
+  return !!ignite && SIDES.some(([dx, dy, dz]) => ignite[world.getBlock(x + dx, y + dy, z + dz)] > 0);
 }
 
 // Flint and steel: lights TNT (the redstone module's LIB.igniteTnt), or sets
@@ -271,7 +276,7 @@ function strike(ctx) {
     const [x, y, z] = ctx.place;
     const here = ctx.world.getBlock(x, y, z);
     if (here !== BLOCK.AIR && !(IS_REPLACEABLE[here] && !BLOCK_INFO[here]?.liquid)) return false;
-    if (!isSupportedBy(V.FIRE, ctx.world.getBlock(x, y - 1, z))) return false;
+    if (!isSupportedBy(V.FIRE, ctx.world.getBlock(x, y - 1, z)) || !fireCanStay(ctx.world, x, y, z)) return false;
     if (!ctx.world.setBlock(x, y, z, V.FIRE)) return false;
   }
   (ctx.audio.playIgnite || ctx.audio.playClick)?.call(ctx.audio);
@@ -348,9 +353,6 @@ export const itemUse = {
   [V.SNOWBALL]: throwIt,
   [V.SHIELD]: raiseShield,
 };
-
-// Used by tests and the bow (weapons.js): the arrow's id.
-export const ARROW_ID = V.ARROW;
 
 // ---------- Icons ----------
 // Drawn like the core icons (itemtextures.js): shapes in a colour ramp, lit

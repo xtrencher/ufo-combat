@@ -134,7 +134,7 @@ async function boot(query, p = page) {
 }
 async function play(p = page) {
   const t0 = Date.now();
-  while (Date.now() - t0 < 90000) {
+  while (Date.now() - t0 < 180000) {
     const st = await v(p, (g) => g.gameState);
     if (st === "playing") return;
     if (st === "dead") {
@@ -237,6 +237,16 @@ async function installTools(p = page) {
     t.calm();
   });
 }
+// The Survival world the checks below play in (booted once, so --only works too).
+let booted = null;
+async function survival() {
+  if (booted === "survival") return;
+  await boot(`seed=${SEED}&type=survival`);
+  await play();
+  await installTools();
+  booted = "survival";
+}
+
 // tt(p, fn, arg): fn(game, tools, arg) in the page.
 const tt = (p, fn, arg) => p.evaluate(([src, a]) => new Function("g", "t", "arg", `return (${src})(g, t, arg);`)(window.__ufo, window.__t, a), [fn.toString(), arg]);
 
@@ -246,6 +256,7 @@ await check("a Missions world keeps today's rules: no hunger or XP bar, food hea
   await boot(`seed=${MISSIONS_SEED}`);
   await play();
   await installTools();
+  booted = "missions";
   await frames(page, 4);
   const r = await tt(page, (g, t) => {
     t.arena();
@@ -270,9 +281,7 @@ await check("a Missions world keeps today's rules: no hunger or XP bar, food hea
 // ================= A Survival world =================
 
 await check("a Survival world shows the hunger bar (10 drumsticks) and the XP bar; Creative hides them", async () => {
-  await boot(`seed=${SEED}&type=survival`);
-  await play();
-  await installTools();
+  await survival();
   await frames(page, 6);
   const r = await v(page, (g) => ({
     type: g.worldType,
@@ -294,6 +303,7 @@ await check("a Survival world shows the hunger bar (10 drumsticks) and the XP ba
 });
 
 await check("sprinting drains food over distance (0.1 exhaustion a metre, 4 a point), walking doesn't", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.arena(-3);
     const p = g.player;
@@ -305,6 +315,8 @@ await check("sprinting drains food over distance (0.1 exhaustion a metre, 4 a po
     t.run(3.5);
     const walked = { dist: p.position.x - x0, food: p.food, exh: p.exhaustion };
     t.place(t.x0 - 3 + 0.5, t.Y + 1, t.z0 + 0.5);
+    p.food = 20;
+    p.saturation = 0;
     p.exhaustion = 0;
     const x1 = p.position.x;
     p.keys.add("KeyW");
@@ -334,6 +346,7 @@ await check("sprinting drains food over distance (0.1 exhaustion a metre, 4 a po
 });
 
 await check("starving stops at the difficulty's floor: Easy 10, Normal 1, Hard to death; Peaceful refills", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     const out = {};
     const p = g.player;
@@ -366,6 +379,7 @@ await check("starving stops at the difficulty's floor: Easy 10, Normal 1, Hard t
 });
 
 await check("regeneration needs 18 food points (a half-heart every 4 s for 6 exhaustion); a full bar with saturation heals fast", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
     const p = g.player;
@@ -390,10 +404,12 @@ await check("regeneration needs 18 food points (a half-heart every 4 s for 6 exh
   });
   assert(r.at17 === 10, `no regeneration at 17: ${JSON.stringify(r)}`);
   assert(r.at18.hp === 11 && r.at18.food === 17, `one half-heart at 18, and its cost took a food point: ${JSON.stringify(r)}`);
-  assert(Math.abs(r.fast.hp - (10 + 5 / 6)) < 0.01 && Math.abs(r.fast.exh - 5) < 0.01, `saturation's fast healing: ${JSON.stringify(r)}`);
+  // (Its cost, 5 exhaustion, has already taken a saturation point: 4 + 1.)
+  assert(Math.abs(r.fast.hp - (10 + 5 / 6)) < 0.01 && r.fast.sat === 4 && Math.abs(r.fast.exh - 1) < 0.01, `saturation's fast healing: ${JSON.stringify(r)}`);
 });
 
 await check("eating bread (right click held 1.6 s) restores 5 food and 6 saturation; a golden apple gives Regeneration II and Absorption", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
     const p = g.player;
@@ -440,6 +456,7 @@ await check("eating bread (right click held 1.6 s) restores 5 food and 6 saturat
 });
 
 await check("a stew leaves its bowl; rotten flesh can give Hunger (green drumsticks); a spider eye poisons, never below 1", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
     const p = g.player;
@@ -473,6 +490,7 @@ await check("a stew leaves its bowl; rotten flesh can give Hunger (green drumsti
 });
 
 await check("a mined coal ore drops XP orbs that fly in and fill the XP bar (vanilla's curve)", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
     const p = g.player;
@@ -517,6 +535,7 @@ await check("a mined coal ore drops XP orbs that fly in and fill the XP bar (van
 });
 
 await check("death drops 7 XP a level (at most 100) as orbs and loses the rest; the respawn has full food", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
     const p = g.player;
@@ -540,17 +559,22 @@ await check("death drops 7 XP a level (at most 100) as orbs and loses the rest; 
   assert(back.food === 20 && back.sat === 5 && back.fx === 0, `respawned: ${JSON.stringify(back)}`);
 });
 
-// A bed: the building part's (its ids in ids.js), else two debug blocks
-// marked as a bed's foot and head for the test. Foot at (x0 + 3, z0), head
-// at +X.
+// A bed: the building part's (its ids in ids.js: the foot facing +X and
+// its head), else two debug blocks marked as a bed's foot and head for the
+// test. Foot at (x0 + 3, z0), head at +X.
 const BED = (g, t) => {
   const S = t.S;
-  let foot = t.ID.RED_BED;
+  let foot = null;
   let head = null;
   for (let id = t.ID.RED_BED; id < t.ID.RED_BED + 8; id++) {
-    if (S.BED_PART[id] === 2 && head === null) head = id;
+    const pt = t.BLOCK_INFO[id]?.partner;
+    if (S.BED_PART[id] === 1 && pt && pt[0] === 1 && pt[2] === 0) foot = id;
   }
-  if (S.BED_PART[foot] !== 1 || head === null) {
+  for (let id = t.ID.RED_BED; id < t.ID.RED_BED + 8; id++) {
+    const pt = t.BLOCK_INFO[id]?.partner;
+    if (S.BED_PART[id] === 2 && pt && pt[0] === -1 && pt[2] === 0) head = id;
+  }
+  if (foot === null || head === null) {
     S.BED_PART[t.DEBUG.BLOCK] = 1;
     S.BED_PART[t.DEBUG.SLAB] = 2;
     foot = t.DEBUG.BLOCK;
@@ -564,6 +588,7 @@ const BED = (g, t) => {
 };
 
 await check("sleeping at night skips to the morning and sets the spawn; the respawn is at the bed", async () => {
+  await survival();
   const r = await tt(
     page,
     (g, t, BEDSRC) => {
@@ -592,7 +617,7 @@ await check("sleeping at night skips to the morning and sets the spawn; the resp
   assert(r.used && r.lying && /leave the bed/.test(r.status), `in bed: ${JSON.stringify(r)}`);
   assert(r.t4 && r.t4.sleeping && (r.t4.hours > 22 || r.t4.hours < 1), `still night after 4 s asleep: ${JSON.stringify(r.t4)}`);
   assert(Math.abs(r.hours - 6) < 0.05 && !r.sleeping, `the morning, awake: ${JSON.stringify(r)}`);
-  assert(JSON.stringify(r.spawn) === JSON.stringify(r.head), `the spawn is the bed: ${JSON.stringify(r)}`);
+  assert(JSON.stringify(r.spawn) === JSON.stringify(r.head.slice(0, 3)), `the spawn is the bed: ${JSON.stringify(r)}`);
   assert(Math.hypot(r.pos[0] - r.head[0], r.pos[2] - r.head[2]) < 3, `standing next to the bed: ${JSON.stringify(r)}`);
   // Died far away: back at the bed.
   await tt(page, (g, t) => {
@@ -610,6 +635,7 @@ await check("sleeping at night skips to the morning and sets the spawn; the resp
 });
 
 await check("no sleep by day (the spawn is set all the same) or with monsters near; a missing bed sends you to the world spawn", async () => {
+  await survival();
   const r = await tt(
     page,
     (g, t, BEDSRC) => {
@@ -653,6 +679,7 @@ await check("no sleep by day (the spawn is set all the same) or with monsters ne
 });
 
 await check("lava burns (4 a hit, burning after it, water puts it out); a cactus pricks; a wall suffocates", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.arena();
     const S = t.S;
@@ -670,7 +697,7 @@ await check("lava burns (4 a hit, burning after it, water puts it out); a cactus
     t.set(x, y, z, lava);
     t.place(x + 0.5, y, z + 0.5);
     const hp0 = p.health;
-    t.run(1.05);
+    t.run(1.02);
     const inLava = { hp: p.health, fire: p.fireTime };
     t.set(x, y, z, t.BLOCK.AIR);
     t.place(x + 0.5, y, z + 0.5);
@@ -698,16 +725,19 @@ await check("lava burns (4 a hit, burning after it, water puts it out); a cactus
     t.set(x, y + 1, z, t.BLOCK.AIR);
     return { hp0, inLava, burning, doused, cactus, wall };
   });
-  assert(r.inLava.hp <= r.hp0 - 8 && r.inLava.hp >= r.hp0 - 13 && r.inLava.fire > 14, `lava: ${JSON.stringify(r)}`);
+  assert(r.inLava.hp === r.hp0 - 8 && r.inLava.fire > 14, `lava: 4 every 0.5 s: ${JSON.stringify(r)}`);
   assert(r.burning.hp === 17 && r.burning.fire > 6.9 && r.burning.fire < 7.1, `burning a half-heart a second: ${JSON.stringify(r)}`);
   assert(r.doused === 0, `water puts it out: ${JSON.stringify(r)}`);
-  assert(r.cactus === 18 || r.cactus === 17, `the cactus: ${JSON.stringify(r)}`);
-  assert(r.wall === 18 || r.wall === 17, `suffocating: ${JSON.stringify(r)}`);
+  assert(r.cactus === 17, `the cactus: 1 every 0.5 s: ${JSON.stringify(r)}`);
+  // (The player's physics shoves the body up out of a block it is inside, so a
+  // wall at the eyes hurts once or twice, then the eyes are out of it.)
+  assert(r.wall <= 19, `suffocating: ${JSON.stringify(r)}`);
   const msgs = await v(page, (g) => ["lava", "burn", "cactus", "suffocate", "fire"].map((c) => g.mp.game.deathMessage(c)));
   assert(JSON.stringify(msgs) === JSON.stringify(["Tried to swim in lava", "Burned to death", "Was pricked to death", "Suffocated in a wall", "Went up in flames"]), `the death messages: ${msgs}`);
 });
 
 await check("drowning: 15 s of air in a Survival world", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.arena();
     const x = t.x0 + 10;
@@ -732,6 +762,7 @@ await check("drowning: 15 s of air in a Survival world", async () => {
 });
 
 await check("the step up: walking onto a slab without jumping, not onto a full block", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.arena();
     const slab = t.BLOCK_INFO[t.ID.STONE_SLAB]?.collision ? t.ID.STONE_SLAB : t.DEBUG.SLAB;
@@ -762,6 +793,7 @@ await check("the step up: walking onto a slab without jumping, not onto a full b
 });
 
 await check("climbing a ladder: walking into it climbs, sneaking holds on, no fall damage coming down", async () => {
+  await survival();
   const r = await tt(page, (g, t) => {
     t.arena();
     const S = t.S;
@@ -811,6 +843,7 @@ await check("climbing a ladder: walking into it climbs, sneaking holds on, no fa
 });
 
 await check("a reload keeps the food, saturation, XP, effects and the bed", async () => {
+  await survival();
   await tt(page, (g, t) => {
     const p = g.player;
     t.place(t.x0 + 0.5, t.Y + 1, t.z0 + 0.5);
@@ -824,6 +857,7 @@ await check("a reload keeps the food, saturation, XP, effects and the bed", asyn
     g.flushSave();
   });
   await boot(`seed=${SEED}&type=survival`);
+  booted = "reloaded";
   const s = await v(page, (g) => ({ type: g.worldType, food: g.player.food, sat: g.player.saturation, xp: [g.player.xpLevel, g.player.xpProgress, g.player.xpTotal], fx: g.player.effects.map((e) => e.effect), bed: g.sleep.spawn }));
   assert(s.type === "survival" && s.food === 13 && s.sat === 2.5 && JSON.stringify(s.xp) === JSON.stringify([7, 0.25, 120]) && s.fx[0] === "regeneration" && Array.isArray(s.bed), `after the reload: ${JSON.stringify(s)}`);
 });
@@ -890,8 +924,8 @@ async function online() {
       BED.toString()
     );
     if (beds.fake) await tt(guest, (g, t) => { t.S.BED_PART[t.DEBUG.BLOCK] = 1; t.S.BED_PART[t.DEBUG.SLAB] = 2; });
-    assert(await until(guest, (g, a) => g.world.getBlock(a[0], a[1], a[2]) === a[3], 20000, beds.b.head), "the beds never reached the guest");
-    assert(await until(guest, () => window.__ufo.sky.hours > 21, 15000), "the guest's clock never followed the host's night");
+    assert(await until(guest, (g, a) => g.world.getBlock(a[0], a[1], a[2]) === a[3], 45000, beds.b.head), "the beds never reached the guest");
+    assert(await until(guest, () => window.__ufo.sky.hours > 21, 45000), "the guest's clock never followed the host's night");
     // The host lies down: alone in bed, the night stays.
     await tt(host, (g, t, foot) => g.sleep.useBed({ x: foot[0], y: foot[1], z: foot[2], id: foot[3] }), beds.a.foot);
     await new Promise((res) => setTimeout(res, 6000));

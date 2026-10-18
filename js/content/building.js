@@ -772,10 +772,11 @@ for (const d of DOORS) {
         support: v >> 3 ? null : (below) => topSolid(below),
         partner: v >> 3 ? [0, -1, 0] : [0, 1, 0],
         pairs: (other) => KIND[other] === K.DOOR && BASE[other] === d.base && doorUpper(other) !== v >> 3,
+        // (every lower half: placeAs picks the facing and hinge, then this adds the top)
+        placeMore: v >> 3 ? null : placeDoorTop,
         ...(first
           ? {
               placeAs: placeDoor,
-              placeMore: placeDoorTop,
               itemSprite: [
                 [d.tile, d.col * 16, 0, 16, 16, 8, 0, 16, 16],
                 [d.tile, d.col * 16, 16, 16, 16, 8, 16, 16, 16],
@@ -913,6 +914,10 @@ function useBed(ctx) {
   if (!bed || typeof LIB.onBedUse !== "function") return false;
   return !!LIB.onBedUse({ ...ctx, bed });
 }
+function placeBedHead(ctx, id, x, y, z) {
+  const f = bedFacing(id);
+  return free(ctx.world, x + FX[f], y, z + FZ[f]) ? [x + FX[f], y, z + FZ[f], id + 4] : null;
+}
 for (let v = 0; v < 8; v++) {
   const id = I.RED_BED + v;
   const f = v & 3;
@@ -932,14 +937,12 @@ for (let v = 0; v < 8; v++) {
     stack: 1,
     partner: head ? [-FX[f], 0, -FZ[f]] : [FX[f], 0, FZ[f]],
     pairs: (other) => KIND[other] === K.BED && bedFacing(other) === f && bedHead(other) !== head,
+    // (every foot: the head goes on along its facing)
+    placeMore: head ? null : placeBedHead,
     ...(v
       ? { item: I.RED_BED }
       : {
           placeAs: (ctx) => I.RED_BED + look(ctx),
-          placeMore: (ctx, bid, x, y, z) => {
-            const g = bedFacing(bid);
-            return free(ctx.world, x + FX[g], y, z + FZ[g]) ? [x + FX[g], y, z + FZ[g], bid + 4] : null;
-          },
           itemSprite: [
             ["bed", 16, 16, 16, 16, 0, 6, 16, 16],
             ["bed", 0, 16, 16, 16, 16, 6, 16, 16],
@@ -1253,7 +1256,7 @@ tiles.smooth_stone = (t, kit) => smoothStone(t, kit, false);
 tiles.smooth_stone_slab_side = (t, kit) => smoothStone(t, kit, true);
 tiles.mossy_cobblestone = (t, kit) => {
   kit.base("cobblestone", t);
-  moss(t, kit, 0.45, 7);
+  moss(t, kit, 0.3, 7);
 };
 // Granite, diorite, andesite: speckled stone; polished, smoother with a bevel.
 function speckled(t, kit, ramp, specks, polished) {
