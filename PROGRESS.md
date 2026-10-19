@@ -2614,3 +2614,8 @@ Decisions and known limits:
 - A Round 11 Survival world's unvisited ground regenerates with the new villages, temples and jungles (its edits stay).
 - Creatures in a dimension the host isn't in are each guest's own; hoppers and dispensers run on the host (and wait in a dimension only guests are in).
 - Not built: maps, banners (so no loom screen), trapped chests, hopper/TNT/furnace minecarts, comparators, glow item frames; the Nether's lava reaches 3 blocks (vanilla 7).
+
+### Round 12 test status (final code)
+- All green: `unit-tests.mjs` 73/73; Round 12: `r12-menu-tests` 11/11, `r12-graphics-tests` 19/19, `r12-render-tests` 6/6, `r12-feel-tests` 8/8, `r12-overworld-tests` 9/9, `r12-dims-tests` 11/11 (online), `r12-nether-tests` 19/19 (online), `r12-end-tests` 16/16 (online 15/15 before the review fixes' extra checks), `r12-nethermobs-tests` 18/18 (online), `r12-workstations-tests` 10/10, `r12-gadgets-tests` 11/11, `r12-transport-tests` 10/10 (online); every Round 11 suite; `r10-*` all; `round9`..`round2`, `settings`, `smoke-test` 67/67, `perf-tests` 5/5, `check-mob-models` OK, `chaos-tests` 400 steps / 0 problems, `ufo-tests` 35/35.
+- Multiplayer: `mp-tests` 23/23, `mp-round9-tests` 8/8, `mp-damage-tests` 444/444 applicable cells.
+- Test updates for Round 12's intended changes: the mode cards and the Host tab (r11-modes, round2), Survival villages' doors read from their plan (r11-building), the texture capacity (r11-magic, r11-nature, r11-decor), the redstone worker compare's timing, the End's real terrain and a free id (r12-dims, unit), MINECLAUDE (ufo-tests), fewer jungle trees beside bamboo jungles; ufo-tests' two old random failures made deterministic (a fighter spawned with the volley style; a lost lock re-tried as a pilot would).
