@@ -58,7 +58,8 @@ function face6(dx, dy, dz) {
 
 // ---------- What each id is ----------
 
-export const K = Object.freeze({ WIRE: 1, TORCH: 2, LEVER: 3, BUTTON: 4, PLATE: 5, LAMP: 6, REPEATER: 7, PISTON: 8, HEAD: 9, TNT: 10, NOTE: 11, RBLOCK: 12 });
+// (Round 12: the gadgets' kinds, js/content/gadgets.js's blocks: see "Gadgets" below.)
+export const K = Object.freeze({ WIRE: 1, TORCH: 2, LEVER: 3, BUTTON: 4, PLATE: 5, LAMP: 6, REPEATER: 7, PISTON: 8, HEAD: 9, TNT: 10, NOTE: 11, RBLOCK: 12, HOPPER: 13, DROPPER: 14, OBSERVER: 15, HOOK: 16, STRING: 17 });
 export const KIND = new Uint8Array(BLOCK_LIMIT);
 export const VAR = new Uint8Array(BLOCK_LIMIT); // a wire's power, a repeater's delay, a note block's pitch
 export const ON = new Uint8Array(BLOCK_LIMIT); // lit, on, pressed, powered, extended
@@ -134,7 +135,9 @@ export function wireLinks(nb) {
 }
 function linksTo(n, f) {
   const k = KIND[n];
-  if (k === K.TORCH || k === K.LEVER || k === K.BUTTON || k === K.PLATE || k === K.RBLOCK) return true;
+  if (k === K.TORCH || k === K.LEVER || k === K.BUTTON || k === K.PLATE || k === K.RBLOCK || k === K.HOOK) return true;
+  // (Round 12: an observer only by its back, its output)
+  if (k === K.OBSERVER) return FACING[n] === f;
   return k === K.REPEATER && FACING[n] >> 1 === f >> 1;
 }
 // The sides a wire powers (bits as above): its lines (one line runs on
@@ -283,6 +286,40 @@ for (const [id, fuse] of [[I.TNT, 1], [TNT_LIT, 2], [TNT_LIT_SHORT, 3]]) {
   FUSE[id] = fuse;
 }
 for (let p = 0; p < NOTE_PITCHES; p++) mark(I.NOTE_BLOCK + p, K.NOTE, p);
+
+// ---------- (Round 12) Gadgets: js/content/gadgets.js's blocks ----------
+
+// Hoppers (FACING: where they pass items; locked while powered: the
+// simulation is asked, js/gadgets.js), droppers and dispensers (VAR 1: a
+// dispenser; FACING: where they throw; they fire as power comes), observers
+// (FACING: where the face looks, the pulse out of the back; ON: the pulse),
+// tripwire hooks (FACING: out along the string, ATTACH: the wall; VAR 1:
+// strung; ON: pulled) and tripwire (VAR 1: strung between two hooks).
+for (let k = 0; k < 5; k++) {
+  mark(I.HOPPER + k, K.HOPPER);
+  FACING[I.HOPPER + k] = k ? F4[k - 1] : FACE.NY;
+}
+for (let f = 0; f < 6; f++) {
+  mark(I.DROPPER + f, K.DROPPER, 0);
+  mark(I.DISPENSER + f, K.DROPPER, 1);
+  FACING[I.DROPPER + f] = FACING[I.DISPENSER + f] = f;
+}
+for (let v = 0; v < 12; v++) {
+  const id = I.OBSERVER + v;
+  mark(id, K.OBSERVER, 0, v >= 6 ? 1 : 0, I.OBSERVER + ((v + 6) % 12));
+  FACING[id] = v % 6;
+}
+for (let v = 0; v < 16; v++) {
+  const id = I.TRIPWIRE_HOOK + v;
+  mark(id, K.HOOK, (v >> 2) & 1, v >> 3);
+  FACING[id] = F4[v & 3];
+  ATTACH[id] = OPP[F4[v & 3]];
+}
+mark(I.TRIPWIRE, K.STRING, 0);
+mark(I.TRIPWIRE + 1, K.STRING, 1);
+// A tripwire hook's id: facing (0-3) + 4 strung + 8 pulled.
+export const hookIdOf = (f4, strung, pulled) => I.TRIPWIRE_HOOK + f4 + (strung ? 4 : 0) + (strung && pulled ? 8 : 0);
+export const facing4Of = (face) => F4.indexOf(face);
 
 // ---------- Shapes (meshed the same on the main thread and in the workers) ----------
 

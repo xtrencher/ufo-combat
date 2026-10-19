@@ -310,7 +310,7 @@ function meshPot(m) {
   if (plant === I.BAMBOO) {
     // (vanilla's potted bamboo: a thin stalk with a few leaves at its top)
     m.box(7 * S, POT_SOIL, 7 * S, 9 * S, POT_SOIL + 12 * S, 9 * S, tiles6(tileOf(I.BAMBOO, FACE.PX)), bit(FACE.NY), null);
-    const leaf = tileOf(I.BAMBOO + 1, FACE.PY);
+    const leaf = tileOf(I.BAMBOO + 1, FACE.NY);
     for (const q of BAMBOO_LEAF_QUADS) m.quad(q.corners.map(([x, y, z]) => [x, y * 0.5 + 0.5, z]), q.uvs, FACE.PY, leaf);
     return;
   }
@@ -330,7 +330,7 @@ function meshBamboo(m) {
   const b = STALK[bambooThick(m.id) ? 1 : 0];
   // (stalk on stalk: no faces between them)
   const skip = (isBamboo(m.neighbor(0, 1, 0)) ? bit(FACE.PY) : 0) | (isBamboo(m.neighbor(0, -1, 0)) || m.neighbor(0, -1, 0) === I.BAMBOO_SAPLING ? bit(FACE.NY) : 0);
-  m.box(b[0], b[1], b[2], b[3], b[4], b[5], null, skip, null);
+  m.box(b[0], b[1], b[2], b[3], b[4], b[5], tiles6(tileOf(I.BAMBOO, FACE.PX)), skip, null);
   const leaves = bambooLeaves(m.id);
   if (!leaves) return;
   const tile = tileOf(I.BAMBOO + leaves, FACE.NY);
@@ -500,12 +500,12 @@ for (const [base, name, front] of [
         : { top: "furnace_top", bottom: "furnace_top", side: "furnace_side", front: `${front}_front` },
       ...(vertical ? {} : { frontFace: f }),
       ...MAT_STONE,
-      ...(f !== FACE.PZ ? { item: base } : { placeAs: facingPlayer(base) }),
+      // (the item: the one facing +Z, so its icon shows the face)
+      ...(f !== FACE.PZ ? { item: base + FACE.PZ } : { placeAs: facingPlayer(base) }),
     };
     blockUse[id] = openBox;
   }
 }
-// (The item: the one facing +Z, so its icon shows the face.)
 
 // Observers: the face watches the block in front; the pulse comes out of the back.
 for (let v = 0; v < 12; v++) {
@@ -526,13 +526,16 @@ for (let v = 0; v < 12; v++) {
 for (let v = 0; v < 16; v++) {
   const id = I.TRIPWIRE_HOOK + v;
   const f = v & 3;
-  const b = HOOK_BOARD[f];
+  // (from the wall out to the ring's end, 1/16 to 10/16 up)
+  const box = alongBox(F4[f], 0, 10 * S, 5 * S, 11 * S);
+  box[1] = S;
+  box[4] = 10 * S;
   blocks[id] = {
     name: "Tripwire Hook",
     faces: "planks",
     shape: "gd_hook",
     ...flat,
-    box: [Math.min(b[0], 0.5), 0, Math.min(b[2], 0.5), Math.max(b[3], 0.5), 10 * S, Math.max(b[5], 0.5)].map((x, i) => (i === 1 ? S : x)),
+    box,
     support: "wall",
     facing: [FX[f], FZ[f]],
     hardness: 0,
@@ -549,11 +552,6 @@ for (let v = 0; v < 16; v++) {
           ],
         }),
   };
-  // (fix the box: from the wall out to the ring's end, 1/16 to 10/16 up)
-  const bx = alongBox(F4[f], 0, 10 * S, 5 * S, 11 * S);
-  bx[1] = S;
-  bx[4] = 10 * S;
-  blocks[id].box = bx;
 }
 for (let a = 0; a < 2; a++) {
   blocks[I.TRIPWIRE + a] = {
@@ -810,16 +808,15 @@ export function growBamboo(world, x, y, z) {
   if (height >= bambooMax(x, z)) return false;
   const below = world.getBlock(x, y - 1, z);
   const below2 = world.getBlock(x, y - 2, z);
-  let leaves = 0;
   const list = [];
-  if (!isBamboo(below) || bambooLeaves(below) === 0) leaves = 1;
-  else {
+  // (the new top's leaves small over a bare stalk, else large, the one
+  // under the old top turning small and the next bare: the top two large)
+  let leaves = 1;
+  if (isBamboo(below) && bambooLeaves(below) !== 0) {
     leaves = 2;
     if (isBamboo(below2)) list.push(x, y - 1, z, bambooId(1, bambooThick(below)), x, y - 2, z, bambooId(0, bambooThick(below2)));
   }
-  const thick = bambooThick(top) || isBamboo(below2);
-  // (the top keeps its leaves: large under the new top, as vanilla's two large ones)
-  list.push(x, y, z, bambooId(Math.max(bambooLeaves(top), isBamboo(below) && bambooLeaves(below) ? 2 : 1), bambooThick(top)), x, y + 1, z, bambooId(leaves === 2 ? 2 : leaves, thick));
+  list.push(x, y + 1, z, bambooId(leaves, bambooThick(top) || isBamboo(below2)));
   return world.setBlocks(list) > 0;
 }
 // The top of the bamboo stalk through (x, y, z) (or null: none there).
@@ -886,7 +883,7 @@ export const recipes = () => {
   const fuel = (input, time) => out.push({ type: "fuel", input, time });
   const planks = [BLOCK.PLANKS, I.SPRUCE_PLANKS, I.BIRCH_PLANKS, I.JUNGLE_PLANKS, I.ACACIA_PLANKS, I.DARK_OAK_PLANKS, I.CRIMSON_PLANKS, I.WARPED_PLANKS].filter((p) => LIB.BLOCK_INFO?.[p]);
   shaped(["I I", "ICI", " I "], { I: I.IRON_INGOT, C: BLOCK.CHEST }, I.HOPPER);
-  shaped(["CCC", "C C", "CRC"], { C: BLOCK.COBBLESTONE, R: I.REDSTONE }, I.DROPPER);
+  shaped(["CCC", "C C", "CRC"], { C: BLOCK.COBBLESTONE, R: I.REDSTONE }, I.DROPPER + FACE.PZ);
   shaped(["CCC", "CBC", "CRC"], { C: BLOCK.COBBLESTONE, B: ITEM.BOW, R: I.REDSTONE }, I.DISPENSER + FACE.PZ);
   shaped([" ST", "SDT", " ST"], { S: ITEM.STICK, T: I.STRING, D: I.DROPPER + FACE.PZ }, I.DISPENSER + FACE.PZ);
   shaped(["CCC", "RRQ", "CCC"], { C: BLOCK.COBBLESTONE, R: I.REDSTONE, Q: I.QUARTZ }, I.OBSERVER);
@@ -902,8 +899,6 @@ export const recipes = () => {
   fuel(I.BAMBOO_BLOCK, 15);
   return out;
 };
-// (The dropper's and dispenser's items are the ones facing +Z.)
-blocks[I.DROPPER + FACE.PZ].name = "Dropper";
 
 // ---------- Textures (21 tiles) ----------
 

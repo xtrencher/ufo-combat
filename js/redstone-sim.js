@@ -32,12 +32,25 @@
 // of the sounds it makes ("rs"; older peers ignore it). (Round 12) In a
 // dimension the host is not in, the guest that simulates it there does
 // (main.js: dims.simulatesWorld()).
+//
+// (Round 12) The gadgets (js/content/gadgets.js): an observer pulses (one
+// tick on, after one tick) when the block its face looks at changes, out of
+// its back (strongly into the block there); a dropper or dispenser fires two
+// ticks after power comes (also when the block over it is powered: vanilla's
+// quasi-connectivity), through onDispense (js/gadgets.js does the throwing);
+// a hopper is locked while powered (powered(), asked by js/gadgets.js, which
+// ticks the hoppers onHopper names); tripwire hooks facing each other with
+// up to 40 tripwire between them are strung, and pulled (15, strongly into
+// their wall) while anything stands on the string, until half a second
+// after it leaves (players, creatures and items, like the plates). Their
+// other events ride with "rs" (onEvent: js/gadgets.js's arrows in flight).
 import * as THREE from "three";
 import { BLOCK, BLOCK_INFO, IS_SOLID, IS_WET, IS_REPLACEABLE, IS_CHEST, BLOCK_LIMIT } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { LIB } from "./content/base.js";
 import * as I from "./content/ids.js";
-import { K, KIND, VAR, ON, FLIP, ATTACH, FACING, WOOD, STICKY, FUSE, DX, DY, DZ, OPP, H4, HBIT, conductors, wireLinks, wirePoints, pistonId, headId, TNT_LIT_SHORT } from "./content/redstone.js";
+import { K, KIND, VAR, ON, FLIP, ATTACH, FACING, WOOD, STICKY, FUSE, DX, DY, DZ, OPP, H4, HBIT, conductors, wireLinks, wirePoints, pistonId, headId, TNT_LIT_SHORT, hookIdOf, facing4Of } from "./content/redstone.js";
+import { boxSlots } from "./content/gadgets.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { isVanilla } from "./worldtype.js";
@@ -57,6 +70,11 @@ const MAX_TNT = 400;
 const SCAN_EVERY = 0.25; // s: loaded chunks looked through for redstone (up to SCAN_MS of it a pass)
 const SCAN_MS = 1.5;
 const HEAR = 48; // blocks: how far a note block, a click or a piston is heard
+// (Round 12) The gadgets' timings (vanilla's, in redstone ticks).
+const OBSERVER_TICKS = 1; // (2 game ticks after the change, 2 on)
+const DISPENSE_TICKS = 2; // (4 game ticks)
+const STRING_TICKS = 5; // (a string stays pulled 10 game ticks after the last touch)
+const HOOK_REACH = 41; // (up to 40 tripwire between two hooks)
 
 // Cell keys: whole numbers (x and z within +-2^20, y 0-127).
 const OFF = 1048576;
@@ -114,7 +132,7 @@ function tables() {
 }
 
 // Event kinds (scheduled ticks).
-const EV = { TORCH: 1, REPEATER: 2, LAMP: 3, BUTTON: 4, PISTON: 5 };
+const EV = { TORCH: 1, REPEATER: 2, LAMP: 3, BUTTON: 4, PISTON: 5, OBSERVER: 6, DISPENSE: 7 };
 // What a piston does to a block in its way.
 const PUSH = { EMPTY: 0, BREAK: 1, MOVE: 2, STOP: 3 };
 
@@ -146,6 +164,12 @@ export class RedstoneSim {
     this._scanT = 0;
     this._platesKnown = false;
     this._woodPlates = false;
+    // (Round 12) Tripwire: cell key -> the tick something last stood on it.
+    this._strings = new Map();
+    this._stringsKnown = false;
+    this.onDispense = null; // (x, y, z, id): a dropper or dispenser fires (js/gadgets.js)
+    this.onHopper = null; // (x, y, z): a hopper seen (js/gadgets.js ticks it)
+    this.onEvent = null; // (e): a guest, a gadget's event from the host's "rs"
     this._seeds = [];
     this._done = new Set();
     this._wireEdits = [];
@@ -227,6 +251,7 @@ export class RedstoneSim {
     this._fireTnt.clear();
     this._toggles.clear();
     this._burnt.clear();
+    this._strings.clear();
     this._hot = new WeakMap();
     this._waiting.length = 0;
     this._acc = 0;
@@ -245,7 +270,7 @@ export class RedstoneSim {
         this._fire(k, ev.kind);
       }
     }
-    if (this._platesKnown) this._platesTick();
+    if (this._platesKnown || this._stringsKnown) this._platesTick();
     if (this._fireTnt.size) this._fireTick();
     this._apply();
     for (let r = 0; r < ROUNDS && this._queue.size; r++) this._drain();
@@ -288,6 +313,13 @@ export class RedstoneSim {
       if (id === I.FIRE) this._nearFire(x, y, z);
       if (REL[id]) this._markHot(x, z);
       else if (!this._hotNear(x, z)) continue;
+      // (Round 12) An observer looking at the cell sees it change.
+      for (let d = 0; d < 6; d++) {
+        const oy = y + DY[d];
+        if (oy < 0 || oy >= WORLD_HEIGHT) continue;
+        const o = this._get(x + DX[d], oy, z + DZ[d]);
+        if (KIND[o] === K.OBSERVER && FACING[o] === OPP[d]) this._schedule(key(x + DX[d], oy, z + DZ[d]), OBSERVER_TICKS, EV.OBSERVER);
+      }
       for (let n = 0; n < NEAR.length; n++) {
         const o = NEAR[n];
         const ny = y + o[1];
@@ -340,7 +372,7 @@ export class RedstoneSim {
         if (KIND[id] === K.PLATE) {
           this._platesKnown = true;
           if (WOOD[id]) this._woodPlates = true;
-        }
+        } else if (KIND[id] === K.STRING) this._stringsKnown = true;
       }
       // (the doors too: how they're powered now, so a lever thrown later shuts one)
       keys.push(key(c.cx * 16 + (i & 15), i >> 8, c.cz * 16 + ((i >> 4) & 15)));
@@ -447,6 +479,10 @@ export class RedstoneSim {
         return 15;
       case K.REPEATER:
         return ON[id] && d === FACING[id] ? 15 : 0;
+      case K.OBSERVER:
+        return ON[id] && d === OPP[FACING[id]] ? 15 : 0;
+      case K.HOOK:
+        return ON[id] ? 15 : 0;
       case K.WIRE: {
         const p = VAR[id];
         if (!p || d === 2) return 0;
@@ -475,6 +511,10 @@ export class RedstoneSim {
         return ON[id] && d === 2 ? 15 : 0;
       case K.REPEATER:
         return ON[id] && d === FACING[id] ? 15 : 0;
+      case K.OBSERVER:
+        return ON[id] && d === OPP[FACING[id]] ? 15 : 0;
+      case K.HOOK:
+        return ON[id] && d === ATTACH[id] ? 15 : 0;
     }
     return 0;
   }
@@ -624,8 +664,108 @@ export class RedstoneSim {
         if (WOOD[id]) this._woodPlates = true;
         if (ON[id] && !this._plates.has(k)) this._plates.set(k, this.tick);
         return;
+      // (Round 12) The gadgets.
+      case K.HOPPER:
+        this.onHopper?.(x, y, z);
+        return;
+      case K.DROPPER: {
+        // (fired as power comes; the block over it counts too, vanilla's quasi-connectivity)
+        const p = this._input(x, y, z) > 0 || (y + 1 < WORLD_HEIGHT && this._input(x, y + 1, z) > 0);
+        if (this._missing) return;
+        const last = this._mem.get(k);
+        this._mem.set(k, p);
+        if (p && last === false) this._schedule(k, DISPENSE_TICKS, EV.DISPENSE);
+        return;
+      }
+      case K.OBSERVER:
+        // (a pulse saved on, or cut short: it goes off)
+        if (ON[id]) this._schedule(k, OBSERVER_TICKS, EV.OBSERVER);
+        return;
+      case K.HOOK:
+        this._hookUpdate(x, y, z, id);
+        return;
+      case K.STRING:
+        this._stringsKnown = true;
+        this._lineHooks(x, y, z);
+        return;
     }
     if (OPEN[id]) this._openUpdate(x, y, z, id);
+  }
+
+  // ---------- (Round 12) Tripwire ----------
+
+  // A hook: strung when a line of tripwire (1-40) runs from it to a hook
+  // facing it, pulled while something is on that line; the line's tripwire
+  // marked strung or loose with it.
+  _hookUpdate(x, y, z, id) {
+    const f = FACING[id];
+    let n = 0;
+    let partner = false;
+    let pulled = false;
+    for (let i = 1; i <= HOOK_REACH; i++) {
+      const cx = x + DX[f] * i;
+      const cz = z + DZ[f] * i;
+      const b = this._get(cx, y, cz);
+      if (KIND[b] === K.HOOK && FACING[b] === OPP[f]) {
+        partner = n > 0;
+        break;
+      }
+      if (KIND[b] !== K.STRING) break;
+      n++;
+      if (this._strings.has(key(cx, y, cz))) pulled = true;
+    }
+    if (this._missing) return;
+    const want = hookIdOf(facing4Of(f), partner, pulled);
+    if (want !== id) {
+      this._edits.push(x, y, z, id, want);
+      this._sound("click", x, y, z, ON[want] || (VAR[want] && !VAR[id]) ? 1 : 0);
+    }
+    const sw = I.TRIPWIRE + (partner ? 1 : 0);
+    for (let i = 1; i <= n; i++) {
+      const cx = x + DX[f] * i;
+      const cz = z + DZ[f] * i;
+      const b = this._get(cx, y, cz);
+      if (b !== sw) this._edits.push(cx, y, cz, b, sw);
+    }
+  }
+
+  // The hooks at the ends of the tripwire through (x, y, z), to look at.
+  _lineHooks(x, y, z) {
+    for (const f of H4) {
+      for (let i = 1; i <= HOOK_REACH; i++) {
+        const cx = x + DX[f] * i;
+        const cz = z + DZ[f] * i;
+        const b = this._get(cx, y, cz);
+        if (KIND[b] === K.STRING) continue;
+        if (KIND[b] === K.HOOK && FACING[b] === OPP[f]) this._queue.add(key(cx, y, cz));
+        break;
+      }
+    }
+  }
+
+  // Something on the tripwire at (x, y, z).
+  _touchString(x, y, z, id) {
+    const k = key(x, y, z);
+    const fresh = !this._strings.has(k);
+    this._strings.set(k, this.tick);
+    if (fresh && VAR[id]) this._lineHooks(x, y, z);
+  }
+
+  // ---------- (Round 12) For js/gadgets.js ----------
+
+  // Whether power reaches the block at (x, y, z) (a hopper's lock).
+  powered(x, y, z) {
+    this._lc = null;
+    this._missing = false;
+    tables();
+    const p = this._input(x, y, z) > 0 && !this._missing;
+    this._lc = null;
+    return p;
+  }
+
+  // A gadget's event for the guests (with the host's "rs").
+  event(e) {
+    if (this.send) this._net.push(e);
   }
 
   // The components round dust that changed its links (where it points).
@@ -825,7 +965,16 @@ export class RedstoneSim {
         if (this._missing) return;
         if (p && !ON[id]) this._extend(x, y, z, id);
         else if (!p && ON[id]) this._retract(x, y, z, id);
+        return;
       }
+      case EV.OBSERVER:
+        if (KIND[id] !== K.OBSERVER) return;
+        // (on, and off again a tick later)
+        if (!ON[id]) this._schedule(k, OBSERVER_TICKS, EV.OBSERVER);
+        this._flip(x, y, z, id);
+        return;
+      case EV.DISPENSE:
+        if (KIND[id] === K.DROPPER) this.onDispense?.(x, y, z, id);
     }
   }
 
@@ -842,7 +991,19 @@ export class RedstoneSim {
       }
     }
     for (const m of this.mobs?.mobs || []) if (!m.dead && !m.isRemotePlayer && m.pos) this._press(m.pos.x, m.pos.y, m.pos.z, 0.3, false);
-    if (this._woodPlates) for (const it of this.entities?.items || []) this._press(it.pos.x, it.pos.y - 0.25, it.pos.z, 0.125, true);
+    if (this._woodPlates || this._stringsKnown) for (const it of this.entities?.items || []) this._press(it.pos.x, it.pos.y - 0.25, it.pos.z, 0.125, true);
+    // (Round 12) Tripwire left alone for half a second lets go.
+    if (this._strings.size) {
+      for (const [k, t] of this._strings) {
+        if (this.tick - t < STRING_TICKS) continue;
+        this._strings.delete(k);
+        unkey(k);
+        const sx = KX;
+        const sy = KY;
+        const sz = KZ;
+        if (VAR[this._get(sx, sy, sz)]) this._lineHooks(sx, sy, sz);
+      }
+    }
     for (const [k, t] of this._plates) {
       if (this.tick - t < PLATE_TICKS) continue;
       this._plates.delete(k);
@@ -866,6 +1027,10 @@ export class RedstoneSim {
     for (let x = x0; x <= x1; x++) {
       for (let z = z0; z <= z1; z++) {
         const id = this._get(x, y, z);
+        if (KIND[id] === K.STRING) {
+          this._touchString(x, y, z, id);
+          continue;
+        }
         if (KIND[id] !== K.PLATE || (item && !WOOD[id])) continue;
         const k = key(x, y, z);
         if (!ON[id] && !this._plates.has(k)) {
@@ -887,7 +1052,8 @@ export class RedstoneSim {
     if (KIND[b] === K.HEAD || (KIND[b] === K.PISTON && ON[b])) return PUSH.STOP;
     if (b === I.OBSIDIAN || (info.hardness < 0 && !info.liquid)) return PUSH.STOP;
     // (things that keep items by their place: chests, furnaces, the magic blocks)
-    if (IS_CHEST[b] || (b >= 1792 && b <= 1855)) return PUSH.STOP;
+    // (Round 12: and the gadgets that hold items, and the workstations' blocks)
+    if (IS_CHEST[b] || (b >= 1792 && b <= 1855) || boxSlots(b) || (b >= 2816 && b <= 2879)) return PUSH.STOP;
     if (info.liquid || IS_REPLACEABLE[b] || !info.solid || info.partner || info.support || KIND[b] === K.REPEATER) return PUSH.BREAK;
     return PUSH.MOVE;
   }
@@ -1191,7 +1357,7 @@ export class RedstoneSim {
         this._spawnTnt(e[1], e[2], e[3], Math.min(8, Math.max(0, e[7])), true, [e[4], e[5], e[6]].map((v) => Math.max(-60, Math.min(60, v))));
       } else if (e[0] === "s" && typeof e[1] === "string" && e.slice(2, 7).every(num)) {
         this._play(e[1], e[2], e[3], e[4], e[5], e[6]);
-      }
+      } else if (typeof e[0] === "string" && e[0][0] === "g") this.onEvent?.(e); // (Round 12: a gadget's)
     }
   }
 

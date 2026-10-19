@@ -586,8 +586,7 @@ function vanillaHouse(out, { ox, oz, W, D, door, fx, fz, midX, midZ }, touch) {
 // Vanilla's villages (1.14 on), built in the generator's terms: the plan is
 // made once per village from the seed and the terrain's own heights (so every
 // chunk, worker and the distant view agree), then cut chunk by chunk.
-// - The meeting point: a well in the middle of a square of path (vanilla's
-//   bell is not in the game).
+// - The meeting point: a well in the middle of a square of path.
 // - Streets: 3 wide, out from the square in up to four directions, 10-27
 //   blocks a stretch, going on, turning or forking up to three times, with
 //   side streets now and then; each block on the ground where it lies (a
@@ -601,12 +600,12 @@ function vanillaHouse(out, { ox, oz, W, D, door, fx, fz, midX, midZ }, touch) {
 //   the ground cut away above, a ring of earth round it to meet the land
 //   (a piece needs ground within 3 of that height all over).
 // - Lamp posts along the streets, hay bales here and there.
-// Job's blocks the game has: a brewing stand (cleric), a barrel
-// (fisherman), a cauldron (leatherworker); the others stand in for the
-// blocks it lacks: bookshelves for the lectern, a furnace for the smoker and
-// the blast furnace, an anvil for the grindstone, a crafting table for the
-// fletching table (the toolsmith has a real smithing table), wool for the loom, smooth stone for the
-// stonecutter, a hay bale for the composter (by a farm).
+// Job's blocks: vanilla's (Round 12: js/content/workstations.js), a
+// composter by a farm (farmer), a lectern (librarian), a blast furnace
+// (armorer), a smithing table (toolsmith), a smoker (butcher), a brewing
+// stand (cleric), a barrel (fisherman), a loom (shepherd), a fletching table
+// (fletcher), a stonecutter (mason), a cauldron (leatherworker) and a
+// grindstone (weaponsmith).
 const V_CHANCE = 0.5; // (of the cells, before the biome and the ground: about a village every 500-700 blocks of village country)
 const V_RADIUS = 60; // no piece of a village reaches farther from its middle
 export const VANILLA_VILLAGE_REACH = V_RADIUS + 4;
@@ -1141,8 +1140,8 @@ class VillagePlan {
         put(u, 1, v, crop + Math.floor(rand() * stages));
       }
     }
-    // (the composter's stand-in, at a corner of the border; the farmer's job)
-    put(p.W - 1, 1, 0, V.HAY_BLOCK);
+    // (the composter, at a corner of the border: the farmer's job)
+    put(p.W - 1, 1, 0, V.COMPOSTER);
     this.jobs.push(JOB.farmer);
   }
 
@@ -1344,8 +1343,7 @@ const HOUSE_SPECS = {
       ctx.plan._torch(ctx, 1, 3, 2, 1, 0);
     },
   },
-  // The library: bookshelves along the walls (the lectern's stand-in), a
-  // crafting table, windows high up.
+  // The library: bookshelves along the walls, the lectern, windows high up.
   library: {
     h: 5,
     furnish(ctx, plan) {
@@ -1359,7 +1357,7 @@ const HOUSE_SPECS = {
           put(p.W - 2, y, v, V.BOOKSHELF);
         }
       }
-      put(p.du - 2, 1, 1, BLOCK.CRAFTING_TABLE);
+      put(p.du - 2, 1, 1, V.LECTERN + ctx.dir(0, 1));
       put(p.du, 1, (p.D - 1) >> 1, V.WHITE_CARPET + C.red);
       put(p.du, 1, ((p.D - 1) >> 1) + 1, V.WHITE_CARPET + C.red);
       plan._resident(ctx, JOB.librarian);
@@ -1367,8 +1365,7 @@ const HOUSE_SPECS = {
     },
   },
   // The blacksmith (weaponsmith): stone walls, a flat roof of slabs, two
-  // furnaces, an anvil (the grindstone's stand-in), a crafting table and
-  // its chest.
+  // furnaces, the grindstone, a crafting table and its chest.
   smith: {
     flat: true,
     wall: () => BLOCK.COBBLESTONE,
@@ -1379,7 +1376,7 @@ const HOUSE_SPECS = {
       const { p, put, dir } = ctx;
       put(1, 1, p.D - 2, V.FURNACE + dir(0, -1));
       put(2, 1, p.D - 2, V.FURNACE + dir(0, -1));
-      put(p.W - 2, 1, p.D - 2, V.ANVIL + dir(1, 0));
+      put(p.W - 2, 1, p.D - 2, V.GRINDSTONE + (dir(1, 0) < 2 ? 1 : 0));
       put(p.W - 2, 1, 1, BLOCK.CRAFTING_TABLE);
       plan._chest(ctx, p.du + 1, 1, p.D - 2, "village_weaponsmith");
       plan._resident(ctx, JOB.weaponsmith);
@@ -1389,7 +1386,7 @@ const HOUSE_SPECS = {
     wall: (st) => (st.flat ? st.wall : BLOCK.COBBLESTONE),
     furnish(ctx, plan) {
       const { p, put, dir, rand, st } = ctx;
-      put(1, 1, p.D - 2, V.FURNACE + dir(0, -1));
+      put(1, 1, p.D - 2, V.BLAST_FURNACE + dir(0, -1));
       plan._chest(ctx, 2, 1, p.D - 2, "village_armorer");
       plan._bed(ctx, p.W - 2, st.beds[Math.floor(rand() * st.beds.length)]);
       plan._resident(ctx, JOB.armorer);
@@ -1408,7 +1405,7 @@ const HOUSE_SPECS = {
     wall: (st) => (st.flat ? st.wall : BLOCK.COBBLESTONE),
     furnish(ctx, plan) {
       const { p, put, dir, rand, st } = ctx;
-      put(1, 1, p.D - 2, V.FURNACE + dir(0, -1));
+      put(1, 1, p.D - 2, V.SMOKER + dir(0, -1));
       put(2, 1, p.D - 2, V.HAY_BLOCK);
       plan._chest(ctx, p.W - 2, 1, 1, "village_butcher", [-1, 0]);
       plan._bed(ctx, p.W - 2, st.beds[Math.floor(rand() * st.beds.length)]);
@@ -1418,7 +1415,7 @@ const HOUSE_SPECS = {
   fletcher: {
     furnish(ctx, plan) {
       const { p, put, rand, st } = ctx;
-      put(p.W - 2, 1, p.D - 2, BLOCK.CRAFTING_TABLE);
+      put(p.W - 2, 1, p.D - 2, V.FLETCHING_TABLE);
       plan._chest(ctx, p.W - 3, 1, p.D - 2, "village_fletcher");
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
       plan._resident(ctx, JOB.fletcher);
@@ -1426,8 +1423,8 @@ const HOUSE_SPECS = {
   },
   shepherd: {
     furnish(ctx, plan) {
-      const { p, put, rand, st } = ctx;
-      put(p.W - 2, 1, p.D - 2, BLOCK.WOOL);
+      const { p, put, rand, st, dir } = ctx;
+      put(p.W - 2, 1, p.D - 2, V.LOOM + dir(0, -1));
       put(p.W - 3, 1, p.D - 2, V.LIGHT_GRAY_WOOL);
       plan._chest(ctx, p.W - 2, 1, 1, "village_shepherd", [-1, 0]);
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
@@ -1447,7 +1444,7 @@ const HOUSE_SPECS = {
     wall: (st) => (st.flat ? V.CUT_SANDSTONE : V.STONE_BRICKS),
     furnish(ctx, plan) {
       const { p, put, rand, st } = ctx;
-      put(p.W - 2, 1, p.D - 2, V.SMOOTH_STONE);
+      put(p.W - 2, 1, p.D - 2, V.STONECUTTER + (dir(0, -1) < 2 ? 0 : 1));
       plan._chest(ctx, p.W - 3, 1, p.D - 2, "village_mason");
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);
       plan._resident(ctx, JOB.mason);

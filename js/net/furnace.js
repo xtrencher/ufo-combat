@@ -16,7 +16,12 @@
 // (Round 12) A furnace of the Nether or the End: its messages carry the
 // dimension ("dm", js/dim-registry.js); the host keeps and smelts every
 // dimension's, near each guest in the guest's own dimension.
-import { FURNACE_SLOTS, isFurnace, NEAR_GUEST } from "../furnace.js";
+// (Round 12) The smoker and the blast furnace are furnaces here. The
+// campfires (js/furnace.js Campfires) are the host's too: a guest laying
+// food on one asks the host ("cfput"), the host tells everyone what lies on
+// a campfire whenever it changes ("cfset"), and a joining player gets them
+// all with the host's state ("campfires"). Older peers ignore these.
+import { FURNACE_SLOTS, isFurnace, NEAR_GUEST, CAMP_SLOTS } from "../furnace.js";
 import { encodeStack, decodeStack } from "../chests.js";
 import { chunkKey, blockIndex } from "../constants.js";
 import { dimOfCode, dmOf, parseDimKey, codeOf } from "../dim-registry.js";
@@ -46,7 +51,20 @@ export class FurnaceSync {
     fu.onGone = (key) => this._sendGone(key);
     fu.watched = (key) => this.watchers.has(key);
     fu.nearGuest = (x, z, dim) => this._nearGuest(x, z, dim);
+    // (Round 12) The campfires.
+    const cf = (this.campfires = fu.campfires || null);
+    if (cf) {
+      cf.remote = this;
+      cf.onChanged = (f) => this._sendCamp(f);
+      cf.nearGuest = (x, z, dim) => this._nearGuest(x, z, dim);
+    }
     const net = this.net;
+    net.on("cfput", (m, from) => this._onCampPut(m, from));
+    net.on("cfset", (m) => this._onCampSet(m));
+    net.registerSync?.("campfires", {
+      save: () => (cf ? cf.list() : []),
+      load: (list) => this._onCampAll(list),
+    });
     net.on("fuopen", (m, from) => this._onOpen(m, from));
     net.on("fuclose", (m, from) => this._onClose(m, from));
     net.on("fuop", (m, from) => this._onOp(m, from));
@@ -60,7 +78,10 @@ export class FurnaceSync {
     if (!this.furnaces) return;
     this.furnaces.authority = this.net.isHost;
     // (A guest keeps no furnaces of its own: what it shows comes from the host.)
-    if (!this.net.isHost) this.furnaces.store.clear();
+    if (!this.net.isHost) {
+      this.furnaces.store.clear();
+      this.campfires?.remoteAll([]);
+    }
   }
 
   stop() {
@@ -208,6 +229,50 @@ export class FurnaceSync {
     if (!this.mp.active || !this.net.isHost || !set) return;
     const msg = { t: "fust", p: keyPos(key), s: 0, ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
+  }
+
+  // ---------- (Round 12) Campfires ----------
+
+  // A guest: food laid on the campfire at (x, y, z) (js/furnace.js Campfires.put).
+  put(x, y, z, id) {
+    if (this.mp.active) this.net.toHost({ t: "cfput", p: [x, y, z], i: id, ...dmOf(this.game.world.dim) });
+  }
+
+  _onCampPut(m, from) {
+    if (!this.net.isHost || !this.campfires) return;
+    const p = posOf(m.p);
+    if (!p || !Number.isInteger(m.i)) return;
+    this.campfires.remotePut(p[0], p[1], p[2], dimOfCode(m.dm), m.i);
+    void from;
+  }
+
+  // Host: what lies on a campfire, to everyone.
+  _sendCamp(f) {
+    if (!this.mp.active || !this.net.isHost) return;
+    this.net.broadcast({ t: "cfset", p: [f.x, f.y, f.z], s: f.slots.map(encodeStack), ...dmOf(f.dim) });
+  }
+
+  _campSlots(s) {
+    if (!Array.isArray(s) || s.length !== CAMP_SLOTS) return null;
+    return s.map((e) => decodeStack(e));
+  }
+
+  _onCampSet(m) {
+    if (this.net.isHost || !this.campfires) return;
+    const p = posOf(m.p);
+    if (p) this.campfires.remoteSet(p[0], p[1], p[2], dimOfCode(m.dm), this._campSlots(m.s));
+  }
+
+  _onCampAll(list) {
+    if (this.net.isHost || !this.campfires || !Array.isArray(list)) return;
+    const out = [];
+    for (const e of list.slice(0, 4096)) {
+      if (!Array.isArray(e)) continue;
+      const p = posOf(e.slice(0, 3));
+      const slots = this._campSlots(e[4]);
+      if (p && slots) out.push([p[0], p[1], p[2], dimOfCode(e[3]), slots]);
+    }
+    this.campfires.remoteAll(out);
   }
 
   // ---------- A guest: the host's answers ----------
