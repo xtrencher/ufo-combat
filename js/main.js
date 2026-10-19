@@ -435,6 +435,7 @@ const sleep = new Sleep({
   mobs,
   toast: (t, s) => toast(t, s),
   players: () => (mpLate?.active ? mpLate.players.active() : []),
+  everyone: () => (mpLate?.active ? mpLate.players.all() : []), // (Round 12: the sleepers are the Overworld's, wherever this player is)
   online: () => !!mpLate?.active,
   isHost: () => !!mpLate?.isHost,
   inGame: () => gameState !== "start", // (a host on the main menu isn't one of the sleepers)
@@ -2032,6 +2033,12 @@ function respawn(at = null) {
     player.velocity.set(0, 0, 0);
     player.knockback.set(0, 0, 0);
     player.resetFall();
+  } else if (spot && Number.isFinite(spot[2])) {
+    // (Round 12: [x, z, y], a floor found near a friend under the Nether's roof)
+    player.position.set(spot[0], spot[2], spot[1]);
+    player.velocity.set(0, 0, 0);
+    player.knockback.set(0, 0, 0);
+    player.resetFall();
   } else if (spot) player.spawnAt(Math.floor(spot[0]), Math.floor(spot[1]));
   else player.spawnAt(...safeSpawnColumn());
   player.yaw = 0;
@@ -3399,13 +3406,20 @@ const game = {
       dims.enterNow(d.dim); // (Round 12: the dimension they were in)
       world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
       const top = world.surfaceY(Math.floor(x), Math.floor(z));
-      game.teleport(x, Number.isFinite(y) && top >= 0 && y <= Math.max(top, SEA_LEVEL) + 3 ? y : null, z);
+      // (Round 12: under a roof every floor is under the top one: the height kept.)
+      game.teleport(x, Number.isFinite(y) && (world.dimInfo.ceiling || (top >= 0 && y <= Math.max(top, SEA_LEVEL) + 3)) ? y : null, z);
     }
   },
   // Puts this player at (x, z) (on the ground there, or at height y if given and free).
   teleport(x, y, z) {
     world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
-    if (y === null || world.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || world.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z))) player.spawnAt(Math.floor(x), Math.floor(z));
+    const stuck = y === null || world.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || world.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z));
+    // (Round 12) Under a roof (the Nether): the floor nearest that height, not the topmost cavern's.
+    const roof = stuck && world.dimInfo.ceiling ? dims.safeSpot(x, y ?? 64, z, 6) : null;
+    if (roof) {
+      player.position.set(roof.x, roof.y, roof.z);
+      player.velocity.set(0, 0, 0);
+    } else if (stuck) player.spawnAt(Math.floor(x), Math.floor(z));
     else {
       player.position.set(x, y, z);
       player.velocity.set(0, 0, 0);
@@ -3415,8 +3429,14 @@ const game = {
     player.syncCamera();
   },
   // Respawn next to (x, z) instead of the world spawn (online: near a friend).
-  respawnNear(x, z) {
+  respawnNear(x, z, y) {
     if (gameState !== "dead") return;
+    // (Round 12) Under a roof (the Nether): a floor near the friend's height (y), not the topmost cavern's.
+    if (world.dimInfo.ceiling && Number.isFinite(y)) {
+      world.prepareArea(x, z, 1);
+      const s = dims.safeSpot(x, y, z, 3);
+      if (s) return respawn([s.x, s.z, s.y]);
+    }
     let best = null;
     for (let r = 2; r <= 6 && !best; r++) {
       for (let k = 0; k < 8 && !best; k++) {
@@ -3575,9 +3595,10 @@ game.endGame = endGame;
 // (Round 12: the host's dimension the host's; another dimension the guest's who simulates it there, js/dimensions.js.)
 natureSim.fire.enabled = () => dims.simulatesWorld(); // (a guest's fires burn at the host; the results arrive as edits)
 redstone.enabled = () => dims.simulatesWorld(); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
-redstone.send = (m) => mp.active && net.isHost && net.broadcast(m); // (primed TNT and the circuits' sounds, for the guests)
+// (Round 12: told by whoever simulates the dimension, the host or a guest where the host is not; "rs" carries its dimension, a peer elsewhere drops it.)
+redstone.send = (m) => mp.active && dims.simulatesWorld() && net.toAll(m); // (primed TNT and the circuits' sounds, for the others there)
 net.on("rs", (m, from) => {
-  if (!net.isHost && from === 1) redstone.onMessage(m); // (1: the host)
+  if (from !== net.pid && !dims.simulatesWorld()) redstone.onMessage(m);
 });
 // No solid block placed inside another player (it would shove them out on
 // their screen). Their newest position, with a little margin for its age.

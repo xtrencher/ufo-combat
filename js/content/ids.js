@@ -528,3 +528,20 @@ export const BAMBOO = 3015; // 6 ids: leaves (0 none, 1 small, 2 large) + 3 when
 export const BAMBOO_BLOCK = 3021;
 export const SCAFFOLDING = 3022; // 7 ids: distance 0-6 from what holds it up (the item: the first)
 // (gadgets.js blocks: next free 3029)
+
+// ---- transport.js blocks (Round 12: blocks 2880-2943) ----
+// (A rail's shape, as vanilla's RailShape: 0 north-south, 1 east-west, 2-5
+// ascending east, west, north, south (rising toward that side), 6-9 the
+// curves south-east, south-west, north-west, north-east. North is -Z.)
+export const RAIL = 2880; // 10 ids: shape 0-9
+export const POWERED_RAIL = 2890; // 12 ids: shape 0-5 (no curves) + 6 * powered
+export const DETECTOR_RAIL = 2902; // 12 ids: shape 0-5 + 6 * a cart on it (giving power)
+export const ACTIVATOR_RAIL = 2914; // 12 ids: shape 0-5 + 6 * powered
+// (transport.js blocks: next free 2926)
+
+// ---- transport.js items (Round 12: items 960-991) ----
+export const OAK_BOAT = 960; // 6 ids: oak, spruce, birch, jungle, acacia, dark oak
+export const OAK_CHEST_BOAT = 966; // 6 ids: the same woods
+export const MINECART = 972;
+export const CHEST_MINECART = 973;
+// (transport.js items: next free 974)

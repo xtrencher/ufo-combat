@@ -29,7 +29,9 @@
 // and the results go out as edits. A guest never primes TNT itself: flint
 // and steel leaves TNT_LIT, its own blast TNT_LIT_SHORT, which the host
 // primes. The host tells everyone of primed TNT (they draw it falling) and
-// of the sounds it makes ("rs"; older peers ignore it).
+// of the sounds it makes ("rs"; older peers ignore it). (Round 12) In a
+// dimension the host is not in, the guest that simulates it there does
+// (main.js: dims.simulatesWorld()).
 import * as THREE from "three";
 import { BLOCK, BLOCK_INFO, IS_SOLID, IS_WET, IS_REPLACEABLE, IS_CHEST, BLOCK_LIMIT } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
