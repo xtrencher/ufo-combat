@@ -34,10 +34,14 @@ hits and it blows up (the next one comes by sooner). The menu shows a live
 **FPS** counter. Graphics start on **Auto**: the best the game has (Ultra, 32
 chunks: the Max performance preset), stepped down a level at a time on its
 own while the frame rate in play stays under 40 FPS, until it runs smoothly;
-where it settles is remembered for the next time. Pick any preset or change
-any graphics or performance setting and Auto is off for good: your choice is
-saved and always wins (**Auto (best for this PC)** in Settings turns it back
-on). Master volume starts at 30%.
+where it settles is remembered for the next time (after a long smooth spell
+it tries one level higher, once a session; if that turns out slow it goes
+back down and doesn't try again for a few sessions). Online the step waits
+for a moment out of play (the pause menu, the inventory), since the picture
+stops while a new level is prepared. Pick any preset or change any graphics
+or performance setting and Auto is off for good: your choice is saved and
+always wins (**Auto (best for this PC)** in Settings turns it back on).
+Master volume starts at 30%.
 
 Every screen (main menu, pause menu, settings, inventory, mods, missions,
 stats) shares one clean, dark glass style.
@@ -89,22 +93,22 @@ you are straight in the air at the controls of it).
 **Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
 fullscreen: with it on, the game goes fullscreen as you enter it (Play,
 Resume, Click to play; a web page can only go fullscreen on a click). The
-**Fullscreen** buttons on the main and pause menus, **F11**, **Alt+Enter**
-and the small corner button (top right, when the mouse is near it; it never
-sits over the game) switch it too, and the setting follows them. In
-fullscreen, Chromium browsers (Chrome, Edge, Opera and friends) **lock the
-keyboard** (the Keyboard Lock API): browser shortcuts like **Ctrl+W**
-(sprint), **Ctrl+R**, **Ctrl+T**, **Ctrl+N**, **Ctrl+S**, **Ctrl+Tab**,
-**Tab** and **Esc** reach the game and cannot close, reload or leave the page,
-in the menus too (text fields keep copy and paste). Hold **Esc** to leave
-fullscreen then; a short **Esc** still opens the pause menu. **Only
-fullscreen fully stops Ctrl+W**: outside it (and in Firefox and Safari, which
-have no Keyboard Lock) the game cancels the shortcuts a page is allowed to
-cancel (Ctrl+R, Ctrl+S, Ctrl+D, Ctrl+F, Ctrl+P, Alt+key, Tab...), but
+**Fullscreen** buttons on the main and pause menus, **F11**, **Alt+Enter** and
+the small corner button (top right, when the mouse is near it; it never sits
+over the game) switch it too, and the setting follows them. In fullscreen,
+Chromium browsers (Chrome, Edge, Opera and friends) **lock the keyboard** (the
+Keyboard Lock API): browser shortcuts like **Ctrl+W** (sprint), **Ctrl+R**,
+**Ctrl+T**, **Ctrl+N**, **Ctrl+S**, **Ctrl+Tab**, **Tab** and **Esc** reach
+the game and cannot close, reload or leave the page, in the menus too (text
+fields keep copy and paste). Hold **Esc** to leave fullscreen then (that turns
+the Fullscreen setting off too); a short **Esc** still opens the pause menu.
+**Only fullscreen fully stops Ctrl+W**: outside it (and in Firefox and Safari,
+which have no Keyboard Lock) the game cancels the shortcuts a page is allowed
+to cancel (Ctrl+R, Ctrl+S, Ctrl+D, Ctrl+F, Ctrl+P, Alt+key, Tab...), but
 browsers never let a page cancel Ctrl+W, Ctrl+T or Ctrl+N: the browser asks
-"leave the page?" before closing it while you play (your world is saved
-either way), and you can sprint (and boost a UFO) with a double-tap of `W`
-instead of `Ctrl+W`.
+"leave the page?" before closing it while you play (your world is saved either
+way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
+`Ctrl+W`.
 
 ### Three ways to play
 
@@ -112,8 +116,9 @@ instead of `Ctrl+W`.
   Minecraft)** below), with the Nether and the End (see **The Nether and the
   End**). You start with **nothing** (no starter kit), and the world is
   vanilla: **Mods are off for that world** (no guns, mod explosives, UFOs,
-  aliens or vehicles; vanilla's TNT stays; your own Mods setting is kept for
-  your Missions worlds, and the Missions mods switch shows locked there), no
+  aliens or mod vehicles; vanilla's TNT, boats and minecarts stay; your own
+  Mods setting is kept for your Missions worlds, and the Missions mods
+  switch shows locked there), no
   missions, supply crates, call-ins or airport aircraft and guards, no
   Missions button in the pause menu, and its land has **no airports or
   cities** (villages stay). Difficulty and Peaceful work as everywhere.
@@ -163,11 +168,13 @@ first world (no link, nothing saved) is a Survival world.
 | Place a block / use / eat or drink (hold) / fire the weapon in hand | Right click |
 | Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball, ender pearl, eye of ender, splash potion or bottle o' enchanting, fill or pour a bucket, fill a glass bottle at water or a cauldron, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire, TNT or a nether portal with flint and steel or a fire charge, put an eye of ender in an end portal frame, charge a respawn anchor with glowstone, turn diamond gear into netherite at a smithing table | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
-| Open a chest (whatever is in your hand) | Right click |
-| Open a crafting table (Survival worlds), a furnace, an enchanting table, an anvil or a brewing stand (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
+| Open a chest, a barrel or a shulker box (whatever is in your hand) | Right click |
+| Open a crafting table (Survival worlds), a furnace, smoker or blast furnace, an enchanting table, an anvil, a brewing stand, a grindstone, a stonecutter, a hopper, a dropper or a dispenser (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
 | Open or close a door, trapdoor or fence gate (not an iron one) | Right click |
 | Sleep in a bed / set your spawn point (Survival worlds) | Right click (on the bed) |
-| Flip a lever, press a button, set a repeater's delay, tune a note block, edit a sign, eat a slice of cake, plant in a flower pot or take the plant back | Right click (on it) |
+| Flip a lever, press a button, set a repeater's delay, tune a note block, edit a sign, eat a slice of cake, plant in a flower pot or take the plant back, ring a bell, put raw food on a campfire, fill a composter, put an item in an item frame (or turn it), dress an armor stand | Right click (on it) |
+| Get into a boat or a minecart | Right click (on it) |
+| **In a boat or a minecart:** row a boat (`W` in a cart nudges it) / get out | `W` `A` `S` `D` / `Shift` |
 | Trade with a villager, milk a cow (empty bucket), shear or dye a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand, barter with a piglin (a gold ingot) (Survival worlds) | Right click (on it, with the item) |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
@@ -215,8 +222,9 @@ world the armor row has an **off-hand** slot: `F` swaps the item in hand with
 it (or, in the inventory, the hovered slot's), and a shield there blocks with
 right click while the main hand holds a tool or nothing.
 **A chest** (right click on it) opens the same screen with the chest's 27
-slots above your inventory and the same clicks: `Shift` + click moves a stack
-between the chest and your inventory. `E` or `Esc` closes it.
+slots (a large chest's 54; a barrel's, a shulker box's or a chest boat's or
+minecart's 27) above your inventory and the same clicks: `Shift` + click
+moves a stack between the chest and your inventory. `E` or `Esc` closes it.
 
 **Crafting** (Survival worlds): the inventory has a 2x2 **crafting grid**
 (top right; not in Creative, as in Minecraft), and a **crafting table** (right
@@ -531,7 +539,7 @@ A **Survival** world (Round 11) is normal Minecraft, fitted to this game:
 vanilla's recipes, numbers, blocks, items, creatures and terrain. You start
 with nothing; everything you have, you gather, craft, smelt, farm or trade
 for, and your body works like normal Minecraft's (hunger, experience, beds).
-There are no UFOs, missions, mod weapons or vehicles (see **Three ways to
+There are no UFOs, missions, mod weapons or mod vehicles (see **Three ways to
 play**). None of the body rules are in a **Missions** world (food heals directly and
 health comes back on its own, as always) or in **Creative**. Every new block
 and item is in the Creative palette in both world types; a Missions world's
@@ -541,10 +549,9 @@ A Survival world's day is vanilla's **20 minutes** (a Missions world's stays
 10), and a new one starts at 6:00 in the morning.
 
 A Survival world has the **Nether** and the **End** too (see **The Nether and
-the End** below). Not in this game (yet): boats, minecarts and rails, maps
-and item frames, the campfire, smoker and blast furnace, double chests,
-shulker boxes, bamboo, the bell, and job-site blocks like lecterns and
-looms.
+the End** below). Not in this game (yet): maps, banners (so the loom has no
+screen), trapped chests, hopper, TNT and furnace minecarts, comparators and
+glow item frames.
 
 ### Crafting and smelting
 
@@ -563,9 +570,10 @@ looms.
   string, beds, ladders, glass panes, iron bars, stone bricks, the shield
   and more; the building, nature, decoration, redstone and magic blocks add
   their own (stairs, slabs, fences, doors, dyes, signs, pistons, TNT, the
-  enchanting table...: see **Building blocks**, **Farming and growing**,
-  **Dyes and decoration**, **Redstone and TNT** and **Enchanting, anvils and
-  brewing**).
+  enchanting table, boats, rails...: see **Building blocks**, **Farming and
+  growing**, **Dyes and decoration**, **Redstone and TNT**, **Boats,
+  minecarts and rails**, **Enchanting, anvils and brewing** and **Chests and
+  work blocks**).
   In a Missions world the crafting table does nothing.
 - **Smelting:** a furnace cooks one item every **10 seconds** while its fuel
   burns: coal or charcoal 80 s (8 items), a coal block 800 s, a log or planks
@@ -623,7 +631,9 @@ blocks tall, the sea at 24):
   (they fall when their trunk is cut). Toward a jungle's edge it thins out (no
   giants there). Parrots fly in the canopy. Jungles are about twice as common
   as before: about one stretch of land in twelve, mostly within a kilometre
-  or two of the start. (No bamboo: the game has none yet.)
+  or two of the start. **Bamboo jungles** inside the jungles (about a third
+  of them): tall thick bamboo everywhere on podzol, fewer trees (the giants
+  and bushes); a stalk of bamboo now and then in the rest of the jungle.
 - **No airports or cities;** villages, temples and the other structures are
   vanilla's (see **Structures**).
 
@@ -657,8 +667,7 @@ blocks tall, the sea at 24):
   a door aside, opening a little room with a chest; the other two do nothing
   (vanilla's lever puzzle, simpler: one right lever instead of a sequence).
   A second chest waits at the end of a narrow hallway (vanilla's tripwire and
-  arrow trap are left out: the game has no tripwire or dispensers). The
-  chests: diamonds, iron, gold, emeralds, bones, rotten flesh and sometimes an
+  arrow trap there are left out). The chests: diamonds, iron, gold, emeralds, bones, rotten flesh and sometimes an
   enchanted book.
 - **Villages** in the plains and meadows, deserts, savannas, taigas and snowy
   plains, each in its own style (oak and cobblestone; sandstone with flat
@@ -671,21 +680,17 @@ blocks tall, the sea at 24):
   table and a chest; **farms** (wheat, carrots, potatoes or beetroots by a
   water channel); **animal pens**; a **library** lined with bookshelves; a
   **church** with a tower and a brewing stand on its altar; a **blacksmith**
-  (furnaces, an anvil and a chest of weapons and iron); and the armorer's,
+  (furnaces, a grindstone and a chest of weapons and iron); and the armorer's,
   toolsmith's, butcher's, fletcher's, shepherd's, mason's and fisher's
-  houses and the tannery, each with its trade's block. **Lamp posts** (a
-  black wool lamp with four torches, or a lantern) light the streets; hay
-  bales lie about. Each house's **chest** holds vanilla's loot for it: bread,
+  houses and the tannery, each with its trade's block (see **Chests and work
+  blocks**). **Lamp posts** (a black wool lamp with four torches, or a
+  lantern) light the streets; hay bales lie about. Each house's **chest** holds vanilla's loot for it: bread,
   potatoes, apples, emeralds, saplings in the houses (cactus and dead bushes
   in the desert, snowballs in the snowy ones, spruce logs in the taiga); iron,
   diamonds, iron tools and armour, obsidian at the blacksmith's; wool and
   shears at the shepherd's; meat at the butcher's; fish at the fisher's;
-  leather armour at the tannery; redstone and lapis at the church.
-  (The trades' blocks the game lacks have stand-ins: bookshelves for the
-  lectern, a furnace for the smoker and the blast furnace, an anvil for the
-  grindstone, a crafting table for the fletching table, wool for the loom
-  (the toolsmith has a real smithing table), smooth stone for the stonecutter, a hay bale by each farm
-  for the composter. No bells.)
+  leather armour at the tannery; redstone and lapis at the church. (No bells
+  in the villages yet, though a bell can be placed.)
 - **Desert wells:** a little sandstone well with a roof, very rarely.
 - **Strongholds** (deep underground, with the End's portal) and **ruined
   portals** (broken nether portal frames): see **The Nether and the End**.
@@ -697,8 +702,8 @@ blocks tall, the sea at 24):
   None on Peaceful. A spawner is in the Creative palette (zombie, skeleton
   and spider) and works in either kind of world.
 - Things vanilla's chests hold that the game doesn't have (saddles, name
-  tags, horse armour, music discs, rails) are left out; the rest keep
-  vanilla's odds, enchanted books (one random enchantment) included.
+  tags, horse armour, music discs, maps), and the rails and bamboo they
+  hold, are left out; the rest keep vanilla's odds, enchanted books (one random enchantment) included.
 
 ### Farming and growing
 
@@ -723,6 +728,18 @@ blocks tall, the sea at 24):
 - **Sugar cane** grows 3 tall beside water (sugar from it); **cactus** grows
   3 tall too, only on sand with nothing solid beside it (it breaks off
   otherwise, as vanilla); mushrooms spread slowly in the dark.
+- **Bamboo**: plant it on grass, dirt, sand, gravel, podzol or mycelium (a
+  shoot); it grows a block at a time to 12-16 tall in the light (thin at the
+  bottom, thick higher up, leafy at the top), bone meal adds one or two
+  blocks; breaking a stalk takes everything above it. 2 bamboo make a stick,
+  9 a **block of bamboo**; it burns as fuel (2.5 s).
+- **Scaffolding** (6 bamboo and a string: 6): climb it like a ladder (jump
+  to go up, sneak to hold on). Right click scaffolding with scaffolding:
+  on its side it builds the tower up, on its top it reaches out the way
+  you look (sneak to place it as any block). It stands 6 blocks out from
+  the scaffolding on a block below; any further, or with its support gone,
+  it falls (drops). (Simplified: its top can't be stood on, and it drops
+  instead of falling as a block.)
 - **Recipes from the land:** hay bale (9 wheat, and back), melon (9 slices),
   seeds from melon slices and pumpkins, sugar, bone meal, the bricks block (4
   bricks), clay (4 clay balls), snow block (4 snowballs) and snow layers,
@@ -940,12 +957,23 @@ How they behave, as in vanilla:
   aren't full; in a Missions world a slice heals 1 heart). Broken, it drops
   nothing.
 - **Flower pots** (3 bricks in a V): right click one with a flower, a
-  sapling (oak, spruce, birch, jungle, acacia), a mushroom or a cactus to
-  plant it; right click a planted pot to take it back. Broken, a pot drops
-  itself and its plant.
+  sapling (oak, spruce, birch, jungle, acacia, dark oak), a fern, a dead
+  bush, bamboo, a mushroom, a cactus, or the Nether's crimson and warped
+  fungi and roots to plant it; right click a planted pot to take it back.
+  Broken, a pot drops itself and its plant.
 - Stained glass and its panes drop nothing when broken (as glass), except
   with Silk Touch. Stained glass is cut out like the game's glass: its colour
   is in its frame and streaks, the rest clear.
+- **Item frame** (8 sticks round leather): hang it on any side of a block
+  (walls, floors, ceilings). Right click with an item puts one in, shown on
+  the frame; right click again turns it an eighth. Breaking the frame drops
+  it and its item (vanilla's first punch drops only the item: here both go
+  at once).
+- **Armor stand** (6 sticks and a smooth stone slab): two blocks tall,
+  facing you in eighths of a turn. Right click with a piece of armor puts
+  it on (swapping what it wore there); with an empty hand, click the feet,
+  legs, body or head to take that piece back. Breaking it drops the stand
+  and its armor. A dispenser puts armor on one in front of it.
 
 ### Redstone and TNT
 
@@ -993,9 +1021,96 @@ Creative can get the pieces).
   every block it breaks drops, and blasts (TNT's and creepers') hurt as
   vanilla's and leave obsidian, bedrock, enchanting tables, anvils and
   liquids standing.
+- **Observer** (6 cobblestone, 2 redstone and a nether quartz): its face
+  watches the block in front of it (placed, it looks the way you look: you
+  see its back). Whenever that block changes (placed, broken, a crop
+  growing, dust changing power, a door opening) it sends a short pulse out
+  of its back (one tick, a tick later; the red dot lights), strongly into
+  the block there. Two observers face to face make a fast clock.
+- **Tripwire hook** (an iron ingot over a stick over planks: 2): on a
+  wall's side. Two hooks facing each other on the same level with
+  **string** between them (right click with string: it can hang in the air;
+  up to 40) are strung; anyone or anything (players, creatures, dropped
+  items) touching the string pulls them: 15 power (strongly into their
+  walls) until half a second after it leaves.
+- **Dropper** (7 cobblestone round a redstone) and **dispenser** (the same
+  with a bow in the middle, or a dropper with 3 sticks and 3 string): 9
+  slots (right click opens them; placed, they face you). Each time power
+  comes (also when the block over them is powered, as vanilla) they fire
+  one item from a random slot: a dropper puts it into the container in
+  front (chest, furnace, hopper, another dropper...) or throws it out; a
+  dispenser shoots **arrows** (they hurt players and creatures; one that
+  hits a block can be picked up), **fire charges** (they set fire where
+  they land), **snowballs** and **eggs**, places **water** and **lava**
+  from buckets and scoops a source back into an empty bucket, uses **bone
+  meal** on what is in front, lights fire or TNT with **flint and steel**,
+  primes **TNT**, puts **armor** on the player or the armor stand in front,
+  and throws anything else out. Empty, it only clicks.
+- **Hopper** (5 iron ingots round a chest): 5 slots. Placed against a
+  block's side it points into it, otherwise down. Every 0.4 s it passes an
+  item on into the container it points at and takes one from the container
+  above it, or picks up the items dropped into its bowl (not through a
+  full block over it). Chests, furnaces (the top fills the input, the
+  sides the fuel, a hopper underneath takes the output), brewing stands
+  (the ingredient from the top, bottles and blaze powder from the sides,
+  finished bottles from below), droppers, dispensers and other hoppers all
+  work with it. A powered hopper is locked: nothing moves.
 - (Simplified: pistons move their blocks at once, with no sliding, and don't
-  shove players or creatures; no comparators, observers, hoppers or
-  repeater locking yet.)
+  shove players or creatures; hoppers, droppers and dispensers can't be
+  pushed; no comparators or repeater locking yet. Online, hoppers,
+  droppers and dispensers work where the host is: in a dimension only a
+  guest is in, they wait.)
+
+### Boats, minecarts and rails
+
+Vanilla Java 1.20's, with vanilla's recipes (the Creative palette has them
+all, in both world types).
+
+- **Boats:** one of each wood (oak, spruce, birch, jungle, acacia, dark oak:
+  five planks in a U), and the **boat with a chest** (a boat and a chest).
+  Right click on water (or the ground) to put one down, right click it to get
+  in, **Shift** to get out. W/S/A/D row it: W forward, S back, A/D turn (and
+  paddle slowly on the spot); the view turns with the boat. On water it
+  reaches about 8 blocks a second; on land it hardly moves; on ice it flies
+  (about 40 blocks a second). A boat seats two (the second behind, the first
+  steers); a creature it bumps into while no player steers it climbs in (and
+  stays until the boat is broken; an animal sits sideways in a full boat). A
+  chest boat seats one: sneak and right click to open its 27-slot chest. A
+  boat held under water for 3 seconds throws its riders out; one that falls
+  more than 3 blocks onto land breaks into 3 planks and 2 sticks (its riders
+  take the fall); lava burns it up. Hit it to break it (a few punches, one
+  blow of a sword or an axe; at once in Creative, with nothing dropped): it
+  drops itself (and its chest's contents). Boats burn in a furnace for 60 s.
+- **Rails** (six iron ingots and a stick: 16): placed on a block with a whole
+  top, a rail joins the rails beside it: straight lines, curves where two meet
+  at a corner, slopes up or down one block. A rail already joined at both ends
+  is left alone; at a T or a crossing the curve goes south-east (north-west
+  while the rail is powered: redstone power switches a junction). An ascending
+  rail comes off if the block it leans on goes.
+- **Powered rails** (gold, a stick, redstone: 6) boost a cart while powered
+  (redstone power beside one powers up to 8 more along the line) and brake it
+  while not; a cart standing still on a powered one starts off a block behind
+  it. **Detector rails** (iron, a stone pressure plate, redstone: 6) give
+  redstone power while a cart is on them (and a second after). **Activator
+  rails** (iron, sticks, a redstone torch: 6), powered, throw a cart's rider
+  out.
+- **Minecarts** (five iron ingots in a U) and the **minecart with a chest** (a
+  minecart and a chest: right click opens its 27 slots): right click a rail to
+  put one down, right click it to get in, Shift to get out. Carts roll along
+  the rails as vanilla's: down slopes, boosted by powered rails, at most 8
+  blocks a second; with nobody in them they slow down quickly. Walk into an
+  empty one to push it; inside, hold W to nudge a cart that is nearly still.
+  Carts bump the carts ahead of them along; an empty cart rolling into a
+  creature picks it up. Hit one to break it (it drops itself, and its chest's
+  contents).
+- **Online:** everyone sees the boats and carts and who sits in them; two
+  players can share a boat; the driver steers it for everyone. Boats and carts
+  are saved with the world (a player who saved sitting in one is back in it).
+- *Not like vanilla:* players are pushed off boats and carts instead of
+  standing on them; a rider gets out on the spot when travelling to another
+  dimension (vehicles don't go through portals); a detector rail powers what
+  is beside it but not the block under it (without the redstone's optional
+  hook); no hopper, TNT or furnace minecarts.
 
 ### Items and tools
 
@@ -1122,6 +1237,55 @@ way round). A Bottle o' Enchanting thrown gives 3-11 experience.
 **Cauldron** (7 iron ingots): fill it with a water bucket; a glass bottle takes
 a third of it as a water bottle, a water bottle puts one back.
 
+### Chests and work blocks
+
+**Chests, barrels and shulker boxes.** Two chests placed side by side, facing
+the same way, join into a large chest of 54 slots (sneak to place a chest
+beside another without joining). Break one half and the other is a single
+chest again, keeping its own things. A barrel holds 27 like a chest. A shulker
+box (two shulker shells over a chest) keeps what it holds when broken: the box
+drops with its contents inside, and placing it puts them back. A shulker box
+can't go into another.
+
+**Smoker and blast furnace.** Furnaces that work twice as fast: the smoker
+cooks only food, the blast furnace smelts only ores, raw metals and iron or
+gold tools and armour. Crafted from a furnace with four logs, or with five
+iron ingots and three smooth stone.
+
+**Campfire.** Gives light 15 (the soul campfire 10). Right-click raw food onto
+it: up to four pieces cook in 30 seconds and pop off. Smoke rises from it,
+much higher over a hay bale (a signal fire). It burns whoever stands on it
+(not while sneaking). A shovel or a water bucket puts it out; flint and steel
+or a fire charge lights it again. Broken, it drops charcoal (the soul campfire
+soul soil).
+
+**Composter.** Right-click plant matter in (seeds, leaves, crops, flowers,
+bread...; each has vanilla's chance to raise the level). Full, it is ready a
+moment later; right-click to take the bone meal.
+
+**Grindstone.** Put an enchanted item in: it comes out without its
+enchantments, and you get some of the experience back. Put two of the same
+worn tool or armour in: they come out as one, repaired (their uses added, plus
+5%).
+
+**Stonecutter.** Put a stone block in, pick what to cut it into (slabs, two
+per block; stairs, walls, bricks, chiselled and polished blocks, pillars...),
+and take it: one block per cut.
+
+**Job blocks.** The lectern, fletching table, cartography table and loom are
+placeable (as decoration for now: the game has no books to read, maps or
+banners). Villages have the real job blocks: a composter by each farm, a
+lectern in the library, a smoker at the butcher's, a blast furnace at the
+armourer's, a smithing table at the toolsmith's, a grindstone at the
+blacksmith's, a loom at the shepherd's, a fletching table at the fletcher's,
+a stonecutter at the mason's, a barrel at the fisher's and a cauldron at the
+tannery.
+
+**Bell.** Right-click to ring it; everyone nearby hears it (online too).
+
+Online, all of these work for guests too: the host keeps every container's
+contents and what lies on each campfire.
+
 ### Mobs
 
 A Survival world has vanilla Minecraft's creatures instead of the Missions
@@ -1231,7 +1395,8 @@ world keeps its Overworld only: its UFOs, missions and jets live there.
   the Overworld). Lava flows three times faster in the Nether.
 - **Dying** in the Nether or the End brings you back to your bed or the
   world spawn in the Overworld (or to a charged respawn anchor in the
-  Nether); what you carried stays where you died, in that dimension.
+  Nether); what you carried stays where you died, in that dimension, and so
+  do the XP orbs your death dropped (they wait there for your return).
 - **Saves.** Each dimension keeps its own changes, chests, furnaces,
   brewing stands and signs (and its own dropped items while you play); a chest at the same place in two
   dimensions is two chests. The game remembers which dimension you were in
@@ -1242,20 +1407,20 @@ world keeps its Overworld only: its UFOs, missions and jets live there.
 
 ### The Nether
 
-**Getting there.** Build a frame of **obsidian** at least 4 wide and 5 high
-(2 x 3 inside; up to 23 x 23; the corners can be left out) and light the
-inside with **flint and steel** or a **fire charge** (any fire inside does
-it): it fills with a purple **nether portal**. Stand in it (see
-**Travelling** above): the screen swirls purple and you come out in the
-Nether, standing in a portal there (one is built for you if there is none
-near, on the nearest solid spot, else on a small obsidian platform). Walk
-back into it to go home to the portal you came from. Breaking any block of
-the frame puts the portal out. A portal 100 blocks away in the Nether comes
-out 800 blocks away at home, and since you come out at the portal nearest
-the matching spot, portals close together at home can share one in the
-Nether. **Ruined portals** stand here and there in the Overworld: broken
-frames with crying obsidian, netherrack and a chest of gold things; replace
-the crying obsidian with obsidian and light them.
+**Getting there.** Build a frame of **obsidian** at least 4 wide and 5 high (2
+x 3 inside; up to 23 x 23; the corners can be left out) and light the inside
+with **flint and steel** or a **fire charge** (any fire inside does it): it
+fills with a purple **nether portal**. Stand in it (see **Travelling** above):
+the screen swirls purple and you come out in the Nether, standing in a portal
+there (one is built for you if there is none near, on the nearest solid spot,
+else on a small obsidian platform). Walk back into it to go home to the portal
+you came from. Breaking any block of the frame puts the portal out. A frame
+can't be lit in the End. A portal 100 blocks away in the Nether comes out 800
+blocks away at home, and since you come out at the portal nearest the matching
+spot, portals close together at home can share one in the Nether. **Ruined
+portals** stand here and there in the Overworld: broken frames with crying
+obsidian, netherrack and a chest of gold things; replace the crying obsidian
+with obsidian and light them.
 
 **The land.** A huge cavern world under a bedrock roof, with a sea of lava at
 height 31 and no day, rain or water (water poured here boils away; a water
@@ -1381,7 +1546,7 @@ as in vanilla.
   blocks it opens and shoots slow **homing bullets** (4 damage and 10 seconds
   of **Levitation**: you float up, and fall when it ends). Hit a bullet to
   break it. Hurt below half, it may teleport. Drops shulker shells (one in
-  two). Shulkers are kept with the world.
+  two; two make a shulker box: see **Chests and work blocks**). Shulkers are kept with the world.
 - **Silverfish** (the stronghold's spawner): small and quick.
 - Fire and lava don't hurt the Nether's own creatures (ghasts, blazes,
   magma cubes, zombified piglins, wither skeletons, striders).
@@ -1432,10 +1597,10 @@ as in vanilla.
   with arrows or hit them: a crystal **explodes** (stand back), and the one
   that was healing the dragon hurts it. The caged ones need climbing or a
   good shot. Beds explode in the End: a classic way to hurt the dragon, and
-  yourself.
+  yourself. TNT hurts it too.
 - A **glass bottle** used in a cloud of breath gives **dragon's breath**.
-- When it dies the dragon rises in beams of light and bursts: **12,000
-  experience** the first time (500 after), the **exit portal opens** (step in
+- When it dies the dragon flies back over the exit portal, rises there in
+  beams of light and bursts: **12,000 experience** the first time (500 after), the **exit portal opens** (step in
   to go home, to your bed or the world spawn), the **dragon egg** sits on top
   the first time (punch it or right click it and it teleports away), and an
   **end gateway** appears at the edge of the island.
@@ -1459,7 +1624,8 @@ as in vanilla.
 - **Elytra:** wear it in the chest slot, then press **jump while falling** to
   spread it and glide; look down to dive and gain speed, up to climb a
   little (and slow down). Landing or water folds it. It wears out with
-  flight (432 seconds of it); flying into a wall fast hurts. There are no
+  flight only (432 seconds of it; hits don't wear it, and worn down it stops
+  working but never breaks); flying into a wall fast hurts. There are no
   fireworks yet to boost it.
 - **End blocks:** end stone and end stone bricks (stairs, slabs, wall),
   purpur blocks, pillars, stairs and slabs, **end rods** (lights you can
@@ -1562,9 +1728,10 @@ keeps running there (it just isn't drawn).
   the host's world; no missions, UFOs or mod weapons. Each player has their
   own hunger, effects, XP and bed (the host keeps a guest's between visits).
   XP orbs are your own: only the player who mined, killed, smelted, bred or
-  traded sees and picks them up. Everyone in the game must be asleep to skip
-  the night (the dead don't count): the screen says "1/2 players sleeping",
-  and the others see you lying in your bed. The host's computer runs every
+  traded sees and picks them up. Everyone in the Overworld must be asleep to
+  skip the night (the dead, and players in the Nether or the End, don't
+  count): the screen says "1/2 players sleeping", and the others see you
+  lying in your bed. The host's computer runs every
   creature: guests see them as they are (a sheep's colour and wool, babies, a
   creeper swelling, an enderman's block) and can shear, milk, feed, breed,
   tame and trade with them like the host (the host keeps each villager's
@@ -2043,16 +2210,18 @@ setting yourself and Auto turns off for good, keeping your settings; choose
   High's, finer and a little lower, so what lies in the grass stays in
   sight), and full resolution on high-DPI screens.
 
-On every preset you get animated water, moving lava and fire, light that
-glows through leaves, haze that thickens with distance, and low mist over
-water at sunrise and sunset. Caves are lit only by what is in them (torches,
-lava, glowing blocks): the sun and the moon never reach rock that can't see
-the sky (no glints on cave walls, no thin lines of light along their edges),
-and a cave's air holds no sky-coloured haze or mist. Under water, High and Ultra add light shafts from the surface, and
-every preset shows drifting particles. **Rain and snow** (Survival worlds)
-are drawn round the camera on Medium, High and Ultra (more drops on the
-higher presets); Low draws none (the sky still turns grey, and you still
-hear the rain).
+On every preset you get animated water, moving lava and fire, light that glows
+through leaves, haze that thickens with distance, and low mist over water at
+sunrise and sunset. Caves are lit only by what is in them (torches, lava,
+glowing blocks): the sun and the moon never reach rock that can't see the sky
+(no glints on cave walls, no thin lines of light along their edges), and a
+cave's air holds no sky-coloured haze or mist. A cave without any light is
+dark but faintly visible, as vanilla's light level 0, and the same by day and
+by night. Under water, High and Ultra add light shafts from the surface, and
+every preset shows drifting particles. **Rain and snow** (Survival worlds) are
+drawn round the camera on Medium, High and Ultra (more drops on the higher
+presets); Low draws none (the sky still turns grey, and you still hear the
+rain).
 
 **Settings > Performance** has one-click presets for different computers:
 
