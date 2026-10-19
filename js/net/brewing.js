@@ -116,7 +116,7 @@ export class BrewingSync {
     const players = this.mp.players;
     for (const r of players?.all?.() || players?.active?.() || []) {
       if ((r.dim | 0) !== code) continue;
-      const p = r.position;
+      const p = r.livePos || r.position; // (where they are in their own dimension: position only follows the ones in ours)
       if (p && Math.abs(p.x - x) < BREWING_NEAR_GUEST && Math.abs(p.z - z) < BREWING_NEAR_GUEST) return true;
     }
     return false;
