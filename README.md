@@ -1,19 +1,23 @@
-# UFO COMBAT
+# MINECLAUDE
 
-A procedurally generated voxel sandbox under alien attack, running entirely
-in the browser: no install, no build step, no accounts. There are three ways
-to play (see **Three ways to play** below). In **Missions**, the UFO war,
-you build and survive in a block world, then take on UFOs with a bow, guns,
-a railgun, a laser minigun, homing rockets, meteor airstrikes, two fighter
-jets (an F-22 and an F-16, with missiles, flares, radar and a real runway
-takeoff), a B-2 stealth bomber that carries the nuke and, late in the game,
-a flying saucer of your own (stolen from a guarded bunker if need be).
-**Survival** is normal Minecraft in a world of its own: crafting, smelting,
-mining, farming, hunger, experience, beds, redstone, enchanting, brewing,
-weather, and vanilla blocks, items, mobs, villagers, structures and terrain. **Creative** builds and flies with everything, in
-either kind of world. Play alone or with friends
-(peer-to-peer, up to 8 players, one shared world). Built from scratch with plain JavaScript and
+A procedurally generated voxel sandbox, running entirely in the browser: no
+install, no build step, no accounts. There are three ways to play (see
+**Three ways to play** below). **Survival**, the default, is normal Minecraft:
+crafting, smelting, mining, farming, hunger, experience, beds, redstone,
+enchanting, brewing, weather, the Nether and the End, and vanilla blocks,
+items, mobs, villagers, structures and terrain. **Creative** builds and flies
+with every block. **Missions** is the mods add-on, in a world of its own: the
+UFO war, where you build and survive in a block world, then take on UFOs with
+a bow, guns, a railgun, a laser minigun, homing rockets, meteor airstrikes,
+two fighter jets (an F-22 and an F-16, with missiles, flares, radar and a
+real runway takeoff), a B-2 stealth bomber that carries the nuke and, late in
+the game, a flying saucer of your own (stolen from a guarded bunker if need
+be). Play alone or with friends in every mode (peer-to-peer, up to 8 players,
+one shared world). Built from scratch with plain JavaScript and
 [Three.js](https://threejs.org/).
+
+(Before Round 12 the game was called UFO COMBAT: your saved worlds, settings
+and invite links keep working.)
 
 Everything is generated in code at runtime: the terrain, every block
 texture, item icon and mob skin, the models, and all the sound effects.
@@ -21,83 +25,118 @@ There are no image, model or audio files.
 
 ## Play
 
-Open the game (see **Running locally** below). The main menu flies slowly
-over your world at sunset while UFOs drift by. **Click one to shoot it**: a
-few hits and it blows up (the next one comes by sooner). The menu shows a
-live **FPS** counter; if it runs poorly it suggests a lower graphics preset.
-The default preset is **Medium** (render distance 25 chunks, master volume 30%); anything you choose is saved and always wins.
+Open the game (see **Running locally** below). The main menu has the
+**MINECLAUDE** logo (blocky letters, with a yellow splash line) and flies
+slowly over your world at sunset. For a **Survival** or **Creative** world it
+is a calm flight over the land; pick **Missions** and a **UFO flies in**
+(pick Survival again and it climbs away). **Click the UFO to shoot it**: a few
+hits and it blows up (the next one comes by sooner). The menu shows a live
+**FPS** counter. Graphics start on **Auto**: the best the game has (Ultra, 32
+chunks: the Max performance preset), stepped down a level at a time on its
+own while the frame rate in play stays under 40 FPS, until it runs smoothly;
+where it settles is remembered for the next time. Pick any preset or change
+any graphics or performance setting and Auto is off for good: your choice is
+saved and always wins (**Auto (best for this PC)** in Settings turns it back
+on). Master volume starts at 30%.
 
-Every screen (main menu, pause menu, settings, inventory, mods, missions, stats) shares one clean, dark glass style. **Fullscreen:** a small button
-appears in the top-right corner when the mouse is near it (it never sits over the game, and it is inert while you are playing with the mouse captured), and
-**F11** or **Alt+Enter** toggle it. In fullscreen, Chromium browsers (Chrome, Edge, Opera and friends) **lock the keyboard** (the Keyboard Lock API), so
-browser shortcuts like **Ctrl+W** (sprint), **Ctrl+R**, **Ctrl+S**, **Tab** and the **Esc** key reach the game and do not close, reload or interfere with
-the page (hold **Esc** to leave fullscreen then; a short **Esc** still opens the pause menu). Browsers without the Keyboard Lock API (Firefox, Safari) get
-plain fullscreen: the game still cancels the shortcuts a page is allowed to cancel (Ctrl+R, Ctrl+S, Ctrl+D, Ctrl+F, Ctrl+P, Alt+key, Tab), but a few
-(Ctrl+W, Ctrl+T, Ctrl+N) cannot be cancelled outside fullscreen: sprint (and boost a UFO) with a double-tap of `W` instead of `Ctrl+W` there; the browser also asks
-before closing the page while you play.
+Every screen (main menu, pause menu, settings, inventory, mods, missions,
+stats) shares one clean, dark glass style.
 
-The main menu (Round 8: square corners, a blue accent, no logo over the
-flyover) has three things:
+The main menu has:
 
-- **Play** enters the world (the last world you played is continued) the way
-  picked right under it, one of three cards:
-  - **Missions**: the UFO war (missions, loot, supply drops, vehicles, the mod
-    weapons): the game as it has always been.
-  - **Creative**: build with everything, fly, no damage, in this world.
-  - **Survival**: normal Minecraft (gather, craft, survive), in a world of its
-    own.
+- **Play**, which enters the world (the last world you played is continued)
+  the way picked right under it, one of three cards:
+  - **Survival** (the default; a new player's first world is a Survival
+    world): normal Minecraft (gather, craft, survive), no UFOs, missions or
+    mod weapons.
+  - **Creative**: build with every block, fly, no damage, in plain Minecraft
+    (a Survival world played in Creative).
+  - **Missions**: the mods add-on, in a world of its own: the UFO war
+    (missions, loot, supply drops, vehicles, the mod weapons). Its own
+    Creative, with every mod item and the call-ins, is in its pause menu
+    (**Game mode**).
 
-  **Missions** and **Survival** are **world types**: a world is one or the
-  other for good. Picking the card of the other type turns Play into
-  **Continue Survival world** (your last Survival world, where you left it) or
-  **New Survival world** (a fresh one; the same for Missions). The same card
-  shows the world's seed and type ("saved Missions world", "new Survival
-  world", "saved Creative world"...) and a small **+ New world** link: pick
-  **Missions**, **Survival** or **Creative** (a Missions world started in
-  Creative, with every block, item and call-in) and an optional seed (a
-  number, or any text). A seed you already have a world for continues that
-  world, in its own type.
-- **Multiplayer** hosts a game for your friends or joins theirs (see
-  **How to play with friends** below).
+  **Survival** and **Missions** are **world types**: a world is one or the
+  other for good. Picking a card of the other type turns Play into
+  **Continue Survival world** / **Continue Creative world** (your last
+  Survival world, where you left it, in that mode) or **New Survival world**
+  (a fresh one; the same for Missions). Press it and you are **straight in
+  that world**: the page reloads into it (a world is built as the page loads)
+  and the game starts at once, with a **Click to play** (the browser hands
+  the mouse to a page only after a click there); there is no second Play.
+  Reloading the page yourself, or a link you copy, shows the main menu as
+  always. The same card shows the world's seed and type ("saved Missions
+  world", "new Survival world", "saved Survival world, in Creative"...) and
+  a small **+ New world** link: pick **Survival**, **Creative** (a Survival
+  world started in Creative) or **Missions**, and an optional seed (a number,
+  or any text). A seed you already have a world for continues that world, in
+  its own type and mode.
+- **Multiplayer** hosts a game for your friends in any mode, or joins theirs
+  (see **How to play with friends** below).
 - **Settings** has every option, in tabs (Graphics, Performance, Controls,
   Audio, Gameplay, Weapons, Mobs, UFOs, Vehicles), each with **Reset to
-  defaults**; the **Mods** switch (see below) and the **key list** are
-  buttons at its top, and the graphics preset lives in its Graphics tab.
+  defaults**; the **Missions mods** switch (see below) and the **key list**
+  are buttons at its top, and the graphics preset and **Fullscreen** live in
+  its Graphics tab.
+- **Fullscreen** (next to Settings; **Leave fullscreen** while it is on).
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
-Settings, Missions (in a Missions world), Stats, Multiplayer, Copy world
-link, Save & main menu, and the **Game mode**; in Creative in a Missions
-world also the **call-ins**: F-22, F-16, B-2 or a random UFO, and you are
-straight in the air at the controls of it).
+Settings, Fullscreen, Missions (in a Missions world), Stats, Multiplayer, Copy
+world link, Save & main menu, and the **Game mode**; in Creative in a
+Missions world also the **call-ins**: F-22, F-16, B-2 or a random UFO, and
+you are straight in the air at the controls of it).
+
+**Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
+fullscreen: with it on, the game goes fullscreen as you enter it (Play,
+Resume, Click to play; a web page can only go fullscreen on a click). The
+**Fullscreen** buttons on the main and pause menus, **F11**, **Alt+Enter**
+and the small corner button (top right, when the mouse is near it; it never
+sits over the game) switch it too, and the setting follows them. In
+fullscreen, Chromium browsers (Chrome, Edge, Opera and friends) **lock the
+keyboard** (the Keyboard Lock API): browser shortcuts like **Ctrl+W**
+(sprint), **Ctrl+R**, **Ctrl+T**, **Ctrl+N**, **Ctrl+S**, **Ctrl+Tab**,
+**Tab** and **Esc** reach the game and cannot close, reload or leave the page,
+in the menus too (text fields keep copy and paste). Hold **Esc** to leave
+fullscreen then; a short **Esc** still opens the pause menu. **Only
+fullscreen fully stops Ctrl+W**: outside it (and in Firefox and Safari, which
+have no Keyboard Lock) the game cancels the shortcuts a page is allowed to
+cancel (Ctrl+R, Ctrl+S, Ctrl+D, Ctrl+F, Ctrl+P, Alt+key, Tab...), but
+browsers never let a page cancel Ctrl+W, Ctrl+T or Ctrl+N: the browser asks
+"leave the page?" before closing it while you play (your world is saved
+either way), and you can sprint (and boost a UFO) with a double-tap of `W`
+instead of `Ctrl+W`.
 
 ### Three ways to play
 
-- **Missions:** you start with basic gear only (a stone sword, a stone
-  pickaxe and five apples) at 17:50 (the golden hour before sunset), and a
-  **campaign** of 26 to 30 **missions** drawn afresh for every new Missions
-  game from a pool of 34 (see **Missions** below): it starts with a skeleton and its bow,
-  goes through jets, a meteor storm and a mothership boss, abductor ships
-  hunting you, crash sites and radio beacons to hold, then the aliens'
-  counterattack (fighter wings, abductors, a titan, a night of swarms, a
-  fortress), and ends with the Armada and its flagship: win that and the
-  war is won (a victory screen; the game goes on). There is no crafting, and
-  missions pay in apples and golden apples only: weapons come from the
-  places that make sense (the skeleton's bow, standard weapons in **supply
-  crates** that drop by parachute with orange smoke, alien weapons from
-  alien leaders). The fighter jets (parked at airports) join with "Take to
-  the air", alien ships with "Salvage". Watch your hearts: falls, drowning,
-  zombies, aliens and your own grenades and rockets can all kill you.
-- **Survival:** normal Minecraft (see **Survival (vanilla Minecraft)**
-  below). You start with **nothing** (no starter kit), and the world is
+- **Survival** (the default): normal Minecraft (see **Survival (vanilla
+  Minecraft)** below), with the Nether and the End (see **The Nether and the
+  End**). You start with **nothing** (no starter kit), and the world is
   vanilla: **Mods are off for that world** (no guns, mod explosives, UFOs,
   aliens or vehicles; vanilla's TNT stays; your own Mods setting is kept for
-  your Missions worlds, and the Mods switch shows locked there), no missions,
-  supply crates, call-ins or airport aircraft and guards, no Missions button
-  in the pause menu, and its land has **no airports or cities** (villages
-  stay). Difficulty and Peaceful work as everywhere.
+  your Missions worlds, and the Missions mods switch shows locked there), no
+  missions, supply crates, call-ins or airport aircraft and guards, no
+  Missions button in the pause menu, and its land has **no airports or
+  cities** (villages stay). Difficulty and Peaceful work as everywhere.
 - **Creative:** every block and item in the tabbed **E** palette, instant
-  mining, flight, and no damage (in a Missions world also every weapon in
-  your hotbar and the pause menu's call-ins).
+  mining, flight, and no damage. The main menu's Creative card plays a
+  Survival world (plain Minecraft); a Missions world has its own Creative in
+  its pause menu, with every weapon in your hotbar and the call-ins too.
+- **Missions** (the mods add-on): you start with basic gear only (a stone
+  sword, a stone pickaxe and five apples) at 17:50 (the golden hour before
+  sunset), and a **campaign** of 26 to 30 **missions** drawn afresh for every
+  new Missions game from a pool of 34 (see **Missions** below): it starts
+  with a skeleton and its bow, goes through jets, a meteor storm and a
+  mothership boss, abductor ships hunting you, crash sites and radio beacons
+  to hold, then the aliens' counterattack (fighter wings, abductors, a titan,
+  a night of swarms, a fortress), and ends with the Armada and its flagship:
+  win that and the war is won (a victory screen; the game goes on). There is
+  no crafting, and missions pay in apples and golden apples only: weapons
+  come from the places that make sense (the skeleton's bow, standard weapons
+  in **supply crates** that drop by parachute with orange smoke, alien
+  weapons from alien leaders). The fighter jets (parked at airports) join
+  with "Take to the air", alien ships with "Salvage". Watch your hearts:
+  falls, drowning, zombies, aliens and your own grenades and rockets can all
+  kill you.
 
 You can switch between the world's own game and Creative at any time in the
 pause menu (**Game mode**: Missions or Creative in a Missions world, Survival
@@ -106,7 +145,9 @@ in Creative stays a Survival world, and the switch never changes your
 inventory (what you took from the Creative palette stays, and nothing is added
 or taken away). Each world remembers its type, its mode, your position,
 inventory and health; a world saved before Round 11 is a Missions world. A
-new world starts on flat, open, dry ground.
+new world starts on flat, open, dry ground. A world link (`?seed=N`)
+without a type still opens a Missions world, as it always did; a new player's
+first world (no link, nothing saved) is a Survival world.
 
 ### Controls
 
@@ -116,35 +157,51 @@ new world starts on flat, open, dry ground.
 | Look around | Mouse |
 | Jump / swim up | `Space` |
 | Climb a ladder or vine | Walk into it, or `Space`; `Shift` holds you in place |
-| Sprint (in a Survival world not with 6 food points or less) | `Ctrl` + `W`, or double-tap `W` |
+| Sprint (in a Survival world not with 6 food points or less; the view widens, and a sprint-jump carries you further, as in Minecraft) | `Ctrl` + `W`, or double-tap `W` |
 | Sneak (slow, won't walk off edges; in bed: get up) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
 | Place a block / use / eat or drink (hold) / fire the weapon in hand | Right click |
-| Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball, ender pearl, splash potion or bottle o' enchanting, fill or pour a bucket, fill a glass bottle at water or a cauldron, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire or TNT with flint and steel | Right click |
+| Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball, ender pearl, eye of ender, splash potion or bottle o' enchanting, fill or pour a bucket, fill a glass bottle at water or a cauldron, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire, TNT or a nether portal with flint and steel or a fire charge, put an eye of ender in an end portal frame, charge a respawn anchor with glowstone, turn diamond gear into netherite at a smithing table | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
 | Open a chest (whatever is in your hand) | Right click |
 | Open a crafting table (Survival worlds), a furnace, an enchanting table, an anvil or a brewing stand (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
 | Open or close a door, trapdoor or fence gate (not an iron one) | Right click |
 | Sleep in a bed / set your spawn point (Survival worlds) | Right click (on the bed) |
 | Flip a lever, press a button, set a repeater's delay, tune a note block, edit a sign, eat a slice of cake, plant in a flower pot or take the plant back | Right click (on it) |
-| Trade with a villager, milk a cow (empty bucket), shear or dye a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand (Survival worlds) | Right click (on it, with the item) |
+| Trade with a villager, milk a cow (empty bucket), shear or dye a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand, barter with a piglin (a gold ingot) (Survival worlds) | Right click (on it, with the item) |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Select hotbar slot | `1`-`9` or scroll wheel |
 | Inventory (in Creative: every block, tool and item, and in a Missions world every weapon, in tabs; in a Survival world with a 2x2 crafting grid) | `E` |
 | Drop the held item (whole stack with `Ctrl`) | `Q` |
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
+| Glide with an elytra (worn in the chest slot) | `Space` while falling |
 | Pick the targeted block (Creative) | Middle click |
 | Pause menu | `Esc` (also steps back out of any menu screen) |
 | Board / leave a vehicle (Mods on) | `F` |
 | Swap the item in hand with the off hand (Survival worlds) | `F` |
 | Stats and controls of the vehicle you are in | `I` |
 | Fullscreen (and the keyboard lock in Chromium) | `F11` or `Alt+Enter` |
-| Hide the HUD / debug info / camera view | `F1` / `F3` / `F5` |
+| Hide the HUD / debug info | `F1` / `F3` |
+| Camera: first person, third person behind, third person in front (facing you) | `F5` |
+| Go to the next dimension (Creative in a Survival world, for testing: Overworld, Nether, End) | `F7` |
 
 Pressing both mouse buttons together never mines, places or fires: a single
 press waits a few hundredths of a second to see whether the other button
 follows. The zoom strength is in **Settings > Controls**.
+
+**Third person** (`F5`, as in Minecraft): the first press puts the camera
+4 blocks behind you, the second in front of you looking back, the third
+back at your eyes. The camera comes in when a wall or the ground is in the
+way (it never looks through blocks). You see your own body: it walks,
+sprints, sneaks (lower, arms hanging), swings at what you mine or hit,
+eats and drinks (the hand at the mouth), draws the bow, raises the shield,
+holds the item in hand and the off hand's, wears your armor (each
+material its colour), flashes red when hurt and falls over when you die.
+The crosshair hides in the front view (it would point nowhere); behind
+you it stays (the camera sits on your line of sight, so it still aims
+true: vanilla hides it there too, but the Missions world's guns need it).
+A scope, the binoculars and a bed always look from your eyes.
 
 **In the inventory screen:** left click picks up, puts down or swaps a stack;
 right click takes half or places one; `Shift` + click moves a stack between
@@ -483,8 +540,11 @@ items, drops, bow and chests are unchanged.
 A Survival world's day is vanilla's **20 minutes** (a Missions world's stays
 10), and a new one starts at 6:00 in the morning.
 
-Not in this game (yet): the Nether, boats, minecarts and rails, maps and item
-frames, the campfire, smoker and blast furnace, double chests.
+A Survival world has the **Nether** and the **End** too (see **The Nether and
+the End** below). Not in this game (yet): boats, minecarts and rails, maps
+and item frames, the campfire, smoker and blast furnace, double chests,
+shulker boxes, bamboo, the bell, and job-site blocks like lecterns and
+looms.
 
 ### Crafting and smelting
 
@@ -553,12 +613,19 @@ blocks tall, the sea at 24):
   mushrooms in the shade and in caves, and the flowers of each biome (tulips,
   daisies, cornflowers, alliums, bluets, blue orchids in swamps, lilies of
   the valley).
-- **Trees:** oaks, birches and spruces as before, plus the jungle's tall
-  vine-hung jungle trees (vines fall when their trunk is cut) and giant
-  jungle trees, the savanna's bent acacias and the dark forest's dark oaks,
-  each with its own wood and leaves.
-- **No airports or cities;** the villages have vanilla touches (see **The
-  world**).
+- **Trees:** oaks, birches and spruces as before, plus the savanna's bent
+  acacias and the dark forest's dark oaks, each with its own wood and leaves.
+- **Jungles** as vanilla's: thick with trees and hung with vines. Giant jungle
+  trees (a 2x2 trunk 10 to 31 blocks tall, branches ending in tufts of
+  leaves, a wide flat canopy on top), tall jungle trees with cocoa pods,
+  jungle bushes (a log in a mound of leaves) all over the floor, ferns and
+  grass, melon patches, and vines up the trunks and hanging from the leaves
+  (they fall when their trunk is cut). Toward a jungle's edge it thins out (no
+  giants there). Parrots fly in the canopy. Jungles are about twice as common
+  as before: about one stretch of land in twelve, mostly within a kilometre
+  or two of the start. (No bamboo: the game has none yet.)
+- **No airports or cities;** villages, temples and the other structures are
+  vanilla's (see **Structures**).
 
 ### Structures
 
@@ -574,13 +641,54 @@ blocks tall, the sea at 24):
   with cobwebs round a spider spawner. Now and then a chest stands by a
   corridor's wall (golden apples, an iron pickaxe, ingots, redstone, lapis,
   diamonds, coal, bread, seeds, torches).
-- **Desert temples:** stepped sandstone pyramids with two towers, in the
-  deserts (vanilla's spacing: a few hundred blocks apart at most where the
-  desert is wide). Under the blue terracotta in the middle of the floor a
-  shaft drops 11 blocks into the hidden room: four chests (diamonds, iron,
-  gold, emeralds, bones, spider eyes, rotten flesh, golden apples...), and
-  nine TNT under the pressure plate in its middle. Dig down carefully.
+- **Desert temples:** stepped sandstone pyramids in the deserts (vanilla's
+  spacing: a few hundred blocks apart at most where the desert is wide), with
+  two hollow towers at the front (a doorway into the hall, capped with
+  stairs), the blue-eyed orange terracotta patterns on them, an entrance
+  block framed in cut sandstone, and four pillars in the hall. Under the blue
+  terracotta in the middle of the floor a shaft drops 11 blocks into the
+  hidden room: four chests in alcoves (diamonds, iron, gold, emeralds, bones,
+  spider eyes, rotten flesh, golden apples...), and nine TNT under the
+  pressure plate in its middle. Dig down carefully.
+- **Jungle temples:** mossy cobblestone temples in the jungles, overgrown with
+  vines: a hall with stairs up to a second floor and a terrace, and stairs
+  down to the dark basement. There, three levers on the wall of a hallway:
+  the right one turns off a hidden redstone torch and two sticky pistons pull
+  a door aside, opening a little room with a chest; the other two do nothing
+  (vanilla's lever puzzle, simpler: one right lever instead of a sequence).
+  A second chest waits at the end of a narrow hallway (vanilla's tripwire and
+  arrow trap are left out: the game has no tripwire or dispensers). The
+  chests: diamonds, iron, gold, emeralds, bones, rotten flesh and sometimes an
+  enchanted book.
+- **Villages** in the plains and meadows, deserts, savannas, taigas and snowy
+  plains, each in its own style (oak and cobblestone; sandstone with flat
+  roofs and coloured terracotta; acacia; spruce, mossy cobblestone and
+  lanterns; spruce and white walls), as vanilla's: a **well** in the middle of a
+  square, **streets** of dirt path (smooth sandstone in the desert) branching
+  out over the land as it lies, with planks where they cross water, and along
+  them **houses** facing the street, each standing level on a foundation at
+  its street's height. Small, medium and big houses with beds, a crafting
+  table and a chest; **farms** (wheat, carrots, potatoes or beetroots by a
+  water channel); **animal pens**; a **library** lined with bookshelves; a
+  **church** with a tower and a brewing stand on its altar; a **blacksmith**
+  (furnaces, an anvil and a chest of weapons and iron); and the armorer's,
+  toolsmith's, butcher's, fletcher's, shepherd's, mason's and fisher's
+  houses and the tannery, each with its trade's block. **Lamp posts** (a
+  black wool lamp with four torches, or a lantern) light the streets; hay
+  bales lie about. Each house's **chest** holds vanilla's loot for it: bread,
+  potatoes, apples, emeralds, saplings in the houses (cactus and dead bushes
+  in the desert, snowballs in the snowy ones, spruce logs in the taiga); iron,
+  diamonds, iron tools and armour, obsidian at the blacksmith's; wool and
+  shears at the shepherd's; meat at the butcher's; fish at the fisher's;
+  leather armour at the tannery; redstone and lapis at the church.
+  (The trades' blocks the game lacks have stand-ins: bookshelves for the
+  lectern, a furnace for the smoker and the blast furnace, an anvil for the
+  grindstone, a crafting table for the smithing and fletching tables, wool
+  for the loom, smooth stone for the stonecutter, a hay bale by each farm
+  for the composter. No bells.)
 - **Desert wells:** a little sandstone well with a roof, very rarely.
+- **Strongholds** (deep underground, with the End's portal) and **ruined
+  portals** (broken nether portal frames): see **The Nether and the End**.
 - **Monster spawners** work as in vanilla: within 16 blocks of a player, one
   spawns up to 4 of its creature every 10-40 seconds around itself (4 blocks
   across, 1 up or down), in light of 11 or less, and stops while 6 of them
@@ -668,8 +776,10 @@ died; the rest is lost.
   thunderstorm, to sleep: not with monsters within 8 blocks ("You may not
   rest now; there are monsters nearby"). Asleep, the screen darkens; after 5 seconds the night is
   skipped to the morning. `Shift` gets you up (so does being hit).
-- **Dying** shows the **NOOB!** screen and drops everything where you died,
-  as in Missions. You respawn next to your bed, with full food; if the bed was
+- **Dying** shows the **NOOB!** screen (with your **score**, the experience
+  you collected, as Minecraft's) and drops everything where you died, as in
+  Missions. You respawn next to your bed (or a charged respawn anchor in the
+  Nether: see **The Nether and the End**), with full food; if the bed was
   broken or blocked in, at the world spawn ("Your home bed was missing or
   obstructed"). Your experience is lost (some of it drops as orbs: see
   **Experience**).
@@ -701,23 +811,33 @@ died; the rest is lost.
 ### Lava, water, fire and other dangers
 
 - **Lava** fills the bottom of the caves (y 10 and below), and now and then a
-  lava pool lies in the open. Lava glows, burns and sets fire to wood, leaves
-  and grass near it. It flows 3 blocks over flat ground, slowly (a block every
-  1.5 s), and falls into holes. Water on a lava source makes **obsidian**, on
-  flowing lava **cobblestone**; lava pouring onto water makes **stone**.
-  Water flows 7 blocks (4 in a Missions world).
-- **Fire** (flint and steel, lava, lightning) spreads to planks, logs, leaves, wool,
-  hay, grass and flowers, burns them away and goes out once nothing is left.
-  Punch it to put it out. Rain puts it out.
+  lava pool lies in the open. Lava glows (it lights itself, day or night, and
+  everything near it), and its surface moves like water's: a pool churns
+  slowly, flowing lava slides downhill along its flow and pours down its
+  sides. It burns and sets fire to wood, leaves and grass near it. It flows 3
+  blocks over flat ground, slowly (a block every 1.5 s; three times faster in
+  the Nether), and falls into holes. Water on a lava source makes
+  **obsidian**, on flowing lava **cobblestone**; lava pouring onto water
+  makes **stone**. Water flows 7 blocks (4 in a Missions world).
+- **Fire** (flint and steel, a fire charge, lava, lightning) burns with moving
+  flames (as vanilla's, 20 frames a second), spreads to planks, logs, leaves,
+  wool, hay, grass and flowers, burns them away and goes out once nothing is
+  left. Punch it to put it out. Rain puts it out.
+- A **magma block** burns the feet of whoever stands on it (not sneaking);
+  **soul fire** is the blue fire of soul sand; fire on netherrack never goes
+  out.
 - **Getting hurt:** lava burns (2 hearts every half second) and sets you on
   fire for 15 s, fire for 8 s (half a heart a second while burning, the
   flames show on screen); water puts you out. A **cactus** pricks (half a
-  heart every half second you touch it), a block at your eyes
-  **suffocates**, and your breath lasts **15 seconds** under water (10
+  heart every half second you touch it: walking into it, standing or
+  landing on it, jumping into one overhead; in a Missions world too, never
+  in Creative; creatures too) and destroys items that touch it. A block at
+  your eyes **suffocates**, and your breath lasts **15 seconds** under water (10
   bubbles). Falls hurt as before (a half-heart a block beyond 3); a hay bale
   takes 80% of it, a bed half. Armor helps against lava, fire, cactus and
   creatures, not against falls, drowning, burning, hunger, suffocation or a
-  witch's potions.
+  witch's potions. The view tilts away from a blow (as Minecraft's hurt tilt:
+  toward where it came from, a roll for a hurt from nowhere).
 
 ### Building blocks
 
@@ -726,7 +846,7 @@ Every vanilla building block, with vanilla recipes (crafting table or the
 both world types).
 
 - **Wood:** planks of six woods (oak, spruce, birch, jungle, acacia, dark
-  oak), each with its **stairs** (6 planks: 4), **slab** (3 planks: 6),
+  oak; the Nether's crimson and warped: see **The Nether**), each with its **stairs** (6 planks: 4), **slab** (3 planks: 6),
   **fence** (4 planks and 2 sticks: 3) and **fence gate** (2 planks and 4
   sticks). Oak, spruce and birch **doors** (6 planks: 3), the oak
   **trapdoor** (6 oak planks: 2), the **ladder** (7 sticks: 3), the
@@ -852,8 +972,8 @@ Creative can get the pieces).
 - **Repeater** (2 redstone torches, a redstone dust and 3 stone): carries
   power one way, back to front, at full strength, after 1-4 ticks (0.1 s
   each; right click sets the delay, the second torch moves).
-- **What power does:** a **redstone lamp** (4 redstone round a torch, as
-  long as the game has no glowstone; light 15) lights; **doors**,
+- **What power does:** a **redstone lamp** (4 redstone round a glowstone
+  block, as vanilla; light 15) lights; **doors**,
   **trapdoors** and **fence gates** open (the iron ones only this way) and
   close again when the power goes; a **piston** (3 planks, 4 cobblestone,
   an iron ingot and a redstone) pushes up to 12 blocks in front of it
@@ -920,10 +1040,18 @@ A Survival world has the classic game's items, with its numbers:
   a bow and a raised shield slow you to a walk, as vanilla. Flint and steel,
   a fishing rod and a shield wear only by their own use, not by breaking
   blocks or hitting.
-- **Village chests** hold the classic village loot: bread, apples, potatoes,
-  emeralds, iron and gold ingots, now and then diamonds, iron tools and armor
-  (a smith's), wool and shears (a shepherd's), fish (a fisherman's), and so
-  on.
+- **Village chests** hold vanilla's loot for their house (see
+  **Structures**): bread, apples, potatoes and emeralds in the houses, iron,
+  diamonds and iron gear at the blacksmith's, wool and shears at the
+  shepherd's, fish at the fisher's, and so on.
+- **Picking items up** works as in Minecraft: walk within about a block
+  and a half of an item (a block beside your body, half a block above or
+  below it) and it flies into your inventory, even sprinting past it. A
+  freshly dropped item waits half a second, one you throw (`Q`, or from
+  the inventory) 2 seconds, before anyone can take it. Online the host
+  gives each item to the first player who reaches it, and everyone sees
+  it fly to them. (In a Missions world items still roll toward you from
+  a little further off.)
 
 ### Enchanting, anvils and brewing
 
@@ -955,32 +1083,36 @@ in levels (vanilla's: it grows each time an item goes through an anvil;
 "Too Expensive!" from 40). The anvil falls like sand and wears out with use:
 chipped, damaged, then it breaks.
 
-**Brewing stand** (3 cobblestone and an iron ingot: there is no Nether, so no
-blaze rod). It needs no fuel. Put water bottles (a glass bottle right-clicked on
-water, or on a cauldron) in the three bottle slots and an ingredient on top; it
-brews in 20 seconds and acts on every bottle.
+**Brewing stand** (a blaze rod over 3 cobblestone or blackstone). Its fuel is
+**blaze powder** (left slot): one powder lasts 20 brews. Put water bottles (a
+glass bottle right-clicked on water, or on a cauldron) in the three bottle
+slots and an ingredient on top; each brew takes 20 seconds and acts on every
+bottle.
 
-| Ingredient (on a water bottle) | Potion |
+First make the base: **nether wart** on a water bottle gives an **Awkward
+Potion** (glowstone dust gives a Thick Potion and redstone or most other
+ingredients a Mundane Potion: they do nothing). Then:
+
+| Ingredient (on an Awkward Potion) | Potion |
 | --- | --- |
 | Sugar | Swiftness |
 | Spider eye | Poison |
 | Glistering melon slice (melon slice + 8 gold nuggets) | Healing |
 | Golden carrot | Night Vision |
-| Golden apple | Regeneration |
-| Ender pearl | Strength |
-| Slimeball | Fire Resistance |
-| Raw salmon | Water Breathing |
-| Fermented spider eye (spider eye, brown mushroom, sugar) | Weakness |
+| Ghast tear | Regeneration |
+| Blaze powder | Strength |
+| Magma cream (blaze powder + slimeball) | Fire Resistance |
+| Raw salmon (the pufferfish isn't in the game) | Water Breathing |
 
-Then: redstone makes a potion last longer, a lumen crystal makes it stronger
-(level II), a fermented spider eye turns Healing and Poison into Harming,
-Swiftness into Slowness and Night Vision into Invisibility, and gunpowder makes
-any potion a splash potion. (No Nether, so a few ingredients stand in for
-Nether ones: the golden apple for the ghast tear, the ender pearl for blaze
-powder, the slimeball for magma cream, raw salmon for the pufferfish, the lumen
-crystal for glowstone; and there is no awkward potion: the ingredients go
-straight onto a water bottle. Lumen crystals grow only in a Missions world's
-caves, so in a Survival world they come from Creative.)
+A fermented spider eye (spider eye, brown mushroom, sugar) on a water bottle
+makes Weakness. Then: redstone makes a potion last longer, glowstone dust
+makes it stronger (level II), a fermented spider eye turns Healing and Poison
+into Harming, Swiftness into Slowness and Night Vision into Invisibility, and
+gunpowder makes any potion a splash potion. (Older worlds' potions brewed
+with Round 11's stand-ins stay as they are; an old stand's stand-in
+ingredient stays in its slot until you take it out.) Nether wart, blaze rods,
+ghast tears and glowstone come from the Nether (see **The Nether and the
+End**).
 
 Drink a potion by holding right click (you get the bottle back). Throw a splash
 potion with right click: it acts on everyone within 4 blocks (less the farther
@@ -1036,13 +1168,22 @@ world's (no fluffalos, hoplets, mossbacks or butterflies there):
   when you get far ahead), fights whatever hurts you and whatever you hit
   (never a creeper), heals with meat and, healthy, breeds with meat too (the
   pups are yours as well).
-- **Spawn eggs** (Creative): one for each of these creatures (the villager
-  and the iron golem too); right click a block to make it there.
+- **Spawn eggs** (Creative): one for each of these creatures and for the
+  Nether's and the End's (the villager and the iron golem too); right click
+  a block to make it there.
+- The Nether's and the End's own creatures (ghasts, piglins, blazes,
+  shulkers and the rest) are in **The Nether's and the End's creatures**
+  below.
 
 (Differences from vanilla, kept on purpose: no drowned, husks, strays or cave
-spiders yet; mobs spawn one at a time, not in packs; the night's monster cap
-is 20 per player, which in the area the game keeps loaded is as busy as
-vanilla's 70.)
+spiders yet; the Overworld's mobs spawn one at a time, not in packs (the
+Nether's and the End's come in vanilla's groups); the monster cap is 20 per
+player (24 in the End), which in the area the game keeps loaded is as busy
+as vanilla's 70; piglins fight with golden swords only (no crossbows yet) and
+don't pick up gold you drop (give it with a right click), don't get angry at
+opened chests or mined gold, and there are no piglin brutes; silverfish
+don't hide in stone (no infested blocks yet); striders can't be ridden;
+nether biomes are read in two dimensions, not three.)
 
 ### Villagers and trading
 
@@ -1055,6 +1196,9 @@ vanilla's 70.)
   wheat, a cleric for 32 rotten flesh, an armorer sells iron armor for
   emeralds... Each offer has a stock that comes back now and then. (Nitwits,
   in green, don't trade.) Trading gives experience.
+  A village has a villager for each bed (up to ten about at once), and one
+  living in a trade's house has that trade (the librarian in the library,
+  the cleric in the church...); the farms find farmers among the others.
 - An **iron golem** guards each village: it fights every monster near it
   (not creepers) and anyone who hurts a villager.
 
@@ -1063,6 +1207,264 @@ experience of their own and offer the trades of their first three levels at
 once, at fixed prices. A village's villagers and its iron golem stay where
 they are and are saved with the world, professions and trades too; a killed
 golem is replaced after 5 to 10 minutes.)
+
+## The Nether and the End
+
+A Survival world has three dimensions, as in Minecraft: the **Overworld**,
+the **Nether** and the **End** (Creative in a Survival world too). A Missions
+world keeps its Overworld only: its UFOs, missions and jets live there.
+
+- **Travelling.** Standing in a nether portal for 4 seconds (at once in
+  Creative) takes you to the other side: the Nether is 8 times smaller, so a
+  step there is 8 blocks in the Overworld. You arrive in the portal nearest
+  the matching spot (within 128 blocks in the Overworld, 16 in the Nether),
+  or a new one is made for you. Step out of the portal before using it
+  again. The End's portal (in a stronghold: see **Finding the End**) takes
+  you at once to a small obsidian platform
+  near the End's island; its exit portal brings you back to your bed (or the
+  world spawn). While the new dimension's ground loads you wait on an
+  "Entering the Nether" screen.
+- **What is different there.** The Nether has no sun, moon, stars, weather
+  or day: a red haze, a bedrock roof, a lava sea and dim light. Water poured
+  there boils away. The End has no day or weather either, only the void
+  under its islands: fall off and you die. Beds explode in both (use them in
+  the Overworld). Lava flows three times faster in the Nether.
+- **Dying** in the Nether or the End brings you back to your bed or the
+  world spawn in the Overworld (or to a charged respawn anchor in the
+  Nether); what you carried stays where you died, in that dimension.
+- **Saves.** Each dimension keeps its own changes, chests, furnaces,
+  brewing stands and signs (and its own dropped items while you play); a chest at the same place in two
+  dimensions is two chests. The game remembers which dimension you were in
+  and starts you there. Worlds from before work as before: they are the
+  Overworld.
+- **Testing in Creative:** **F7** goes Overworld -> Nether -> End ->
+  Overworld.
+
+### The Nether
+
+**Getting there.** Build a frame of **obsidian** at least 4 wide and 5 high
+(2 x 3 inside; up to 23 x 23; the corners can be left out) and light the
+inside with **flint and steel** or a **fire charge** (any fire inside does
+it): it fills with a purple **nether portal**. Stand in it (see
+**Travelling** above): the screen swirls purple and you come out in the
+Nether, standing in a portal there (one is built for you if there is none
+near, on the nearest solid spot, else on a small obsidian platform). Walk
+back into it to go home to the portal you came from. Breaking any block of
+the frame puts the portal out. A portal 100 blocks away in the Nether comes
+out 800 blocks away at home, and since you come out at the portal nearest
+the matching spot, portals close together at home can share one in the
+Nether. **Ruined portals** stand here and there in the Overworld: broken
+frames with crying obsidian, netherrack and a chest of gold things; replace
+the crying obsidian with obsidian and light them.
+
+**The land.** A huge cavern world under a bedrock roof, with a sea of lava at
+height 31 and no day, rain or water (water poured here boils away; a water
+bucket just empties). Five biomes, each with its own haze:
+
+- **Nether wastes** (dark red): netherrack, glowstone hanging from the roof,
+  nether quartz and gold ores, lava falling from the walls, fires that never
+  go out, soul sand and gravel on the lava's shores.
+- **Soul sand valleys** (cyan-grey haze, ash in the air): soul sand and soul
+  soil, basalt pillars, bone fossils, blue soul fire.
+- **Crimson forests** (red, crimson spores): crimson nylium, huge crimson
+  fungi with shroomlights and weeping vines, roots and fungi on the ground.
+- **Warped forests** (dark purple haze, warped spores): the same in teal,
+  twisting vines, nether sprouts.
+- **Basalt deltas** (grey haze, white ash): basalt and blackstone, basalt
+  columns, pools of lava rimmed with magma.
+
+**Structures.**
+
+- **Nether fortresses**: long nether brick bridges on tall pillars,
+  crossings and enclosed corridors; **blaze spawners** on raised thrones;
+  rooms of soul sand with **nether wart**; chests (diamonds, gold, iron,
+  golden armor, nether wart, obsidian...). Blazes and wither skeletons spawn
+  inside.
+- **Bastion remnants**: ruined keeps of polished blackstone bricks with gold
+  blocks and gilded blackstone, a lava pit, chests on the ramparts and a
+  treasure chest at the top (netherite, ancient debris, diamond gear, gold,
+  and always a **Netherite Upgrade**). Piglins live there.
+
+**Blocks and what they do.**
+
+- **Netherrack**: fire on it (or on a magma block) burns forever, in the
+  Overworld too.
+- **Soul sand** slows whoever walks on it; **soul soil** doesn't. Fire lit on
+  either is blue **soul fire**.
+- **Magma blocks** burn your feet unless you sneak (or have Fire
+  Resistance).
+- **Glowstone** gives 2-4 glowstone dust (4 make the block again; Silk Touch
+  keeps it whole; Fortune adds, up to 4).
+- **Nether quartz ore** gives quartz (and experience), **nether gold ore**
+  2-6 gold nuggets (both smelt too).
+- **Ancient debris**, deep down (mostly at heights 8-24) and never in the
+  open: diamond pickaxe, immune to explosions. Smelt it into **netherite
+  scrap**; 4 scrap + 4 gold ingots make a **netherite ingot**.
+- **Netherite gear**: at a **smithing table** (2 iron ingots over 4 planks),
+  right-click holding a diamond tool or piece of armor with a Netherite
+  Upgrade and a netherite ingot in your inventory: it becomes netherite,
+  enchantments and wear kept (the strongest tier: sword 8 damage, 2031 uses;
+  armor 3/8/6/3). A Netherite Upgrade can be copied: 7 diamonds around it and
+  netherrack.
+- **Nether wart** grows on soul sand (slowly, in any light); ripe it gives
+  2-4. Nine make a nether wart block; with nether bricks, red nether bricks.
+- **Crimson and warped** stems (an axe strips them), hyphae, planks (sticks,
+  tools, a crafting table or a chest from them; they don't burn), stairs,
+  slabs, fences and fence gates; fungi (bone meal on a fungus planted on its
+  own nylium grows a huge one), roots, sprouts, wart blocks, shroomlights,
+  climbable weeping vines (they grow down) and twisting vines (up).
+- **Nether bricks** (smelt netherrack into nether brick items, 4 make the
+  block) and their stairs, slabs, fences and walls; **blackstone** and
+  polished blackstone (bricks), basalt, polished and smooth basalt, quartz
+  blocks, pillars and bricks, bone blocks, crying obsidian.
+- **Respawn anchor** (6 crying obsidian, 3 glowstone): charge it with
+  glowstone (up to 4). Used in the Nether it sets your spawn point there
+  (each respawn uses a charge); used anywhere else it explodes. It is the
+  Nether's bed: beds explode there.
+- **Items**: blaze rods (2 blaze powder; fuel for 120 s), ghast tears, magma
+  cream, fire charges (blaze powder, coal, gunpowder: 3), gold nuggets.
+
+### The Nether's and the End's creatures
+
+The Nether has no day and night: its creatures come at any light (except
+skeletons, wither skeletons and endermen, which want it dark, and blazes,
+which come where the block light is 11 or less), each biome with its own,
+as in vanilla.
+
+- **Ghast** (Nether wastes, soul sand valleys, basalt deltas): a huge white
+  floating cube with tentacles, crying and moaning far off. It only notices
+  you when you are about level with it, then opens its red eyes and spits a
+  **fireball** (6 damage, then a small blast that breaks blocks and starts
+  fires) every 3 seconds. **Hit the fireball** (a blow or an arrow) and it
+  flies back the way you look: a ghast hit by its own fireball dies at once
+  ("Return to Sender"). Drops gunpowder and ghast tears.
+- **Zombified piglin** (Nether wastes, in groups of four; now and then one
+  steps out of a nether portal in the Overworld): neutral. **Hit one and the
+  whole group within 20 blocks comes for you** with golden swords, for half a
+  minute. Drops rotten flesh, gold nuggets, rarely a gold ingot or its sword.
+- **Piglin** (crimson forests, bastion remnants): attacks anyone who isn't
+  wearing **at least one piece of gold armor**; hit one and the piglins near
+  it turn on you whatever you wear. **Bartering:** right click a piglin with
+  a gold ingot; it holds it up and admires it for 6 seconds, then throws you
+  something from vanilla's list (obsidian, crying obsidian, fire charges,
+  leather, soul sand, nether bricks, gravel, blackstone, string, quartz,
+  ender pearls, iron nuggets, fire resistance potions, iron boots...).
+  Brought into the Overworld, a piglin shakes for 15 seconds and turns into
+  a zombified piglin. Baby piglins just run about.
+- **Hoglin** (crimson forests): a big hostile beast; its charge tosses you
+  into the air. It keeps away from **warped fungi**, nether portals and
+  respawn anchors; feed two crimson fungi and they breed. Drops porkchops
+  (cooked if it burned) and leather. In the Overworld it turns into a
+  **zoglin**, which attacks anything that moves.
+- **Blaze** (nether fortresses, and their spawners): hovers and rises to your
+  height, bursts into flame for 3 seconds, then fires **three small
+  fireballs** (5 damage each, setting you alight), then rests 5 seconds; up
+  close it strikes. Water, rain and **snowballs** (3 damage) hurt it. Drops
+  blaze rods (only when a player kills it).
+- **Magma cube** (basalt deltas, a few in the wastes and fortresses): a
+  slime of lava that leaps high and pulls apart like an accordion as it
+  jumps; it hurts on touch (even the small ones), splits as slimes do, and
+  big and medium ones may drop magma cream. Fire and lava don't hurt it.
+- **Wither skeleton** (nether fortresses): a tall black skeleton with a
+  stone sword; its blow gives **Wither** (10 seconds of damage that can
+  kill). Drops coal, bones, rarely its skull (an item for now) or its sword.
+- **Strider** (on the lava sea, everywhere in the Nether): walks on lava,
+  red and warm; on land it turns purple, cold and shivers, and looks for
+  lava again. Warped fungi tempt it; feed two and they breed. Drops string.
+  (There are no saddles yet, so it can't be ridden.)
+- **Endermen** in the Nether's warped forests, soul sand valleys and wastes,
+  and **many in the End** (the only creature that comes there by itself).
+  They also go after **endermites**: one time in twenty a thrown **ender
+  pearl** leaves one where you stood (it lives two minutes).
+- **Shulker** (end cities): a purple box stuck to a block, lid shut (very
+  tough then, arrows glance off). It peeks now and then; with you within 16
+  blocks it opens and shoots slow **homing bullets** (4 damage and 10 seconds
+  of **Levitation**: you float up, and fall when it ends). Hit a bullet to
+  break it. Hurt below half, it may teleport. Drops shulker shells (one in
+  two). Shulkers are kept with the world.
+- **Silverfish** (the stronghold's spawner): small and quick.
+- Fire and lava don't hurt the Nether's own creatures (ghasts, blazes,
+  magma cubes, zombified piglins, wither skeletons, striders).
+
+(What is left out on purpose is listed at the end of **Mobs**.)
+
+### Finding the End: eyes of ender and strongholds
+
+- **Eye of ender:** an ender pearl and blaze powder in the crafting grid.
+  Thrown (right click) in the Overworld, it flies up to 12 blocks toward the
+  nearest **stronghold**, rising, hangs there for a moment, then drops so
+  you can pick it up again (4 times in 5) or shatters. Follow the eyes; when
+  you are close, an eye dives down into the ground: dig there.
+- **Strongholds** are hidden under the ground, as in Minecraft: 128 of them
+  in rings round the middle of the world, the nearest three between 1280
+  and 2816 blocks out. Inside: mossy and cracked stone brick corridors,
+  turns, crossing rooms, stairs, prison cells with iron bars and iron doors
+  (a stone button opens one), a library full of bookshelves and cobwebs,
+  chests with vanilla's loot, and the **portal room**: lava, a silverfish
+  spawner on the stairs, and twelve **end portal frames** round a 3 x 3
+  hole. A frame takes an eye of ender (right click with one); a frame here
+  and there already has its eye. With all twelve filled the **end portal**
+  opens: a starry black pool. Jump in to go to the End.
+
+### The End
+
+- You arrive on a small **obsidian platform** floating near the main island
+  (it is rebuilt every time you come). The island is end stone over the
+  **void**: fall off and you die (unless you are in Creative). The sky is a
+  dark, scratchy grey; there is no day, no weather and no sleeping (a bed
+  explodes).
+- Round the island's middle stand **ten obsidian pillars**, each with an
+  **end crystal** on its top (two of them in iron-bar cages). In the middle
+  is the **exit portal**, an empty bedrock bowl until the dragon dies.
+  **Endermen** wander everywhere: don't look them in the eyes.
+
+### The Ender Dragon
+
+- The **Ender Dragon** (200 health, its boss bar at the top of the screen)
+  circles the pillars, swoops at you and spits **dragon fireballs** that
+  burst into clouds of purple **dragon's breath** (they hurt through armour:
+  get out of them). Its wings throw you aside and its bite hurts badly.
+  Now and then it lands on the exit portal, roars and breathes fire on the
+  ground in front of it: hit its **head** then (a blow to its head counts in
+  full, anywhere else much less; arrows glance off it while it sits; it
+  takes off again after enough damage).
+- **End crystals heal the dragon** (a beam from the nearest one). Shoot them
+  with arrows or hit them: a crystal **explodes** (stand back), and the one
+  that was healing the dragon hurts it. The caged ones need climbing or a
+  good shot. Beds explode in the End: a classic way to hurt the dragon, and
+  yourself.
+- A **glass bottle** used in a cloud of breath gives **dragon's breath**.
+- When it dies the dragon rises in beams of light and bursts: **12,000
+  experience** the first time (500 after), the **exit portal opens** (step in
+  to go home, to your bed or the world spawn), the **dragon egg** sits on top
+  the first time (punch it or right click it and it teleports away), and an
+  **end gateway** appears at the edge of the island.
+- **Bring it back:** four **end crystals** (crafted from glass, an eye of
+  ender and a ghast tear) placed on the exit portal's rim, one on each side,
+  rebuild the pillars and summon a new dragon.
+
+### Beyond the gateways: end cities
+
+- An **end gateway** (a floating starry block in bedrock) takes you 1024
+  blocks out to the **outer islands**: walk in, or throw an ender pearl into
+  it. An exit gateway appears there to bring you back.
+- The outer islands are covered in **chorus plants**. Their **chorus fruit**
+  can be eaten (even when full) and teleports you up to 8 blocks away;
+  smelted it becomes **popped chorus fruit**, four of which make **purpur
+  blocks**. A chorus flower planted on end stone grows into a new plant.
+- **End cities**: towers of purpur with end rods on their roofs, bridges, and
+  sometimes an **end ship** moored beside them, a dragon head on its bow.
+  Their chests hold diamonds, iron and gold, gear and emeralds; the ship's
+  cabin keeps a chest with an **elytra**. **Shulkers** guard them.
+- **Elytra:** wear it in the chest slot, then press **jump while falling** to
+  spread it and glide; look down to dive and gain speed, up to climb a
+  little (and slow down). Landing or water folds it. It wears out with
+  flight (432 seconds of it); flying into a wall fast hurts. There are no
+  fireworks yet to boost it.
+- **End blocks:** end stone and end stone bricks (stairs, slabs, wall),
+  purpur blocks, pillars, stairs and slabs, **end rods** (lights you can
+  point any way), chorus plants and flowers, the dragon egg and the dragon
+  head, the end crystal.
 
 ## How to play with friends (multiplayer)
 
@@ -1076,9 +1478,15 @@ plain static site (GitHub Pages).
 
 1. Open the game and press **Multiplayer** (on the main menu, or in the
    pause menu during a game: Esc > Multiplayer).
-2. Type your **nickname**, pick the mode (in a Missions world **Missions**,
-   **Creative** or **Dogfight**; in a Survival world **Survival** or
-   **Creative**), and press **Open room**.
+2. Type your **nickname**, pick the mode, named as on the main menu:
+   **Survival**, **Creative**, **Missions** or **Dogfight**, and press
+   **Open room**. Survival and Creative rooms play a Survival world,
+   Missions and Dogfight rooms a Missions world. A mode of the other world
+   type opens that world first (your last one of that type, or a new one):
+   the page reloads into it, your world here saved, the game starts at once
+   (Click to play) and the room opens there by itself (the room code shows
+   in a message and in the corner chip; Esc > Multiplayer has the lobby and
+   the invite link).
 3. You get a 5-character **room code** (like `K7MPQ`). Send it to your
    friends, or press **Copy invite link** and send them the link.
 4. Press **Play**. Your current world becomes the shared world. It stays
@@ -1087,8 +1495,9 @@ plain static site (GitHub Pages).
 
 The room plays the host's world, and so its type: guests in a Survival room
 play normal Minecraft (empty-handed when new, Mods off for everyone), guests
-in a Missions room the UFO war. Dogfight needs a Missions world (jets and
-guns).
+in a Missions room the UFO war. Once the room is open, the lobby (Esc >
+Multiplayer) switches between the world's modes: a Survival world's
+Survival and Creative, a Missions world's Missions, Creative and Dogfight.
 
 The host is in charge: only the host picks the **game mode** (Esc >
 Multiplayer, any time) and the **game settings** for everyone (Settings:
@@ -1160,6 +1569,23 @@ keeps running there (it just isn't drawn).
   creeper swelling, an enderman's block) and can shear, milk, feed, breed,
   tame and trade with them like the host (the host keeps each villager's
   stock, so two players can't buy the same last item).
+- **The Nether and the End together** (a Survival world): every player is
+  in a dimension of their own choosing: the player list shows who is in the
+  Nether or the End, and you only see (and fight) the players in yours.
+  Everything built or broken in a dimension is kept by the host and shown to
+  whoever goes there, so a friend coming back from the Nether sees what you
+  built meanwhile. The host runs the world (creatures, fire, redstone,
+  crops) of the dimension it is in; a dimension the host is not in is run by
+  the first player who joined of those there, and its creatures are each
+  player's own until the host comes. In the host's dimension the Nether's
+  and the End's creatures are the host's like the rest (the ghasts' and the
+  blazes' fireballs and the shulkers' bullets fly on the host and everyone
+  sees them); you can hit a ghast's fireball back yourself, barter with the
+  host's piglins, and they know whether you wear gold. The **dragon's
+  fight** is shared by everyone in the End: the host runs it while there
+  (else the first player who joined of those in the End), it goes on from
+  where it was when someone else takes over, each player gets their own
+  experience when it dies, and the host keeps the fight in its save.
 - **Damage online (Round 9):** every weapon works the same for the host and
   the guests, on foot or in a vehicle, against every kind of target:
   creatures, aliens, soldiers, UFOs, enemy fighters, other players (with
@@ -1171,7 +1597,7 @@ keeps running there (it just isn't drawn).
   host (`tools/mp-damage-tests.mjs`).
 - **Creative together:** everyone flies, builds and blasts; the host's
   Creative settings (UFO activity and the rest) apply. A guest's "summon a
-  UFO" (Mods screen) asks the host's game for it. Everyone can use the
+  UFO" (Missions mods screen) asks the host's game for it. Everyone can use the
   pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
   air): the others see the aircraft and who flies it. Switching between
   Creative and Missions (or Survival) never changes anyone's inventory.
@@ -1359,7 +1785,7 @@ sometimes hover in the hall of a **secured underground bunker** at an
 airport (armed human guards stand watch and open fire when you enter the
 restricted zone; in Missions boarding works from the "Salvage" mission;
 before that they are locked), or in Creative spawn one from the
-**Mods** screen (any shape and size). It has no physics limits (and no ceiling: fly as high as you like): it hovers
+**Missions mods** screen (any shape and size). It has no physics limits (and no ceiling: fly as high as you like): it hovers
 perfectly still and moves instantly in any direction. The camera keeps the
 ship low in the view so the crosshair is always clear.
 
@@ -1503,7 +1929,7 @@ counted once.
 | **Missile lock** | (Round 8: a lock never switches targets: if it loses its target it is gone until you press again; a salvo goes entirely at the locked target; a **left click cancels** the lock, nothing fires.) **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it **while you keep full control of the jet** (the mouse still steers, a ring on the HUD shows where; every key works). Release after **1 s** for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
 | **Salvo charge** | From the solid lock to the salvo time a **spiral turns and closes in around the target box** (Round 8), with a rising click per missile (4 on the F-22, 2 on the F-16), the box shakes and the screen edge glows orange; when it becomes a solid pulsing circle a release fires the salvo (before that, one missile) |
 | **Roll out of a missile** | A hostile missile that gets close when you have **rolled more than about 90 degrees** (either way) loses you and **passes narrowly by** ("MISSILE EVADED!"); it needs a few seconds before it works again, so rolling all the time does not make you immune. Flares still work as always |
-| **Flares** | `C` (a burst of decoys; they fool missiles and seeking shots, which may even turn on whoever fired them) |
+| **Flares** | `C` (a salvo of 6 decoys, one after another every tenth of a second, left and right in turn, as a real dispenser fires them; any of them can fool a missile or a seeking shot, which may even turn on whoever fired it; 5 s to reload; the B-2 and the enemy fighters fire the same salvo) |
 | Nuclear bomb (**B-2 only**) | `B` (it drops on a parachute: get clear! No cooldown) |
 | Chase / cockpit view | `F5` |
 | Get out / eject | `F` |
@@ -1560,7 +1986,7 @@ default).
 
 ## Mods
 
-**Mods** (the button at the top of Settings) switches all the UFO COMBAT content on
+**Missions mods** (the button at the top of Settings) switches all the Missions content on
 or off. It's on by default. Off takes the UFO war out of a Missions world:
 no guns, explosives, vehicles, UFOs or aliens (swords and tools stay; for
 normal Minecraft, with crafting, hunger and vanilla mobs, make a Survival
@@ -1574,21 +2000,55 @@ worlds.
 
 ## Graphics and performance
 
+**Auto (best for this PC)** is the default (the first choice of the graphics
+preset row in Settings > Graphics, and the first button of the
+performance presets). It starts at the best graphics and performance (Ultra,
+32 chunks, 10 full-detail chunks, Ultra far terrain) and, while you play,
+watches the frame rate: if it stays under 40 FPS for about six seconds it
+steps down one level and lets it settle, then again if it's still low,
+down to the lightest:
+
+| Level | Graphics | View | Full detail | Resolution |
+| --- | --- | --- | --- | --- |
+| Max | Ultra | 32 chunks | 10 | 100% |
+| High | High | 28 | 8 | 100% |
+| High, shorter view | High | 20 | 6 | 100% |
+| Medium | Medium | 20 | 6 | 100% |
+| Medium, lower resolution | Medium | 16 | 5 | 80% |
+| Low | Low | 12 | 4 | 100% |
+| Low, lower resolution | Low | 9 | 3 | 75% |
+| Lowest | Low | 7 | 3 | 60% |
+
+It only measures in play (not on menus, paused, while shaders compile or
+right after a load or a teleport, while a burst of chunks streams in),
+ignores single hitches, and a short message tells you when it lowers the
+graphics. If two steps in a row don't help (the computer is busy elsewhere,
+not drawing), it stops lowering. Once in a session it can go back up one
+level, to one that ran fine earlier, after a long stretch with lots of
+headroom. Where it settles is saved, and the next start begins there. Pick a
+preset (graphics or performance) or change any graphics or performance
+setting yourself and Auto turns off for good, keeping your settings; choose
+**Auto** again (or **Reset to defaults**) to turn it back on.
+
 **Graphics presets** (Settings > Graphics):
 
 - **Low:** no shadows or post-processing. For weak laptops.
-- **Medium** (default): sun shadows and bloom.
+- **Medium:** sun shadows and bloom.
 - **High:** two cascades of soft sun shadows, normal-mapped textures with
   specular light, refractive water, light shafts, 3D grass, reeds, ferns
   and flowers, and fuller tree crowns.
 - **Ultra:** everything on High, plus a third shadow cascade with
   contact-hardening soft shadows, parallax (3D) textures up close, water
-  reflections of the world, denser plants, and full resolution on high-DPI
-  screens.
+  reflections of the world, plants reaching farther (Round 12: as thick as
+  High's, finer and a little lower, so what lies in the grass stays in
+  sight), and full resolution on high-DPI screens.
 
-On every preset you get animated water, light that glows through leaves,
-haze that thickens with distance, and low mist over water at sunrise and
-sunset. Under water, High and Ultra add light shafts from the surface, and
+On every preset you get animated water, moving lava and fire, light that
+glows through leaves, haze that thickens with distance, and low mist over
+water at sunrise and sunset. Caves are lit only by what is in them (torches,
+lava, glowing blocks): the sun and the moon never reach rock that can't see
+the sky (no glints on cave walls, no thin lines of light along their edges),
+and a cave's air holds no sky-coloured haze or mist. Under water, High and Ultra add light shafts from the surface, and
 every preset shows drifting particles. **Rain and snow** (Survival worlds)
 are drawn round the camera on Medium, High and Ultra (more drops on the
 higher presets); Low draws none (the sky still turns grey, and you still
@@ -1610,7 +2070,7 @@ Auto uses the preset's), **far terrain (LOD) quality** (up to Extreme),
 detail** (particles).
 
 **Render distance** (Settings > Graphics) goes up to 256 chunks, about 4 km
-(default 25). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
+(Auto starts at 32). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
 
@@ -1639,8 +2099,8 @@ filled up by big world saves can't stop them from being saved.
 
 | Tab | Settings (default) |
 | --- | --- |
-| Graphics | Render distance 2-256 chunks (25), graphics preset Low / **Medium** / High / Ultra with individual options, show FPS (on) |
-| Performance | One-click presets Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto), far terrain quality Low-Extreme (Medium), resolution scale 50-200% (100%), effects detail (High) |
+| Graphics | Render distance 2-256 chunks (Auto's), graphics preset **Auto (best for this PC)** / Low / Medium / High / Ultra with individual options, show FPS (on), Fullscreen |
+| Performance | One-click presets **Auto** / Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto's), far terrain quality Low-Extreme (Auto's), resolution scale 50-200% (Auto's), effects detail (Auto's) |
 | Controls | Field of view 50-110 (75), mouse sensitivity 0.1-4x (0.6x), invert Y (off), binocular zoom 2-12x (6x) |
 | Audio | Master, blocks and footsteps, weapons and explosions, creatures, player, menus |
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, stats on the HUD (off); **Creative only:** creatures spawn (on), time of day and lock |
@@ -1659,9 +2119,11 @@ hundreds of zombies, or a long full-detail distance).
 (Round 11) This is a Missions world's land: its terrain, ores, trees and
 water are exactly as before Round 11 (its old saves look the same), and the
 new blocks and items are in its Creative palette. A Survival world has the
-same scale, landforms and villages, but vanilla's ores, lava, frozen water,
-biomes and trees, its structures (dungeons, mineshafts, desert temples) and
-weather, and no airports or cities (see **Survival (vanilla Minecraft)**).
+same scale and landforms, but vanilla's ores, lava, frozen water, biomes,
+trees and jungles, villages, its structures (dungeons, mineshafts, desert
+and jungle temples, ruined portals, strongholds) and weather, the Nether and
+the End, and no airports or cities (see **Survival (vanilla Minecraft)** and
+**The Nether and the End**).
 
 A world at the scale of classic block games, 128 blocks tall, now with very
 different landforms: continents and big oceans; **mountain ranges** with bare
@@ -1677,17 +2139,16 @@ glowing crystals underground. (Iron and diamonds are gone from a Missions world.
 branches, pale birch groves, dark pine woods on the hills, and rare huge old
 oaks with roots spreading over the ground. On High and Ultra the ground
 comes alive with grass, reeds along the water, ferns in the shade of trees,
-and flowers.
+and flowers. (Round 12) No grass grows over a dropped item lying in it, so
+you always see what you dropped.
 
 **Villages** (Round 8: bigger: a cobbled plaza with a well, gravel streets,
 six to ten houses with windows, farm plots, lamp posts, up to five villagers;
 Round 10: wall torches inside every house and beside every door, and a
 **chest** with loot in about half the houses, one more in the biggest;
-Round 11, in Survival worlds, vanilla touches: oak double doors in the
-doorways, a bed (and a carpet) in more than half the houses, glass panes in
-the windows, stair-edged roofs, fence posts under the well's roof and
-farmland with wheat in the farm plots, while a Missions world's villages are
-as before), and much bigger **airports and cities** (Missions worlds only), are rarer (and spread far apart), except for one regular
+a Survival world's villages are vanilla's since Round 12, in the style of
+their biome (see **Structures** under **Survival (vanilla Minecraft)**),
+while a Missions world's villages are as before), and much bigger **airports and cities** (Missions worlds only), are rarer (and spread far apart), except for one regular
 airport close to where a new world starts (**F3** shows the nearest). The land is levelled under them, distant terrain
 included. **Airports** come in three sizes (small field, regional,
 international) with runways from 600 to 920 blocks long and 18-26 wide, an
@@ -1791,13 +2252,15 @@ wrong it says what and what to try. The most common causes:
 - **Slow first start:** while the shaders compile, the Play button says
   **Preparing graphics…**. On some computers (Windows especially) High and
   Ultra can take a while the first time. If it's too slow, pick a lower
-  preset in **Settings > Graphics** (or **Apply** the FPS suggestion on the
-  start menu).
+  preset in **Settings > Graphics** (Auto lowers the graphics on its own
+  once you play, if the frame rate is low).
 - **Graphics card trouble:** if a start never gets as far as showing the
   world, the next start lowers the graphics a step (the start menu says so).
+  On Auto, that lower level is kept (Auto had found its limit).
   If the browser loses the graphics card mid-game, the game saves, lowers the
   setting and asks you to reload. To pick a setting from the address bar,
-  add `?graphics=low` (or `medium`, `high`, `ultra`).
+  add `?graphics=low` (or `medium`, `high`, `ultra`) (that is a choice of
+  your own: Auto turns off).
 - **"WebGL couldn't start":** turn on hardware acceleration in the browser's
   settings, update the browser and graphics driver, and restart the browser:
   after a graphics driver crash, browsers keep WebGL off for a while.
@@ -2145,7 +2608,7 @@ others, fail on any console or page error.
   rule) and the new missions' rules (real stats, an act, a reward and the
   right acts in 300 campaigns; twists and variant goals; the clock set back),
   and loot).
-- `ufo-tests.mjs`: the UFO COMBAT features in the real game in headless
+- `ufo-tests.mjs`: the Missions features in the real game in headless
   Chromium (menus, settings and presets, weapons, the airstrike, the laser
   blaster, the sniper scope, binoculars, mods on/off, zombie crowds, and the
   UFO, alien and vehicle features, the fighter jet and its weapons, the
