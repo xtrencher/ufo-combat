@@ -456,13 +456,14 @@ await check("potions: healing heals, poison poisons, a splash reaches the player
     Br.splashOnPlayer(p, IV.potionId("swiftness", "base", true), 1);
     const speed = p.effects.find((e) => e.effect === "speed");
     p.clearEffects();
-    // The brewing stand: water bottles and sugar, 20 s.
+    // The brewing stand: awkward potions and sugar, blaze powder for fuel, 20 s (Round 12).
     const { x, y, z } = window.__tm.at;
     g.world.setBlock(x + 4, y, z, V.BREWING_STAND);
     const b = g.brewing.contents(x + 4, y, z);
-    b.slots[0] = makeStack(V.POTION, 1);
-    b.slots[2] = makeStack(V.POTION, 1);
+    b.slots[0] = makeStack(V.AWKWARD_POTION, 1);
+    b.slots[2] = makeStack(V.AWKWARD_POTION, 1);
     b.slots[3] = makeStack(V.SUGAR, 2);
+    b.slots[4] = makeStack(V.BLAZE_POWDER, 1);
     for (let k = 0; k < 21; k++) g.brewing.update(1);
     const brewed = b.slots.map((s) => (s ? [s.id, s.count] : 0));
     // A cauldron: water bucket in, a bottle out.
@@ -481,7 +482,7 @@ await check("potions: healing heals, poison poisons, a splash reaches the player
   assert(r.bottle === 345 && r.healed === 12, `healing: 8 -> ${r.healed} (Instant Health I: 4), the bottle back: ${r.bottle}`);
   assert(r.poison && r.poison[0] === 1 && r.poison[1] > 40 && r.poisoned === 1, `poison: ${JSON.stringify(r.poison)}, ${r.poisoned} lost in 1.3 s`);
   assert(r.speed && r.speed[0] === 1 && r.speed[1] === 135, `a splash of swiftness 1 block away: ${JSON.stringify(r.speed)} (3:00 x 0.75)`);
-  assert(JSON.stringify(r.brewed) === JSON.stringify([[r.swift, 1], 0, [r.swift, 1], [410, 1]]), `brewed: ${JSON.stringify(r.brewed)}`);
+  assert(JSON.stringify(r.brewed) === JSON.stringify([[r.swift, 1], 0, [r.swift, 1], [410, 1], 0]), `brewed: ${JSON.stringify(r.brewed)}`);
   assert(r.full === 1809 && r.after === 1808 && r.filled === 392, `the cauldron: ${r.full} then ${r.after}, a ${r.filled}`);
 });
 

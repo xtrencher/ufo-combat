@@ -79,10 +79,10 @@ export function enchantName(key, level) {
 const ARMOR_SLOT_KIND = ["helmet", "chestplate", "leggings", "boots"];
 // Enchantability (vanilla): tools by material (told apart by their uses),
 // armor by tier; the bow, the rod and a book 1.
-const TOOL_ENCHANTABILITY = { 60: 15, 132: 5, 251: 14, 1562: 10, 33: 22 };
-const TOOL_MATERIAL = { 60: "wood", 132: "stone", 251: "iron", 1562: "diamond", 33: "gold" };
-const ARMOR_ENCHANTABILITY = [15, 25, 9, 10]; // leather, gold, iron, diamond (items.js ARMOR_TIERS)
-const ARMOR_MATERIAL = ["leather", "gold", "iron", "diamond"];
+const TOOL_ENCHANTABILITY = { 60: 15, 132: 5, 251: 14, 1562: 10, 33: 22, 2031: 15 };
+const TOOL_MATERIAL = { 60: "wood", 132: "stone", 251: "iron", 1562: "diamond", 33: "gold", 2031: "netherite" };
+const ARMOR_ENCHANTABILITY = [15, 25, 9, 10, 15]; // leather, gold, iron, diamond (items.js ARMOR_TIERS), netherite (Round 12: tier 4)
+const ARMOR_MATERIAL = ["leather", "gold", "iron", "diamond", "netherite"];
 const CHAIN = new Set([V.CHAINMAIL_HELMET, V.CHAINMAIL_CHESTPLATE, V.CHAINMAIL_LEGGINGS, V.CHAINMAIL_BOOTS]);
 
 const kindCache = new Map();
@@ -364,7 +364,7 @@ export function enchantedBook(rand = Math.random, level = 0) {
 
 // The material that repairs an item at the anvil (an id, or a list: any planks).
 const PLANKS = [BLOCK.PLANKS, V.SPRUCE_PLANKS, V.BIRCH_PLANKS, V.JUNGLE_PLANKS, V.ACACIA_PLANKS, V.DARK_OAK_PLANKS];
-const REPAIR = { wood: PLANKS, stone: [BLOCK.COBBLESTONE], iron: [V.IRON_INGOT], gold: [ITEM.GOLD_INGOT], diamond: [V.DIAMOND], leather: [V.LEATHER], chain: [V.IRON_INGOT] };
+const REPAIR = { wood: PLANKS, stone: [BLOCK.COBBLESTONE], iron: [V.IRON_INGOT], gold: [ITEM.GOLD_INGOT], diamond: [V.DIAMOND], leather: [V.LEATHER], chain: [V.IRON_INGOT], netherite: [V.NETHERITE_INGOT] };
 function repairsWith(kind, id) {
   const list = kind?.material ? REPAIR[kind.material] : null;
   return !!list && list.includes(id);
@@ -507,7 +507,7 @@ export function fortuneCount(count, L, rand = Math.random) {
 // share of the damage it takes away (vanilla: points (EPF) per level:
 // Protection 1, the special ones 2, Feather Falling 3 on falls; at most 20
 // points = 80%).
-const FIRE_CAUSES = new Set(["fire", "lava", "burn"]);
+const FIRE_CAUSES = new Set(["fire", "lava", "burn", "hot_floor"]);
 const BLAST_CAUSES = new Set(["creeper", "explosion", "grenade", "bazooka", "airstrike", "missile", "tnt", "ufo_blast", "ufo_boom", "jet_boom", "cannon", "ufocannon"]);
 const PROJECTILE_CAUSES = new Set(["skeleton", "arrow", "bow", "witch_potion"]);
 // (Hurts nothing stops: the void, starving, the game's own crashes and the nuke.)

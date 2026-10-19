@@ -82,6 +82,8 @@ import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
 import { LIB } from "./content/base.js";
 import { shieldRaised, shieldInOffhand } from "./content/items-vanilla.js";
 import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensions.js";
+import { NetherPortals } from "./portal.js";
+import { NetherAtmosphere } from "./nether-fx.js";
 import { EndGame } from "./dragon.js";
 
 // ---------- Seed ----------
@@ -3554,6 +3556,10 @@ mp.addModule(new SignSync(mp, signs)); // (Round 11: the signs' text online)
 const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionThrows, spawners, weather, invScreen, streamAround, mp });
 game.dims = dims;
 if (dims.sync) mp.addModule(dims.sync);
+// (Round 12) The Nether: its portals (lit, broken, the way through and back), the respawn anchor, its biomes' fog and air.
+const netherPortals = new NetherPortals(game, dims);
+const netherAir = new NetherAtmosphere(game, dims);
+game.netherPortals = netherPortals;
 // (Round 12) The End: the dragon's fight, the crystals, the portals' starfield, eyes of ender, gateways (js/dragon.js).
 const endGame = new EndGame(game, { dims, mp, renderer });
 endGame.load(savedPlayer?.end);
@@ -3629,6 +3635,8 @@ window.__ufo = window.__voxelands = {
   weatherFx,
   spawners,
   dims, // (Round 12)
+  netherPortals, // (Round 12)
+  netherAir,
   endGame, // (Round 12)
   weapons,
   lasers,
@@ -4260,6 +4268,8 @@ function simulate(dt, frameTime) {
   updateDebug(dt, frameTime);
   endGame.update(dt); // (Round 12: the End's fight, the portals' starfield, eyes of ender)
   dims.update(dt); // (Round 12: portals, a travel's arrival)
+  netherPortals.update(dt); // (Round 12: the nether portals, js/portal.js)
+  netherAir.update(dt);
   mp.update(dt);
 }
 

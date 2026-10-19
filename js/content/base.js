@@ -169,6 +169,9 @@ export const TILE_CAPACITY = TILE_PAGE * TILE_MAX_PAGES;
 // chunk shader picks the layer: no remeshing, no extra draws).
 export const TILE_FLIPBOOKS = Object.freeze([
   { tile: "fire", frames: 32, fps: 20, style: "flames", ramp: [0x8a1a04, 0xc83a08, 0xf06a10, 0xffa424, 0xffd65a, 0xfff6c0] },
+  // (Round 12) The Nether's: soul fire's blue flames, the portal's turning swirl (js/content/nether.js's tiles).
+  { tile: "soul_fire", frames: 32, fps: 20, style: "flames", ramp: [0x063c5a, 0x0a6a8a, 0x18a8c8, 0x52d8f0, 0xb8f6ff, 0xf0ffff] },
+  { tile: "nether_portal", frames: 32, fps: 16, style: "portal", ramp: [0x16032e, 0x280660, 0x3e0c98, 0x5816c8, 0x7a30e6, 0xa060f6] },
 ]);
 export const FLIPBOOK_LAYERS = TILE_FLIPBOOKS.reduce((n, f) => n + f.frames, 0);
 // Flowing tiles: a liquid's surface drawn moving (vanilla's lava: a slow

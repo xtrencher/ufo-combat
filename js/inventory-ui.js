@@ -31,7 +31,7 @@ import { craftResult, gridIds, consumeGrid, smeltingOf, isFuel } from "./craftin
 import { FURNACE_SLOTS, furnaceAccepts } from "./furnace.js";
 import { isVanilla } from "./worldtype.js";
 import { tableOffers, applyOffer, countBookshelves, enchantSeed, nextEnchantSeed, anvilResult, enchantName } from "./enchant.js";
-import { BREWING_SLOTS, BREW_TICKS, brewingAccepts, isBottle, isIngredient } from "./brewing.js";
+import { BREWING_SLOTS, BREW_TICKS, BREWING_FUEL, brewingAccepts, isBottle, isIngredient, isBrewingFuel } from "./brewing.js";
 import { spendLevels } from "./xp.js";
 import { ENCHANTING_TABLE, LAPIS_LAZULI, ARROW, SHIELD } from "./content/ids.js";
 import { isAnvil, wornAnvil } from "./content/containers.js";
@@ -83,6 +83,9 @@ const CRAFT_CSS = `
 .brew-arrow { position: relative; width: 12px; height: 26px; background: rgba(140,140,150,0.35); overflow: hidden; clip-path: polygon(30% 0, 70% 0, 70% 62%, 100% 62%, 50% 100%, 0 62%, 30% 62%); }
 .brew-arrow > div { position: absolute; left: 0; right: 0; top: 0; height: 0; background: #f4f4f4; }
 .brew-bubbles { width: 14px; height: 26px; position: relative; overflow: hidden; }
+.brew-fuel-box { display: flex; flex-direction: column; align-items: center; gap: 3px; margin-right: 6px; }
+.brew-fuel { width: 30px; height: 5px; background: rgba(140,140,150,0.35); }
+.brew-fuel > div { height: 100%; width: 0; background: #e89a28; }
 .brew-bubbles > div { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: radial-gradient(circle at 30% 70%, #fff 0 2px, transparent 3px), radial-gradient(circle at 70% 40%, #fff 0 2px, transparent 3px), radial-gradient(circle at 40% 15%, #fff 0 1.5px, transparent 2.5px); }
 `;
 function injectCraftCss() {
@@ -296,6 +299,11 @@ export class InventoryScreen {
       this.brewViews[i] = v;
     };
     const brow = el("div", "anvil-row", bbox);
+    // (Round 12) The fuel: blaze powder, and the bar of its 20 brews.
+    const fuelBox = el("div", "brew-fuel-box", brow);
+    bslot(fuelBox, 4);
+    this.brewFuelFill = el("div", "", el("div", "brew-fuel", fuelBox));
+    this._brewFuel = -1;
     this.bubbleFill = el("div", "", el("div", "brew-bubbles", brow));
     bslot(brow, 3);
     this.brewArrowFill = el("div", "", el("div", "brew-arrow", brow));
@@ -991,7 +999,9 @@ export class InventoryScreen {
     const st = this.inventory.slots[index];
     if (!v || !st) return false;
     let t = -1;
-    if (isIngredient(st.id) && (!v.slots[3] || (canMerge(v.slots[3], st) && v.slots[3].count < maxStack(st.id)))) t = 3;
+    // (Round 12: blaze powder to the fuel first, as vanilla)
+    if (isBrewingFuel(st.id) && (!v.slots[4] || (canMerge(v.slots[4], st) && v.slots[4].count < maxStack(st.id)))) t = 4;
+    else if (isIngredient(st.id) && (!v.slots[3] || (canMerge(v.slots[3], st) && v.slots[3].count < maxStack(st.id)))) t = 3;
     else if (isBottle(st.id)) for (let i = 0; i < 3 && t < 0; i++) if (!v.slots[i]) t = i;
     if (t < 0) return quickMove(this.inventory, index);
     const copy = copySlots(v.slots);
@@ -1497,6 +1507,8 @@ export class InventoryScreen {
         this.brewArrowFill.style.height = `${(t / 26) * 100}%`;
         this.bubbleFill.style.height = t ? `${((t * 7) % 26) / 26 * 100}%` : "0%";
       }
+      const fuel = ok ? bv.b?.fuel | 0 : 0;
+      if (fuel !== this._brewFuel) this.brewFuelFill.style.width = `${((this._brewFuel = fuel) / BREWING_FUEL) * 100}%`;
       this._title();
     }
     this.armorViews.forEach((v, i) => v.set(this.inventory.armor[i]));

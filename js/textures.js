@@ -1435,7 +1435,30 @@ function paintFlameFrames(fb) {
   }
   return out;
 }
-const FLIPBOOK_STYLES = { flames: paintFlameFrames };
+// (Round 12) The nether portal's: three arms of a swirl turning a third of a
+// turn over the strip (so it loops), its darkest streaks cut out (the
+// portal reads see-through, as vanilla's translucent one), as the content's
+// own tile (js/content/nether.js paintPortal).
+function paintPortalFrames(fb) {
+  const colors = fb.ramp.map(hex);
+  const out = [];
+  for (let k = 0; k < fb.frames; k++) {
+    const t = new Tile(fb.tile);
+    const phase = (k / fb.frames) * Math.PI * 2;
+    for (let y = 0; y < TEX; y++) {
+      for (let x = 0; x < TEX; x++) {
+        const dx = x - 15.5;
+        const dy = y - 15.5;
+        const swirl = Math.sin(Math.atan2(dy, dx) * 3 + Math.hypot(dx, dy) * 0.45 - phase + t.noise(x, y, 4, 1) * 3);
+        const f = 0.45 + swirl * 0.3 + (t.fbm(x, y, 8, 2) - 0.5) * 0.3;
+        t.set(x, y, ramp(colors, f), f < 0.24 ? 0 : 255);
+      }
+    }
+    out.push(t);
+  }
+  return out;
+}
+const FLIPBOOK_STYLES = { flames: paintFlameFrames, portal: paintPortalFrames };
 
 // Every layer's pixels and relief, in order: the named tiles, then the
 // flipbooks' frames; and where each flipbook's frames start.

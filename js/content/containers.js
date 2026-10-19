@@ -18,7 +18,7 @@
 // These work in either world type (outside a Survival world only Creative
 // has them).
 import { BLOCK, FACE, LIB } from "./base.js";
-import { FURNACE, ENCHANTING_TABLE, ANVIL, BREWING_STAND, CAULDRON, BUCKET, WATER_BUCKET, GLASS_BOTTLE, POTION, IRON_INGOT } from "./ids.js";
+import { FURNACE, ENCHANTING_TABLE, ANVIL, BREWING_STAND, CAULDRON, BUCKET, WATER_BUCKET, GLASS_BOTTLE, POTION, BLAZE_ROD, BLACKSTONE } from "./ids.js";
 import { isVanilla } from "../worldtype.js";
 
 // (Round 11) The anvil's worn states (4 facings each, after the barrel).
@@ -371,9 +371,9 @@ export const shapes = {
   },
 };
 // (The core recipes, the smelting recipes and the fuels are js/crafting.js's;
-// the brewing stand's is here: vanilla's blaze rod is an iron ingot, there
-// being no Nether.)
-export const recipes = () => [{ type: "shaped", pattern: [" I ", "###"], key: { I: IRON_INGOT, "#": BLOCK.COBBLESTONE }, result: [BREWING_STAND, 1] }];
+// the brewing stand's is here: vanilla's, a blaze rod over cobblestone or
+// blackstone (Round 12: the Nether's; Round 11 stood an iron ingot in for the rod).)
+export const recipes = () => [{ type: "shaped", pattern: [" B ", "###"], key: { B: BLAZE_ROD, "#": [BLOCK.COBBLESTONE, BLACKSTONE] }, result: [BREWING_STAND, 1] }];
 
 // Opens a screen of the game (main.js sets interaction.onOpenScreen).
 function openScreen(ctx, kind) {

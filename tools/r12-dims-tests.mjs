@@ -91,10 +91,8 @@ await check("the stand-in Nether: a bedrock floor and roof, caves, a lava sea up
           air++;
           assert(y > 31, `air in the lava sea at y ${y}`);
         }
-        if (id === V.LAVA) {
-          lava++;
-          assert(y <= 31, `lava above the sea at ${y}`);
-        }
+        // (Round 12: the real Nether has lava falls and the deltas' pools above its sea too)
+        if (id === V.LAVA && y <= 31) lava++;
       }
     }
   }

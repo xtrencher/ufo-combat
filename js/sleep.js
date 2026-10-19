@@ -55,6 +55,7 @@ export class Sleep {
   constructor(deps) {
     this.d = deps;
     this.spawn = null; // [x, y, z]: the bed's head cell, or null (the world spawn)
+    this.spawnDim = "overworld"; // (Round 12) "nether": the spawn is a respawn anchor there (js/portal.js)
     this._fade = 0; // the dark overlay's opacity
     this._shownFade = -1;
     this._statusText = "";
@@ -141,9 +142,10 @@ export class Sleep {
       return true;
     }
     // (Vanilla sets the spawn before checking the time or the monsters.)
-    const same = this.spawn && this.spawn[0] === bed.x && this.spawn[1] === bed.y && this.spawn[2] === bed.z;
+    const same = this.spawn && this.spawnDim !== "nether" && this.spawn[0] === bed.x && this.spawn[1] === bed.y && this.spawn[2] === bed.z;
     if (!same) {
       this.spawn = [bed.x, bed.y, bed.z];
+      this.spawnDim = "overworld";
       d.onSpawnSet?.();
     }
     if (!this.canSleepNow()) {
@@ -273,11 +275,16 @@ export class Sleep {
     }
   }
 
+  // [x, y, z], or (Round 12) [x, y, z, "nether"] for a respawn anchor.
   serialize() {
-    return this.spawn ? this.spawn.slice() : undefined;
+    if (!this.spawn) return undefined;
+    return this.spawnDim === "nether" ? [...this.spawn, "nether"] : this.spawn.slice();
   }
 
   load(spawn) {
-    this.spawn = Array.isArray(spawn) && spawn.length === 3 && spawn.every(Number.isInteger) ? spawn.slice() : null;
+    const nether = Array.isArray(spawn) && spawn.length === 4 && spawn[3] === "nether";
+    const xyz = Array.isArray(spawn) && (spawn.length === 3 || nether) ? spawn.slice(0, 3) : null;
+    this.spawn = xyz && xyz.every(Number.isInteger) ? xyz : null;
+    this.spawnDim = this.spawn && nether ? "nether" : "overworld";
   }
 }

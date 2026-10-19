@@ -44,6 +44,7 @@ import * as V from "./content/ids.js";
 import { enchantedBook } from "./enchant.js";
 import { FLOWER_POT, WHITE_DYE, SPRUCE_SIGN } from "./content/decor.js";
 import { pistonId, headId } from "./content/redstone.js";
+import { NETHER_LOOT, RuinedPortals } from "./nether-structures.js";
 import { StrongholdGrower, STRONGHOLD_LOOT } from "./stronghold.js"; // (Round 12)
 import { END_CITY_LOOT } from "./end-structures.js";
 
@@ -119,6 +120,7 @@ export class StructureGrower {
     this._mines = new Map(); // "rx,rz" -> plan or null
     this._temples = new Map(); // "rx,rz" -> temple or null
     this._jungleTemples = new Map(); // "rx,rz" -> jungle temple or null
+    this.ruined = new RuinedPortals(terrain); // (Round 12: js/nether-structures.js)
     this.strongholds = new StrongholdGrower(terrain); // (Round 12: js/stronghold.js)
   }
 
@@ -145,6 +147,7 @@ export class StructureGrower {
     for (const t of this._templesNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1)) this._buildTemple(blocks, cx, cz, t);
     for (const t of this._jungleTemplesNear(cx * S - 1, cz * S - 1, cx * S + S, cz * S + S)) this._buildJungleTemple(blocks, cx, cz, t);
     this._placeWell(blocks, cx, cz, hAt, biomeAt);
+    this.ruined.place(blocks, cx, cz); // (Round 12)
   }
 
   // The lowest ground of each column and its four neighbours, less 2: a
@@ -572,6 +575,9 @@ export class StructureGrower {
     // (Round 12) a village's chest: its house's table (village.js)
     const village = this.terrain.villages?.chestLoot?.(x, y, z);
     if (village) return village;
+    // (Round 12) a ruined portal's
+    const ruined = this.ruined.chestAt(x, y, z);
+    if (ruined) return ruined;
     for (const p of this._minesNear(x, z, x, z)) {
       if (p.chests.some((c) => c[0] === x && c[1] === y && c[2] === z)) return "mineshaft";
     }
@@ -1041,7 +1047,7 @@ const LOOT = {
   village_desert_house: [[3, 8, [[V.CLAY_BALL, 1], [WHITE_DYE + 13, 1], [BLOCK.CACTUS, 10, 1, 4], [V.WHEAT, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BOOK, 1], [BLOCK.DEAD_BUSH, 2, 1, 3], [V.EMERALD, 1, 1, 3]]]],
 };
 // (Round 12) The strongholds' and the end cities' tables (js/stronghold.js, js/end-structures.js).
-Object.assign(LOOT, STRONGHOLD_LOOT, END_CITY_LOOT);
+Object.assign(LOOT, NETHER_LOOT, STRONGHOLD_LOOT, END_CITY_LOOT);
 // Rolls a structure's table: [[id, count, tag?], ...].
 export function rollStructureLoot(kind, rand = Math.random) {
   const pools = LOOT[kind];

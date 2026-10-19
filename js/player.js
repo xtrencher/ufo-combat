@@ -115,6 +115,8 @@ export class Player {
     this.difficulty = "normal"; // (starving's floor, Peaceful's refill; main.js)
     this.effects = []; // [{ effect, level, time, total, acc }] (survival.js EFFECTS)
     this._speedMul = 1;
+    this._floorSpeed = 1; // (Round 12) the block under the feet: soul sand's 0.4 (a def's speedFactor)
+    this._hotFloor = false; // (and a magma block's burn: hotFloor)
     this.fireTime = 0; // seconds still burning (after leaving fire or lava)
     this._burnTimer = 0;
     this.inLava = false;
@@ -913,7 +915,7 @@ export class Player {
     else if (this.inLava) speed = LAVA_SPEED;
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
-    if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1);
+    if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1) * this._floorSpeed;
     if (using) speed *= 0.2;
     let walkX = worldX * speed;
     let walkZ = worldZ * speed;
@@ -1054,6 +1056,10 @@ export class Player {
     // (Survival worlds) What the feet stand on: ice slides (kept in the air, until landing elsewhere).
     if (!isVanilla() || this.flying || this.inWater || this.inLava || this.onClimbable || web) this._slip = 0;
     else if (this.onGround) this._slip = BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))]?.slipperiness || 0;
+    // (Round 12) Soul sand slows, a magma block burns (Survival worlds; the Nether's blocks are theirs).
+    const under = this.onGround && !this.flying && isVanilla() ? BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))] : null;
+    this._floorSpeed = under?.speedFactor ?? 1;
+    this._hotFloor = !!under?.hotFloor;
 
     // Climb out of water onto a ledge when swimming against it.
     if ((this.inWater || this.inLava) && space && (blockedX || blockedZ)) this.velocity.y = Math.max(this.velocity.y, 6);
@@ -1239,6 +1245,7 @@ export class Player {
     } else this._burnTimer = 0;
     if (this.dead) return;
     if (b & BODY.CACTUS) this.damage(1, "cactus");
+    if (this._hotFloor && !this.sneaking && !fireproof) this.damage(1, "hot_floor"); // (Round 12: a magma block)
     if (this._eyeInWall && isVanilla()) this.damage(1, "suffocate");
   }
 

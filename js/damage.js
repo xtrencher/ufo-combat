@@ -77,6 +77,7 @@ export const DEATH_MESSAGES = {
   fire: "Went up in flames",
   burn: "Burned to death",
   cactus: "Was pricked to death",
+  hot_floor: "Discovered the floor was lava", // (Round 12: a magma block, vanilla's)
   suffocate: "Suffocated in a wall",
   starve: "Starved to death",
   magic: "Killed by magic",

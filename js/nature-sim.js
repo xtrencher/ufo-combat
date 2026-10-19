@@ -10,7 +10,7 @@
 // to the host as edits, and the results go out as edits). An edit that
 // makes a fire wakes it; a fire's random tick hands one the sim doesn't know
 // (saved with the world) back to it (world.natureSim.fire.adopt).
-import { BLOCK, IS_SOLID, IS_OPAQUE } from "./blocks.js";
+import { BLOCK, IS_SOLID, IS_OPAQUE, BLOCK_INFO } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { FIRE } from "./content/ids.js";
 import { flammability } from "./content/nature.js";
@@ -27,6 +27,10 @@ const STEPS = [
   [0, 0, 1, 300],
   [0, 0, -1, 300],
 ];
+
+// (Round 12) The blocks a fire on top of burns on forever (a def's `infiniburn`: netherrack, the magma block).
+const INFINIBURN = new Uint8Array(4096);
+for (const info of Object.values(BLOCK_INFO)) if (info.infiniburn) INFINIBURN[info.id] = 1;
 
 export class FireSim {
   constructor(world) {
@@ -104,6 +108,7 @@ export class FireSim {
     const rand = this.rand;
     const below = w.getBlock(x, y - 1, z);
     const grounded = IS_SOLID[below] === 1 && IS_OPAQUE[below] === 1;
+    const forever = INFINIBURN[below] === 1; // (Round 12: no rain, no age puts it out)
     let fuel = false;
     for (const [dx, dy, dz] of STEPS) if (ignite[w.getBlock(x + dx, y + dy, z + dz)]) fuel = true;
     if (!grounded && !fuel) {
@@ -111,19 +116,19 @@ export class FireSim {
       return -1;
     }
     // (Round 11) In the rain: out, one time in five and more as it ages (vanilla).
-    if (this.rainingAt?.(x, y, z) && rand() < 0.2 + age * 0.03) {
+    if (!forever && this.rainingAt?.(x, y, z) && rand() < 0.2 + age * 0.03) {
       out.push(x, y, z, BLOCK.AIR);
       return -1;
     }
     const next = Math.min(15, age + (Math.floor(rand() * 3) >> 1));
     if (!fuel) {
-      if (age > 3) {
+      if (age > 3 && !forever) {
         out.push(x, y, z, BLOCK.AIR);
         return -1;
       }
       return next;
     }
-    if (age === 15 && rand() < 0.25 && !ignite[below]) {
+    if (age === 15 && !forever && rand() < 0.25 && !ignite[below]) {
       out.push(x, y, z, BLOCK.AIR);
       return -1;
     }
