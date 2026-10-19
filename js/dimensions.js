@@ -12,8 +12,9 @@
 //     state over and take the next one's: flowing water's cells, lava's and
 //     fire's woken cells (watersim.js, lavasim.js, nature-sim.js), the
 //     creatures players keep (bred, tame, villagers: mobs.js serializeKept,
-//     re-spawned there as their ground loads); falling blocks land first;
-//     primed TNT, thrown things, XP orbs and spawner caches are let go;
+//     re-spawned there as their ground loads), the XP orbs lying there
+//     (xp.js stash: back as they were on the return); falling blocks land
+//     first; primed TNT, thrown things and spawner caches are let go;
 //   - the containers (chests, furnaces, brewing stands) and signs are not
 //     swapped: every dimension's are in one store, keyed by dimension
 //     ("n:x,y,z", dim-registry.js dimKey), so the host can serve them all;
