@@ -2588,11 +2588,29 @@ Waves:
 - **C:** a review and "what Minecraft has that we don't" pass; every suite; the PR merged.
 
 ## Round 12 checklist
-- [ ] 12.A1 menu: MINECLAUDE, Survival / Creative / Missions order, one-click play, home screen per mode, fullscreen option, multiplayer for every mode.
-- [ ] 12.A2 graphics: best by default, the auto tuner, the player's choice kept, lighter grass on the top preset.
-- [ ] 12.A3 render: fire and lava animated, no sky shine in caves, no light at block edges in the dark, more texture layers.
-- [ ] 12.A4 feel: cactus on touch, quicker pickup, flares one by one, third person as Minecraft's, small gaps.
-- [ ] 12.A5 overworld: villages upgraded, desert and jungle temples, the jungle biome with giant trees.
-- [ ] 12.A6 dims: dimensions (worlds, saves, online), portal travel, per-dimension sky.
-- [ ] 12.B1 the Nether. 12.B2 the End.
-- [ ] 12.C review, missing-Minecraft pass, every suite, the PR merged.
+- [x] 12.A1 menu: MINECLAUDE, Survival / Creative / Missions order, one-click play, home screen per mode, fullscreen option, multiplayer for every mode.
+- [x] 12.A2 graphics: best by default, the auto tuner, the player's choice kept, lighter grass on the top preset.
+- [x] 12.A3 render: fire and lava animated, no sky shine in caves, no light at block edges in the dark, more texture layers.
+- [x] 12.A4 feel: cactus on touch, quicker pickup, flares one by one, third person as Minecraft's, small gaps.
+- [x] 12.A5 overworld: villages upgraded, desert and jungle temples, the jungle biome with giant trees.
+- [x] 12.A6 dims: dimensions (worlds, saves, online), portal travel, per-dimension sky.
+- [x] 12.B1 the Nether. 12.B2 the End (and their creatures: 12.B3).
+- [x] 12.C review, missing-Minecraft pass (workstations, gadgets, boats and minecarts), every suite, the PR merged.
+
+### Round 12: what was built
+- **Menus (12.A1):** MINECLAUDE (a blocky SVG logo, js/menu-logo.js); the cards Survival (default), Creative (a Survival world in Creative), Missions ("with mods"); one-click Play (js/menu-go.js: `go=` consumed on load, then "Click to play"); the flyover's UFOs and the tips follow the card; a Fullscreen setting, menu and pause buttons (the keyboard lock holds Ctrl+W/T/N...); the Host tab shows every mode and hosts in the other world type through a reload.
+- **Graphics (12.A2):** js/autotune.js: a new install starts at Max; an 8-level ladder steps down under 40 fps (median of 5 s, bursts and hitches ignored, stops when two steps gain nothing), once a session a trial step back up (a failed trial waits 5 sessions); the player's choice turns it off (Auto turns it back on); online a step waits for a moment out of play, alone the world waits while the shaders compile. Ultra's grass is lighter, and no grass grows over a dropped item.
+- **Rendering (12.A3):** fire is a 32-frame flipbook, lava churns and flows (world-space waves along its flow); no sun, moon, glints or sky haze where a face sees no sky (skyGate); the lit lines along cave edges were MSAA, depth bias and filter taps (centroid shadow varyings, a tenth of the bias on terrain, lookups off the face); unlit caves are dark but faintly visible (vanilla's light level 0), the same by day and night (exposure follows the eye's sky light); the texture array is paged (4 x 256 = 1024 layers).
+- **Feel (12.A4):** cactus on touch (both world types, items destroyed), vanilla pickup reach and delays with the 0.15 s fly-in, the third-person body (armor, off hand, eating, crouch, hurt, dying), flare salvos (6, one every 0.1 s), vanilla FOV and hurt tilt, the death score, F3 facing.
+- **The Overworld (12.A5):** real jungles (giant 2x2 trees, vines, cocoa, bushes; ~8% of land), vanilla-style villages by biome (streets, a well, 12-22 pieces, a villager a bed at its house's door with its trade, pens, real job blocks), the desert pyramid reworked, the jungle temple with its lever door; bamboo jungles (gadgets).
+- **Dimensions (12.A6):** js/dimensions.js, js/dim-registry.js: one World, one dimension at a time; per-dimension edits (own storage keys), containers keyed `n:`/`e:`, swapped water/lava/fire/creatures/XP orbs; online every message carries `dm`, the host stores all, the lowest guest simulates a dimension the host isn't in (creatures there are each guest's own); NET_VERSION 10.
+- **The Nether (12.B1):** five biomes, the lava sea, portals 2x3-21x21 (1:8, find or build), fortresses, bastions, ruined portals, netherite and the smithing table, the real brewing chain, biome fog, the respawn anchor.
+- **The End (12.B2):** strongholds (128 in rings) and eyes of ender, the end portal, the island with 10 pillars and crystals, the Ender Dragon (phases, breath, crystals heal it, it flies home to die), the exit portal and egg, gateways, end cities and ships, chorus, elytra.
+- **Creatures (12.B3):** ghasts (fireballs can be hit back), zombified piglins (group anger), piglins (gold, bartering), hoglins, blazes, magma cubes, wither skeletons (Wither), striders, endermites, shulkers (Levitation), silverfish.
+- **Staples (12.C):** double chests, barrels, shulker boxes, smoker and blast furnace, campfires, composter, grindstone, stonecutter, job-site blocks and the bell; hoppers, droppers, dispensers, observers, tripwire, item frames, armor stands, more potted plants, bamboo and scaffolding; boats and chest boats, minecarts and chest minecarts, rails (powered, detector, activator).
+- **Review (12.C):** three reviews (32 verified findings) fixed: furnaces near a guest in another dimension, a dead dragon on guests' screens, a dragon reviving mid-death, double bed-blast hits, elytra wear, portal platforms in the air, pausing in a portal, sleeping with the host away, reloads at an anchor or mid-trip, respawn near a friend under the Nether's roof, XP orbs per dimension, the auto tuner's frozen picture and its ratchet, saved Missions worlds' mode, fullscreen and held Esc, and more.
+
+Decisions and known limits:
+- A Round 11 Survival world's unvisited ground regenerates with the new villages, temples and jungles (its edits stay).
+- Creatures in a dimension the host isn't in are each guest's own; hoppers and dispensers run on the host (and wait in a dimension only guests are in).
+- Not built: maps, banners (so no loom screen), trapped chests, hopper/TNT/furnace minecarts, comparators, glow item frames; the Nether's lava reaches 3 blocks (vanilla 7).
