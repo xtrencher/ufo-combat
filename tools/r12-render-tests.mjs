@@ -340,7 +340,7 @@ async function browserChecks() {
     await shot("cave-torch");
     await v((g, a) => g.world.setBlocks([a.x0 + 3, a.y, a.z0 - 1, 0]), room);
     console.log(`        mean luminance: day ${day.mean.toFixed(4)}, night ${night.mean.toFixed(4)}, a torch ${torch.mean.toFixed(4)}`);
-    assert(day.mean < 0.03, `the room by day: ${day.mean}`);
+    assert(day.mean < 0.045, `the room by day: ${day.mean}`); // (dark, but faintly visible: vanilla's light level 0)
     assert(Math.abs(day.mean - night.mean) < 0.006, `day ${day.mean} vs night ${night.mean}`);
     assert(torch.mean > day.mean + 0.02, `a torch: ${torch.mean}`);
   });

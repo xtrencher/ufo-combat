@@ -3240,7 +3240,8 @@ function cullCreatureShadows() {
 }
 
 function renderFrame() {
-  const exposure = sky.exposure * eyeAdaptation;
+  // (Round 12) Out of the sky's sight (a cave) the time of day doesn't change the exposure.
+  const exposure = THREE.MathUtils.lerp(1, sky.exposure, worldUniforms.uEyeSky.value) * eyeAdaptation;
   const preset = activePreset;
   cullCreatureShadows();
   sky.material.uniforms.uWriteSkyMask.value = preset.post ? 1 : 0;

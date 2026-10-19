@@ -245,7 +245,9 @@ vec3 worldLighting(vec3 N, float sky, float blk, float ao, float shadow) {
   vec3 hemi = mix(uAmbientGround, uAmbientSky, N.y * 0.5 + 0.5);
   float aoF = 0.32 + 0.68 * ao;
   // (Round 11: Night Vision lifts the darkest light to a bright floor.)
-  vec3 indirect = (max(hemi * skyCurve(sky) + uTorchColor * torchCurve(blk), vec3(0.42 * uNightVision)) + vec3(0.006, 0.007, 0.01)) * aoF;
+  // (Round 12) The floor: unlit rock stays faintly visible, as vanilla's light
+  // level 0 at its default brightness (not pitch black).
+  vec3 indirect = (max(hemi * skyCurve(sky) + uTorchColor * torchCurve(blk), vec3(0.42 * uNightVision)) + vec3(0.075, 0.078, 0.095)) * aoF;
   // Slight per-axis shading so walls in full shade still read as distinct faces.
   return (direct + indirect) * (1.0 - abs(N.x) * 0.07);
 }
