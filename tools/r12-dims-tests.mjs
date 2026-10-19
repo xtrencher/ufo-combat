@@ -105,16 +105,16 @@ await check("the stand-in Nether: a bedrock floor and roof, caves, a lava sea up
   assert(ms < 40, `${ms.toFixed(1)} ms a chunk`);
 });
 
-await check("the stand-in End: an island near (0, 0) over the void, nothing far out; the Overworld's generator unchanged", async () => {
+await check("the End: an island near (0, 0) over the void, nothing far out; the Overworld's generator unchanged", async () => {
   const g = R.createGenerator("end", 4711, {});
   const mid = chunkOf(g, 0, 0);
   let stone = 0;
-  for (const id of mid) if (id === V.SANDSTONE) stone++;
+  for (const id of mid) if (id === V.END_STONE) stone++;
   assert(stone > 3000, `the island's middle: ${stone}`);
   assert(at(mid, 0, 0, 0) === BLOCK.AIR, "bedrock under the End");
   const far = chunkOf(g, 40, 40);
   assert(far.every((id) => id === BLOCK.AIR), "something far out in the void");
-  assert(g.heightAt(1000, 1000) === -1 && g.heightAt(0, 0) > 40, "heights");
+  assert(g.heightAt(500, 500) === -1 && g.heightAt(0, 0) > 40, "heights");
   const { TerrainGenerator } = await imp("js/terrain.js");
   const ow = chunkOf(R.createGenerator("overworld", 99, { sites: false, vanilla: true }), 2, 2);
   const old = chunkOf(new TerrainGenerator(99, { sites: false, vanilla: true }), 2, 2);

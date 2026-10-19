@@ -20,8 +20,10 @@
 // - Nether wart: planted on soul sand, 4 ages, grows on random ticks (one in
 //   ten, vanilla), 2-4 when ripe; the brewing stand's base (js/brewing.js).
 // - The nether portal block (2 ids, its plane's axis): purple, thin, light
-//   11, no collision; js/portal.js lights it in an obsidian frame, breaks it
-//   with its frame and sends whoever stands in it through. Crying obsidian.
+//   11, no collision; js/portal.js lights it in an obsidian frame (a fire in
+//   it; flint and steel or a fire charge on the frame's inside here, through
+//   LIB.lightPortalAt), breaks it with its frame and sends whoever stands in
+//   it through. Crying obsidian.
 //   The respawn anchor (charged with glowstone, sets the spawn in the Nether,
 //   explodes elsewhere: js/portal.js through LIB.useRespawnAnchor).
 // - Soul fire: blue, on soul sand and soil only (what is lit there turns into
@@ -36,6 +38,7 @@
 //   and ingots, the fire charge (lights a fire like flint and steel, used up),
 //   the netherite upgrade template, the awkward, mundane and thick potions.
 // Deviations: basalt and stems stand one way only (the game's logs too);
+// soul fire hurts as fire does (1); soul sand makes no bubble columns;
 // the wooden nether things are not flammable (vanilla) and are no fuel; no
 // crimson/warped doors, trapdoors, buttons, signs or pressure plates; no
 // soul torches, lanterns or campfires.
@@ -246,7 +249,6 @@ def(SOUL_FIRE, {
   support: (below) => isSoulFireBase(below),
   fire: true,
   burns: true,
-  fireDamage: 2, // (vanilla: soul fire hurts 2, fire 1)
   creative: false,
   sound: "cloth",
 });
@@ -507,8 +509,13 @@ blockUse[NETHERRACK] = (ctx) =>
 for (const nylium of NYLIUMS) {
   blockUse[nylium] = (ctx) => boneMeal(ctx, (c) => forestVegetation(c.world, c.x, c.y + 1, c.z, nylium === WARPED_NYLIUM, Math.random, 3, 1) > 0);
 }
-blockUse[WEEPING_VINES] = (ctx) => boneMeal(ctx, (c) => growVineMore(c.world, c.x, c.y, c.z, WEEPING_VINES, -1));
-blockUse[TWISTING_VINES] = (ctx) => boneMeal(ctx, (c) => growVineMore(c.world, c.x, c.y, c.z, TWISTING_VINES, 1));
+// (anywhere on the vine: the tip grows)
+for (const [base, dy] of [
+  [WEEPING_VINES, -1],
+  [TWISTING_VINES, 1],
+]) {
+  blockUse[base] = blockUse[base + 1] = (ctx) => boneMeal(ctx, (c) => growVineMore(c.world, c.x, c.y, c.z, base, dy));
+}
 function growVineMore(world, x, y, z, base, dy) {
   let ty = y;
   while (world.getBlock(x, ty + dy, z) === base || world.getBlock(x, ty + dy, z) === base + 1) ty += dy;
@@ -613,15 +620,14 @@ function takeOne(inv, id) {
   }
   return false;
 }
-export function smithUpgrade(inv, creative = false) {
+// (Creative too: the smithing table takes its template and ingot, as vanilla's.)
+export function smithUpgrade(inv) {
   const s = inv?.selectedStack ?? inv?.slots?.[inv.selected];
   const to = s ? NETHERITE_OF[s.id] : 0;
   if (!to || !LIB.itemInfo?.(to)) return false;
-  if (!creative && (inv.countItem(NETHERITE_UPGRADE) < 1 || inv.countItem(NETHERITE_INGOT) < 1)) return false;
-  if (!creative) {
-    takeOne(inv, NETHERITE_UPGRADE);
-    takeOne(inv, NETHERITE_INGOT);
-  }
+  if (inv.countItem(NETHERITE_UPGRADE) < 1 || inv.countItem(NETHERITE_INGOT) < 1) return false;
+  takeOne(inv, NETHERITE_UPGRADE);
+  takeOne(inv, NETHERITE_INGOT);
   const from = LIB.itemInfo(s.id);
   const info = LIB.itemInfo(to);
   const maxFrom = from?.tool?.durability ?? from?.armor?.durability;
@@ -634,12 +640,27 @@ export function smithUpgrade(inv, creative = false) {
 }
 blockUse[SMITHING_TABLE] = (ctx) => {
   if (!ctx.stack || !NETHERITE_OF[ctx.stack.id]) return false;
-  if (!smithUpgrade(ctx.inventory, ctx.creative)) {
+  if (!smithUpgrade(ctx.inventory)) {
     LIB.toast?.("Needs a Netherite Upgrade and a Netherite Ingot", 2.5);
     return true;
   }
   ctx.audio?.playPlace?.("stone");
   ctx.audio?.playCraft?.();
+  return true;
+};
+
+// Flint and steel or a fire charge on a portal frame's inside: the portal
+// lit even where a fire couldn't stand (vanilla's portal check; on the
+// frame's floor the fire itself lights it, js/portal.js). LIB.lightPortalAt:
+// js/portal.js.
+blockUse[I.OBSIDIAN] = (ctx) => {
+  const id = ctx.stack?.id;
+  if ((id !== I.FLINT_AND_STEEL && id !== FIRE_CHARGE) || !ctx.place || !LIB.lightPortalAt) return false;
+  const [x, y, z] = ctx.place;
+  if (ctx.world.getBlock(x, y, z) !== BLOCK.AIR || !LIB.lightPortalAt(ctx.world, x, y, z)) return false;
+  (ctx.audio?.playIgnite || ctx.audio?.playClick)?.call(ctx.audio);
+  if (id === FIRE_CHARGE) useOne(ctx);
+  else if (!ctx.creative && ctx.inventory?.damageSelected?.(1)) ctx.audio?.playToolBreak?.();
   return true;
 };
 
@@ -701,6 +722,7 @@ export const recipes = () => {
   R.push(shaped(["#", "#", "S"], { "#": NETHER_PLANKS, S: ITEM.STICK }, ITEM.WOOD_SWORD));
   R.push(shaped(["##", " S", " S"], { "#": NETHER_PLANKS, S: ITEM.STICK }, I.WOODEN_HOE));
   R.push(shaped(["II", "##", "##"], { I: I.IRON_INGOT, "#": ALL_PLANKS }, SMITHING_TABLE));
+  R.push(shaped(["CCC", "GGG", "CCC"], { C: CRYING_OBSIDIAN, G: GLOWSTONE }, RESPAWN_ANCHOR));
   // The families.
   if (HAS_FAMILIES) {
     for (const f of FAMILIES) {

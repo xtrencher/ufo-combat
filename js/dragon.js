@@ -277,9 +277,9 @@ class DragonModel {
     this.flap += dt * (sitting ? 1.4 : dying ? 2.2 : 3.4 + Math.max(0, s.vy || 0) * 0.25);
     const f = this.flap;
     for (const w of this.wings) {
-      const lift = sitting ? -0.2 + Math.sin(f) * 0.1 : Math.sin(f) * 0.62 + 0.08;
+      const lift = sitting ? 0.32 + Math.sin(f) * 0.08 : Math.sin(f) * 0.62 + 0.08;
       w.wing.rotation.set(0, 0, w.s * lift);
-      w.tip.rotation.set(0, 0, w.s * (sitting ? -0.45 : Math.sin(f - 0.9) * 0.55 + 0.25));
+      w.tip.rotation.set(0, 0, w.s * (sitting ? -0.75 : Math.sin(f - 0.9) * 0.55 + 0.25));
     }
     // The neck: from the body's front toward the head, bending down to look at
     // what it breathes on when sitting.
@@ -519,7 +519,7 @@ varying vec3 vDir;
 void main() {
   vec3 d = vDir / max(abs(vDir.x), max(abs(vDir.y), abs(vDir.z)));
   vec2 uv = abs(d.y) > 0.999 ? d.xz : abs(d.x) > 0.999 ? d.zy : d.xy;
-  vec3 c = texture2D(uMap, uv * 2.0).rgb * uTint;
+  vec3 c = texture2D(uMap, uv * 4.0).rgb * uTint;
   gl_FragColor = vec4(c, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -537,13 +537,13 @@ class EndSky {
       let seed = 1234567;
       const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
       const v = new Float32Array(N * N);
-      for (let i = 0; i < N * N; i++) v[i] = 0.32 + rnd() * 0.12;
-      for (let k = 0; k < 900; k++) {
+      for (let i = 0; i < N * N; i++) v[i] = 0.34 + rnd() * 0.08;
+      for (let k = 0; k < 700; k++) {
         let x = rnd() * N;
         let y = rnd() * N;
         const a = rnd() * Math.PI * 2;
         const len = 3 + rnd() * 9;
-        const b = 0.15 + rnd() * 0.35;
+        const b = 0.06 + rnd() * 0.16;
         for (let t = 0; t < len; t++) {
           const i = ((Math.floor(y) % N + N) % N) * N + ((Math.floor(x) % N + N) % N);
           v[i] = Math.min(1, v[i] + b);
@@ -558,12 +558,12 @@ class EndSky {
       ctx.putImageData(img, 0, 0);
       tex = new THREE.CanvasTexture(canvas);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.magFilter = THREE.NearestFilter;
+      tex.anisotropy = 4;
       tex.colorSpace = THREE.SRGBColorSpace;
     }
     this.mesh = new THREE.Mesh(
       new THREE.BoxGeometry(10, 10, 10),
-      new THREE.ShaderMaterial({ uniforms: { uMap: { value: tex }, uTint: { value: new THREE.Color(0.06, 0.05, 0.075) } }, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false })
+      new THREE.ShaderMaterial({ uniforms: { uMap: { value: tex }, uTint: { value: new THREE.Color(0.042, 0.036, 0.052) } }, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false })
     );
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1e6 + 1; // (just after the dome: sky.js)
@@ -688,6 +688,8 @@ export class EndGame {
 
   _dimChanged(dim) {
     PORTAL_BLOCKS.set(V.END_PORTAL, dim === END ? "end_exit" : "end");
+    // (leaving the End flying the dragon: its health and place for whoever comes next)
+    if (this.d) this._changed();
     this.clouds.length = 0;
     for (const f of this.fireballs) this.game.scene.remove(f.mesh);
     this.fireballs.length = 0;
@@ -710,6 +712,7 @@ export class EndGame {
   update(dt) {
     if (!this.enabled) return;
     this.time += dt;
+    this._sweepPortal();
     this._updateEyes(dt);
     this._scanT -= dt;
     if (this._scanT <= 0) {
@@ -743,6 +746,7 @@ export class EndGame {
       this.model.pose(pose, dt, this.world.lightAt(pose.p[0], pose.p[1], pose.p[2]));
       this.model.boxes(this._hitBoxes);
       this._contact(pose, dt);
+      this._sounds(pose, dt);
     } else {
       this.model.hide();
       this._hitBoxes.length = 0;
@@ -756,16 +760,38 @@ export class EndGame {
     this._showBar(pose && s?.alive ? pose : null);
   }
 
+  // A fall through an end portal between two frames (a slow computer's long
+  // frames, a fast drop) still goes through it (js/dimensions.js only looks
+  // at where the player is now).
+  _sweepPortal() {
+    const p = this.player.position;
+    const last = this._lastFeet;
+    this._lastFeet = [p.x, p.y, p.z];
+    if (!last || !this.dims || this.dims.pending || this.player.dead) return;
+    const x = Math.floor(p.x);
+    const z = Math.floor(p.z);
+    if (x !== Math.floor(last[0]) || z !== Math.floor(last[2]) || last[1] - p.y > 6) return;
+    for (let y = Math.floor(p.y + 0.1); y <= Math.floor(last[1] + 0.1); y++) {
+      if (this.world.getBlock(x, y, z) !== V.END_PORTAL) continue;
+      this.dims.enterPortal(PORTAL_BLOCKS.get(V.END_PORTAL), { x, y, z });
+      return;
+    }
+  }
+
   // ---------- Crystals ----------
 
   // Every crystal standing: [{ key, x, y, z (its foot), pillar: i | -1, i (placed index) }].
+  // (Made again only when they change: asked many times a frame.)
   crystals() {
     const s = this.state;
     if (!s) return [];
+    const c = this._crystalList;
+    if (c && c.s === s && c.mask === s.crystals && c.placed === s.placed && c.n === s.placed.length) return c.list;
     const out = [];
     const pillars = this.gen.pillars;
     for (const p of pillars) if (s.crystals & (1 << p.i)) out.push({ key: `p${p.i}`, x: p.x + 0.5, y: p.h + 1, z: p.z + 0.5, pillar: p.i, phase: p.i });
-    s.placed.forEach((c, i) => out.push({ key: `c${c[0]},${c[1]},${c[2]}`, x: c[0] + 0.5, y: c[1], z: c[2] + 0.5, pillar: -1, i, phase: i * 1.7 }));
+    s.placed.forEach((q, i) => out.push({ key: `c${q[0]},${q[1]},${q[2]}`, x: q[0] + 0.5, y: q[1], z: q[2] + 0.5, pillar: -1, i, phase: i * 1.7 }));
+    this._crystalList = { s, mask: s.crystals, placed: s.placed, n: s.placed.length, list: out };
     return out;
   }
 
@@ -786,7 +812,7 @@ export class EndGame {
   _drawCrystals(pose) {
     const list = this.crystals();
     const healer = pose && pose.hl ? pose.hl : null;
-    const body = pose ? _w.set(pose.p[0], pose.p[1], pose.p[2]).clone() : null;
+    const body = pose ? (this._bodyAt ||= new THREE.Vector3()).set(pose.p[0], pose.p[1], pose.p[2]) : null;
     for (const c of list) c.beamTo = healer === c.key && body ? body : null;
     // (the respawn: the four crystals' beams up into the sky over the portal)
     if (this.state?.respawn) {
@@ -798,7 +824,7 @@ export class EndGame {
 
   // A crystal is hit: it bursts (power 6) where it is, for everyone; the
   // dragon loses 10 if it was healing from it. Authority only.
-  _burstCrystal(key, byPlayer = true) {
+  _burstCrystal(key) {
     const s = this.state;
     const c = this.crystals().find((k) => k.key === key);
     if (!s || !c) return;
@@ -806,7 +832,6 @@ export class EndGame {
     else s.placed.splice(c.i, 1);
     const at = new THREE.Vector3(c.x, c.y + 1, c.z);
     this.game.effects?.explode?.(at, { radius: (CRYSTAL_POWER * 4) / 3, source: "end_crystal" });
-    void byPlayer;
     if (this.d && this.d.healer === key && s.alive) this._damage("head", 10, false, true);
     // (a crystal's blast sets off the crystals next to it)
     for (const o of this.crystals()) if (Math.hypot(o.x - c.x, o.y - c.y, o.z - c.z) < CRYSTAL_POWER * 1.5 && o.key !== key) this._chain(o.key);
@@ -866,7 +891,7 @@ export class EndGame {
       healT: 0,
       deathT: 0,
       flashT: 0,
-      xpGiven: false,
+      breakT: 0,
     };
     this._nextNode(d);
     return d;
@@ -894,7 +919,7 @@ export class EndGame {
     if (this._chainKeys?.size) {
       const keys = [...this._chainKeys];
       this._chainKeys.clear();
-      for (const k of keys) this._burstCrystal(k, false);
+      for (const k of keys) this._burstCrystal(k);
     }
     if (!s.alive) {
       this.d = null;
@@ -916,6 +941,36 @@ export class EndGame {
       }
     } else d.healT = 0;
     this._think(d, dt);
+    this._breakThrough(d, dt);
+  }
+
+  // Vanilla's: in flight it breaks every block it touches but the immune
+  // ones (end stone, obsidian, bedrock, iron bars, the portals and frames).
+  // Edits, so everyone has them.
+  _breakThrough(d, dt) {
+    d.breakT -= dt;
+    // (not near the portal it sits on: its torches stay)
+    if (d.breakT > 0 || SITTING.has(d.phase) || d.phase === "takeoff" || !this._hitBoxes.length) return;
+    d.breakT = 0.25;
+    const w = this.world;
+    const list = [];
+    for (const b of this._hitBoxes) {
+      if (b.part === "wing" || b.part === "tail") continue;
+      // (vanilla's parts: the body 5 x 3 x 5, the head and neck 1 or so)
+      const r = b.part === "head" || b.h < 1 ? 1 : 2;
+      const ry = 1;
+      for (let x = Math.floor(b.c.x - r); x <= Math.floor(b.c.x + r); x++) {
+        for (let y = Math.max(1, Math.floor(b.c.y - ry)); y <= Math.min(126, Math.floor(b.c.y + ry)); y++) {
+          for (let z = Math.floor(b.c.z - r); z <= Math.floor(b.c.z + r); z++) {
+            const id = w.getBlock(x, y, z);
+            if (id === BLOCK.AIR || DRAGON_IMMUNE.has(id) || !BLOCK_INFO[id] || BLOCK_INFO[id].liquid) continue;
+            list.push(x, y, z, BLOCK.AIR);
+            if (list.length >= 400) break;
+          }
+        }
+      }
+    }
+    if (list.length) w.setBlocks(list);
   }
 
   // The players the dragon may go for: this one and the others in the End.
@@ -1084,7 +1139,6 @@ export class EndGame {
         this._setPhase(d, "takeoff");
       }
     } else if (d.phase === "roar") {
-      if (d.t < dt * 1.5) this._roar(d);
       if (d.t >= 2) this._setPhase(d, "flame");
     } else if (d.phase === "flame") {
       if (d.t >= 0.5 && !d.breathed) {
@@ -1099,11 +1153,28 @@ export class EndGame {
     }
   }
 
-  _roar(d) {
-    const g = this.game;
-    const dist = g.player.position.distanceTo(d.pos);
-    g.audio?._cat?.("creatures");
-    g.audio?._voice?.({ f0: 140, f1: 70, d: 1.4, v: 0.5, formants: [[420, 4, 1], [900, 6, 0.5]], breath: 0.7 }, 1 / (1 + dist / 30));
+  // Its voice, heard by everyone (from the pose drawn here): the roar before
+  // it breathes, a growl now and then, the wing beats near it, its death cry.
+  _sounds(pose, dt) {
+    const a = this.game.audio;
+    if (!a?.ctx || !a._voice) return;
+    const dist = this.player.position.distanceTo(_v.set(pose.p[0], pose.p[1], pose.p[2]));
+    const k = 1 / (1 + dist / 30);
+    const was = this._lastPh;
+    this._lastPh = pose.ph;
+    a._cat?.("creatures");
+    if (pose.ph === "roar" && was !== "roar") a._voice({ f0: 140, f1: 70, d: 1.4, v: 0.5, formants: [[420, 4, 1], [900, 6, 0.5]], breath: 0.7 }, k);
+    else if (pose.ph === "dying" && was !== "dying") a._voice({ f0: 180, f1: 40, d: 3.5, v: 0.6, formants: [[380, 3, 1], [760, 5, 0.6]], breath: 0.8 }, Math.max(0.3, k));
+    else if (pose.ph === "flame" && was !== "flame") a._hit?.({ type: "bandpass", f: 900, fEnd: 300, q: 0.7, d: 1.6, v: 0.35 * k, attack: 0.1 });
+    this._growlT = (this._growlT ?? 6) - dt;
+    if (this._growlT <= 0 && pose.ph !== "dying") {
+      this._growlT = 6 + Math.random() * 6;
+      if (dist < 90) a._voice({ f0: 95, f1: 70, d: 1.1, v: 0.32, formants: [[300, 4, 1]], breath: 0.6 }, k);
+    }
+    // (a beat a flap: the model's wing phase)
+    const f = Math.floor(this.model.flap / (Math.PI * 2));
+    if (f !== this._lastFlap && dist < 60 && !SITTING.has(pose.ph)) a._hit?.({ type: "lowpass", f: 260, fEnd: 90, q: 0.8, d: 0.35, v: 0.3 * k, attack: 0.05 });
+    this._lastFlap = f;
   }
 
   // The breath: a cloud on the ground in front of its head (radius 5, 10 s).
@@ -1148,7 +1219,6 @@ export class EndGame {
       d.hp = 0;
       this._setPhase(d, "dying");
       d.deathT = 0;
-      this.sync?.event({ k: "die" });
     }
     return true;
   }
@@ -1337,7 +1407,7 @@ export class EndGame {
     this.clouds.push(cloud);
     if (this.clouds.length > 12) this.clouds.shift();
     if (mine) this.sync?.event({ k: "cl", p: [r2(c.x), y, r2(c.z)], r: c.r, g: c.grow || 0, l: c.life, kd: c.kind });
-    this.game.audio?.playExplosion?.(this.player.position.distanceTo(_v.set(c.x, y, c.z)), 0.4);
+    if (c.kind === "fireball") this.game.audio?.playExplosion?.(this.player.position.distanceTo(_v.set(c.x, y, c.z)), 0.4);
   }
 
   _updateClouds(dt) {
@@ -1441,7 +1511,7 @@ export class EndGame {
       const p = pillars[r.n++];
       this._rebuildPillar(p);
       s.crystals |= 1 << p.i;
-      this.game.effects?.explode?.(new THREE.Vector3(p.x + 0.5, p.h + 1, p.z + 0.5), { radius: 4, source: "end_crystal", carve: false });
+      this.game.effects?.explode?.(new THREE.Vector3(p.x + 0.5, p.h + 1, p.z + 0.5), { radius: 4, source: "end_respawn", carve: false });
     }
     if (r.n >= pillars.length && r.t > 2 + pillars.length * 0.8 + 1) {
       const cells = podiumCells(y, false);
@@ -1488,7 +1558,10 @@ export class EndGame {
     const p = this.player.position;
     if (w.dim === OVERWORLD && isVanilla()) {
       const g = this._strongholds();
-      const near = g?.nearest(p.x, p.z);
+      // (a stronghold's place is worked out only when one may be near: its
+      // ring's place within 112 + 80 + 160 blocks)
+      const close = g?.rings.some(([x, z]) => Math.abs(x - p.x) < 352 && Math.abs(z - p.z) < 352);
+      const near = close ? g.nearest(p.x, p.z) : null;
       if (near && Math.hypot(near.x - p.x, near.z - p.z) < 160) {
         const room = g.plan(near.i).portal;
         if (room) for (const c of room.cells) if (w.getBlock(c[0], c[1], c[2]) === V.END_PORTAL) portals.push(c);
@@ -1947,7 +2020,7 @@ export class EndGame {
   // A blow or a shot on a stand-in (this player's): applied here, or claimed.
   _hitPart(s, amount, projectile) {
     if (s.crystal) {
-      if (this.authority) this._burstCrystal(s.crystal, true);
+      if (this.authority) this._burstCrystal(s.crystal);
       else this.sync?.claim({ k: "c", c: s.crystal });
       return true;
     }
@@ -1961,6 +2034,7 @@ export class EndGame {
 
   // A blast near the crystals and the dragon (this peer's own blasts).
   _blast(center, radius, byPlayer, source) {
+    if (source === "end_respawn") return; // (the pillars' own rebuilding: a show, not a blast at their crystals)
     const power = source === "end_crystal" ? CRYSTAL_POWER : source === "bed" ? 5 : source === "tnt" ? 4 : source === "creeper" ? 3 : radius * 0.75;
     for (const c of this.crystals()) {
       if (Math.hypot(c.x - center.x, c.y + 1 - center.y, c.z - center.z) > power * 1.5) continue;
@@ -1982,7 +2056,7 @@ export class EndGame {
   onClaim(m) {
     if (!this.authority || !this.state) return;
     if (m.k === "d" && this.d) this._damage(m.p === "head" ? "head" : "body", clamp(Number(m.a) || 0, 0, 200), !!m.pj);
-    else if (m.k === "c" && typeof m.c === "string") this._burstCrystal(m.c, true);
+    else if (m.k === "c" && typeof m.c === "string") this._burstCrystal(m.c);
     else if (m.k === "place" && Array.isArray(m.p) && m.p.length === 3 && m.p.every(Number.isInteger)) this._addPlaced(m.p);
     else if (m.k === "exit" && Array.isArray(m.p) && m.p.length === 3 && m.p.every(Number.isInteger)) this._noteExit(m.p);
   }
@@ -1992,8 +2066,10 @@ export class EndGame {
     if (!this.inEnd) return;
     if (m.k === "fb" && Array.isArray(m.p) && Array.isArray(m.d)) this._addFireball(new THREE.Vector3(m.p[0], m.p[1], m.p[2]), new THREE.Vector3(m.d[0], m.d[1], m.d[2]).normalize(), false);
     else if (m.k === "cl" && Array.isArray(m.p)) this._addCloud({ x: m.p[0], y: m.p[1], z: m.p[2], r: clamp(Number(m.r) || 3, 0.5, 8), grow: clamp(Number(m.g) || 0, 0, 1), life: clamp(Number(m.l) || 10, 0, 60), kind: m.kd === "breath" ? "breath" : "fireball" }, false);
-    else if (m.k === "xp" && Array.isArray(m.p)) this._dragonXp(m.p, clamp(Number(m.n) || 0, 0, 12000));
-    else if (m.k === "die") this.game.toast?.("The Ender Dragon falls");
+    else if (m.k === "xp" && Array.isArray(m.p)) {
+      this._dragonXp(m.p, clamp(Number(m.n) || 0, 0, 12000));
+      this.game.toast?.("The Ender Dragon is dead");
+    }
   }
 
   // The world's edits: a chorus plant that lost its hold falls with
@@ -2035,6 +2111,8 @@ export class EndGame {
 }
 
 const NEIGHBOURS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+// (vanilla's dragon_immune tag, of the blocks the game has)
+const DRAGON_IMMUNE = new Set([BLOCK.BEDROCK, V.OBSIDIAN, V.END_STONE, V.IRON_BARS, V.END_PORTAL, V.END_GATEWAY, ...Array.from({ length: 8 }, (_, i) => V.END_PORTAL_FRAME + i), ...(V.CRYING_OBSIDIAN ? [V.CRYING_OBSIDIAN] : []), ...(V.RESPAWN_ANCHOR ? Array.from({ length: 5 }, (_, i) => V.RESPAWN_ANCHOR + i) : [])]);
 const HURT_FLASH = new THREE.Color(0.9, 0.05, 0.05);
 const BREATH_GLOW = new THREE.Color(1.6, 0.35, 1.7);
 const BREATH_END = new THREE.Color(0.5, 0.1, 0.7);

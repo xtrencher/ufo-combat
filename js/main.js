@@ -82,6 +82,7 @@ import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
 import { LIB } from "./content/base.js";
 import { shieldRaised, shieldInOffhand } from "./content/items-vanilla.js";
 import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensions.js";
+import { EndGame } from "./dragon.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -1776,6 +1777,7 @@ function playerState() {
     leaderDrops: progress.mission?.squad ? missionDirector.serializeDrops() : undefined,
     missionsOff: progressOffAt || undefined, // (saved in Creative: what the mission counts had reached)
     ...dims.serialize(), // (Round 12) the dimension the player is in, the other dimensions' state
+    end: endGame.serialize(), // (Round 12) the dragon's fight (js/dragon.js)
   };
 }
 
@@ -2092,7 +2094,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
 };
 // (A Survival world's creeper and TNT hurt as vanilla's, by their power;
 // the mod weapons keep the grenade curve below.)
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5, ghast: 1 }; // (Round 12: a bed in the Nether or the End, a ghast's fireball)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5, end_crystal: 6, ghast: 1 }; // (Round 12: a bed in the Nether or the End, a ghast's fireball)
 // What a blast does to this player on foot: damage close in, and a shove.
 function hurtByBlast(center, radius, source) {
   // (Seated, the blast already hit the vehicle: Player.damage would hand it
@@ -2111,7 +2113,7 @@ function hurtByBlast(center, radius, source) {
     if (q > 0 && !player.dead) {
       let dmg = Math.floor(((q * q + q) / 2) * 7 * 2 * power + 1);
       // (TNT isn't a mob's cause, so its difficulty is applied here; a creeper's is in Player.damage)
-      if (source === "tnt" || source === "bed") {
+      if (source === "tnt" || source === "bed" || source === "end_crystal") {
         const s = player.mobDamageScale;
         dmg = s <= 0 ? 0 : Math.max(1, Math.round(dmg * s));
       }
@@ -3552,6 +3554,10 @@ mp.addModule(new SignSync(mp, signs)); // (Round 11: the signs' text online)
 const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionThrows, spawners, weather, invScreen, streamAround, mp });
 game.dims = dims;
 if (dims.sync) mp.addModule(dims.sync);
+// (Round 12) The End: the dragon's fight, the crystals, the portals' starfield, eyes of ender, gateways (js/dragon.js).
+const endGame = new EndGame(game, { dims, mp, renderer });
+endGame.load(savedPlayer?.end);
+game.endGame = endGame;
 // (Round 12: the host's dimension the host's; another dimension the guest's who simulates it there, js/dimensions.js.)
 natureSim.fire.enabled = () => dims.simulatesWorld(); // (a guest's fires burn at the host; the results arrive as edits)
 redstone.enabled = () => dims.simulatesWorld(); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
@@ -3623,6 +3629,7 @@ window.__ufo = window.__voxelands = {
   weatherFx,
   spawners,
   dims, // (Round 12)
+  endGame, // (Round 12)
   weapons,
   lasers,
   nuke,
@@ -4251,6 +4258,7 @@ function simulate(dt, frameTime) {
   // (Round 12: lit where the body stands, not at the third-person camera; the armor, the off hand, eating.)
   avatar.update(dt, player, player.thirdPerson ? world.lightAt(player.position.x, player.position.y + 1, player.position.z) : heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0, armor: inventory.armor, offhandId: inventory.offhand?.id ?? 0, eating: interaction.eating > 0 });
   updateDebug(dt, frameTime);
+  endGame.update(dt); // (Round 12: the End's fight, the portals' starfield, eyes of ender)
   dims.update(dt); // (Round 12: portals, a travel's arrival)
   mp.update(dt);
 }

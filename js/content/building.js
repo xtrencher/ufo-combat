@@ -588,7 +588,7 @@ function addStairs(base, name, faces, mat) {
 // Slabs: bottom, top; one onto the other half makes the full block.
 function slabMerge(ctx) {
   const base = ctx.stack.id;
-  const fullId = blocks[base].fullBlock;
+  const fullId = (blocks[base] || LIB.BLOCK_INFO[base]).fullBlock; // (Round 12: another module's slab too, addFamily)
   // On a slab of its kind, from its open side.
   if (KIND[ctx.id] === K.SLAB && BASE[ctx.id] === base && ctx.normal && ctx.normal[1] === (VAR[ctx.id] ? -1 : 1)) return [ctx.x, ctx.y, ctx.z, fullId];
   // Into a cell holding the other half.
@@ -706,6 +706,41 @@ for (const st of STONES) {
     hardness: st.hardness,
     itemBoxes: [[4 * S, 0, 4 * S, 12 * S, 1, 12 * S], [0, 0, 5 * S, 4 * S, 14 * S, 11 * S], [12 * S, 0, 5 * S, 1, 14 * S, 11 * S]],
   };
+}
+
+// (Round 12) Another content module's stairs, slabs, fences, fence gates and
+// walls (the Nether's woods and stones: js/content/nether.js), made as this
+// module's own (the same shapes, collisions, placing and joining; a gate's
+// right click is this module's blockUse, by id), their defs put in that
+// module's `out` table (each module keeps to its own id range). f: { name,
+// faces, mat ({ hardness, tool, minTier, sound }), full (a double slab's
+// block), stairs, slab, fence, gate, wall (the first ids, any of them) }.
+export function addFamily(out, f) {
+  const mat = f.mat || PICK;
+  const before = new Set(Object.keys(blocks));
+  if (f.stairs) addStairs(f.stairs, f.name, f.faces, mat);
+  if (f.slab) addSlab(f.slab, f.name, f.faces, f.full, mat);
+  for (const k of Object.keys(blocks)) {
+    if (before.has(k)) continue;
+    out[k] = blocks[k];
+    delete blocks[k];
+  }
+  if (f.fence) {
+    mark(f.fence, K.FENCE, f.fence, 0);
+    out[f.fence] = { ...blocks[I.OAK_FENCE], name: `${f.name} Fence`, faces: f.faces, ...mat };
+  }
+  if (f.gate) {
+    for (let v = 0; v < 8; v++) {
+      const id = f.gate + v;
+      mark(id, K.GATE, f.gate, v);
+      out[id] = { ...blocks[I.OAK_FENCE_GATE + v], name: `${f.name} Fence Gate`, faces: f.faces, ...mat, ...(v ? { item: f.gate } : { placeAs: (ctx) => f.gate + look(ctx) }) };
+      blockUse[id] = useGate;
+    }
+  }
+  if (f.wall) {
+    mark(f.wall, K.WALL, f.wall, 0);
+    out[f.wall] = { ...blocks[I.COBBLESTONE_WALL], name: `${f.name} Wall`, faces: f.faces, ...mat };
+  }
 }
 
 // Doors: 16 ids (facing, open, upper half), and 16 more hinged on the right.

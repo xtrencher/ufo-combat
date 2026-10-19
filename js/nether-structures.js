@@ -370,7 +370,7 @@ function buildPiece(w, p, seed) {
   }
 }
 
-// An enclosed hall: floor, walls, roof, `h` high inside, open at both ends' middles.
+// An enclosed hall: floor, walls, roof, `h` high inside, a doorway in the middle of each end.
 function hall(L, k, seed, h) {
   for (let v = 0; v < k.len; v++) {
     for (let u = -k.half; u <= k.half; u++) {
@@ -378,7 +378,8 @@ function hall(L, k, seed, h) {
       const z = L.z(u, v);
       L.put(u, 0, v, brickAt(seed, x, 0, z));
       L.put(u, -1, v, BRICK);
-      const wall = Math.abs(u) === k.half;
+      // (its sides, and its ends but for the doorways: a room wider than the corridor into it is closed)
+      const wall = Math.abs(u) === k.half || ((v === 0 || v === k.len - 1) && Math.abs(u) >= 2);
       for (let y = 1; y < h; y++) L.put(u, y, v, wall ? brickAt(seed, x, y, z) : AIR);
       L.put(u, h, v, brickAt(seed, x, h, z));
     }
@@ -446,11 +447,8 @@ function buildBastion(w, b) {
       }
     }
   }
-  // (the ladder up the keep's west wall, holes in its floors)
-  for (let h = 1; h <= 10; h++) {
-    w.put(x - 3, y + h, z, I.LADDER + 2);
-  }
-  for (const fy of [5, 10]) w.put(x - 3, y + fy, z, I.LADDER + 2);
+  // (the ladder up the keep's west wall, beside its door, through holes in its floors)
+  for (let h = 1; h <= 10; h++) w.put(x - 3, y + h, z + 2, I.LADDER + 2);
   // (the treasure below: a lava pit, gold round it)
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
     w.put(x + dx, y, z + dz, dx || dz ? I.MAGMA_BLOCK : I.LAVA);
@@ -459,7 +457,7 @@ function buildBastion(w, b) {
   for (let k = 0; k < 12; k++) {
     const gx = x + Math.floor(hash2(seed + k, 1, 2) * 7) - 3;
     const gz = z + Math.floor(hash2(seed + k, 3, 4) * 7) - 3;
-    if (Math.max(Math.abs(gx - x), Math.abs(gz - z)) <= 1 || Math.max(Math.abs(gx - x), Math.abs(gz - z)) >= 4 || gx === x - 3) continue;
+    if (Math.max(Math.abs(gx - x), Math.abs(gz - z)) <= 1 || Math.max(Math.abs(gx - x), Math.abs(gz - z)) >= 4 || (gx === x - 3 && gz === z + 2)) continue;
     w.put(gx, y + 1, gz, k % 3 ? I.GOLD_BLOCK : I.GILDED_BLACKSTONE);
   }
   // (the chests: the treasure on the top floor, the rest on the ramparts)
@@ -713,7 +711,7 @@ export class NetherStructures {
   }
 
   // Whether (x, y, z) is inside a fortress's pieces (vanilla's fortress spawns:
-  // blazes, wither skeletons... NETHER_SPAWNS.fortress) / a bastion's walls.
+  // blazes, wither skeletons: js/mobs.js) / a bastion's walls.
   fortressAt(x, y, z) {
     for (const plan of this._near(x >> 4, z >> 4)) {
       if (plan.kind !== "fortress") continue;

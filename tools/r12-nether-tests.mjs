@@ -11,8 +11,8 @@
 // becomes a portal and a fire on soul sand soul fire; standing in it (the
 // 4 s wait) takes you to the Nether at x/8 into a portal built there and
 // registered, and back into the first one; mining a frame block takes the
-// portal down; the fortress's blaze spawner and chest loot in the game; nether
-// wart grows on soul sand; brewing with blaze powder and nether wart; water
+// portal down; the fortress's blaze spawner and chest loot in the game, its
+// biome's fog; nether wart grows on soul sand; brewing with blaze powder and nether wart; water
 // boils away from a bucket; soul sand slows and magma burns; a respawn
 // anchor charged and used; the smithing table's upgrade. With --online, a
 // host's portal seen and used by a guest, the portal the guest's trip built
@@ -449,10 +449,23 @@ async function browserChecks() {
     }, G);
     await frames(page, 3);
     assert((await v(page, (g, G) => g.world.getBlock(G[0], G[1], G[2] + 1), G)) === BLOCK.AIR, "a broken frame lit");
+    // (flint and steel on the inside of a frame's side, up in the air: lit all the same, vanilla's)
+    const K = [F[0], F[1], F[2] + 9];
+    await v(page, buildFrame, [...K, 0]);
+    const side = await v(page, async (g, K) => {
+      const { BLOCK_USE } = await import("./js/content/index.js");
+      const inv = g.inventory;
+      inv.slots[inv.selected] = { id: 370, count: 1, dur: 65 };
+      const ctx = g.interaction._useCtx({ block: [K[0] - 1, K[1] + 2, K[2]], place: [K[0], K[1] + 2, K[2]], id: 1550, normal: [1, 0, 0], distance: 3 });
+      const ok = BLOCK_USE[1550](ctx);
+      inv.slots[inv.selected] = null;
+      return { ok, at: g.world.getBlock(K[0], K[1], K[2]) };
+    }, K);
+    assert(side.ok && side.at === V.NETHER_PORTAL, `flint and steel on the frame's side: ${JSON.stringify(side)}`);
     // Soul fire.
     const S = [F[0] - 5, F[1], F[2] + 3];
     await v(page, (g, S) => {
-      g.world.setBlocks([S[0], S[1] - 1, S[2], V.SOUL_SAND, S[0], S[1], S[2], 0, S[0], S[1] + 1, S[2], 0]);
+      g.world.setBlocks([S[0], S[1] - 1, S[2], 2305, S[0], S[1], S[2], 0, S[0], S[1] + 1, S[2], 0]); // (soul sand)
       g.world.setBlock(S[0], S[1], S[2], 1551);
     }, S);
     await frames(page, 3);
@@ -536,6 +549,18 @@ async function browserChecks() {
     await v(page, (g) => (g.player.flying = true));
     const sp = await v(page, (g, s) => g.world.getBlock(s[0], s[1], s[2]), f.sp);
     assert(sp === V.BLAZE_SPAWNER, `the spawner: ${sp}`);
+    // The biome's fog (vanilla's colour, on the horizon).
+    await frames(page, 4);
+    const fog = await v(page, async (g) => {
+      const { NETHER_FOG } = await import("./js/dim-nether.js");
+      const p = g.player.position;
+      const b = g.world.terrain.biomeAt(Math.floor(p.x), Math.floor(p.z));
+      const lin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+      const hex = NETHER_FOG[b];
+      const want = [16, 8, 0].map((sh) => lin(((hex >> sh) & 255) / 255) * 1.2);
+      return { b, want, got: g.dims.info.sky.horizon.slice() };
+    });
+    assert(fog.got.every((c, i) => Math.abs(c - fog.want[i]) < 0.004), `the fog of biome ${fog.b}: ${JSON.stringify(fog)}`);
     if (f.chest) {
       const loot = await v(page, (g, c) => g.interaction.chests.contents(c[0], c[1], c[2], "nether").filter(Boolean).map((s) => s.id), f.chest);
       const table = new Set([V.DIAMOND, V.IRON_INGOT, ITEM.GOLD_INGOT, V.GOLDEN_SWORD, ITEM.GOLD_CHESTPLATE, V.FLINT_AND_STEEL, V.NETHER_WART, V.OBSIDIAN]);

@@ -84,6 +84,12 @@ export const DEATH_MESSAGES = {
   ender_pearl: "Hit the ground too hard",
   tnt: "Blown up by TNT",
   bed: "Killed by [Intentional Game Design]", // (Round 12: a bed used in the Nether or the End, vanilla's message)
+  // (Round 12) The End (vanilla's wording).
+  ender_dragon: "Slain by the Ender Dragon",
+  dragon_breath: "Roasted in dragon's breath",
+  end_crystal: "Blown up by an end crystal",
+  end_crystal_fall: "Blown off your feet by an end crystal",
+  fly_into_wall: "Experienced kinetic energy",
   tnt_fall: "Blown off your feet by TNT",
   creeper: "Blown up by a creeper",
   creeper_fall: "Blown off your feet by a creeper",
@@ -193,4 +199,4 @@ export function pilotCause(vehicleType, cause) {
 // armor" sources: falls, drowning, the void, hunger, burning (after leaving
 // the fire), suffocation and magic (a witch's potions too). They cost no
 // hunger either (player.js).
-export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch", "wither"]);
+export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch", "dragon_breath", "fly_into_wall", "wither"]);

@@ -28,7 +28,7 @@
 // Pure (no three.js): the chunk workers run it.
 import { BLOCK } from "./content/base.js";
 import * as I from "./content/ids.js";
-import { LAVA, OBSIDIAN, FIRE } from "./content/ids.js";
+import { LAVA, FIRE } from "./content/ids.js";
 import { lavaFlowId } from "./content/nature.js";
 import { pickForestPlant } from "./content/nether.js";
 import { LIB } from "./content/base.js";
@@ -44,19 +44,9 @@ export const NETHER_BIOME = Object.freeze({ WASTES: 0, SOUL_SAND_VALLEY: 1, CRIM
 export const NETHER_BIOME_NAMES = ["Nether Wastes", "Soul Sand Valley", "Crimson Forest", "Warped Forest", "Basalt Deltas"];
 // Vanilla's fog colours (and what the air carries: js/nether-fx.js).
 export const NETHER_FOG = [0x330808, 0x1b4745, 0x330303, 0x1a051a, 0x685f70];
-// The creatures of each biome (vanilla's spawn lists: [kind, weight, min,
-// max]; "monster" spawns in the dark, which is everywhere here, "creature"
-// on lava: the strider), and of the fortresses' and bastions' bounds, for
-// the creatures' part (js/mobs.js: DIMS.nether.spawnMobs, world.terrain.biomeAt
-// and world.terrain.structures.fortressAt / bastionAt).
-export const NETHER_SPAWNS = {
-  [NETHER_BIOME.WASTES]: { monster: [["ghast", 50, 4, 4], ["zombified_piglin", 100, 4, 4], ["magma_cube", 2, 4, 4], ["enderman", 1, 4, 4], ["piglin", 15, 4, 4]], creature: [["strider", 60, 1, 2]] },
-  [NETHER_BIOME.SOUL_SAND_VALLEY]: { monster: [["skeleton", 20, 5, 5], ["ghast", 50, 4, 4], ["enderman", 1, 4, 4]], creature: [["strider", 60, 1, 2]] },
-  [NETHER_BIOME.CRIMSON_FOREST]: { monster: [["zombified_piglin", 1, 2, 4], ["hoglin", 9, 3, 4], ["piglin", 5, 3, 4]], creature: [["strider", 60, 1, 2]] },
-  [NETHER_BIOME.WARPED_FOREST]: { monster: [["enderman", 1, 4, 4]], creature: [["strider", 60, 1, 2]] },
-  [NETHER_BIOME.BASALT_DELTAS]: { monster: [["ghast", 40, 1, 1], ["magma_cube", 100, 2, 5]], creature: [["strider", 60, 1, 2]] },
-  fortress: { monster: [["blaze", 10, 2, 3], ["zombified_piglin", 5, 4, 4], ["wither_skeleton", 8, 5, 5], ["skeleton", 2, 5, 5], ["magma_cube", 3, 4, 4]] },
-};
+// (The creatures of each biome, of the fortresses and the bastions are the
+// creatures' part's: js/mobs.js reads biomeAt and structures.fortressAt /
+// bastionAt.)
 
 const S = CHUNK_SIZE;
 const H = WORLD_HEIGHT;
@@ -368,28 +358,35 @@ export class NetherGenerator {
   // floor and a short spread there (vanilla's open springs flowing).
   _springs(blocks, cx, cz) {
     const r = salted(this.seed, cx, cz, 0x5b1);
-    const fall = [];
-    for (let k = 0; k < 6; k++) {
+    const nb = [1, -1, 16, -16];
+    const faces = [];
+    for (let k = 0; k < 4; k++) {
       const x = between(r, 1, 14);
       const z = between(r, 1, 14);
-      const y = between(r, 34, 118);
-      const i = (y << 8) | (z << 4) | x;
-      if (!BASE_STONE[blocks[i]] || !BASE_STONE[blocks[i + 256]] || !BASE_STONE[blocks[i - 256]]) continue;
-      let open = -1;
-      let walls = 0;
-      const nb = [1, -1, 16, -16];
-      for (let d = 0; d < 4; d++) {
-        const n = blocks[i + nb[d]];
-        if (n === AIR) open = open < 0 ? d : 9;
-        else if (BASE_STONE[n]) walls++;
+      // (a wall's face in this column: rock with rock over and under it and one side open)
+      faces.length = 0;
+      for (let y = 34; y <= 118; y++) {
+        const i = (y << 8) | (z << 4) | x;
+        if (!BASE_STONE[blocks[i]] || !BASE_STONE[blocks[i + 256]] || !BASE_STONE[blocks[i - 256]]) continue;
+        let open = -1;
+        let walls = 0;
+        for (let d = 0; d < 4; d++) {
+          const n = blocks[i + nb[d]];
+          if (n === AIR) open = open < 0 ? d : 9;
+          else if (BASE_STONE[n]) walls++;
+        }
+        if (open >= 0 && open !== 9 && walls === 3) faces.push(y, open);
       }
-      if (open < 0 || open === 9 || walls !== 3) continue;
+      if (!faces.length || r() < 0.4) continue;
+      const pick = Math.floor(r() * (faces.length / 2)) * 2;
+      const y = faces[pick];
+      const open = faces[pick + 1];
+      const i = (y << 8) | (z << 4) | x;
       blocks[i] = LAVA;
       const ox = x + (open === 0 ? 1 : open === 1 ? -1 : 0);
       const oz = z + (open === 2 ? 1 : open === 3 ? -1 : 0);
       if (ox < 0 || ox >= S || oz < 0 || oz >= S) continue;
       blocks[(y << 8) | (oz << 4) | ox] = FLOW1;
-      fall.length = 0;
       let yy = y - 1;
       for (; yy > 1 && y - yy < 64; yy--) {
         const j = (yy << 8) | (oz << 4) | ox;
@@ -506,17 +503,14 @@ export class NetherGenerator {
       const i = (y << 8) | (lz << 4) | lx;
       if (blocks[i] === AIR) blocks[i] = id;
     };
-    const free = (x, y, z) => {
-      const lx = x - x0;
-      const lz = z - z0;
-      if (lx < 0 || lx >= S || lz < 0 || lz >= S) return !this.solidAt(x, y, z);
-      return blocks[(y << 8) | (lz << 4) | lx] === AIR;
-    };
+    // (what a fungus finds in its way: the noise's own answer, the same in
+    // every chunk it reaches, so it grows alike in each; it is written only
+    // into this chunk's air)
+    const free = (x, y, z) => !this.solidAt(x, y, z);
     for (let dz = -1; dz <= 1; dz++) {
       for (let dx = -1; dx <= 1; dx++) {
         for (const [x, y, z, warped, s] of this.fungiOf(cx + dx, cz + dz)) {
           if (Math.abs(x - (x0 + 7.5)) > 12 || Math.abs(z - (z0 + 7.5)) > 12) continue;
-          // (the ground must be the nylium of its forest: in this chunk, as made; else from the density)
           hugeFungus(put, free, x, y, z, warped, mulberry32(s), false);
         }
       }
@@ -685,13 +679,12 @@ export class NetherGenerator {
   _fires(blocks, r, biome, fire, on, patches) {
     const bio = this._bio;
     for (let k = 0; k < patches; k++) {
-      if (r() < 0.5) continue;
       const x = between(r, 2, 13);
       const z = between(r, 2, 13);
       if (bio[z * S + x] !== biome) continue;
       const y = this._floorIn(blocks, x, z, between(r, NETHER_LAVA_LEVEL + 2, NETHER_ROOF - 2));
       if (y < 0) continue;
-      for (let t = 0; t < 16; t++) {
+      for (let t = 0; t < 24; t++) {
         const px = x + between(r, -2, 2);
         const pz = z + between(r, -2, 2);
         const py = y + between(r, -1, 1);

@@ -44,12 +44,18 @@ import * as V from "./content/ids.js";
 import { enchantedBook } from "./enchant.js";
 import { FLOWER_POT, WHITE_DYE, SPRUCE_SIGN } from "./content/decor.js";
 import { pistonId, headId } from "./content/redstone.js";
+import { StrongholdGrower, STRONGHOLD_LOOT } from "./stronghold.js"; // (Round 12)
+import { END_CITY_LOOT } from "./end-structures.js";
 
 const S = CHUNK_SIZE;
 const idx = (x, y, z) => (y * S + z) * S + x;
 
+// (Round 12) Any block with `spawns` (nature.js's three, the strongholds'
+// silverfish, the fortresses' blazes): its creature.
+const SPAWNS = [];
+for (const b of Object.values(BLOCK_INFO)) if (b.spawns) SPAWNS[b.id] = b.spawns;
 export function isSpawner(id) {
-  return id >= SPAWNER && id < SPAWNER + SPAWNER_KINDS.length;
+  return SPAWNS[id] !== undefined;
 }
 
 // ---------- Dungeons ----------
@@ -113,6 +119,7 @@ export class StructureGrower {
     this._mines = new Map(); // "rx,rz" -> plan or null
     this._temples = new Map(); // "rx,rz" -> temple or null
     this._jungleTemples = new Map(); // "rx,rz" -> jungle temple or null
+    this.strongholds = new StrongholdGrower(terrain); // (Round 12: js/stronghold.js)
   }
 
   // ---------- In a chunk (terrain.js) ----------
@@ -121,11 +128,14 @@ export class StructureGrower {
   // vanilla: structures before features).
   placeUnderground(blocks, cx, cz, hAt) {
     const mines = this._minesNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1);
+    let minH = null;
     if (mines.length) {
-      const minH = this._minHeights(hAt);
+      minH = this._minHeights(hAt);
       for (const plan of mines) this._cutMineshaft(blocks, cx, cz, plan, minH, false);
       for (const plan of mines) this._cutMineshaft(blocks, cx, cz, plan, minH, true);
     }
+    // (Round 12) the strongholds' pieces, never within 2 of the ground either
+    this.strongholds.placeUnderground(blocks, cx, cz, () => minH || this._minHeights(hAt));
     for (const d of this.dungeonCandidates(cx, cz)) this._buildDungeon(blocks, cx, cz, d, hAt);
   }
 
@@ -556,6 +566,9 @@ export class StructureGrower {
   // asks only about those). getBlock(x, y, z): the world's (a dungeon's chest
   // is the one with a spawner beside it on its floor).
   chestAt(x, y, z, getBlock) {
+    // (Round 12) a stronghold's chest (js/stronghold.js)
+    const stronghold = this.strongholds.chestAt(x, y, z);
+    if (stronghold) return stronghold;
     // (Round 12) a village's chest: its house's table (village.js)
     const village = this.terrain.villages?.chestLoot?.(x, y, z);
     if (village) return village;
@@ -599,6 +612,7 @@ export class StructureGrower {
     for (const p of this._minesNear(x0, z0, x0 + S - 1, z0 + S - 1)) {
       for (const [x, y, z] of p.spawners) if (x >> 4 === cx && z >> 4 === cz) cells.push([x, y, z]);
     }
+    cells.push(...this.strongholds.spawnerCells(cx, cz)); // (Round 12: the portal rooms' silverfish)
     return { columns, cells };
   }
 }
@@ -1026,6 +1040,8 @@ const LOOT = {
   village_snowy_house: [[3, 8, [[null, 1], [BLOCK.SNOW, 4], [V.POTATO, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BEETROOT_SEEDS, 10, 1, 5], [V.BEETROOT_SOUP, 1], [V.FURNACE, 1], [V.EMERALD, 1, 1, 4], [V.SNOWBALL, 10, 1, 7], [ITEM.COAL, 5, 1, 4]]]],
   village_desert_house: [[3, 8, [[V.CLAY_BALL, 1], [WHITE_DYE + 13, 1], [BLOCK.CACTUS, 10, 1, 4], [V.WHEAT, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BOOK, 1], [BLOCK.DEAD_BUSH, 2, 1, 3], [V.EMERALD, 1, 1, 3]]]],
 };
+// (Round 12) The strongholds' and the end cities' tables (js/stronghold.js, js/end-structures.js).
+Object.assign(LOOT, STRONGHOLD_LOOT, END_CITY_LOOT);
 // Rolls a structure's table: [[id, count, tag?], ...].
 export function rollStructureLoot(kind, rand = Math.random) {
   const pools = LOOT[kind];
@@ -1136,7 +1152,7 @@ export class Spawners {
             if (d2 > SPAWNER_RANGE * SPAWNER_RANGE) continue;
             seen.add(key);
             const near = (x + 0.5 - local.x) ** 2 + (y + 0.5 - local.y) ** 2 + (z + 0.5 - local.z) ** 2 <= SPAWNER_RANGE * SPAWNER_RANGE;
-            this.active.push({ x, y, z, kind: SPAWNER_KINDS[id - SPAWNER], key, near });
+            this.active.push({ x, y, z, kind: SPAWNS[id], key, near });
           }
         }
       }

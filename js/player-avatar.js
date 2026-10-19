@@ -136,7 +136,7 @@ export class PlayerAvatar {
     this._armorMeshes.length = 0;
     for (let slot = 0; slot < 4; slot++) {
       const id = armor?.[slot]?.id;
-      if (!id) continue;
+      if (!id || itemInfo(id)?.elytra) continue; // (Round 12: an elytra is no chestplate)
       for (const [part, geo] of armorGeometries(slot, armorColor(id))) {
         const mesh = new THREE.Mesh(geo, this.materials.color);
         mesh.castShadow = true;

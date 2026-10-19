@@ -111,7 +111,6 @@ export class NetherPortals {
     this.world = game.world;
     this.player = game.player;
     this._queue = new Set(); // "x,y,z" of cells an edit of ours changed (looked at next frame)
-    this._fires = [];
     this._ambT = 2;
     this._moteT = 0;
     this._near = []; // portal cells near the player (motes, the hum)
@@ -126,6 +125,7 @@ export class NetherPortals {
     };
     this._hookSpawn();
     LIB.useRespawnAnchor = (ctx) => this.useAnchor(ctx);
+    LIB.lightPortalAt = (world, x, y, z) => world === this.world && this.tryLight(x, y, z);
     if (!LIB.toast && game.toast) LIB.toast = (text, s) => game.toast(text, s);
   }
 
@@ -178,6 +178,8 @@ export class NetherPortals {
 
   // Lights the portal round a fire at (x, y, z), if it is in a frame. True if lit.
   tryLight(x, y, z) {
+    // (a Missions world never reaches the Nether: its frames stay frames)
+    if (!this.dims?.enabled) return false;
     const w = this.world;
     const get = (bx, by, bz) => w.getBlock(bx, by, bz);
     for (const axis of [0, 1]) {
@@ -482,7 +484,7 @@ export class NetherPortals {
     if (k > 0.02 && this._waiting <= 0.02) this._sound("trigger");
     if (this._waiting > 0.9 && d.pending) this._sound("travel");
     this._waiting = d.pending ? 0 : k;
-    this._swirl();
+    if (k > 0) this._swirl();
     // Portals near: motes and the hum.
     this._scanT -= dt;
     if (this._scanT <= 0) {

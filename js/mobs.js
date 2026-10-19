@@ -52,7 +52,7 @@ import { WITHER_SKELETON_SKULL } from "./content/mobs-vanilla.js";
 import { DIMS, PORTAL_BLOCKS } from "./dim-registry.js";
 import * as NetherGen from "./dim-nether.js";
 
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, ghast: 1 }; // (a Survival world's blasts: explosion(); Round 12: a ghast's fireball)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, ghast: 1, end_crystal: 6 }; // (a Survival world's blasts: explosion(); Round 12: a ghast's fireball)
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;

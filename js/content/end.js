@@ -19,8 +19,8 @@
 // vanilla's screen-space look), not by the mesher; the egg is pushed by a
 // punch through js/dragon.js too (interaction's mining has no other hook);
 // the stairs, slabs and walls are building.js's (addFamily), so they join,
-// mesh and collide as its own do.
-import { BLOCK, ITEM, RENDER, FACE, LIB, BLOCK_LIMIT } from "./base.js";
+// mesh and collide as its own do (until building.js has it: none of them).
+import { BLOCK, RENDER, FACE, LIB } from "./base.js";
 import * as I from "./ids.js";
 import * as B from "./building.js";
 
@@ -57,7 +57,7 @@ export const isChorusFlower = (id) => id >= I.CHORUS_FLOWER && id < I.CHORUS_FLO
 export const isChorus = (id) => id === I.CHORUS_PLANT || isChorusFlower(id);
 export const isEndRod = (id) => id >= I.END_ROD && id < I.END_ROD + 6;
 export const isPurpurPillar = (id) => id >= I.PURPUR_PILLAR && id < I.PURPUR_PILLAR + 3;
-// The frame facing toward (dx, dz), with an eye or not.
+// The frame turned toward facing f, with an eye or not.
 export const frameId = (f, eye = false) => I.END_PORTAL_FRAME + f + (eye ? 4 : 0);
 
 // ---------- Defs ----------
@@ -97,11 +97,12 @@ for (let a = 0; a < 3; a++) {
   };
 }
 
-// Stairs, slabs and the wall (building.js makes them, so they behave as its
-// own; a slab is 2 hardness as every slab there).
+// Stairs, slabs and the wall (building.js's addFamily makes them, so they
+// behave as its own; a slab is 2 hardness as every slab there; full: the
+// block a double slab is).
 export const FAMILIES = [
-  { name: "End Stone Brick", faces: "end_stone_bricks", block: I.END_STONE_BRICKS, mat: { ...PICK, ...END_STONE_MAT }, stairs: I.END_STONE_BRICK_STAIRS, slab: I.END_STONE_BRICK_SLAB, wall: I.END_STONE_BRICK_WALL },
-  { name: "Purpur", faces: "purpur_block", block: I.PURPUR_BLOCK, mat: { ...PICK, ...PURPUR_MAT }, stairs: I.PURPUR_STAIRS, slab: I.PURPUR_SLAB },
+  { name: "End Stone Brick", faces: "end_stone_bricks", full: I.END_STONE_BRICKS, mat: { ...PICK, ...END_STONE_MAT }, stairs: I.END_STONE_BRICK_STAIRS, slab: I.END_STONE_BRICK_SLAB, wall: I.END_STONE_BRICK_WALL },
+  { name: "Purpur", faces: "purpur_block", full: I.PURPUR_BLOCK, mat: { ...PICK, ...PURPUR_MAT }, stairs: I.PURPUR_STAIRS, slab: I.PURPUR_SLAB },
 ];
 // (Whether building.js can make them: until it exports addFamily, there are none.)
 export const HAS_FAMILIES = typeof B.addFamily === "function";
@@ -511,16 +512,16 @@ export const recipes = () => {
   out.push({ type: "smelting", input: I.CHORUS_FRUIT, result: [I.POPPED_CHORUS_FRUIT, 1], xp: 0.1, time: 10 });
   if (HAS_FAMILIES) {
     for (const fam of FAMILIES) {
-      shaped(["#  ", "## ", "###"], { "#": fam.block }, fam.stairs, 4);
-      shaped(["###"], { "#": fam.block }, fam.slab, 6);
-      if (fam.wall) shaped(["###", "###"], { "#": fam.block }, fam.wall, 6);
+      shaped(["#  ", "## ", "###"], { "#": fam.full }, fam.stairs, 4);
+      shaped(["###"], { "#": fam.full }, fam.slab, 6);
+      if (fam.wall) shaped(["###", "###"], { "#": fam.full }, fam.wall, 6);
     }
     shaped(["#", "#"], { "#": I.PURPUR_SLAB }, I.PURPUR_PILLAR, 1);
   }
   return out;
 };
 
-// ---------- Textures (17 tiles) ----------
+// ---------- Textures (16 tiles) ----------
 
 const pal = (kit, list) => list.map(kit.hex);
 const END_STONE_RAMP = [0xb8b67c, 0xc6c48a, 0xd2d197, 0xdcdca2, 0xe3e4ab, 0xebedb6];

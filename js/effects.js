@@ -25,7 +25,7 @@ const CRATER_VERTICAL_SCALE = 2;
 // resistance 1200 for obsidian, the enchanting table and anvils; fluids
 // never break). Missions weapons still dig through everything.
 const BLAST_PROOF = new Uint8Array(BLOCK_LIMIT);
-for (const b of Object.values(BLOCK_INFO)) if ((b.blastResistance ?? 0) >= 1200 || b.liquid || b.lava) BLAST_PROOF[b.id] = 1;
+for (const b of Object.values(BLOCK_INFO)) if ((b.blastResistance ?? 0) >= 1200 || b.liquid || b.lava || b.hardness < 0) BLAST_PROOF[b.id] = 1; // (Round 12: bedrock, the End's frames and portals)
 // Per-weapon explosion-size multipliers, changed live from the settings menu.
 export const explosionScale = { grenade: 1, bazooka: 1, airstrike: 1, nuke: 1 };
 // Effects detail (Performance settings): scales particle counts everywhere.

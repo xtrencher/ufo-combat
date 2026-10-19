@@ -929,8 +929,12 @@ export class Player {
     const boost = this._boost;
     if (this.flying || this.inWater || this.inLava || web || this.onGround || this.onClimbable) boost.set(0, 0);
     else boost.multiplyScalar(Math.exp(-AIR_DRAG * dt));
-    this.velocity.x = walkX + this.knockback.x + boost.x;
-    this.velocity.z = walkZ + this.knockback.z + boost.y;
+    // (Round 12) Gliding on an elytra (js/dragon.js sets `glide`): its own flight model sets the velocity.
+    const gliding = !this.flying && !!this.glide?.(dt);
+    if (!gliding) {
+      this.velocity.x = walkX + this.knockback.x + boost.x;
+      this.velocity.z = walkZ + this.knockback.z + boost.y;
+    }
     const knockbackDecay = Math.exp(-(this.onGround ? 7 : 1.2) * dt);
     this.knockback.x *= knockbackDecay;
     this.knockback.z *= knockbackDecay;
@@ -945,6 +949,8 @@ export class Player {
       this.velocity.z += this.beamPull.z;
       this.beamLift = 0;
       this._airborneMaxY = null;
+    } else if (gliding) {
+      this._airborneMaxY = null; // (a glide's landing is no fall; a wall is its own hurt)
     } else if (this.flying) {
       let vy = 0;
       if (space) vy += 1;
