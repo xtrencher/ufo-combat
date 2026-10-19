@@ -41,6 +41,8 @@ import { WeatherFx } from "./weather-fx.js";
 import { WeatherSync } from "./net/weather.js";
 import { Spawners } from "./structures.js";
 import { RedstoneSim } from "./redstone-sim.js";
+import { Gadgets, GadgetSync } from "./gadgets.js"; // (Round 12)
+import { IS_STORAGE } from "./chests.js";
 import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
 import { LaserBolts, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
@@ -1428,6 +1430,15 @@ signs.onClose = () => {
   requestLock();
 };
 signs.inGame = () => gameState === "inventory";
+// (Round 12) Hoppers, droppers, dispensers, item frames and armor stands
+// (js/gadgets.js): what they hold, saved with the world like the chests;
+// their screen is the chest's ("box").
+const gadgets = new Gadgets({ scene, world, entities, chests, furnaces, brewing, mobs, player, inventory, audio, effects, redstone });
+gadgets.onDrop = chests.onDrop;
+gadgets.onInventory = () => markInventoryChanged();
+gadgets.load(savedPlayer?.gadgets);
+invScreen.boxes = gadgets;
+gadgets.isChestStore = (id) => IS_STORAGE[id] === 1; // (barrels and shulker boxes too: their items are the Chests store's, js/chests.js)
 // Items fall out of a wreck, a fallen alien, an enemy jet: pick them up.
 function dropLoot(list, at) {
   for (const [id, n] of list) {
@@ -1774,6 +1785,7 @@ function playerState() {
     furnaces: furnaces.serialize(),
     brewing: brewing.serialize(), // (Round 11)
     signs: signs.serialize(),
+    gadgets: gadgets.serialize(), // (Round 12)
     mobs: dims.overworld("mobs", () => mobs.serializeKept()), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
     vehicles: vehicles.serialize(),
     stats: stats.world,
@@ -3580,6 +3592,7 @@ mpLate = mp;
 mp.brewing = mp.addModule(new BrewingSync(mp, { brewing, throws: potionThrows }));
 mp.addModule(new WeatherSync(mp, weather)); // (Round 11: the host's weather and bolts)
 mp.addModule(new SignSync(mp, signs)); // (Round 11: the signs' text online)
+mp.addModule(new GadgetSync(mp, gadgets)); // (Round 12: the boxes', frames' and stands' things online)
 // (Round 12) The dimensions: the Nether and the End, the travel, their saves and their online part (js/dimensions.js).
 const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionThrows, spawners, weather, invScreen, streamAround, mp });
 game.dims = dims;
@@ -3595,6 +3608,7 @@ game.endGame = endGame;
 // (Round 12: the host's dimension the host's; another dimension the guest's who simulates it there, js/dimensions.js.)
 natureSim.fire.enabled = () => dims.simulatesWorld(); // (a guest's fires burn at the host; the results arrive as edits)
 redstone.enabled = () => dims.simulatesWorld(); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
+gadgets.simulates = () => dims.simulatesWorld(); // (Round 12: scaffolding's distance)
 // (Round 12: told by whoever simulates the dimension, the host or a guest where the host is not; "rs" carries its dimension, a peer elsewhere drops it.)
 redstone.send = (m) => mp.active && dims.simulatesWorld() && net.toAll(m); // (primed TNT and the circuits' sounds, for the others there)
 net.on("rs", (m, from) => {
@@ -3660,6 +3674,7 @@ window.__ufo = window.__voxelands = {
   waterSim,
   natureSim,
   redstone,
+  gadgets, // (Round 12)
   weather,
   weatherFx,
   spawners,
@@ -4215,6 +4230,7 @@ function simulate(dt, frameTime) {
     weather.update(dt, randomTickCenters());
     spawners.update(dt, randomTickCenters(), !mobs.puppets); // (Round 12: wherever this game's creatures are its own)
     redstone.update(dt); // (Round 11: redstone ticks; primed TNT falling and going off)
+    gadgets.update(dt, camera.position); // (Round 12: hoppers, dispensers' shots, frames and stands drawn)
     // (Round 11) Random ticks (crops, saplings, fire: js/content/index.js), near
     // every player; the host simulates them, a guest gets the results as edits.
     if (dims.simulatesWorld()) world.randomTick(dt, randomTickCenters()); // (Round 12: js/dimensions.js)

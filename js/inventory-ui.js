@@ -198,6 +198,8 @@ export class InventoryScreen {
       this.chestViews.push(v);
     }
     this._chestRows = -1;
+    this._chestGrid = chestGrid;
+    this.boxes = null; // (Round 12) the hoppers, droppers and dispensers (js/gadgets.js): the "box" screen, in the chest's place
     this.chestView = null; // the open chest (js/chests.js openView)
     this.busy = false; // a chest (or furnace) click waiting for the host
 
@@ -460,6 +462,7 @@ export class InventoryScreen {
   open(kind, creative) {
     this.kind = kind || "inventory";
     const chest = this.kind === "chest" && !!this.chests && !!this.chestPos;
+    const box = this.kind === "box" && !!this.boxes && !!this.screenPos; // (Round 12: a hopper's, dropper's or dispenser's)
     const table = this.kind === "table" && !!this.screenPos;
     const furnace = this.kind === "furnace" && !!this.furnaces && !!this.screenPos;
     const enchanting = this.kind === "enchanting" && !!this.screenPos;
@@ -467,7 +470,7 @@ export class InventoryScreen {
     const brewing = this.kind === "brewing" && !!this.brewing && !!this.screenPos;
     const grindstone = this.kind === "grindstone" && !!this.screenPos; // (Round 12)
     const stonecutter = this.kind === "stonecutter" && !!this.screenPos;
-    if (((this.kind === "grindstone" || this.kind === "stonecutter") && !this.screenPos) || (this.kind === "chest" && !chest) || (this.kind === "table" && !table) || (this.kind === "furnace" && !furnace) || (this.kind === "enchanting" && !enchanting) || (this.kind === "anvil" && !anvil) || (this.kind === "brewing" && !brewing)) this.kind = "inventory";
+    if (((this.kind === "grindstone" || this.kind === "stonecutter") && !this.screenPos) || (this.kind === "chest" && !chest) || (this.kind === "box" && !box) || (this.kind === "table" && !table) || (this.kind === "furnace" && !furnace) || (this.kind === "enchanting" && !enchanting) || (this.kind === "anvil" && !anvil) || (this.kind === "brewing" && !brewing)) this.kind = "inventory";
     this.creative = creative;
     const palette = creative && this.kind === "inventory";
     const width = table ? 3 : this.kind === "inventory" && !creative && isVanilla() ? 2 : 0;
@@ -488,7 +491,7 @@ export class InventoryScreen {
       this.tabBtns[3].classList.toggle("hidden", vanilla);
       this.tab = vanilla ? 1 : 0;
     }
-    this.chestEl.classList.toggle("hidden", !chest);
+    this.chestEl.classList.toggle("hidden", !chest && !box);
     this.armorRow.classList.toggle("hidden", this.kind !== "inventory");
     this.offhandView.el.classList.toggle("hidden", !isVanilla());
     this.craftBox.classList.toggle("hidden", !width);
@@ -521,8 +524,11 @@ export class InventoryScreen {
     if (chest) {
       const [x, y, z] = this.chestPos;
       this.chestView = this.chests.openView(x, y, z, () => this._containerUpdated());
+    } else if (box) {
+      const [x, y, z] = this.screenPos;
+      this.chestView = this.boxes.openView(x, y, z, () => this._containerUpdated());
     } else if (this.chestView) {
-      this.chests.closeView();
+      (this.chestView.store || this.chests).closeView();
       this.chestView = null;
     }
     if (furnace) {
@@ -573,8 +579,9 @@ export class InventoryScreen {
     this.root.classList.add("hidden");
     this.tooltipEl.classList.add("hidden");
     if (this.chestView) {
+      const cv = this.chestView;
       this.chestView = null;
-      this.chests.closeView();
+      (cv.store || this.chests).closeView();
     }
     if (this.furnaceView) {
       this.furnaceView = null;
@@ -658,12 +665,13 @@ export class InventoryScreen {
 
   // Whether `stack` may not go into the open chest (a shulker box into a shulker box).
   _chestRefuses(stack) {
+    if (this.chestView?.store) return false; // (Round 12: a box takes anything)
     return !!stack && isShulkerBox(stack.id) && isShulkerBox(this._screenBlock(this.chestPos));
   }
 
   _title() {
     const v = this.chestView || this.furnaceView || this.brewView;
-    const name = this.chestView ? this._chestName() : this.furnaceView ? FURNACE_NAMES[this._furnaceKind()] : "Brewing Stand";
+    const name = this.chestView ? this.chestView.title || this._chestName() : this.furnaceView ? FURNACE_NAMES[this._furnaceKind()] : "Brewing Stand";
     const local = { table: "Crafting Table", enchanting: "Enchant", anvil: "Repair & Name", grindstone: "Repair & Disenchant", stonecutter: "Stonecutter" }[this.kind];
     const text = v ? (v.ready ? name : `${name} (opening...)`) : local || (this.creative ? "Creative Inventory" : "Inventory");
     if (this.titleEl.textContent !== text) this.titleEl.textContent = text;
@@ -917,7 +925,7 @@ export class InventoryScreen {
   // inventory) once it is applied. Refused: nothing changes here (the screen
   // shows what it holds now).
   _submit(changes, onOk) {
-    const store = this.furnaceView ? this.furnaces : this.brewView ? this.brewing : this.chests;
+    const store = this.furnaceView ? this.furnaces : this.brewView ? this.brewing : this.chestView?.store || this.chests;
     this.busy = true;
     store.submit(changes, (ok) => {
       this.busy = false;
@@ -1706,10 +1714,13 @@ export class InventoryScreen {
     const cv = this.chestView;
     if (cv) {
       // (Round 12: a double chest's six rows, a single one's three.)
-      const n = (cv.parts?.length || 1) * CHEST_SLOTS;
+      // (Round 12: a box's own size, its slots in a row or a square in the middle)
+      const n = cv.size || (cv.parts?.length || 1) * CHEST_SLOTS;
       if (n !== this._chestRows) {
         this._chestRows = n;
         this.chestViews.forEach((v, i) => v.el.classList.toggle("hidden", i >= n));
+        this._chestGrid.style.gridTemplateColumns = cv.cols ? `repeat(${cv.cols}, 38px)` : "";
+        this._chestGrid.style.justifyContent = cv.cols ? "center" : "";
       }
       for (let i = 0; i < n; i++) this.chestViews[i].set(cv.ready && !cv.gone ? cv.slots[i] : null);
       this._title();
