@@ -605,7 +605,7 @@ function vanillaHouse(out, { ox, oz, W, D, door, fx, fz, midX, midZ }, touch) {
 // (fisherman), a cauldron (leatherworker); the others stand in for the
 // blocks it lacks: bookshelves for the lectern, a furnace for the smoker and
 // the blast furnace, an anvil for the grindstone, a crafting table for the
-// smithing and fletching tables, wool for the loom, smooth stone for the
+// fletching table (the toolsmith has a real smithing table), wool for the loom, smooth stone for the
 // stonecutter, a hay bale for the composter (by a farm).
 const V_CHANCE = 0.5; // (of the cells, before the biome and the ground: about a village every 500-700 blocks of village country)
 const V_RADIUS = 60; // no piece of a village reaches farther from its middle
@@ -1398,7 +1398,7 @@ const HOUSE_SPECS = {
   toolsmith: {
     furnish(ctx, plan) {
       const { p, put, rand, st } = ctx;
-      put(1, 1, p.D - 2, BLOCK.CRAFTING_TABLE);
+      put(1, 1, p.D - 2, V.SMITHING_TABLE); // (Round 12: the Nether's smithing table, js/content/nether.js)
       plan._chest(ctx, 2, 1, p.D - 2, "village_toolsmith");
       plan._bed(ctx, p.W - 2, st.beds[Math.floor(rand() * st.beds.length)]);
       plan._resident(ctx, JOB.toolsmith);

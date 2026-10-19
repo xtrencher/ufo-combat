@@ -683,8 +683,8 @@ blocks tall, the sea at 24):
   leather armour at the tannery; redstone and lapis at the church.
   (The trades' blocks the game lacks have stand-ins: bookshelves for the
   lectern, a furnace for the smoker and the blast furnace, an anvil for the
-  grindstone, a crafting table for the smithing and fletching tables, wool
-  for the loom, smooth stone for the stonecutter, a hay bale by each farm
+  grindstone, a crafting table for the fletching table, wool for the loom
+  (the toolsmith has a real smithing table), smooth stone for the stonecutter, a hay bale by each farm
   for the composter. No bells.)
 - **Desert wells:** a little sandstone well with a roof, very rarely.
 - **Strongholds** (deep underground, with the End's portal) and **ruined
