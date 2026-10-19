@@ -103,6 +103,7 @@ import * as decor from "./decor.js";
 import * as debug from "./debug.js";
 import * as nether from "./nether.js"; // (Round 12: the Nether)
 import * as end from "./end.js"; // (Round 12: the End)
+import * as workstations from "./workstations.js"; // (Round 12: double chests, the smoker, the campfire, the job blocks...)
 
 // Each module and its id ranges ([lo, hi] inclusive).
 const MODULES = [
@@ -115,6 +116,7 @@ const MODULES = [
   { name: "decor", mod: decor, blocks: [[2048, 2303]], items: [[704, 767]] },
   { name: "nether", mod: nether, blocks: [[2304, 2559]], items: [[768, 863]] }, // (Round 12)
   { name: "end", mod: end, blocks: [[2560, 2815]], items: [[864, 959]] }, // (Round 12)
+  { name: "workstations", mod: workstations, blocks: [[2816, 2879]], items: [] }, // (Round 12)
   // (Test-only blocks: never in the palette or the terrain; tools/r11-engine16-tests.mjs.)
   { name: "debug", mod: debug, blocks: [[4064, 4095]], items: [] },
 ];

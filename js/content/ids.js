@@ -491,3 +491,21 @@ export const SHULKER_SHELL = 868;
 export const ELYTRA = 869;
 export const END_CRYSTAL = 870;
 // (end.js items: next free 871)
+
+// ---- workstations.js blocks (Round 12: blocks 2816-2879) ----
+// (Facings as the furnace's: 0 +Z, 1 -Z, 2 +X, 3 -X, where the front looks.)
+export const CHEST_DOUBLE = 2816; // 8 ids: a double chest's halves: facing (4) + 4 * the right half (seen from the front; its other half on its left)
+export const SMOKER = 2824; // 8 ids: facing (4) x lit
+export const BLAST_FURNACE = 2832; // 8 ids: facing (4) x lit
+export const CAMPFIRE = 2840; // 4 ids: the lower logs along x (0) or z (1) + 2 * unlit
+export const SOUL_CAMPFIRE = 2844; // 4 ids, as the campfire
+export const COMPOSTER = 2848; // 9 ids: level 0-7, 8 ready (bone meal)
+export const GRINDSTONE = 2857; // 2 ids: the wheel's axle along x, along z
+export const STONECUTTER = 2859; // 2 ids: the saw along x, along z
+export const LECTERN = 2861; // 4 ids: facing
+export const FLETCHING_TABLE = 2865;
+export const CARTOGRAPHY_TABLE = 2866;
+export const LOOM = 2867; // 4 ids: facing
+export const BELL = 2871; // 2 ids: the bar along x, along z
+export const SHULKER_BOX = 2873; // 2 ids: the item, the box placed (its contents ride in the item: tag.items)
+// (workstations.js blocks: next free 2875)
