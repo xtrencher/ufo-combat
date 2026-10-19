@@ -291,6 +291,8 @@ export class Transport {
       signal: (v) => chestSignal(v.slots, maxStack),
     };
     LIB.transport = this;
+    // (another dimension: the rails' memory of this one's detectors and junctions goes)
+    if (Array.isArray(dims?.onChange)) dims.onChange.push(() => this.rails.clear());
     // (an edit beside a resting one wakes it: its water or its ground may be gone)
     this.world.changeListeners.push((changed) => this._wake(changed));
   }
@@ -465,7 +467,7 @@ export class Transport {
     const at = this._aimWater(ctx);
     if (!at) return false;
     const pos = new THREE.Vector3(at[0], at[1], at[2]);
-    if (boxInSolid(this.world, pos, BOAT_R - 0.05, BOAT_H)) return false;
+    if (boxInSolid(this.world, pos, BOAT_R - 0.05, BOAT_H) || this._occupied(pos, BOAT_R)) return false;
     const v = this.add({ k: "b", w: wood, c: chest ? 1 : 0, d: this.here, p: [pos.x, pos.y, pos.z], y: this.player.yaw });
     if (!v) return false;
     if (!ctx.creative) ctx.inventory?.consumeSelected(1);
@@ -502,11 +504,24 @@ export class Transport {
     const shape = RAIL_SHAPE[ctx.id];
     const p = [ctx.x + 0.5, ctx.y + 0.0625 + (isAscending(shape) ? 0.5 : 0), ctx.z + 0.5];
     const along = shape === EW || shape === ASC_E || shape === ASC_W;
+    if (this._occupied(_v.set(p[0], p[1], p[2]), CART_R)) return false;
     const v = this.add({ k: "c", c: chest ? 1 : 0, d: this.here, p, y: along ? Math.PI / 2 : 0 });
     if (!v) return false;
     if (!ctx.creative) ctx.inventory?.consumeSelected(1);
     this.game.audio?.playPlace?.("stone");
     return true;
+  }
+
+  // Whether a vehicle is already where a new one would go (a held button
+  // doesn't stack them up).
+  _occupied(pos, r) {
+    const here = this.here;
+    for (const v of this.vehicles.values()) {
+      if (v.dim !== here) continue;
+      const R = v.kind === "boat" ? BOAT_R : CART_R;
+      if (Math.abs(v.pos.x - pos.x) < R + r - 0.1 && Math.abs(v.pos.z - pos.z) < R + r - 0.1 && Math.abs(v.pos.y - pos.y) < 0.9) return true;
+    }
+    return false;
   }
 
   // ---------- Riding ----------
@@ -558,6 +573,8 @@ export class Transport {
     const v = m.v;
     const i = v.riders.findIndex((e) => e.p === this.me);
     if (i >= 0) v.riders.splice(i, 1);
+    v.interp = null; // (the states from before this player drove it are old: the next ones come)
+    v.rest = 0;
     if (!stay && this.vehicles.get(v.id) === v) {
       const spot = this._exitSpot(v);
       p.position.copy(spot);
@@ -576,17 +593,25 @@ export class Transport {
     const fx = fwdX(v.yaw);
     const fz = fwdZ(v.yaw);
     const spots = [[fz, -fx], [-fz, fx], [fx * 1.4, fz * 1.4], [-fx * 1.4, -fz * 1.4], [fz + fx, -fx + fz], [-fz + fx, fx + fz], [fz - fx, -fx - fz], [-fz - fx, fx - fz]];
+    // (dry ground first; out of a boat in open water, into the water beside it)
+    let wet = null;
     for (const [dx, dz] of spots) {
       for (const dy of [0, 0.6, 1.1, -0.5, -1]) {
         _o.set(v.pos.x + dx * side, v.pos.y + dy, v.pos.z + dz * side);
         if (boxInSolid(w, _o, 0.3, 1.8)) continue;
         // (feet on what is under it: a block's top, a slab's)
         const down = sweepAxis(w, _o, 0.3, 1.8, "y", -1.5);
-        if (down <= -1.5 + 1e-6 && !IS_WET[w.getBlock(Math.floor(_o.x), Math.floor(_o.y - 0.5), Math.floor(_o.z))]) continue;
+        const water = IS_WET[w.getBlock(Math.floor(_o.x), Math.floor(_o.y + down + 0.1), Math.floor(_o.z))] || IS_WET[w.getBlock(Math.floor(_o.x), Math.floor(_o.y - 0.5), Math.floor(_o.z))];
+        if (down <= -1.5 + 1e-6 && !water) continue;
+        if (water) {
+          wet ||= new THREE.Vector3(_o.x, _o.y + down, _o.z);
+          continue;
+        }
         _o.y += down;
         return _o.clone();
       }
     }
+    if (wet) return wet;
     return new THREE.Vector3(v.pos.x, v.pos.y + (v.kind === "boat" ? BOAT_H : CART_H) + 0.05, v.pos.z);
   }
 

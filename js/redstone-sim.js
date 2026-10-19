@@ -511,6 +511,8 @@ export class RedstoneSim {
         return ON[id] && d === 2 ? 15 : 0;
       case K.REPEATER:
         return ON[id] && d === FACING[id] ? 15 : 0;
+      case K.RBLOCK:
+        return d === 3 && LIB.isDetectorOn?.(id) ? 15 : 0; // (Round 12: a detector rail with a cart on it, js/minecarts.js)
       case K.OBSERVER:
         return ON[id] && d === OPP[FACING[id]] ? 15 : 0;
       case K.HOOK:

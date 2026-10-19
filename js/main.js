@@ -87,6 +87,8 @@ import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensio
 import { NetherPortals } from "./portal.js";
 import { NetherAtmosphere } from "./nether-fx.js";
 import { EndGame } from "./dragon.js";
+import { Transport } from "./boats.js"; // (Round 12: boats and minecarts)
+import { TransportSync } from "./net/transport.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -1266,7 +1268,7 @@ interaction.combat = mobs;
 // bones, a villager's trades: mobs.js useMob), and the trade screen beside
 // the inventory (js/trading.js; it closes with the inventory screen).
 mobs.inventory = inventory;
-interaction.onUseMob = (mob, stack) => mobs.useMob(mob, stack);
+interaction.onUseMob = (mob, stack) => (mob.isTransport ? transport.use(mob, stack) : mobs.useMob(mob, stack)); // (Round 12: a boat or a minecart under the crosshair)
 const trading = new TradeScreen({ icons, inventory, audio, mobs, player });
 trading.onChange = () => markInventoryChanged();
 trading.onDrop = (stack) => interaction.throwStack(stack);
@@ -1373,6 +1375,7 @@ const myItems = () => {
 // has (js/net/coop.js): loot is shared, so a weapon a friend still lacks can
 // drop from your kill for them to pick up, and the group ends up equipped alike.
 let mpLate = null; // (the multiplayer facade, made further down)
+let transport = null; // (Round 12: the boats and minecarts, made further down)
 const ownedItems = () => (mpLate?.active && mpLate.coop?.groupOwned ? new Set(mpLate.coop.groupOwned) : myItems());
 // (Round 10) Chests (js/chests.js): a village chest's loot follows the
 // chain's tier and what you have; their contents are saved with the world.
@@ -1785,6 +1788,7 @@ function playerState() {
     furnaces: furnaces.serialize(),
     brewing: brewing.serialize(), // (Round 11)
     signs: signs.serialize(),
+    transport: transport?.serialize(), // (Round 12) the boats and minecarts (every dimension's), and the one the player sits in
     gadgets: gadgets.serialize(), // (Round 12)
     mobs: dims.overworld("mobs", () => mobs.serializeKept()), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
     vehicles: vehicles.serialize(),
@@ -3597,6 +3601,12 @@ mp.addModule(new GadgetSync(mp, gadgets)); // (Round 12: the boxes', frames' and
 const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionThrows, spawners, weather, invScreen, streamAround, mp });
 game.dims = dims;
 if (dims.sync) mp.addModule(dims.sync);
+// (Round 12) Boats and minecarts (js/boats.js, js/minecarts.js: the rails' redstone too), saved with the world, online (js/net/transport.js).
+transport = new Transport(game, { dims, mp, invScreen, chests, openInventory: (kind) => openInventory(kind), closeInventory: () => closeInventory() });
+transport.load(savedPlayer?.transport);
+game.transport = transport;
+mp.addModule(new TransportSync(mp, transport));
+interaction.combat = transport.combat(mobs); // (hitting them, aiming at them)
 // (Round 12) The Nether: its portals (lit, broken, the way through and back), the respawn anchor, its biomes' fog and air.
 const netherPortals = new NetherPortals(game, dims);
 const netherAir = new NetherAtmosphere(game, dims);
@@ -3679,6 +3689,9 @@ window.__ufo = window.__voxelands = {
   weatherFx,
   spawners,
   dims, // (Round 12)
+  get transport() {
+    return transport; // (Round 12)
+  },
   netherPortals, // (Round 12)
   netherAir,
   endGame, // (Round 12)
@@ -4222,6 +4235,7 @@ function simulate(dt, frameTime) {
     effects.shake.apply(camera);
     entities.update(dt, player);
     mobs.update(dt);
+    transport.update(dt); // (Round 12: boats and minecarts; after the creatures, so those riding sit in them)
     falling.update(dt);
     waterSim.update();
     natureSim.update(dt);
@@ -4313,6 +4327,7 @@ function simulate(dt, frameTime) {
   player.usingItem = gameState === "playing" && (interaction.eating > 0 || weapons.bow.drawing || shieldRaised(player, inventory));
   // (Round 12: lit where the body stands, not at the third-person camera; the armor, the off hand, eating.)
   avatar.update(dt, player, player.thirdPerson ? world.lightAt(player.position.x, player.position.y + 1, player.position.z) : heldLight, { visible: player.thirdPerson && gameState !== "start" && !vehicles.active && !player.sleeping, swing: held.swingProgress, heldId: inventory.selectedStack?.id ?? 0, bowDraw: held.bowDraw, shots: held.shots ?? 0, armor: inventory.armor, offhandId: inventory.offhand?.id ?? 0, eating: interaction.eating > 0 });
+  transport.poseAvatar(avatar); // (Round 12: seated in a boat or a minecart)
   updateDebug(dt, frameTime);
   endGame.update(dt); // (Round 12: the End's fight, the portals' starfield, eyes of ender)
   dims.update(dt); // (Round 12: portals, a travel's arrival)

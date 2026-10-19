@@ -163,6 +163,7 @@ export class Player {
     this._boost = new THREE.Vector2(); // a sprint-jump's push (x, z), fading in the air
 
     this.vehicle = null; // the vehicle the player is in (vehicles.js)
+    this.mount = null; // (Round 12) the boat or minecart the player sits in: its ride(player, dt) places them (js/boats.js)
     this.parachute = false; // descending under a parachute (no fall damage)
     this.beamLift = 0; // a UFO's tractor beam lifting the player (blocks/s), set every frame
     this.beamPull = new THREE.Vector3(); // ...and pulling toward the beam's middle
@@ -846,6 +847,28 @@ export class Player {
       this._airborneMaxY = null;
       this._sinceDamage += dt;
       this._updateHealth(dt);
+      return;
+    }
+
+    // (Round 12) Seated in a boat or a minecart (js/boats.js): its ride()
+    // runs it and puts the player on the seat; the vitals go on as on foot
+    // (drowning in a sunk boat, fire, suffocation), Shift gets out.
+    if (this.mount && !this.dead) {
+      this.sprinting = false;
+      this.sneaking = false;
+      this.flying = false;
+      this.inWater = false;
+      this.inLava = false;
+      this._hotFloor = false;
+      this.mount.ride(this, dt);
+      this.onGround = false;
+      this._airborneMaxY = null;
+      this._bob = 0;
+      this._eyeOffset = 0;
+      this.headInWater = this._waterAt(EYE_HEIGHT);
+      this._scanBody();
+      this._updateVitals(dt);
+      this.syncCamera();
       return;
     }
 
