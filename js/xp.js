@@ -295,15 +295,14 @@ export class XpOrbs {
     const drag = Math.pow(0.98, dt * 20);
     for (let i = this.orbs.length - 1; i >= 0; i--) {
       const o = this.orbs[i];
-      // (Round 12) Its ground not loaded (yet, back from another dimension; or
-      // left far behind): it waits there, as vanilla's unloaded entities, not
-      // falling through the world.
-      if (this.world.getChunk && !this.world.getChunk(Math.floor(o.pos.x) >> 4, Math.floor(o.pos.z) >> 4)) continue;
       o.age += dt;
       if (o.age > ORB_LIFE) {
         this._remove(i);
         continue;
       }
+      // (Round 12) Its ground not loaded (yet, back from another dimension; or
+      // left far behind): it waits there, not falling through the world.
+      if (this.world.getChunk && !this.world.getChunk(Math.floor(o.pos.x) >> 4, Math.floor(o.pos.z) >> 4)) continue;
       const v = o.vel;
       v.y -= GRAVITY * dt;
       // Pulled to a player within 8 blocks, harder the closer (vanilla).

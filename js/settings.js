@@ -223,6 +223,9 @@ export function normalizeSettings(raw, opts = {}) {
   if (ag && typeof ag === "object" && !Array.isArray(ag)) {
     const lv = Math.floor(Number(ag.level));
     out.autoGraphics = { on: ag.on === true, level: Number.isFinite(lv) ? Math.max(0, Math.min(31, lv)) : 0 };
+    // (Sessions still to go before a trial step up: js/autotune.js.)
+    const wait = Math.floor(Number(ag.retryAfter));
+    if (wait > 0) out.autoGraphics.retryAfter = Math.min(99, wait);
   } else {
     const fresh = s.graphics === undefined;
     const p = out.perf;

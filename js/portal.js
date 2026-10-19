@@ -19,8 +19,8 @@
 //   4 x 5 frame stands on solid ground with room in front and behind, else
 //   on a 3 x 2 obsidian platform at y 70 or the spot's height (vanilla's
 //   rule; in the Overworld on its ground's top, or just over the sea: this
-//   world's sea is at 24), registered for the way back. You come out standing in it (step
-//   out before it works again).
+//   world's sea is at 24), registered for the way back. You come out
+//   standing in it (step out before it works again).
 // - On screen: purple motes round portals, the portal's hum near one, the
 //   swirl closing in while you wait in it (the engine's overlay, turning
 //   here), the trigger and travel sounds.

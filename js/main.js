@@ -1680,8 +1680,6 @@ if (GUEST) {
 // The main menu's background: a slow flyover with a UFO drifting by.
 const flyover = new MenuFlyover(scene, world, { effects, audio });
 flyover.setCenter(player.position);
-// (Round 12) Its UFOs only while the menu shows a Missions world (this one, or the Missions card picked).
-ui.onShownType = (type) => flyover.setUfos(type === "missions");
 // Shoot it: click the saucer that flies by (a few hits and it blows up).
 const menuScoreEl = document.getElementById("menu-score");
 const menuScoreN = document.getElementById("menu-score-n");
@@ -1723,6 +1721,12 @@ const menuPerf = new MenuPerf({
     ui.startGraphicsSelect.dispatchEvent(new Event("change", { bubbles: true }));
   },
 });
+// (Round 12) The flyover's UFOs and the tips follow the world type the menu
+// shows (this one, or the picked card's).
+ui.onShownType = (type) => {
+  flyover.setUfos(type === "missions");
+  menuPerf.setTips(type === "missions" ? MENU_TIPS : SURVIVAL_TIPS);
+};
 held.setItem(inventory.selectedStack?.id ?? 0, true);
 
 // The inventory as saved: a stack held on the inventory screen's cursor goes
@@ -2544,6 +2548,7 @@ const fpsRecommendEl = document.getElementById("fps-recommend");
 autotune.attach({
   apply: applyAutoLevel,
   toast,
+  online: () => mp.active,
   // (a burst of chunks streaming in: a load, a teleport, a new render distance)
   busy: () => (world.genQueue?.length ?? 0) + (world.meshQueue?.length ?? 0) > 24 || lod.busy > 16,
   refresh: () => {
@@ -2586,6 +2591,7 @@ window.addEventListener("storage", (e) => {
   }
   if (fresh.mods !== settings.mods) setModsEnabled(fresh.mods);
   autotune.adopt(fresh.autoGraphics); // (Round 12)
+  fullscreen.adopt(fresh.fullscreen); // (Round 12: the setting; going fullscreen still takes a click here)
   const gfxChanged = fresh.graphics !== settings.graphics || JSON.stringify(fresh.gfxOverrides) !== JSON.stringify(settings.gfxOverrides);
   if (gfxChanged && !graphicsLowered) {
     settings.gfxOverrides = { ...fresh.gfxOverrides };
@@ -2707,7 +2713,8 @@ ui.playBtn.addEventListener("click", () => {
   audio.ensureStarted();
   // (Round 11: the other type's card was picked: into that world instead.)
   if (worldPick) {
-    openWorld(worldPick.seed, worldPick.type, worldPick.mode);
+    // (A saved Missions world opens in its own mode: the Missions card stands for both.)
+    openWorld(worldPick.seed, worldPick.type, worldPick.type === "missions" && worldPick.seed !== null ? null : worldPick.mode);
     return;
   }
   enterGame();
@@ -4142,7 +4149,10 @@ function simulate(dt, frameTime) {
   // into the game yet, or a host still on the main menu, sees the world go on
   // behind the menu).
   const online = mp.active;
-  const running = gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || gameState === "start"));
+  // (Round 12) Alone, the world also waits while a new graphics level's
+  // shaders compile, as nothing is drawn meanwhile (online it can't: there
+  // the automatic graphics wait for a moment out of play, js/autotune.js).
+  const running = (graphicsReady || online) && (gameState === "playing" || gameState === "inventory" || gameState === "dead" || (online && (gameState === "paused" || gameState === "start")));
   if (running) {
     if (gameState !== "start") {
       player.update(dt);

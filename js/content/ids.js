@@ -509,3 +509,22 @@ export const LOOM = 2867; // 4 ids: facing
 export const BELL = 2871; // 2 ids: the bar along x, along z
 export const SHULKER_BOX = 2873; // 2 ids: the item, the box placed (its contents ride in the item: tag.items)
 // (workstations.js blocks: next free 2875)
+
+// ---- gadgets.js blocks (Round 12: blocks 2944-3071) ----
+// (Facings: "facing (4)" is building.js's, 0 +Z, 1 -Z, 2 +X, 3 -X; "FACE
+// order" is +X, -X, +Y, -Y, +Z, -Z.)
+export const HOPPER = 2944; // 5 ids: where it passes items on: 0 down, 1 + facing (4) to that side
+export const DROPPER = 2949; // 6 ids: the way it throws (FACE order)
+export const DISPENSER = 2955; // 6 ids, as the dropper
+export const OBSERVER = 2961; // 12 ids: the way its face looks (FACE order) + 6 while its pulse is on
+export const TRIPWIRE_HOOK = 2973; // 16 ids: facing (4: out of its wall, along its string) + 4 attached + 8 pulled (powered)
+export const TRIPWIRE = 2989; // 2 ids: loose, attached (a line between two hooks)
+export const ITEM_FRAME = 2991; // 6 ids: the way it faces out (FACE order; it hangs on the block behind)
+export const ARMOR_STAND = 2997; // 8 ids: turned (eighths of a turn from +Z toward +X): the stand's lower block
+export const ARMOR_STAND_TOP = 3005; // (its upper block: drawn with the lower one)
+export const POTTED_MORE = 3006; // 8 ids: potted dark oak sapling, fern, dead bush, bamboo, crimson fungus, warped fungus, crimson roots, warped roots
+export const BAMBOO_SAPLING = 3014; // (the bamboo shoot; its item is bamboo)
+export const BAMBOO = 3015; // 6 ids: leaves (0 none, 1 small, 2 large) + 3 when thick (the item: the first)
+export const BAMBOO_BLOCK = 3021;
+export const SCAFFOLDING = 3022; // 7 ids: distance 0-6 from what holds it up (the item: the first)
+// (gadgets.js blocks: next free 3029)
