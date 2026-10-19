@@ -156,10 +156,23 @@ export function cleanTag(t) {
     if (name) out.name = name;
   }
   if (Number.isInteger(t.rc) && t.rc > 0) out.rc = Math.min(t.rc, 2 ** 31 - 1);
-  return out.ench || out.name || out.rc ? out : undefined;
+  // (Round 12) A shulker box's contents (js/chests.js): [[slot 0-26, id, count(, dur, tag)], ...]; no box in a box.
+  if (Array.isArray(t.items)) {
+    const seen = new Set();
+    const list = [];
+    for (const e of t.items) {
+      if (!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0 || e[0] > 26 || seen.has(e[0]) || !Number.isInteger(e[1]) || !Number.isInteger(e[2]) || e[2] < 1 || e[2] > 64) continue;
+      seen.add(e[0]);
+      const dur = Number.isInteger(e[3]) && e[3] > 0 ? e[3] : 0;
+      const inner = e[4] && typeof e[4] === "object" && !e[4].items ? cleanTag(e[4]) : undefined;
+      list.push(inner ? [e[0], e[1], e[2], dur, inner] : dur ? [e[0], e[1], e[2], dur] : [e[0], e[1], e[2]]);
+    }
+    if (list.length) out.items = list;
+  }
+  return out.ench || out.name || out.rc || out.items ? out : undefined;
 }
 
-const tagKey = (t) => (t ? JSON.stringify([t.ench ?? 0, t.name ?? 0, t.rc ?? 0]) : "");
+const tagKey = (t) => (t ? JSON.stringify([t.ench ?? 0, t.name ?? 0, t.rc ?? 0, t.items ?? 0]) : "");
 // Whether two tags say the same (stacks with different ones don't merge).
 export function sameTag(a, b) {
   if (a === b) return true;

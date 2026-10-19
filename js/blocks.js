@@ -376,7 +376,7 @@ export const IS_WATERLOGGED = table((b) => (b.waterlogged ? 1 : 0));
 // Water, or a waterlogged plant standing in water: swims, drowns and renders as water.
 export const IS_WET = table((b) => (b.liquid || b.waterlogged ? 1 : 0));
 export const IS_LOG = table((b) => (b.log ? 1 : 0));
-export const IS_CHEST = table((b) => (b.shape === SHAPE.CHEST ? 1 : 0));
+export const IS_CHEST = table((b) => (b.shape === SHAPE.CHEST || b.chest ? 1 : 0)); // (Round 12: a double chest's halves, js/content/workstations.js)
 export const IS_WALL_TORCH = table((b) => (b.shape === SHAPE.WALL_TORCH ? 1 : 0));
 // The item a block counts as (its own id, or e.g. a torch for a wall torch;
 // 0, no item, for an unknown id).

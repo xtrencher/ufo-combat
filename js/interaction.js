@@ -667,9 +667,12 @@ export class Interaction {
         if (ny < 0) return false;
         if (ny === 0 && (nx || nz) && isWallSupportedBy(t.id)) blockId = wallTorch(nx, nz);
       } else if (IS_CHEST[blockId]) {
-        // A chest's front (its latch) faces the player who places it.
+        // A chest's front (its latch) faces the player who places it; (Round 12)
+        // beside a single chest facing the same way it joins it (js/chests.js; not while sneaking).
         const f = this.player.getForwardVector();
-        blockId = chest(-f.x, -f.z);
+        const joined = this.chests?.placeChest?.(px, py, pz, -f.x, -f.z, !!this.player.sneaking);
+        if (joined) [blockId, more] = joined;
+        else blockId = chest(-f.x, -f.z);
       } else if (BLOCK_INFO[blockId].placeAs) {
         // A content block picks its variant (facing, top or bottom half).
         const ctx = this._useCtx(t, [px, py, pz]);

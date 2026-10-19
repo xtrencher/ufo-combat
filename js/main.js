@@ -1388,7 +1388,7 @@ interaction.onOpenChest = (x, y, z) => {
 // (Round 11) Furnaces (js/furnace.js): they smelt while their ground is
 // loaded, saved with the world like the chests. The crafting table's and the
 // furnace's screens open from their blocks (js/content/containers.js).
-const furnaces = new Furnaces({ world });
+const furnaces = new Furnaces({ world, scene, effects }); // (Round 12: and the campfires' food and smoke)
 furnaces.onDrop = chests.onDrop;
 furnaces.load(savedPlayer?.furnaces);
 invScreen.furnaces = furnaces;
