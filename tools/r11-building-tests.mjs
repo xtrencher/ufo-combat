@@ -60,10 +60,11 @@ function assert(cond, msg) {
 const mod = (p) => import(pathToFileURL(path.join(ROOT, p)).href);
 
 // ---------- Node: villages ----------
-await check("a Survival world's village has oak doors (both halves, a pair hinged at the sides), beds and panes; a Missions world's none of the new blocks", async () => {
+await check("a Survival world's village has wooden doors (both halves, vanilla's single door hinged left, one a building), beds and panes; a Missions world's none of the new blocks", async () => {
   const { TerrainGenerator } = await mod("js/terrain.js");
   const I = await mod("js/content/ids.js");
   const Bm = await mod("js/content/building.js");
+  const Dc = await mod("js/content/decor.js");
   const findVillage = (t) => {
     for (let r = 1; r < 12; r++) {
       const list = t.villages._villagesNear(-r * 320, -r * 320, r * 320, r * 320);
@@ -76,12 +77,17 @@ await check("a Survival world's village has oak doors (both halves, a pair hinge
   assert(vanilla.villages.vanilla && !missions.villages.vanilla, "the village growers' types");
   const v = findVillage(vanilla);
   assert(v, "no village found in the Survival world");
-  const s = vanilla.villages.shape(v);
-  const houses = vanilla.villages.layout(v).houses.length;
+  // (Round 12) A Survival world's village is vanilla's (village.js's VillagePlan):
+  // its blocks are the plan's ops [dx, y, dz, id] (y the world's), and every
+  // building but the well has one door, oak or spruce by the village's style.
+  const lay = vanilla.villages.layout(v);
+  const houses = lay.houses.filter((h) => h.kind !== "well").length;
   // (the last entry at a cell wins, as placeInChunk writes them in order)
   const cells = new Map();
+  const s = lay.ops;
   for (let i = 0; i < s.length; i += 4) cells.set(`${s[i]},${s[i + 1]},${s[i + 2]}`, s[i + 3]);
-  const isDoor = (id) => (id >= I.OAK_DOOR && id < I.OAK_DOOR + 16) || (id >= Bm.OAK_DOOR_RIGHT && id < Bm.OAK_DOOR_RIGHT + 16);
+  const doorBases = [I.OAK_DOOR, Bm.OAK_DOOR_RIGHT, I.SPRUCE_DOOR, Bm.SPRUCE_DOOR_RIGHT];
+  const bedBases = [...new Set([I.RED_BED, ...Dc.BED_ITEMS])];
   let lowers = 0;
   let pairs = 0;
   let rights = 0;
@@ -90,13 +96,14 @@ await check("a Survival world's village has oak doors (both halves, a pair hinge
   for (const [k, id] of cells) {
     const [x, y, z] = k.split(",").map(Number);
     if (id === I.GLASS_PANE) panes++;
-    if (id >= I.RED_BED + 4 && id < I.RED_BED + 8) beds++;
-    if (!isDoor(id) || (id - (id >= Bm.OAK_DOOR_RIGHT ? Bm.OAK_DOOR_RIGHT : I.OAK_DOOR)) >= 8) continue;
+    if (bedBases.some((b) => id >= b + 4 && id < b + 8)) beds++;
+    const base = doorBases.find((b) => id >= b && id < b + 16);
+    if (base === undefined || id - base >= 8) continue;
     lowers++;
-    if (id >= Bm.OAK_DOOR_RIGHT) rights++;
+    if (base === Bm.OAK_DOOR_RIGHT || base === Bm.SPRUCE_DOOR_RIGHT) rights++;
     if (cells.get(`${x},${y + 1},${z}`) === id + 8) pairs++;
   }
-  assert(lowers === houses * 2 && pairs === lowers && rights === houses, `doors: ${lowers} lower halves, ${pairs} with their upper, ${rights} hinged right, for ${houses} houses`);
+  assert(houses > 0 && lowers === houses && pairs === lowers && rights === 0, `doors: ${lowers} lower halves, ${pairs} with their upper, ${rights} hinged right, for ${houses} buildings`);
   assert(beds >= 1 && panes >= houses, `beds ${beds}, panes ${panes}`);
   // A Missions world: the same village (where it has one there) without anything new.
   const m = missions.villages._villagesNear(v.x - 1, v.z - 1, v.x + 1, v.z + 1).find((c) => c.x === v.x && c.z === v.z) || findVillage(missions);

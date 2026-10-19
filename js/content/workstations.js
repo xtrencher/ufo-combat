@@ -363,7 +363,7 @@ for (const id of [SHULKER_BOX, SHULKER_PLACED]) {
     hardness: 2,
     tool: "pickaxe",
     sound: "stone",
-    chest: true,
+    storage: true, // (js/chests.js IS_STORAGE)
     stack: 1,
     ...(id === SHULKER_BOX ? { placeAs: placeShulker } : { item: SHULKER_BOX }),
   };

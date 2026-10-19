@@ -1443,7 +1443,7 @@ const HOUSE_SPECS = {
   mason: {
     wall: (st) => (st.flat ? V.CUT_SANDSTONE : V.STONE_BRICKS),
     furnish(ctx, plan) {
-      const { p, put, rand, st } = ctx;
+      const { p, put, rand, st, dir } = ctx;
       put(p.W - 2, 1, p.D - 2, V.STONECUTTER + (dir(0, -1) < 2 ? 0 : 1));
       plan._chest(ctx, p.W - 3, 1, p.D - 2, "village_mason");
       plan._bed(ctx, 1, st.beds[Math.floor(rand() * st.beds.length)]);

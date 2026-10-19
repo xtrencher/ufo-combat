@@ -74,6 +74,7 @@ export class BiomeSource {
     this.dryNoise = new Noise((seed ^ 0x3d5a9e17) >>> 0);
     this.vanilla = !!opts.vanilla;
     this.wetNoise = this.vanilla ? new Noise((seed ^ 0x6b43a9b5) >>> 0) : null;
+    this.bambooNoise = this.vanilla ? new Noise((seed ^ 0x2e9b5c17) >>> 0) : null;
   }
 
   // Smooth climate fields, roughly in [-0.7, 0.7]: t = cold..hot, m = dry..wet.
@@ -115,6 +116,17 @@ export class BiomeSource {
     const { t, m } = this.climate(wx, wz);
     if (t <= 0.16 || m <= JUNGLE_M) return 0;
     return Math.min(1, (m - JUNGLE_M) / JUNGLE_DEEP);
+  }
+
+  // (Round 12) Vanilla's bamboo jungle: patches of a Survival world's
+  // jungles (a field of their own, a few hundred blocks across, about a
+  // third of a jungle) thick with bamboo on podzol, their trees fewer. How
+  // much of one (wx, wz) is, 0-1 (over 0.5: inside one), wherever it is
+  // (the terrain asks it of jungle columns only); 0 in a Missions world.
+  bambooField(wx, wz) {
+    if (!this.bambooNoise) return 0;
+    const n = this.bambooNoise.fbm2(wx - 3300, wz + 5100, 2, 0.5, 2, 1 / 420);
+    return Math.min(1, Math.max(0, (n - 0.06) / 0.1));
   }
 
   // (Round 12) Whether the climate at (wx, wz) is a jungle's (whatever the

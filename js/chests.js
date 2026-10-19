@@ -47,7 +47,7 @@ export const CHEST_SLOTS = 27;
 // (Round 12) The blocks that hold a chest's slots: the chests (both halves
 // of a double one), the barrel, the shulker box.
 export const IS_STORAGE = new Uint8Array(BLOCK_LIMIT);
-for (const info of Object.values(BLOCK_INFO)) if (IS_CHEST[info.id] || info.chest) IS_STORAGE[info.id] = 1;
+for (const info of Object.values(BLOCK_INFO)) if (IS_CHEST[info.id] || info.chest || info.storage) IS_STORAGE[info.id] = 1;
 // The facings' fronts (js/content/workstations.js: 0 +Z, 1 -Z, 2 +X, 3 -X;
 // the single chest of facing k is BLOCK.CHEST + k).
 const FRONTS = [

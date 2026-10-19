@@ -221,6 +221,7 @@ await check("the magic blocks and items: names, icons, the palette, recipes, the
     const V = await import("./js/content/ids.js");
     const I = await import("./js/items.js");
     const B = await import("./js/blocks.js");
+    const L = await import("./js/content/base.js");
     const T = await import("./js/itemtextures.js");
     const IV = await import("./js/content/items-vanilla.js");
     const C = await import("./js/content/containers.js");
@@ -237,13 +238,14 @@ await check("the magic blocks and items: names, icons, the palette, recipes, the
     const pal = [V.ENCHANTING_TABLE, V.ANVIL, V.BREWING_STAND, V.CAULDRON, V.POTION, IV.POTIONS[0].id, IV.POTIONS[0].splash, V.EXPERIENCE_BOTTLE].map((id) => I.CREATIVE_ITEMS.includes(id));
     const results = X.recipes().map((r) => r.result?.[0]);
     const recipes = [V.BREWING_STAND, IV.FERMENTED_SPIDER_EYE, IV.GLISTERING_MELON_SLICE].map((id) => results.includes(id));
-    return { blocks, potions, bad, pal, recipes, tiles: B.TILE_NAMES.length, gravity: B.HAS_GRAVITY[V.ANVIL + 2], stack: [I.maxStack(IV.POTIONS[0].id), I.maxStack(V.ENCHANTED_BOOK)] };
+    return { blocks, potions, bad, pal, recipes, tiles: B.TILE_NAMES.length, flipbook: L.FLIPBOOK_LAYERS, capacity: L.TILE_CAPACITY, gravity: B.HAS_GRAVITY[V.ANVIL + 2], stack: [I.maxStack(IV.POTIONS[0].id), I.maxStack(V.ENCHANTED_BOOK)] };
   });
   assert(r.blocks.join() === "Enchanting Table,Anvil,Chipped Anvil,Damaged Anvil,Brewing Stand,Cauldron", `blocks ${r.blocks}`);
   assert(r.potions === 29 && r.bad.length === 0, `potions ${r.potions}, without a name or icon: ${r.bad}`);
   assert(r.pal.every(Boolean), `in the creative palette: ${r.pal}`);
   assert(r.recipes.every(Boolean), `recipes: ${r.recipes}`);
-  assert(r.tiles <= 256, `texture layers: ${r.tiles}`);
+  // (Round 12) The texture array holds pages of 256 layers: the named tiles and the flipbooks' frames fit its capacity.
+  assert(r.capacity >= 1024 && r.tiles + r.flipbook <= r.capacity, `texture layers: ${r.tiles} named + ${r.flipbook} flipbook frames, capacity ${r.capacity}`);
   assert(r.gravity === 1 && String(r.stack) === "1,1", `the anvil falls; potions and books stack to 1: ${r.gravity} ${r.stack}`);
 });
 

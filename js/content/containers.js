@@ -157,7 +157,7 @@ for (let lvl = 0; lvl < 4; lvl++) {
 blocks[BARREL] = {
   name: "Barrel",
   faces: { top: "barrel_top", bottom: "barrel_bottom", side: "barrel_side" },
-  chest: true, // (js/blocks.js IS_CHEST)
+  storage: true, // (js/chests.js IS_STORAGE; not IS_CHEST: a full block, built against like any)
   hardness: 2.5,
   tool: "axe",
   sound: "wood",

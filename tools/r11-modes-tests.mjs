@@ -9,7 +9,8 @@
 //  - Creative and back in it keeps it a Survival world, and its type
 //    survives a reload (the save's, not the link's);
 //  - an old save without a type loads as a Missions world;
-//  - the other type's card opens the last world of that type;
+//  - the other type's card opens the last world of that type (Round 12:
+//    Creative is a Survival world's card);
 //  - online (a host and a guest through a local PeerJS server, like
 //    mp-tests.mjs): a Survival room gives the guest a Survival world with
 //    Mods off, the room's modes are Survival and Creative only (no
@@ -191,7 +192,8 @@ await check("a new Missions world as before: three cards, survival mode, the sta
   await boot(`seed=${SEED}`);
   const menu = await v(page, STATE);
   assert(menu.type === "missions" && menu.mode === "survival", `a Missions world in survival mode: ${JSON.stringify(menu)}`);
-  assert(menu.cards.length === 3 && menu.cards[0] === "mode-card-survival*" && menu.cards[1] === "mode-card-creative" && menu.cards[2] === "mode-card-vanilla", `three cards, Missions lit: ${menu.cards}`);
+  // (Round 12) Survival, Creative (a Survival world's), then Missions.
+  assert(menu.cards.join() === "mode-card-vanilla,mode-card-creative,mode-card-survival*", `three cards, Missions lit: ${menu.cards}`);
   assert(/new Missions world/.test(menu.label) && menu.play === "Play" && menu.pauseName === "Missions", JSON.stringify(menu));
   await play();
   const s = await v(page, STATE);
@@ -204,12 +206,12 @@ await check("a new Missions world as before: three cards, survival mode, the sta
     return [R.roomMode("survival", "missions"), R.roomMode("missions", "survival"), R.roomMode("dogfight", "survival"), R.roomMode("dogfight", "missions"), R.roomMode("creative", "survival"), R.roomMode("nonsense", "missions"), R.modeName("survival", "missions"), R.modeName("survival", "survival")];
   });
   assert(JSON.stringify(modes) === JSON.stringify(["survival", "survival", null, "dogfight", "creative", null, "Missions", "Survival"]), `room modes: ${JSON.stringify(modes)}`);
-  // (The Host tab's modes in a Missions world.)
+  // (The Host tab's modes in a Missions world: Round 12, every mode, as on the main menu.)
   const cards = await v(page, (g) => {
     g.mp.ui._hostCards();
     return [...document.querySelectorAll("[data-mpmode]")].filter((c) => !c.classList.contains("hidden")).map((c) => c.querySelector("b").textContent + (c.classList.contains("active") ? "*" : ""));
   });
-  assert(JSON.stringify(cards) === JSON.stringify(["Missions*", "Creative", "Dogfight"]), `the Host tab's modes: ${cards}`);
+  assert(JSON.stringify(cards) === JSON.stringify(["Survival", "Creative", "Missions*", "Dogfight"]), `the Host tab's modes: ${cards}`);
   await v(page, (g) => g.flushSave());
 });
 
@@ -228,7 +230,7 @@ await check("New world > Survival: empty-handed, Mods off for that world only, n
   await afterNavigation(() => page.click("#new-world-create"));
   const menu = await v(page, STATE);
   assert(menu.type === "survival" && /seed=777/.test(page.url()) && /type=survival/.test(page.url()), `a Survival world: ${JSON.stringify(menu)} ${page.url()}`);
-  assert(menu.cards[2] === "mode-card-vanilla*" && /new Survival world/.test(menu.label) && menu.pauseName === "Survival", `its card and label: ${JSON.stringify(menu)}`);
+  assert(menu.cards[0] === "mode-card-vanilla*" && /new Survival world/.test(menu.label) && menu.pauseName === "Survival", `its card and label: ${JSON.stringify(menu)}`);
   assert(!menu.mods && menu.setting === true && !menu.modsBox.checked && menu.modsBox.disabled && menu.modsBox.note, `Mods off here, the setting kept: ${JSON.stringify(menu)}`);
   await play();
   await frames(page, 30);
@@ -290,14 +292,14 @@ await check("an old save without a type loads as a Missions world", async () => 
   // (Even from a link that says Survival: the save is a Missions world.)
   await boot(`seed=${OLD_SEED}&type=survival`);
   const s = await v(page, STATE);
-  assert(s.type === "missions" && s.mods && /saved Missions world/.test(s.label) && s.cards[0] === "mode-card-survival*", `an old save: ${JSON.stringify(s)}`);
+  assert(s.type === "missions" && s.mods && /saved Missions world/.test(s.label) && s.cards[2] === "mode-card-survival*", `an old save: ${JSON.stringify(s)}`);
   await play();
   const p = await v(page, STATE);
   assert(p.progress && p.crates && p.items === 1 && p.missionsBtn, `missions on, its things kept: ${JSON.stringify(p)}`);
   await v(page, (g) => g.flushSave());
 });
 
-await check("the other type's card opens the last world of that type; Creative clears the pick", async () => {
+await check("the other type's card opens the last world of that type; Creative is the Survival world's; Missions clears the pick", async () => {
   await afterNavigation(async () => {
     await page.evaluate(() => document.exitPointerLock());
     await until(page, (g) => g.gameState === "paused", 10000);
@@ -306,13 +308,17 @@ await check("the other type's card opens the last world of that type; Creative c
   // (In the Missions world of OLD_SEED: the Survival card offers 777 again.)
   await page.click("#mode-card-vanilla");
   const picked = await v(page, STATE);
-  assert(picked.play === "Continue Survival world" && picked.cards[2] === "mode-card-vanilla*" && picked.type === "missions", `the Survival world picked: ${JSON.stringify(picked)}`);
+  assert(picked.play === "Continue Survival world" && picked.cards[0] === "mode-card-vanilla*" && picked.type === "missions", `the Survival world picked: ${JSON.stringify(picked)}`);
   const hint = await page.evaluate(() => document.getElementById("mode-hint").textContent);
   assert(/seed 777/.test(hint), `the hint says which: ${hint}`);
+  // (Round 12) The Creative card is a Survival world's: the same world, in Creative.
   await page.click("#mode-card-creative");
-  const cleared = await v(page, STATE);
-  assert(cleared.play === "Continue" && cleared.cards[1] === "mode-card-creative*" && cleared.mode === "creative", `back to this world, in Creative: ${JSON.stringify(cleared)}`);
+  const creative = await v(page, STATE);
+  assert(creative.play === "Continue Creative world" && creative.cards.join() === "mode-card-vanilla,mode-card-creative*,mode-card-survival" && creative.type === "missions" && creative.mode === "survival", `the Survival world in Creative picked: ${JSON.stringify(creative)}`);
+  // (The Missions card: back to this world, in its own game.)
   await page.click("#mode-card-survival");
+  const cleared = await v(page, STATE);
+  assert(cleared.play === "Continue" && cleared.cards.join() === "mode-card-vanilla,mode-card-creative,mode-card-survival*" && cleared.mode === "survival", `back to this world: ${JSON.stringify(cleared)}`);
   await page.click("#mode-card-vanilla");
   await afterNavigation(() => page.click("#play-btn"));
   const s = await v(page, STATE);
@@ -349,7 +355,8 @@ async function online() {
     await host.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
     await host.click("#menu-mp-btn");
     const cards = await host.evaluate(() => [...document.querySelectorAll("[data-mpmode]")].filter((c) => !c.classList.contains("hidden")).map((c) => c.querySelector("b").textContent + (c.classList.contains("active") ? "*" : "")));
-    assert(JSON.stringify(cards) === JSON.stringify(["Survival*", "Creative"]), `the Host tab's modes: ${cards}`);
+    // (Round 12) Every mode; a Missions card opens the last Missions world first.
+    assert(JSON.stringify(cards) === JSON.stringify(["Survival*", "Creative", "Missions", "Dogfight"]), `the Host tab's modes: ${cards}`);
     await host.fill("#mp-nick", "Alice");
     await host.click("#mp-host-btn");
     const code = await until(host, (g) => g.net.code, 30000);

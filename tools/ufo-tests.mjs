@@ -134,7 +134,7 @@ await check("rebrand: title, storage prefix, no logo on the menu (Round 8), defa
     keys: Object.keys(localStorage),
     preset: g.settings.graphics,
   }));
-  assert(s.title === "UFO COMBAT", `title ${s.title}`);
+  assert(s.title === "MINECLAUDE", `title ${s.title}`); // (Round 12) the name MINECLAUDE
   assert(s.logo === "none", `logo ${s.logo}`);
   assert(s.keys.length > 0 && s.keys.every((k) => k.startsWith("ufocombat_v1_")), `storage keys ${s.keys}`);
   assert(["ultra", "medium", "low"].includes(s.preset), `preset ${s.preset}`);

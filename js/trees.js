@@ -189,6 +189,12 @@ export class TreeGrower {
     // spacing leaves fewer of them); thinner at its edges (the sparse
     // jungle: no giants there).
     if (this.vanilla && biome === BIOME.JUNGLE) {
+      // (Round 12) A bamboo jungle: a third as many trees, the giants and
+      // the bushes (the bamboo takes the rest: js/terrain.js).
+      if (this.terrain.biomes.bambooField(wx, wz) > 0.5) {
+        if (r >= JUNGLE_DENSITY * 0.35) return null;
+        return { r, species: k < 0.4 ? TREE.MEGA_JUNGLE : k < 0.5 ? TREE.OAK : TREE.BUSH, h };
+      }
       const deep = this.terrain.biomes.jungleDepth(wx, wz);
       if (r >= JUNGLE_DENSITY * (0.3 + 0.7 * deep)) return null;
       let species;
