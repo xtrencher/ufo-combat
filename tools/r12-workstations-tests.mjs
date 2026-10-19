@@ -410,6 +410,7 @@ async function browserChecks() {
         const notFood = use[I.CAMPFIRE](ctxOf(g, cx, s.y0, s.z0, { id: 3, count: 1 }));
         const cf = g.furnaces.campfires;
         const rec = cf.store.get(cf.keyOf(cx, s.y0, s.z0));
+        const had = rec ? rec.slots.filter(Boolean).length : 0;
         const n0 = g.entities.items.length;
         cf.update(30.1);
         const drops = g.entities.items.slice(n0).map((it) => it.id);
@@ -422,7 +423,7 @@ async function browserChecks() {
         g.world.setBlock(cx + 2, s.y0, s.z0, I.CAMPFIRE);
         use[I.CAMPFIRE](ctxOf(g, cx + 2, s.y0, s.z0, { id: 284, count: 1, dur: 200 }));
         const out = g.world.getBlock(cx + 2, s.y0, s.z0);
-        return { put, notFood, had: rec ? rec.slots.filter(Boolean).length : 0, drops, out, shown, hot: g.__items.itemInfo ? !!g.__base.LIB.BLOCK_INFO?.[I.CAMPFIRE]?.hotFloor : null };
+        return { put, notFood, had, drops, out, shown, hot: g.__items.itemInfo ? !!g.__base.LIB.BLOCK_INFO?.[I.CAMPFIRE]?.hotFloor : null };
       },
       [S, ctxOf]
     );

@@ -133,7 +133,12 @@ async function play() {
     }
     await frames(3);
   }
-  throw new Error(`the game didn't start playing (state ${await v((g) => g.gameState)})`);
+  const why = await page.evaluate(() => {
+    const b = document.getElementById("play-btn");
+    const shown = [...document.querySelectorAll(".overlay, #click-to-play")].filter((e) => !e.classList.contains("hidden")).map((e) => e.id);
+    return `play "${b.textContent}"${b.disabled ? " (disabled)" : ""}, shown: ${shown.join(" ")}`;
+  });
+  throw new Error(`the game didn't start playing (state ${await v((g) => g.gameState)}; ${why})`);
 }
 
 // Sets up an open, flat area high above the terrain (nothing in the way of

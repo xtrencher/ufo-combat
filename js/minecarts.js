@@ -29,10 +29,13 @@ import { DETECTOR_RAIL } from "./content/ids.js";
 import { KIND, K } from "./content/redstone.js";
 import { RAIL_KIND, RAIL_SHAPE, RAIL_ON, EXITS, NS, EW, ASC_E, ASC_W, ASC_N, ASC_S, isRail, isAscending, withPower, railOverlay, railPlace, railPotential, signalAt, sturdyTop, K_RAIL, K_POWERED, K_DETECTOR, K_ACTIVATOR } from "./content/transport.js";
 import { isLava } from "./content/nature.js";
+import { LIB } from "./content/base.js";
 
 // (A detector rail with a cart on it powers what is beside it: to the
 // redstone, a source like a block of redstone.)
 for (let s = 0; s < 6; s++) KIND[DETECTOR_RAIL + 6 + s] = K.RBLOCK;
+// (and, with the redstone's optional hook, strong power into the block under it, as vanilla's)
+LIB.isDetectorOn = (id) => RAIL_KIND[id] === K_DETECTOR && RAIL_ON[id] === 1;
 
 export const CART_R = 0.49; // (half of vanilla's 0.98)
 export const CART_H = 0.7;

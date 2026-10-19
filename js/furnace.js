@@ -103,6 +103,7 @@ export class Furnaces {
   constructor({ world, scene = null, effects = null }) {
     this.world = world;
     this.campfires = new Campfires({ world, scene, effects }); // (Round 12)
+    this.campfires.onDrop = (s, x, y, z) => this.onDrop?.(s, x, y, z); // (what pops off goes where a furnace's spills)
     this.store = new Map(); // "x,y,z" -> { x, y, z, key, slots, lit, litDur, prog, total, xp, cooking }
     this.authority = true; // false on a guest: the host owns them
     this.remote = null; // a guest's link to the host (js/net/furnace.js): open(view), close(view), op(view, changes, done)
@@ -535,7 +536,7 @@ const CAMP_TICKS = 600; // (30 s)
 const CAMP_SEE = 64; // blocks: the food drawn this near
 const SMOKE_EVERY = 0.4; // s between puffs of a campfire
 const SMOKE_SCAN = 0.75; // s between looks for the lit campfires near
-const SMOKE_NEAR = 3; // chunks round the camera looked in
+const SMOKE_NEAR = 2; // chunks round the camera looked in
 const SMOKE_MAX = 24; // campfires smoking at once
 // The food's places on top: the four quarters, turned with the logs.
 const CAMP_SPOTS = [
@@ -570,8 +571,13 @@ export class Campfires {
     this._shownDim = null;
     this._scanT = 0;
     this._smoking = []; // [{ x, y, z, signal, t }]
+    this._look = true; // (a campfire may be near: placed, or the camera moved to other ground)
+    this._lookAt = "";
     LIB.campfires = this;
-    world.changeListeners?.push((changed) => this._blocksChanged(changed));
+    world.changeListeners?.push((changed) => {
+      if (!this._look) for (let i = 0; i < changed.length && !this._look; i += 3) if (isCampfire(world.getBlock(changed[i], changed[i + 1], changed[i + 2]))) this._look = true;
+      this._blocksChanged(changed);
+    });
   }
 
   keyOf(x, y, z, dim = this.world.dim ?? OVERWORLD) {
@@ -799,7 +805,13 @@ export class Campfires {
     if (!pool || !at) return;
     const w = this.world;
     this._scanT -= dt;
-    if (this._scanT <= 0) {
+    const here = `${w.dim}:${Math.floor(at.x) >> 4},${Math.floor(at.z) >> 4}`;
+    if (here !== this._lookAt) {
+      this._lookAt = here;
+      this._look = true;
+    }
+    // (Nothing to look through while no campfire was near the last look, until one is placed or the camera moves on.)
+    if (this._scanT <= 0 && (this._look || this._smoking.length)) {
       this._scanT = SMOKE_SCAN;
       const old = new Map(this._smoking.map((c) => [`${c.x},${c.y},${c.z}`, c]));
       this._smoking = [];
@@ -822,6 +834,7 @@ export class Campfires {
           }
         }
       }
+      this._look = this._smoking.length > 0;
     }
     for (const c of this._smoking) {
       c.t -= dt;

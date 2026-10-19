@@ -133,6 +133,7 @@ const POOL_SALT = 0x41c64e6d;
 const CLAY_SALT = 0x2f8a1b77;
 const PATCH_SALT = 0x6c8e9cf5;
 const VANILLA_PLANT_SALT = 0x0b4f3d2b;
+const BAMBOO_SALT = 0x5d3a71e9;
 // The flowers of a biome (vanilla's lists, with the core's red blossom and
 // sunpetal for the poppy and the dandelion), for the ground cover and bone meal.
 const FLOWERS = {
@@ -450,6 +451,9 @@ export class TerrainGenerator {
         const above = idx(lx, h + 1, lz);
         const wx = baseX + lx;
         const wz = baseZ + lz;
+        // (Round 12) A Survival world's bamboo: thick in the bamboo jungle
+        // (on podzol), a stalk now and then in the rest of the jungle.
+        if (this.options.vanilla && blocks[ground] === BLOCK.GRASS && blocks[above] === BLOCK.AIR && biomeAt(lx, lz) === BIOME.JUNGLE && this._bamboo(blocks, idx, lx, lz, h, wx, wz)) continue;
         if (blocks[ground] === BLOCK.GRASS && blocks[above] === BLOCK.AIR) {
           const r = hash2(this.seed ^ PLANT_SALT, wx, wz);
           const patch = this.noise.perlin2(wx * 0.045 + 31.7, wz * 0.045 - 12.3); // -0.7..0.7
@@ -742,6 +746,28 @@ export class TerrainGenerator {
       if (y >= top || blocks[idx(x, y, z)] !== BLOCK.AIR || blocks[idx(x, y - 1, z)] !== BLOCK.STONE) continue;
       blocks[idx(x, y, z)] = pick < 0.6 ? V.BROWN_MUSHROOM : V.RED_MUSHROOM;
     }
+  }
+
+  // (Round 12) Bamboo in a jungle column (its ground grass, air over it),
+  // as vanilla's BambooFeature: a thick stalk 5-16 tall (as far as there is
+  // room), its top two blocks with large leaves and the next small. In the
+  // bamboo jungle (biomes.js bambooField) about a third of the columns,
+  // podzol under them and in patches round them; elsewhere in the jungle one
+  // column in about 600. True if the column took it (no grass then).
+  _bamboo(blocks, idx, lx, lz, h, wx, wz) {
+    const field = this.biomes.bambooField(wx, wz);
+    const r = hash2(this.seed ^ BAMBOO_SALT, wx, wz);
+    const ground = idx(lx, h, lz);
+    const inside = field > 0.5;
+    if (inside && this.noise.perlin2(wx * 0.13 - 7.1, wz * 0.13 + 3.3) > 0.02) blocks[ground] = V.PODZOL;
+    if (r >= (inside ? 0.34 * field : 0.0017)) return false;
+    const want = 5 + Math.floor(hash2((this.seed ^ BAMBOO_SALT ^ 0x77) >>> 0, wx, wz) * 12);
+    let n = 0;
+    while (n < want && h + 1 + n < WORLD_HEIGHT && blocks[idx(lx, h + 1 + n, lz)] === BLOCK.AIR) n++;
+    if (n < 3) return false;
+    for (let k = 0; k < n; k++) blocks[idx(lx, h + 1 + k, lz)] = V.BAMBOO + 3 + (k >= n - 2 ? 2 : k === n - 3 ? 1 : 0);
+    blocks[ground] = V.PODZOL;
+    return true;
   }
 
   _carveCaves(blocks, baseX, baseZ, hAt) {

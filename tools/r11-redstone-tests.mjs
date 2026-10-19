@@ -768,19 +768,15 @@ await check("every redstone shape meshes byte for byte the same in a worker and 
     for (const c of chunks) {
       const nb = [];
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) nb.push(w.getChunk(c.cx + dx, c.cz + dz) || null);
-      const ref0 = meshChunk(nb, w.meshOptions);
-      let waited = 0;
       let slot = w._meshSlot();
       while (!slot) {
-        waited++;
         await new Promise((res) => setTimeout(res, 20));
         w.processQueues(50);
         slot = w._meshSlot();
       }
       // (The reference meshed right as the chunk goes to the worker, in the
       // same task: while waiting for a slot the circuits tick on and change it.)
-      const ref = ref0;
-      out.waited = (out.waited || 0) + waited;
+      const ref = meshChunk(nb, w.meshOptions);
       w._dispatchMesh(c, slot);
       want.set(c._meshToken, ref);
     }

@@ -318,8 +318,15 @@ export class Chests {
     for (const [k, f] of this._fills) if (now - f.t > 10000) this._fills.delete(k);
     const id = this._known(x, y, z, dim);
     const have = this.store.get(key);
-    if (isShulkerBox(id) && (!have || have.every((s) => !s))) this.store.set(key, slots);
-    else if (id < 0 || !isShulkerBox(id)) this._fills.set(key, { slots, t: now });
+    const empty = !have || have.every((s) => !s);
+    if (isShulkerBox(id)) {
+      if (empty) this.store.set(key, slots);
+      return;
+    }
+    // (Its block not here yet: kept for when it comes; in ground not loaded
+    // here, where the edit is only recorded, the record holds them meanwhile.)
+    this._fills.set(key, { slots, t: now });
+    if (id < 0 && empty) this.store.set(key, slots);
   }
 
   // A chest that appeared: a fresh record (a box placed from a full item: its things).
@@ -569,7 +576,7 @@ export class Chests {
     this.store.delete(key);
     if (!this.authority) {
       // (This guest broke a generated one: the host may not have that ground loaded.)
-      if (!remote && !placed && batch <= BIG_BATCH && !isShulkerBox(was)) this.remote?.goneLocal?.(x, y, z);
+      if (!remote && !placed && batch <= BIG_BATCH && !isShulkerBox(was) && was !== V.BARREL) this.remote?.goneLocal?.(x, y, z);
       return;
     }
     this.onGone?.(key);
