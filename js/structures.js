@@ -23,25 +23,40 @@
 //   room: four chests, and nine TNT under a stone pressure plate when the
 //   redstone part's blocks exist.
 // - Desert wells: one desert chunk in 1000.
+// - (Round 12) Jungle temples: one try per 32 x 32 chunks too, in the
+//   jungle (vanilla's spacing): mossy cobblestone, three floors over a
+//   basement; down there three levers, one of which (as vanilla's lever
+//   puzzle, simplified: the right lever, not a sequence) turns a redstone
+//   torch off and two sticky pistons pull a hidden door aside to a chest;
+//   the second chest at the end of a narrow hallway (vanilla's tripwire
+//   and arrow dispensers are not in the game). Vines on its walls.
 // Chest loot (structureLootAt: chests.js asks when a chest is first opened)
 // is vanilla's tables; an item the game doesn't have keeps its weight and
 // gives nothing, so the odds of the rest stay vanilla's. Monster spawners
 // run in the game through Spawners (below).
 import { hash2, mulberry32 } from "./noise.js";
-import { BLOCK, BLOCK_INFO, IS_SOLID, IS_WET, chest } from "./blocks.js";
+import { BLOCK, BLOCK_INFO, IS_SOLID, IS_WET, chest, wallTorch } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, chunkKey } from "./constants.js";
 import { BIOME } from "./biomes.js";
-import { VILLAGE_REACH } from "./village.js";
 import { SPAWNER, SPAWNER_KINDS } from "./content/nature.js";
 import { LIB, ITEM } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { enchantedBook } from "./enchant.js";
+import { FLOWER_POT, WHITE_DYE, SPRUCE_SIGN } from "./content/decor.js";
+import { pistonId, headId } from "./content/redstone.js";
+import { NETHER_LOOT, RuinedPortals } from "./nether-structures.js";
+import { StrongholdGrower, STRONGHOLD_LOOT } from "./stronghold.js"; // (Round 12)
+import { END_CITY_LOOT } from "./end-structures.js";
 
 const S = CHUNK_SIZE;
 const idx = (x, y, z) => (y * S + z) * S + x;
 
+// (Round 12) Any block with `spawns` (nature.js's three, the strongholds'
+// silverfish, the fortresses' blazes): its creature.
+const SPAWNS = [];
+for (const b of Object.values(BLOCK_INFO)) if (b.spawns) SPAWNS[b.id] = b.spawns;
 export function isSpawner(id) {
-  return id >= SPAWNER && id < SPAWNER + SPAWNER_KINDS.length;
+  return SPAWNS[id] !== undefined;
 }
 
 // ---------- Dungeons ----------
@@ -80,6 +95,13 @@ const TEMPLE_SIZE = 21;
 const TEMPLE_DEPTH = 14; // blocks below the floor its hidden room reaches
 const TEMPLE_HEIGHT = 14;
 const CHEST_MARK = 0x10000; // a temple cell that is a chest: + its local facing (0-3)
+const STAIR_MARK = 0x20000; // (Round 12) sandstone stairs rising toward a local direction (0-3)
+// (Round 12) Jungle temples.
+const JUNGLE_SALT = 0x2f0e1d6b;
+const JT_W = 12; // across (u), the entrance in the middle of a side 12 wide
+const JT_D = 15; // deep (v)
+const JT_LOW = -5; // its lowest layer under the ground floor
+const JT_TOP = 12; // and its highest
 
 // A cache that forgets its oldest entry past `max` (the generators ask for
 // the same plans again and again as neighbouring chunks come in).
@@ -97,6 +119,9 @@ export class StructureGrower {
     this._dungeons = new Map(); // "cx,cz" -> candidates
     this._mines = new Map(); // "rx,rz" -> plan or null
     this._temples = new Map(); // "rx,rz" -> temple or null
+    this._jungleTemples = new Map(); // "rx,rz" -> jungle temple or null
+    this.ruined = new RuinedPortals(terrain); // (Round 12: js/nether-structures.js)
+    this.strongholds = new StrongholdGrower(terrain); // (Round 12: js/stronghold.js)
   }
 
   // ---------- In a chunk (terrain.js) ----------
@@ -105,11 +130,14 @@ export class StructureGrower {
   // vanilla: structures before features).
   placeUnderground(blocks, cx, cz, hAt) {
     const mines = this._minesNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1);
+    let minH = null;
     if (mines.length) {
-      const minH = this._minHeights(hAt);
+      minH = this._minHeights(hAt);
       for (const plan of mines) this._cutMineshaft(blocks, cx, cz, plan, minH, false);
       for (const plan of mines) this._cutMineshaft(blocks, cx, cz, plan, minH, true);
     }
+    // (Round 12) the strongholds' pieces, never within 2 of the ground either
+    this.strongholds.placeUnderground(blocks, cx, cz, () => minH || this._minHeights(hAt));
     for (const d of this.dungeonCandidates(cx, cz)) this._buildDungeon(blocks, cx, cz, d, hAt);
   }
 
@@ -117,7 +145,9 @@ export class StructureGrower {
   // temples and wells.
   placeSurface(blocks, cx, cz, hAt, biomeAt) {
     for (const t of this._templesNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1)) this._buildTemple(blocks, cx, cz, t);
+    for (const t of this._jungleTemplesNear(cx * S - 1, cz * S - 1, cx * S + S, cz * S + S)) this._buildJungleTemple(blocks, cx, cz, t);
     this._placeWell(blocks, cx, cz, hAt, biomeAt);
+    this.ruined.place(blocks, cx, cz); // (Round 12)
   }
 
   // The lowest ground of each column and its four neighbours, less 2: a
@@ -354,7 +384,7 @@ export class StructureGrower {
       const lo = Math.min(...hs);
       const hi = Math.max(...hs);
       // (on fairly level, dry sand, never in a village)
-      if (hi - lo <= 4 && lo > SEA_LEVEL + 1 && lo - TEMPLE_DEPTH > 3 && lo + TEMPLE_HEIGHT < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + mid, z0 + mid, VILLAGE_REACH + 20)) {
+      if (hi - lo <= 4 && lo > SEA_LEVEL + 1 && lo - TEMPLE_DEPTH > 3 && lo + TEMPLE_HEIGHT < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + mid, z0 + mid, tr.villages.reach + 20)) {
         t = { x0, z0, floor: lo, rot, chests: [] };
         for (const [u, v, f] of TEMPLE_CHESTS) {
           const [x, z] = templeWorld(t, u, v);
@@ -394,7 +424,10 @@ export class StructureGrower {
         for (let dy = -TEMPLE_DEPTH; dy <= TEMPLE_HEIGHT; dy++) {
           let id = templeCell(u, dy, v, tnt, plate);
           if (id < 0) continue;
-          if (id >= CHEST_MARK) {
+          if (id >= STAIR_MARK) {
+            const [fx, fz] = rotateDir(t.rot, DIRS[id - STAIR_MARK][0], DIRS[id - STAIR_MARK][1]);
+            id = BLOCK_INFO[V.SANDSTONE_STAIRS] ? V.SANDSTONE_STAIRS + facing4(fx, fz) : sandstone;
+          } else if (id >= CHEST_MARK) {
             const [fx, fz] = rotateDir(t.rot, DIRS[id - CHEST_MARK][0], DIRS[id - CHEST_MARK][1]);
             id = chest(fx, fz);
           } else if (id !== BLOCK.AIR && !BLOCK_INFO[id]) id = sandstone;
@@ -408,6 +441,92 @@ export class StructureGrower {
     }
   }
 
+  // ---------- (Round 12) Jungle temples ----------
+
+  // The jungle temple tried in region (rx, rz) if it stands: { x0, z0 (its
+  // box's corner), floor, rot, chests, cells (its blocks, lazily) }.
+  jungleTempleAt(rx, rz) {
+    const key = `${rx},${rz}`;
+    if (this._jungleTemples.has(key)) return this._jungleTemples.get(key);
+    let t = null;
+    const rand = mulberry32((this.seed ^ Math.imul(rx, 0x2c1b3c6d) ^ Math.imul(rz, 0x297a2d39) ^ JUNGLE_SALT) >>> 0);
+    const ccx = rx * TEMPLE_SPACING + Math.floor(rand() * (TEMPLE_SPACING - TEMPLE_SEPARATION));
+    const ccz = rz * TEMPLE_SPACING + Math.floor(rand() * (TEMPLE_SPACING - TEMPLE_SEPARATION));
+    const rot = Math.floor(rand() * 4);
+    const x0 = ccx * S + 2;
+    const z0 = ccz * S + 2;
+    const tr = this.terrain;
+    const w = rot & 1 ? JT_D : JT_W;
+    const d = rot & 1 ? JT_W : JT_D;
+    if (tr.biomeAt(x0 + (w >> 1), z0 + (d >> 1)) === BIOME.JUNGLE) {
+      const hs = [[0, 0], [w - 1, 0], [0, d - 1], [w - 1, d - 1], [w >> 1, d >> 1]].map(([a, b]) => tr.heightAt(x0 + a, z0 + b));
+      const lo = Math.min(...hs);
+      const hi = Math.max(...hs);
+      const floor = hs.slice().sort((a, b) => a - b)[2];
+      // (never where a village's streets run out into the jungle)
+      if (hi - lo <= 6 && lo > SEA_LEVEL && floor + JT_LOW > LAVA_TOP + 2 && floor + JT_TOP < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + (w >> 1), z0 + (d >> 1), tr.villages.reach + 20)) {
+        t = { x0, z0, w, d, floor, rot, chests: [], cells: null };
+        for (const [u, v, f] of JT_CHESTS) {
+          const [x, z] = jungleWorld(t, u, v);
+          const [fx, fz] = jungleDir(rot, DIRS4[f][0], DIRS4[f][1]);
+          t.chests.push([x, floor - 3, z, fx, fz]);
+        }
+      }
+    }
+    return remember(this._jungleTemples, key, t, 256);
+  }
+
+  _jungleTemplesNear(x0, z0, x1, z1) {
+    const out = [];
+    const span = TEMPLE_SPACING * S;
+    for (let rz = Math.floor((z0 - JT_D - 2) / span); rz <= Math.floor(z1 / span); rz++) {
+      for (let rx = Math.floor((x0 - JT_D - 2) / span); rx <= Math.floor(x1 / span); rx++) {
+        const t = this.jungleTempleAt(rx, rz);
+        if (t && t.x0 - 1 <= x1 && t.x0 + t.w >= x0 && t.z0 - 1 <= z1 && t.z0 + t.d >= z0) out.push(t);
+      }
+    }
+    return out;
+  }
+
+  // Cuts a jungle temple into a chunk: its blocks, and round it a ring of
+  // earth up to its ground floor (air above); below it, its foundation down
+  // to the ground.
+  _buildJungleTemple(blocks, cx, cz, t) {
+    const bx = cx * S;
+    const bz = cz * S;
+    const F = t.floor;
+    if (!t.cells) t.cells = jungleTempleCells(t, this.terrain.seed);
+    for (let x = Math.max(bx, t.x0 - 1); x <= Math.min(bx + S - 1, t.x0 + t.w); x++) {
+      for (let z = Math.max(bz, t.z0 - 1); z <= Math.min(bz + S - 1, t.z0 + t.d); z++) {
+        const lx = x - bx;
+        const lz = z - bz;
+        const g = this.terrain.heightAt(x, z);
+        const ring = x < t.x0 || z < t.z0 || x >= t.x0 + t.w || z >= t.z0 + t.d;
+        if (ring) {
+          for (let y = g + 1; y < F; y++) blocks[idx(lx, y, lz)] = BLOCK.DIRT;
+          if (g < F || g > F) blocks[idx(lx, F, lz)] = BLOCK.GRASS;
+          for (let y = F + 1; y <= F + JT_TOP; y++) blocks[idx(lx, y, lz)] = BLOCK.AIR;
+        } else for (let y = g + 1; y < F + JT_LOW; y++) blocks[idx(lx, y, lz)] = BLOCK.COBBLESTONE;
+      }
+    }
+    const c = t.cells;
+    for (let i = 0; i < c.length; i += 4) {
+      const lx = c[i] - bx;
+      const lz = c[i + 2] - bz;
+      if (lx < 0 || lx >= S || lz < 0 || lz >= S) continue;
+      blocks[idx(lx, F + c[i + 1], lz)] = c[i + 3];
+    }
+  }
+
+  // (Round 12) Whether a tree may not grow at (wx, wz): on a temple or
+  // close beside it (a giant's trunk would stand in it), within `m`.
+  blocksTree(wx, wz, m = 4) {
+    for (const t of this._jungleTemplesNear(wx - m, wz - m, wx + m, wz + m)) {
+      if (wx >= t.x0 - m && wx < t.x0 + t.w + m && wz >= t.z0 - m && wz < t.z0 + t.d + m) return true;
+    }
+    return this._templesNear(wx - m, wz - m, wx + m, wz + m).length > 0;
+  }
+
   // ---------- Desert wells ----------
 
   // Vanilla's DesertWellFeature, inside one chunk.
@@ -417,6 +536,10 @@ export class StructureGrower {
     const lz = 3 + Math.floor(hash2((this.seed ^ WELL_SALT ^ 0x93) >>> 0, cx, cz) * 10);
     const y = hAt(lx, lz);
     if (biomeAt(lx, lz) !== BIOME.DESERT || y + 5 >= WORLD_HEIGHT || y <= SEA_LEVEL + 1 || blocks[idx(lx, y, lz)] !== BLOCK.SAND) return;
+    // (Round 12) never in a village or a temple
+    const wx = cx * S + lx;
+    const wz = cz * S + lz;
+    if (this.terrain.villages.nearestVillage(wx, wz, this.terrain.villages.reach + 4) || this._templesNear(wx - 3, wz - 3, wx + 3, wz + 3).length) return;
     for (let dx = -2; dx <= 2; dx++) {
       for (let dz = -2; dz <= 2; dz++) if (!IS_SOLID[blocks[idx(lx + dx, y - 1, lz + dz)]] && !IS_SOLID[blocks[idx(lx + dx, y - 2, lz + dz)]]) return;
     }
@@ -446,11 +569,23 @@ export class StructureGrower {
   // asks only about those). getBlock(x, y, z): the world's (a dungeon's chest
   // is the one with a spawner beside it on its floor).
   chestAt(x, y, z, getBlock) {
+    // (Round 12) a stronghold's chest (js/stronghold.js)
+    const stronghold = this.strongholds.chestAt(x, y, z);
+    if (stronghold) return stronghold;
+    // (Round 12) a village's chest: its house's table (village.js)
+    const village = this.terrain.villages?.chestLoot?.(x, y, z);
+    if (village) return village;
+    // (Round 12) a ruined portal's
+    const ruined = this.ruined.chestAt(x, y, z);
+    if (ruined) return ruined;
     for (const p of this._minesNear(x, z, x, z)) {
       if (p.chests.some((c) => c[0] === x && c[1] === y && c[2] === z)) return "mineshaft";
     }
     for (const t of this._templesNear(x, z, x, z)) {
       if (t.chests.some((c) => c[0] === x && c[1] === y && c[2] === z)) return "desert_pyramid";
+    }
+    for (const t of this._jungleTemplesNear(x, z, x, z)) {
+      if (t.chests.some((c) => c[0] === x && c[1] === y && c[2] === z)) return "jungle_temple";
     }
     // A dungeon's chest: on a try's floor inside its walls, the try's
     // spawner in the generated blocks (so one a player broke, or ground the
@@ -483,6 +618,7 @@ export class StructureGrower {
     for (const p of this._minesNear(x0, z0, x0 + S - 1, z0 + S - 1)) {
       for (const [x, y, z] of p.spawners) if (x >> 4 === cx && z >> 4 === cz) cells.push([x, y, z]);
     }
+    cells.push(...this.strongholds.spawnerCells(cx, cz)); // (Round 12: the portal rooms' silverfish)
     return { columns, cells };
   }
 }
@@ -607,6 +743,12 @@ const TEMPLE_CHESTS = [
 
 // A temple cell's block in its own frame (u, v 0-20 across, the entrance at
 // v = 0; dy up from the floor), or -1 to leave the ground as it is.
+// (Round 12) Closer to vanilla's DesertPyramidPiece: hollow towers with
+// doorways into the hall and capped tops, the blue-eyed orange terracotta
+// patterns on their front and outer sides, an entrance block standing out
+// at the front framed in cut sandstone, the hall's four pillars under a
+// floor with a hole over the coloured floor, and the treasure room's
+// alcoves under chiseled sandstone.
 function templeCell(u, dy, v, tnt, plate) {
   const c = 10;
   const du = Math.abs(u - c);
@@ -618,10 +760,13 @@ function templeCell(u, dy, v, tnt, plate) {
       if (dy === -13 && tnt) return V.TNT;
       return V.SANDSTONE;
     }
-    if ((dy === -11 || dy === -10) && ((du === 0 && dv === 2) || (du === 2 && dv === 0))) {
+    const alcove = (du === 0 && dv === 2) || (du === 2 && dv === 0);
+    if ((dy === -11 || dy === -10) && alcove) {
       if (dy === -10) return BLOCK.AIR;
       for (let i = 0; i < TEMPLE_CHESTS.length; i++) if (TEMPLE_CHESTS[i][0] === u && TEMPLE_CHESTS[i][1] === v) return CHEST_MARK + TEMPLE_CHESTS[i][2];
     }
+    if (dy === -9 && du <= 2 && dv <= 2) return alcove ? V.CHISELED_SANDSTONE : V.CUT_SANDSTONE;
+    if ((dy === -11 || dy === -10) && du === 2 && dv === 2) return V.CHISELED_SANDSTONE;
     return dy >= -TEMPLE_DEPTH ? V.SANDSTONE : -1;
   }
   if (dy === 0) {
@@ -630,15 +775,44 @@ function templeCell(u, dy, v, tnt, plate) {
     if (du + dv === 3 && du <= 2 && dv <= 2) return V.ORANGE_TERRACOTTA;
     return V.SANDSTONE;
   }
-  // The towers at the front corners, striped with orange terracotta.
+  // The towers at the front corners: hollow, a doorway into the hall, the
+  // pattern on their front and outer sides, a cap of stairs on top.
   const tower = v <= 4 && (u <= 4 || u >= 16);
-  if (tower && dy <= 10) {
+  if (tower && dy <= 11) {
     const tu = u <= 4 ? u : u - 16;
-    if (dy === 10) return tu === 0 || tu === 4 || v === 0 || v === 4 ? V.CUT_SANDSTONE : BLOCK.AIR;
-    if (v === 0 && (dy === 6 || dy === 8) && tu >= 1 && tu <= 3) return V.ORANGE_TERRACOTTA;
-    if (v === 0 && dy === 7 && tu === 2) return V.CHISELED_SANDSTONE;
+    const outer = u <= 4 ? 0 : 4; // (the tower's outer side)
+    const inner = 4 - outer;
+    if (dy === 11) return tu >= 1 && tu <= 3 && v >= 1 && v <= 3 ? (tu === 2 && v === 2 ? V.CUT_SANDSTONE : V.SANDSTONE_SLAB) : BLOCK.AIR;
+    if (dy === 10) {
+      const edgeU = tu === 0 || tu === 4;
+      const edgeV = v === 0 || v === 4;
+      if (edgeU && edgeV) return V.CUT_SANDSTONE;
+      if (tu === 2 && edgeV) return STAIR_MARK + (v === 0 ? 1 : 3);
+      if (v === 2 && edgeU) return STAIR_MARK + (tu === 0 ? 0 : 2);
+      return V.SANDSTONE;
+    }
+    const wallU = tu === 0 || tu === 4;
+    const wallV = v === 0 || v === 4;
+    if (!wallU && !wallV) return BLOCK.AIR;
+    if (tu === inner && v === 3 && dy <= 2) return BLOCK.AIR;
+    // The eye: cut sandstone above and below, orange round a blue middle.
+    const face = (a) => (dy === 5 || dy === 9 ? V.CUT_SANDSTONE : dy === 7 && a === 2 ? V.BLUE_TERRACOTTA : V.ORANGE_TERRACOTTA);
+    if (dy >= 5 && dy <= 9) {
+      if (v === 0 && tu >= 1 && tu <= 3) return face(tu);
+      if (tu === outer && v >= 1 && v <= 3) return face(v);
+    }
+    return dy === 1 ? V.CUT_SANDSTONE : V.SANDSTONE;
+  }
+  // The entrance block standing out at the front, framed in cut sandstone.
+  if (v <= 4 && u >= 8 && u <= 12 && dy <= 5) {
+    if (dy === 5) return v <= 3 ? V.SANDSTONE_SLAB : V.SANDSTONE;
+    if (u >= 9 && u <= 11 && dy <= 3) return BLOCK.AIR;
+    if (v === 0) return dy === 4 && u === c ? V.CHISELED_SANDSTONE : V.CUT_SANDSTONE;
     return V.SANDSTONE;
   }
+  // The hall: four pillars under a floor (a hole in it over the coloured floor).
+  if (dy <= 3 && (u === 8 || u === 12) && (v === 8 || v === 12)) return dy === 3 ? V.CHISELED_SANDSTONE : V.CUT_SANDSTONE;
+  if (dy === 4 && u >= 5 && u <= 15 && v >= 5 && v <= 15) return du <= 1 && dv <= 1 ? BLOCK.AIR : V.SANDSTONE;
   // The doorway through the front of the pyramid.
   if (v <= 4 && du <= 1 && dy <= 3) return BLOCK.AIR;
   // The stepped pyramid: one ring a layer, hollow inside.
@@ -673,6 +847,161 @@ function rotateDir(rot, du, dv) {
   return [du, dv];
 }
 
+// ---------- (Round 12) The jungle temple's shape ----------
+
+// Facings (building.js's: 0 +Z, 1 -Z, 2 +X, 3 -X) as [du, dv] in its frame.
+const DIRS4 = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+// Its two chests: [u, v, facing (DIRS4 index)], 3 below the ground floor.
+const JT_CHESTS = [
+  [9, 4, 3], // (the hidden room's)
+  [1, 13, 1], // (the end of the hallway's)
+];
+const LAVA_TOP = 10; // (terrain.js LAVA_LEVEL)
+
+function jungleWorld(t, u, v) {
+  switch (t.rot) {
+    case 1:
+      return [t.x0 + JT_D - 1 - v, t.z0 + u];
+    case 2:
+      return [t.x0 + JT_W - 1 - u, t.z0 + JT_D - 1 - v];
+    case 3:
+      return [t.x0 + v, t.z0 + JT_W - 1 - u];
+    default:
+      return [t.x0 + u, t.z0 + v];
+  }
+}
+const jungleDir = rotateDir;
+const facing4 = (dx, dz) => (dx > 0 ? 2 : dx < 0 ? 3 : dz < 0 ? 1 : 0);
+const face6 = (dx, dz) => (dx > 0 ? 0 : dx < 0 ? 1 : dz > 0 ? 4 : 5); // (FACE order)
+
+// The temple's blocks: flat [x, dy, z, id] in world columns, dy from its
+// ground floor. Its frame: u 0-11 across, v 0-14 from the entrance; the
+// basement's floor 4 below the ground floor, the ground floor's rooms 4
+// high, the upper floor's (inset 2) 3 high, two steps of roof.
+function jungleTempleCells(t, seed) {
+  const cells = new Map(); // "u,dy,v" -> id (the last word wins)
+  const set = (u, dy, v, id) => cells.set(`${u},${dy},${v}`, id);
+  const get = (u, dy, v) => cells.get(`${u},${dy},${v}`);
+  const mossy = (u, dy, v) => (hash2((seed ^ JUNGLE_SALT) >>> 0, u * 37 + dy * 1013 + t.x0, v * 41 + t.z0) < 0.4 ? V.MOSSY_COBBLESTONE : BLOCK.COBBLESTONE);
+  const wall = (u, dy, v) => set(u, dy, v, mossy(u, dy, v));
+  const dir = (du, dv) => jungleDir(t.rot, du, dv);
+  const f4 = (du, dv) => facing4(...dir(du, dv));
+  const f6 = (du, dv) => face6(...dir(du, dv));
+  const box = (u0, u1, dy0, dy1, v0, v1, fn) => {
+    for (let u = u0; u <= u1; u++) for (let dy = dy0; dy <= dy1; dy++) for (let v = v0; v <= v1; v++) fn(u, dy, v);
+  };
+  const air = (u, dy, v) => set(u, dy, v, BLOCK.AIR);
+  // The mass: solid from the foundation to the ground floor, the ground
+  // floor's walls, its ceiling, the upper walls and the roof; air between.
+  box(0, JT_W - 1, JT_LOW, 0, 0, JT_D - 1, wall);
+  box(0, JT_W - 1, 1, JT_TOP, 0, JT_D - 1, air);
+  box(0, JT_W - 1, 1, 4, 0, JT_D - 1, (u, dy, v) => (u === 0 || v === 0 || u === JT_W - 1 || v === JT_D - 1) && wall(u, dy, v));
+  box(0, JT_W - 1, 5, 5, 0, JT_D - 1, wall);
+  box(2, 9, 6, 8, 2, 12, (u, dy, v) => (u === 2 || v === 2 || u === 9 || v === 12) && wall(u, dy, v));
+  box(2, 9, 9, 9, 2, 12, wall);
+  box(3, 8, 10, 10, 3, 11, wall);
+  box(4, 7, 11, 11, 5, 9, (u, dy, v) => set(u, dy, v, u === 4 || u === 7 || v === 5 || v === 9 ? V.COBBLESTONE_SLAB : V.CHISELED_STONE_BRICKS));
+  // A band of chiseled stone bricks round the ground floor's top, and on the upper floor's front.
+  box(0, JT_W - 1, 4, 4, 0, JT_D - 1, (u, dy, v) => (u === 0 || v === 0 || u === JT_W - 1 || v === JT_D - 1) && (u + v) % 3 === 0 && set(u, dy, v, V.CHISELED_STONE_BRICKS));
+  for (const u of [3, 4, 7, 8]) set(u, 8, 2, V.CHISELED_STONE_BRICKS);
+  // The entrance (2 wide, 3 high) and a step before it; the upper floor's doorway to the terrace.
+  box(5, 6, 1, 3, 0, 0, air);
+  for (const u of [5, 6]) set(u, 0, -1, V.COBBLESTONE_STAIRS + f4(0, 1));
+  box(5, 6, 6, 7, 2, 2, air);
+  // Windows: 1 wide, 2 high, along the sides; small ones upstairs.
+  for (const v of [3, 6, 9, 12]) {
+    box(0, 0, 2, 3, v, v, air);
+    box(JT_W - 1, JT_W - 1, 2, 3, v, v, air);
+  }
+  for (const v of [5, 9]) {
+    set(2, 7, v, BLOCK.AIR);
+    set(9, 7, v, BLOCK.AIR);
+  }
+  for (const u of [2, 9]) set(u, 2, JT_D - 1, BLOCK.AIR);
+  // Pillars in the hall.
+  for (const [u, v] of [[2, 3], [9, 3], [2, 6], [9, 6]]) {
+    box(u, u, 1, 3, v, v, wall);
+    set(u, 4, v, V.CHISELED_STONE_BRICKS);
+  }
+  // Stairs up, along the hall's right side: v 12 (1 up) to v 8 (the upper floor).
+  for (let k = 0; k < 5; k++) {
+    const v = 12 - k;
+    for (const u of [7, 8]) {
+      set(u, 1 + k, v, V.COBBLESTONE_STAIRS + f4(0, -1));
+      for (let dy = 1; dy < 1 + k; dy++) wall(u, dy, v);
+      if (k < 4) for (let dy = 2 + k; dy <= 5; dy++) air(u, dy, v);
+    }
+  }
+  // Stairs down to the basement, along the left: v 11 (level) to v 8, the basement's floor 4 down.
+  for (let k = 0; k < 4; k++) {
+    const v = 11 - k;
+    for (const u of [3, 4]) {
+      set(u, -k, v, V.COBBLESTONE_STAIRS + f4(0, 1));
+      for (let dy = -k + 1; dy <= Math.min(0, -k + 3); dy++) air(u, dy, v);
+    }
+  }
+  // The basement: a hallway (u 3-4) from the stairs to the front.
+  box(3, 4, -3, -1, 2, 7, air);
+  // The lever puzzle. In the hallway's right wall (u 5): a doorway at v 4,
+  // sealed behind by a door of two blocks at u 6; behind those, sticky
+  // pistons (v 6, facing the door, extended: their heads at v 5 hold it)
+  // powered by a redstone torch (v 7) hanging on the wall block behind the
+  // right lever; the block over the torch powers the upper piston. The
+  // right lever turns the torch off: the pistons pull the door aside.
+  // The other two levers move nothing.
+  box(5, 5, -3, -2, 4, 4, air);
+  const back = f6(0, -1);
+  for (const dy of [-3, -2]) {
+    set(6, dy, 4, V.MOSSY_COBBLESTONE);
+    set(6, dy, 5, headId(true, back));
+    set(6, dy, 6, pistonId(true, back, true));
+  }
+  set(6, -3, 7, V.REDSTONE_WALL_TORCH + f4(1, 0));
+  set(6, -2, 7, BLOCK.COBBLESTONE);
+  for (const v of [3, 5, 7]) set(4, -3, v, V.LEVER + f4(-1, 0));
+  // The hidden room and its chest.
+  box(7, 9, -3, -1, 2, 6, air);
+  // The hallway to the second chest: off the first at v 6-7 to the left
+  // wall, then back along it.
+  box(1, 2, -3, -1, 6, 7, air);
+  box(1, 1, -3, -1, 8, 13, air);
+  for (const [u, v, f] of JT_CHESTS) set(u, -3, v, CHEST_MARK + f);
+  // Torches in the dark below, on the walls (none in the hidden room).
+  set(3, -2, 2, wallTorchId(dir(0, 1)));
+  // Vines on the outer walls (from the ring round it, a block out).
+  for (let u = -1; u <= JT_W; u++) {
+    for (let v = -1; v <= JT_D; v++) {
+      const ring = u === -1 || v === -1 || u === JT_W || v === JT_D;
+      if (!ring) continue;
+      const toward = u === -1 ? [1, 0] : u === JT_W ? [-1, 0] : v === -1 ? [0, 1] : [0, -1];
+      if ((u === -1 || u === JT_W) && (v === -1 || v === JT_D)) continue;
+      for (let dy = 1; dy <= 4; dy++) {
+        if (get(u + toward[0], dy, v + toward[1]) === BLOCK.AIR || get(u, dy, v) !== undefined) continue;
+        if (hash2((seed ^ JUNGLE_SALT ^ 0x1f) >>> 0, u * 7 + dy * 131 + t.x0, v * 5 + t.z0) < 0.22) {
+          // (a vine's id: the side its wall is on)
+          const [wx, wz] = dir(toward[0], toward[1]);
+          set(u, dy, v, V.VINE + facing4(wx, wz));
+        }
+      }
+    }
+  }
+  // Into world columns, the chests' and facings' ids resolved.
+  const out = [];
+  for (const [k, id0] of cells) {
+    const [u, dy, v] = k.split(",").map(Number);
+    let id = id0;
+    if (id >= CHEST_MARK) {
+      const [fx, fz] = dir(DIRS4[id - CHEST_MARK][0], DIRS4[id - CHEST_MARK][1]);
+      id = chest(fx, fz);
+    } else if (id !== BLOCK.AIR && !BLOCK_INFO[id]) id = BLOCK.COBBLESTONE;
+    const [x, z] = jungleWorld(t, u, v);
+    out.push(x, dy, z, id);
+  }
+  return out;
+}
+
+const wallTorchId = ([dx, dz]) => wallTorch(dx, dz);
+
 // ---------- Loot ----------
 
 // Vanilla's chest tables (1.17): pools of [rolls min, max, entries [id,
@@ -695,7 +1024,30 @@ const LOOT = {
     [2, 4, [[V.DIAMOND, 5, 1, 3], [V.IRON_INGOT, 15, 1, 5], [ITEM.GOLD_INGOT, 15, 2, 7], [V.EMERALD, 15, 1, 3], [V.BONE, 25, 4, 6], [V.SPIDER_EYE, 25, 1, 3], [V.ROTTEN_FLESH, 25, 3, 7], [null, 20], [null, 15], [null, 10], [null, 5], ["book", 20], [ITEM.GOLDEN_APPLE, 20, 1, 1], [null, 2], [null, 15]]],
     [4, 4, [[V.BONE, 10, 1, 8], [V.GUNPOWDER, 10, 1, 8], [V.ROTTEN_FLESH, 10, 1, 8], [V.STRING, 10, 1, 8], [BLOCK.SAND, 10, 1, 8]]],
   ],
+  // (Round 12) The jungle temple's (bamboo, a saddle and horse armour are not in the game).
+  jungle_temple: [[2, 6, [[V.DIAMOND, 3, 1, 3], [V.IRON_INGOT, 10, 1, 5], [ITEM.GOLD_INGOT, 15, 2, 7], [null, 15], [V.EMERALD, 2, 1, 3], [V.BONE, 20, 4, 6], [V.ROTTEN_FLESH, 16, 3, 7], [null, 3], [null, 1], [null, 1], [null, 1], ["book", 1]]]],
+  // (Round 12) The villages' (village.js names each chest's table): the
+  // trades' houses and the houses of each style. (Missing: maps, saddles,
+  // horse armour, large ferns, tall grass, sweet berries, blue ice.)
+  village_weaponsmith: [[3, 8, [[V.DIAMOND, 3, 1, 3], [V.IRON_INGOT, 10, 1, 5], [ITEM.GOLD_INGOT, 5, 1, 3], [V.BREAD, 15, 1, 3], [ITEM.APPLE, 15, 1, 3], [ITEM.IRON_PICKAXE, 5], [ITEM.IRON_SWORD, 5], [ITEM.IRON_CHESTPLATE, 5], [ITEM.IRON_HELMET, 5], [ITEM.IRON_LEGGINGS, 5], [ITEM.IRON_BOOTS, 5], [V.OBSIDIAN, 5, 3, 7], [V.OAK_SAPLING, 5, 3, 7], [null, 3], [null, 1], [null, 1], [null, 1]]]],
+  village_toolsmith: [[3, 8, [[V.DIAMOND, 1, 1, 3], [V.IRON_INGOT, 5, 1, 5], [ITEM.GOLD_INGOT, 1, 1, 3], [V.BREAD, 15, 1, 3], [ITEM.IRON_PICKAXE, 5], [ITEM.COAL, 1, 1, 3], [ITEM.STICK, 20, 1, 3], [ITEM.IRON_SHOVEL, 5]]]],
+  village_armorer: [[1, 5, [[V.IRON_INGOT, 2, 1, 3], [V.BREAD, 4, 1, 4], [ITEM.IRON_HELMET, 1], [V.EMERALD, 1]]]],
+  village_cartographer: [[1, 5, [[null, 10], [V.PAPER, 15, 1, 5], [V.COMPASS, 5], [V.BREAD, 15, 1, 4], [ITEM.STICK, 5, 1, 2]]]],
+  village_mason: [[1, 5, [[V.CLAY_BALL, 1, 1, 3], [FLOWER_POT, 1], [BLOCK.STONE, 2], [V.STONE_BRICKS, 2], [V.BREAD, 4, 1, 4], [WHITE_DYE + 4, 1], [V.SMOOTH_STONE, 1], [V.EMERALD, 1]]]],
+  village_shepherd: [[1, 5, [[BLOCK.WOOL, 6, 1, 8], [V.BLACK_WOOL, 3, 1, 3], [V.GRAY_WOOL, 2, 1, 3], [V.BROWN_WOOL, 2, 1, 3], [V.LIGHT_GRAY_WOOL, 2, 1, 3], [V.EMERALD, 1], [V.SHEARS, 1], [V.WHEAT, 6, 1, 6]]]],
+  village_butcher: [[1, 5, [[V.EMERALD, 1], [V.PORKCHOP, 6, 1, 3], [V.WHEAT, 6, 1, 3], [V.BEEF, 6, 1, 3], [V.MUTTON, 6, 1, 3], [ITEM.COAL, 3, 1, 3]]]],
+  village_fletcher: [[1, 5, [[V.EMERALD, 1], [V.ARROW, 2, 1, 3], [V.FEATHER, 6, 1, 3], [V.EGG, 2, 1, 3], [V.FLINT, 6, 1, 3], [ITEM.STICK, 6, 1, 3]]]],
+  village_fisher: [[1, 5, [[V.EMERALD, 1], [V.COD, 2, 1, 3], [V.SALMON, 1, 1, 3], [V.WATER_BUCKET, 1], [V.BARREL, 1], [V.WHEAT_SEEDS, 3, 1, 3], [ITEM.COAL, 2, 1, 3]]]],
+  village_tannery: [[1, 5, [[V.LEATHER, 1, 1, 3], [ITEM.LEATHER_CHESTPLATE, 2], [ITEM.LEATHER_BOOTS, 2], [ITEM.LEATHER_HELMET, 2], [V.BREAD, 5, 1, 4], [ITEM.LEATHER_LEGGINGS, 2], [null, 1], [V.EMERALD, 1, 1, 4]]]],
+  village_temple: [[3, 8, [[V.REDSTONE, 2, 1, 4], [V.BREAD, 7, 1, 4], [V.ROTTEN_FLESH, 7, 1, 4], [V.LAPIS_LAZULI, 1, 1, 4], [ITEM.GOLD_INGOT, 1, 1, 4], [V.EMERALD, 1, 1, 4]]]],
+  village_plains_house: [[3, 8, [[V.GOLD_NUGGET, 1, 1, 3], [BLOCK.FLOWER_YELLOW, 2], [BLOCK.FLOWER_RED, 1], [V.POTATO, 10, 1, 5], [V.BREAD, 10, 1, 4], [ITEM.APPLE, 10, 1, 5], [V.BOOK, 1], [V.FEATHER, 1], [V.EMERALD, 2, 1, 4], [V.OAK_SAPLING, 5, 1, 2]]]],
+  village_taiga_house: [[3, 8, [[V.IRON_NUGGET, 1, 1, 5], [V.FERN, 2], [null, 2], [V.POTATO, 10, 1, 7], [null, 5], [V.BREAD, 10, 1, 4], [V.PUMPKIN_SEEDS, 5, 1, 5], [V.PUMPKIN_PIE, 1], [V.EMERALD, 2, 1, 4], [V.SPRUCE_SAPLING, 5, 1, 5], [SPRUCE_SIGN, 1], [BLOCK.PINE_LOG, 10, 1, 5]]]],
+  village_savanna_house: [[3, 8, [[V.GOLD_NUGGET, 1, 1, 3], [BLOCK.TALL_GRASS, 5], [null, 5], [V.BREAD, 10, 1, 4], [V.WHEAT_SEEDS, 10, 1, 5], [V.EMERALD, 2, 1, 4], [V.ACACIA_SAPLING, 10, 1, 2], [null, 1], [BLOCK.TORCH, 1, 1, 2], [V.BUCKET, 1]]]],
+  village_snowy_house: [[3, 8, [[null, 1], [BLOCK.SNOW, 4], [V.POTATO, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BEETROOT_SEEDS, 10, 1, 5], [V.BEETROOT_SOUP, 1], [V.FURNACE, 1], [V.EMERALD, 1, 1, 4], [V.SNOWBALL, 10, 1, 7], [ITEM.COAL, 5, 1, 4]]]],
+  village_desert_house: [[3, 8, [[V.CLAY_BALL, 1], [WHITE_DYE + 13, 1], [BLOCK.CACTUS, 10, 1, 4], [V.WHEAT, 10, 1, 7], [V.BREAD, 10, 1, 4], [V.BOOK, 1], [BLOCK.DEAD_BUSH, 2, 1, 3], [V.EMERALD, 1, 1, 3]]]],
 };
+// (Round 12) The strongholds' and the end cities' tables (js/stronghold.js, js/end-structures.js).
+Object.assign(LOOT, NETHER_LOOT, STRONGHOLD_LOOT, END_CITY_LOOT);
 // Rolls a structure's table: [[id, count, tag?], ...].
 export function rollStructureLoot(kind, rand = Math.random) {
   const pools = LOOT[kind];
@@ -806,7 +1158,7 @@ export class Spawners {
             if (d2 > SPAWNER_RANGE * SPAWNER_RANGE) continue;
             seen.add(key);
             const near = (x + 0.5 - local.x) ** 2 + (y + 0.5 - local.y) ** 2 + (z + 0.5 - local.z) ** 2 <= SPAWNER_RANGE * SPAWNER_RANGE;
-            this.active.push({ x, y, z, kind: SPAWNER_KINDS[id - SPAWNER], key, near });
+            this.active.push({ x, y, z, kind: SPAWNS[id], key, near });
           }
         }
       }
@@ -895,4 +1247,4 @@ const FLAME_END = { r: 0.9, g: 0.18, b: 0.04 };
 const SMOKE = { r: 0.3, g: 0.3, b: 0.32 };
 
 // (For tests: the shapes' cells and constants.)
-export const STRUCTURE_INFO = { TEMPLE_SIZE, TEMPLE_SPACING, MINE_REGION, templeCell };
+export const STRUCTURE_INFO = { TEMPLE_SIZE, TEMPLE_SPACING, MINE_REGION, templeCell, JT_W, JT_D, JT_CHESTS };

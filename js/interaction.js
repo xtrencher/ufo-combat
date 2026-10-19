@@ -45,6 +45,7 @@ import { isVanilla } from "./worldtype.js";
 import { GLASS_BOTTLE } from "./content/ids.js";
 import { offhandUse } from "./content/items-vanilla.js";
 import { cactusHolds } from "./content/nature.js";
+import { PICKUP_DELAY, THROWN_PICKUP_DELAY } from "./entities.js";
 
 const REACH_SURVIVAL = 4.5;
 const REACH_CREATIVE = 6;
@@ -177,7 +178,7 @@ export class Interaction {
     this.chests = new Chests({ world });
     this.chests.onDrop = (s, x, y, z) => {
       const vel = new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 2, (Math.random() - 0.5) * 3);
-      this.entities.spawn(s.id, s.count, new THREE.Vector3(x + 0.5, y + 0.4, z + 0.5), vel, { dur: s.dur, tag: s.tag, pickupDelay: 0.6 });
+      this.entities.spawn(s.id, s.count, new THREE.Vector3(x + 0.5, y + 0.4, z + 0.5), vel, { dur: s.dur, tag: s.tag, pickupDelay: PICKUP_DELAY });
     };
     this.onOpenChest = null; // (x, y, z): right click on a chest (main.js opens the chest screen)
 
@@ -310,7 +311,8 @@ export class Interaction {
     pos.y -= 0.35;
     const vel = dir.clone().multiplyScalar(5.5);
     vel.y += 1.8;
-    this.entities.spawn(stack.id, stack.count, pos, vel, { dur: stack.dur, tag: stack.tag, pickupDelay: 1.6 });
+    // (Round 12: vanilla's 2 s before the thrower, or anyone, can pick it up.)
+    this.entities.spawn(stack.id, stack.count, pos, vel, { dur: stack.dur, tag: stack.tag, pickupDelay: THROWN_PICKUP_DELAY });
   }
 
   // ---------- Targeting ----------
@@ -665,9 +667,12 @@ export class Interaction {
         if (ny < 0) return false;
         if (ny === 0 && (nx || nz) && isWallSupportedBy(t.id)) blockId = wallTorch(nx, nz);
       } else if (IS_CHEST[blockId]) {
-        // A chest's front (its latch) faces the player who places it.
+        // A chest's front (its latch) faces the player who places it; (Round 12)
+        // beside a single chest facing the same way it joins it (js/chests.js; not while sneaking).
         const f = this.player.getForwardVector();
-        blockId = chest(-f.x, -f.z);
+        const joined = this.chests?.placeChest?.(px, py, pz, -f.x, -f.z, !!this.player.sneaking);
+        if (joined) [blockId, more] = joined;
+        else blockId = chest(-f.x, -f.z);
       } else if (BLOCK_INFO[blockId].placeAs) {
         // A content block picks its variant (facing, top or bottom half).
         const ctx = this._useCtx(t, [px, py, pz]);

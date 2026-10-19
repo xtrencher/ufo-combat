@@ -7,6 +7,12 @@
 // face culling, ambient occlusion and smooth light). So each chunk is
 // normally meshed exactly once, and the border of loaded terrain is never
 // visible with wrong faces or lighting.
+//
+// (Round 12) Dimensions (js/dim-registry.js, js/dimensions.js): the world is
+// in one dimension at a time (the Overworld, the Nether or the End). Its
+// chunks, terrain generator and `edits` are that dimension's; the other
+// dimensions' edits are kept aside here (editsOf, recordEditIn) and saved,
+// and setDimension() swaps them, dropping every chunk.
 import {
   BLOCK,
   BLOCK_INFO,
@@ -23,7 +29,7 @@ import {
 import { Chunk } from "./chunk.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, blockIndex, floorDiv, chunkKey } from "./constants.js";
 import { setEdit } from "./storage.js";
-import { TerrainGenerator } from "./terrain.js";
+import { DIMS, OVERWORLD, createGenerator, belowWorld } from "./dim-registry.js";
 import { LightEngine, sampleLight } from "./light.js";
 import { meshChunk, padChunk } from "./mesher.js";
 import { buildBlockTextures } from "./textures.js";
@@ -97,7 +103,19 @@ export class World {
     this.scene = scene;
     this.seed = seed >>> 0;
     this.terrainOptions = { sites: terrainOptions?.sites !== false, vanilla: terrainOptions?.vanilla ?? terrainOptions?.sites === false };
-    this.terrain = new TerrainGenerator(this.seed, this.terrainOptions);
+    this.terrain = createGenerator(OVERWORLD, this.seed, this.terrainOptions);
+    // (Round 12) The dimension the world is in (js/dim-registry.js), the
+    // block under y 0 there (the End's void: air), the other dimensions'
+    // edits (dim -> { edits, dirty, lodDirty }) and their generators.
+    this.dim = OVERWORLD;
+    this.dimInfo = DIMS[OVERWORLD];
+    this._below = belowWorld(OVERWORLD);
+    this._bags = new Map();
+    this._terrains = new Map([[OVERWORLD, this.terrain]]);
+    this._scratch = new Map(); // "dim:cx,cz" -> blocks of a chunk made for blockIn (a few kept)
+    this._genEpoch = 0; // (a chunk a worker made for another dimension is dropped)
+    this._itemDim = null; // (inDim: the dimension things dropped now land in)
+    this.onEvaporate = null; // (flat [x, y, z, ...]): water put where it boils away (the Nether)
     this.chunks = new Map(); // numKey -> Chunk
     // Player/explosion edits on top of generated terrain, grouped per chunk:
     // Map<chunkKey string, Map<localBlockIndex, blockId>> (see storage.js).
@@ -177,7 +195,7 @@ export class World {
   }
 
   getBlock(wx, wy, wz) {
-    if (wy < 0) return BLOCK.BEDROCK;
+    if (wy < 0) return this._below;
     if (wy >= WORLD_HEIGHT) return BLOCK.AIR;
     wx = Math.floor(wx);
     wz = Math.floor(wz);
@@ -204,7 +222,11 @@ export class World {
     if (!c) return -1;
     const col = ((wz & 15) << 4) | (wx & 15);
     const b = c.blocks;
-    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) if (IS_SOLID[b[(y << 8) | col]] === 1) return y;
+    let y = WORLD_HEIGHT - 1;
+    // (Round 12) Under a roof (the Nether's): the highest floor below open
+    // space, not the roof itself (spawning, teleports, what stands on top).
+    if (this.dimInfo.ceiling) while (y >= 0 && IS_SOLID[b[(y << 8) | col]] === 1) y--;
+    for (; y >= 0; y--) if (IS_SOLID[b[(y << 8) | col]] === 1) return y;
     return -1;
   }
 
@@ -216,11 +238,17 @@ export class World {
   // yet: the edit is simply recorded (like a saved edit) and applied
   // automatically once that chunk streams in. Used for explosions that land
   // beyond the loaded terrain, out in distant/LOD ground.
-  queueEdit(x, y, z, id) {
+  // (Round 12) dim: another dimension's block (a furnace there lit or out on
+  // the host): recorded among its edits.
+  queueEdit(x, y, z, id, dim = this.dim) {
     x = Math.floor(x);
     y = Math.floor(y);
     z = Math.floor(z);
     if (y < 0 || y >= WORLD_HEIGHT || !isBlockId(id)) return;
+    if (dim !== this.dim) {
+      this.recordEditIn(dim, x, y, z, id);
+      return;
+    }
     const cx = x >> 4;
     const cz = z >> 4;
     if (this.getChunk(cx, cz)) {
@@ -247,6 +275,10 @@ export class World {
   // and their results arrive as edits of their own.
   setBlocks(list, { recordEdit = true, remote = false } = {}) {
     const changed = [];
+    // (Round 12) The Nether: water put there boils away (a bucket's, a
+    // waterlogged plant's), as vanilla's; another peer's edits come boiled.
+    const boils = this.dimInfo.waterEvaporates && recordEdit && !remote;
+    let boiled = null;
     const apply = (x, y, z, id) => {
       if (y < 0 || y >= WORLD_HEIGHT || !isBlockId(id)) return false; // (an item id or garbage is never put in the world)
       const chunk = this.getChunk(x >> 4, z >> 4);
@@ -256,6 +288,10 @@ export class World {
       const idx = blockIndex(lx, y, lz);
       // Removing a waterlogged plant (seagrass, kelp) leaves its water behind.
       if (id === BLOCK.AIR && IS_WATERLOGGED[chunk.blocks[idx]]) id = BLOCK.WATER;
+      if (boils && id === BLOCK.WATER) {
+        id = BLOCK.AIR;
+        (boiled ||= []).push(x, y, z);
+      }
       if (chunk.blocks[idx] === id) return false;
       chunk.blocks[idx] = id;
       changed.push(x, y, z);
@@ -292,6 +328,7 @@ export class World {
         }
       }
     }
+    if (boiled) this.onEvaporate?.(boiled);
     if (changed.length === 0) return 0;
     // (A chunk whose first mesh is still in a worker counts as meshed: that
     // mesh predates the change, and the rebuild here replaces it.)
@@ -640,6 +677,8 @@ export class World {
           }
           if (!m || m.type !== "chunk") return;
           w.busy = Math.max(0, w.busy - 1);
+          // (Round 12: made for the dimension the world has since left: dropped.)
+          if ((m.epoch | 0) !== this._genEpoch) return;
           this._genInflight.delete(numKey(m.cx, m.cz));
           this._genDone.push(m);
         };
@@ -647,7 +686,7 @@ export class World {
           if (e && e.preventDefault) e.preventDefault();
           this._stopGenWorkers();
         };
-        w.postMessage({ type: "init", seed: this.seed, opts: this.terrainOptions });
+        w.postMessage({ type: "init", seed: this.seed, opts: this.terrainOptions, dim: this.dim, epoch: this._genEpoch });
         this._genWorkers.push(w);
       }
       return true;
@@ -826,8 +865,161 @@ export class World {
 
   // Replaces the in-memory edits with ones loaded from storage (called before
   // any chunk is generated, so they're applied as chunks stream in).
-  loadEdits(edits) {
-    this.edits = edits;
+  // (Round 12) dim: another dimension's (kept aside until the world goes there).
+  loadEdits(edits, dim = this.dim) {
+    if (dim === this.dim) this.edits = edits;
+    else this._bag(dim).edits = edits;
+  }
+
+  // ---------- (Round 12) Dimensions ----------
+
+  get dimCode() {
+    return this.dimInfo.code;
+  }
+
+  // The dimension (code) dropped items land in now: this one, or the one
+  // inDim() names (a furnace of another dimension spilling on the host).
+  get itemDim() {
+    return this._itemDim ?? this.dimInfo.code;
+  }
+
+  // Runs fn with the things it drops landing in `dim`.
+  inDim(dim, fn) {
+    const before = this._itemDim;
+    this._itemDim = (DIMS[dim] || DIMS[OVERWORLD]).code;
+    try {
+      return fn();
+    } finally {
+      this._itemDim = before;
+    }
+  }
+
+  // Another dimension's edits, dirty chunk keys and LOD marks (created empty).
+  _bag(dim) {
+    if (dim === this.dim) return { edits: this.edits, dirty: this.dirtyEditChunks, lodDirty: this.lodDirty };
+    let bag = this._bags.get(dim);
+    if (!bag) this._bags.set(dim, (bag = { edits: new Map(), dirty: new Set(), lodDirty: new Set() }));
+    return bag;
+  }
+
+  editsOf(dim) {
+    return this._bag(dim).edits;
+  }
+
+  // fn(dim, edits, dirtyKeys) for every dimension that has any edits (the
+  // world's own first): the saves (js/dimensions.js).
+  forEachDim(fn) {
+    fn(this.dim, this.edits, this.dirtyEditChunks);
+    for (const [dim, bag] of this._bags) if (bag.edits.size || bag.dirty.size) fn(dim, bag.edits, bag.dirty);
+  }
+
+  // A block edit in a dimension (or a chunk) not loaded here: recorded, as a
+  // saved edit, applied when its chunk streams in there.
+  recordEditIn(dim, x, y, z, id) {
+    if (y < 0 || y >= WORLD_HEIGHT || !isBlockId(id)) return;
+    const cx = x >> 4;
+    const cz = z >> 4;
+    const bag = this._bag(dim);
+    setEdit(bag.edits, cx, cz, blockIndex(x & 15, y, z & 15), id);
+    const key = chunkKey(cx, cz);
+    bag.dirty.add(key);
+    // (Only the Overworld has distant tiles to rebuild: lod.js.)
+    if (dim === OVERWORLD) bag.lodDirty.add(`${cx},${cz}`);
+    this._scratch.delete(`${dim}:${key}`);
+    if (this.onEdit) this.onEdit();
+  }
+
+  // A chunk of `dim` whose recorded edits changed without passing setBlocks
+  // (another peer's, js/net/world.js): saved next time, its distant tiles
+  // rebuilt (the Overworld's).
+  markDirtyIn(dim, key) {
+    const bag = this._bag(dim);
+    bag.dirty.add(key);
+    if (dim === OVERWORLD) bag.lodDirty.add(key);
+    this._scratch.delete(`${dim}:${key}`);
+  }
+
+  // A dimension's terrain generator (made once).
+  terrainOf(dim) {
+    let t = this._terrains.get(dim);
+    if (!t) this._terrains.set(dim, (t = createGenerator(dim, this.seed, this.terrainOptions)));
+    return t;
+  }
+
+  // The block at (x, y, z) in `dim`, loaded or not: the chunk here, else a
+  // recorded edit, else the generated block (a chunk made on the spot, the
+  // last few kept). For the rare look into ground nobody has loaded here
+  // (the host's furnaces and chests of another dimension).
+  blockIn(dim, x, y, z) {
+    x = Math.floor(x);
+    y = Math.floor(y);
+    z = Math.floor(z);
+    if (y < 0) return belowWorld(dim);
+    if (y >= WORLD_HEIGHT) return BLOCK.AIR;
+    const cx = x >> 4;
+    const cz = z >> 4;
+    const idx = blockIndex(x & 15, y, z & 15);
+    if (dim === this.dim) {
+      const chunk = this.getChunk(cx, cz);
+      if (chunk) return chunk.blocks[idx];
+    }
+    const key = chunkKey(cx, cz);
+    const e = this.editsOf(dim).get(key)?.get(idx);
+    if (e !== undefined) return e;
+    const sk = `${dim}:${key}`;
+    let blocks = this._scratch.get(sk);
+    if (!blocks) {
+      const c = { cx, cz, blocks: new Uint16Array(CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT) };
+      this.terrainOf(dim).generate(c);
+      blocks = c.blocks;
+      if (this._scratch.size >= 4) this._scratch.delete(this._scratch.keys().next().value);
+      this._scratch.set(sk, blocks);
+    }
+    return blocks[idx];
+  }
+
+  // Moves the world to another dimension: every chunk goes (meshes freed),
+  // the streaming starts over around wherever the player is put next, the
+  // edits, generator and rules become that dimension's (this one's kept
+  // aside). Chunks in the workers for this one are dropped when they come.
+  // The systems holding positions of their own are switched by
+  // js/dimensions.js around this. Returns false if already there.
+  setDimension(dim) {
+    if (dim === this.dim || !DIMS[dim]) return false;
+    this._bags.set(this.dim, { edits: this.edits, dirty: this.dirtyEditChunks, lodDirty: this.lodDirty });
+    for (const chunk of this.chunks.values()) {
+      this.scene.remove(chunk.group);
+      chunk.dispose();
+    }
+    this.chunks.clear();
+    this.genQueue = [];
+    this.genQueued.clear();
+    this.meshQueue = [];
+    this.meshQueued.clear();
+    this.remeshQueue.clear();
+    this.editRemeshQueue.clear();
+    this._genInflight.clear();
+    this._genDone = [];
+    this._meshInflight.clear();
+    this._meshDone = [];
+    this._planCx = this._planCz = this._planId = null;
+    this._meshSet = new Set();
+    this._keep = null;
+    this._genWanted = null;
+    this._heightCache.clear();
+    this.light._begin?.();
+    const bag = this._bag(dim);
+    this._bags.delete(dim);
+    this.edits = bag.edits;
+    this.dirtyEditChunks = bag.dirty;
+    this.lodDirty = bag.lodDirty;
+    this.dim = dim;
+    this.dimInfo = DIMS[dim];
+    this._below = belowWorld(dim);
+    this.terrain = this.terrainOf(dim);
+    this._genEpoch++;
+    for (const w of this._genWorkers || []) w.postMessage({ type: "dim", dim, epoch: this._genEpoch });
+    return true;
   }
 
   // Block id at (x, y, z) for ray casting: the real block where its chunk is
@@ -835,11 +1027,12 @@ export class World {
   // height map (so hitscan weapons and projectiles can still hit distant,
   // unloaded/LOD terrain instead of sailing through it forever).
   _castBlock(x, y, z, heightfield) {
-    if (y < 0) return BLOCK.BEDROCK;
+    if (y < 0) return this._below;
     if (y >= WORLD_HEIGHT) return BLOCK.AIR;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (chunk) return chunk.blocks[(y << 8) | ((z & 15) << 4) | (x & 15)];
-    if (!heightfield) return BLOCK.AIR;
+    // (Round 12: only the Overworld has a height map to guess from.)
+    if (!heightfield || !this.dimInfo.heightfield) return BLOCK.AIR;
     return y <= this.heightAt(x, z) ? BLOCK.STONE : BLOCK.AIR;
   }
 

@@ -4,18 +4,24 @@
 // change of slots with what each held before ("brop"), applied by the host
 // only if the stand still holds that; the host answers ("brres") and passes
 // the new slots to everyone else with it open ("brset"), the brew time when
-// it starts or stops ("brbar"). Closing tells the host ("brclose").
+// it starts or stops and (Round 12) the fuel left ("brbar": [brew, fuel]).
+// Closing tells the host ("brclose").
 // Thrown bottles: a player's throw is drawn by everyone ("pth": the bottle,
 // where and how fast), and where it broke is the thrower's word ("psp"):
 // each game applies the splash to its own player, the host to its
 // creatures. Older peers ignore these messages.
+// (Round 12) A stand of the Nether or the End: its messages carry the
+// dimension ("dm", js/dim-registry.js), as the furnaces'; a bottle thrown in
+// another dimension is never seen here (js/net/session.js drops it).
 import * as THREE from "three";
-import { BrewingStands, BREWING_SLOTS, isBrewingStand, BREWING_NEAR_GUEST, isThrownBottle } from "../brewing.js";
+import { BREWING_SLOTS, isBrewingStand, BREWING_NEAR_GUEST, isThrownBottle } from "../brewing.js";
 import { encodeStack, decodeStack } from "../inventory.js";
 import { chunkKey, blockIndex } from "../constants.js";
+import { dimOfCode, dmOf, parseDimKey, codeOf } from "../dim-registry.js";
 
 const posOf = (p) => (Array.isArray(p) && p.length === 3 && p.every(Number.isInteger) && p[1] >= 0 && p[1] < 256 ? p : null);
-const keyPos = (key) => key.split(",").map(Number);
+const keyPos = (key) => parseDimKey(key)?.slice(0, 3) ?? key.split(",").map(Number);
+const keyDm = (key) => dmOf(parseDimKey(key)?.[3]);
 const vec = (a) => (Array.isArray(a) && a.length === 3 && a.every((n) => Number.isFinite(n) && Math.abs(n) < 1e6) ? new THREE.Vector3(a[0], a[1], a[2]) : null);
 const r2 = (v) => Math.round(v * 100) / 100;
 const BARS_EVERY = 2;
@@ -41,7 +47,7 @@ export class BrewingSync {
       br.onBars = (key) => this._sendBars(key);
       br.onGone = (key) => this._sendGone(key);
       br.watched = (key) => this.watchers.has(key);
-      br.nearGuest = (x, z) => this._nearGuest(x, z);
+      br.nearGuest = (x, z, dim) => this._nearGuest(x, z, dim);
       net.on("bropen", (m, from) => this._onOpen(m, from));
       net.on("brclose", (m, from) => this._onClose(m, from));
       net.on("brop", (m, from) => this._onOp(m, from));
@@ -104,10 +110,13 @@ export class BrewingSync {
     }
   }
 
-  _nearGuest(x, z) {
+  _nearGuest(x, z, dim) {
     if (!this.mp.active || !this.net.isHost) return false;
-    for (const r of this.mp.players?.active?.() || []) {
-      const p = r.position;
+    const code = codeOf(dim);
+    const players = this.mp.players;
+    for (const r of players?.all?.() || players?.active?.() || []) {
+      if ((r.dim | 0) !== code) continue;
+      const p = r.livePos || r.position; // (where they are in their own dimension: position only follows the ones in ours)
       if (p && Math.abs(p.x - x) < BREWING_NEAR_GUEST && Math.abs(p.z - z) < BREWING_NEAR_GUEST) return true;
     }
     return false;
@@ -116,26 +125,26 @@ export class BrewingSync {
   // ---------- A guest: asking the host (js/brewing.js calls these) ----------
 
   open(view) {
-    if (this.mp.active) this.net.toHost({ t: "bropen", p: [view.x, view.y, view.z] });
+    if (this.mp.active) this.net.toHost({ t: "bropen", p: [view.x, view.y, view.z], ...keyDm(view.key) });
   }
 
   close(view) {
-    if (this.mp.active) this.net.toHost({ t: "brclose", p: [view.x, view.y, view.z] });
+    if (this.mp.active) this.net.toHost({ t: "brclose", p: [view.x, view.y, view.z], ...keyDm(view.key) });
   }
 
   op(view, changes, done) {
     if (!this.mp.active) return done(false);
     const n = this._n++;
     this._ops.set(n, done);
-    this.net.toHost({ t: "brop", p: [view.x, view.y, view.z], n, c: changes.map(([i, b, a]) => [i, encodeStack(b), encodeStack(a)]) });
+    this.net.toHost({ t: "brop", p: [view.x, view.y, view.z], n, c: changes.map(([i, b, a]) => [i, encodeStack(b), encodeStack(a)]), ...keyDm(view.key) });
   }
 
   // ---------- The host ----------
 
-  _isStandAt(x, y, z) {
+  _isStandAt(x, y, z, dim) {
     const world = this.game.world;
-    if (world.getChunk(x >> 4, z >> 4)) return isBrewingStand(world.getBlock(x, y, z));
-    return isBrewingStand(world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)));
+    if (dim === world.dim && world.getChunk(x >> 4, z >> 4)) return isBrewingStand(world.getBlock(x, y, z));
+    return isBrewingStand(world.editsOf(dim).get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)));
   }
 
   _onOpen(m, from) {
@@ -143,22 +152,23 @@ export class BrewingSync {
     const p = posOf(m.p);
     if (!p) return;
     const [x, y, z] = p;
-    if (!this._isStandAt(x, y, z)) {
-      this.net.send(from, { t: "brst", p, s: 0 });
+    const dim = dimOfCode(m.dm);
+    if (!this._isStandAt(x, y, z, dim)) {
+      this.net.send(from, { t: "brst", p, s: 0, ...dmOf(dim) });
       return;
     }
-    const b = this.brewing.contents(x, y, z);
+    const b = this.brewing.contents(x, y, z, dim);
     let set = this.watchers.get(b.key);
     if (!set) this.watchers.set(b.key, (set = new Set()));
     set.add(from);
-    this.net.send(from, { t: "brst", p, s: b.slots.map(encodeStack), b: this.brewing.bars(b.key) });
+    this.net.send(from, { t: "brst", p, s: b.slots.map(encodeStack), b: this.brewing.bars(b.key), ...dmOf(dim) });
   }
 
   _onClose(m, from) {
     if (!this.net.isHost) return;
     const p = posOf(m.p);
     if (!p) return;
-    const key = BrewingStands.key(p[0], p[1], p[2]);
+    const key = this.brewing.keyOf(p[0], p[1], p[2], dimOfCode(m.dm));
     const set = this.watchers.get(key);
     if (!set) return;
     set.delete(from);
@@ -169,7 +179,8 @@ export class BrewingSync {
     if (!this.net.isHost || !this.brewing) return;
     const p = posOf(m.p);
     if (!p || !Number.isInteger(m.n)) return;
-    const key = BrewingStands.key(p[0], p[1], p[2]);
+    const dim = dimOfCode(m.dm);
+    const key = this.brewing.keyOf(p[0], p[1], p[2], dim);
     let ok = false;
     if (this.watchers.get(key)?.has(from) && Array.isArray(m.c) && m.c.length <= BREWING_SLOTS) {
       const changes = [];
@@ -182,10 +193,10 @@ export class BrewingSync {
       }
       if (changes.length === m.c.length) ok = this.brewing.apply(key, changes, from);
     }
-    if (ok) this.net.send(from, { t: "brres", p, n: m.n, ok: 1 });
+    if (ok) this.net.send(from, { t: "brres", p, n: m.n, ok: 1, ...dmOf(dim) });
     else {
       const b = this.brewing.store.get(key);
-      this.net.send(from, { t: "brres", p, n: m.n, ok: 0, s: b ? b.slots.map(encodeStack) : 0, b: b ? this.brewing.bars(key) : 0 });
+      this.net.send(from, { t: "brres", p, n: m.n, ok: 0, s: b ? b.slots.map(encodeStack) : 0, b: b ? this.brewing.bars(key) : 0, ...dmOf(dim) });
     }
   }
 
@@ -193,7 +204,7 @@ export class BrewingSync {
     if (!this.mp.active || !this.net.isHost) return;
     const set = this.watchers.get(key);
     if (!set || !set.size) return;
-    const msg = { t: "brset", p: keyPos(key), c: list.map(([i, s]) => [i, encodeStack(s)]), b: this.brewing.bars(key) };
+    const msg = { t: "brset", p: keyPos(key), c: list.map(([i, s]) => [i, encodeStack(s)]), b: this.brewing.bars(key), ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
   }
 
@@ -202,7 +213,7 @@ export class BrewingSync {
     const set = this.watchers.get(key);
     const b = set?.size ? this.brewing.bars(key) : null;
     if (!b) return;
-    const msg = { t: "brbar", p: keyPos(key), b };
+    const msg = { t: "brbar", p: keyPos(key), b, ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
   }
 
@@ -210,7 +221,7 @@ export class BrewingSync {
     const set = this.watchers.get(key);
     this.watchers.delete(key);
     if (!this.mp.active || !this.net.isHost || !set) return;
-    const msg = { t: "brst", p: keyPos(key), s: 0 };
+    const msg = { t: "brst", p: keyPos(key), s: 0, ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
   }
 
@@ -224,7 +235,7 @@ export class BrewingSync {
   _onState(m) {
     if (this.net.isHost || !this.brewing) return;
     const p = posOf(m.p);
-    if (p) this.brewing.remoteState(BrewingStands.key(p[0], p[1], p[2]), this._slotsOf(m.s), m.b);
+    if (p) this.brewing.remoteState(this.brewing.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), this._slotsOf(m.s), m.b);
   }
 
   _onSet(m) {
@@ -233,13 +244,13 @@ export class BrewingSync {
     if (!p || !Array.isArray(m.c) || m.c.length > BREWING_SLOTS) return;
     const list = [];
     for (const ch of m.c) if (Array.isArray(ch) && Number.isInteger(ch[0])) list.push([ch[0], decodeStack(ch[1])]);
-    this.brewing.remoteSet(BrewingStands.key(p[0], p[1], p[2]), list, m.b);
+    this.brewing.remoteSet(this.brewing.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), list, m.b);
   }
 
   _onBars(m) {
     if (this.net.isHost || !this.brewing) return;
     const p = posOf(m.p);
-    if (p) this.brewing.remoteBars(BrewingStands.key(p[0], p[1], p[2]), m.b);
+    if (p) this.brewing.remoteBars(this.brewing.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), m.b);
   }
 
   _onResult(m) {
@@ -247,7 +258,7 @@ export class BrewingSync {
     const done = this._ops.get(m.n);
     this._ops.delete(m.n);
     const p = posOf(m.p);
-    if (!m.ok && p && m.s !== undefined) this.brewing.remoteState(BrewingStands.key(p[0], p[1], p[2]), this._slotsOf(m.s), m.b);
+    if (!m.ok && p && m.s !== undefined) this.brewing.remoteState(this.brewing.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), this._slotsOf(m.s), m.b);
     done?.(!!m.ok);
   }
 }

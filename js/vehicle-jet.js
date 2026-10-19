@@ -49,7 +49,13 @@ const LOCK_PEACEFUL = 0.6; // lock score penalty (radians off the view centre) f
 const FOLLOW_AFTER = 0.8; // seconds the camera stays on the target after the missile got there
 const MISSILE_TURN = 3.2; // rad/s
 const FLARE_COOLDOWN = 5;
-const FLARE_BURST = 4;
+// (Round 12) A salvo, one flare after another as a real dispenser fires
+// them: left and right in turn, each with its own spread.
+const FLARE_SALVO = 6;
+const FLARE_INTERVAL = 0.1; // seconds between two flares
+const _fFwd = new THREE.Vector3();
+const _fUp = new THREE.Vector3();
+const _fRight = new THREE.Vector3();
 const THRUST_AIR = 36; // blocks/s^2 of thrust at 100% throttle in the air (x the thrust setting)
 const THRUST_GROUND = 12.5; // ... on the wheels (Round 8: a longer roll, ~160 blocks to lift off, ~110 with the afterburner)
 const AB_THRUST = 1.3; // the afterburner's thrust (x): the top speed setting is reached with it lit, 100% throttle alone gives 1/sqrt(1.3) of it
@@ -220,6 +226,7 @@ export class Jet extends Vehicle {
     this.jammed = false;
     this.flareT = 0;
     this.flares = [];
+    this._salvo = null; // a flare salvo under way: { left, t, n }
     this.queued = []; // missiles waiting to be launched (a salvo): { t, target }
     this.incoming = 0; // seconds of "incoming attack" warning left
     this.warn = null; // the nearest missile/seeker coming at us: { dist, angle, kind }
@@ -1606,27 +1613,55 @@ export class Jet extends Vehicle {
 
   // ---------- Flares ----------
 
+  // Starts a salvo (Round 12: FLARE_SALVO flares, FLARE_INTERVAL apart; the
+  // first at once). Each flare is a decoy as before: a missile or a seeking
+  // shot can be fooled by any of them. Online the salvo's start is shared
+  // (net/fx.js) and every machine releases the flares itself.
   _launchFlares() {
     const mgr = this.manager;
     this.flareT = FLARE_COOLDOWN;
-    const fwd = this.forward(new THREE.Vector3());
-    const up = this.up(new THREE.Vector3());
-    const right = this.right(new THREE.Vector3());
-    for (let i = 0; i < FLARE_BURST; i++) {
-      const spread = (i - (FLARE_BURST - 1) / 2) * 0.55;
-      const pos = this.pos.clone().addScaledVector(fwd, -3).addScaledVector(up, -0.9).addScaledVector(right, spread * 1.4);
-      const vel = this.vel.clone().multiplyScalar(0.55).addScaledVector(up, -10).addScaledVector(right, spread * 14).addScaledVector(fwd, -14);
-      const d = mgr.lasers.addDecoy(pos, vel, 6.5);
-      d.owner = this;
-      this.flares.push(d);
-    }
-    this._sound(() => mgr.audio?.playFlare?.());
+    this._salvo = { left: FLARE_SALVO, t: 0, n: 0 };
+    this._releaseFlare(0);
+    // (One pop a flare when the sound has it, else the old burst sound once.)
+    if (!mgr.audio?.playFlarePop) this._sound(() => mgr.audio?.playFlare?.());
     // (The pilot's own flares only: an enemy fighter's are not news to the player.)
     if (this === mgr.active) mgr.onMessage?.("FLARES!");
   }
 
+  // One flare of the salvo, from under the tail, to the left or the right in
+  // turn. late: seconds it should have gone already (a slow frame): it is
+  // placed where it would be by now.
+  _releaseFlare(late) {
+    const mgr = this.manager;
+    const s = this._salvo;
+    const i = s.n++;
+    s.left--;
+    const fwd = this.forward(_fFwd);
+    const up = this.up(_fUp);
+    const right = this.right(_fRight);
+    const side = i % 2 ? 1 : -1;
+    const out = 0.35 + Math.random() * 0.6;
+    const pos = this.pos.clone().addScaledVector(fwd, -3).addScaledVector(up, -0.9).addScaledVector(right, side * 1.2);
+    const vel = this.vel.clone().multiplyScalar(0.55).addScaledVector(up, -7 - Math.random() * 6).addScaledVector(right, side * out * 14).addScaledVector(fwd, -10 - Math.random() * 8);
+    if (late > 0) pos.addScaledVector(this.vel, -late).addScaledVector(vel, late);
+    const d = mgr.lasers.addDecoy(pos, vel, 6.5);
+    d.owner = this;
+    this.flares.push(d);
+    if (mgr.audio?.playFlarePop) this._sound(() => mgr.audio.playFlarePop());
+  }
+
   _updateFlares(dt) {
     const fx = this.manager.effects;
+    // (Round 12) The salvo goes on, one flare at a time (none from a wreck).
+    const s = this._salvo;
+    if (s) {
+      s.t += dt;
+      while (this.alive && s.left > 0 && s.t >= FLARE_INTERVAL) {
+        s.t -= FLARE_INTERVAL;
+        this._releaseFlare(s.t);
+      }
+      if (!this.alive || s.left <= 0) this._salvo = null;
+    }
     for (let i = this.flares.length - 1; i >= 0; i--) {
       const d = this.flares[i];
       if (d.life <= 0) {
@@ -1826,7 +1861,7 @@ export class Jet extends Vehicle {
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
         ...(this.spec.cannonRate > 0 ? [["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`]] : [["Autocannon", "none (a bomber)"]]),
         ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the spiral closes in on the target (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
-        ["Flares", `${FLARE_BURST} decoys per burst, ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
+        ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the nuke"],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],
       ],

@@ -1,7 +1,14 @@
 // Dropped item entities: blocks and items lying in the world that the player
-// can pick up. They fall and bounce, float in water, bob and spin, get
-// pulled toward a nearby player, merge with identical stacks nearby, and
-// despawn after a while. Items in unloaded chunks simply wait (no physics).
+// can pick up. They fall and bounce, float in water, bob and spin, merge
+// with identical stacks nearby, and despawn after a while. Items in unloaded
+// chunks simply wait (no physics).
+// (Round 12) Picked up as vanilla's: once the player's box grown by 1 block
+// sideways and 0.5 up and down touches the item (checked every frame, along
+// the whole of the frame's move, so walking or sprinting past one takes it),
+// after vanilla's pickup delay (0.5 s; 2 s for what a player throws), and
+// the item flies into the player (vanilla's 3-tick pickup animation). A
+// cactus destroys items that touch it (vanilla). (A Missions world keeps its
+// pull toward a nearby player.)
 import * as THREE from "three";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { maxStack } from "./items.js";
@@ -9,13 +16,24 @@ import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { EGG, SNOWBALL, ENDER_PEARL } from "./content/ids.js";
 import { LIB } from "./content/base.js";
+import { BODY, BODY_FLAGS } from "./survival.js";
+import { isVanilla } from "./worldtype.js";
 
 const GRAVITY = -20;
 const DESPAWN_SECONDS = 300;
-const PICKUP_RADIUS = 1.1;
 const MAGNET_RADIUS = 2.6;
 const MAX_ITEMS = 300;
 const SIZE = 0.25; // half-extent used for collision
+// (Round 12) Vanilla's pickup: the player's box (0.6 x 1.8) grown by 1
+// sideways and 0.5 up and down, against the item's own (0.25 x 0.25).
+export const PICKUP_DELAY = 0.5; // (10 ticks; a player's throw: THROWN_PICKUP_DELAY)
+export const THROWN_PICKUP_DELAY = 2; // (40 ticks)
+const PLAYER_R = 0.3;
+const PLAYER_H = 1.8;
+const REACH_XZ = PLAYER_R + 1 + 0.125;
+const REACH_DOWN = 0.5 + 0.25; // (the item's top must be above the grown box's bottom)
+const REACH_UP = PLAYER_H + 0.5;
+const FLY_TIME = 0.15; // (the pickup animation: 3 ticks)
 
 export class ItemEntities {
   constructor(scene, world) {
@@ -30,12 +48,17 @@ export class ItemEntities {
     };
     this._mergeTimer = 0;
     this.onPickup = null; // (item) => leftover count
+    this._flying = []; // picked-up items flying in: { mesh, from, to (a position), t, light }
+    this._prev = new THREE.Vector3(); // (the player's feet last frame: the pickup box sweeps the move)
+    this._hasPrev = false;
   }
 
   // Spawns a stack at `pos` with velocity `vel`. pickupDelay: seconds before
   // it can be collected (longer for items the player throws).
   // keep: never despawns (a mission's weapon drop).
-  spawn(id, count, pos, vel = null, { dur, tag, pickupDelay = 0.4, keep = false } = {}) {
+  // (Round 12) dim: the dimension it lies in (a code, js/dim-registry.js;
+  // default: where things drop now, world.itemDim).
+  spawn(id, count, pos, vel = null, { dur, tag, pickupDelay = PICKUP_DELAY, keep = false, dim } = {}) {
     const model = itemModel(id);
     if (!model || count <= 0) return null;
     if (this.items.length >= MAX_ITEMS) {
@@ -60,6 +83,7 @@ export class ItemEntities {
       light: { sky: 15, block: 0 },
       onGround: false,
       keep,
+      dim: dim ?? this.world.itemDim ?? 0,
     };
     bindEntityLight(mesh, () => item.light);
     this.group.add(mesh);
@@ -76,6 +100,63 @@ export class ItemEntities {
 
   clear() {
     while (this.items.length) this._remove(this.items.length - 1);
+    for (const f of this._flying) this.group.remove(f.mesh);
+    this._flying.length = 0;
+    this._hasPrev = false;
+  }
+
+  // (Round 12) Takes item `it` out of the world with vanilla's pickup
+  // animation: it flies to `to` (a position that may move: the taker's feet,
+  // 0.5 up) in 3 ticks. Online the item a host gives to someone flies to them.
+  collect(it, to) {
+    const i = this.items.indexOf(it);
+    if (i < 0) return;
+    this.items.splice(i, 1);
+    if (!to || this._flying.length > 24) {
+      this.group.remove(it.mesh);
+      return;
+    }
+    const f = { mesh: it.mesh, from: it.mesh.position.clone(), to, t: 0, light: it.light };
+    bindEntityLight(it.mesh, () => f.light);
+    this._flying.push(f);
+  }
+
+  _updateFlying(dt) {
+    for (let i = this._flying.length - 1; i >= 0; i--) {
+      const f = this._flying[i];
+      f.t += dt / FLY_TIME;
+      if (f.t >= 1) {
+        this.group.remove(f.mesh);
+        this._flying.splice(i, 1);
+        continue;
+      }
+      const k = f.t * f.t; // (vanilla: eased in)
+      f.mesh.position.set(f.from.x + (f.to.x - f.from.x) * k, f.from.y + (f.to.y + 0.5 - f.from.y) * k, f.from.z + (f.to.z - f.from.z) * k);
+    }
+  }
+
+  // Whether the player (feet now at `p`, at `q` last frame) can reach item
+  // `it`: vanilla's grown box, swept along the frame's move.
+  _reaches(it, p, q) {
+    const x = it.pos.x;
+    const y = it.pos.y;
+    const z = it.pos.z;
+    if (x < Math.min(p.x, q.x) - REACH_XZ || x > Math.max(p.x, q.x) + REACH_XZ) return false;
+    if (z < Math.min(p.z, q.z) - REACH_XZ || z > Math.max(p.z, q.z) + REACH_XZ) return false;
+    return y > Math.min(p.y, q.y) - REACH_DOWN && y < Math.max(p.y, q.y) + REACH_UP;
+  }
+
+  // (Round 12) Whether a cactus touches the item: against a side (it bounces
+  // off at SIZE) or lying on top.
+  _onCactus(p) {
+    const w = this.world;
+    const e = SIZE + 0.05;
+    for (let bx = Math.floor(p.x - e); bx <= Math.floor(p.x + e); bx++) {
+      for (let bz = Math.floor(p.z - e); bz <= Math.floor(p.z + e); bz++) {
+        for (let by = Math.floor(p.y - 0.05); by <= Math.floor(p.y + 0.25); by++) if (BODY_FLAGS[w.getBlock(bx, by, bz)] & BODY.CACTUS) return true;
+      }
+    }
+    return false;
   }
 
   // Removes the dropped items for which pred(item) is true.
@@ -96,8 +177,20 @@ export class ItemEntities {
   update(dt, player) {
     const world = this.world;
     const center = player ? new THREE.Vector3(player.position.x, player.position.y + 0.9, player.position.z) : null;
+    // (The move since last frame: a teleport, a respawn or a vehicle isn't swept.)
+    const feet = player?.position;
+    if (feet && (!this._hasPrev || player.vehicle || this._prev.distanceToSquared(feet) > 16)) this._prev.copy(feet);
+    this._hasPrev = !!feet;
+    const magnet = !isVanilla();
+    this._updateFlying(dt);
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
+      // (Round 12) Another dimension's item waits there, unseen (and doesn't age, as in unloaded ground).
+      if (it.dim !== (world.dimCode ?? 0)) {
+        it.mesh.visible = false;
+        continue;
+      }
+      it.mesh.visible = true;
       it.age += dt;
       if (it.age > DESPAWN_SECONDS && !it.keep) {
         this._remove(i);
@@ -107,21 +200,23 @@ export class ItemEntities {
       if (!world.getChunk(Math.floor(p.x) >> 4, Math.floor(p.z) >> 4)) continue; // frozen until loaded
       it.pickupDelay -= dt;
 
-      // Pull toward the player once collectable.
+      // Picked up once collectable.
       if (center && !player.dead && it.pickupDelay <= 0) {
-        const d = center.distanceTo(p);
-        if (d < (it.shared ? 1.8 : PICKUP_RADIUS)) {
+        if (this._reaches(it, feet, this._prev)) {
+          const before = it.count;
           const left = this.onPickup ? this.onPickup(it) : it.count;
+          if (this.items[i] !== it) continue; // (online: the host's own grab, already handed over)
           if (left <= 0) {
-            this._remove(i);
+            this.collect(it, feet);
             continue;
           }
+          if (left < before && this._flying.length < 24) this._ghost(it, feet);
           it.count = left;
-          it.pickupDelay = 1; // inventory full: try again later
-        } else if (d < MAGNET_RADIUS && !it.shared) {
-          // (A shared item online stays put until the host gives it to someone:
-          // pulled toward each player on their own screen, it would be in
-          // different places for everyone.)
+          it.pickupDelay = Math.max(it.pickupDelay, 0.25); // inventory full: try again in a moment
+        } else if (magnet && !it.shared && center.distanceToSquared(p) < MAGNET_RADIUS * MAGNET_RADIUS) {
+          // (A Missions world's pull. A shared item online stays put until the
+          // host gives it to someone: pulled toward each player on their own
+          // screen, it would be in different places for everyone.)
           const pull = new THREE.Vector3().subVectors(center, p).normalize().multiplyScalar(14 * dt);
           it.vel.add(pull);
         }
@@ -178,9 +273,17 @@ export class ItemEntities {
         this._remove(i);
         continue;
       }
+      // (Round 12) A cactus destroys it (not a mission's weapon drop; nor in
+      // its first half second: a mined cactus's own drop, popping up into the
+      // one above, isn't lost).
+      if (!it.keep && it.age > PICKUP_DELAY && this._onCactus(p)) {
+        this._remove(i);
+        continue;
+      }
       it.light = world.lightAt(p.x, p.y + 0.3, p.z);
       this._place(it);
     }
+    if (feet) this._prev.copy(feet);
 
     // Merge identical nearby stacks every so often.
     this._mergeTimer += dt;
@@ -190,6 +293,18 @@ export class ItemEntities {
     }
   }
 
+  // A copy of the item's look flies in (part of a stack taken: the rest stays).
+  _ghost(it, to) {
+    const mesh = new THREE.Mesh(it.mesh.geometry, it.mesh.material);
+    mesh.scale.copy(it.mesh.scale);
+    mesh.position.copy(it.mesh.position);
+    mesh.rotation.copy(it.mesh.rotation);
+    this.group.add(mesh);
+    const f = { mesh, from: mesh.position.clone(), to, t: 0, light: it.light };
+    bindEntityLight(mesh, () => f.light);
+    this._flying.push(f);
+  }
+
   _merge() {
     for (let i = 0; i < this.items.length; i++) {
       const a = this.items[i];
@@ -197,7 +312,7 @@ export class ItemEntities {
       if (a.dur !== undefined || a.tag || a.count >= maxStack(a.id) || a.shared) continue;
       for (let j = this.items.length - 1; j > i; j--) {
         const b = this.items[j];
-        if (b.id !== a.id || b.dur !== undefined || b.tag || b.shared) continue;
+        if (b.id !== a.id || b.dur !== undefined || b.tag || b.shared || b.dim !== a.dim) continue;
         if (a.pos.distanceToSquared(b.pos) > 0.8 * 0.8) continue;
         const room = maxStack(a.id) - a.count;
         const n = Math.min(room, b.count);
@@ -283,6 +398,7 @@ export class Throwables {
         const d = mob ? mob.distance : block.distance;
         const at = t.pos.clone().addScaledVector(dir, Math.max(0, d - 0.05));
         this._land(t, at, mob ? null : block);
+        if (mob && t.kind === "snowball") this.mobs?.snowballHit?.(mob.mob, dir); // (Round 12: a blaze takes 3)
         this.scene.remove(t.mesh);
         this.list.splice(i, 1);
         continue;
@@ -333,6 +449,7 @@ export class Throwables {
     const fz = Math.floor(z);
     let fy = Math.floor(y);
     for (let k = 0; k < 3 && (IS_SOLID[this.world.getBlock(fx, fy, fz)] || IS_SOLID[this.world.getBlock(fx, fy + 1, fz)]); k++) fy++;
+    LIB.pearlLanded?.(p.position.x, p.position.y, p.position.z); // (Round 12: one time in twenty an endermite, mobs.js)
     p.position.set(x, Math.max(y, fy), z);
     p.velocity?.set(0, 0, 0);
     p.resetFall?.();

@@ -768,13 +768,15 @@ await check("every redstone shape meshes byte for byte the same in a worker and 
     for (const c of chunks) {
       const nb = [];
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) nb.push(w.getChunk(c.cx + dx, c.cz + dz) || null);
-      const ref = meshChunk(nb, w.meshOptions);
       let slot = w._meshSlot();
       while (!slot) {
         await new Promise((res) => setTimeout(res, 20));
         w.processQueues(50);
         slot = w._meshSlot();
       }
+      // (The reference meshed right as the chunk goes to the worker, in the
+      // same task: while waiting for a slot the circuits tick on and change it.)
+      const ref = meshChunk(nb, w.meshOptions);
       w._dispatchMesh(c, slot);
       want.set(c._meshToken, ref);
     }
@@ -794,6 +796,14 @@ await check("every redstone shape meshes byte for byte the same in a worker and 
       for (const k of ["opaque", "cutout", "water"]) {
         if (!ref[k] !== !m[k] || (ref[k] && !["position", "uv", "data", "extra", "index"].every((f) => eq(ref[k][f], m[k][f])))) {
           out.differing++;
+          // (Which: the first differing value, and the vertex's place.)
+          const f = ref[k] && m[k] ? ["position", "uv", "data", "extra", "index"].find((f) => !eq(ref[k][f], m[k][f])) : "missing";
+          const a = ref[k]?.[f];
+          const b = m[k]?.[f];
+          const i = a && b ? a.findIndex((x, j) => x !== b[j]) : -1;
+          const per = { position: 3, uv: 2, data: 4, extra: 4, index: 1 }[f] || 1;
+          const vi = Math.floor(i / per);
+          out.diff ??= { kind: k, field: f, len: [a?.length, b?.length], i, main: a ? [...a.slice(vi * per, vi * per + per)] : null, worker: b ? [...b.slice(vi * per, vi * per + per)] : null, at: f !== "index" && ref[k].position ? [...ref[k].position.slice(vi * 3, vi * 3 + 3)] : null };
           break;
         }
       }

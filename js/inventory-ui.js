@@ -21,17 +21,30 @@
 // under the ingredient, its bubbling arrow; js/brewing.js, online the
 // host's, like the furnace). The table's and the anvil's slots are this
 // screen's own, like the crafting grid (given back when it closes).
+// (Round 12) The chest screen shows a double chest's 54 slots (and a
+// barrel's, a shulker box's 27: no shulker box goes into one); the furnace
+// screen is the smoker's and the blast furnace's too (what each takes:
+// js/furnace.js smeltsIn); the grindstone ("grindstone": two items, the
+// result disenchanted or the two repaired into one, the enchantments'
+// experience back) and the stonecutter ("stonecutter": a stone block, its
+// cuts to pick from, the result) have their own slots, like the anvil.
+// (js/content/workstations.js.)
 import { BLOCK } from "./blocks.js";
 import { itemInfo, maxStack, CREATIVE_ITEMS, ALL_WEAPONS, itemAllowed, ARMOR_SLOTS } from "./items.js";
 import { HOTBAR_SIZE, INVENTORY_SIZE, makeStack, clickSlot, quickMove, addToRange, addInOrder, canMerge, ORDER_RESULT, ORDER_CONTAINER, Inventory } from "./inventory.js";
 import { SlotView, stackLines, stackName } from "./slot-view.js";
 import { CHEST_SLOTS } from "./chests.js";
+import { FURNACE_NAMES, furnaceKind, smeltsIn } from "./furnace.js";
+import { stonecutting, isShulkerBox, isDoubleChest } from "./content/workstations.js";
+import { ENCHANTMENTS, isEnchanted, withEnchants } from "./enchant.js";
+import { LIB } from "./content/base.js";
+import { BARREL, GRINDSTONE, STONECUTTER, ENCHANTED_BOOK, BOOK } from "./content/ids.js";
 import { sameStack } from "./inventory.js";
-import { craftResult, gridIds, consumeGrid, smeltingOf, isFuel } from "./crafting.js";
+import { craftResult, gridIds, consumeGrid, isFuel } from "./crafting.js";
 import { FURNACE_SLOTS, furnaceAccepts } from "./furnace.js";
 import { isVanilla } from "./worldtype.js";
 import { tableOffers, applyOffer, countBookshelves, enchantSeed, nextEnchantSeed, anvilResult, enchantName } from "./enchant.js";
-import { BREWING_SLOTS, BREW_TICKS, brewingAccepts, isBottle, isIngredient } from "./brewing.js";
+import { BREWING_SLOTS, BREW_TICKS, BREWING_FUEL, brewingAccepts, isBottle, isIngredient, isBrewingFuel } from "./brewing.js";
 import { spendLevels } from "./xp.js";
 import { ENCHANTING_TABLE, LAPIS_LAZULI, ARROW, SHIELD } from "./content/ids.js";
 import { isAnvil, wornAnvil } from "./content/containers.js";
@@ -83,6 +96,13 @@ const CRAFT_CSS = `
 .brew-arrow { position: relative; width: 12px; height: 26px; background: rgba(140,140,150,0.35); overflow: hidden; clip-path: polygon(30% 0, 70% 0, 70% 62%, 100% 62%, 50% 100%, 0 62%, 30% 62%); }
 .brew-arrow > div { position: absolute; left: 0; right: 0; top: 0; height: 0; background: #f4f4f4; }
 .brew-bubbles { width: 14px; height: 26px; position: relative; overflow: hidden; }
+.brew-fuel-box { display: flex; flex-direction: column; align-items: center; gap: 3px; margin-right: 6px; }
+.brew-fuel { width: 30px; height: 5px; background: rgba(140,140,150,0.35); }
+.brew-fuel > div { height: 100%; width: 0; background: #e89a28; }
+.cut-box { display: flex; align-items: center; gap: 12px; }
+.cut-list { display: grid; grid-template-columns: repeat(6, 38px); gap: 2px; min-height: 40px; min-width: 238px; padding: 2px; background: rgba(0,0,0,0.18); }
+.cut-list .slot.sel { outline: 2px solid #f4f4f4; outline-offset: -2px; }
+.grind-col { display: flex; flex-direction: column; gap: 6px; }
 .brew-bubbles > div { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: radial-gradient(circle at 30% 70%, #fff 0 2px, transparent 3px), radial-gradient(circle at 70% 40%, #fff 0 2px, transparent 3px), radial-gradient(circle at 40% 15%, #fff 0 1.5px, transparent 2.5px); }
 `;
 function injectCraftCss() {
@@ -170,12 +190,16 @@ export class InventoryScreen {
     this.chestEl = el("div", "inv-chest hidden", left);
     const chestGrid = el("div", "inv-grid", this.chestEl);
     this.chestViews = [];
-    for (let i = 0; i < CHEST_SLOTS; i++) {
+    // (Round 12: a double chest's 54; a single one hides the lower 27.)
+    for (let i = 0; i < CHEST_SLOTS * 2; i++) {
       const v = new SlotView(icons);
       chestGrid.appendChild(v.el);
       this._bindSlot(v.el, { area: "chest", index: i });
       this.chestViews.push(v);
     }
+    this._chestRows = -1;
+    this._chestGrid = chestGrid;
+    this.boxes = null; // (Round 12) the hoppers, droppers and dispensers (js/gadgets.js): the "box" screen, in the chest's place
     this.chestView = null; // the open chest (js/chests.js openView)
     this.busy = false; // a chest (or furnace) click waiting for the host
 
@@ -296,6 +320,11 @@ export class InventoryScreen {
       this.brewViews[i] = v;
     };
     const brow = el("div", "anvil-row", bbox);
+    // (Round 12) The fuel: blaze powder, and the bar of its 20 brews.
+    const fuelBox = el("div", "brew-fuel-box", brow);
+    bslot(fuelBox, 4);
+    this.brewFuelFill = el("div", "", el("div", "brew-fuel", fuelBox));
+    this._brewFuel = -1;
     this.bubbleFill = el("div", "", el("div", "brew-bubbles", brow));
     bslot(brow, 3);
     this.brewArrowFill = el("div", "", el("div", "brew-arrow", brow));
@@ -303,6 +332,50 @@ export class InventoryScreen {
     for (let i = 0; i < 3; i++) bslot(bottles, i);
     this.brewView = null; // the open stand (js/brewing.js openView)
     this._brewArrow = -1;
+
+    // (Round 12) The grindstone: two inputs one over the other, the result.
+    this.grindEl = el("div", "inv-magic hidden", left);
+    const grow = el("div", "anvil-row", this.grindEl);
+    const gcol = el("div", "grind-col", grow);
+    this.grindSlots = [null, null];
+    this.grindViews = [0, 1].map((i) => {
+      const v = new SlotView(icons);
+      gcol.appendChild(v.el);
+      this._bindSlot(v.el, { area: "grind", index: i });
+      return v;
+    });
+    el("div", "craft-arrow", grow).textContent = "➜";
+    this.grindOutView = new SlotView(icons, "slot result-slot");
+    grow.appendChild(this.grindOutView.el);
+    this._bindSlot(this.grindOutView.el, { area: "grindOut", index: 0 });
+    this._grind = null;
+    this._grindDirty = true;
+
+    // (Round 12) The stonecutter: the stone, what it can be cut into, the result.
+    this.cutEl = el("div", "inv-magic hidden", left);
+    const cbox = el("div", "cut-box", this.cutEl);
+    this.cutSlots = [null];
+    this.cutInView = new SlotView(icons);
+    cbox.appendChild(this.cutInView.el);
+    this._bindSlot(this.cutInView.el, { area: "cut", index: 0 });
+    this.cutListEl = el("div", "cut-list", cbox);
+    this.cutRecipeViews = [];
+    for (let i = 0; i < 18; i++) {
+      const v = new SlotView(icons);
+      this.cutListEl.appendChild(v.el);
+      v.el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._pickCut(i);
+      });
+      this.cutRecipeViews.push(v);
+    }
+    el("div", "craft-arrow", cbox).textContent = "➜";
+    this.cutOutView = new SlotView(icons, "slot result-slot");
+    cbox.appendChild(this.cutOutView.el);
+    this._bindSlot(this.cutOutView.el, { area: "cutOut", index: 0 });
+    this._cutPick = -1; // the cut picked (its place in the input's list)
+    this._cutFor = -1; // (the input id it was picked for)
 
     el("div", "inv-label", left).textContent = "Inventory";
     this.mainEl = el("div", "inv-grid", left);
@@ -389,12 +462,15 @@ export class InventoryScreen {
   open(kind, creative) {
     this.kind = kind || "inventory";
     const chest = this.kind === "chest" && !!this.chests && !!this.chestPos;
+    const box = this.kind === "box" && !!this.boxes && !!this.screenPos; // (Round 12: a hopper's, dropper's or dispenser's)
     const table = this.kind === "table" && !!this.screenPos;
     const furnace = this.kind === "furnace" && !!this.furnaces && !!this.screenPos;
     const enchanting = this.kind === "enchanting" && !!this.screenPos;
     const anvil = this.kind === "anvil" && !!this.screenPos;
     const brewing = this.kind === "brewing" && !!this.brewing && !!this.screenPos;
-    if ((this.kind === "chest" && !chest) || (this.kind === "table" && !table) || (this.kind === "furnace" && !furnace) || (this.kind === "enchanting" && !enchanting) || (this.kind === "anvil" && !anvil) || (this.kind === "brewing" && !brewing)) this.kind = "inventory";
+    const grindstone = this.kind === "grindstone" && !!this.screenPos; // (Round 12)
+    const stonecutter = this.kind === "stonecutter" && !!this.screenPos;
+    if (((this.kind === "grindstone" || this.kind === "stonecutter") && !this.screenPos) || (this.kind === "chest" && !chest) || (this.kind === "box" && !box) || (this.kind === "table" && !table) || (this.kind === "furnace" && !furnace) || (this.kind === "enchanting" && !enchanting) || (this.kind === "anvil" && !anvil) || (this.kind === "brewing" && !brewing)) this.kind = "inventory";
     this.creative = creative;
     const palette = creative && this.kind === "inventory";
     const width = table ? 3 : this.kind === "inventory" && !creative && isVanilla() ? 2 : 0;
@@ -415,7 +491,7 @@ export class InventoryScreen {
       this.tabBtns[3].classList.toggle("hidden", vanilla);
       this.tab = vanilla ? 1 : 0;
     }
-    this.chestEl.classList.toggle("hidden", !chest);
+    this.chestEl.classList.toggle("hidden", !chest && !box);
     this.armorRow.classList.toggle("hidden", this.kind !== "inventory");
     this.offhandView.el.classList.toggle("hidden", !isVanilla());
     this.craftBox.classList.toggle("hidden", !width);
@@ -425,8 +501,12 @@ export class InventoryScreen {
     this.enchEl.classList.toggle("hidden", !enchanting);
     this.anvilEl.classList.toggle("hidden", !anvil);
     this.brewEl.classList.toggle("hidden", !brewing);
+    this.grindEl.classList.toggle("hidden", !grindstone);
+    this.cutEl.classList.toggle("hidden", !stonecutter);
     if (!enchanting) this._returnLocal(this.enchSlots);
     if (!anvil) this._returnLocal(this.anvilSlots);
+    if (!grindstone) this._returnLocal(this.grindSlots);
+    if (!stonecutter) this._returnLocal(this.cutSlots);
     if (enchanting) {
       const world = this.world || this.chests?.world;
       const [x, y, z] = this.screenPos;
@@ -444,8 +524,11 @@ export class InventoryScreen {
     if (chest) {
       const [x, y, z] = this.chestPos;
       this.chestView = this.chests.openView(x, y, z, () => this._containerUpdated());
+    } else if (box) {
+      const [x, y, z] = this.screenPos;
+      this.chestView = this.boxes.openView(x, y, z, () => this._containerUpdated());
     } else if (this.chestView) {
-      this.chests.closeView();
+      (this.chestView.store || this.chests).closeView();
       this.chestView = null;
     }
     if (furnace) {
@@ -484,6 +567,8 @@ export class InventoryScreen {
     this._returnGrid(leftovers);
     this._returnLocal(this.enchSlots, leftovers);
     this._returnLocal(this.anvilSlots, leftovers);
+    this._returnLocal(this.grindSlots, leftovers);
+    this._returnLocal(this.cutSlots, leftovers);
     this.anvilName.blur();
     this.searchEl.blur();
     this.gridWidth = 0;
@@ -494,8 +579,9 @@ export class InventoryScreen {
     this.root.classList.add("hidden");
     this.tooltipEl.classList.add("hidden");
     if (this.chestView) {
+      const cv = this.chestView;
       this.chestView = null;
-      this.chests.closeView();
+      (cv.store || this.chests).closeView();
     }
     if (this.furnaceView) {
       this.furnaceView = null;
@@ -516,7 +602,7 @@ export class InventoryScreen {
     const out = [];
     if (this.cursor) out.push(this.cursor);
     for (const s of this.grid) if (s) out.push(s);
-    for (const s of [...this.enchSlots, ...this.anvilSlots]) if (s) out.push(s);
+    for (const s of [...this.enchSlots, ...this.anvilSlots, ...this.grindSlots, ...this.cutSlots]) if (s) out.push(s);
     return out;
   }
 
@@ -535,6 +621,7 @@ export class InventoryScreen {
       }
     }
     this._anvilDirty = true;
+    this._grindDirty = true;
     this._offersFor = null;
   }
 
@@ -557,10 +644,35 @@ export class InventoryScreen {
     if (any) this._gridDirty = true;
   }
 
+  // (Round 12) The block at the screen's place (-1: not known).
+  _screenBlock(pos = this.screenPos) {
+    const world = this.world || this.chests?.world;
+    if (!world || !pos || !world.getChunk?.(pos[0] >> 4, pos[2] >> 4)) return -1;
+    return world.getBlock(pos[0], pos[1], pos[2]);
+  }
+
+  // The open furnace's kind (0 a furnace, 1 a smoker, 2 a blast furnace).
+  _furnaceKind() {
+    return Math.max(0, furnaceKind(this._screenBlock()));
+  }
+
+  _chestName() {
+    const id = this._screenBlock(this.chestPos);
+    if (id === BARREL) return "Barrel";
+    if (isShulkerBox(id)) return "Shulker Box";
+    return this.chestView?.parts?.length === 2 || isDoubleChest(id) ? "Large Chest" : "Chest";
+  }
+
+  // Whether `stack` may not go into the open chest (a shulker box into a shulker box).
+  _chestRefuses(stack) {
+    if (this.chestView?.store) return false; // (Round 12: a box takes anything)
+    return !!stack && isShulkerBox(stack.id) && isShulkerBox(this._screenBlock(this.chestPos));
+  }
+
   _title() {
     const v = this.chestView || this.furnaceView || this.brewView;
-    const name = this.chestView ? "Chest" : this.furnaceView ? "Furnace" : "Brewing Stand";
-    const local = { table: "Crafting Table", enchanting: "Enchant", anvil: "Repair & Name" }[this.kind];
+    const name = this.chestView ? this.chestView.title || this._chestName() : this.furnaceView ? FURNACE_NAMES[this._furnaceKind()] : "Brewing Stand";
+    const local = { table: "Crafting Table", enchanting: "Enchant", anvil: "Repair & Name", grindstone: "Repair & Disenchant", stonecutter: "Stonecutter" }[this.kind];
     const text = v ? (v.ready ? name : `${name} (opening...)`) : local || (this.creative ? "Creative Inventory" : "Inventory");
     if (this.titleEl.textContent !== text) this.titleEl.textContent = text;
   }
@@ -612,6 +724,10 @@ export class InventoryScreen {
     if (ref.area === "ench") return this.enchSlots[ref.index];
     if (ref.area === "anvil") return this.anvilSlots[ref.index];
     if (ref.area === "anvilOut") return this._anvilResult()?.out ?? null;
+    if (ref.area === "grind") return this.grindSlots[ref.index];
+    if (ref.area === "grindOut") return this._grindResult()?.out ?? null;
+    if (ref.area === "cut") return this.cutSlots[0];
+    if (ref.area === "cutOut") return this._cutResult();
     return null;
   }
 
@@ -651,10 +767,14 @@ export class InventoryScreen {
       sound = this._furnaceClick(ref.index, button, shift);
     } else if (ref.area === "brew") {
       sound = this._brewClick(ref.index, button, shift);
-    } else if (ref.area === "ench" || ref.area === "anvil") {
+    } else if (ref.area === "ench" || ref.area === "anvil" || ref.area === "grind" || ref.area === "cut") {
       sound = this._localClick(ref.area, ref.index, button, shift);
     } else if (ref.area === "anvilOut") {
       sound = this._takeAnvil(shift);
+    } else if (ref.area === "grindOut") {
+      sound = this._takeGrind(shift);
+    } else if (ref.area === "cutOut") {
+      sound = this._takeCut(shift);
     } else if (ref.area === "craft") {
       if (ref.index >= this.grid.length) sound = false;
       else if (shift && !this.cursor) sound = this._gridToInventory(ref.index);
@@ -670,7 +790,7 @@ export class InventoryScreen {
       sound = this._moveToFurnace(ref.index);
     } else if (ref.area === "inv" && shift && !this.cursor && this.brewView) {
       sound = this._moveToBrewing(ref.index);
-    } else if (ref.area === "inv" && shift && !this.cursor && (this.kind === "enchanting" || this.kind === "anvil") && inv.slots[ref.index]) {
+    } else if (ref.area === "inv" && shift && !this.cursor && (this.kind === "enchanting" || this.kind === "anvil" || this.kind === "grindstone" || this.kind === "stonecutter") && inv.slots[ref.index]) {
       sound = this._moveToLocal(ref.index) || quickMove(inv, ref.index);
     } else if (ref.area === "inv" && shift && !this.cursor && this.gridWidth === 3 && inv.slots[ref.index]) {
       // The table: into its grid first (vanilla), else between the hotbar and the main area.
@@ -805,7 +925,7 @@ export class InventoryScreen {
   // inventory) once it is applied. Refused: nothing changes here (the screen
   // shows what it holds now).
   _submit(changes, onOk) {
-    const store = this.furnaceView ? this.furnaces : this.brewView ? this.brewing : this.chests;
+    const store = this.furnaceView ? this.furnaces : this.brewView ? this.brewing : this.chestView?.store || this.chests;
     this.busy = true;
     store.submit(changes, (ok) => {
       this.busy = false;
@@ -846,6 +966,7 @@ export class InventoryScreen {
       this._submit([[i, before, moving.count > 0 ? { ...before, count: moving.count } : null]], () => this._give(taken, order));
       return true;
     }
+    if (this._chestRefuses(this.cursor)) return false;
     const copy = v.slots.map((s) => (s ? { ...s } : null));
     const cursor = clickSlot(copy, i, this.cursor ? { ...this.cursor } : null, button);
     if (sameStack(before, copy[i])) return false;
@@ -857,14 +978,14 @@ export class InventoryScreen {
   _moveToChest(index) {
     const v = this._chestOpen();
     const st = this.inventory.slots[index];
-    if (!v || !st) return false;
+    if (!v || !st || this._chestRefuses(st)) return false;
     const copy = v.slots.map((s) => (s ? { ...s } : null));
     const moving = { ...st };
-    addToRange(copy, moving, 0, CHEST_SLOTS);
+    addToRange(copy, moving, 0, copy.length);
     const moved = st.count - moving.count;
     if (moved <= 0) return false;
     const changes = [];
-    for (let i = 0; i < CHEST_SLOTS; i++) if (!sameStack(v.slots[i], copy[i])) changes.push([i, v.slots[i] ? { ...v.slots[i] } : null, copy[i]]);
+    for (let i = 0; i < copy.length; i++) if (!sameStack(v.slots[i], copy[i])) changes.push([i, v.slots[i] ? { ...v.slots[i] } : null, copy[i]]);
     const { id, dur } = st;
     this._submit(changes, () => this._take(index, id, dur, moved));
     return true;
@@ -926,7 +1047,7 @@ export class InventoryScreen {
     const v = this._furnaceOpen();
     const st = this.inventory.slots[index];
     if (!v || !st) return false;
-    const t = smeltingOf(st.id) ? 0 : isFuel(st.id) ? 1 : -1;
+    const t = smeltsIn(this._furnaceKind(), st.id) ? 0 : isFuel(st.id) ? 1 : -1;
     if (t < 0) return quickMove(this.inventory, index);
     const copy = copySlots(v.slots);
     const moving = { ...st };
@@ -991,7 +1112,9 @@ export class InventoryScreen {
     const st = this.inventory.slots[index];
     if (!v || !st) return false;
     let t = -1;
-    if (isIngredient(st.id) && (!v.slots[3] || (canMerge(v.slots[3], st) && v.slots[3].count < maxStack(st.id)))) t = 3;
+    // (Round 12: blaze powder to the fuel first, as vanilla)
+    if (isBrewingFuel(st.id) && (!v.slots[4] || (canMerge(v.slots[4], st) && v.slots[4].count < maxStack(st.id)))) t = 4;
+    else if (isIngredient(st.id) && (!v.slots[3] || (canMerge(v.slots[3], st) && v.slots[3].count < maxStack(st.id)))) t = 3;
     else if (isBottle(st.id)) for (let i = 0; i < 3 && t < 0; i++) if (!v.slots[i]) t = i;
     if (t < 0) return quickMove(this.inventory, index);
     const copy = copySlots(v.slots);
@@ -1010,7 +1133,7 @@ export class InventoryScreen {
   // A click on the table's slots (0 the item: one only; 1 the lapis: lapis
   // only) or the anvil's two inputs.
   _localClick(area, i, button, shift) {
-    const slots = area === "ench" ? this.enchSlots : this.anvilSlots;
+    const slots = this._localSlots(area);
     const cur = this.cursor;
     if (shift) {
       const s = slots[i];
@@ -1024,6 +1147,7 @@ export class InventoryScreen {
       return true;
     }
     if (area === "ench" && i === 1 && cur && cur.id !== LAPIS_LAZULI) return false;
+    if (area === "grind" && cur && !grindAccepts(cur)) return false;
     if (area === "ench" && i === 0 && cur) {
       const s = slots[0];
       if (!s) {
@@ -1059,18 +1183,139 @@ export class InventoryScreen {
       if (moved <= 0) return false;
       st.count -= moved;
       if (st.count <= 0) inv[index] = null;
+    } else if (this.kind === "stonecutter") {
+      // (Round 12) Onto the stone slot (the same item, or an empty one).
+      const moving = { ...st };
+      addToRange(this.cutSlots, moving, 0, 1);
+      const moved = st.count - moving.count;
+      if (moved <= 0) return false;
+      st.count -= moved;
+      if (st.count <= 0) inv[index] = null;
     } else {
-      const t = !this.anvilSlots[0] ? 0 : !this.anvilSlots[1] ? 1 : -1;
+      const slots = this.kind === "grindstone" ? this.grindSlots : this.anvilSlots;
+      if (this.kind === "grindstone" && !grindAccepts(st)) return false;
+      const t = !slots[0] ? 0 : !slots[1] ? 1 : -1;
       if (t < 0) return false;
-      this.anvilSlots[t] = st;
+      slots[t] = st;
       inv[index] = null;
     }
     this._localChanged();
     return true;
   }
 
+  // (Round 12) The local slots of an area of this screen.
+  _localSlots(area) {
+    return area === "ench" ? this.enchSlots : area === "grind" ? this.grindSlots : area === "cut" ? this.cutSlots : this.anvilSlots;
+  }
+
+  // ---------- The grindstone and the stonecutter (Round 12) ----------
+
+  // The grindstone's result for its inputs: { out, xp } or null (vanilla's
+  // GrindstoneMenu): one item, enchanted, comes out without its
+  // enchantments (an enchanted book: a book); two of the same item that
+  // wears come out as one, their uses added and 5% more, unenchanted. The
+  // experience: half to all of the enchantments' least costs.
+  _grindResult() {
+    if (this._grindDirty) {
+      this._grindDirty = false;
+      this._grind = this.kind === "grindstone" ? grindResult(this.grindSlots[0], this.grindSlots[1]) : null;
+    }
+    return this._grind;
+  }
+
+  _takeGrind(shift) {
+    const r = this._grindResult();
+    if (!r) return false;
+    if (shift) {
+      if (!addInOrder(copySlots(this.inventory.slots), { ...r.out }, ORDER_RESULT)) return false;
+      addInOrder(this.inventory.slots, { ...r.out }, ORDER_RESULT);
+    } else if (this.cursor) return false;
+    else this.cursor = { ...r.out };
+    for (let i = 0; i < 2; i++) {
+      const s = this.grindSlots[i];
+      if (!s) continue;
+      s.count -= 1;
+      if (s.count <= 0) this.grindSlots[i] = null;
+    }
+    if (r.xp > 0 && this.screenPos) {
+      const [x, y, z] = this.screenPos;
+      LIB.giveXp?.(r.xp, x + 0.5, y + 1, z + 0.5);
+    }
+    this._localChanged();
+    this.audio?.playBreak?.("stone");
+    return false;
+  }
+
+  // The stonecutter's cuts of what is on it: [[output, count], ...].
+  _cutList() {
+    const s = this.cutSlots[0];
+    if (!s) return [];
+    return stonecutting().filter(([a, b]) => a === s.id && itemInfo(b)).map(([, b, n]) => [b, n]);
+  }
+
+  _pickCut(i) {
+    if (this.kind !== "stonecutter" || this.busy) return;
+    const list = this._cutList();
+    if (i >= list.length) return;
+    this._cutPick = i;
+    this._cutFor = this.cutSlots[0]?.id ?? -1;
+    this.audio?.playClick?.();
+    this.refresh();
+  }
+
+  _cutResult() {
+    const s = this.cutSlots[0];
+    if (!s || this._cutFor !== s.id) return null;
+    const c = this._cutList()[this._cutPick];
+    return c ? makeStack(c[0], c[1]) : null;
+  }
+
+  // The cut taken (shift: as many as fit, while the stone lasts); one stone each.
+  _takeCut(shift) {
+    let n = 0;
+    for (let guard = 0; guard < 64; guard++) {
+      const out = this._cutResult();
+      if (!out) break;
+      if (shift) {
+        if (!addInOrder(copySlots(this.inventory.slots), { ...out }, ORDER_RESULT)) break;
+        addInOrder(this.inventory.slots, { ...out }, ORDER_RESULT);
+      } else {
+        const c = this.cursor;
+        if (!c) this.cursor = { ...out };
+        else if (canMerge(c, out) && c.count + out.count <= maxStack(out.id)) c.count += out.count;
+        else break;
+      }
+      const s = this.cutSlots[0];
+      s.count -= 1;
+      if (s.count <= 0) this.cutSlots[0] = null;
+      n++;
+      if (!shift) break;
+    }
+    if (n) this.audio?.playBreak?.("stone");
+    return false;
+  }
+
+  _refreshGrind() {
+    this.grindViews.forEach((v, i) => v.set(this.grindSlots[i]));
+    this.grindOutView.set(this._grindResult()?.out ?? null);
+  }
+
+  _refreshCut() {
+    this.cutInView.set(this.cutSlots[0]);
+    const list = this._cutList();
+    if (this._cutFor !== (this.cutSlots[0]?.id ?? -1)) this._cutPick = -1;
+    this.cutRecipeViews.forEach((v, i) => {
+      const c = list[i];
+      v.el.classList.toggle("hidden", !c);
+      v.el.classList.toggle("sel", i === this._cutPick);
+      v.set(c ? makeStack(c[0], c[1]) : null);
+    });
+    this.cutOutView.set(this._cutResult());
+  }
+
   _localChanged() {
     this._anvilDirty = true;
+    this._grindDirty = true;
     this._offersFor = null;
     // (A new item on the anvil: its name in the box, as vanilla.)
     if (this.kind === "anvil") {
@@ -1210,6 +1455,7 @@ export class InventoryScreen {
       const sent = this.inventory.slots[h] ? { ...this.inventory.slots[h] } : null;
       if (!before && !sent) return;
       if (furnace && sent && !furnaceAccepts(i, sent.id)) return;
+      if (!furnace && !brew && this._chestRefuses(sent)) return;
       if (brew && sent && (!brewingAccepts(i, sent.id) || (i < 3 && sent.count > 1))) return;
       this._submit([[i, before, sent]], () => {
         const slots = this.inventory.slots;
@@ -1275,13 +1521,14 @@ export class InventoryScreen {
   // (Round 11) Keys over the table's or the anvil's slots: 1-9 swaps with the
   // hotbar (what the slot takes), Q drops from it.
   _localKey(ref, code, ctrl) {
-    const slots = ref.area === "ench" ? this.enchSlots : this.anvilSlots;
+    const slots = this._localSlots(ref.area);
     const i = ref.index;
     const m = /^Digit([1-9])$/.exec(code);
     if (m) {
       const h = Number(m[1]) - 1;
       const hot = this.inventory.slots[h];
       if (hot && ref.area === "ench" && (i === 1 ? hot.id !== LAPIS_LAZULI : hot.count > 1)) return;
+      if (hot && ref.area === "grind" && !grindAccepts(hot)) return;
       this.inventory.slots[h] = slots[i];
       slots[i] = hot;
     } else if (code === "KeyQ" && slots[i]) {
@@ -1318,7 +1565,7 @@ export class InventoryScreen {
       this._containerKey(this.hover.index, code, ctrl);
       return true;
     }
-    if (this.hover && (this.hover.area === "ench" || this.hover.area === "anvil") && key) {
+    if (this.hover && (this.hover.area === "ench" || this.hover.area === "anvil" || this.hover.area === "grind" || this.hover.area === "cut") && key) {
       this._localKey(this.hover, code, ctrl);
       this.refresh();
       this._changed();
@@ -1453,7 +1700,7 @@ export class InventoryScreen {
     if (!this.isOpen) return;
     // (The crafting table broken meanwhile, by anyone: the screen closes, as in vanilla.)
     // (Round 11: the enchanting table and the anvil too.)
-    const BLOCK_OF = { table: (id) => id === BLOCK.CRAFTING_TABLE, enchanting: (id) => id === ENCHANTING_TABLE, anvil: isAnvil };
+    const BLOCK_OF = { table: (id) => id === BLOCK.CRAFTING_TABLE, enchanting: (id) => id === ENCHANTING_TABLE, anvil: isAnvil, grindstone: (id) => id === GRINDSTONE || id === GRINDSTONE + 1, stonecutter: (id) => id === STONECUTTER || id === STONECUTTER + 1 };
     if (BLOCK_OF[this.kind]) {
       const world = this.world || this.chests?.world;
       const [x, y, z] = this.screenPos;
@@ -1466,7 +1713,16 @@ export class InventoryScreen {
     for (let i = 0; i < INVENTORY_SIZE; i++) this.invViews[i].set(this.inventory.slots[i]);
     const cv = this.chestView;
     if (cv) {
-      for (let i = 0; i < CHEST_SLOTS; i++) this.chestViews[i].set(cv.ready && !cv.gone ? cv.slots[i] : null);
+      // (Round 12: a double chest's six rows, a single one's three.)
+      // (Round 12: a box's own size, its slots in a row or a square in the middle)
+      const n = cv.size || (cv.parts?.length || 1) * CHEST_SLOTS;
+      if (n !== this._chestRows) {
+        this._chestRows = n;
+        this.chestViews.forEach((v, i) => v.el.classList.toggle("hidden", i >= n));
+        this._chestGrid.style.gridTemplateColumns = cv.cols ? `repeat(${cv.cols}, 38px)` : "";
+        this._chestGrid.style.justifyContent = cv.cols ? "center" : "";
+      }
+      for (let i = 0; i < n; i++) this.chestViews[i].set(cv.ready && !cv.gone ? cv.slots[i] : null);
       this._title();
     }
     if (this.gridWidth) {
@@ -1487,6 +1743,8 @@ export class InventoryScreen {
     }
     if (this.kind === "enchanting") this._refreshEnchanting();
     if (this.kind === "anvil") this._refreshAnvil();
+    if (this.kind === "grindstone") this._refreshGrind();
+    if (this.kind === "stonecutter") this._refreshCut();
     const bv = this.brewView;
     if (bv) {
       const ok = bv.ready && !bv.gone;
@@ -1497,6 +1755,8 @@ export class InventoryScreen {
         this.brewArrowFill.style.height = `${(t / 26) * 100}%`;
         this.bubbleFill.style.height = t ? `${((t * 7) % 26) / 26 * 100}%` : "0%";
       }
+      const fuel = ok ? bv.b?.fuel | 0 : 0;
+      if (fuel !== this._brewFuel) this.brewFuelFill.style.width = `${((this._brewFuel = fuel) / BREWING_FUEL) * 100}%`;
       this._title();
     }
     this.armorViews.forEach((v, i) => v.set(this.inventory.armor[i]));
@@ -1508,4 +1768,40 @@ export class InventoryScreen {
     this.cursorView.set(this.cursor);
     if (!this.cursor !== this._cursorHidden) this.cursorView.el.classList.toggle("hidden", (this._cursorHidden = !this.cursor));
   }
+}
+
+// (Round 12) What the grindstone's slots take: an item that wears or is
+// enchanted, or an enchanted book.
+function grindAccepts(s) {
+  return !!s && (s.dur !== undefined || isEnchanted(s) || s.id === ENCHANTED_BOOK);
+}
+
+// The grindstone's result (see InventoryScreen._grindResult).
+function grindResult(top, bottom) {
+  const strip = (tag) => {
+    const t = withEnchants(tag, null);
+    if (!t) return undefined;
+    const out = { ...t };
+    delete out.rc;
+    return out.name ? { name: out.name } : undefined;
+  };
+  const xpOf = (s) => {
+    let n = 0;
+    for (const [k, l] of s?.tag?.ench || []) n += ENCHANTMENTS[k]?.min(l) ?? 0;
+    return n;
+  };
+  let out = null;
+  if (top && bottom) {
+    if (top.id !== bottom.id || top.dur === undefined || bottom.dur === undefined || top.count !== 1 || bottom.count !== 1) return null;
+    const max = makeStack(top.id, 1).dur;
+    if (!max) return null;
+    out = makeStack(top.id, 1, Math.min(max, top.dur + bottom.dur + Math.floor((max * 5) / 100)), strip(top.tag));
+  } else {
+    const s = top || bottom;
+    if (!s || !(isEnchanted(s) || s.id === ENCHANTED_BOOK)) return null;
+    out = s.id === ENCHANTED_BOOK ? makeStack(BOOK, 1, undefined, strip(s.tag)) : makeStack(s.id, 1, s.dur, strip(s.tag));
+  }
+  const total = xpOf(top) + xpOf(bottom);
+  const half = Math.ceil(total / 2);
+  return { out, xp: total > 0 ? half + Math.floor(Math.random() * half) : 0 };
 }

@@ -17,6 +17,17 @@
 // cod and salmon in the water; vanilla drops, health and AI. A Missions world
 // keeps its mobs exactly as before (the new kinds never spawn there, except
 // from a Creative spawn egg).
+//
+// (Round 12) The Nether's and the End's creatures (vanilla Java 1.20): the
+// ghast and its fireballs (hit one back), zombified piglins (a whole group
+// turns on whoever hits one), piglins (hostile unless you wear gold; they
+// barter for gold ingots), hoglins (afraid of warped fungi), blazes, magma
+// cubes, wither skeletons (their blow withers), striders on the lava;
+// endermen in the Nether and the End, endermites from ender pearls,
+// shulkers in end cities, silverfish. Their spawning by dimension and
+// biome is DIMS.nether / DIMS.end spawnMobs (set below). Fireballs and
+// shulker bullets are creatures too (`projectile`): drawn, sent online and
+// hit like one, never counted as one.
 import * as THREE from "three";
 import { BLOCK, BLOCK_INFO, IS_SOLID, IS_LEAVES, IS_WET, IS_OPAQUE, COLLISION_BOXES } from "./blocks.js";
 import { ITEM, meleeDamage, isValidItem, maxStack, blockDrops } from "./items.js";
@@ -29,14 +40,19 @@ import { Crowd } from "./crowd.js";
 import { Pathfinder } from "./pathfinding.js";
 import { meleeCause, shooterCause } from "./damage.js";
 import { isVanilla } from "./worldtype.js";
+import { touchesCactus } from "./survival.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { dyeColorOf, mixDyeColors } from "./content/decor.js";
 import { makeOffers, encodeOffers, decodeOffers, PROFESSION_NAMES, NITWIT } from "./trading.js";
-import { SEA_LEVEL } from "./constants.js";
-import { SNOWY_GRASS } from "./content/nature.js";
+import { SEA_LEVEL, WORLD_HEIGHT } from "./constants.js";
+import { SNOWY_GRASS, isLava } from "./content/nature.js";
+import { potionId } from "./content/items-vanilla.js";
+import { WITHER_SKELETON_SKULL } from "./content/mobs-vanilla.js";
+import { DIMS, PORTAL_BLOCKS } from "./dim-registry.js";
+import * as NetherGen from "./dim-nether.js";
 
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4 }; // (a Survival world's blasts: explosion())
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, ghast: 1, end_crystal: 6, end_respawn: 5 }; // (a Survival world's blasts: explosion(); Round 12: a ghast's fireball)
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
@@ -263,6 +279,98 @@ export const SPECIES = {
     speed: 1.2, maxDrop: 1, weight: 0, flies: true, swims: true, homeRadius: 10, xp: [1, 3],
     drops: [[V.SALMON, 1, 1, 1, V.COOKED_SALMON], [V.BONE_MEAL, 1, 1, 0.05]],
   },
+  // ---- (Round 12) The Nether's and the End's (vanilla Java 1.20 on Normal).
+  // fireproof: fire and lava don't hurt it; armor: vanilla's armor points
+  // (a blow or a shot hurts less); floats: flies (the ghast: _physicsFloat);
+  // hovers: falls slowly and rises to its target (the blaze); wet: water
+  // and rain hurt it; lavaWalker: walks on lava; still: never moves (a
+  // shulker, stuck to its block); keeps: saved with the world when a
+  // structure put it there (persist). ----
+  ghast: {
+    name: "Ghast", vanilla: true, hostile: true, health: 10, r: 2, h: 4, eye: 2.6,
+    speed: 2.2, chaseSpeed: 2.2, maxDrop: 99, damage: 0, sight: 100, floats: true, noFall: true, noBurn: true, fireproof: true, loud: true, brain: "ghast", xp: [5, 5],
+    drops: [[V.GUNPOWDER, 0, 2, 1], [V.GHAST_TEAR, 0, 1, 1]],
+  },
+  zombified_piglin: {
+    name: "Zombified Piglin", vanilla: true, hostile: true, health: 20, armor: 2, r: 0.3, h: 1.95, eye: 1.79,
+    speed: 1.1, chaseSpeed: 2.9, maxDrop: 3, damage: 8, sight: 35, noBurn: true, fireproof: true, brain: "zpiglin", xp: [5, 5],
+    drops: [[V.ROTTEN_FLESH, 0, 1, 1], [V.GOLD_NUGGET, 0, 1, 1], [ITEM.GOLD_INGOT, 1, 1, 0.025, 0, true], [V.GOLDEN_SWORD, 1, 1, 0.085, 0, true]],
+  },
+  piglin: {
+    name: "Piglin", vanilla: true, hostile: true, health: 16, r: 0.3, h: 1.95, eye: 1.79,
+    speed: 1.4, chaseSpeed: 3.4, maxDrop: 3, damage: 8, sight: 16, noBurn: true, brain: "piglin", keeps: true, xp: [5, 5], babyXp: [1, 1],
+    drops: [[V.GOLDEN_SWORD, 1, 1, 0.085, 0, true]],
+  },
+  hoglin: {
+    name: "Hoglin", vanilla: true, hostile: true, health: 40, r: 0.7, h: 1.4, eye: 0.9,
+    speed: 1.1, chaseSpeed: 2.6, maxDrop: 3, damage: 6, sight: 16, noBurn: true, brain: "hoglin", grows: true, keeps: true, xp: [5, 5], babyXp: [1, 1], breed: [V.CRIMSON_FUNGUS],
+    drops: [[V.PORKCHOP, 2, 4, 1, V.COOKED_PORKCHOP], [V.LEATHER, 0, 1, 1]],
+  },
+  // (A hoglin out of the Nether turns into one: it fights anything that moves.)
+  zoglin: {
+    name: "Zoglin", vanilla: true, hostile: true, health: 40, r: 0.7, h: 1.4, eye: 0.9,
+    speed: 1.0, chaseSpeed: 2.3, maxDrop: 3, damage: 6, sight: 16, noBurn: true, brain: "hoglin", xp: [5, 5], babyXp: [1, 1],
+    drops: [[V.ROTTEN_FLESH, 1, 3, 1]],
+  },
+  blaze: {
+    name: "Blaze", vanilla: true, hostile: true, glows: true, health: 20, armor: 6, r: 0.3, h: 1.8, eye: 1.53,
+    speed: 1.0, chaseSpeed: 1.6, maxDrop: 99, damage: 6, sight: 48, noBurn: true, noFall: true, fireproof: true, hovers: true, wet: true, brain: "blaze", xp: [10, 10],
+    drops: [[V.BLAZE_ROD, 0, 1, 1, 0, true]],
+  },
+  magma_cube: {
+    name: "Magma Cube", vanilla: true, hostile: true, glows: true, health: 16, armor: 12, r: 1.02, h: 2.04, eye: 1.4,
+    speed: 2.6, chaseSpeed: 2.6, maxDrop: 99, damage: 6, sight: 16, noBurn: true, noFall: true, fireproof: true, brain: "slime", magma: true, size: 4, split: "magma_cube_medium", xp: [4, 4],
+    drops: [[V.MAGMA_CREAM, 1, 1, 0.25]],
+  },
+  magma_cube_medium: {
+    name: "Magma Cube", vanilla: true, hostile: true, glows: true, health: 4, armor: 6, r: 0.51, h: 1.02, eye: 0.7,
+    speed: 2.2, chaseSpeed: 2.2, maxDrop: 99, damage: 4, sight: 16, noBurn: true, noFall: true, fireproof: true, brain: "slime", magma: true, size: 2, split: "magma_cube_small", xp: [2, 2],
+    drops: [[V.MAGMA_CREAM, 1, 1, 0.25]],
+  },
+  magma_cube_small: {
+    name: "Magma Cube", vanilla: true, hostile: true, glows: true, health: 1, armor: 3, r: 0.26, h: 0.52, eye: 0.35,
+    speed: 1.8, chaseSpeed: 1.8, maxDrop: 99, damage: 3, sight: 16, noBurn: true, noFall: true, fireproof: true, brain: "slime", magma: true, size: 1, xp: [1, 1],
+    drops: [],
+  },
+  wither_skeleton: {
+    name: "Wither Skeleton", vanilla: true, hostile: true, health: 20, r: 0.35, h: 2.4, eye: 2.1,
+    speed: 1.0, chaseSpeed: 2.9, maxDrop: 3, damage: 8, sight: 16, noBurn: true, fireproof: true, hitEffect: ["wither", 10, 1], xp: [5, 5],
+    drops: [[ITEM.COAL, 1, 1, 1 / 3], [V.BONE, 0, 2, 1], [WITHER_SKELETON_SKULL, 1, 1, 0.025, 0, true], [ITEM.STONE_SWORD, 1, 1, 0.085, 0, true]],
+  },
+  strider: {
+    name: "Strider", vanilla: true, hostile: false, health: 20, r: 0.45, h: 1.7, eye: 1.4,
+    speed: 1.6, fleeSpeed: 2.2, maxDrop: 3, weight: 0, fireproof: true, lavaWalker: true, wet: true, brain: "strider", xp: [1, 3], breed: [V.WARPED_FUNGUS],
+    drops: [[V.STRING, 2, 5, 1]],
+  },
+  endermite: {
+    name: "Endermite", vanilla: true, hostile: true, health: 8, r: 0.2, h: 0.3, eye: 0.13,
+    speed: 1.0, chaseSpeed: 2.4, maxDrop: 3, damage: 2, sight: 16, noBurn: true, lifetime: 120, xp: [3, 3],
+    drops: [],
+  },
+  silverfish: {
+    name: "Silverfish", vanilla: true, hostile: true, health: 8, r: 0.2, h: 0.3, eye: 0.13,
+    speed: 1.0, chaseSpeed: 2.4, maxDrop: 3, damage: 1, sight: 16, noBurn: true, brain: "silverfish", xp: [5, 5],
+    drops: [],
+  },
+  shulker: {
+    name: "Shulker", vanilla: true, hostile: true, health: 30, r: 0.5, h: 1, eye: 0.5,
+    speed: 0, chaseSpeed: 0, maxDrop: 99, damage: 0, sight: 16, noBurn: true, noFall: true, still: true, keeps: true, brain: "shulker", xp: [5, 5],
+    drops: [[V.SHULKER_SHELL, 1, 1, 0.5]],
+  },
+  // Fireballs and bullets in flight (_projectileStep): a ghast's (it can be
+  // hit back), a blaze's, a shulker's (it homes in; a hit breaks it).
+  ghast_fireball: {
+    name: "Fireball", vanilla: true, special: true, projectile: true, pickable: true, glows: true, health: 1, r: 0.375, h: 0.75, eye: 0.375,
+    speed: 0, maxDrop: 0, weight: 0, noBurn: true, fireproof: true, drops: [],
+  },
+  small_fireball: {
+    name: "Small Fireball", vanilla: true, special: true, projectile: true, glows: true, health: 1, r: 0.16, h: 0.32, eye: 0.16,
+    speed: 0, maxDrop: 0, weight: 0, noBurn: true, fireproof: true, drops: [],
+  },
+  shulker_bullet: {
+    name: "Shulker Bullet", vanilla: true, special: true, projectile: true, pickable: true, glows: true, health: 1, r: 0.16, h: 0.32, eye: 0.16,
+    speed: 0, maxDrop: 0, weight: 0, noBurn: true, fireproof: true, drops: [],
+  },
 };
 
 // (Round 11) The game's own kinds as they are in a Survival world: vanilla
@@ -294,7 +402,7 @@ function babySpec(spec) {
     if (spec.hostile) {
       b.speed = spec.speed * 1.5;
       b.chaseSpeed = spec.chaseSpeed * 1.5;
-      b.xp = [12, 12]; // (a baby zombie: vanilla's 12)
+      b.xp = spec.babyXp || [12, 12]; // (a baby zombie: vanilla's 12)
     } else b.drops = [];
     babySpecs.set(spec, b);
   }
@@ -371,7 +479,154 @@ const VANILLA_VOICES = {
   },
   cod: { hurt: [{ noise: { type: "bandpass", f: 900, q: 2, d: 0.08, v: 0.2, n: 2, spread: 0.1 } }] },
   salmon: { hurt: [{ noise: { type: "bandpass", f: 800, q: 2, d: 0.08, v: 0.2, n: 2, spread: 0.1 } }] },
+  // (Round 12) The Nether's and the End's.
+  ghast: {
+    idle: [{ f0: 560, f1: 470, d: 1.4, v: 0.15, formants: [[900, 5, 1], [2300, 6, 0.35]], vib: 0.05, breath: 0.35 }],
+    charge: [{ f0: 950, f1: 1350, d: 0.55, v: 0.24, formants: [[1500, 4, 1], [3100, 5, 0.4]], vib: 0.06, breath: 0.45 }],
+    shoot: [{ noise: { type: "bandpass", f: 650, q: 0.8, d: 0.5, v: 0.34, fEnd: 220, attack: 0.03 } }],
+    hurt: [{ f0: 1150, f1: 760, d: 0.45, v: 0.24, formants: [[1600, 4, 1]], vib: 0.06, breath: 0.4 }],
+    death: [{ f0: 950, f1: 210, d: 1.9, v: 0.26, formants: [[1250, 4, 1], [2700, 5, 0.4]], vib: 0.07, breath: 0.45 }],
+  },
+  blaze: {
+    idle: [{ noise: { type: "bandpass", f: 420, q: 1.4, d: 1.0, v: 0.16, attack: 0.35 } }, { f0: 130, f1: 110, d: 0.9, v: 0.05, formants: [[420, 3, 1]], breath: 0.8, delay: 0.1 }],
+    charge: [{ noise: { type: "lowpass", f: 1400, q: 0.7, d: 0.6, v: 0.2, n: 5, spread: 0.11 } }],
+    shoot: [{ noise: { type: "lowpass", f: 900, q: 1, d: 0.28, v: 0.3, fEnd: 260 } }],
+    hurt: [{ noise: { type: "bandpass", f: 900, q: 2, d: 0.3, v: 0.24 } }, { f0: 240, f1: 170, d: 0.3, v: 0.1, formants: [[620, 5, 1]], breath: 0.6 }],
+    death: [{ noise: { type: "lowpass", f: 700, q: 1, d: 1.1, v: 0.3, fEnd: 120 } }, { f0: 220, f1: 80, d: 1.1, v: 0.12, formants: [[540, 4, 1]], breath: 0.6 }],
+  },
+  zombified_piglin: {
+    idle: [{ f0: 135, f1: 105, d: 0.5, v: 0.2, formants: [[380, 5, 1], [900, 6, 0.5]], vib: 0.04, breath: 0.4 }],
+    angry: [{ f0: 210, f1: 150, d: 0.55, v: 0.25, formants: [[520, 4, 1], [1250, 5, 0.5]], vib: 0.05, breath: 0.45 }],
+    hurt: [{ f0: 230, f1: 160, d: 0.3, v: 0.24, formants: [[560, 5, 1]], breath: 0.4 }],
+    death: [{ f0: 190, f1: 70, d: 1.0, v: 0.25, formants: [[460, 5, 1], [1000, 6, 0.4]], breath: 0.45 }],
+  },
+  piglin: {
+    idle: [{ noise: { type: "bandpass", f: 620, q: 3, d: 0.11, v: 0.2, n: 2, spread: 0.14 } }, { f0: 200, f1: 165, d: 0.3, v: 0.15, formants: [[620, 5, 1], [1450, 6, 0.4]], breath: 0.35, delay: 0.25 }],
+    admire: [{ f0: 260, f1: 330, d: 0.35, v: 0.17, formants: [[700, 5, 1], [1600, 6, 0.4]], breath: 0.3 }, { f0: 300, f1: 360, d: 0.25, v: 0.15, formants: [[720, 5, 1]], breath: 0.3, delay: 0.4 }],
+    angry: [{ f0: 280, f1: 200, d: 0.45, v: 0.24, formants: [[650, 4, 1], [1500, 5, 0.5]], breath: 0.4 }],
+    hurt: [{ f0: 300, f1: 210, d: 0.25, v: 0.24, formants: [[700, 5, 1]], breath: 0.35 }],
+    death: [{ f0: 260, f1: 90, d: 0.9, v: 0.24, formants: [[620, 5, 1], [1400, 6, 0.4]], breath: 0.4 }],
+  },
+  hoglin: {
+    idle: [{ f0: 92, f1: 74, d: 0.55, v: 0.26, formants: [[300, 4, 1], [720, 5, 0.4]], vib: 0.04, breath: 0.45 }],
+    attack: [{ noise: { type: "lowpass", f: 320, q: 1, d: 0.25, v: 0.42, fEnd: 90 } }, { f0: 120, f1: 90, d: 0.35, v: 0.22, formants: [[360, 4, 1]], breath: 0.5 }],
+    hurt: [{ f0: 150, f1: 105, d: 0.35, v: 0.27, formants: [[400, 4, 1], [900, 5, 0.4]], breath: 0.45 }],
+    death: [{ f0: 130, f1: 50, d: 1.1, v: 0.27, formants: [[350, 4, 1], [800, 5, 0.4]], breath: 0.5 }],
+  },
+  magma: {
+    hop: [{ noise: { type: "lowpass", f: 380, q: 2, d: 0.16, v: 0.34, fEnd: 120 } }],
+    attack: [{ noise: { type: "lowpass", f: 450, q: 2, d: 0.16, v: 0.34, fEnd: 140 } }],
+    hurt: [{ noise: { type: "bandpass", f: 520, q: 2, d: 0.18, v: 0.3 } }],
+    death: [{ noise: { type: "lowpass", f: 480, q: 2, d: 0.4, v: 0.32, fEnd: 100 } }],
+  },
+  wither_skeleton: {
+    idle: [{ noise: { type: "bandpass", f: 2300, q: 4, d: 0.05, v: 0.14, n: 5, spread: 0.07 } }],
+    hurt: [{ noise: { type: "bandpass", f: 1700, q: 3, d: 0.06, v: 0.22, n: 3, spread: 0.05 } }],
+    death: [{ noise: { type: "bandpass", f: 1500, q: 3, d: 0.07, v: 0.24, n: 7, spread: 0.06 } }],
+  },
+  strider: {
+    idle: [{ f0: 700, f1: 920, d: 0.18, v: 0.12, formants: [[1250, 6, 1]], breath: 0.2 }, { f0: 760, f1: 980, d: 0.14, v: 0.1, formants: [[1300, 6, 1]], breath: 0.2, delay: 0.22 }],
+    hurt: [{ f0: 900, f1: 640, d: 0.25, v: 0.2, formants: [[1300, 5, 1]], breath: 0.3 }],
+    death: [{ f0: 820, f1: 260, d: 0.8, v: 0.2, formants: [[1200, 5, 1]], breath: 0.35 }],
+  },
+  endermite: {
+    idle: [{ f0: 2300, f1: 2800, d: 0.08, v: 0.09, formants: [[3200, 6, 1]], breath: 0.3 }],
+    hurt: [{ f0: 2600, f1: 2000, d: 0.1, v: 0.12, formants: [[3000, 6, 1]], breath: 0.3 }],
+    death: [{ f0: 2400, f1: 1200, d: 0.25, v: 0.12, formants: [[2800, 6, 1]], breath: 0.3 }],
+  },
+  silverfish: {
+    idle: [{ noise: { type: "bandpass", f: 4200, q: 5, d: 0.04, v: 0.1, n: 3, spread: 0.05 } }],
+    hurt: [{ f0: 2000, f1: 2600, d: 0.1, v: 0.12, formants: [[3000, 6, 1]], breath: 0.4 }],
+    death: [{ f0: 2200, f1: 900, d: 0.3, v: 0.12, formants: [[2600, 6, 1]], breath: 0.4 }],
+  },
+  shulker: {
+    open: [{ noise: { type: "lowpass", f: 520, q: 2, d: 0.35, v: 0.2, attack: 0.08 } }],
+    close: [{ noise: { type: "lowpass", f: 380, q: 2, d: 0.25, v: 0.22 } }],
+    shoot: [{ f0: 900, f1: 1450, d: 0.22, v: 0.13, formants: [[1800, 5, 1]], breath: 0.3 }],
+    hurt: [{ noise: { type: "bandpass", f: 700, q: 3, d: 0.2, v: 0.24 } }],
+    death: [{ noise: { type: "lowpass", f: 600, q: 2, d: 0.6, v: 0.26, fEnd: 120 } }],
+  },
 };
+// (A zoglin is a hoarser hoglin; the magma cubes share one set. Online, a
+// guest hears a shot leave as its fireball or bullet appears: "launch".)
+VANILLA_VOICES.zoglin = VANILLA_VOICES.hoglin;
+VANILLA_VOICES.ghast_fireball = { launch: VANILLA_VOICES.ghast.shoot };
+VANILLA_VOICES.small_fireball = { launch: VANILLA_VOICES.blaze.shoot };
+VANILLA_VOICES.shulker_bullet = { launch: VANILLA_VOICES.shulker.shoot };
+// (Round 12) The Nether's spawns by its biome, and inside a fortress
+// (vanilla 1.20's lists: [kind, weight, smallest group, biggest]); the
+// End's. (A magma cube's size and a baby are picked when it is made.)
+const NETHER_SPAWNS = {
+  nether_wastes: [["ghast", 50, 4, 4], ["zombified_piglin", 100, 4, 4], ["magma_cube", 2, 4, 4], ["enderman", 1, 4, 4], ["piglin", 15, 4, 4]],
+  soul_sand_valley: [["skeleton", 20, 5, 5], ["ghast", 50, 4, 4], ["enderman", 1, 4, 4]],
+  crimson_forest: [["zombified_piglin", 1, 2, 4], ["hoglin", 9, 3, 4], ["piglin", 5, 3, 4]],
+  warped_forest: [["enderman", 1, 4, 4]],
+  basalt_deltas: [["ghast", 40, 1, 1], ["magma_cube", 100, 2, 5]],
+};
+const FORTRESS_SPAWNS = [["blaze", 10, 2, 3], ["zombified_piglin", 5, 4, 4], ["wither_skeleton", 8, 5, 5], ["skeleton", 2, 5, 5], ["magma_cube", 3, 4, 4]];
+const END_SPAWNS = [["enderman", 10, 4, 4]];
+// The Nether's light rule (its monster light level 7): these come only where
+// the block light is at most this; every other kind of the Nether comes at
+// any light (vanilla's own spawn checks).
+const NETHER_DARK = { skeleton: 7, wither_skeleton: 7, enderman: 7, blaze: 11 };
+// The generator's biome numbers (js/dim-nether.js NETHER_BIOME) to the lists' names.
+const NB = NetherGen.NETHER_BIOME || {};
+const NETHER_BIOME_KEYS = { [NB.WASTES ?? 0]: "nether_wastes", [NB.SOUL_SAND_VALLEY ?? 1]: "soul_sand_valley", [NB.CRIMSON_FOREST ?? 2]: "crimson_forest", [NB.WARPED_FOREST ?? 3]: "warped_forest", [NB.BASALT_DELTAS ?? 4]: "basalt_deltas" };
+const NETHER_REACH = 96; // blocks: how far out the Nether's creatures come
+const BASTION_PIGLINS = 3; // at most, in each chunk of a bastion remnant (vanilla's stand in its rooms)
+const NETHER_MAX_STRIDERS = 8; // per player (vanilla's creature cap, for the lava)
+const END_MAX_HOSTILE = 24; // per player (the End's endermen are many)
+const MAGMA_SIZES = ["magma_cube_small", "magma_cube_medium", "magma_cube"];
+const BABY_CHANCE = { zombified_piglin: 0.05, piglin: 0.2, hoglin: 0.2 };
+// A ghast's fireball: power 1 (effects.js units: TNT's 4 is 16/3); a nether
+// portal block's chance a second to let a zombified piglin through (vanilla:
+// random ticks, 3 a section a tick, then 2 in 2000 on Normal).
+const GHAST_BLAST = 4 / 3;
+const PORTAL_PIGLIN_RATE = ((3 / 4096) * 20 * 2) / 2000;
+const TICK = 0.05; // (vanilla's tick: the fireballs fly by it)
+// Bartering (vanilla 1.20's table: [item, fewest, most, weight]; an item
+// the game lacks is left out of the draw).
+const BARTER = [
+  [ITEM.IRON_BOOTS, 1, 1, 8], // (vanilla's have Soul Speed: no such enchantment here)
+  [potionId("fire_resistance", "base", true), 1, 1, 8],
+  [potionId("fire_resistance"), 1, 1, 8],
+  [V.POTION, 1, 1, 10], // (a water bottle)
+  [V.IRON_NUGGET, 10, 36, 10],
+  [V.ENDER_PEARL, 2, 4, 10],
+  [V.STRING, 3, 9, 20],
+  [V.QUARTZ, 5, 12, 20],
+  [V.OBSIDIAN, 1, 1, 40],
+  [V.CRYING_OBSIDIAN, 1, 3, 40],
+  [V.FIRE_CHARGE, 1, 1, 40],
+  [V.LEATHER, 2, 4, 40],
+  [V.SOUL_SAND, 2, 8, 40],
+  [V.NETHER_BRICK, 2, 8, 40],
+  [V.SPECTRAL_ARROW, 6, 12, 40],
+  [BLOCK.GRAVEL, 8, 16, 40],
+  [V.BLACKSTONE, 8, 16, 40],
+];
+const WORLD_TOP = WORLD_HEIGHT - 1;
+const LAVA_IDS = new Set([V.LAVA]);
+const ADMIRE_TIME = 6; // seconds a piglin looks at a gold ingot before it barters (vanilla: 120 ticks)
+const ZOMBIFY_TIME = 15; // seconds a piglin or a hoglin lasts out of the Nether (vanilla: 300 ticks)
+const GOLD_ARMOR = new Set([ITEM.GOLD_HELMET, ITEM.GOLD_CHESTPLATE, ITEM.GOLD_LEGGINGS, ITEM.GOLD_BOOTS]);
+// What a hoglin keeps away from (vanilla: warped fungi, nether portals,
+// respawn anchors within 8 blocks).
+const HOGLIN_FEARS = new Set([V.WARPED_FUNGUS, V.NETHER_PORTAL, V.NETHER_PORTAL + 1, ...[0, 1, 2, 3, 4].map((k) => V.RESPAWN_ANCHOR + k)].filter(Number.isFinite));
+// A shulker's block: the way to it, by its `variant` (0 under it, 1 over it, then +x, -x, +z, -z).
+const ATTACH = [[0, -1, 0], [0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+const _up = new THREE.Vector3(0, 1, 0);
+const _q = new THREE.Quaternion();
+const _qy = new THREE.Quaternion();
+// Silverfish hide in these (vanilla's infested blocks: [the stone, its infested twin]).
+const INFESTED = [[BLOCK.STONE, V.INFESTED_STONE], [BLOCK.COBBLESTONE, V.INFESTED_COBBLESTONE], [V.STONE_BRICKS, V.INFESTED_STONE_BRICKS], [V.MOSSY_STONE_BRICKS, V.INFESTED_MOSSY_STONE_BRICKS], [V.CRACKED_STONE_BRICKS, V.INFESTED_CRACKED_STONE_BRICKS], [V.CHISELED_STONE_BRICKS, V.INFESTED_CHISELED_STONE_BRICKS]].filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b));
+const INFEST_OF = new Map(INFESTED);
+const INFESTED_IDS = new Set(INFESTED.map(([, b]) => b));
+// Vanilla's armor: what a blow of `amount` does through `armor` points (no toughness).
+const throughArmor = (amount, armor) => amount * (1 - Math.min(20, Math.max(armor / 5, armor - amount / 2)) / 25);
+// A normal-ish random number (mean 0, about unit spread), for vanilla's nextGaussian.
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 2;
+
 const r2 = (v) => Math.round(v * 100) / 100;
 // (Fences and walls: a 1.5-tall collision box no mob can jump.)
 const TALL = new Uint8Array(COLLISION_BOXES.length);
@@ -379,6 +634,9 @@ for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.som
 // (The top of a block's collision in its cell: a slab 0.5, farmland 0.9375, a full block 1.)
 const TOP = new Float32Array(COLLISION_BOXES.length).fill(1);
 for (let id = 0; id < COLLISION_BOXES.length; id++) if (COLLISION_BOXES[id]?.length) TOP[id] = Math.min(1, Math.max(...COLLISION_BOXES[id].map((b) => b[4])));
+// (Round 12) A floor a creature may come into being on: solid and opaque,
+// whole or nearly (soul sand's 14/16 too, as vanilla: its top face is sturdy).
+const spawnFloor = (id) => IS_SOLID[id] === 1 && IS_OPAQUE[id] === 1 && (!COLLISION_BOXES[id] || TOP[id] >= 0.875);
 // The floor a creature stands on in cell (x, y, z): y + the top of its box (-Infinity: not solid).
 const surface = (w, x, y, z) => {
   const id = w.getBlock(x, y, z);
@@ -517,6 +775,18 @@ export class MobManager {
     this.onPuppetSpawn = null; // (kind, x, y, z, baby, variant) => void: a guest's egg or spawn egg
     // Content code (a thrown egg, a spawn egg: js/content/) asks for creatures here.
     LIB.spawnMob = (kind, x, y, z, opts) => this.requestSpawn(kind, x, y, z, opts);
+    // (Round 12) The Nether's and the End's: the structures' creatures put
+    // down (chunks done: saved with the kept creatures; chunks with none), the
+    // portals' blocks, the striders' cold skins; an ender pearl's endermite.
+    this._structDone = new Set();
+    this._structNone = new Set();
+    this._portalCache = new Map();
+    this._portalT = 0;
+    this._skins = new Map();
+    this.portalSpawnScale = 1; // (tests)
+    this.onToast = null; // (text, seconds) => void: a message on this player's screen (an advancement)
+    this.onRemoteToast = null; // (pid, text) => void: online (host), on another player's
+    LIB.pearlLanded = (x, y, z) => this.pearlLanded(x, y, z);
   }
 
   get count() {
@@ -526,14 +796,14 @@ export class MobManager {
   countOf(hostile) {
     let n = 0;
     // (Guards and aliens are special: they do not take up the skeleton/spider cap.)
-    for (const m of this.mobs) if (!m.dead && m.spec.hostile === hostile && m.kind !== "zombie" && !m.spec.special) n++;
+    for (const m of this.mobs) if (!m.dead && !!m.spec.hostile === hostile && m.kind !== "zombie" && !m.spec.special) n++;
     return n;
   }
 
   // Land animals only, for the passive cap (flyers, villagers and golems have caps of their own).
   countAnimals() {
     let n = 0;
-    for (const m of this.mobs) if (!m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager" && !m.spec.village) n++;
+    for (const m of this.mobs) if (!m.dead && !m.spec.hostile && !m.spec.flies && m.kind !== "villager" && !m.spec.village && !m.spec.projectile) n++;
     return n;
   }
 
@@ -557,7 +827,13 @@ export class MobManager {
     // guest's copies follow the host's). Fish swim; a crew climbing out of a
     // wreck in the sea is the one exception (wet).
     if (!wet && !spec.flies && !this.puppets && IS_WET[this.world.getBlock(Math.floor(x), Math.floor(y + 0.05), Math.floor(z))]) return null;
-    if (variant === undefined) variant = this._pickVariant(kind);
+    // (Round 12) A shulker fills its block, stuck to one side of it.
+    if (spec.still) {
+      x = Math.floor(x) + 0.5;
+      y = Math.floor(y + 0.01);
+      z = Math.floor(z) + 0.5;
+    }
+    if (variant === undefined) variant = this._pickVariant(kind, x, y, z);
     variant = Math.max(0, Math.min(15, variant | 0));
     if (kind === "villager" && !isVanilla()) variant = 0;
     if (baby) spec = babySpec(spec);
@@ -618,6 +894,7 @@ export class MobManager {
       fireT: 0,
     };
     if (spec.lays) m.eggT = 300 + Math.random() * 300;
+    if (spec.still) m.persist = true; // (Round 12: a shulker never despawns, as vanilla's)
     if (m.baby) this._babyLook(m);
     bindEntityLight(model.root, () => m.light);
     this.group.add(model.root);
@@ -628,7 +905,13 @@ export class MobManager {
 
   // A new mob's look when nobody chose: a sheep's colour by vanilla's odds,
   // a Survival villager's trade (a nitwit now and then).
-  _pickVariant(kind) {
+  _pickVariant(kind, x, y, z) {
+    // (Round 12) A shulker: the side of its block it holds on to (the floor if it can).
+    if (kind === "shulker") {
+      const w = this.world;
+      const f = ATTACH.findIndex(([dx, dy, dz]) => IS_SOLID[w.getBlock(Math.floor(x) + dx, Math.floor(y) + dy, Math.floor(z) + dz)]);
+      return Math.max(0, f);
+    }
     if (kind === "sheep") {
       let r = Math.random() * 100;
       for (const [c, w] of SHEEP_ODDS) if ((r -= w) <= 0) return c;
@@ -850,7 +1133,7 @@ export class MobManager {
     const villages = terrain?.villages;
     if (!villages) return;
     const p = this.player.position;
-    let village = villages.nearestVillage(p.x, p.z, VILLAGE_SEARCH_RADIUS);
+    let village = villages.nearestVillage(p.x, p.z, Math.max(VILLAGE_SEARCH_RADIUS, villages.reach ?? 0));
     let radius = 34;
     let cap = VILLAGERS_PER_VILLAGE;
     let spread = 20;
@@ -867,6 +1150,15 @@ export class MobManager {
       }
     }
     if (!village) return;
+    // (Round 12) A Survival world's village (village.js): a villager a bed (up
+    // to 10 about at once, for weak PCs), each at its house's door with its
+    // house's trade; its golem on a street; two animals in each pen.
+    const homes = village.style ? villages.residents(village) : null;
+    if (homes?.length) {
+      cap = Math.min(10, homes.length);
+      radius = villages.villageBounds(village).radius + 4;
+      this._fillPens(villages, village);
+    }
     const vanilla = isVanilla();
     const near = (x, z, r) => Math.hypot(x - village.x, z - village.z) < r;
     let nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && near(m.pos.x, m.pos.z, radius)).length;
@@ -882,19 +1174,60 @@ export class MobManager {
     const vkey = villageKey(village);
     const golem = vanilla && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
     if (nearby >= cap && !golem) return;
-    const ang = Math.random() * Math.PI * 2;
-    const d = 3 + Math.random() * spread;
-    const sx = Math.floor(village.x + Math.cos(ang) * d);
-    const sz = Math.floor(village.z + Math.sin(ang) * d);
-    if (!this._chunkReady(sx, sz)) return;
-    const top = this.world.surfaceY(sx, sz);
+    let sx;
+    let sz;
+    let top;
+    let variant;
+    if (homes?.length) {
+      // (each newcomer the next house's: at its door, with its trade)
+      const spot = golem ? villages.streetSpot(village) : homes[nearby % homes.length];
+      if (!spot) return;
+      sx = spot.x;
+      sz = spot.z;
+      top = spot.y - 1;
+      if (!golem && spot.profession >= 0) variant = spot.profession + 1;
+      if (!this._chunkReady(sx, sz)) return;
+    } else {
+      const ang = Math.random() * Math.PI * 2;
+      const d = 3 + Math.random() * spread;
+      sx = Math.floor(village.x + Math.cos(ang) * d);
+      sz = Math.floor(village.z + Math.sin(ang) * d);
+      if (!this._chunkReady(sx, sz)) return;
+      top = this.world.surfaceY(sx, sz);
+    }
     const kind = golem ? "iron_golem" : "villager";
     if (top < 0 || !this._freeAt(sx, top + 1, sz, SPECIES[kind].h)) return;
-    const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5);
+    const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5, { variant });
     // (Survival: kept with the world, with their trades, as vanilla's never despawn.)
     if (m && vanilla) {
       m.persist = true;
       if (golem) m.villageKey = vkey;
+    }
+  }
+
+  // (Round 12) A Survival world's village's animal pens get two of their
+  // animal each, once a session (kept with the world like any animal a
+  // player keeps; vanilla fills its pens once, as they are made).
+  _fillPens(villages, village) {
+    const key = villageKey(village);
+    if ((this._penned ??= new Set()).has(key)) return;
+    const pens = villages.pens(village);
+    if (!pens.every((pen) => this._chunkReady(pen.x, pen.z))) return;
+    this._penned.add(key);
+    for (const pen of pens) {
+      const inPen = (x, z) => Math.abs(x - pen.x - 0.5) <= pen.r + 1 && Math.abs(z - pen.z - 0.5) <= pen.r + 1;
+      let have = this.mobs.filter((m) => !m.dead && m.kind === pen.animal && inPen(m.pos.x, m.pos.z)).length;
+      for (const e of this._kept) if (e[0] === pen.animal && inPen(e[1], e[3])) have++;
+      for (let k = 0; k < 6 && have < 2; k++) {
+        const x = pen.x + Math.round((Math.random() * 2 - 1) * pen.r);
+        const z = pen.z + Math.round((Math.random() * 2 - 1) * pen.r);
+        if (!this._freeAt(x, pen.y, z, SPECIES[pen.animal].h)) continue;
+        const a = this.spawn(pen.animal, x + 0.5, pen.y, z + 0.5);
+        if (a) {
+          a.persist = true;
+          have++;
+        }
+      }
     }
   }
 
@@ -1036,6 +1369,8 @@ export class MobManager {
       this.onPuppetSpawn?.(kind, x, y, z, baby, variant);
       return null;
     }
+    // (Round 12) A magma cube's egg: any of its sizes, as vanilla's.
+    if (kind === "magma_cube") kind = MAGMA_SIZES[Math.floor(Math.random() * 3)];
     const m = this.spawn(kind, x, y, z, { baby, variant, wet: !!spec.flies });
     if (m && !spec.hostile) m.persist = true;
     return m;
@@ -1043,13 +1378,20 @@ export class MobManager {
 
   // Removes every hostile creature at once (switching to Peaceful).
   removeHostiles() {
-    for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].spec.hostile) this._remove(i);
+    for (let i = this.mobs.length - 1; i >= 0; i--) if (this.mobs[i].spec.hostile || this.mobs[i].spec.projectile) this._remove(i);
   }
 
   _updateSpawning(dt) {
     // `spawning` and `hostileSpawning` are settings (creature spawning,
     // Peaceful difficulty); `enabled` is used by tests.
     if (!this.enabled || this.spawning === false) return;
+    // (Round 12) Another dimension's creatures are its own (js/dim-registry.js
+    // spawnMobs, the Nether's and the End's parts): none of the Overworld's there.
+    const dim = this.world.dimInfo;
+    if (dim && dim.id !== "overworld") {
+      if (!this.puppets) dim.spawnMobs?.(this, dt);
+      return;
+    }
     // Online, a guest's creatures are the host's (Round 8: animals and
     // villagers too); only the little ambient flyers (butterflies, parrots,
     // fish) are each player's own.
@@ -1120,7 +1462,7 @@ export class MobManager {
     this._spawnTimer = SPAWN_INTERVAL;
     const players = this.targets ? Math.min(3, this.targets().length) : 1;
     let total = 0;
-    for (const m of this.mobs) if (!m.persist && !m.spec.flies && m.kind !== "zombie") total++;
+    for (const m of this.mobs) if (!m.persist && !m.spec.flies && m.kind !== "zombie" && !m.spec.projectile) total++;
     if (total >= VANILLA_MAX_TOTAL * Math.min(2, players)) return;
     const passiveCap = VANILLA_MAX_PASSIVE * players;
     if (this.countAnimals() - this._keptAnimals() < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countAnimals() + this._keptAnimals()));
@@ -1128,6 +1470,7 @@ export class MobManager {
       const cap = VANILLA_MAX_HOSTILE * players;
       for (let k = 0; k < 2; k++) if (this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnHostile(pickWeighted(VANILLA_HOSTILES)));
       if (Math.random() < 0.2 && this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnSlime());
+      this._portalPiglins(SPAWN_INTERVAL); // (Round 12)
     }
     this._aroundAnyone(() => this._trySpawnVillagers());
     if (Math.random() < 0.4) this._trySpawnFlyers();
@@ -1192,6 +1535,8 @@ export class MobManager {
     for (let k = 1; k <= head; k++) if (solid(by + k)) return "wall";
     if (level) return "open";
     if (IS_WET[w.getBlock(bx, by, bz)]) return "water";
+    // (Round 12) Lava ahead: only a strider walks on (others keep out, as water).
+    if (isLava(w.getBlock(bx, by, bz)) || isLava(w.getBlock(bx, by - 1, bz))) return m.spec.lavaWalker ? "open" : "water";
     let drop = 0;
     while (drop < 6 && !solid(by - 1 - drop)) {
       if (IS_WET[w.getBlock(bx, by - 1 - drop, bz)]) return "water";
@@ -1523,6 +1868,19 @@ export class MobManager {
         return this._brainGolem(m, dt, dist);
       case "wolf":
         return this._brainWolf(m, dt, dist);
+      // (Round 12)
+      case "blaze":
+        return this._brainBlaze(m, dt, dist);
+      case "zpiglin":
+        return this._brainZPiglin(m, dt, dist);
+      case "piglin":
+        return this._brainPiglin(m, dt, dist);
+      case "hoglin":
+        return this._brainHoglin(m, dt, dist);
+      case "strider":
+        return this._brainStrider(m, dt, dist);
+      case "silverfish":
+        return this._brainSilverfish(m, dt, dist);
     }
     return this._wander(m, dt, dist);
   }
@@ -1607,7 +1965,7 @@ export class MobManager {
     const dx = t.position.x - m.pos.x;
     const dz = t.position.z - m.pos.z;
     const d = Math.hypot(dx, dz) || 1;
-    if (t.damage(dmg, m.spec.brain === "slime" ? "slime" : meleeCause(m.kind), { from: m.pos })) {
+    if (t.damage(dmg, m.spec.magma ? "magma_cube" : m.spec.brain === "slime" ? "slime" : meleeCause(m.kind), { from: m.pos })) {
       t.applyImpulse(this._tmp.set((dx / d) * push, lift, (dz / d) * push));
       if (t === this.localPlayer) this.onPlayerHurt?.(m);
       this._rallyWolves(this._pidOf(t), m);
@@ -1722,6 +2080,19 @@ export class MobManager {
       if (m.stagger <= 0 && d < m.spec.r + 1.1 && Math.abs(p.y - m.pos.y) < 2 && m.attackCooldown <= 0) this._hitPlayer(m, foe, m.spec.damage);
       return this._go(m, dt, dist, dx / d, dz / d, d > 0.9 ? m.spec.chaseSpeed : 0, this._eyeOf(foe));
     }
+    // (Round 12) An endermite near: it goes for it (vanilla).
+    if ((ai.miteT = (ai.miteT ?? Math.random()) - dt) <= 0) {
+      ai.miteT = 1;
+      ai.mite = this._nearestMob(m, 16, (o) => o.kind === "endermite" && !o.net);
+    }
+    const mite = ai.mite && !ai.mite.removed && !ai.mite.dead ? ai.mite : null;
+    if (mite) {
+      const dx = mite.pos.x - m.pos.x;
+      const dz = mite.pos.z - m.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      if (m.stagger <= 0 && m.attackCooldown <= 0 && d < m.spec.r + mite.spec.r + 0.9) this._meleeMob(m, mite, m.spec.damage);
+      return this._go(m, dt, dist, dx / d, dz / d, m.spec.chaseSpeed, this._look.set(mite.pos.x, mite.pos.y, mite.pos.z));
+    }
     // Daylight under the open sky: it wanders off by teleport now and then.
     if (this.sky.daylight > 0.6 && m.light.sky >= 13 && Math.random() < dt * 0.05) this._teleport(m);
     if (isVanilla()) this._endermanBlocks(m, dt);
@@ -1835,8 +2206,9 @@ export class MobManager {
     }
     ai.hopT = (ai.hopT ?? Math.random()) - dt;
     if (m.onGround && ai.hopT <= 0 && m.stagger <= 0) {
-      ai.hopT = (0.5 + Math.random()) / (t ? 3 : 1);
-      m.vel.y = 5.6 + spec.size * 0.45;
+      // (Round 12) A magma cube waits four times as long and jumps far higher (vanilla).
+      ai.hopT = ((0.5 + Math.random()) * (spec.magma ? 4 : 1)) / (t ? 3 : 1);
+      m.vel.y = spec.magma ? 7.4 + spec.size * 1.3 : 5.6 + spec.size * 0.45;
       m.move.x = dx * spec.speed;
       m.move.y = dz * spec.speed;
       this._voice(m, "hop");
@@ -2277,7 +2649,7 @@ export class MobManager {
 
   // A baby fed its food grows up a tenth of the way sooner (vanilla).
   feedBaby(m) {
-    if (!m.baby || m.spec.hostile) return false;
+    if (!m.baby || (m.spec.hostile && !m.spec.grows)) return false;
     m.growT *= 0.9;
     m.persist = true;
     this._hearts(m, 2, true);
@@ -2343,7 +2715,7 @@ export class MobManager {
   // A Survival world's animal's own clock (the host's or single player's
   // real creatures): growing up, love, the breeding pause, eggs, grazing.
   _animalTick(m, dt) {
-    if (m.baby && !m.spec.hostile && (m.growT -= dt) <= 0) this.setBaby(m, false);
+    if (m.baby && (!m.spec.hostile || m.spec.grows) && (m.growT -= dt) <= 0) this.setBaby(m, false);
     if (m.breedCd > 0) m.breedCd -= dt;
     if (m.loveT > 0) {
       m.loveT -= dt;
@@ -2383,6 +2755,11 @@ export class MobManager {
   // Burning in fire or lava (a Survival world's blocks), put out by water;
   // a creature that dies burning drops its meat cooked.
   _fireTick(m, dt) {
+    // (Round 12) The Nether's own creatures don't burn.
+    if (m.spec.fireproof) {
+      m.fireT = 0;
+      return;
+    }
     const w = this.world;
     const x = Math.floor(m.pos.x);
     const z = Math.floor(m.pos.z);
@@ -2433,6 +2810,8 @@ export class MobManager {
     }
     if (m.kind === "zombie" && byPlayer && Math.random() < 0.025) this._drop([V.IRON_INGOT, V.CARROT, V.POTATO][Math.floor(Math.random() * 3)], 1, c);
     if (m.carry) this._drop(m.carry, 1, c);
+    // (Round 12) A piglin killed admiring its ingot drops it.
+    if (m.admireT > 0) this._drop(ITEM.GOLD_INGOT, 1, c);
   }
 
   // A big slime breaks into two to four of the next size down.
@@ -2463,6 +2842,16 @@ export class MobManager {
     const creative = !!this.localPlayer.creative;
     const spec = m.spec;
     if (m.kind === "wolf") return this._useWolf(m, id, inventory, creative);
+    // (Round 12) A gold ingot for a piglin: it barters (online, the host's piglin: a claim).
+    if (m.kind === "piglin" && id === ITEM.GOLD_INGOT) {
+      if (m.baby || m.admireT > 0 || m.angerT > 0) return false;
+      if (m.net) {
+        m.admireT = ADMIRE_TIME; // (the host's answer follows in its states)
+        this.onPuppetUse?.(m, "barter");
+      } else if (!this.barter(m, this.localPid)) return false;
+      if (!creative) inventory.consumeSelected(1);
+      return true;
+    }
     if (spec.milk && id === V.BUCKET && !m.baby && isValidItem(V.MILK_BUCKET)) {
       if (!creative || !inventory.countItem(V.MILK_BUCKET)) {
         if (!creative) inventory.consumeSelected(1);
@@ -2493,7 +2882,7 @@ export class MobManager {
     }
     if (spec.breed?.includes(id)) {
       if (m.baby) {
-        if (spec.hostile) return false;
+        if (spec.hostile && !spec.grows) return false;
         if (m.net) {
           this.onPuppetUse?.(m, "grow");
           this._hearts(m, 2, true);
@@ -2604,6 +2993,7 @@ export class MobManager {
       return true;
     }
     if (action === "shear") return this.shear(m);
+    if (action === "barter") return this.barter(m, pid); // (Round 12: the guest gave its ingot)
     if (action === "love") return !!m.spec.breed && this.love(m, pid);
     if (action === "grow") return !!m.spec.breed && this.feedBaby(m);
     if (action === "mend" && m.kind === "iron_golem") {
@@ -2687,19 +3077,26 @@ export class MobManager {
     if (this.puppets || !isVanilla()) return undefined;
     const out = [];
     for (const m of this.mobs) {
-      if (!m.persist || m.dead || m.net || m.spec.hostile || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
+      if (!m.persist || m.dead || m.net || (m.spec.hostile && !m.spec.keeps) || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
       // (A tame wolf: 2 if this player's, 1 if another's, who may not come back: then whoever clicks it next.)
       const tame = m.tamed ? (m.owner === this.localPid ? 2 : 1) : 0;
       out.push([m.kind, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), m.variant || 0, m.baby ? Math.max(1, Math.round(m.growT)) : 0, m.sheared ? 1 : 0, tame, m.sitting ? 1 : 0, m.trades ? encodeOffers(m.trades) : 0, (m.tamed && m.ownerNick) || 0]);
       if (out.length >= 400) break;
     }
+    // (Round 12) The chunks whose structures' creatures were put down: ["@s", "cx,cz", ...].
+    // (first: a list cut at 400 keeps it)
+    if (this._structDone.size) out.unshift(["@s", ...[...this._structDone].slice(-4000)]);
     return out.length ? out : undefined;
   }
 
   // The saved ones: they come back as their ground loads (_spawnKept).
   loadKept(list) {
+    this._structDone = new Set();
+    this._structNone = new Set();
     if (!Array.isArray(list) || !isVanilla()) return;
-    this._kept = list.filter((e) => Array.isArray(e) && Object.hasOwn(SPECIES, e[0]) && !SPECIES[e[0]].hostile && [1, 2, 3].every((k) => Number.isFinite(e[k]))).slice(0, 400);
+    const done = list.find((e) => Array.isArray(e) && e[0] === "@s");
+    if (done) for (const k of done.slice(1)) if (typeof k === "string" && /^-?\d+,-?\d+$/.test(k)) this._structDone.add(k);
+    this._kept = list.filter((e) => Array.isArray(e) && Object.hasOwn(SPECIES, e[0]) && (!SPECIES[e[0]].hostile || SPECIES[e[0]].keeps) && !SPECIES[e[0]].special && [1, 2, 3].every((k) => Number.isFinite(e[k]))).slice(0, 400);
   }
 
   _spawnKept() {
@@ -2733,10 +3130,11 @@ export class MobManager {
   // mobs the ones here, played on the same synth.
   _voice(m, event) {
     const d = this._audioDist(m);
-    if (d > 40) return;
+    // (Round 12: a ghast is heard far off.)
+    if (d > (m.spec.loud ? 90 : 40)) return;
     // (A Missions world's own creatures keep the voices they had.)
     const own = m.spec.vanilla || isVanilla();
-    const parts = own ? VANILLA_VOICES[m.kind]?.[event] || (m.kind.startsWith("slime") ? VANILLA_VOICES.slime[event] : null) : null;
+    const parts = own ? VANILLA_VOICES[m.kind]?.[event] || (m.spec.magma ? VANILLA_VOICES.magma[event] : m.kind.startsWith("slime") ? VANILLA_VOICES.slime[event] : null) : null;
     const a = this.audio;
     if (!parts || typeof a?._voice !== "function" || typeof a._hit !== "function") {
       a?.playMob?.(m.kind, event, d);
@@ -2744,11 +3142,1255 @@ export class MobManager {
     }
     if (!a.ctx) return;
     a._cat?.("creatures");
-    const gain = 1 / (1 + d / 7);
+    const gain = 1 / (1 + d / (m.spec.loud ? 18 : 7));
     for (const part of parts) {
       if (part.noise) a._hit({ ...part.noise, v: part.noise.v * gain }, part.delay || 0);
       else a._voice(part, gain);
     }
+  }
+
+  // ---------- (Round 12) The Nether's and the End's creatures ----------
+
+  // The Nether's spawning (DIMS.nether.spawnMobs): around every player there,
+  // by vanilla's lists for the biome (a fortress has its own), with no
+  // daylight: most kinds come at any light, skeletons, wither skeletons and
+  // endermen only at block light 7 or less, blazes 11; striders on the lava.
+  // And whatever its structures put down (a bastion's piglins).
+  _spawnNether(dt) {
+    this._spawnTimer -= dt;
+    if (this._spawnTimer > 0) return;
+    this._spawnTimer = SPAWN_INTERVAL;
+    const hostiles = this.hostileSpawning !== false;
+    if (hostiles) this._aroundAnyone(() => this._structureMobs());
+    const players = this.targets ? Math.min(3, this.targets().length) : 1;
+    if (hostiles) {
+      const cap = VANILLA_MAX_HOSTILE * players;
+      for (let k = 0; k < 2; k++) if (this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnNether());
+    }
+    if (Math.random() < 0.3 && this.countKind("strider") < NETHER_MAX_STRIDERS * players) this._aroundAnyone(() => this._trySpawnStrider());
+  }
+
+  // The End's (DIMS.end.spawnMobs): endermen on the islands, many; the
+  // shulkers its cities put down.
+  _spawnEnd(dt) {
+    this._spawnTimer -= dt;
+    if (this._spawnTimer > 0) return;
+    this._spawnTimer = SPAWN_INTERVAL;
+    if (this.hostileSpawning === false) return;
+    this._aroundAnyone(() => this._structureMobs());
+    const cap = END_MAX_HOSTILE * (this.targets ? Math.min(3, this.targets().length) : 1);
+    for (let k = 0; k < 2; k++) if (this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnEnd());
+  }
+
+  // A spot 24 or more blocks from this player, in ground that is in.
+  _spawnColumn(reach) {
+    const p = this.player.position;
+    const a = Math.random() * Math.PI * 2;
+    const d = 24 + Math.random() * (this._reach(reach) - 24);
+    const x = Math.floor(p.x + Math.cos(a) * d);
+    const z = Math.floor(p.z + Math.sin(a) * d);
+    return this._chunkReady(x, z) ? [x, z] : null;
+  }
+
+  _trySpawnNether() {
+    const col = this._spawnColumn(NETHER_REACH);
+    if (!col) return false;
+    const [x, z] = col;
+    const y = this._floorBelow(x, Math.floor(this.player.position.y + (Math.random() * 2 - 1) * 32), z, 24);
+    return y > 0 && this.netherSpawnAt(x, y, z) > 0;
+  }
+
+  // A group for the spot (x, y, z) (its floor under it), by the Nether's
+  // lists: how many came.
+  netherSpawnAt(x, y, z) {
+    const floor = this.world.getBlock(x, y - 1, z);
+    const fortress = this._inFortress(x, y, z, floor);
+    const list = fortress ? FORTRESS_SPAWNS : NETHER_SPAWNS[this._netherBiome(x, y, z, floor)] || NETHER_SPAWNS.nether_wastes;
+    const kind = pickWeighted(list);
+    const [, , min, max] = list.find((e) => e[0] === kind);
+    return this._spawnGroup(kind, x, y, z, min + Math.floor(Math.random() * (max - min + 1)));
+  }
+
+  _trySpawnEnd() {
+    const col = this._spawnColumn(NETHER_REACH);
+    if (!col) return false;
+    const [x, z] = col;
+    const top = this.world.surfaceY(x, z);
+    if (top < 0) return false;
+    const [kind, , min, max] = END_SPAWNS[0];
+    return this._spawnGroup(kind, x, top + 1, z, min + Math.floor(Math.random() * (max - min + 1)), true) > 0;
+  }
+
+  // A strider on the lava's surface (vanilla: in lava with air above it).
+  _trySpawnStrider() {
+    const col = this._spawnColumn(NETHER_REACH);
+    return !!col && this.striderSpawnAt(col[0], col[1]);
+  }
+
+  // One or two striders on the lava under column (x, z), near this player's height.
+  striderSpawnAt(x, z) {
+    const w = this.world;
+    let y = Math.min(WORLD_TOP, Math.floor(this.player.position.y + 16));
+    for (let k = 0; k < 48 && y > 1; k++, y--) {
+      if (!isLava(w.getBlock(x, y, z))) continue;
+      if (w.getBlock(x, y + 1, z) !== BLOCK.AIR || w.getBlock(x, y + 2, z) !== BLOCK.AIR) return false;
+      // (vanilla: one or two)
+      let made = 0;
+      for (let i = 0, n = 1 + (Math.random() < 0.5 ? 1 : 0); i < n; i++) {
+        const sx = x + (i ? Math.floor(Math.random() * 5) - 2 : 0);
+        const sz = z + (i ? Math.floor(Math.random() * 5) - 2 : 0);
+        if (!isLava(w.getBlock(sx, y, sz)) || w.getBlock(sx, y + 1, sz) !== BLOCK.AIR || this._nearPlayer(sx, y, sz, 24)) continue;
+        if (this.spawn("strider", sx + 0.5, y + 1, sz + 0.5)) made++;
+      }
+      return made > 0;
+    }
+    return false;
+  }
+
+  // A group of one kind around (x, y, z) (vanilla's walk: each one a few
+  // blocks on from the last), each on a spot it may spawn on. How many came.
+  _spawnGroup(kind, x, y, z, n, surface = false) {
+    let made = 0;
+    let cx = x;
+    let cz = z;
+    for (let i = 0; i < n; i++) {
+      if (i) {
+        cx += Math.floor(Math.random() * 6) - Math.floor(Math.random() * 6);
+        cz += Math.floor(Math.random() * 6) - Math.floor(Math.random() * 6);
+      }
+      if (!this._chunkReady(cx, cz)) continue;
+      let sy = y;
+      if (i) {
+        sy = surface ? this.world.surfaceY(cx, cz) + 1 : this._floorBelow(cx, y + 1, cz, 3);
+        if (sy < 1 || Math.abs(sy - y) > 4) continue;
+      }
+      const k = kind === "magma_cube" ? MAGMA_SIZES[Math.floor(Math.random() * 3)] : kind;
+      if (!this._canSpawnAt(k, cx, sy, cz)) continue;
+      if (this.spawn(k, cx + 0.5, sy, cz + 0.5, { baby: Math.random() < (BABY_CHANCE[k] ?? 0) })) made++;
+    }
+    return made;
+  }
+
+  // Vanilla's checks for one creature at (x, y, z): a floor it may stand on
+  // (not bedrock; a magma block only for the fireproof; no piglin on a
+  // nether wart block), the light, room for its body, no player within 24.
+  _canSpawnAt(kind, x, y, z) {
+    const spec = SPECIES[kind];
+    const w = this.world;
+    const floor = w.getBlock(x, y - 1, z);
+    if (!spawnFloor(floor) || floor === BLOCK.BEDROCK) return false;
+    if (floor === V.MAGMA_BLOCK && !spec.fireproof) return false;
+    if (floor === V.NETHER_WART_BLOCK && (kind === "piglin" || kind === "zombified_piglin" || kind === "hoglin")) return false;
+    const dark = NETHER_DARK[kind] ?? (this.world.dim === "end" ? 7 : 15);
+    if (dark < 15 && w.lightAt(x + 0.5, y + 0.5, z + 0.5).block > dark) return false;
+    // (A ghast: vanilla's extra 1 in 20.)
+    if (kind === "ghast" && Math.random() >= 1 / 20) return false;
+    if (!this._freeBox(x + 0.5, y, z + 0.5, spec.r, spec.h)) return false;
+    return !this._nearPlayer(x, y, z, 24);
+  }
+
+  _nearPlayer(x, y, z, r) {
+    for (const t of this._targetList) {
+      const p = t.position;
+      if ((p.x - x - 0.5) ** 2 + (p.y - y) ** 2 + (p.z - z - 0.5) ** 2 < r * r) return true;
+    }
+    return false;
+  }
+
+  // The first spot going down from y (at most n blocks) with a solid, full
+  // floor and open air (no liquid, no lava) to stand in; -1 if none.
+  _floorBelow(x, y, z, n) {
+    const w = this.world;
+    for (let k = 0, yy = Math.max(2, Math.min(WORLD_TOP - 2, y)); k < n && yy > 1; k++, yy--) {
+      if (!spawnFloor(w.getBlock(x, yy - 1, z))) continue;
+      const here = w.getBlock(x, yy, z);
+      if (IS_SOLID[here] || IS_WET[here] || isLava(here)) continue;
+      return yy;
+    }
+    return -1;
+  }
+
+  // Whether a body (radius r, height h, its feet's middle at x, y, z) has
+  // room: nothing solid, wet or lava in its cells.
+  _freeBox(x, y, z, r, h) {
+    const w = this.world;
+    const x0 = Math.floor(x - r + 0.01);
+    const x1 = Math.floor(x + r - 0.01);
+    const z0 = Math.floor(z - r + 0.01);
+    const z1 = Math.floor(z + r - 0.01);
+    for (let yy = Math.floor(y); yy < y + h; yy++) {
+      for (let xx = x0; xx <= x1; xx++) {
+        for (let zz = z0; zz <= z1; zz++) {
+          const id = w.getBlock(xx, yy, zz);
+          if (IS_SOLID[id] || IS_WET[id] || isLava(id)) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  // The Nether's biome at a spot: the generator's own word when it gives a
+  // name (biomeNameAt, or biomeAt with biomeNames), else the floor's.
+  _netherBiome(x, y, z, floor) {
+    const t = this.world.terrain;
+    let b = typeof t?.biomeNameAt === "function" ? t.biomeNameAt(x, y, z) : t?.biomeAt?.(x, z, y);
+    if (typeof b === "number") b = t?.biomeNames?.[b] ?? NETHER_BIOME_KEYS[b];
+    if (typeof b === "string" && NETHER_SPAWNS[b]) return b;
+    if (floor === V.CRIMSON_NYLIUM || floor === V.NETHER_WART_BLOCK || floor === V.SHROOMLIGHT || floor === V.CRIMSON_STEM) return "crimson_forest";
+    if (floor === V.WARPED_NYLIUM || floor === V.WARPED_WART_BLOCK || floor === V.WARPED_STEM) return "warped_forest";
+    if (floor === V.SOUL_SAND || floor === V.SOUL_SOIL || floor === V.BONE_BLOCK) return "soul_sand_valley";
+    if (floor === V.BASALT || floor === V.POLISHED_BASALT || floor === V.BLACKSTONE || floor === V.MAGMA_BLOCK) return "basalt_deltas";
+    return "nether_wastes";
+  }
+
+  // Inside a nether fortress: the structures' word (inFortress / fortressAt),
+  // else a floor of nether bricks.
+  _inFortress(x, y, z, floor) {
+    const s = this.world.terrain?.structures;
+    if (typeof s?.inFortress === "function") return !!s.inFortress(x, y, z);
+    if (typeof s?.fortressAt === "function") return !!s.fortressAt(x, y, z);
+    return floor === V.NETHER_BRICKS || floor === V.CRACKED_NETHER_BRICKS || floor === V.CHISELED_NETHER_BRICKS;
+  }
+
+  // The creatures a structure puts down, once, kept with the world as
+  // vanilla's: an end city's shulkers (the End's structures.shulkerSpots(cx,
+  // cz) -> [[x, y, z], ...]), a bastion's piglins (bastionAt: _bastionSpots),
+  // or any generator's structures.mobSpots(cx, cz) -> [[kind, x, y, z, variant], ...].
+  _structureMobs() {
+    const s = this.world.terrain?.structures;
+    if (!s || (typeof s.mobSpots !== "function" && typeof s.shulkerSpots !== "function" && typeof s.bastionAt !== "function")) return;
+    const p = this.player.position;
+    const pcx = Math.floor(p.x) >> 4;
+    const pcz = Math.floor(p.z) >> 4;
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const cx = pcx + dx;
+        const cz = pcz + dz;
+        const key = `${cx},${cz}`;
+        if (this._structDone.has(key) || this._structNone.has(key) || !this._chunkReady(cx * 16 + 8, cz * 16 + 8)) continue;
+        const list = typeof s.mobSpots === "function" ? s.mobSpots(cx, cz) : typeof s.shulkerSpots === "function" ? s.shulkerSpots(cx, cz).map((c) => ["shulker", c[0] + 0.5, c[1], c[2] + 0.5]) : this._bastionSpots(s, cx, cz);
+        if (!Array.isArray(list) || !list.length) {
+          if (this._structNone.size > 4096) this._structNone.clear();
+          this._structNone.add(key);
+          continue;
+        }
+        this._structDone.add(key);
+        for (const e of list) {
+          if (!Array.isArray(e) || !Object.hasOwn(SPECIES, e[0]) || ![e[1], e[2], e[3]].every(Number.isFinite)) continue;
+          const m = this.spawn(e[0], e[1], e[2], e[3], { variant: e[4], wet: true });
+          if (m) m.persist = true;
+        }
+      }
+    }
+  }
+
+  // Where a bastion remnant's piglins stand in chunk (cx, cz) (vanilla's are
+  // put in its rooms as it is made: js/nether-structures.js bastionAt says
+  // where its walls are): a few floors inside it, near this player's height.
+  _bastionSpots(s, cx, cz) {
+    const out = [];
+    const py = Math.floor(this.player.position.y);
+    for (let k = 0; k < 24 && out.length < BASTION_PIGLINS; k++) {
+      const x = cx * 16 + Math.floor(Math.random() * 16);
+      const z = cz * 16 + Math.floor(Math.random() * 16);
+      const y = this._floorBelow(x, py + 16 - Math.floor(Math.random() * 32), z, 16);
+      if (y < 0 || !s.bastionAt(x, y, z) || !this._freeBox(x + 0.5, y, z + 0.5, 0.3, 2) || this._nearPlayer(x, y, z, 12)) continue;
+      out.push(["piglin", x + 0.5, y, z + 0.5]);
+    }
+    return out;
+  }
+
+  // (The Overworld) A nether portal lets a zombified piglin through now and
+  // then: vanilla's chance for each of its blocks (one portal of 6 blocks,
+  // about one every three hours), on its bottom row.
+  _portalPiglins(dt) {
+    this._portalT += dt;
+    if (this._portalT < 1) return;
+    const dt1 = this._portalT;
+    this._portalT = 0;
+    const list = this.world.dims?.portals?.get?.("overworld");
+    if (!list?.length) return;
+    for (const p of list) {
+      if (!this._chunkReady(p[0], p[2])) continue;
+      const cells = this._portalCells(p);
+      if (!cells.n || Math.random() >= cells.n * PORTAL_PIGLIN_RATE * dt1 * (this.portalSpawnScale ?? 1)) continue;
+      const [x, y, z] = cells.bottom[Math.floor(Math.random() * cells.bottom.length)];
+      this.portalSpawn(x, y, z);
+    }
+  }
+
+  // A zombified piglin at a portal's bottom block (x, y, z), if there's room.
+  portalSpawn(x, y, z) {
+    if (this.puppets || this.hostileSpawning === false || !IS_SOLID[this.world.getBlock(x, y - 1, z)] || !this._freeAt(x, y, z, 2)) return null;
+    let near = 0;
+    for (const m of this.mobs) if (m.kind === "zombified_piglin" && !m.dead && Math.abs(m.pos.x - x) < 16 && Math.abs(m.pos.z - z) < 16) near++;
+    if (near >= 8) return null;
+    return this.spawn("zombified_piglin", x + 0.5, y, z + 0.5, { baby: Math.random() < BABY_CHANCE.zombified_piglin });
+  }
+
+  // A registered portal's blocks (kept 20 s): how many, and its bottom row.
+  _portalCells(p) {
+    const key = p.join(",");
+    let c = this._portalCache.get(key);
+    if (c && this.time < c.until) return c;
+    const w = this.world;
+    const seen = new Set();
+    const bottom = [];
+    const stack = [p];
+    let n = 0;
+    while (stack.length && n < 441) {
+      const [x, y, z] = stack.pop();
+      const k = `${x},${y},${z}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (PORTAL_BLOCKS.get(w.getBlock(x, y, z)) !== "nether") continue;
+      n++;
+      if (PORTAL_BLOCKS.get(w.getBlock(x, y - 1, z)) !== "nether") bottom.push([x, y, z]);
+      stack.push([x + 1, y, z], [x - 1, y, z], [x, y + 1, z], [x, y - 1, z], [x, y, z + 1], [x, y, z - 1]);
+    }
+    c = { n, bottom, until: this.time + 20 };
+    if (this._portalCache.size > 64) this._portalCache.clear();
+    this._portalCache.set(key, c);
+    return c;
+  }
+
+  // A thrown ender pearl took its thrower away from (x, y, z): one time in
+  // twenty an endermite is left there (vanilla; LIB.pearlLanded, js/entities.js).
+  pearlLanded(x, y, z) {
+    if (!isVanilla() || Math.random() >= 0.05) return null;
+    return this.requestSpawn("endermite", x, y, z);
+  }
+
+  // A snowball hits creature `m` (js/entities.js): a blaze takes 3, the
+  // others a little push (vanilla).
+  snowballHit(m, dir) {
+    if (!m || m.dead || m.spec.projectile) return false;
+    return this.shoot(m, m.kind === "blaze" ? 3 : 0.01, dir, m.kind === "blaze" ? 2 : 1, true);
+  }
+
+  // Player `t` as a target of creature `m`: alive, here, not in Creative,
+  // within `range` across; invisible, only up close.
+  _mayTarget(m, t, range) {
+    if (!t || t.dead || t.gone || t.creative) return false;
+    const p = t.position;
+    const d = Math.hypot(p.x - m.pos.x, p.z - m.pos.z);
+    if (d > range) return false;
+    return !(t.effectLevel?.("invisibility") > 0 && d > 2);
+  }
+
+  // The nearest player `m` may go for within `range` (and `up` blocks up or
+  // down) that it can see and that passes `test`.
+  _nearestFoe(m, range, test = null, up = 10) {
+    let best = null;
+    let bd = Infinity;
+    for (const t of this._targetList) {
+      if (!this._mayTarget(m, t, range) || Math.abs(t.position.y - m.pos.y) > up || (test && !test(t))) continue;
+      const d = Math.hypot(t.position.x - m.pos.x, t.position.z - m.pos.z);
+      if (d >= bd) continue;
+      if (!this._rayClear(m.pos.x, m.pos.y + m.spec.eye, m.pos.z, t.position.x, t.position.y + 1.6, t.position.z)) continue;
+      bd = d;
+      best = t;
+    }
+    return best;
+  }
+
+  // Whether `m` sees player `t` (kept a fraction of a second: a ray each).
+  _sees(m, t) {
+    const ai = m.ai;
+    if (ai.seenOf === t && this.time < ai.seenT) return ai.seen;
+    ai.seenOf = t;
+    ai.seenT = this.time + 0.2 + Math.random() * 0.1;
+    ai.seen = this._rayClear(m.pos.x, m.pos.y + m.spec.eye, m.pos.z, t.position.x, t.position.y + 1.4, t.position.z);
+    return ai.seen;
+  }
+
+  // Whether player `t` wears a piece of gold armor (a piglin leaves them be).
+  // Online, a guest's word ("gold", js/net/entities.js).
+  _wearsGold(t) {
+    if (t === this.localPlayer) return !!this.inventory?.armor?.some((s) => s && GOLD_ARMOR.has(s.id));
+    return !!t.goldArmor;
+  }
+
+  // Every creature of `kind` within `r` across (and 10 up or down) of `m` turns
+  // on the player who hit it (a zombified piglin's group, a piglin's).
+  _angerPack(m, kind, r, foe) {
+    for (const o of this.mobs) {
+      if (o.kind !== kind || o.dead || o.net || Math.abs(o.pos.x - m.pos.x) > r || Math.abs(o.pos.z - m.pos.z) > r || Math.abs(o.pos.y - m.pos.y) > 10) continue;
+      if (!(o.angerT > 0) && o !== m) this._voice(o, "angry");
+      o.foe = foe;
+      o.angerT = 20 + Math.random() * 19; // (vanilla: 20-39 s)
+      o.ai.target = true;
+    }
+  }
+
+  // Chases player `foe` and strikes when in reach (`dmg`, a throw of `lift`
+  // up and `push` away); the brains' common melee.
+  _melee(m, dt, dist, foe, dmg, lift = 4, push = 6) {
+    const p = foe.position;
+    const dx = p.x - m.pos.x;
+    const dz = p.z - m.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    if (m.stagger <= 0 && m.attackCooldown <= 0 && d < m.spec.r + 1.05 && p.y - m.pos.y < m.spec.h && m.pos.y - p.y < 1.8) this._hitPlayer(m, foe, typeof dmg === "function" ? dmg() : dmg, lift, push);
+    return this._go(m, dt, dist, dx / d, dz / d, d > m.spec.r + 0.6 ? m.spec.chaseSpeed : 0, this._eyeOf(foe));
+  }
+
+  // Out of the Nether a piglin or a hoglin shakes for 15 s and turns into
+  // its zombified kind (vanilla), where it stands, as hurt as it was.
+  _zombify(m, dt, into) {
+    if (this.world.dim === "nether" || !isVanilla()) {
+      m.zombT = 0;
+      m.shakeT = 0;
+      return false;
+    }
+    m.shakeT = 1;
+    m.zombT = (m.zombT ?? 0) + dt;
+    if (m.zombT < ZOMBIFY_TIME) return false;
+    const i = this.mobs.indexOf(m);
+    if (i < 0) return false;
+    this._remove(i);
+    const o = this.spawn(into, m.pos.x, m.pos.y, m.pos.z, { baby: m.baby, wet: true });
+    if (o) {
+      o.health = Math.max(1, Math.min(o.maxHealth, m.health * (o.maxHealth / (m.maxHealth || 1))));
+      o.yaw = m.yaw;
+      this._smoke(o);
+    }
+    return true;
+  }
+
+  // ---- The ghast ----
+
+  // A ghast floats about at random (to a spot up to 16 blocks off each way,
+  // when the way is clear), notices a player only about level with it
+  // (vanilla: 4 blocks up or down, 100 away), and shoots at one in sight
+  // within 64: its face opens half a second before, it fires a second in,
+  // then waits two (vanilla's 3 s round).
+  _brainGhast(m, dt) {
+    const ai = m.ai;
+    const cx = m.pos.x;
+    const cy = m.pos.y + m.spec.h / 2;
+    const cz = m.pos.z;
+    if ((ai.seekT = (ai.seekT ?? Math.random() * 0.5) - dt) <= 0) {
+      ai.seekT = 0.5;
+      let foe = this._mayTarget(m, m.foe, 100) && Math.abs(m.foe.position.y - m.pos.y) < 64 ? m.foe : null;
+      if (foe && !this._sees(m, foe)) {
+        ai.lostT = (ai.lostT ?? 0) + 0.5;
+        if (ai.lostT > 6) foe = null;
+      } else ai.lostT = 0;
+      if (!foe) foe = this._nearestFoe(m, 100, (t) => Math.abs(t.position.y + 1.6 - (m.pos.y + m.spec.eye)) <= 4, 64);
+      m.foe = foe;
+    }
+    const foe = m.foe;
+    ai.target = !!foe;
+    let face = null;
+    if (foe) {
+      const p = foe.position;
+      const d = Math.hypot(p.x - cx, p.y + 1 - cy, p.z - cz);
+      face = p;
+      if (d < 64 && this._sees(m, foe)) {
+        const was = ai.charge ?? 0;
+        ai.charge = was + dt;
+        if (was < 0.5 && ai.charge >= 0.5) this._voice(m, "charge");
+        if (ai.charge >= 1) {
+          this._ghastShoot(m, foe);
+          ai.charge = -2;
+        }
+      } else if ((ai.charge ?? 0) > 0) ai.charge = Math.max(0, ai.charge - dt);
+    } else if ((ai.charge ?? 0) > 0) ai.charge = Math.max(0, ai.charge - dt);
+    m.shootFace = (ai.charge ?? 0) > 0.5;
+    // Where to float next.
+    ai.destT = (ai.destT ?? 0) - dt;
+    const dest = ai.dest;
+    if (!dest || ai.destT <= 0 || m.blocked || Math.hypot(dest.x - cx, dest.y - cy, dest.z - cz) < 1.5) {
+      const top = this.world.dimInfo?.ceiling ? 118 : WORLD_TOP - 4;
+      const x = cx + (Math.random() * 2 - 1) * 16;
+      const y = Math.max(6, Math.min(top, cy + (Math.random() * 2 - 1) * 16));
+      const z = cz + (Math.random() * 2 - 1) * 16;
+      // (only where the way there is open: vanilla's canReach)
+      if (this._rayClear(cx, cy, cz, x, y, z) && this._chunkReady(x, z)) {
+        ai.dest = { x, y, z };
+        ai.destT = 4 + Math.random() * 6;
+      } else {
+        ai.dest = null;
+        ai.destT = 0.3;
+      }
+      m.blocked = false;
+    }
+    const w = m._want || (m._want = { x: 0, y: 0, z: 0, speed: 0, jump: false });
+    if (ai.dest) {
+      const dx = ai.dest.x - cx;
+      const dy = ai.dest.y - cy;
+      const dz = ai.dest.z - cz;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      w.x = dx / len;
+      w.y = dy / len;
+      w.z = dz / len;
+      w.speed = m.spec.speed;
+    } else w.speed = 0;
+    // It looks at its target, else the way it goes.
+    const yaw = face ? Math.atan2(face.x - cx, face.z - cz) : Math.hypot(m.vel.x, m.vel.z) > 0.3 ? Math.atan2(m.vel.x, m.vel.z) : m.yaw;
+    m.yaw += THREE.MathUtils.clamp(angleDiff(yaw, m.yaw), -3 * dt, 3 * dt);
+    m.headYaw = 0;
+    m.headPitch = 0;
+    return w;
+  }
+
+  // A flier's motion (the ghast): toward where it wants at its speed, eased,
+  // swept against the blocks; knockback adds to it.
+  _physicsFloat(m, dt, want) {
+    const w = this.world;
+    const spec = m.spec;
+    const k = Math.min(1, dt * 1.2);
+    m.vel.x += (want.x * want.speed - m.vel.x) * k + m.knock.x * 0.5;
+    m.vel.y += (want.y * want.speed - m.vel.y) * k;
+    m.vel.z += (want.z * want.speed - m.vel.z) * k + m.knock.z * 0.5;
+    m.knock.set(0, 0, 0);
+    if (m.beamLift) {
+      m.vel.y = m.beamLift;
+      m.beamLift = 0;
+    }
+    const ax = m.vel.x * dt;
+    const dx = sweepAxis(w, m.pos, spec.r, spec.h, "x", ax);
+    m.pos.x += dx;
+    const ay = m.vel.y * dt;
+    const dy = sweepAxis(w, m.pos, spec.r, spec.h, "y", ay);
+    m.pos.y += dy;
+    const az = m.vel.z * dt;
+    const dz = sweepAxis(w, m.pos, spec.r, spec.h, "z", az);
+    m.pos.z += dz;
+    if (Math.abs(dx - ax) > 1e-6) m.vel.x = 0;
+    if (Math.abs(dy - ay) > 1e-6) m.vel.y = 0;
+    if (Math.abs(dz - az) > 1e-6) m.vel.z = 0;
+    m.blocked = Math.abs(dx - ax) > 1e-6 || Math.abs(dy - ay) > 1e-6 || Math.abs(dz - az) > 1e-6;
+    m.onGround = false;
+    m.peakY = null;
+    m.inWater = IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + spec.h * 0.5), Math.floor(m.pos.z))] === 1;
+    m.walk = 0;
+  }
+
+  // Its fireball: from 4 blocks out along its view, at the target's middle (vanilla).
+  _ghastShoot(m, t) {
+    const sn = Math.sin(m.yaw);
+    const cs = Math.cos(m.yaw);
+    const from = new THREE.Vector3(m.pos.x + sn * 4, m.pos.y + m.spec.h / 2 + 0.5, m.pos.z + cs * 4);
+    const dir = new THREE.Vector3(t.position.x - from.x, t.position.y + 0.9 - from.y, t.position.z - from.z);
+    // (A wall right in front: from its face instead.)
+    if (IS_SOLID[this.world.getBlock(Math.floor(from.x), Math.floor(from.y), Math.floor(from.z))]) from.set(m.pos.x + sn * 2.4, m.pos.y + m.spec.h / 2, m.pos.z + cs * 2.4);
+    this._launch("ghast_fireball", from, dir, m);
+    this._voice(m, "shoot");
+  }
+
+  // ---- The blaze ----
+
+  // A blaze hovers. At a player in sight within 48 blocks it rises to about
+  // their height, burns for 3 s (charged), fires three small fireballs 0.3 s
+  // apart, then rests 5 s (vanilla's rounds); up close it strikes (6). Out of
+  // range or sight it closes in. Water, rain and snowballs hurt it.
+  _brainBlaze(m, dt, dist) {
+    const ai = m.ai;
+    if ((ai.seekT = (ai.seekT ?? Math.random() * 0.5) - dt) <= 0) {
+      ai.seekT = 0.5;
+      if (!this._mayTarget(m, m.foe, 48) || (!this._sees(m, m.foe) && (ai.lostT = (ai.lostT ?? 0) + 0.5) > 5)) m.foe = this._nearestFoe(m, 48, null, 24);
+      if (m.foe && this._sees(m, m.foe)) ai.lostT = 0;
+    }
+    const foe = this._mayTarget(m, m.foe, 48) ? m.foe : null;
+    ai.target = !!foe;
+    if (Math.random() < dt * 2) this._blazeSmoke(m, m.charged ? 3 : 1);
+    if (!foe) {
+      ai.step = 0;
+      m.charged = false;
+      const w = this._wander(m, dt, dist);
+      w.up = 0;
+      return w;
+    }
+    const p = foe.position;
+    if ((ai.hoverT = (ai.hoverT ?? 0) - dt) <= 0) {
+      ai.hoverT = 5;
+      ai.hoverOff = 0.5 + gauss() * 3;
+    }
+    const up = p.y + 1.6 > m.pos.y + m.spec.eye + ai.hoverOff ? 6 : 0;
+    const dx = p.x - m.pos.x;
+    const dz = p.z - m.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const d3 = Math.hypot(dx, p.y + 0.9 - (m.pos.y + 0.9), dz);
+    const sees = this._sees(m, foe);
+    let w;
+    if (d3 < 2) {
+      if (m.attackCooldown <= 0 && m.stagger <= 0) this._hitPlayer(m, foe, m.spec.damage, 2, 4);
+      w = this._go(m, dt, dist, dx / d, dz / d, m.spec.chaseSpeed, this._eyeOf(foe), true);
+    } else if (d3 < 48 && sees) {
+      ai.atkT = (ai.atkT ?? 0) - dt;
+      if (ai.atkT <= 0) {
+        ai.step = (ai.step ?? 0) + 1;
+        if (ai.step === 1) {
+          ai.atkT = 3;
+          m.charged = true;
+          this._voice(m, "charge");
+        } else if (ai.step <= 4) ai.atkT = 0.3;
+        else {
+          ai.atkT = 5;
+          ai.step = 0;
+          m.charged = false;
+        }
+        if (ai.step > 1) this._blazeShoot(m, foe, d3);
+      }
+      w = this._go(m, dt, dist, dx / d, dz / d, 0, this._eyeOf(foe), true);
+    } else {
+      m.charged = false;
+      ai.step = 0;
+      w = this._go(m, dt, dist, dx / d, dz / d, m.spec.chaseSpeed, this._eyeOf(foe), true);
+    }
+    w.up = up;
+    return w;
+  }
+
+  _blazeShoot(m, t, dist) {
+    const spread = Math.sqrt(Math.sqrt(dist * dist)) * 0.5; // (vanilla's: the square root of the distance, halved)
+    const from = new THREE.Vector3(m.pos.x, m.pos.y + m.spec.h / 2 + 0.5, m.pos.z);
+    const dir = new THREE.Vector3(t.position.x - from.x + gauss() * spread, t.position.y + 0.9 - from.y, t.position.z - from.z + gauss() * spread);
+    this._launch("small_fireball", from, dir, m);
+    this._voice(m, "shoot");
+  }
+
+  _blazeSmoke(m, n) {
+    const fx = this.effects;
+    for (let k = 0; k < n; k++) {
+      const x = m.pos.x + (Math.random() - 0.5) * 1.2;
+      const y = m.pos.y + Math.random() * m.spec.h;
+      const z = m.pos.z + (Math.random() - 0.5) * 1.2;
+      if (m.charged) fx.glow.spawn({ x, y, z, vy: 1.2 + Math.random(), life: 0.45, size0: 0.4, size1: 0.1, color0: this._burnC, color1: this._burnC2 });
+      else fx.smoke.spawn({ x, y, z, vy: 0.8, life: 1.2, size0: 0.3, size1: 0.8, color0: this._smokeGrey2, color1: this._smokeGrey, alpha: 0.45, drag: 1.5 });
+    }
+  }
+
+  // ---- Piglins, zombified piglins, hoglins ----
+
+  // A zombified piglin: neutral, wandering, until a player hits one of its
+  // group: then all of them within 20 blocks go for that player (20-39 s).
+  _brainZPiglin(m, dt, dist) {
+    const foe = m.angerT > 0 ? this._foeInRange(m, m.foe, 35) : null;
+    if (!foe) {
+      m.foe = null;
+      m.ai.target = false;
+      return this._wander(m, dt, dist);
+    }
+    m.ai.target = true;
+    if (Math.random() < dt * 0.15) this._voice(m, "angry");
+    return this._melee(m, dt, dist, foe, m.spec.damage, 3, 5);
+  }
+
+  // A piglin goes for any player within 16 who wears no gold armor (and for
+  // whoever hit it or its kin); given a gold ingot it stops to admire it 6 s
+  // and throws what it bartered (vanilla's table). Out of the Nether it
+  // turns into a zombified piglin. Its young ones only play about.
+  _brainPiglin(m, dt, dist) {
+    const ai = m.ai;
+    if (this._zombify(m, dt, "zombified_piglin")) return this._go(m, dt, dist, 0, 0, 0);
+    if (m.admireT > 0) {
+      m.admireT -= dt;
+      ai.target = false;
+      if (m.admireT <= 0) this._barterDrop(m);
+      return this._go(m, dt, dist, 0, 0, 0);
+    }
+    if (m.baby) {
+      ai.target = false;
+      return this._wander(m, dt, dist, 1.4);
+    }
+    let foe = m.angerT > 0 ? this._foeInRange(m, m.foe, 16) : null;
+    if (!foe && (ai.seekT = (ai.seekT ?? Math.random() * 0.5) - dt) <= 0) {
+      ai.seekT = 0.5;
+      ai.prey = this._nearestFoe(m, 16, (t) => !this._wearsGold(t));
+    }
+    if (!foe && ai.prey && this._mayTarget(m, ai.prey, 20) && !this._wearsGold(ai.prey)) foe = ai.prey;
+    ai.target = !!foe;
+    if (foe) {
+      if (Math.random() < dt * 0.1) this._voice(m, "angry");
+      return this._melee(m, dt, dist, foe, m.spec.damage, 3, 5);
+    }
+    // (A player holding gold close by: it comes to look.)
+    for (const t of this._targetList) {
+      const id = t === this.localPlayer ? this.inventory?.selectedStack?.id : t.heldId;
+      if (id !== ITEM.GOLD_INGOT || !this._mayTarget(m, t, 8)) continue;
+      const dx = t.position.x - m.pos.x;
+      const dz = t.position.z - m.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      return this._go(m, dt, dist, dx / d, dz / d, d > 2.5 ? m.spec.speed : 0, this._eyeOf(t));
+    }
+    return this._wander(m, dt, dist);
+  }
+
+  // A gold ingot for piglin `m` from player `pid`: it takes it and looks at it.
+  barter(m, pid = 1) {
+    if (m.kind !== "piglin" || m.dead || m.baby || m.admireT > 0 || m.angerT > 0) return false;
+    m.admireT = ADMIRE_TIME;
+    m.barterPid = pid;
+    m.ai.target = false;
+    this._voice(m, "admire");
+    return true;
+  }
+
+  // What it gives for the ingot, thrown toward whoever gave it.
+  _barterDrop(m) {
+    const table = BARTER.filter((e) => isValidItem(e[0]));
+    if (!table.length || m.dead) return;
+    let total = 0;
+    for (const e of table) total += e[3];
+    let r = Math.random() * total;
+    let pick = table[0];
+    for (const e of table) if ((r -= e[3]) <= 0) {
+      pick = e;
+      break;
+    }
+    const [id, min, max] = pick;
+    const n = min + Math.floor(Math.random() * (max - min + 1));
+    const t = this._playerByPid(m.barterPid) || this.localPlayer;
+    const dx = t.position.x - m.pos.x;
+    const dz = t.position.z - m.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    m.yaw = Math.atan2(dx, dz);
+    for (let left = n; left > 0; ) {
+      const k = Math.min(left, maxStack(id));
+      left -= k;
+      this.entities.spawn(id, k, new THREE.Vector3(m.pos.x, m.pos.y + 1.2, m.pos.z), new THREE.Vector3((dx / d) * 3, 3.5, (dz / d) * 3));
+    }
+    this._voice(m, "idle");
+  }
+
+  // A hoglin goes for players on sight and tosses them into the air; it
+  // keeps away from warped fungi, portals and respawn anchors (vanilla); fed
+  // crimson fungi it breeds. Out of the Nether it becomes a zoglin (which
+  // fights anything near it but creepers).
+  _brainHoglin(m, dt, dist) {
+    const ai = m.ai;
+    const zoglin = m.kind === "zoglin";
+    if (!zoglin && this._zombify(m, dt, "zoglin")) return this._go(m, dt, dist, 0, 0, 0);
+    if (!zoglin && (ai.fearT = (ai.fearT ?? Math.random()) - dt) <= 0) {
+      ai.fearT = 1 + Math.random() * 0.5;
+      ai.fear = this._findNear(m, HOGLIN_FEARS, 7, 3);
+    }
+    if (ai.fear && !zoglin) {
+      const fx = m.pos.x - ai.fear[0] - 0.5;
+      const fz = m.pos.z - ai.fear[2] - 0.5;
+      const fd = Math.hypot(fx, fz) || 1;
+      if (fd < 8.5) {
+        ai.target = false;
+        return this._go(m, dt, dist, fx / fd, fz / fd, m.spec.chaseSpeed * 0.8);
+      }
+      ai.fear = null;
+    }
+    if (m.loveT > 0 && !zoglin) {
+      const g = this._animalGoal(m, dt);
+      if (g) return this._go(m, dt, dist, g.x, g.z, g.speed);
+    }
+    if (m.baby) {
+      ai.target = false;
+      return this._wander(m, dt, dist, 1.3);
+    }
+    let foe = m.angerT > 0 ? this._foeInRange(m, m.foe, 16) : null;
+    if (!foe && (ai.seekT = (ai.seekT ?? Math.random() * 0.5) - dt) <= 0) {
+      ai.seekT = 0.5;
+      ai.prey = this._nearestFoe(m, 16);
+      // (A zoglin: any creature near but its own kind and creepers too.)
+      ai.mobPrey = zoglin && !ai.prey ? this._nearestMob(m, 16, (o) => o.kind !== "zoglin" && o.kind !== "creeper" && !o.spec.projectile && !o.net) : null;
+    }
+    if (!foe && this._mayTarget(m, ai.prey, 20)) foe = ai.prey;
+    ai.target = !!foe;
+    // (vanilla: half its attack and a random part of the whole, 3-8 on Normal, and a toss up)
+    const dmg = () => m.spec.damage / 2 + Math.floor(Math.random() * m.spec.damage);
+    if (foe) return this._melee(m, dt, dist, foe, dmg, 9 + Math.random() * 5, 4 + Math.random() * 3);
+    const prey = ai.mobPrey && !ai.mobPrey.removed && !ai.mobPrey.dead ? ai.mobPrey : null;
+    if (prey) {
+      const dx = prey.pos.x - m.pos.x;
+      const dz = prey.pos.z - m.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      if (m.stagger <= 0 && m.attackCooldown <= 0 && d < m.spec.r + prey.spec.r + 0.8) {
+        this._meleeMob(m, prey, dmg());
+        prey.vel.y = Math.max(prey.vel.y, 7);
+      }
+      return this._go(m, dt, dist, dx / d, dz / d, m.spec.chaseSpeed, this._look.set(prey.pos.x, prey.pos.y + prey.spec.eye, prey.pos.z));
+    }
+    return this._wander(m, dt, dist);
+  }
+
+  // The nearest block of `ids` within r across and ry up or down of m, or null.
+  _findNear(m, ids, r, ry) {
+    if (!ids.size) return null;
+    const w = this.world;
+    const x0 = Math.floor(m.pos.x);
+    const y0 = Math.floor(m.pos.y);
+    const z0 = Math.floor(m.pos.z);
+    let best = null;
+    let bd = Infinity;
+    for (let y = y0 - ry; y <= y0 + ry; y++) {
+      for (let x = x0 - r; x <= x0 + r; x++) {
+        for (let z = z0 - r; z <= z0 + r; z++) {
+          if (!ids.has(w.getBlock(x, y, z))) continue;
+          const d = (x - x0) ** 2 + (z - z0) ** 2;
+          if (d < bd) {
+            bd = d;
+            best = [x, y, z];
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  // ---- The strider ----
+
+  // A strider walks the lava (warm, red) and goes cold, purple and shivering
+  // off it, slow, looking for lava again; warped fungi tempt it, feed two and
+  // they breed. Water and rain hurt it.
+  _brainStrider(m, dt, dist) {
+    const ai = m.ai;
+    const want = this._animalGoal(m, dt);
+    if (want) return this._go(m, dt, dist, want.x, want.z, want.speed * (m.cold ? 0.4 : 1), want.look ? this._eyeOf(this.player) : null);
+    if (ai.state === "flee" && ai.timer > 0) {
+      const fx = ai.fleeFrom ? ai.fleeFrom.x - m.pos.x : this.player.position.x - m.pos.x;
+      const fz = ai.fleeFrom ? ai.fleeFrom.z - m.pos.z : this.player.position.z - m.pos.z;
+      const fd = Math.hypot(fx, fz) || 1;
+      return this._go(m, dt, dist, -fx / fd, -fz / fd, m.spec.fleeSpeed * (m.cold ? 0.4 : 1));
+    }
+    if (m.cold) {
+      if ((ai.lavaT = (ai.lavaT ?? 0) - dt) <= 0) {
+        ai.lavaT = 1.5;
+        ai.lava = this._findNear(m, LAVA_IDS, 8, 2);
+      }
+      if (ai.lava) {
+        const dx = ai.lava[0] + 0.5 - m.pos.x;
+        const dz = ai.lava[2] + 0.5 - m.pos.z;
+        const d = Math.hypot(dx, dz) || 1;
+        return this._go(m, dt, dist, dx / d, dz / d, m.spec.speed * 0.4);
+      }
+      return this._wander(m, dt, dist, 0.35);
+    }
+    return this._wander(m, dt, dist);
+  }
+
+  // ---- The shulker ----
+
+  // A shulker sits stuck to its block, its lid shut (armor 20, arrows glance
+  // off). Now and then it peeks; at a player within 16 blocks it opens and
+  // shoots a homing bullet every 1-5.5 s (vanilla). Its block gone, or hurt
+  // below half (one time in four), it teleports to another spot near.
+  _brainShulker(m, dt) {
+    const ai = m.ai;
+    const [ax, ay, az] = ATTACH[m.variant] || ATTACH[0];
+    const bx = Math.floor(m.pos.x);
+    const by = Math.floor(m.pos.y + 0.01);
+    const bz = Math.floor(m.pos.z);
+    if (!IS_SOLID[this.world.getBlock(bx + ax, by + ay, bz + az)] && (ai.lostT = (ai.lostT ?? 0) + dt) > 0.25) {
+      ai.lostT = 0;
+      this._shulkerTeleport(m); // (no spot found: it stays, floating, as vanilla's, and tries again)
+    }
+    if ((ai.seekT = (ai.seekT ?? Math.random() * 0.5) - dt) <= 0) {
+      ai.seekT = 0.5;
+      if (!this._mayTarget(m, m.foe, 16) || !this._sees(m, m.foe)) m.foe = this._nearestFoe(m, 16, null, 16);
+    }
+    const foe = this._mayTarget(m, m.foe, 20) ? m.foe : null;
+    ai.target = !!foe;
+    if (!foe && (ai.peekT = (ai.peekT ?? 0) - dt) <= 0) {
+      // (vanilla's peek: one time in 40 a tick, open a little for 1-5 s)
+      if (Math.random() < dt * 0.5) {
+        ai.peekWant = 0.3;
+        ai.peekT = 1 + Math.random() * 4;
+      } else {
+        ai.peekWant = 0;
+        ai.peekT = 0.25;
+      }
+    }
+    const goal = foe ? 1 : ai.peekWant ?? 0;
+    const was = m.peek ?? 0;
+    m.peek = was + THREE.MathUtils.clamp(goal - was, -dt, dt);
+    if (was === 0 && m.peek > 0) this._voice(m, "open");
+    else if (was > 0 && m.peek <= 0) this._voice(m, "close");
+    m.closed = goal === 0 && m.peek < 0.05;
+    if (foe) {
+      ai.shotT = (ai.shotT ?? 1) - dt;
+      if (ai.shotT <= 0) {
+        ai.shotT = 1 + Math.floor(Math.random() * 10) * 0.5;
+        const from = new THREE.Vector3(m.pos.x - ax * 0.2, m.pos.y + 0.5 - ay * 0.2, m.pos.z - az * 0.2);
+        const b = this._launch("shulker_bullet", from, new THREE.Vector3(foe.position.x - from.x, foe.position.y + 1 - from.y, foe.position.z - from.z), m);
+        if (b) b.target = foe;
+        this._voice(m, "shoot");
+      }
+      const dx = foe.position.x - m.pos.x;
+      const dz = foe.position.z - m.pos.z;
+      m.headYaw += (THREE.MathUtils.clamp(angleDiff(Math.atan2(dx, dz), m.yaw), -1.4, 1.4) - m.headYaw) * Math.min(1, dt * 6);
+    } else m.headYaw *= Math.max(0, 1 - dt * 2);
+    m.knock.set(0, 0, 0);
+    m.vel.set(0, 0, 0);
+    m.onGround = true;
+  }
+
+  // To a free cell within 8 blocks next to a solid block (preferring the one
+  // under it), as vanilla's: true if it went.
+  _shulkerTeleport(m) {
+    const w = this.world;
+    for (let k = 0; k < 16; k++) {
+      const x = Math.floor(m.pos.x + (Math.random() * 2 - 1) * 8);
+      const y = Math.floor(m.pos.y + (Math.random() * 2 - 1) * 8);
+      const z = Math.floor(m.pos.z + (Math.random() * 2 - 1) * 8);
+      if (!this._chunkReady(x, z) || y < 1 || y > WORLD_TOP - 1) continue;
+      const here = w.getBlock(x, y, z);
+      if (IS_SOLID[here] || IS_WET[here] || isLava(here)) continue;
+      const face = ATTACH.findIndex(([dx, dy, dz]) => IS_SOLID[w.getBlock(x + dx, y + dy, z + dz)] && IS_OPAQUE[w.getBlock(x + dx, y + dy, z + dz)]);
+      if (face < 0) continue;
+      if (this.mobs.some((o) => o !== m && o.kind === "shulker" && !o.dead && Math.floor(o.pos.x) === x && Math.floor(o.pos.y + 0.01) === y && Math.floor(o.pos.z) === z)) continue;
+      this._teleportFx(m);
+      m.pos.set(x + 0.5, y, z + 0.5);
+      m.variant = face;
+      m.peek = 0;
+      this._teleportFx(m);
+      if (this._audioDist(m) < 30) this.audio?.playTeleport?.();
+      return true;
+    }
+    return false;
+  }
+
+  // ---- The silverfish ----
+
+  // A silverfish goes for players within 16; with none, it may slip into a
+  // stone block beside it (it becomes infested: vanilla). Hurt, it calls the
+  // others out of the infested blocks around (js: _hurt).
+  _brainSilverfish(m, dt, dist) {
+    const ai = m.ai;
+    let foe = m.angerT > 0 ? this._foeInRange(m, m.foe, 16) : null;
+    if (!foe && (ai.seekT = (ai.seekT ?? Math.random() * 0.5) - dt) <= 0) {
+      ai.seekT = 0.5;
+      ai.prey = this._nearestFoe(m, 16);
+    }
+    if (!foe && this._mayTarget(m, ai.prey, 20)) foe = ai.prey;
+    ai.target = !!foe;
+    if (foe) return this._melee(m, dt, dist, foe, m.spec.damage, 2, 3);
+    if (INFESTED.length && m.onGround && !m.persist && Math.random() < dt * 0.5) {
+      const [dx, dz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(Math.random() * 4)];
+      const x = Math.floor(m.pos.x) + dx;
+      const y = Math.floor(m.pos.y + 0.05);
+      const z = Math.floor(m.pos.z) + dz;
+      const into = INFEST_OF.get(this.world.getBlock(x, y, z));
+      if (into && this.world.setBlock(x, y, z, into)) {
+        this._smoke(m);
+        const i = this.mobs.indexOf(m);
+        if (i >= 0) this._remove(i);
+        return this._go(m, dt, dist, 0, 0, 0);
+      }
+    }
+    return this._wander(m, dt, dist);
+  }
+
+  // A hurt silverfish's call: infested blocks within 10 across and 5 up or
+  // down break open, each a silverfish (vanilla's).
+  _callSilverfish(m, foe) {
+    if (!INFESTED_IDS.size) return;
+    const w = this.world;
+    const x0 = Math.floor(m.pos.x);
+    const y0 = Math.floor(m.pos.y);
+    const z0 = Math.floor(m.pos.z);
+    let n = 0;
+    for (let y = y0 - 5; y <= y0 + 5 && n < 12; y++) {
+      for (let x = x0 - 10; x <= x0 + 10 && n < 12; x++) {
+        for (let z = z0 - 10; z <= z0 + 10 && n < 12; z++) {
+          if (!INFESTED_IDS.has(w.getBlock(x, y, z)) || !w.setBlock(x, y, z, BLOCK.AIR)) continue;
+          n++;
+          const o = this.spawn("silverfish", x + 0.5, y, z + 0.5);
+          if (o) {
+            o.foe = foe;
+            o.angerT = 20;
+          }
+        }
+      }
+    }
+  }
+
+  // ---- Fireballs and bullets ----
+
+  // A projectile of `kind` from `from` toward `dir`, shot by creature `by`.
+  // Fireballs fly as vanilla's: pushed a tenth of a block a tick along their
+  // aim, slowed 5% a tick (from rest up to 38 blocks a second).
+  _launch(kind, from, dir, by) {
+    const spec = SPECIES[kind];
+    const m = this.spawn(kind, from.x, from.y - spec.h / 2, from.z, { wet: true });
+    if (!m) return null;
+    const len = dir.length() || 1;
+    m.shooter = by || null;
+    m.shooterPid = 0;
+    m.age = 0;
+    m.power = new THREE.Vector3(dir.x / len, dir.y / len, dir.z / len).multiplyScalar(0.1);
+    m.pv = new THREE.Vector3();
+    m.tickAcc = 0;
+    m.yaw = Math.atan2(dir.x, dir.z);
+    if (kind === "shulker_bullet") m.pv.copy(m.power).multiplyScalar(1.5); // (0.15 a tick)
+    return m;
+  }
+
+  // One step of a projectile (the host's or a single player's): its flight,
+  // and what it meets on the way (a block, a player, a creature).
+  _projectileStep(m, i, dt, drawDist, crowdDist) {
+    m.age = (m.age ?? 0) + dt;
+    const loaded = !!this.world.getChunk(Math.floor(m.pos.x) >> 4, Math.floor(m.pos.z) >> 4);
+    if (!loaded || m.age > (m.kind === "shulker_bullet" ? 25 : 15) || m.pos.y < -10 || m.pos.y > WORLD_TOP + 30 || !m.pv) {
+      if (m.kind === "shulker_bullet" && loaded) this._bulletPop(m);
+      this._remove(i);
+      return;
+    }
+    if (m.kind === "shulker_bullet") this._bulletSteer(m, dt);
+    else {
+      m.tickAcc += dt;
+      for (let n = 0; m.tickAcc >= TICK && n < 10; n++) {
+        m.tickAcc -= TICK;
+        m.pv.add(m.power).multiplyScalar(0.95);
+      }
+    }
+    const c = this._pc || (this._pc = new THREE.Vector3());
+    c.set(m.pos.x, m.pos.y + m.spec.h / 2, m.pos.z);
+    const step = this._ps || (this._ps = new THREE.Vector3());
+    step.copy(m.pv).multiplyScalar(dt / TICK);
+    m.vel.copy(m.pv).multiplyScalar(1 / TICK);
+    const len = step.length();
+    if (len > 1e-6) {
+      const dir = this._pd || (this._pd = new THREE.Vector3());
+      dir.copy(step).divideScalar(len);
+      const pad = m.spec.r;
+      const blk = this.world.raycast(c, dir, len + pad * 0.5, { solidOnly: true });
+      let reach = blk ? Math.max(0, blk.distance - pad * 0.5) : len;
+      let hitT = null;
+      // (A fireball just sent back spares who hit it a moment.)
+      const spare = m.shooterPid && m.age - (m.deflectT ?? -9) < 0.5 ? this._playerByPid(m.shooterPid) : null;
+      for (const t of this._targetList) {
+        if (t.dead || t.creative || t.gone || t === spare) continue;
+        const tt = this._segBox(c, dir, reach, t.position, 0.3 + pad, 1.8 + pad);
+        if (tt !== null && tt <= reach) {
+          reach = tt;
+          hitT = t;
+        }
+      }
+      const mr = this.raycast(c, dir, reach + pad, (o) => o !== m && o !== m.shooter && !o.spec.projectile && !o.dead);
+      let hitMob = null;
+      if (mr && mr.distance <= reach + pad) {
+        hitMob = mr.mob;
+        hitT = null;
+        reach = Math.max(0, mr.distance - pad);
+      }
+      if (hitT || hitMob || (blk && blk.distance - pad * 0.5 <= len)) {
+        const at = c.clone().addScaledVector(dir, reach);
+        this._remove(i);
+        this._impact(m, at, dir, hitT, hitMob, hitT || hitMob ? null : blk);
+        return;
+      }
+      m.pos.addScaledVector(dir, len);
+      m.yaw = Math.atan2(dir.x, dir.z);
+    }
+    this._projectileFx(m, dt);
+    this._afterMove(m, drawDist, crowdDist);
+  }
+
+  // Where a segment (o + dir * t, t in 0..max) enters a player's box (half
+  // width w around p, height h, a little under the feet too), or null.
+  _segBox(o, dir, max, p, w, h) {
+    let t0 = 0;
+    let t1 = max;
+    const lo = [p.x - w, p.y - 0.1, p.z - w];
+    const hi = [p.x + w, p.y + h, p.z + w];
+    const oo = [o.x, o.y, o.z];
+    const d = [dir.x, dir.y, dir.z];
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(d[k]) < 1e-9) {
+        if (oo[k] < lo[k] || oo[k] > hi[k]) return null;
+        continue;
+      }
+      let a = (lo[k] - oo[k]) / d[k];
+      let b = (hi[k] - oo[k]) / d[k];
+      if (a > b) [a, b] = [b, a];
+      if (a > t0) t0 = a;
+      if (b < t1) t1 = b;
+      if (t0 > t1) return null;
+    }
+    return t0;
+  }
+
+  // A shulker's bullet homes in along the axes, as vanilla's: it picks the
+  // way that brings it nearest (one of the three axes), goes that way a block
+  // or two, then picks again; 3 blocks a second. Its target gone, it falls.
+  _bulletSteer(m, dt) {
+    const t = m.target;
+    const pv = m.pv;
+    if (!t || t.dead || t.gone || t.creative) {
+      pv.y = Math.max(-0.5, pv.y - 0.04 * (dt / TICK));
+      pv.x *= 0.98;
+      pv.z *= 0.98;
+      return;
+    }
+    const dx = t.position.x - m.pos.x;
+    const dy = t.position.y + 1 - (m.pos.y + m.spec.h / 2);
+    const dz = t.position.z - m.pos.z;
+    m.legT = (m.legT ?? 0) - dt;
+    if (m.legT <= 0 || !m.axis) {
+      const a = [Math.abs(dx), Math.abs(dy), Math.abs(dz)];
+      const total = a[0] + a[1] + a[2] || 1;
+      let r = Math.random() * total;
+      let k = 0;
+      while (k < 2 && (r -= a[k]) > 0) k++;
+      const sign = [dx, dy, dz][k] >= 0 ? 1 : -1;
+      m.axis = [0, 0, 0];
+      m.axis[k] = sign;
+      m.legT = Math.min(a[k], 1 + Math.random()) / 3;
+    }
+    const k = Math.min(1, dt * 6);
+    pv.x += (m.axis[0] * 0.15 - pv.x) * k;
+    pv.y += (m.axis[1] * 0.15 - pv.y) * k;
+    pv.z += (m.axis[2] * 0.15 - pv.z) * k;
+  }
+
+  // What a projectile does where it lands.
+  _impact(m, at, dir, t, o, blk) {
+    const pid = m.shooterPid || 0;
+    if (m.kind === "ghast_fireball") {
+      // (A direct hit: 6, the blast on top. Sent back by a player, it kills the ghast it hits: vanilla's 1000.)
+      if (t) t.damage(6, pid ? "fireball" : "ghast", { from: at.clone().addScaledVector(dir, -2), projectile: true });
+      if (o) {
+        this._hitBy(o, pid && o.kind === "ghast" ? 1000 : 6, dir, pid);
+        if (pid && o.kind === "ghast" && o.dead) this._advancement(pid, "Return to Sender");
+      }
+      this._fireballBlast(at);
+    } else if (m.kind === "small_fireball") {
+      if (t) {
+        if (t.damage(5, "blaze", { from: at.clone().addScaledVector(dir, -2), projectile: true })) this._ignite(t, 5);
+      } else if (o) {
+        if (!o.spec.fireproof) {
+          this._hitBy(o, 5, dir, 0);
+          o.fireT = Math.max(o.fireT ?? 0, 5);
+        }
+      } else if (blk && isVanilla() && Number.isFinite(V.FIRE)) {
+        // (It sets fire where it lands, as vanilla's.)
+        const [x, y, z] = blk.place;
+        if (this.world.getBlock(x, y, z) === BLOCK.AIR) this.world.setBlock(x, y, z, V.FIRE);
+      }
+      this._puff(at, this._burnC, 6);
+    } else {
+      if (t) {
+        if (t.damage(4, "shulker", { from: at.clone().addScaledVector(dir, -2), projectile: true })) this._effectOn(t, "levitation", 10, 1);
+      } else if (o) this._hitBy(o, 4, dir, 0);
+      this._bulletPop(m);
+    }
+  }
+
+  // A ghast's fireball goes off: power 1, the blocks it breaks dropped, fire
+  // on a third of the open spots around (vanilla's).
+  _fireballBlast(at) {
+    const removed = this.effects.explode(at, { radius: GHAST_BLAST, source: "ghast" });
+    if (!isVanilla() || !Array.isArray(removed)) return;
+    this.blastDrops(removed, at, 1);
+    if (!Number.isFinite(V.FIRE)) return;
+    const w = this.world;
+    const cells = [];
+    for (let i = 0; i < removed.length; i += 4) cells.push([removed[i], removed[i + 1], removed[i + 2]]);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) cells.push([Math.floor(at.x) + dx, Math.floor(at.y) + dy, Math.floor(at.z) + dz]);
+    const fire = [];
+    for (const [x, y, z] of cells) {
+      if (Math.random() >= 1 / 3 || w.getBlock(x, y, z) !== BLOCK.AIR || !IS_SOLID[w.getBlock(x, y - 1, z)] || !IS_OPAQUE[w.getBlock(x, y - 1, z)]) continue;
+      fire.push(x, y, z, V.FIRE);
+      if (fire.length >= 48) break;
+    }
+    if (fire.length) w.setBlocks(fire);
+  }
+
+  // A creature hit by a projectile: credited to player `pid` (a fireball
+  // they sent back), else nobody's.
+  _hitBy(o, dmg, dir, pid) {
+    const prevA = this.currentAttacker;
+    const prevP = this.player;
+    if (pid) {
+      this.currentAttacker = pid;
+      this.player = this._playerByPid(pid) || this.localPlayer;
+    }
+    o.invulnerable = 0;
+    try {
+      const d = Math.hypot(dir.x, dir.z) || 1;
+      this._hurt(o, dmg, { x: dir.x / d, z: dir.z / d }, 3, !!pid);
+    } finally {
+      this.currentAttacker = prevA;
+      this.player = prevP;
+    }
+  }
+
+  // A player set alight for `s` seconds (a blaze's fireball); online, sent to them.
+  _ignite(t, s) {
+    if (t.effectLevel?.("fire_resistance") > 0) return;
+    if (typeof t.fireTime === "number") t.fireTime = Math.max(t.fireTime, s);
+    else t.setFire?.(s);
+  }
+
+  // Something hits a projectile: a ghast's fireball flies back the way the
+  // hitter looks (vanilla), now theirs; a shulker's bullet breaks.
+  _deflect(m) {
+    if (m.kind === "shulker_bullet") {
+      const i = this.mobs.indexOf(m);
+      if (i >= 0) this._remove(i);
+      this._bulletPop(m);
+      return true;
+    }
+    const f = this.player.getForwardVector?.() || new THREE.Vector3(Math.sin(m.yaw + Math.PI), 0, Math.cos(m.yaw + Math.PI));
+    m.pv.set(f.x, f.y, f.z); // (vanilla: a block a tick, at once)
+    m.power.set(f.x, f.y, f.z).multiplyScalar(0.1);
+    m.shooter = null;
+    m.shooterPid = this.currentAttacker ?? this.localPid;
+    m.deflectT = m.age;
+    m.age = Math.min(m.age, 5);
+    m.hurtTime = 0;
+    this.audio?.playHit?.(false);
+    return true;
+  }
+
+  _bulletPop(m) {
+    this._puff(this._tmp.set(m.pos.x, m.pos.y + m.spec.h / 2, m.pos.z), this._bulletC || (this._bulletC = new THREE.Color(2.6, 2.4, 1.6)), 8);
+  }
+
+  _puff(at, color, n) {
+    for (let k = 0; k < n; k++) this.effects.glow.spawn({ x: at.x, y: at.y, z: at.z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, life: 0.4, size0: 0.2, size1: 0.04, color0: color, drag: 2.5 });
+  }
+
+  // A trail: flames and smoke behind a fireball, a glint behind a bullet
+  // (online too: a guest's copies, from puppetTick).
+  _projectileFx(m, dt) {
+    if (this._audioDist(m) > 96) return;
+    const fx = this.effects;
+    const x = m.pos.x;
+    const y = m.pos.y + m.spec.h / 2;
+    const z = m.pos.z;
+    if (m.kind === "shulker_bullet") {
+      if (Math.random() < dt * 12) fx.glow.spawn({ x, y, z, life: 0.35, size0: 0.12, size1: 0.02, color0: this._bulletC || (this._bulletC = new THREE.Color(2.6, 2.4, 1.6)), drag: 1 });
+      return;
+    }
+    const big = m.kind === "ghast_fireball";
+    if (Math.random() < dt * (big ? 30 : 14)) fx.glow.spawn({ x: x + (Math.random() - 0.5) * 0.3, y: y + (Math.random() - 0.5) * 0.3, z: z + (Math.random() - 0.5) * 0.3, life: 0.35, size0: big ? 0.7 : 0.3, size1: 0.1, color0: this._burnC, color1: this._burnC2, drag: 2 });
+    if (big && Math.random() < dt * 10) fx.smoke.spawn({ x, y, z, vy: 0.4, life: 1.1, size0: 0.4, size1: 1, color0: this._smokeGrey2, color1: this._smokeGrey, alpha: 0.5, drag: 1.5 });
+  }
+
+  // Online, a guest's copy of the host's creature, each frame (js/net/entities.js): its own sparks and smoke.
+  puppetTick(m, dt) {
+    if (m.spec.projectile) this._projectileFx(m, dt);
+    else if (m.kind === "blaze" && Math.random() < dt * 2) this._blazeSmoke(m, m.charged ? 3 : 1);
+  }
+
+  // An advancement for player `pid` (vanilla's toast; online, theirs).
+  _advancement(pid, name) {
+    const text = `Advancement made: ${name}`;
+    if (!pid || pid === this.localPid || !this.targets) this.onToast?.(text, 5);
+    else this.onRemoteToast?.(pid, text);
+  }
+
+  // Water and rain hurt it (a blaze, a strider: 1 every half second).
+  _wetTick(m, dt) {
+    const wet = m.inWater || LIB.isRainingAt?.(m.pos.x, m.pos.y + m.spec.h, m.pos.z);
+    if (!wet) {
+      m.wetT = 0;
+      return;
+    }
+    m.wetT = (m.wetT ?? 0) - dt;
+    if (m.wetT > 0) return;
+    m.wetT = 0.5;
+    m.invulnerable = 0;
+    this._hurt(m, 1, null, 0);
   }
 
   // ---------- Line of fire and pathfinding (smarter creatures) ----------
@@ -2944,6 +4586,8 @@ export class MobManager {
     const applied = this.player.damage(dmg, meleeCause(m.kind), { from: m.pos });
     if (applied) {
       this.player.applyImpulse(this._tmp.set(nx * 6, 4, nz * 6));
+      // (Round 12) A wither skeleton's blow withers (vanilla: 10 s).
+      if (m.spec.hitEffect) this._effectOn(this.player, ...m.spec.hitEffect);
       if (this.onPlayerHurt) this.onPlayerHurt(m);
       if (isVanilla()) this._rallyWolves(this._pidOf(this.player), m); // (Round 11: their wolves defend them)
     } else if (isVanilla() && this.player.shieldBlockedAt > performance.now() / 1000 - 0.1) {
@@ -3298,6 +4942,12 @@ export class MobManager {
     } else if (m.inWater) {
       m.vel.y += (waterBody ? 16 : -12) * dt;
       m.vel.y = THREE.MathUtils.clamp(m.vel.y, -3, 2.4);
+    } else if (spec.hovers) {
+      // (Round 12) A blaze: it sinks slowly (vanilla: 0.6 of its fall kept a
+      // tick) and rises toward its target's height (want.up).
+      m.vel.y += GRAVITY * dt;
+      if (m.vel.y < 0) m.vel.y *= Math.pow(0.6, dt * 20);
+      if (want.up > 0) m.vel.y += (want.up - m.vel.y) * Math.min(1, dt * 6);
     } else if (spec.climbs && m.blocked && speed > 0) {
       // Pressed against a wall while trying to move: climb it, from the
       // ground too, instead of falling (m.blocked is last frame's result, so this lags one frame
@@ -3326,6 +4976,23 @@ export class MobManager {
     m.blocked = Math.abs(dx - ax) > 1e-6 || Math.abs(dz - az) > 1e-6;
     if (Math.abs(dx - ax) > 1e-6) m.knock.x = 0;
     if (Math.abs(dz - az) > 1e-6) m.knock.z = 0;
+    // (Round 12) A strider stands on lava as on ground (cold off it).
+    if (spec.lavaWalker) {
+      const cx = Math.floor(m.pos.x);
+      const cz = Math.floor(m.pos.z);
+      const fy = Math.floor(m.pos.y - 0.02);
+      m.onLava = false;
+      if (isLava(w.getBlock(cx, fy, cz)) && m.vel.y <= 0.01) {
+        let top = fy;
+        while (top < fy + 4 && isLava(w.getBlock(cx, top + 1, cz))) top++;
+        const surf = top + 1;
+        m.pos.y = surf - m.pos.y > 1.2 ? m.pos.y + Math.min(surf - m.pos.y, 4 * dt) : surf;
+        m.vel.y = 0;
+        m.onGround = true;
+        m.onLava = true;
+      }
+      m.cold = !m.onLava && !isLava(w.getBlock(cx, Math.floor(m.pos.y + 0.2), cz));
+    }
 
     // Fall damage (not for hoppers, who land softly).
     if (m.onGround || m.inWater) {
@@ -3353,7 +5020,7 @@ export class MobManager {
     const CELL = 2;
     const key = (x, z) => ((Math.floor(x / CELL) & 0xffff) << 16) | (Math.floor(z / CELL) & 0xffff);
     for (const m of list) {
-      if (m.dead || m.net) continue;
+      if (m.dead || m.net || m.spec.projectile || m.spec.still) continue;
       const k = key(m.pos.x, m.pos.z);
       let cell = grid.get(k);
       if (!cell) grid.set(k, (cell = []));
@@ -3361,7 +5028,7 @@ export class MobManager {
     }
     const p = this.player.position;
     for (const a of list) {
-      if (a.dead || a.net) continue;
+      if (a.dead || a.net || a.spec.projectile || a.spec.still) continue;
       const cx = Math.floor(a.pos.x / CELL);
       const cz = Math.floor(a.pos.z / CELL);
       for (let gx = cx - 1; gx <= cx + 1; gx++) {
@@ -3400,6 +5067,18 @@ export class MobManager {
 
   // Damages a mob; (nx, nz) is the knockback direction and `kb` its strength.
   _hurt(m, amount, dir, kb, byPlayer = false) {
+    // (Round 12) A fireball or a bullet: a player's blow or shot sends a
+    // ghast's fireball back, breaks a shulker's bullet (online, the host's: a claim).
+    if (m.spec.projectile) {
+      if (m.dead || !m.spec.pickable || !dir || !byPlayer || m.removed) return false;
+      if (m.net) {
+        if (m.invulnerable > 0) return false;
+        m.invulnerable = 0.25;
+        this.onPuppetHit?.(m, amount, dir, kb, byPlayer);
+        return true;
+      }
+      return this._deflect(m);
+    }
     if (m.dead || m.invulnerable > 0 || amount <= 0) return false;
     // A guest's hit on one of the host's creatures: a claim to the host (it
     // judges health and death); here only the red flash.
@@ -3445,6 +5124,25 @@ export class MobManager {
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
     if (byPlayer && m.calmT > 0) this.wake(m);
+    // (Round 12) The Nether's and the End's: who hit it is who they go for.
+    if (byPlayer && m.spec.vanilla) {
+      const k = m.kind;
+      if (k === "zombified_piglin") this._angerPack(m, k, 20, this.player);
+      else if (k === "piglin") this._angerPack(m, k, 16, this.player);
+      else if (k === "silverfish") {
+        this._callSilverfish(m, this.player);
+        m.foe = this.player;
+        m.angerT = 20;
+      } else if (m.spec.brain && m.spec.hostile && m.spec.brain !== "slime") {
+        m.foe = this.player;
+        m.angerT = Math.max(m.angerT ?? 0, 20);
+      }
+    }
+    // (Round 12) A shut shulker: arrows glance off, blows go through its
+    // armor 20; vanilla's armor points for the others (a blow or a shot).
+    if (m.kind === "shulker" && m.closed && this.projectileHit) return false;
+    const armor = m.kind === "shulker" ? (m.closed ? 20 : 0) : m.spec.armor;
+    if (armor && dir) amount = throughArmor(amount, armor);
     // (Round 11) The enchantments of the blow or arrow (attackExtras, set
     // around the hit: js/interaction.js, js/weapons.js; a guest's in its
     // claim): Fire Aspect and Flame set it alight, Looting is kept for its drops.
@@ -3476,6 +5174,14 @@ export class MobManager {
       return true;
     }
     this._voice(m, "hurt");
+    // (Round 12) A shulker hurt below half: one time in four it teleports.
+    if (m.kind === "shulker" && m.health < m.maxHealth / 2 && Math.random() < 0.25) this._shulkerTeleport(m);
+    // (A strider runs from what hurt it.)
+    if (m.kind === "strider") {
+      m.ai.state = "flee";
+      m.ai.timer = 3 + Math.random() * 2;
+      m.ai.fleeFrom = null;
+    }
     if (!m.spec.hostile && !m.spec.brain) {
       if (m.spec.hides) {
         m.ai.state = "hide";
@@ -3539,7 +5245,8 @@ export class MobManager {
   }
 
   // Explosions hurt and fling mobs like they do the player, scaled by size.
-  explosion(center, radius, byPlayer = true, source = null) {
+  // (info: main.js onExplosion's, { mirror, by }: for the wrappers, js/dragon.js)
+  explosion(center, radius, byPlayer = true, source = null, info = null) {
     const reach = radius * 1.8;
     const size = Math.sqrt(radius / 7);
     // (A Survival world: a creeper's or TNT's blast hurts as vanilla's, power
@@ -3548,7 +5255,7 @@ export class MobManager {
     const power = isVanilla() ? VANILLA_BLAST_POWER[source] : 0;
     if (power) {
       for (const m of this.mobs) {
-        if (m.dead) continue;
+        if (m.dead || m.spec.projectile) continue;
         const d = this._tmp.set(m.pos.x - center.x, m.pos.y - center.y, m.pos.z - center.z);
         const dist = d.length();
         const q = 1 - dist / (2 * power);
@@ -3562,7 +5269,7 @@ export class MobManager {
       return;
     }
     for (const m of this.mobs) {
-      if (m.dead) continue;
+      if (m.dead || m.spec.projectile) continue;
       const d = this._tmp.set(m.pos.x - center.x, m.pos.y + m.spec.h / 2 - center.y, m.pos.z - center.z);
       const dist = d.length();
       if (dist >= reach) continue;
@@ -3600,7 +5307,7 @@ export class MobManager {
   // The first living mob whose body is within `r` of point `p`, or null.
   sphereHit(p, r) {
     for (const m of this.mobs) {
-      if (m.dead) continue;
+      if (m.dead || (m.spec.projectile && !m.spec.pickable)) continue;
       const hr = m.spec.r + r;
       if (Math.abs(p.x - m.pos.x) < hr && Math.abs(p.z - m.pos.z) < hr && p.y > m.pos.y - r && p.y < m.pos.y + m.spec.h + r) return m;
     }
@@ -3630,7 +5337,7 @@ export class MobManager {
     const R = (reach * Math.hypot(dir.x, dir.y, dir.z)) / 2;
     const cx = origin.x + dir.x * reach / 2, cy = origin.y + dir.y * reach / 2, cz = origin.z + dir.z * reach / 2;
     for (const m of this.mobs) {
-      if (m.dead || (filter && !filter(m))) continue;
+      if (m.dead || (m.spec.projectile && !m.spec.pickable) || (filter && !filter(m))) continue;
       const dx = m.pos.x - cx, dz = m.pos.z - cz, lim = R + m.spec.r * 1.5 + 1;
       if (dx * dx + dz * dz > lim * lim || m.pos.y + m.spec.h + 1 < cy - R || m.pos.y - 1 > cy + R) continue;
       const r = m.spec.r + 0.08;
@@ -3688,7 +5395,7 @@ export class MobManager {
     const P = this.player.position;
     const pid = this.localPid;
     for (const o of this.mobs) {
-      if (o === target || o.dead || o.spec.flies || (o.tamed && o.owner === pid)) continue;
+      if (o === target || o.dead || o.spec.flies || o.spec.projectile || (o.tamed && o.owner === pid)) continue;
       const r = target.spec.r + 1 + o.spec.r;
       if (Math.abs(o.pos.x - target.pos.x) > r || Math.abs(o.pos.z - target.pos.z) > r) continue;
       if (o.pos.y > target.pos.y + target.spec.h + 0.25 || o.pos.y + o.spec.h < target.pos.y - 0.25) continue;
@@ -3714,7 +5421,7 @@ export class MobManager {
   // Whether any mob's body overlaps block (x, y, z) (to block placement).
   overlapsBlock(x, y, z) {
     for (const m of this.mobs) {
-      if (m.dead) continue;
+      if (m.dead || m.spec.projectile) continue;
       const r = m.spec.r;
       if (x + 1 > m.pos.x - r && x < m.pos.x + r && z + 1 > m.pos.z - r && z < m.pos.z + r && y + 1 > m.pos.y && y < m.pos.y + m.spec.h) return true;
     }
@@ -3792,6 +5499,11 @@ export class MobManager {
       }
       const dist = Math.hypot(m.pos.x - p.x, m.pos.z - p.z);
       const drawDist = localDist ?? dist;
+      // (Round 12) A fireball or a bullet in flight.
+      if (m.spec.projectile) {
+        this._projectileStep(m, i, dt, drawDist, crowdDist);
+        return;
+      }
 
       if (m.dead) {
         m.deathTime += dt;
@@ -3838,6 +5550,11 @@ export class MobManager {
           this._remove(i);
           return;
         }
+        // (Round 12) An endermite lives two minutes (vanilla).
+        if (m.spec.lifetime && !m.persist && (m.lifeT = (m.lifeT ?? 0) + dt) > m.spec.lifetime) {
+          this._remove(i);
+          return;
+        }
         // Far away, think and move only every third frame (with the time
         // saved up), staggered so the work spreads evenly over frames.
         let step = dt;
@@ -3853,6 +5570,12 @@ export class MobManager {
         if (m.spec.flies) {
           const want = this._thinkFly(m, step);
           this._physicsFly(m, step, want);
+        } else if (m.spec.floats || m.spec.still) {
+          // (Round 12) A ghast floats; a shulker never moves.
+          m.angerT = Math.max(0, (m.angerT ?? 0) - step);
+          if (m.spec.floats) this._physicsFloat(m, step, this._brainGhast(m, step));
+          else this._brainShulker(m, step);
+          this._sounds(m, step);
         } else {
           const want = this._think(m, step, dist);
           this._physics(m, step, want);
@@ -3862,6 +5585,12 @@ export class MobManager {
           if (isVanilla() && !m.dead) {
             this._animalTick(m, step);
             this._fireTick(m, step);
+            if (m.spec.wet && !m.dead) this._wetTick(m, step); // (Round 12: a blaze, a strider)
+          }
+          // (Round 12) A cactus pricks a creature touching it, as vanilla's: 1 every 0.5 s (the host's or a single player's: a guest's puppets are the host's).
+          if (!m.dead && !m.net && (m.cactusT = (m.cactusT ?? 0) - step) <= 0 && touchesCactus(this.world, m.pos, m.spec.r, m.spec.h)) {
+            m.cactusT = 0.5;
+            this._hurt(m, 1, null, 0);
           }
         }
       }
@@ -3948,6 +5677,7 @@ export class MobManager {
       model.parts.wool.visible = !m.sheared;
       model.parts.woolHead.visible = !m.sheared;
     } else if (m.kind === "wolf" && model.parts.collar) model.parts.collar.visible = !!m.tamed;
+    else if (m.kind === "strider" && !!m.cold !== !!m.coldShown) this._skin(m, m.cold ? 1 : 0);
     if ((m.carry || 0) !== (m.carryShown || 0)) this._showCarried(m);
     if (m.dead) {
       const t = Math.min(1, m.deathTime / 0.35);
@@ -3974,7 +5704,37 @@ export class MobManager {
       carry: m.carry || m.drinkT > 0 ? 1 : 0,
       sit: m.sitting ? 1 : 0,
       tamed: m.tamed ? 1 : 0,
+      // (Round 12) A ghast's shooting face, a charged blaze, a shulker's lid,
+      // a cold strider, a piglin admiring gold or shaking (zombifying).
+      shoot: m.shootFace ? 1 : 0,
+      charged: m.charged ? 1 : 0,
+      open: m.peek ?? 0,
+      cold: m.cold ? 1 : 0,
+      admire: m.admireT > 0 ? 1 : 0,
+      shake: m.shakeT > 0 ? 1 : 0,
     });
+    if (m.spec.still) this._attachPose(m);
+  }
+
+  // (Round 12) A shulker turned to the side of its block it holds on to: its
+  // base on that face, the lid away from it.
+  _attachPose(m) {
+    const a = ATTACH[m.variant] || ATTACH[0];
+    const root = m.model.root;
+    root.position.set(Math.floor(m.pos.x) + 0.5 + a[0] * 0.5, Math.floor(m.pos.y + 0.01) + 0.5 + a[1] * 0.5, Math.floor(m.pos.z) + 0.5 + a[2] * 0.5);
+    _q.setFromUnitVectors(_up, this._tmp.set(-a[0], -a[1], -a[2]));
+    root.quaternion.copy(_q).multiply(_qy.setFromAxisAngle(_up, m.yaw));
+  }
+
+  // (Round 12) The model in another skin of its kind (a strider gone cold):
+  // the materials of that variant, made once.
+  _skin(m, v) {
+    m.coldShown = v === 1;
+    const key = `${m.kind}#${v}`;
+    let mats = this._skins.get(key);
+    if (!mats) this._skins.set(key, (mats = createMobModel(m.kind, v).meshes.map((x) => x.material)));
+    const meshes = m.model.meshes;
+    for (let i = 0; i < meshes.length && i < mats.length; i++) meshes[i].material = mats[i];
   }
 
   // (Round 11) An enderman's block, held out in its hands.
@@ -3998,3 +5758,9 @@ export class MobManager {
     m.carryMeshB = mesh;
   }
 }
+
+// (Round 12) The Nether's and the End's creatures come by these (the
+// dimension engine: _updateSpawning, where this machine runs that
+// dimension's creatures).
+DIMS.nether.spawnMobs = (mobs, dt) => mobs._spawnNether(dt);
+DIMS.end.spawnMobs = (mobs, dt) => mobs._spawnEnd(dt);

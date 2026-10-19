@@ -133,7 +133,12 @@ async function play() {
     }
     await frames(3);
   }
-  throw new Error(`the game didn't start playing (state ${await v((g) => g.gameState)})`);
+  const why = await page.evaluate(() => {
+    const b = document.getElementById("play-btn");
+    const shown = [...document.querySelectorAll(".overlay, #click-to-play")].filter((e) => !e.classList.contains("hidden")).map((e) => e.id);
+    return `play "${b.textContent}"${b.disabled ? " (disabled)" : ""}, shown: ${shown.join(" ")}`;
+  });
+  throw new Error(`the game didn't start playing (state ${await v((g) => g.gameState)}; ${why})`);
 }
 
 // Sets up an open, flat area high above the terrain (nothing in the way of
@@ -1818,11 +1823,16 @@ await check("main menu: Medium by default (Round 5), a new world starts at 17:50
   assert(/FPS \d+/.test(menu.fps), `the live FPS shows: ${menu.fps}`);
   assert(menu.rec[0] === "medium" && menu.rec[1] === "high" && menu.rec[2] === null && menu.rec[3] === null && menu.rec[4] === "low", `advice for slow computers: ${JSON.stringify(menu.rec)}`);
   assert(/^Tip: /.test(menu.tip), `a tip: ${menu.tip}`);
-  // The mode cards drive the mode.
+  // The mode cards: (Round 12) Survival, Creative, Missions. In this Missions
+  // world its Missions card is lit; Creative picks a Survival world in
+  // Creative (none yet: a new one), the Missions card goes back to this world.
+  assert(menu.cards.join() === "false,false,true", `the Missions card lit: ${menu.cards}`);
   await page.click("#mode-card-creative");
-  const mode = await v((g) => ({ mode: g.ui?.modeSelect?.value ?? document.getElementById("mode-select").value, active: [...document.querySelectorAll(".mode-card")].map((c) => c.classList.contains("active")) }));
-  assert(mode.mode === "creative" && mode.active[1], `creative card: ${JSON.stringify(mode)}`);
+  const mode = await v((g) => ({ mode: document.getElementById("mode-select").value, play: document.getElementById("play-btn").textContent, active: [...document.querySelectorAll(".mode-card")].map((c) => c.classList.contains("active")) }));
+  assert(mode.active.join() === "false,true,false" && mode.play === "New Creative world" && mode.mode === "survival", `creative card: ${JSON.stringify(mode)}`);
   await page.click("#mode-card-survival");
+  const back = await v(() => ({ play: document.getElementById("play-btn").textContent, active: [...document.querySelectorAll(".mode-card")].map((c) => c.classList.contains("active")) }));
+  assert(back.active.join() === "false,false,true" && back.play === "Play", `the Missions card: ${JSON.stringify(back)}`);
   // Shoot the saucer: wait for it to fly by, then hit it until it blows up.
   const shot = await until((g) => g.flyover.ufoVisible, 90000);
   assert(shot, "a saucer flies by in the menu");

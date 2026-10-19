@@ -18,6 +18,11 @@
 // of misreading it) and records of [index lo, index hi, run length, id lo,
 // id hi]. A save holding any wide chunk is format v3. The same strings
 // travel online (js/net/world.js).
+//
+// (Round 12) Each dimension's edits have a key of their own: the Overworld's
+// the old one (edits_<seed>), the Nether's and the End's edits_<seed>_nether
+// and edits_<seed>_end, in the same format (js/dimensions.js saves them). A
+// save from before has only the first: its world is the Overworld's.
 import { CHUNK_SIZE, WORLD_HEIGHT, blockIndex, floorDiv, chunkKey } from "./constants.js";
 import { BLOCK_LIMIT } from "./content/base.js";
 
@@ -26,8 +31,13 @@ import { BLOCK_LIMIT } from "./content/base.js";
 const PREFIX = "ufocombat_v1_";
 const BLOCKS_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
 
-export function editsKey(seed) {
-  return `${PREFIX}edits_${seed}`;
+export function editsKey(seed, dim = "overworld") {
+  return dim === "overworld" ? `${PREFIX}edits_${seed}` : `${PREFIX}edits_${seed}_${dim}`;
+}
+
+// The world (seed) an edits key belongs to, whatever its dimension.
+function seedOfEditsKey(k) {
+  return k.slice(`${PREFIX}edits_`.length).split("_")[0];
 }
 
 function bytesToBase64(bytes) {
@@ -151,9 +161,9 @@ export function serializeEdits(edits, cache = null, dirtyKeys = null) {
   return { v: wide ? 3 : 2, chunks };
 }
 
-export function loadEdits(seed) {
+export function loadEdits(seed, dim = "overworld") {
   try {
-    const raw = localStorage.getItem(editsKey(seed));
+    const raw = localStorage.getItem(editsKey(seed, dim));
     if (!raw) return new Map();
     return parseEdits(JSON.parse(raw));
   } catch (err) {
@@ -163,13 +173,17 @@ export function loadEdits(seed) {
 }
 
 // The size of the last edits blob written (characters): a big one is slow to
-// rewrite, so the game can save it less often.
+// rewrite, so the game can save it less often. (Round 12: every dimension's
+// last write together.)
 export let lastEditsBytes = 0;
-export function saveEdits(seed, edits, cache = null, dirtyKeys = null) {
+const editsBytes = new Map(); // dim -> characters last written
+export function saveEdits(seed, edits, cache = null, dirtyKeys = null, dim = "overworld") {
   try {
     const json = JSON.stringify(serializeEdits(edits, cache, dirtyKeys));
-    localStorage.setItem(editsKey(seed), json);
-    lastEditsBytes = json.length;
+    localStorage.setItem(editsKey(seed, dim), json);
+    editsBytes.set(dim, json.length);
+    lastEditsBytes = 0;
+    for (const n of editsBytes.values()) lastEditsBytes += n;
     return true;
   } catch (err) {
     console.warn("UFO COMBAT: failed to save world edits (storage full or unavailable)", err);
@@ -236,21 +250,35 @@ export function saveSettings(settings) {
   const padded = json.length < SETTINGS_RESERVE ? json + " ".repeat(SETTINGS_RESERVE - json.length) : json;
   if (trySet(SETTINGS_KEY, padded) || trySet(SETTINGS_KEY, json)) return true;
   // Full: make room by removing other worlds' block edits, largest first.
+  // (Round 12: a world's every dimension together: never half a world.)
   const evicted = [];
-  let keys = [];
+  const worlds = new Map(); // seed -> { keys, size }
   try {
-    keys = Object.keys(localStorage).filter((k) => k.startsWith(`${PREFIX}edits_`) && k !== editsKey(activeSeed));
-  } catch (err) {
-    keys = [];
-  }
-  keys.sort((a, b) => (localStorage.getItem(b)?.length ?? 0) - (localStorage.getItem(a)?.length ?? 0));
-  for (const k of keys) {
-    try {
-      localStorage.removeItem(k);
-    } catch (err) {
-      continue;
+    for (const k of Object.keys(localStorage)) {
+      if (!k.startsWith(`${PREFIX}edits_`)) continue;
+      const seed = seedOfEditsKey(k);
+      if (seed === String(activeSeed)) continue;
+      let w = worlds.get(seed);
+      if (!w) worlds.set(seed, (w = { keys: [], size: 0 }));
+      w.keys.push(k);
+      w.size += localStorage.getItem(k)?.length ?? 0;
     }
-    evicted.push(k.slice(`${PREFIX}edits_`.length));
+  } catch (err) {
+    worlds.clear();
+  }
+  const order = [...worlds.entries()].sort((a, b) => b[1].size - a[1].size);
+  for (const [seed, w] of order) {
+    let removed = false;
+    for (const k of w.keys) {
+      try {
+        localStorage.removeItem(k);
+        removed = true;
+      } catch (err) {
+        continue;
+      }
+    }
+    if (!removed) continue;
+    evicted.push(seed);
     if (trySet(SETTINGS_KEY, padded) || trySet(SETTINGS_KEY, json)) {
       console.warn(`UFO COMBAT: browser storage was full; removed the saved block edits of other worlds (${evicted.join(", ")}) to keep the settings`);
       onStorageFull?.({ evicted, ok: true });

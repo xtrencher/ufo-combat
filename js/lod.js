@@ -300,6 +300,12 @@ export class LodSystem {
     this.tiles.delete(tile.key);
   }
 
+  // (Round 12) Distant tiles waiting to be built or on their way (a burst
+  // after a teleport or a new render distance: js/autotune.js waits it out).
+  get busy() {
+    return this._queue.length + this._inFlight.size + this._results.length;
+  }
+
   // ---------- Planning ----------
 
   // renderDistance: chunks to draw at all; detailDistance: chunks drawn in

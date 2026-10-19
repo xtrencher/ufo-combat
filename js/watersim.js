@@ -209,12 +209,36 @@ export class WaterSim {
     }
   }
 
+  // (Round 12) The world goes to another dimension (js/dimensions.js): this
+  // one's flow cells and woken cells are handed back (kept for its return),
+  // `next` (or nothing) put in their place. This update's writes go first.
+  swapDim(next = null) {
+    this._flush();
+    const prev = { meta: this.meta, active: this.active };
+    this.meta = next?.meta || new Map();
+    this.active = next?.active || new Set();
+    this.metaVersion++;
+    return prev;
+  }
+
+  // A saved list's flow cells as a map (another dimension's, kept aside).
+  static metaFromList(list) {
+    const meta = new Map();
+    if (!Array.isArray(list)) return meta;
+    for (let i = 0; i + 6 < list.length; i += 7) {
+      const v = list.slice(i, i + 7);
+      if (!v.every(Number.isInteger)) continue;
+      meta.set(`${v[0]},${v[1]},${v[2]}`, { level: v[3], parent: [v[4], v[5], v[6]] });
+    }
+    return meta;
+  }
+
   // The flow cells, for the world save: [x, y, z, level, px, py, pz, ...]
   // (at most `max` cells), and back. Without them a reload would turn every
-  // flow cell into an infinite source.
-  serializeMeta(max = 20000) {
+  // flow cell into an infinite source. (meta: another dimension's, kept aside.)
+  serializeMeta(max = 20000, meta = this.meta) {
     const out = [];
-    for (const [key, info] of this.meta) {
+    for (const [key, info] of meta) {
       if (out.length >= max * 7) break;
       const [x, y, z] = key.split(",").map(Number);
       out.push(x, y, z, info.level, info.parent[0], info.parent[1], info.parent[2]);
@@ -236,21 +260,22 @@ export class WaterSim {
   // (Online) Another peer's water cells (js/net/world.js): w is flow cells
   // [x, y, z, level, px, py, pz, ...], ws sources [x, y, z, ...]. The sim is
   // not woken: the peer whose edit it was runs the flow.
-  applyRemoteMeta(w, ws) {
+  // (Round 12) meta: another dimension's (its peer's edits, kept aside here).
+  applyRemoteMeta(w, ws, meta = this.meta) {
     const ok = (v) => Number.isInteger(v) && Math.abs(v) < 1e7;
     if (Array.isArray(w)) {
       const n = Math.min(w.length, 4096 * 7);
       for (let i = 0; i + 6 < n; i += 7) {
         const v = w.slice(i, i + 7);
         if (!v.every(ok) || v[3] < 0 || v[3] > 8) continue;
-        this.meta.set(this._key(v[0], v[1], v[2]), { level: v[3], parent: [v[4], v[5], v[6]] });
+        meta.set(this._key(v[0], v[1], v[2]), { level: v[3], parent: [v[4], v[5], v[6]] });
       }
       this.metaVersion++;
     }
     if (Array.isArray(ws)) {
       const n = Math.min(ws.length, 4096 * 3);
       for (let i = 0; i + 2 < n; i += 3) {
-        if (ok(ws[i]) && ok(ws[i + 1]) && ok(ws[i + 2])) this.meta.delete(this._key(ws[i], ws[i + 1], ws[i + 2]));
+        if (ok(ws[i]) && ok(ws[i + 1]) && ok(ws[i + 2])) meta.delete(this._key(ws[i], ws[i + 1], ws[i + 2]));
       }
       this.metaVersion++;
     }

@@ -17,8 +17,10 @@
 // cauldron (4 ids: water level 0-3; buckets and bottles fill and empty it).
 // These work in either world type (outside a Survival world only Creative
 // has them).
+// (Round 12) The barrel (27 slots, the chest's screen; js/chests.js). The
+// other work blocks are ./workstations.js's.
 import { BLOCK, FACE, LIB } from "./base.js";
-import { FURNACE, ENCHANTING_TABLE, ANVIL, BREWING_STAND, CAULDRON, BUCKET, WATER_BUCKET, GLASS_BOTTLE, POTION, IRON_INGOT } from "./ids.js";
+import { FURNACE, ENCHANTING_TABLE, ANVIL, BREWING_STAND, CAULDRON, BARREL, BUCKET, WATER_BUCKET, GLASS_BOTTLE, POTION, BLAZE_ROD, BLACKSTONE } from "./ids.js";
 import { isVanilla } from "../worldtype.js";
 
 // (Round 11) The anvil's worn states (4 facings each, after the barrel).
@@ -148,6 +150,18 @@ for (let lvl = 0; lvl < 4; lvl++) {
     ...(lvl ? { item: CAULDRON } : { itemBoxes: [...CAULDRON_WALLS, ...CAULDRON_LEGS] }),
   };
 }
+
+// (Round 12) The barrel: a chest of 27 slots in a block (js/chests.js keeps
+// them; its screen is the chest's), standing upright whichever way it is
+// placed. A village's (the fisher's) starts empty.
+blocks[BARREL] = {
+  name: "Barrel",
+  faces: { top: "barrel_top", bottom: "barrel_bottom", side: "barrel_side" },
+  storage: true, // (js/chests.js IS_STORAGE; not IS_CHEST: a full block, built against like any)
+  hardness: 2.5,
+  tool: "axe",
+  sound: "wood",
+};
 
 // The anvil worn one step (vanilla: 12% a use): the next state's id, or AIR
 // (it breaks). Keeps the facing.
@@ -302,7 +316,43 @@ Object.assign(tiles, {
   },
 });
 
+// (Round 12) The barrel's: spruce staves with iron hoops, its lid and bottom.
+function staves(t, kit) {
+  const ramp = [0x3a2817, 0x4a3320, 0x573d26, 0x65472c, 0x725233, 0x7f5c3a].map(kit.hex);
+  t.forEach((x, y) => {
+    const k = x >> 2;
+    const f = 0.5 + (t.noise(x, y * 3, 8, k) - 0.5) * 0.6 + ((k * 29) % 5) * 0.03 - (x % 4 === 0 ? 0.35 : 0) + (t.rand() - 0.5) * 0.12;
+    t.set(x, y, kit.ramp(ramp, f));
+  });
+}
+function lid(t, kit, hatch) {
+  const ramp = [0x3a2817, 0x4a3320, 0x573d26, 0x65472c, 0x725233, 0x7f5c3a].map(kit.hex);
+  t.forEach((x, y) => {
+    const k = y >> 3;
+    const f = 0.5 + (t.noise(x * 3, y, 8, k + 4) - 0.5) * 0.6 - (y % 8 === 0 ? 0.35 : 0) + (t.rand() - 0.5) * 0.12;
+    t.set(x, y, kit.ramp(ramp, f));
+  });
+  const iron = [[44, 46, 50], [72, 76, 82], [110, 115, 122]];
+  t.forEach((x, y) => {
+    const d = Math.min(x, y, 31 - x, 31 - y);
+    if (d < 3) t.set(x, y, iron[d === 0 ? 0 : d === 1 ? 2 : 1]);
+  });
+  if (!hatch) return;
+  for (let y = 11; y <= 20; y++) for (let x = 11; x <= 20; x++) t.set(x, y, x === 11 || y === 11 || x === 20 || y === 20 ? [36, 24, 14] : [62, 44, 26]);
+}
+Object.assign(tiles, {
+  barrel_side: (t, kit) => {
+    staves(t, kit);
+    const iron = [[44, 46, 50], [72, 76, 82], [110, 115, 122]];
+    for (const y0 of [3, 26]) for (let x = 0; x < 32; x++) for (let d = 0; d < 3; d++) t.set(x, y0 + d, iron[d === 0 ? 2 : d === 1 ? 1 : 0]);
+  },
+  barrel_top: (t, kit) => lid(t, kit, true),
+  barrel_bottom: (t, kit) => lid(t, kit, false),
+});
+
 export const tileRelief = {
+  barrel_side: [2, 0.7, 0.5],
+  barrel_top: [2, 0.7, 0.5],
   furnace_side: [2.4, 0.72, 0.5],
   furnace_top: [2.2, 0.7, 0.5],
   furnace_front: [2.6, 0.72, 0.7],
@@ -371,9 +421,9 @@ export const shapes = {
   },
 };
 // (The core recipes, the smelting recipes and the fuels are js/crafting.js's;
-// the brewing stand's is here: vanilla's blaze rod is an iron ingot, there
-// being no Nether.)
-export const recipes = () => [{ type: "shaped", pattern: [" I ", "###"], key: { I: IRON_INGOT, "#": BLOCK.COBBLESTONE }, result: [BREWING_STAND, 1] }];
+// the brewing stand's is here: vanilla's, a blaze rod over cobblestone or
+// blackstone (Round 12: the Nether's; Round 11 stood an iron ingot in for the rod).)
+export const recipes = () => [{ type: "shaped", pattern: [" B ", "###"], key: { B: BLAZE_ROD, "#": [BLOCK.COBBLESTONE, BLACKSTONE] }, result: [BREWING_STAND, 1] }];
 
 // Opens a screen of the game (main.js sets interaction.onOpenScreen).
 function openScreen(ctx, kind) {
@@ -424,6 +474,14 @@ export const blockUse = {
 for (let k = 0; k < 8; k++) blockUse[FURNACE + k] = (ctx) => openScreen(ctx, "furnace");
 for (const base of ANVILS) for (let k = 0; k < 4; k++) blockUse[base + k] = (ctx) => openScreen(ctx, "anvil");
 for (let k = 0; k < 4; k++) blockUse[CAULDRON + k] = useCauldron;
+// (Round 12) The barrel opens the chest screen (main.js: interaction.onOpenChest).
+blockUse[BARREL] = (ctx) => {
+  const open = ctx.interaction?.onOpenChest;
+  if (typeof open !== "function") return false;
+  ctx.audio?.playClick?.();
+  open(ctx.x, ctx.y, ctx.z);
+  return true;
+};
 
 export const itemUse = {};
 export const randomTick = {};

@@ -49,12 +49,15 @@ export function standUp(avatar) {
 }
 
 export class Sleep {
-  // deps: { player, sky, world, mobs, toast, players () => remote players,
-  // online () => bool, isHost () => bool, inGame () => bool, sendTime () => void,
-  // and the optional onSpawnSet, onSleep, onWake, onSkip, thundering () => bool }
+  // deps: { player, sky, world, mobs, toast, players () => remote players
+  // here, online () => bool, isHost () => bool, inGame () => bool, sendTime
+  // () => void, and the optional onSpawnSet, onSleep, onWake, onSkip,
+  // thundering () => bool, everyone () => every remote player, whatever their
+  // dimension (Round 12: net/players.js all()) }
   constructor(deps) {
     this.d = deps;
     this.spawn = null; // [x, y, z]: the bed's head cell, or null (the world spawn)
+    this.spawnDim = "overworld"; // (Round 12) "nether": the spawn is a respawn anchor there (js/portal.js)
     this._fade = 0; // the dark overlay's opacity
     this._shownFade = -1;
     this._statusText = "";
@@ -141,9 +144,10 @@ export class Sleep {
       return true;
     }
     // (Vanilla sets the spawn before checking the time or the monsters.)
-    const same = this.spawn && this.spawn[0] === bed.x && this.spawn[1] === bed.y && this.spawn[2] === bed.z;
+    const same = this.spawn && this.spawnDim !== "nether" && this.spawn[0] === bed.x && this.spawn[1] === bed.y && this.spawn[2] === bed.z;
     if (!same) {
       this.spawn = [bed.x, bed.y, bed.z];
+      this.spawnDim = "overworld";
       d.onSpawnSet?.();
     }
     if (!this.canSleepNow()) {
@@ -214,19 +218,21 @@ export class Sleep {
   }
 
   // Everyone in the game (dead players don't count): [asleep, total, all
-  // asleep long enough].
+  // asleep long enough]. (Round 12) Only the Overworld's, as vanilla's
+  // sleepers are counted in their own world: a player in the Nether or the
+  // End doesn't keep the night going (their dimension: world.dim, r.dim).
   _count() {
     const p = this.player;
     let asleep = 0;
     let total = 0;
     let ready = true;
-    if (!p.dead && this.d.inGame?.() !== false) {
+    if (!p.dead && this.d.inGame?.() !== false && (this.d.world.dim ?? "overworld") === "overworld") {
       total++;
       if (p.sleeping) asleep++;
       if (!p.sleeping || p.sleeping.t < SLEEP_TIME) ready = false;
     }
-    for (const r of this.d.players()) {
-      if (r.dead) continue;
+    for (const r of this.d.everyone?.() ?? this.d.players()) {
+      if (r.dead || (r.dim | 0) !== 0) continue;
       total++;
       if (r.sleeping) asleep++;
       if (!r.sleeping || (r.sleepTime ?? 0) < SLEEP_TIME) ready = false;
@@ -273,11 +279,16 @@ export class Sleep {
     }
   }
 
+  // [x, y, z], or (Round 12) [x, y, z, "nether"] for a respawn anchor.
   serialize() {
-    return this.spawn ? this.spawn.slice() : undefined;
+    if (!this.spawn) return undefined;
+    return this.spawnDim === "nether" ? [...this.spawn, "nether"] : this.spawn.slice();
   }
 
   load(spawn) {
-    this.spawn = Array.isArray(spawn) && spawn.length === 3 && spawn.every(Number.isInteger) ? spawn.slice() : null;
+    const nether = Array.isArray(spawn) && spawn.length === 4 && spawn[3] === "nether";
+    const xyz = Array.isArray(spawn) && (spawn.length === 3 || nether) ? spawn.slice(0, 3) : null;
+    this.spawn = xyz && xyz.every(Number.isInteger) ? xyz : null;
+    this.spawnDim = this.spawn && nether ? "nether" : "overworld";
   }
 }

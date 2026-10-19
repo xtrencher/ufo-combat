@@ -9,7 +9,7 @@ import * as V from "./content/ids.js";
 import { SNOWY_GRASS } from "./content/nature.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { BIOME, BiomeSource, isSnowy, isOceanBiome } from "./biomes.js";
-import { VillageGrower, VILLAGE_REACH } from "./village.js";
+import { VillageGrower } from "./village.js";
 import { SiteGrower } from "./sites.js";
 import { StructureGrower } from "./structures.js";
 
@@ -133,6 +133,7 @@ const POOL_SALT = 0x41c64e6d;
 const CLAY_SALT = 0x2f8a1b77;
 const PATCH_SALT = 0x6c8e9cf5;
 const VANILLA_PLANT_SALT = 0x0b4f3d2b;
+const BAMBOO_SALT = 0x5d3a71e9;
 // The flowers of a biome (vanilla's lists, with the core's red blossom and
 // sunpetal for the poppy and the dandelion), for the ground cover and bone meal.
 const FLOWERS = {
@@ -161,7 +162,7 @@ export class TerrainGenerator {
     this.options = { sites: opts?.sites !== false, vanilla: opts?.vanilla ?? opts?.sites === false };
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
-    this.biomes = new BiomeSource(this.seed);
+    this.biomes = new BiomeSource(this.seed, { vanilla: this.options.vanilla });
     this.sites = new SiteGrower(this, { off: !this.options.sites }); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
@@ -242,6 +243,12 @@ export class TerrainGenerator {
     return this.biomes.biomeAt(wx, wz, info.height, info.mountainT, info.river, info.flat);
   }
 
+  // (Round 12) The top block of the land at (wx, wz), its ground at height h
+  // (the villages' earthworks end in it).
+  landTop(wx, wz, h = this.heightAt(wx, wz)) {
+    return surfaceBlocks(this.biomeAt(wx, wz), h, this.options.vanilla).top;
+  }
+
   // (Round 11) Whether a Survival world's water at (wx, wz) is frozen over:
   // the snowy climate's waters, in wide sheets with open leads between them.
   frozenAt(wx, wz) {
@@ -283,6 +290,8 @@ export class TerrainGenerator {
       }
       // (a cave cutting into the surface: the player would start at the bottom of its shaft)
       if (this.isCarved(x, h, z) || this.isCarved(x, h - 1, z) || this.isCarved(x + 1, h, z) || this.isCarved(x - 1, h, z) || this.isCarved(x, h, z + 1) || this.isCarved(x, h, z - 1)) return false;
+      // (Round 12) nor on a Survival world's village house (on its roof)
+      if (this.options.vanilla && this.villages.pieceAt(x, z)) return false;
       return !this.trees.coversColumn(x, z);
     };
     for (let r = 0; r <= 240; r += 3) {
@@ -442,18 +451,23 @@ export class TerrainGenerator {
         const above = idx(lx, h + 1, lz);
         const wx = baseX + lx;
         const wz = baseZ + lz;
+        // (Round 12) A Survival world's bamboo: thick in the bamboo jungle
+        // (on podzol), a stalk now and then in the rest of the jungle.
+        if (this.options.vanilla && blocks[ground] === BLOCK.GRASS && blocks[above] === BLOCK.AIR && biomeAt(lx, lz) === BIOME.JUNGLE && this._bamboo(blocks, idx, lx, lz, h, wx, wz)) continue;
         if (blocks[ground] === BLOCK.GRASS && blocks[above] === BLOCK.AIR) {
           const r = hash2(this.seed ^ PLANT_SALT, wx, wz);
           const patch = this.noise.perlin2(wx * 0.045 + 31.7, wz * 0.045 - 12.3); // -0.7..0.7
           const meadow = biomeAt(lx, lz) === BIOME.MEADOW;
-          const flowerChance = meadow ? 0.06 + Math.max(0, patch) * 0.16 : Math.max(0, patch - 0.15) * 0.25;
+          // (Round 12) a Survival world's jungle floor: thick with grass and ferns, few flowers
+          const jungle = this.options.vanilla && biomeAt(lx, lz) === BIOME.JUNGLE;
+          const flowerChance = meadow ? 0.06 + Math.max(0, patch) * 0.16 : Math.max(0, patch - 0.15) * (jungle ? 0.06 : 0.25);
           if (r < flowerChance) {
             const pick = hash2(this.seed ^ 0x2f6b, wx, wz);
             if (this.options.vanilla) {
               const list = FLOWERS[biomeAt(lx, lz)] || DEFAULT_FLOWERS;
               blocks[above] = list[Math.floor(pick * list.length)];
             } else blocks[above] = pick < 0.5 ? BLOCK.FLOWER_RED : BLOCK.FLOWER_YELLOW;
-          } else if (r < flowerChance + (meadow ? 0.2 : 0.11) + Math.max(0, -patch) * 0.1) {
+          } else if (r < flowerChance + (meadow ? 0.2 : jungle ? 0.3 : 0.11) + Math.max(0, -patch) * 0.1) {
             blocks[above] = BLOCK.TALL_GRASS;
             // (a Survival world's taigas and jungles: ferns among the grass)
             if (this.options.vanilla) {
@@ -569,7 +583,7 @@ export class TerrainGenerator {
     if (h0 <= SEA_LEVEL + 2 || h0 >= WORLD_HEIGHT - 4 || isOceanBiome(b) || b === BIOME.RIVER || b === BIOME.BEACH || b === BIOME.SWAMP) return;
     const wx0 = cx * S + lx0;
     const wz0 = cz * S + lz0;
-    if (this.villages.nearestVillage(wx0, wz0, VILLAGE_REACH + 12)) return;
+    if (this.villages.nearestVillage(wx0, wz0, this.villages.reach + 12) || this.structures.blocksTree(wx0, wz0, 9)) return;
     const rx = 2 + rand() * 1.6;
     const rz = 2 + rand() * 1.6;
     const cells = [];
@@ -732,6 +746,28 @@ export class TerrainGenerator {
       if (y >= top || blocks[idx(x, y, z)] !== BLOCK.AIR || blocks[idx(x, y - 1, z)] !== BLOCK.STONE) continue;
       blocks[idx(x, y, z)] = pick < 0.6 ? V.BROWN_MUSHROOM : V.RED_MUSHROOM;
     }
+  }
+
+  // (Round 12) Bamboo in a jungle column (its ground grass, air over it),
+  // as vanilla's BambooFeature: a thick stalk 5-16 tall (as far as there is
+  // room), its top two blocks with large leaves and the next small. In the
+  // bamboo jungle (biomes.js bambooField) about a third of the columns,
+  // podzol under them and in patches round them; elsewhere in the jungle one
+  // column in about 600. True if the column took it (no grass then).
+  _bamboo(blocks, idx, lx, lz, h, wx, wz) {
+    const field = this.biomes.bambooField(wx, wz);
+    const r = hash2(this.seed ^ BAMBOO_SALT, wx, wz);
+    const ground = idx(lx, h, lz);
+    const inside = field > 0.5;
+    if (inside && this.noise.perlin2(wx * 0.13 - 7.1, wz * 0.13 + 3.3) > 0.02) blocks[ground] = V.PODZOL;
+    if (r >= (inside ? 0.34 * field : 0.0017)) return false;
+    const want = 5 + Math.floor(hash2((this.seed ^ BAMBOO_SALT ^ 0x77) >>> 0, wx, wz) * 12);
+    let n = 0;
+    while (n < want && h + 1 + n < WORLD_HEIGHT && blocks[idx(lx, h + 1 + n, lz)] === BLOCK.AIR) n++;
+    if (n < 3) return false;
+    for (let k = 0; k < n; k++) blocks[idx(lx, h + 1 + k, lz)] = V.BAMBOO + 3 + (k >= n - 2 ? 2 : k === n - 3 ? 1 : 0);
+    blocks[ground] = V.PODZOL;
+    return true;
   }
 
   _carveCaves(blocks, baseX, baseZ, hAt) {

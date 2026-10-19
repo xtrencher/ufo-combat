@@ -2,6 +2,11 @@
 // colors from the sun's elevation (keyframed for noon, golden hour, sunset,
 // twilight and night), drives the sky dome, and places the shadow-casting
 // directional light (sun by day, moon by night) around the player.
+//
+// (Round 12) The Nether and the End have skies of their own (setDimension,
+// js/dim-registry.js): no sun, no moon, no clouds, no day; the Nether a red
+// murk with thick fog, the End a dark sky with still stars. The clock still
+// runs (it is the Overworld's, and everyone's online).
 import * as THREE from "three";
 import { worldUniforms, createSkyMaterial } from "./shaders.js";
 import { isVanilla } from "./worldtype.js";
@@ -173,6 +178,17 @@ export class Sky {
     this._cloudCover = this.material.uniforms.uCloudCoverage.value;
     this._fogBase = new THREE.Vector4();
     this._fogSet = new THREE.Vector4(NaN, 0, 0, 0);
+    this.dimSky = null; // (Round 12) another dimension's sky (dim-registry.js), or null: the Overworld's
+    this.dimView = Infinity; // (and how far it is drawn, in chunks: the fog ends there)
+  }
+
+  // (Round 12) The sky of the dimension the world is in (info: its entry in
+  // js/dim-registry.js DIMS).
+  setDimension(info) {
+    this.dimSky = info?.sky || null;
+    this.dimView = info?.maxView ?? Infinity;
+    // (the shadow maps are drawn again at once: they held the other world)
+    for (const l of this.shadowLights) if (l.shadow) l.shadow.needsUpdate = true;
   }
 
   // Current wind: { angle (radians, direction it blows toward), strength }.
@@ -273,13 +289,14 @@ export class Sky {
     this.hemiLight.groundColor.copy(u.uAmbientGround.value);
     this.hemiLight.intensity = Math.PI;
 
-    this._applyWeather();
+    if (this.dimSky) this._applyDimension(this.dimSky);
+    else this._applyWeather();
 
     // Horizon color in the view direction, for three's built-in fog.
     this.horizonColor.copy(u.uSkyHorizon.value);
 
     // Night is dark, but the eye adapts a bit (like in classic voxel games).
-    this.exposure = THREE.MathUtils.lerp(1.1, 0.8, smoothstep(-0.15, 0.25, e));
+    this.exposure = this.dimSky ? this.dimSky.exposure ?? 1 : THREE.MathUtils.lerp(1.1, 0.8, smoothstep(-0.15, 0.25, e));
 
     for (let i = 0; i < this.cascades.length; i++) this._placeShadowLight(this.shadowLights[i], this.cascades[i], center, forward);
     this._scheduleShadows();
@@ -344,6 +361,47 @@ export class Sky {
     this.hemiLight.groundColor.copy(u.uAmbientGround.value);
   }
 
+  // (Round 12) Another dimension's fixed sky: the sun and moon gone below
+  // (no direct light, no shadows to draw: daylight reads 0, as vanilla's
+  // Nether and End have no day), its colours, no clouds, its stars still or
+  // none, and its fog: the Nether's thick (vanilla: the fog ends at half the
+  // view, 96 blocks at most; here at three quarters of the chunks drawn,
+  // which hides their edge), the End's at the edge of its view.
+  _applyDimension(d) {
+    const u = worldUniforms;
+    u.uSunDir.value.set(0, -1, 0);
+    u.uMoonDir.value.set(0, -1, 0);
+    u.uLightDir.value.set(0, 1, 0);
+    u.uLightColor.value.setRGB(0, 0, 0);
+    u.uSkyZenith.value.setRGB(d.zenith[0], d.zenith[1], d.zenith[2]);
+    u.uSkyHorizon.value.setRGB(d.horizon[0], d.horizon[1], d.horizon[2]);
+    u.uSkyGlow.value.setRGB(0, 0, 0);
+    u.uSunGlowColor.value.setRGB(0, 0, 0);
+    u.uAmbientSky.value.setRGB(d.ambSky[0], d.ambSky[1], d.ambSky[2]);
+    u.uAmbientGround.value.setRGB(d.ambGround[0], d.ambGround[1], d.ambGround[2]);
+    u.uNight.value = d.stars ? 1 : 0;
+    const m = this.material.uniforms;
+    m.uStarAngle.value = 0.9;
+    m.uCloudCoverage.value = 0;
+    m.uCloudLit.value.setRGB(0, 0, 0);
+    m.uCloudShade.value.setRGB(0, 0, 0);
+    this.sunLight.color.setRGB(0, 0, 0);
+    this.hemiLight.color.copy(u.uAmbientSky.value);
+    this.hemiLight.groundColor.copy(u.uAmbientGround.value);
+    const fog = u.uFog.value;
+    if (!fog.equals(this._fogSet)) this._fogBase.copy(fog);
+    const b = this._fogBase;
+    const cap = Number.isFinite(this.dimView) ? (this.dimView - 0.3) * 16 : Infinity;
+    if (d.fog === "thick") {
+      const end = THREE.MathUtils.clamp(Math.min(b.y, cap) * 0.75, 40, 96);
+      fog.set(end * 0.08, end, b.z * 3, b.w);
+    } else {
+      const end = Math.min(b.y, cap);
+      fog.set(Math.min(b.x, end * 0.72), end, b.z, b.w);
+    }
+    this._fogSet.copy(fog);
+  }
+
   // (Perf) Which shadow maps are redrawn this frame: the finest cascade (the
   // one round the player, where creatures and vehicles move) every frame;
   // the larger ones (High, Ultra) every 2nd and 3rd frame, on different
@@ -355,6 +413,11 @@ export class Sky {
     for (let i = 0; i < this.shadowLights.length; i++) {
       const shadow = this.shadowLights[i].shadow;
       shadow.autoUpdate = false;
+      // (Round 12: no sun in that dimension, nothing to draw them for.)
+      if (this.dimSky) {
+        if (shadow.map) shadow.needsUpdate = false;
+        continue;
+      }
       const period = i === 0 ? 1 : i === 1 ? 2 : 3;
       shadow.needsUpdate = !shadow.map || period === 1 || this._shadowFrame % period === (i === 1 ? 0 : 1);
     }

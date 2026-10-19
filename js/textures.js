@@ -4,12 +4,24 @@
 // tileable value noise (so textures repeat seamlessly across blocks),
 // quantized color ramps (the crisp, banded pixel-art look), tileable
 // Voronoi cells (cobblestone, gravel, crystals) and hand-placed details.
-// All block tiles go into one mipmapped THREE.DataArrayTexture (one layer
+// All block tiles go into mipmapped THREE.DataArrayTextures (one layer
 // per tile, so mipmapping never bleeds between tiles); canvases of the
 // same pixels are kept for UI icons.
+//
+// (Round 12) The layers are split into pages of TILE_PAGE (256, all WebGL2
+// promises in one array; js/content/base.js): the named tiles, then the
+// flipbooks' frames (TILE_FLIPBOOKS: fire's 32). 254 + 32 = 286 layers at
+// the start of Round 12, two pages; room for TILE_CAPACITY (1024).
 import * as THREE from "three";
 import { TILE_NAMES, BLOCK_INFO, SHAPE, BLOCK_LIMIT } from "./blocks.js";
 import { TILE_PAINTERS, TILE_RELIEF } from "./content/index.js";
+import { TILE_PAGE, TILE_CAPACITY, TILE_FLIPBOOKS, FLIPBOOK_LAYERS } from "./content/base.js";
+
+export { TILE_PAGE, TILE_CAPACITY };
+// Every layer of the block textures: the named tiles, then the flipbook frames.
+export const TILE_LAYERS = TILE_NAMES.length + FLIPBOOK_LAYERS;
+if (TILE_LAYERS > TILE_CAPACITY) throw new Error(`Too many texture layers (${TILE_LAYERS}; at most ${TILE_CAPACITY})`);
+export const TILE_PAGES = Math.ceil(TILE_LAYERS / TILE_PAGE);
 
 export const TEX = 32;
 
@@ -1393,9 +1405,98 @@ function tileCanvas(pixels) {
   return canvas;
 }
 
+// ---------- Flipbooks (Round 12) ----------
+//
+// Fire's frames: the fire tile's own flames (the content's painter, in
+// the same style: a ragged front of flame per column, tongues licking up
+// from it), moving. Each column's height drifts through a noise along a
+// time axis that wraps with the strip, and the tongues climb two pixels a
+// frame through a noise that wraps every 32, so the strip loops without a
+// seam (vanilla's fire: 32 frames at 20 a second). Coloured with the
+// flipbook's ramp. Returns `frames` tiles.
+function paintFlameFrames(fb) {
+  const colors = fb.ramp.map(hex);
+  const out = [];
+  for (let k = 0; k < fb.frames; k++) {
+    const t = new Tile(fb.tile);
+    const time = (k * TEX) / fb.frames;
+    const rise = (k * 2) % TEX;
+    for (let x = 0; x < TEX; x++) {
+      const h = 10 + t.noise(x, time, 6, 1) * 14 + t.noise(x, time * 2, 16, 2) * 6;
+      for (let y = 0; y < TEX; y++) {
+        const up = TEX - 1 - y; // height above the bottom
+        if (up > h) continue;
+        const tongue = t.noise(x, y + rise, 8, 3, 4);
+        if (up > h * 0.6 && tongue < 0.35) continue;
+        t.set(x, y, ramp(colors, 1 - up / h + (tongue - 0.5) * 0.3 + 0.1));
+      }
+    }
+    out.push(t);
+  }
+  return out;
+}
+// (Round 12) The nether portal's: three arms of a swirl turning a third of a
+// turn over the strip (so it loops), its darkest streaks cut out (the
+// portal reads see-through, as vanilla's translucent one), as the content's
+// own tile (js/content/nether.js paintPortal).
+function paintPortalFrames(fb) {
+  const colors = fb.ramp.map(hex);
+  const out = [];
+  for (let k = 0; k < fb.frames; k++) {
+    const t = new Tile(fb.tile);
+    const phase = (k / fb.frames) * Math.PI * 2;
+    for (let y = 0; y < TEX; y++) {
+      for (let x = 0; x < TEX; x++) {
+        const dx = x - 15.5;
+        const dy = y - 15.5;
+        const swirl = Math.sin(Math.atan2(dy, dx) * 3 + Math.hypot(dx, dy) * 0.45 - phase + t.noise(x, y, 4, 1) * 3);
+        const f = 0.45 + swirl * 0.3 + (t.fbm(x, y, 8, 2) - 0.5) * 0.3;
+        t.set(x, y, ramp(colors, f), f < 0.24 ? 0 : 255);
+      }
+    }
+    out.push(t);
+  }
+  return out;
+}
+const FLIPBOOK_STYLES = { flames: paintFlameFrames, portal: paintPortalFrames };
+
+// Every layer's pixels and relief, in order: the named tiles, then the
+// flipbooks' frames; and where each flipbook's frames start.
+function paintAllLayers() {
+  const layers = [];
+  for (const name of TILE_NAMES) layers.push({ name, ...paintTileWithRelief(name) });
+  const flipbooks = [];
+  for (const fb of TILE_FLIPBOOKS) {
+    const paint = FLIPBOOK_STYLES[fb.style];
+    if (!paint) throw new Error(`No flipbook style "${fb.style}" (tile "${fb.tile}")`);
+    flipbooks.push({ tile: fb.tile, layer: layers.length, frames: fb.frames, fps: fb.fps });
+    for (const t of paint(fb)) layers.push({ name: null, pixels: t.data, relief: paintRelief(fb.tile, t) });
+  }
+  return { layers, flipbooks };
+}
+
+function arrayTexture(data, depth, colorSpace) {
+  const tex = new THREE.DataArrayTexture(data, TEX, TEX, depth);
+  tex.format = THREE.RGBAFormat;
+  tex.type = THREE.UnsignedByteType;
+  tex.colorSpace = colorSpace;
+  // (Crisp per pixel; the relief too, so every texel reads as a tiny bevelled facet.)
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // Builds every block tile. Returns:
-//   texture: THREE.DataArrayTexture (one layer per TILE_NAMES entry)
-//   reliefTexture: the matching normal / height / roughness layers
+//   texture: THREE.DataArrayTexture, the first page (layers 0-255); its
+//     userData.pages holds every page (texture itself first) and
+//     userData.flipbooks the flipbooks ({ tile, layer: the first frame's,
+//     frames, fps }): the shaders read both (shaders.js)
+//   reliefTexture: the matching normal / height / roughness layers (pages
+//     in its userData.pages likewise)
 //   canvases: tile name -> 32x32 canvas (for UI icons)
 //   blockColors: block id -> [r, g, b] (sRGB 0-1) average visible color
 //   facePalette: { top, side }: Float32Array(BLOCK_LIMIT * 3), each block's average
@@ -1406,20 +1507,31 @@ const SRGB_TO_LINEAR = new Float32Array(256).map((_, i) => {
 });
 
 export function buildBlockTextures() {
-  const layers = TILE_NAMES.length;
-  const data = new Uint8Array(TEX * TEX * 4 * layers);
-  const reliefData = new Uint8Array(TEX * TEX * 4 * layers);
-  const canvases = {};
-  const tileAvg = [];
-  const tileLinear = [];
-  for (let l = 0; l < layers; l++) {
-    const { pixels, relief } = paintTileWithRelief(TILE_NAMES[l]);
+  const { layers: painted, flipbooks } = paintAllLayers();
+  const pageData = [];
+  const reliefPageData = [];
+  for (let p = 0; p < TILE_PAGES; p++) {
+    const depth = Math.min(TILE_PAGE, TILE_LAYERS - p * TILE_PAGE);
+    pageData.push(new Uint8Array(TEX * TEX * 4 * depth));
+    reliefPageData.push(new Uint8Array(TEX * TEX * 4 * depth));
+  }
+  for (let l = 0; l < TILE_LAYERS; l++) {
+    const { pixels, relief } = painted[l];
+    const data = pageData[Math.floor(l / TILE_PAGE)];
+    const reliefData = reliefPageData[Math.floor(l / TILE_PAGE)];
+    const pl = l % TILE_PAGE;
     // DataArrayTexture rows start at v = 0 (the bottom), canvas rows at the
     // top, so flip vertically while copying.
     for (let y = 0; y < TEX; y++) {
-      data.set(pixels.subarray(y * TEX * 4, (y + 1) * TEX * 4), (l * TEX * TEX + (TEX - 1 - y) * TEX) * 4);
-      reliefData.set(relief.subarray(y * TEX * 4, (y + 1) * TEX * 4), (l * TEX * TEX + (TEX - 1 - y) * TEX) * 4);
+      data.set(pixels.subarray(y * TEX * 4, (y + 1) * TEX * 4), (pl * TEX * TEX + (TEX - 1 - y) * TEX) * 4);
+      reliefData.set(relief.subarray(y * TEX * 4, (y + 1) * TEX * 4), (pl * TEX * TEX + (TEX - 1 - y) * TEX) * 4);
     }
+  }
+  const canvases = {};
+  const tileAvg = [];
+  const tileLinear = [];
+  for (let l = 0; l < TILE_NAMES.length; l++) {
+    const { pixels } = painted[l];
     canvases[TILE_NAMES[l]] = tileCanvas(pixels);
     let r = 0;
     let g = 0;
@@ -1447,29 +1559,27 @@ export function buildBlockTextures() {
     tileLinear.push(n ? [lr / n, lg / n, lb / n] : [0.6, 0.6, 0.6]);
   }
 
-  const texture = new THREE.DataArrayTexture(data, TEX, TEX, layers);
-  texture.format = THREE.RGBAFormat;
-  texture.type = THREE.UnsignedByteType;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.needsUpdate = true;
+  const pages = pageData.map((d) => arrayTexture(d, d.length / (TEX * TEX * 4), THREE.SRGBColorSpace));
+  const texture = pages[0];
+  texture.userData.pages = pages;
+  texture.userData.flipbooks = flipbooks;
+  // (graphics.js sets the first page's anisotropy: every page follows it)
+  let anisotropy = texture.anisotropy;
+  Object.defineProperty(texture, "anisotropy", {
+    get: () => anisotropy,
+    set(v) {
+      anisotropy = v;
+      for (const p of pages.slice(1)) {
+        p.anisotropy = v;
+        p.needsUpdate = true;
+      }
+    },
+  });
 
-  // Relief (normal, height, roughness): linear data, crisp per pixel like
-  // the colors, so every texel reads as a tiny bevelled facet.
-  const reliefTexture = new THREE.DataArrayTexture(reliefData, TEX, TEX, layers);
-  reliefTexture.format = THREE.RGBAFormat;
-  reliefTexture.type = THREE.UnsignedByteType;
-  reliefTexture.colorSpace = THREE.NoColorSpace;
-  reliefTexture.magFilter = THREE.NearestFilter;
-  reliefTexture.minFilter = THREE.NearestMipmapLinearFilter;
-  reliefTexture.generateMipmaps = true;
-  reliefTexture.wrapS = THREE.RepeatWrapping;
-  reliefTexture.wrapT = THREE.RepeatWrapping;
-  reliefTexture.needsUpdate = true;
+  // Relief (normal, height, roughness): linear data.
+  const reliefPages = reliefPageData.map((d) => arrayTexture(d, d.length / (TEX * TEX * 4), THREE.NoColorSpace));
+  const reliefTexture = reliefPages[0];
+  reliefTexture.userData.pages = reliefPages;
 
   const blockColors = {};
   for (const info of Object.values(BLOCK_INFO)) {

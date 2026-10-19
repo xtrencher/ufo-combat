@@ -221,6 +221,7 @@ await check("the magic blocks and items: names, icons, the palette, recipes, the
     const V = await import("./js/content/ids.js");
     const I = await import("./js/items.js");
     const B = await import("./js/blocks.js");
+    const L = await import("./js/content/base.js");
     const T = await import("./js/itemtextures.js");
     const IV = await import("./js/content/items-vanilla.js");
     const C = await import("./js/content/containers.js");
@@ -237,13 +238,14 @@ await check("the magic blocks and items: names, icons, the palette, recipes, the
     const pal = [V.ENCHANTING_TABLE, V.ANVIL, V.BREWING_STAND, V.CAULDRON, V.POTION, IV.POTIONS[0].id, IV.POTIONS[0].splash, V.EXPERIENCE_BOTTLE].map((id) => I.CREATIVE_ITEMS.includes(id));
     const results = X.recipes().map((r) => r.result?.[0]);
     const recipes = [V.BREWING_STAND, IV.FERMENTED_SPIDER_EYE, IV.GLISTERING_MELON_SLICE].map((id) => results.includes(id));
-    return { blocks, potions, bad, pal, recipes, tiles: B.TILE_NAMES.length, gravity: B.HAS_GRAVITY[V.ANVIL + 2], stack: [I.maxStack(IV.POTIONS[0].id), I.maxStack(V.ENCHANTED_BOOK)] };
+    return { blocks, potions, bad, pal, recipes, tiles: B.TILE_NAMES.length, flipbook: L.FLIPBOOK_LAYERS, capacity: L.TILE_CAPACITY, gravity: B.HAS_GRAVITY[V.ANVIL + 2], stack: [I.maxStack(IV.POTIONS[0].id), I.maxStack(V.ENCHANTED_BOOK)] };
   });
   assert(r.blocks.join() === "Enchanting Table,Anvil,Chipped Anvil,Damaged Anvil,Brewing Stand,Cauldron", `blocks ${r.blocks}`);
   assert(r.potions === 29 && r.bad.length === 0, `potions ${r.potions}, without a name or icon: ${r.bad}`);
   assert(r.pal.every(Boolean), `in the creative palette: ${r.pal}`);
   assert(r.recipes.every(Boolean), `recipes: ${r.recipes}`);
-  assert(r.tiles <= 256, `texture layers: ${r.tiles}`);
+  // (Round 12) The texture array holds pages of 256 layers: the named tiles and the flipbooks' frames fit its capacity.
+  assert(r.capacity >= 1024 && r.tiles + r.flipbook <= r.capacity, `texture layers: ${r.tiles} named + ${r.flipbook} flipbook frames, capacity ${r.capacity}`);
   assert(r.gravity === 1 && String(r.stack) === "1,1", `the anvil falls; potions and books stack to 1: ${r.gravity} ${r.stack}`);
 });
 
@@ -456,13 +458,14 @@ await check("potions: healing heals, poison poisons, a splash reaches the player
     Br.splashOnPlayer(p, IV.potionId("swiftness", "base", true), 1);
     const speed = p.effects.find((e) => e.effect === "speed");
     p.clearEffects();
-    // The brewing stand: water bottles and sugar, 20 s.
+    // The brewing stand: awkward potions and sugar, blaze powder for fuel, 20 s (Round 12).
     const { x, y, z } = window.__tm.at;
     g.world.setBlock(x + 4, y, z, V.BREWING_STAND);
     const b = g.brewing.contents(x + 4, y, z);
-    b.slots[0] = makeStack(V.POTION, 1);
-    b.slots[2] = makeStack(V.POTION, 1);
+    b.slots[0] = makeStack(V.AWKWARD_POTION, 1);
+    b.slots[2] = makeStack(V.AWKWARD_POTION, 1);
     b.slots[3] = makeStack(V.SUGAR, 2);
+    b.slots[4] = makeStack(V.BLAZE_POWDER, 1);
     for (let k = 0; k < 21; k++) g.brewing.update(1);
     const brewed = b.slots.map((s) => (s ? [s.id, s.count] : 0));
     // A cauldron: water bucket in, a bottle out.
@@ -481,7 +484,7 @@ await check("potions: healing heals, poison poisons, a splash reaches the player
   assert(r.bottle === 345 && r.healed === 12, `healing: 8 -> ${r.healed} (Instant Health I: 4), the bottle back: ${r.bottle}`);
   assert(r.poison && r.poison[0] === 1 && r.poison[1] > 40 && r.poisoned === 1, `poison: ${JSON.stringify(r.poison)}, ${r.poisoned} lost in 1.3 s`);
   assert(r.speed && r.speed[0] === 1 && r.speed[1] === 135, `a splash of swiftness 1 block away: ${JSON.stringify(r.speed)} (3:00 x 0.75)`);
-  assert(JSON.stringify(r.brewed) === JSON.stringify([[r.swift, 1], 0, [r.swift, 1], [410, 1]]), `brewed: ${JSON.stringify(r.brewed)}`);
+  assert(JSON.stringify(r.brewed) === JSON.stringify([[r.swift, 1], 0, [r.swift, 1], [410, 1], 0]), `brewed: ${JSON.stringify(r.brewed)}`);
   assert(r.full === 1809 && r.after === 1808 && r.filled === 392, `the cauldron: ${r.full} then ${r.after}, a ${r.filled}`);
 });
 

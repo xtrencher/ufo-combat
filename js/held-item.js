@@ -349,6 +349,7 @@ export class HeldItem {
   // way). eating: seconds spent eating so far (0 = not eating).
   update(dt, player, light, camera, eating = 0) {
     this.light = light;
+    player.bowDraw = this.bowDraw; // (Round 12: a drawn bow narrows the view, player.js)
     if (this._glintMesh?.visible) {
       this._glintMat.opacity = 0.22 + 0.14 * Math.sin(performance.now() / 380);
       if (this._glintMesh.geometry !== this.mesh.geometry) this._glintMesh.geometry = this.mesh.geometry; // (a bow being drawn)

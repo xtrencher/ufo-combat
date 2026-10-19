@@ -60,11 +60,21 @@ export function isOceanBiome(biome) {
   return biome === BIOME.DEEP_OCEAN || biome === BIOME.OCEAN || biome === BIOME.WARM_OCEAN;
 }
 
+// (Round 12) A Survival world's jungles: the hot zone's share of wet
+// ground (moisture over JUNGLE_M is jungle), and how far into a jungle a
+// column is (jungleDepth: 0 at its edge, the sparse jungle, 1 inside).
+export const JUNGLE_M = 0.22;
+const JUNGLE_DEEP = 0.12; // (moisture above JUNGLE_M at which the jungle is full)
+
 export class BiomeSource {
-  constructor(seed) {
+  // opts.vanilla: a Survival world's climate (its wet regions, see climate).
+  constructor(seed, opts = {}) {
     this.tempNoise = new Noise((seed ^ 0x1a2b3c4d) >>> 0);
     this.moistNoise = new Noise((seed ^ 0x5e6f7081) >>> 0);
     this.dryNoise = new Noise((seed ^ 0x3d5a9e17) >>> 0);
+    this.vanilla = !!opts.vanilla;
+    this.wetNoise = this.vanilla ? new Noise((seed ^ 0x6b43a9b5) >>> 0) : null;
+    this.bambooNoise = this.vanilla ? new Noise((seed ^ 0x2e9b5c17) >>> 0) : null;
   }
 
   // Smooth climate fields, roughly in [-0.7, 0.7]: t = cold..hot, m = dry..wet.
@@ -80,11 +90,50 @@ export class BiomeSource {
     // a few kilometres of the start).
     const dry = this.dryNoise.fbm2(wx - 9000, wz + 7000, 1, 0.5, 2, 1 / 7000) * 0.85;
     const k = Math.min(1, Math.max(0, (dry - 0.3) / 0.15));
+    let w = 0;
     if (k > 0) {
-      const w = k * k * (3 - 2 * k);
-      return { t: t + (0.42 - t) * w * (t < 0.42 ? 1 : 0), m: m + (-0.35 - m) * w * (m > -0.35 ? 1 : 0) };
+      w = k * k * (3 - 2 * k);
+      if (!this.vanilla) return { t: t + (0.42 - t) * w * (t < 0.42 ? 1 : 0), m: m + (-0.35 - m) * w * (m > -0.35 ? 1 : 0) };
     }
-    return { t, m };
+    let tt = t + (0.42 - t) * w * (t < 0.42 ? 1 : 0);
+    let mm = m + (-0.35 - m) * w * (m > -0.35 ? 1 : 0);
+    // (Round 12) A Survival world: wet regions in the hot zone (a field of
+    // their own, about a thousand blocks across, never in the great dry
+    // regions), so jungles are no rarity: about one land column in twelve
+    // instead of one in twenty-five, the nearest mostly within a kilometre or
+    // two of the start.
+    if (this.vanilla && tt > 0.16 && w < 1) {
+      const wet = this.wetNoise.fbm2(wx + 6100, wz - 2700, 2, 0.5, 2, 1 / 1300);
+      const kw = Math.min(1, Math.max(0, (wet - 0.06) / 0.16)) * (1 - w);
+      if (kw > 0 && mm < 0.36) mm += (0.36 - mm) * kw * kw * (3 - 2 * kw);
+    }
+    return { t: tt, m: mm };
+  }
+
+  // (Round 12) How far into a jungle (wx, wz) is: 0 at its edge (vanilla's
+  // sparse jungle: fewer trees, no giants) to 1 well inside; 0 outside one.
+  jungleDepth(wx, wz) {
+    const { t, m } = this.climate(wx, wz);
+    if (t <= 0.16 || m <= JUNGLE_M) return 0;
+    return Math.min(1, (m - JUNGLE_M) / JUNGLE_DEEP);
+  }
+
+  // (Round 12) Vanilla's bamboo jungle: patches of a Survival world's
+  // jungles (a field of their own, a few hundred blocks across, about a
+  // third of a jungle) thick with bamboo on podzol, their trees fewer. How
+  // much of one (wx, wz) is, 0-1 (over 0.5: inside one), wherever it is
+  // (the terrain asks it of jungle columns only); 0 in a Missions world.
+  bambooField(wx, wz) {
+    if (!this.bambooNoise) return 0;
+    const n = this.bambooNoise.fbm2(wx - 3300, wz + 5100, 2, 0.5, 2, 1 / 420);
+    return Math.min(1, Math.max(0, (n - 0.06) / 0.1));
+  }
+
+  // (Round 12) Whether the climate at (wx, wz) is a jungle's (whatever the
+  // ground: a cheap test before the terrain's own).
+  hotWet(wx, wz) {
+    const { t, m } = this.climate(wx, wz);
+    return t > 0.16 && m > JUNGLE_M;
   }
 
   // (Round 11) Whether the climate at (wx, wz) is the snowy zone's (where a
@@ -113,7 +162,7 @@ export class BiomeSource {
     // The hot zone is wide: deserts take the dry half of it, jungles the wet third, savanna between.
     if (t > 0.16) {
       // (Round 8: deserts take a bigger share of the hot zone.)
-      if (m > 0.22) return BIOME.JUNGLE;
+      if (m > JUNGLE_M) return BIOME.JUNGLE;
       if (m > 0.07) return BIOME.SAVANNA;
       return BIOME.DESERT;
     }

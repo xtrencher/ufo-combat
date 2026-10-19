@@ -348,3 +348,200 @@ export const ENCHANTED_BOOK = 391;
 export const POTION = 392;
 export const EXPERIENCE_BOTTLE = 393;
 // (items-vanilla.js items: next free 394)
+
+// ---- nether.js blocks (Round 12: blocks 2304-2559) ----
+export const NETHERRACK = 2304;
+export const SOUL_SAND = 2305;
+export const SOUL_SOIL = 2306;
+export const GLOWSTONE = 2307;
+export const NETHER_QUARTZ_ORE = 2308;
+export const NETHER_GOLD_ORE = 2309;
+export const ANCIENT_DEBRIS = 2310;
+export const MAGMA_BLOCK = 2311;
+export const BASALT = 2312;
+export const POLISHED_BASALT = 2313;
+export const SMOOTH_BASALT = 2314;
+export const BLACKSTONE = 2315;
+export const GILDED_BLACKSTONE = 2316;
+export const POLISHED_BLACKSTONE = 2317;
+export const POLISHED_BLACKSTONE_BRICKS = 2318;
+export const CRACKED_POLISHED_BLACKSTONE_BRICKS = 2319;
+export const CHISELED_POLISHED_BLACKSTONE = 2320;
+export const NETHER_BRICKS = 2321;
+export const CRACKED_NETHER_BRICKS = 2322;
+export const CHISELED_NETHER_BRICKS = 2323;
+export const RED_NETHER_BRICKS = 2324;
+export const NETHER_WART = 2325; // 4 ids: age 0-3 (the first is the item, planted on soul sand)
+export const CRIMSON_NYLIUM = 2329;
+export const WARPED_NYLIUM = 2330;
+export const CRIMSON_STEM = 2331;
+export const WARPED_STEM = 2332;
+export const STRIPPED_CRIMSON_STEM = 2333;
+export const STRIPPED_WARPED_STEM = 2334;
+export const CRIMSON_HYPHAE = 2335;
+export const WARPED_HYPHAE = 2336;
+export const CRIMSON_PLANKS = 2337;
+export const WARPED_PLANKS = 2338;
+export const CRIMSON_FUNGUS = 2339;
+export const WARPED_FUNGUS = 2340;
+export const CRIMSON_ROOTS = 2341;
+export const WARPED_ROOTS = 2342;
+export const NETHER_SPROUTS = 2343;
+export const NETHER_WART_BLOCK = 2344;
+export const WARPED_WART_BLOCK = 2345;
+export const SHROOMLIGHT = 2346;
+export const WEEPING_VINES = 2347; // 2 ids: the tip, the vine above it
+export const TWISTING_VINES = 2349; // 2 ids: the tip, the vine below it
+export const CRYING_OBSIDIAN = 2351;
+export const RESPAWN_ANCHOR = 2352; // 5 ids: charges 0-4
+export const NETHER_PORTAL = 2357; // 2 ids: the portal's plane along x, along z
+export const QUARTZ_BLOCK = 2359;
+export const CHISELED_QUARTZ_BLOCK = 2360;
+export const QUARTZ_PILLAR = 2361;
+export const QUARTZ_BRICKS = 2362;
+export const SMOOTH_QUARTZ = 2363;
+export const NETHERITE_BLOCK = 2364;
+export const SOUL_FIRE = 2365;
+export const BONE_BLOCK = 2366;
+export const BLAZE_SPAWNER = 2367; // (a monster spawner of blazes: js/structures.js runs it)
+export const SMITHING_TABLE = 2368;
+export const NETHER_BRICK_STAIRS = 2369; // 8 ids: base + facing (0 +Z,1 -Z,2 +X,3 -X) + 4*top-half
+export const RED_NETHER_BRICK_STAIRS = 2377; // 8 ids, as above
+export const BLACKSTONE_STAIRS = 2385; // 8 ids, as above
+export const POLISHED_BLACKSTONE_STAIRS = 2393; // 8 ids, as above
+export const POLISHED_BLACKSTONE_BRICK_STAIRS = 2401; // 8 ids, as above
+export const QUARTZ_STAIRS = 2409; // 8 ids, as above
+export const CRIMSON_STAIRS = 2417; // 8 ids, as above
+export const WARPED_STAIRS = 2425; // 8 ids, as above
+export const NETHER_BRICK_SLAB = 2433; // 2 ids: bottom, top (a double slab is the full block)
+export const RED_NETHER_BRICK_SLAB = 2435; // 2 ids, as above
+export const BLACKSTONE_SLAB = 2437; // 2 ids, as above
+export const POLISHED_BLACKSTONE_SLAB = 2439; // 2 ids, as above
+export const POLISHED_BLACKSTONE_BRICK_SLAB = 2441; // 2 ids, as above
+export const QUARTZ_SLAB = 2443; // 2 ids, as above
+export const CRIMSON_SLAB = 2445; // 2 ids, as above
+export const WARPED_SLAB = 2447; // 2 ids, as above
+export const NETHER_BRICK_FENCE = 2449;
+export const CRIMSON_FENCE = 2450;
+export const WARPED_FENCE = 2451;
+export const CRIMSON_FENCE_GATE = 2452; // 8 ids: facing (4) x open
+export const WARPED_FENCE_GATE = 2460; // 8 ids: facing (4) x open
+export const NETHER_BRICK_WALL = 2468;
+export const RED_NETHER_BRICK_WALL = 2469;
+export const BLACKSTONE_WALL = 2470;
+export const POLISHED_BLACKSTONE_WALL = 2471;
+export const POLISHED_BLACKSTONE_BRICK_WALL = 2472;
+// (nether.js blocks: next free 2473)
+
+// ---- nether.js items (Round 12: items 768-863) ----
+// (The blaze's, the ghast's and the magma cube's drops are here for the
+// creatures' part; the gold nugget is items-vanilla.js's GOLD_NUGGET.)
+export const QUARTZ = 768; // (Nether Quartz)
+export const GLOWSTONE_DUST = 769;
+export const BLAZE_ROD = 770;
+export const BLAZE_POWDER = 771;
+export const GHAST_TEAR = 772;
+export const MAGMA_CREAM = 773;
+export const NETHER_BRICK = 774; // (the item: four make the block)
+export const NETHERITE_SCRAP = 775;
+export const NETHERITE_INGOT = 776;
+export const NETHERITE_SWORD = 777;
+export const NETHERITE_PICKAXE = 778;
+export const NETHERITE_AXE = 779;
+export const NETHERITE_SHOVEL = 780;
+export const NETHERITE_HOE = 781;
+export const NETHERITE_HELMET = 782;
+export const NETHERITE_CHESTPLATE = 783;
+export const NETHERITE_LEGGINGS = 784;
+export const NETHERITE_BOOTS = 785;
+export const FIRE_CHARGE = 786;
+export const NETHERITE_UPGRADE = 787; // (the Netherite Upgrade smithing template)
+export const AWKWARD_POTION = 788; // (nether wart in a water bottle: the base of most potions, js/brewing.js)
+export const MUNDANE_POTION = 789;
+export const THICK_POTION = 790;
+// (nether.js items: next free 791)
+
+// ---- end.js blocks (Round 12: blocks 2560-2815) ----
+export const END_STONE = 2560;
+export const END_STONE_BRICKS = 2561;
+export const END_STONE_BRICK_STAIRS = 2562; // 8 ids: base + facing (0 +Z,1 -Z,2 +X,3 -X) + 4*top-half
+export const END_STONE_BRICK_SLAB = 2570; // 2 ids: bottom, top (a double slab is the full block)
+export const END_STONE_BRICK_WALL = 2572;
+export const PURPUR_BLOCK = 2573;
+export const PURPUR_PILLAR = 2574; // 3 ids: along y, x, z
+export const PURPUR_STAIRS = 2577; // 8 ids, as the stairs above
+export const PURPUR_SLAB = 2585; // 2 ids, as the slabs above
+export const END_ROD = 2587; // 6 ids: pointing along FACE order (+X, -X, +Y, -Y, +Z, -Z)
+export const CHORUS_PLANT = 2593;
+export const CHORUS_FLOWER = 2594; // 6 ids: age 0-5 (5: dead, it grows no more)
+export const DRAGON_EGG = 2600;
+export const END_PORTAL_FRAME = 2601; // 8 ids: facing (0 +Z,1 -Z,2 +X,3 -X: toward the portal) + 4 * with an eye
+export const END_PORTAL = 2609;
+export const END_GATEWAY = 2610;
+export const DRAGON_HEAD = 2611; // 4 ids: facing (the way it looks)
+export const SILVERFISH_SPAWNER = 2615; // (a monster spawner of silverfish: the strongholds' portal room)
+// (end.js blocks: next free 2616)
+
+// ---- end.js items (Round 12: items 864-959) ----
+export const EYE_OF_ENDER = 864;
+export const DRAGON_BREATH = 865;
+export const CHORUS_FRUIT = 866;
+export const POPPED_CHORUS_FRUIT = 867;
+export const SHULKER_SHELL = 868;
+export const ELYTRA = 869;
+export const END_CRYSTAL = 870;
+// (end.js items: next free 871)
+
+// ---- workstations.js blocks (Round 12: blocks 2816-2879) ----
+// (Facings as the furnace's: 0 +Z, 1 -Z, 2 +X, 3 -X, where the front looks.)
+export const CHEST_DOUBLE = 2816; // 8 ids: a double chest's halves: facing (4) + 4 * the right half (seen from the front; its other half on its left)
+export const SMOKER = 2824; // 8 ids: facing (4) x lit
+export const BLAST_FURNACE = 2832; // 8 ids: facing (4) x lit
+export const CAMPFIRE = 2840; // 4 ids: the lower logs along x (0) or z (1) + 2 * unlit
+export const SOUL_CAMPFIRE = 2844; // 4 ids, as the campfire
+export const COMPOSTER = 2848; // 9 ids: level 0-7, 8 ready (bone meal)
+export const GRINDSTONE = 2857; // 2 ids: the wheel's axle along x, along z
+export const STONECUTTER = 2859; // 2 ids: the saw along x, along z
+export const LECTERN = 2861; // 4 ids: facing
+export const FLETCHING_TABLE = 2865;
+export const CARTOGRAPHY_TABLE = 2866;
+export const LOOM = 2867; // 4 ids: facing
+export const BELL = 2871; // 2 ids: the bar along x, along z
+export const SHULKER_BOX = 2873; // 2 ids: the item, the box placed (its contents ride in the item: tag.items)
+// (workstations.js blocks: next free 2875)
+
+// ---- gadgets.js blocks (Round 12: blocks 2944-3071) ----
+// (Facings: "facing (4)" is building.js's, 0 +Z, 1 -Z, 2 +X, 3 -X; "FACE
+// order" is +X, -X, +Y, -Y, +Z, -Z.)
+export const HOPPER = 2944; // 5 ids: where it passes items on: 0 down, 1 + facing (4) to that side
+export const DROPPER = 2949; // 6 ids: the way it throws (FACE order)
+export const DISPENSER = 2955; // 6 ids, as the dropper
+export const OBSERVER = 2961; // 12 ids: the way its face looks (FACE order) + 6 while its pulse is on
+export const TRIPWIRE_HOOK = 2973; // 16 ids: facing (4: out of its wall, along its string) + 4 attached + 8 pulled (powered)
+export const TRIPWIRE = 2989; // 2 ids: loose, attached (a line between two hooks)
+export const ITEM_FRAME = 2991; // 6 ids: the way it faces out (FACE order; it hangs on the block behind)
+export const ARMOR_STAND = 2997; // 8 ids: turned (eighths of a turn from +Z toward +X): the stand's lower block
+export const ARMOR_STAND_TOP = 3005; // (its upper block: drawn with the lower one)
+export const POTTED_MORE = 3006; // 8 ids: potted dark oak sapling, fern, dead bush, bamboo, crimson fungus, warped fungus, crimson roots, warped roots
+export const BAMBOO_SAPLING = 3014; // (the bamboo shoot; its item is bamboo)
+export const BAMBOO = 3015; // 6 ids: leaves (0 none, 1 small, 2 large) + 3 when thick (the item: the first)
+export const BAMBOO_BLOCK = 3021;
+export const SCAFFOLDING = 3022; // 7 ids: distance 0-6 from what holds it up (the item: the first)
+// (gadgets.js blocks: next free 3029)
+
+// ---- transport.js blocks (Round 12: blocks 2880-2943) ----
+// (A rail's shape, as vanilla's RailShape: 0 north-south, 1 east-west, 2-5
+// ascending east, west, north, south (rising toward that side), 6-9 the
+// curves south-east, south-west, north-west, north-east. North is -Z.)
+export const RAIL = 2880; // 10 ids: shape 0-9
+export const POWERED_RAIL = 2890; // 12 ids: shape 0-5 (no curves) + 6 * powered
+export const DETECTOR_RAIL = 2902; // 12 ids: shape 0-5 + 6 * a cart on it (giving power)
+export const ACTIVATOR_RAIL = 2914; // 12 ids: shape 0-5 + 6 * powered
+// (transport.js blocks: next free 2926)
+
+// ---- transport.js items (Round 12: items 960-991) ----
+export const OAK_BOAT = 960; // 6 ids: oak, spruce, birch, jungle, acacia, dark oak
+export const OAK_CHEST_BOAT = 966; // 6 ids: the same woods
+export const MINECART = 972;
+export const CHEST_MINECART = 973;
+// (transport.js items: next free 974)

@@ -77,12 +77,22 @@ export const DEATH_MESSAGES = {
   fire: "Went up in flames",
   burn: "Burned to death",
   cactus: "Was pricked to death",
+  hot_floor: "Discovered the floor was lava", // (Round 12: a magma block, vanilla's)
   suffocate: "Suffocated in a wall",
   starve: "Starved to death",
   magic: "Killed by magic",
   poison: "Killed by magic", // (poison never kills on its own: only with something else)
   ender_pearl: "Hit the ground too hard",
   tnt: "Blown up by TNT",
+  bed: "Killed by [Intentional Game Design]", // (Round 12: a bed used in the Nether or the End, vanilla's message)
+  // (Round 12) The End (vanilla's wording).
+  ender_dragon: "Slain by the Ender Dragon",
+  dragon_breath: "Roasted in dragon's breath",
+  end_crystal: "Blown up by an end crystal",
+  end_crystal_fall: "Blown off your feet by an end crystal",
+  end_respawn: "Blew up", // (the respawn's pillar blasts: vanilla's for a blast nobody caused)
+  end_respawn_fall: "Fell from a high place",
+  fly_into_wall: "Experienced kinetic energy",
   tnt_fall: "Blown off your feet by TNT",
   creeper: "Blown up by a creeper",
   creeper_fall: "Blown off your feet by a creeper",
@@ -97,6 +107,21 @@ export const DEATH_MESSAGES = {
   iron_golem: "Crushed by an iron golem",
   wolf: "Mauled by a wolf",
   arrow: "Shot by an arrow",
+  // (Round 12) The Nether's and the End's (vanilla's wording).
+  ghast: "Was fireballed by a ghast",
+  ghast_fall: "Blown off your feet by a ghast's fireball",
+  fireball: "Was fireballed",
+  blaze: "Was fireballed by a blaze",
+  zombified_piglin: "Was slain by a zombified piglin",
+  piglin: "Was slain by a piglin",
+  hoglin: "Was slain by a hoglin",
+  zoglin: "Was slain by a zoglin",
+  magma_cube: "Was slain by a magma cube",
+  wither_skeleton: "Was slain by a wither skeleton",
+  wither: "Withered away",
+  endermite: "Was slain by an endermite",
+  silverfish: "Was slain by a silverfish",
+  shulker: "Was shot by a shulker",
   lightning: "Was struck by lightning",
   // Your own weapons.
   grenade: "Blown up by your own grenade",
@@ -177,4 +202,4 @@ export function pilotCause(vehicleType, cause) {
 // armor" sources: falls, drowning, the void, hunger, burning (after leaving
 // the fire), suffocation and magic (a witch's potions too). They cost no
 // hunger either (player.js).
-export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch"]);
+export const BYPASSES_ARMOR = new Set(["fall", "drown", "void", "starve", "burn", "suffocate", "poison", "magic", "witch", "dragon_breath", "fly_into_wall", "wither"]);

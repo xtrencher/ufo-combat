@@ -361,11 +361,18 @@ await check("a Survival world grows its own trees: jungle, acacia and dark oak w
   for (let k = 0; k < 20 && !vines; k++) {
     const j = gen.trees.shape(found[5]);
     const at = new Map();
-    for (let i = 0; i < j.length; i += 4) if (j[i + 3] === V.JUNGLE_LOG) at.set(`${j[i]},${j[i + 1]},${j[i + 2]}`, j[i + 3]); // (logs win over leaves, as placed)
+    // (logs win, else the first block put in a cell, as placed)
     for (let i = 0; i < j.length; i += 4) {
-      if (j[i + 3] < V.VINE || j[i + 3] >= V.VINE + 4) continue;
+      const k = `${j[i]},${j[i + 1]},${j[i + 2]}`;
+      if (j[i + 3] === V.JUNGLE_LOG || !at.has(k)) at.set(k, j[i + 3]);
+    }
+    const isVine = (id) => id >= V.VINE && id < V.VINE + 4;
+    for (let i = 0; i < j.length; i += 4) {
+      if (!isVine(j[i + 3]) || at.get(`${j[i]},${j[i + 1]},${j[i + 2]}`) !== j[i + 3]) continue;
       const [wx, wz] = BLOCK_INFO[j[i + 3]].wall;
-      assert(at.get(`${j[i] + wx},${j[i + 1]},${j[i + 2] + wz}`) === V.JUNGLE_LOG, `a vine at ${j[i]},${j[i + 1]},${j[i + 2]} faces its trunk`);
+      // (Round 12: on its trunk, on its leaves, or hanging from a vine above)
+      const wall = at.get(`${j[i] + wx},${j[i + 1]},${j[i + 2] + wz}`);
+      assert(wall === V.JUNGLE_LOG || wall === V.JUNGLE_LEAVES || isVine(at.get(`${j[i]},${j[i + 1] + 1},${j[i + 2]}`)), `a vine at ${j[i]},${j[i + 1]},${j[i + 2]} hangs on nothing`);
       vines++;
     }
   }
@@ -650,7 +657,8 @@ await check("every nature block and item is defined and named, within the textur
   for (const id of ids) assert(BLOCK_INFO[id] && BLOCK_INFO[id].name, `block ${id}`);
   for (const id of Object.keys(N.items).map(Number)) assert(itemInfo(id)?.name && itemInfo(id).icon, `item ${id}`);
   assert(Object.keys(N.tiles).length <= 74, `nature tiles: ${Object.keys(N.tiles).length}`); // (70, the world part's spawner cage, the cocoa pod's 3 ages)
-  assert(TILE_NAMES.length <= 256, `all tiles: ${TILE_NAMES.length}`);
+  const BASE = await imp("js/content/base.js");
+  assert(TILE_NAMES.length + BASE.FLIPBOOK_LAYERS <= BASE.TILE_CAPACITY, `all tiles: ${TILE_NAMES.length}`);
   // A chunk with one of every shaped block, meshed.
   const blocks = new Uint16Array(16 * 128 * 16);
   const light = new Uint8Array(blocks.length).fill(0xf0);

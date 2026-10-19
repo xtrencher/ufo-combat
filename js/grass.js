@@ -17,11 +17,13 @@
 //
 // Each chunk's plant spots are found once and cached until the chunk is
 // rebuilt (an edit or a light change); the instance buffers are refilled
-// when the player has moved a little or a chunk nearby changed.
+// when the player has moved a little, a chunk nearby changed, or a dropped
+// item came to rest in the grass (no blades grow over it, so it stays in
+// sight: Round 12).
 import * as THREE from "three";
 import { BLOCK, TILE } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
-import { createGrassMaterial } from "./shaders.js";
+import { createGrassMaterial, worldUniforms } from "./shaders.js";
 import { grassTint } from "./mesher.js";
 
 const REGROW = 150; // seconds a cut or burnt patch stays bare
@@ -39,11 +41,21 @@ const WATER_TOP = 16; // an open water surface 1-3 blocks deep
 
 // Settings per level (1 = High, 2 = Ultra): radius in blocks, tufts per block.
 // grow: blade height scale (Round 3: Ultra's dense grass is shorter, about
-// knee-high at most, so it no longer hides the ground ahead).
+// knee-high at most, so it no longer hides the ground ahead); wide: card
+// width scale. (Round 12: Ultra's carpet was too massive, hid what lay in
+// it and cost a quarter of a frame, most of it its soft shadows (see the
+// constructor): now as thick as High's, finer and a little lower, only
+// reaching farther. Vanilla's short grass is one block tall at most, a
+// tall-grass plant two: these tufts stay well under that.)
 const LEVELS = {
-  1: { radius: 20, short: 1.2, tall: 0.6, grow: 0.72 },
-  2: { radius: 32, short: 2.2, tall: 1.1, grow: 0.46 },
+  1: { radius: 20, short: 1.2, tall: 0.6, grow: 0.72, wide: 1 },
+  2: { radius: 28, short: 1.2, tall: 0.45, grow: 0.42, wide: 0.85 },
 };
+// (Round 12) Dropped items: no tuft stands within ITEM_CLEAR blocks of one
+// lying on the ground, and the ones a little farther (to ITEM_SHORT) are
+// lower, so the item shows in a small natural dip.
+const ITEM_CLEAR = 0.6;
+const ITEM_SHORT = 1.1;
 
 function hash(x, z, k) {
   let h = Math.imul(x | 0, 374761393) ^ Math.imul(z | 0, 668265263) ^ Math.imul(k | 0, 1274126177);
@@ -206,6 +218,16 @@ export class GrassField {
   constructor(scene, world) {
     this.world = world;
     this.material = createGrassMaterial(world.atlas);
+    // (Round 12) The blades' sun shadows are the plain 6-tap filter whatever
+    // the preset: Ultra's soft penumbrae (32 shadow-map reads a pixel) on a
+    // field of thin blades that cover the lower screen cost a fifth of a
+    // frame, for no visible difference. (Read live: presets change it.)
+    this.material.uniforms.uShadowQuality = {
+      get value() {
+        return Math.min(1, worldUniforms.uShadowQuality.value);
+      },
+      set value(v) {}, // (set through worldUniforms)
+    };
     this.mesh = new THREE.Group(); // all plant types
     this.mesh.visible = false;
     scene.add(this.mesh);
@@ -223,6 +245,12 @@ export class GrassField {
     this._builtAt = new THREE.Vector3(Infinity, 0, 0);
     this._versions = new Map(); // chunk -> mesh count at the last fill
     this.cleared = new Map(); // column key (_key) -> time (s) it grows back
+    // (Round 12) () => the dropped items ([{ pos, onGround }], js/entities.js):
+    // the grass leaves the ones lying in it in sight. null: none.
+    this.items = null;
+    this._itemSig = 0;
+    this._itemSpots = []; // [x, y, z, ...] of the items in range at the last fill
+    this._itemCols = new Set(); // column keys within ITEM_SHORT of one
     this.count = 0;
     this.counts = {}; // plants per kind at the last fill (stats / tests)
   }
@@ -344,7 +372,7 @@ export class GrassField {
     }
     this.material.uniforms.uPlayer.value.copy(playerPos);
     const chunks = this._chunksInRange(playerPos.x, playerPos.z);
-    let changed = chunks.length !== this._versions.size;
+    let changed = chunks.length !== this._versions.size || this._itemsMoved(playerPos);
     if (!changed) {
       for (const chunk of chunks) {
         if (this._versions.get(chunk) !== (chunk.meshCount || 0)) {
@@ -370,8 +398,69 @@ export class GrassField {
     if (changed) this._fill(chunks, playerPos);
   }
 
+  // (Round 12) Whether the items lying in range have changed since the last
+  // fill (one came to rest, was picked up or moved a quarter block). Items
+  // still in the air don't count: they don't lie in the grass yet; nor do
+  // another dimension's (they wait there, unseen: js/entities.js).
+  _itemsMoved(playerPos) {
+    const list = this.items?.();
+    if (!list || (!list.length && !this._itemSpots.length)) return false;
+    const r = this.radius + 1;
+    const dim = this.world.dimCode ?? 0;
+    let sig = 0;
+    for (const it of list) {
+      const p = it.pos;
+      if (!p || !it.onGround || it.dim !== dim || Math.abs(p.x - playerPos.x) > r || Math.abs(p.z - playerPos.z) > r) continue;
+      sig = (Math.imul(sig, 31) + Math.imul(Math.floor(p.x * 4), 73856093) + Math.imul(Math.floor(p.z * 4), 19349663) + Math.floor(p.y * 2)) | 0;
+    }
+    if (sig === this._itemSig) return false;
+    this._itemSig = sig;
+    return true;
+  }
+
+  // The items lying in range, and the columns near them (see _fill).
+  _gatherItems(playerPos) {
+    const spots = this._itemSpots;
+    const cols = this._itemCols;
+    spots.length = 0;
+    cols.clear();
+    const list = this.items?.();
+    if (!list) return;
+    const r = this.radius + 1;
+    const reach = Math.ceil(ITEM_SHORT);
+    const dim = this.world.dimCode ?? 0;
+    for (const it of list) {
+      const p = it.pos;
+      if (!p || !it.onGround || it.dim !== dim || Math.abs(p.x - playerPos.x) > r || Math.abs(p.z - playerPos.z) > r) continue;
+      spots.push(p.x, p.y, p.z);
+      const ix = Math.floor(p.x);
+      const iz = Math.floor(p.z);
+      for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) cols.add(_key(ix + dx, iz + dz));
+    }
+  }
+
+  // 1 away from dropped items, less near one, 0 on top of one (a tuft at
+  // (x, z) on ground at height y).
+  _itemRoom(x, y, z) {
+    const s = this._itemSpots;
+    let room = 1;
+    for (let i = 0; i < s.length; i += 3) {
+      if (Math.abs(s[i + 1] - y) > 1.2) continue; // (an item on another floor)
+      const dx = s[i] - x;
+      const dz = s[i + 2] - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= ITEM_SHORT * ITEM_SHORT) continue;
+      const d = Math.sqrt(d2);
+      if (d < ITEM_CLEAR) return 0;
+      room = Math.min(room, 0.35 + 0.65 * ((d - ITEM_CLEAR) / (ITEM_SHORT - ITEM_CLEAR)));
+    }
+    return room;
+  }
+
   _fill(chunks, playerPos) {
     const cfg = LEVELS[this.density];
+    this._gatherItems(playerPos);
+    const itemCols = this._itemCols;
     this._builtAt.copy(playerPos);
     this._fillT = performance.now();
     this._pendingFill = false;
@@ -409,6 +498,9 @@ export class GrassField {
         const pz = (k) => z + 0.5 + (hash(z, x, k) - 0.5) * 0.7;
         const angle = (k) => hash(x, z, k + 7) * Math.PI * 2;
         const tintHere = grassTint(x, z) / 255;
+        // (Round 12: near a dropped item, see _itemRoom; px/pz are the tuft's spot.)
+        const nearItem = itemCols.size > 0 && itemCols.has(_key(x, z));
+        const room = (k) => (nearItem ? this._itemRoom(px(k), y, pz(k)) : 1);
         const tint = (k) => Math.min(0.95, Math.max(0.05, tintHere + (hash(x + 3, z, k) - 0.5) * 0.12));
         if (kind & WATER_TOP) {
           // Lily pads in patches on calm water near the shore.
@@ -420,7 +512,7 @@ export class GrassField {
           continue;
         }
         if (kind & (SHALLOW | SHORE)) {
-          if (hash(x, z, 91) < (kind & SHALLOW ? 0.55 : 0.4) * keep) {
+          if (hash(x, z, 91) < (kind & SHALLOW ? 0.55 : 0.4) * keep && room(1) > 0) {
             const cattail = smooth(x, z, 5, 19) > 0.55;
             reed.add(px(1), y, pz(1), angle(1), 0.9 + hash(x, z, 5) * 0.3, 0.75 + hash(x, z, 6) * 0.35, tint(1), sky, blk, cattail ? TILE.cattail_bottom : TILE.reed_bottom);
             counts[cattail ? "cattail" : "reed"]++;
@@ -428,15 +520,18 @@ export class GrassField {
           if (!(kind & GRASS_TOP)) continue;
         }
         // Flowers in scattered patches.
-        if (hash(x, z, 93) < Math.max(0, smooth(x, z, 9, 17) - 0.58) * 1.1 * keep) {
+        if (hash(x, z, 93) < Math.max(0, smooth(x, z, 9, 17) - 0.58) * 1.1 * keep && room(2) > 0) {
           const layer = FLOWER_LAYERS[Math.floor(smooth(x, z, 6, 29) * 4.999)];
           cross.add(px(2), y, pz(2), angle(2), 0.7, 0.6 + hash(x, z, 6) * 0.25, 0.5, sky, blk, layer);
           counts.flower++;
         }
         // Ferns in the shade.
         if (kind & SHADE && hash(x, z, 95) < 0.4 * keep) {
-          cross.add(px(3), y, pz(3), angle(3), 1.1, (0.8 + hash(x, z, 8) * 0.5) * (0.5 + cfg.grow * 0.5), tint(3), sky, blk, TILE.fern);
-          counts.fern++;
+          const h = room(3);
+          if (h > 0) {
+            cross.add(px(3), y, pz(3), angle(3), 1.1 * cfg.wide, (0.8 + hash(x, z, 8) * 0.5) * (0.5 + cfg.grow * 0.5) * h, tint(3), sky, blk, TILE.fern);
+            counts.fern++;
+          }
           continue;
         }
         // Lush grass: short tufts everywhere, taller tufts in drifts. Heights
@@ -444,13 +539,17 @@ export class GrassField {
         const tallDrift = smooth(x, z, 6, 23);
         const nTall = cfg.tall * keep * (0.4 + tallDrift * 1.2) + hash(x, z, 97);
         for (let k = 0; k + 1 <= nTall; k++) {
-          tuft.add(px(10 + k), y, pz(10 + k), angle(10 + k), 0.85 + hash(x, z, 30 + k) * 0.3, (0.65 + hash(z, x, k) * 0.45) * cfg.grow, tint(10 + k), sky, blk, TILE.tall_grass);
+          const h = room(10 + k);
+          if (h <= 0) continue;
+          tuft.add(px(10 + k), y, pz(10 + k), angle(10 + k), (0.85 + hash(x, z, 30 + k) * 0.3) * cfg.wide, (0.65 + hash(z, x, k) * 0.45) * cfg.grow * h, tint(10 + k), sky, blk, TILE.tall_grass);
           counts.tall++;
         }
         const nShort = cfg.short * keep + hash(x, z, 99);
         for (let k = 0; k + 1 <= nShort; k++) {
+          const h = room(20 + k);
+          if (h <= 0) continue;
           const b = hash(x, z, 40 + k) < 0.5;
-          tuft.add(px(20 + k), y, pz(20 + k), angle(20 + k), 0.8 + hash(x, z, 50 + k) * 0.35, (0.55 + hash(z, x, 20 + k) * 0.5) * cfg.grow, tint(20 + k), sky, blk, b ? TILE.grass_tuft : TILE.grass_tuft_b);
+          tuft.add(px(20 + k), y, pz(20 + k), angle(20 + k), (0.8 + hash(x, z, 50 + k) * 0.35) * cfg.wide, (0.55 + hash(z, x, 20 + k) * 0.5) * cfg.grow * h, tint(20 + k), sky, blk, b ? TILE.grass_tuft : TILE.grass_tuft_b);
           counts.tuft++;
         }
       }

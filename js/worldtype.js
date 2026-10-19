@@ -8,7 +8,8 @@
 // or for a guest the host's) before the world is built; systems that differ
 // between the two read isVanilla() (crafting, hunger, XP, mobs, terrain...)
 // or subscribe with onWorldType(fn) (also sent as a "worldtype" window
-// event). An old save without a type is a Missions world.
+// event). An old save without a type is a Missions world; a new world
+// nothing picked a type for is a Survival world (Round 12: newWorldType).
 export const WORLD_TYPES = ["missions", "survival"];
 export const WORLD_TYPE_NAMES = { missions: "Missions", survival: "Survival" };
 
@@ -19,6 +20,15 @@ const listeners = [];
 // Anything that is not "survival" is a Missions world (old saves, old hosts, junk).
 export function normalizeWorldType(type) {
   return type === "survival" ? "survival" : "missions";
+}
+
+// (Round 12) A new world's type when nothing picked one: Survival (the
+// default game) on a fresh start, Missions for a world link (?seed= without
+// a type: links from before Round 11 and a Missions world's own link carry
+// none, and they keep opening the world they always did).
+export function newWorldType(type, { link = false } = {}) {
+  if (type !== null && type !== undefined) return normalizeWorldType(type);
+  return link ? "missions" : "survival";
 }
 
 export function worldType() {
@@ -63,10 +73,9 @@ export function onWorldType(fn) {
   };
 }
 
-// The label of a world on the main menu ("Missions world", "Creative world",
-// "Survival world", "Survival world, in Creative").
+// The label of a world on the main menu ("Survival world", "Survival world,
+// in Creative", "Missions world", "Missions world, in Creative").
 export function worldLabel(type, mode) {
-  const t = normalizeWorldType(type);
-  if (t === "missions") return mode === "creative" ? "Creative world" : "Missions world";
-  return mode === "creative" ? "Survival world, in Creative" : "Survival world";
+  const t = WORLD_TYPE_NAMES[normalizeWorldType(type)];
+  return mode === "creative" ? `${t} world, in Creative` : `${t} world`;
 }

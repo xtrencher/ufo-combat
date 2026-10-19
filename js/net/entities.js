@@ -26,6 +26,16 @@
 // the host's ("tq"/"to": a villager's offers, "tr"/"tk": one trade, yes or
 // no); what the host's creatures do to a guest beyond damage comes as
 // messages ("eff": a witch's potion, "mxp": breeding experience).
+//
+// (Round 12) The Nether's and the End's creatures: their states too (a
+// ghast's shooting face, a charged blaze, a piglin admiring its gold or
+// shaking, a cold strider, a shulker's lid and the side it holds on to),
+// and their fireballs and bullets, which are creatures here (the host's
+// mobs.js flies them; a guest's blow or arrow on one is a hit claim: it
+// sends a ghast's fireball back). A guest tells the host whether it wears
+// gold ("gold": the host's piglins leave it be); a guest's bartering is a
+// use claim ("barter"); a blaze's fire on a guest is an effect ("eff"
+// "onfire"); an advancement for a guest comes as "adv".
 import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { HOST_PID } from "./session.js";
@@ -33,7 +43,7 @@ import { EnemyJet } from "../enemy-jets.js";
 import { SPECIES, specOf } from "../mobs.js";
 import { isPlayerCause } from "../damage.js";
 import { encodeOffers, decodeOffers } from "../trading.js";
-import { LIB } from "../content/base.js";
+import { LIB, ITEM } from "../content/base.js";
 
 const SNAP_RATE = 15;
 const UFO_RANGE = 1100; // blocks: UFOs within this of a client are sent
@@ -51,6 +61,7 @@ const KEEP = 1.2; // hysteresis: already sent ones are kept a little farther
 const EYE = 1.62;
 const KEEP_RADIUS = 5; // chunks of ground the host keeps generated around a player on foot (Round 9: was 3, too small for creatures to spawn around them; see mobs.js REMOTE_REACH)
 const _v = new THREE.Vector3();
+const GOLD_ARMOR = new Set([ITEM.GOLD_HELMET, ITEM.GOLD_CHESTPLATE, ITEM.GOLD_LEGGINGS, ITEM.GOLD_BOOTS]);
 
 // A remote player as the host's AI sees them.
 class AiProxy {
@@ -116,6 +127,11 @@ class AiProxy {
   getForwardVector() {
     return new THREE.Vector3(-Math.sin(this.r.yaw) * Math.cos(this.r.pitch), Math.sin(this.r.pitch), -Math.cos(this.r.yaw) * Math.cos(this.r.pitch));
   }
+  // (Round 12) Set alight by the host's creature (a blaze's fireball): theirs to burn.
+  setFire(seconds) {
+    if (this.dead || this.creative) return;
+    this.sync.net.send(this.pid, { t: "eff", n: "onfire", d: r1(seconds), a: 1 });
+  }
 }
 
 export class EntitySync {
@@ -157,6 +173,15 @@ export class EntitySync {
     net.on("to", (m) => this.game.mobs.tradeAnswer(m.id, decodeOffers(m.o)));
     net.on("tk", (m) => this.game.mobs.tradeAnswer(m.id, decodeOffers(m.o), !!m.ok));
     net.on("eff", (m) => this._onEffect(m));
+    // (Round 12) A guest's gold armor (the host's piglins), an advancement for this player.
+    net.on("gold", (m, from) => {
+      const px = this.net.isHost ? this.proxy(from) : null;
+      if (px && px !== this.game.player) px.goldArmor = !!m.g;
+    });
+    net.on("adv", (m) => typeof m.n === "string" && this.game.toast?.(m.n.slice(0, 80), 5));
+    this.game.mobs.onToast = (text, seconds) => this.game.toast?.(text, seconds);
+    this._goldT = 0;
+    this._goldSent = null;
     net.on("mxp", (m) => {
       const at = Array.isArray(m.at) && m.at.every(Number.isFinite) ? m.at : null;
       const p = this.game.player.position;
@@ -181,6 +206,8 @@ export class EntitySync {
       g.mobs.onRemoteXp = (pid, amount, pos) => this.net.send(pid, { t: "mxp", a: amount | 0, at: vec1(pos) });
       // (A tame wolf's owner is also kept by nickname: a guest who rejoins has a new pid.)
       g.mobs.nickOf = (pid) => (this.net.players.get(pid)?.nick || "").toLowerCase();
+      // (Round 12) A guest's advancement (a ghast killed by its own fireball, sent back).
+      g.mobs.onRemoteToast = (pid, text) => this.net.send(pid, { t: "adv", n: text });
     } else {
       // A guest: the host's world, drawn from its states.
       g.mobs.puppets = true;
@@ -204,6 +231,8 @@ export class EntitySync {
     g.ufos.onDashWarn = null;
     g.mobs.onRemoteXp = null;
     g.mobs.nickOf = null;
+    g.mobs.onRemoteToast = null;
+    this._goldSent = null;
     // (Host: the guests' wolves wait for whoever clicks them next, or for their owner's return.)
     if (!g.mobs.puppets) g.mobs.ownerGone((pid) => pid !== HOST_PID);
     g.mobs.localPid = HOST_PID;
@@ -398,6 +427,16 @@ export class EntitySync {
         if (best) j.foe = best === this.game.player ? null : best;
       }
     } else {
+      // (Round 12) Whether this guest wears a piece of gold armor, when it changes (and now and then).
+      this._goldT -= dt;
+      if (this._goldT <= 0 && this.mp.stateLoaded) {
+        this._goldT = 0.5;
+        const gold = !!this.game.inventory?.armor?.some((s) => s && GOLD_ARMOR.has(s.id));
+        if (gold !== this._goldSent || (this._goldN = (this._goldN || 0) + 1) % 20 === 0) {
+          this._goldSent = gold;
+          this.net.toHost({ t: "gold", g: gold ? 1 : 0 });
+        }
+      }
       // A guest: claims, and the tractor beam's hold on the host's UFOs.
       this._capT -= dt;
       if (this._capT <= 0) {
@@ -528,7 +567,10 @@ export class EntitySync {
     // enderman's block after the health, only when there are any.)
     const vf = (m.baby ? 128 : 0) | (m.sheared ? 256 : 0) | (m.loveT > 0 ? 512 : 0) | (m.angerT > 0 ? 1024 : 0) | (m.drinkT > 0 ? 2048 : 0) | (m.breedCd > 0 || m.loveT > 0 ? 4096 : 0) | (m.tamed ? 8192 : 0) | (m.sitting ? 16384 : 0) | (m.kind === "sheep" ? 32768 | ((m.variant & 15) << 16) : 0);
     const s = [m.id, r2(m.pos.x), r2(m.pos.y), r2(m.pos.z), r2(m.yaw), r2(m.headYaw || 0), r2(m.headPitch || 0), r2(m.walk || 0), (m.dead ? 1 : 0) | (m.burning ? 2 : 0) | (m.onGround ? 4 : 0) | (m.ai?.target ? 8 : 0) | (m.ai?.state === "hide" && m.ai.timer > 0 ? 16 : 0) | (m.calmT > 0 ? 32 : 0) | (m.missionTarget ? 64 : 0) | vf, r2(m.attack ?? 1), r1(m.vel?.y ?? 0), Math.round((Math.max(0, m.health) / (m.maxHealth || 1)) * 1000) / 1000];
-    if (m.fuse > 0 || m.carry || m.owner) s.push(r2(m.fuse || 0), m.carry || 0, m.owner || 0);
+    // (Round 12: the Nether's and the End's states, after those, when there are any.)
+    const nf = (m.admireT > 0 ? 1 : 0) | (m.shootFace ? 2 : 0) | (m.charged ? 4 : 0) | (m.cold ? 8 : 0) | (m.shakeT > 0 ? 16 : 0) | (m.spec.still ? ((m.variant & 7) << 8) | 32 : 0);
+    const peek = m.peek > 0 ? r2(m.peek) : 0;
+    if (m.fuse > 0 || m.carry || m.owner || nf || peek) s.push(r2(m.fuse || 0), m.carry || 0, m.owner || 0, nf, peek);
     snap.m.push(s);
   }
 
@@ -801,6 +843,8 @@ export class EntitySync {
       if (e.ld && !mob.dead) g.mobs.setCarry(mob, e.ld);
       mob.interp = new Interp({ angles: ["y", "hy"], snap: 12 });
       this.mobById.set(e.id, mob);
+      // (Round 12) A fireball or a bullet: the shot's sound, where it leaves.
+      if (mob.spec.projectile) g.mobs._voice(mob, "launch");
     }
     for (const e of m.j || []) {
       if (this.jetById.has(e.id)) continue;
@@ -874,7 +918,7 @@ export class EntitySync {
     for (const s of m.m || []) {
       const mob = this.mobById.get(s[0]);
       if (!mob) continue;
-      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1, x: s[12] ?? 0, h: s[13] ?? 0, o: s[14] ?? 0 }, now);
+      mob.interp.push({ ts: m.ts, p: [s[1], s[2], s[3]], y: s[4], hy: s[5], hpi: s[6], w: s[7], f: s[8], a: s[9], vy: s[10], hp: s[11] ?? 1, x: s[12] ?? 0, h: s[13] ?? 0, o: s[14] ?? 0, n: s[15] ?? 0, pk: s[16] ?? 0 }, now);
     }
     for (const s of m.j || []) {
       const j = this.jetById.get(s.n);
@@ -1002,6 +1046,23 @@ export class EntitySync {
     if (f & 32768 && m.kind === "sheep") g.mobs.setSheepColor(m, (f >> 16) & 15);
     m.owner = st.o | 0;
     if (m.tamed && m.kind === "wolf" && m.maxHealth < 20) m.maxHealth = 20;
+    // (Round 12) The Nether's and the End's states (see _mobOut).
+    // (Their sounds here too: a ghast about to shoot, a blaze catching fire,
+    // a piglin taking gold, a shulker's lid.)
+    const n = st.n | 0;
+    if (n & 1 && !(m.admireT > 0)) g.mobs._voice(m, "admire");
+    if (n & 2 && !m.shootFace) g.mobs._voice(m, "charge");
+    if (n & 4 && !m.charged) g.mobs._voice(m, "charge");
+    m.admireT = n & 1 ? 1 : 0;
+    m.shootFace = !!(n & 2);
+    m.charged = !!(n & 4);
+    m.cold = !!(n & 8);
+    m.shakeT = n & 16 ? 1 : 0;
+    if (n & 32) m.variant = (n >> 8) & 7;
+    const peek = st.pk || 0;
+    if (m.spec.still && !(m.peek > 0) !== !(peek > 0)) g.mobs._voice(m, peek > 0 ? "open" : "close");
+    m.peek = peek;
+    g.mobs.puppetTick?.(m, dt);
     // (An enderman's teleport: the flash where it was and where it is.)
     if (m.kind === "enderman" && Math.hypot(m.pos.x - ox, m.pos.z - oz) > 4 && m.interp.last) {
       const to = m.pos.clone();
@@ -1046,6 +1107,11 @@ export class EntitySync {
   _onEffect(m) {
     const p = this.game.player;
     const secs = Math.min(600, Math.max(0, Number(m.d) || 0));
+    // (Round 12) A blaze's fire: this player burns for a while.
+    if (m.n === "onfire") {
+      if (!p.creative && typeof p.fireTime === "number") p.fireTime = Math.max(p.fireTime, Math.min(15, secs));
+      return;
+    }
     if (typeof p.addEffect === "function") p.addEffect(String(m.n), secs, Math.max(1, m.a | 0));
     else if (m.n === "poison" && secs >= 1) {
       const dmg = Math.min(4, Math.floor(p.health - 1));

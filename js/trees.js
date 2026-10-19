@@ -11,11 +11,15 @@
 //   old oak  rare, in dense forests: a 2x2 trunk, roots spreading over the
 //            ground, big crooked branches and a huge crown
 // (Round 11) In a Survival world's terrain (terrain.options.vanilla) also:
-//   jungle   a tall trunk hung with vines under a small crown (and the
-//            jungle's giants: the old oak's shape in jungle wood)
+//   jungle   a tall trunk hung with vines under a small crown
 //   acacia   the savanna's: a trunk that bends off sideways under flat,
 //            wide layers of leaves, sometimes a second branch
 //   dark oak a 2x2 trunk under a wide, low canopy (dark forests)
+// (Round 12) and, as vanilla's jungles:
+//   giant jungle  a 2x2 trunk 10-31 tall under a wide, flat canopy, its
+//            branches ending in tufts of leaves, vines all over
+//   jungle bush  a jungle log at the ground in a mound of oak leaves
+// with vines hanging from the jungle trees' leaves.
 // and saplings grow into these shapes (saplingShape).
 // Forests and meadows follow a low-frequency noise field; birches and pines
 // grow in groves, and pines also take over high ground. Trees keep a minimum distance from each
@@ -31,15 +35,18 @@ import { VILLAGE_REACH } from "./village.js";
 import { JUNGLE_LOG, ACACIA_LOG, DARK_OAK_LOG, JUNGLE_LEAVES, ACACIA_LEAVES, DARK_OAK_LEAVES, VINE, MYCELIUM, FARMLAND } from "./content/ids.js";
 import { SNOWY_GRASS, COCOA, COCOA_AGES, isCocoa } from "./content/nature.js";
 
-export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4, JUNGLE: 5, ACACIA: 6, DARK_OAK: 7, MEGA_JUNGLE: 8 });
-export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak", 5: "jungle", 6: "acacia", 7: "dark oak", 8: "giant jungle" };
+export const TREE = Object.freeze({ OAK: 1, BIRCH: 2, PINE: 3, OLD_OAK: 4, JUNGLE: 5, ACACIA: 6, DARK_OAK: 7, MEGA_JUNGLE: 8, BUSH: 9 });
+export const TREE_NAMES = { 1: "oak", 2: "birch", 3: "pine", 4: "old oak", 5: "jungle", 6: "acacia", 7: "dark oak", 8: "giant jungle", 9: "jungle bush" };
 // No block of a tree is farther than this from its root column.
 export const TREE_REACH = 9;
 
 const PLACE_SALT = 0x2c1b3c6d;
 const KIND_SALT = 0x297a2d39;
 const MAX_DENSITY = 0.026;
-const SPACING = { 1: 2, 2: 2, 3: 2, 4: 5, 5: 2, 6: 3, 7: 3, 8: 5 };
+// (Round 12) A Survival world's jungles are denser: up to this per column
+// (vanilla's jungle floor is thick with bushes under the big trees).
+const JUNGLE_DENSITY = 0.05;
+const SPACING = { 1: 2, 2: 2, 3: 2, 4: 5, 5: 2, 6: 3, 7: 3, 8: 5, 9: 1 };
 // (2x2 trunks: their root column is the trunk's -X -Z quarter)
 const WIDE = { 4: true, 7: true, 8: true };
 
@@ -60,10 +67,11 @@ const BIOME_DENSITY = {
   [BIOME.PLAINS]: 0.4,
   [BIOME.SAVANNA]: 0.14,
 };
-const LOG = { 1: BLOCK.WOOD, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.WOOD, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG };
-const LEAF = { 1: BLOCK.LEAVES, 2: BLOCK.BIRCH_LEAVES, 3: BLOCK.PINE_LEAVES, 4: BLOCK.LEAVES, 5: JUNGLE_LEAVES, 6: ACACIA_LEAVES, 7: DARK_OAK_LEAVES, 8: JUNGLE_LEAVES };
+const LOG = { 1: BLOCK.WOOD, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.WOOD, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG, 9: JUNGLE_LOG };
+// (a jungle bush's leaves are oak's, as vanilla's)
+const LEAF = { 1: BLOCK.LEAVES, 2: BLOCK.BIRCH_LEAVES, 3: BLOCK.PINE_LEAVES, 4: BLOCK.LEAVES, 5: JUNGLE_LEAVES, 6: ACACIA_LEAVES, 7: DARK_OAK_LEAVES, 8: JUNGLE_LEAVES, 9: BLOCK.LEAVES };
 // Branches and roots show bark all round (no sawn-off rings).
-const BARK = { 1: BLOCK.OAK_BARK, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.OAK_BARK, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG };
+const BARK = { 1: BLOCK.OAK_BARK, 2: BLOCK.BIRCH_LOG, 3: BLOCK.PINE_LOG, 4: BLOCK.OAK_BARK, 5: JUNGLE_LOG, 6: ACACIA_LOG, 7: DARK_OAK_LOG, 8: JUNGLE_LOG, 9: JUNGLE_LOG };
 // A sapling's tree (saplingShape).
 const SAPLING_SPECIES = { oak: 1, birch: 2, spruce: 3, jungle: 5, acacia: 6, dark_oak: 7, mega_jungle: 8 };
 // A vine on the side of a trunk: VINE + the side its wall is on (+Z, -Z,
@@ -81,6 +89,41 @@ function hash3(seed, x, y, z) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+// (Round 12) Vanilla's LeaveVineDecorator: beside a jungle tree's leaves,
+// on a side that is open, a vine one time in four, hanging down up to 4 more
+// blocks (never through the tree itself or below its ground).
+function leafVines(out, root, seed) {
+  // (each cell as it will stand: logs win, else the first block put there)
+  const at = new Map();
+  for (let i = 0; i < out.length; i += 4) {
+    const key = `${out[i]},${out[i + 1]},${out[i + 2]}`;
+    if (out[i + 3] === root.log || out[i + 3] === root.bark || !at.has(key)) at.set(key, out[i + 3]);
+  }
+  const leaves = [];
+  for (const [key, id] of at) if (id === root.leaf) leaves.push(...key.split(",").map(Number));
+  const solid = at;
+  const vines = new Set();
+  for (let i = 0; i < leaves.length; i += 3) {
+    const x = leaves[i];
+    const y = leaves[i + 1];
+    const z = leaves[i + 2];
+    FACINGS4.forEach(([dx, dz], f) => {
+      const vx = x + dx;
+      const vz = z + dz;
+      if (solid.has(`${vx},${y},${vz}`) || hash3(seed ^ 0x51a7, vx * 4 + f, y, vz) >= 0.25) return;
+      // (its wall, the leaf, is the other way: FACINGS4's opposite, f ^ 1)
+      for (let k = 0; k <= 4; k++) {
+        const vy = y - k;
+        const key = `${vx},${vy},${vz}`;
+        if (vy < 0 || solid.has(key)) break;
+        if (vines.has(key)) continue;
+        vines.add(key);
+        out.push(vx, vy, vz, VINE + (f ^ 1));
+      }
+    });
+  }
+}
+
 export class TreeGrower {
   // terrain: the TerrainGenerator (heightAt, isCarved, noise).
   constructor(terrain) {
@@ -89,6 +132,10 @@ export class TreeGrower {
     this.noise = terrain.noise;
     this._roots = new Map(); // "x,z" -> root or null (cache)
     this._shapes = new Map(); // "x,z" -> flat [dx, dy, dz, id, ...] (cache)
+    this._cands = new Map(); // "x,z" -> candidate or null (cache: the spacing checks ask for each many times)
+    // (Round 12) A Survival world's terrain: its dense jungles.
+    this.vanilla = !!terrain.options?.vanilla;
+    this._maxDensity = this.vanilla ? JUNGLE_DENSITY : MAX_DENSITY;
   }
 
   // Trees per column here: open areas with none, sparse single trees, and
@@ -104,30 +151,67 @@ export class TreeGrower {
   // { r, species, h } or null.
   _candidate(wx, wz) {
     const r = hash2((this.seed ^ PLACE_SALT) >>> 0, wx, wz);
-    if (r >= MAX_DENSITY) return null;
+    if (r >= this._maxDensity) return null;
+    const key = `${wx},${wz}`;
+    const known = this._cands.get(key);
+    if (known !== undefined) return known;
+    const c = this._findCandidate(wx, wz, r);
+    if (this._cands.size > 40000) this._cands.clear();
+    this._cands.set(key, c);
+    return c;
+  }
+
+  _findCandidate(wx, wz, r) {
+    // (the jungle's extra share: only where the climate is a jungle's, a cheap look first)
+    if (r >= MAX_DENSITY && !this.terrain.biomes.hotWet(wx, wz)) return null;
     // No trees on airports and in cities (or leaning over them).
     if (this.terrain.sites.covers(wx, wz, 8)) return null;
     // Nor on a village's pad (it clears only so high above its ground: the
     // crown of a tree rooted on higher ground there was left floating).
-    const v = this.terrain.villages?.nearestVillage(wx, wz, VILLAGE_REACH + 8);
-    if (v && (v.x - wx) ** 2 + (v.z - wz) ** 2 <= (VILLAGE_REACH + 6) ** 2) return null;
+    // (Round 12) A Survival world's village keeps its trees but off its
+    // streets and buildings.
+    const vg = this.terrain.villages;
+    if (this.vanilla) {
+      if (vg?.blocksTree(wx, wz) || this.terrain.structures?.blocksTree(wx, wz)) return null;
+    } else {
+      const v = vg?.nearestVillage(wx, wz, VILLAGE_REACH + 8);
+      if (v && (v.x - wx) ** 2 + (v.z - wz) ** 2 <= (VILLAGE_REACH + 6) ** 2) return null;
+    }
     // (the terrain info once, for both the height and the biome)
     const info = this.terrain._terrainInfo(wx, wz);
     const h = info.height;
     if (h <= SEA_LEVEL + 1 || h >= WORLD_HEIGHT - 16) return null;
     const biome = this.terrain.biomes.biomeAt(wx, wz, h, info.mountainT, info.river, info.flat);
     if (NO_TREE_BIOMES.has(biome)) return null;
+    const k = hash2((this.seed ^ KIND_SALT) >>> 0, wx, wz);
+    // (Round 12) A Survival world's jungle, as vanilla's: thick everywhere,
+    // a third of its trees giants and half of them bushes (the giants'
+    // spacing leaves fewer of them); thinner at its edges (the sparse
+    // jungle: no giants there).
+    if (this.vanilla && biome === BIOME.JUNGLE) {
+      // (Round 12) A bamboo jungle: a third as many trees, the giants and
+      // the bushes (the bamboo takes the rest: js/terrain.js).
+      if (this.terrain.biomes.bambooField(wx, wz) > 0.5) {
+        if (r >= JUNGLE_DENSITY * 0.35) return null;
+        return { r, species: k < 0.4 ? TREE.MEGA_JUNGLE : k < 0.5 ? TREE.OAK : TREE.BUSH, h };
+      }
+      const deep = this.terrain.biomes.jungleDepth(wx, wz);
+      if (r >= JUNGLE_DENSITY * (0.3 + 0.7 * deep)) return null;
+      let species;
+      if (deep > 0.4) species = k < 0.24 ? TREE.MEGA_JUNGLE : k < 0.5 ? TREE.JUNGLE : k < 0.56 ? TREE.OAK : TREE.BUSH;
+      else species = k < 0.35 ? TREE.JUNGLE : k < 0.45 ? TREE.OAK : TREE.BUSH;
+      return { r, species, h };
+    }
+    if (r >= MAX_DENSITY) return null;
     const { density, forest } = this._density(wx, wz);
     const scaled = density * (BIOME_DENSITY[biome] ?? 1);
     if (scaled <= 0 || r >= scaled) return null;
-    const k = hash2((this.seed ^ KIND_SALT) >>> 0, wx, wz);
     let species = TREE.OAK;
     // (Round 11) A Survival world's jungles, savannas and dark forests grow their own woods.
     if (this.terrain.options?.vanilla) {
-      if (biome === BIOME.JUNGLE) species = k < 0.1 ? TREE.MEGA_JUNGLE : k < 0.25 ? TREE.OAK : TREE.JUNGLE;
-      else if (biome === BIOME.SAVANNA) species = k < 0.8 ? TREE.ACACIA : TREE.OAK;
+      if (biome === BIOME.SAVANNA) species = k < 0.8 ? TREE.ACACIA : TREE.OAK;
       else if (biome === BIOME.DARK_FOREST) species = k < 0.75 ? TREE.DARK_OAK : k < 0.85 ? TREE.BIRCH : TREE.OAK;
-      if (species !== TREE.OAK || biome === BIOME.JUNGLE || biome === BIOME.SAVANNA || biome === BIOME.DARK_FOREST) return { r, species, h };
+      if (species !== TREE.OAK || biome === BIOME.SAVANNA || biome === BIOME.DARK_FOREST) return { r, species, h };
     }
     if (biome === BIOME.TAIGA || biome === BIOME.SNOWY_TAIGA) species = TREE.PINE;
     else if (biome === BIOME.BIRCH_FOREST) species = TREE.BIRCH;
@@ -140,7 +224,7 @@ export class TreeGrower {
   // The tree rooted in column (wx, wz): { x, z, h, species, log, leaf } or null.
   rootAt(wx, wz) {
     // Most columns are rejected by their hash alone (no caching needed).
-    if (hash2((this.seed ^ PLACE_SALT) >>> 0, wx, wz) >= MAX_DENSITY) return null;
+    if (hash2((this.seed ^ PLACE_SALT) >>> 0, wx, wz) >= this._maxDensity) return null;
     const key = `${wx},${wz}`;
     if (this._roots.has(key)) return this._roots.get(key);
     let root = null;
@@ -156,7 +240,8 @@ export class TreeGrower {
           if (d2 > R * R) continue;
           const o = this._candidate(wx + dx, wz + dz);
           if (!o) continue;
-          const need = Math.max(SPACING[c.species], SPACING[o.species]);
+          // (a bush keeps clear of trunks only: it grows in under the big trees)
+          const need = c.species === TREE.BUSH || o.species === TREE.BUSH ? (WIDE[c.species] || WIDE[o.species] ? 3 : 2) : Math.max(SPACING[c.species], SPACING[o.species]);
           if (d2 <= need * need && (o.r < c.r || (o.r === c.r && (dx < 0 || (dx === 0 && dz < 0))))) {
             clear = false;
             break;
@@ -323,7 +408,8 @@ export class TreeGrower {
       out.push(0, T, 0, leaf, 0, T + 1, 0, leaf, 0, T + 2, 0, leaf);
     } else if (root.species === TREE.JUNGLE) {
       // A tall trunk with vines up its sides under a small, rounded crown.
-      const T = 5 + Math.floor(rand() * 6);
+      // (Round 12: vanilla's 4-12 blocks, vines on two sides in three)
+      const T = 4 + Math.floor(rand() * 9);
       trunkTop = T;
       // Cocoa pods on one tree in 5, round its lowest 3 logs, a side in 4
       // (vanilla's CocoaDecorator; hashed, so the tree's other draws stay put).
@@ -338,12 +424,89 @@ export class TreeGrower {
         out.push(0, y, 0, log);
         if (y < 1) continue;
         // (a vine on the -X side hangs on a wall at +X: VINE + 2, and so on)
-        if (rand() < 0.3) out.push(-1, y, 0, VINE + 2);
-        if (rand() < 0.3) out.push(1, y, 0, VINE + 3);
-        if (rand() < 0.3) out.push(0, y, -1, VINE);
-        if (rand() < 0.3) out.push(0, y, 1, VINE + 1);
+        if (rand() < 2 / 3) out.push(-1, y, 0, VINE + 2);
+        if (rand() < 2 / 3) out.push(1, y, 0, VINE + 3);
+        if (rand() < 2 / 3) out.push(0, y, -1, VINE);
+        if (rand() < 2 / 3) out.push(0, y, 1, VINE + 1);
       }
-      blobs.push({ x: 0, y: T - 0.4, z: 0, rx: 2.4 + rand() * 0.6, ry: 1.5 + rand() * 0.4, rz: 2.4 + rand() * 0.6 });
+      // (Round 12) Vanilla's blob of leaves: two rows of radius 1 over two
+      // of radius 2, their corners cut now and then (the top row's always).
+      for (let j = 0; j >= -3; j--) {
+        const r = j >= -1 ? 1 : 2;
+        for (let dz = -r; dz <= r; dz++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) === r && Math.abs(dz) === r && (j === 0 || hash3(jitterSeed, dx, j + 40, dz) < 0.5)) continue;
+            if (dx === 0 && dz === 0 && T + j < T) continue; // (the trunk)
+            out.push(dx, T + j, dz, leaf);
+          }
+        }
+      }
+      leafVines(out, root, jitterSeed);
+    } else if (root.species === TREE.BUSH) {
+      // (Round 12) Vanilla's jungle bush: a log at the ground under a mound
+      // of oak leaves, radius 2, 1 and a single leaf on top.
+      out.push(0, 0, 0, log);
+      for (let y = 0; y <= 2; y++) {
+        const r = 2 - y;
+        for (let dz = -r; dz <= r; dz++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if ((dx === 0 && dz === 0 && y === 0) || (r > 0 && Math.abs(dx) === r && Math.abs(dz) === r && hash3(jitterSeed, dx, y + 50, dz) < 0.5)) continue;
+            out.push(dx, y, dz, leaf);
+          }
+        }
+      }
+    } else if (root.species === TREE.MEGA_JUNGLE) {
+      // (Round 12) Vanilla's giant jungle tree (MegaJungleTrunkPlacer and its
+      // foliage): a 2x2 trunk 10-31 tall (kept inside the world), branches
+      // every few blocks down to half its height, each 5 logs rising out to
+      // a tuft of leaves (radius 1 over 2, sometimes 3); at the top a flat
+      // canopy of three rows, radius 3 over 4 over 5 (the diagonals cut).
+      // Vines on the trunk's sides (two in three) and hanging from the leaves.
+      let T = 10 + Math.floor(rand() * 3) + Math.floor(rand() * 20);
+      if (root.h > 0) T = Math.max(8, Math.min(T, WORLD_HEIGHT - 4 - (root.h + 1)));
+      trunkTop = T;
+      for (let y = 0; y < T; y++) for (let k = 0; k < 4; k++) out.push(k & 1, y, k >> 1, log);
+      // A row of leaves round (cx, cz) (a 2x2 trunk's: round its four columns), radius r.
+      const row = (cx, y, cz, r, wide) => {
+        for (let dz = -r; dz <= r + (wide ? 1 : 0); dz++) {
+          for (let dx = -r; dx <= r + (wide ? 1 : 0); dx++) {
+            const ax = wide && dx > 0 ? dx - 1 : Math.abs(dx);
+            const az = wide && dz > 0 ? dz - 1 : Math.abs(dz);
+            if (ax + az >= 7 || ax * ax + az * az > r * r) continue;
+            if (wide && y < T && dx >= 0 && dx <= 1 && dz >= 0 && dz <= 1) continue; // (the trunk)
+            out.push(cx + dx, y, cz + dz, leaf);
+          }
+        }
+      };
+      for (let y = T - 2 - Math.floor(rand() * 4); y > T / 2; y -= 2 + Math.floor(rand() * 4)) {
+        const a = rand() * Math.PI * 2;
+        let bx = 0;
+        let bz = 0;
+        for (let l = 0; l < 5; l++) {
+          bx = Math.floor(1 + Math.cos(a) * l);
+          bz = Math.floor(1 + Math.sin(a) * l);
+          if (bx >= 0 && bx <= 1 && bz >= 0 && bz <= 1) continue; // (inside the trunk)
+          out.push(bx, y - 3 + (l >> 1), bz, bark);
+        }
+        const layers = 1 + Math.floor(rand() * 2);
+        for (let j = 0; j >= -layers; j--) row(bx, y + j, bz, 1 - j, false);
+      }
+      for (let j = 0; j >= -2; j--) row(0, T + j, 0, 3 - j, true);
+      // Trunk vines: on each outer side of each trunk log, two in three.
+      for (let y = 1; y < T; y++) {
+        for (let k = 0; k < 4; k++) {
+          const tx = k & 1;
+          const tz = k >> 1;
+          FACINGS4.forEach(([dx, dz], f) => {
+            const vx = tx + dx;
+            const vz = tz + dz;
+            if (vx >= 0 && vx <= 1 && vz >= 0 && vz <= 1) return; // (another trunk log)
+            // (a vine on the log's +Z side hangs on a wall at -Z: the facing the other way)
+            if (hash3(jitterSeed, vx * 3 + f, y + 60, vz) < 2 / 3) out.push(vx, y, vz, VINE + (f ^ 1));
+          });
+        }
+      }
+      leafVines(out, root, jitterSeed);
     } else if (root.species === TREE.ACACIA) {
       // The trunk rises, then leans off diagonally 1-3 blocks under a flat
       // crown; half the trees fork with a lower, smaller crown the other way.
@@ -541,8 +704,13 @@ export class TreeGrower {
     let lo = Infinity;
     let hi = -Infinity;
     let r = 0;
+    // (a giant jungle tree's: its canopy only, the low tufts on its branches left out)
+    let floor = -Infinity;
+    if (root.species === TREE.MEGA_JUNGLE) {
+      for (let i = 0; i < shape.length; i += 4) if (shape[i + 3] === root.leaf) floor = Math.max(floor, shape[i + 1] - 2);
+    }
     for (let i = 0; i < shape.length; i += 4) {
-      if (shape[i + 3] !== root.leaf) continue;
+      if (shape[i + 3] !== root.leaf || shape[i + 1] < floor) continue;
       lo = Math.min(lo, shape[i + 1]);
       hi = Math.max(hi, shape[i + 1]);
       r = Math.max(r, Math.abs(shape[i] + 0.5 - (root.wide ? 1 : 0.5)), Math.abs(shape[i + 2] + 0.5 - (root.wide ? 1 : 0.5)));

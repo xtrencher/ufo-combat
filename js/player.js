@@ -7,7 +7,7 @@ import { BYPASSES_ARMOR } from "./damage.js";
 import { BODY, BODY_FLAGS, SUFFOCATES, FALL_FACTOR, MAX_FOOD, START_SATURATION, EAT_TIME, EFFECTS, foodOf, missionsHeal, effectsOf, normalizeEffect } from "./survival.js";
 
 const EYE_HEIGHT = 1.62;
-const SNEAK_EYE_DROP = 0.3;
+const SNEAK_EYE_DROP = 0.35; // (Round 12: vanilla's crouching eyes, 1.27)
 const PLAYER_HEIGHT = 1.8;
 const PLAYER_RADIUS = 0.3;
 const GRAVITY = -26;
@@ -47,9 +47,16 @@ export const BASE_FOV = 75;
 // Camera modes (F5): first person, third person behind, third person in front.
 export const CAMERA_MODES = ["first", "behind", "front"];
 const THIRD_PERSON_DISTANCE = 4;
+// (Round 12) Vanilla's hurt tilt: 14 degrees at most, over the 0.5 s hurt time.
+const HURT_TILT = (14 * Math.PI) / 180;
+// (Round 12) A sprint-jump's push forward (vanilla adds 0.2 a tick and lets
+// air friction take it, 0.91 a tick): tuned so sprint-jumping averages
+// vanilla's 7.1 blocks/s against a sprint's 5.6.
+const SPRINT_JUMP_BOOST = 2.6;
+const AIR_DRAG = 1.886; // 1/s (0.91 a tick)
 // Creature attacks scaled by difficulty (settings menu).
 // (Round 9: a skeleton's blow up close has its own death message; Round 11: the vanilla mobs.)
-const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider", "creeper", "enderman", "slime", "witch", "cave_spider", "husk", "drowned", "stray", "zombie_villager", "iron_golem", "wolf"]);
+const MOB_CAUSES = new Set(["zombie", "skeleton", "skeleton_melee", "spider", "creeper", "enderman", "slime", "witch", "cave_spider", "husk", "drowned", "stray", "zombie_villager", "iron_golem", "wolf", "ghast", "blaze", "zombified_piglin", "piglin", "hoglin", "zoglin", "magma_cube", "wither_skeleton", "endermite", "silverfish", "shulker"]); // (Round 12: the Nether's and the End's)
 
 const CAMERA_PROBE = [[0, 0, 0], [0.12, 0.12, 0.12], [-0.12, 0.12, -0.12], [0.12, -0.12, -0.12], [-0.12, -0.12, 0.12]];
 
@@ -108,6 +115,8 @@ export class Player {
     this.difficulty = "normal"; // (starving's floor, Peaceful's refill; main.js)
     this.effects = []; // [{ effect, level, time, total, acc }] (survival.js EFFECTS)
     this._speedMul = 1;
+    this._floorSpeed = 1; // (Round 12) the block under the feet: soul sand's 0.4 (a def's speedFactor)
+    this._hotFloor = false; // (and a magma block's burn: hotFloor)
     this.fireTime = 0; // seconds still burning (after leaving fire or lava)
     this._burnTimer = 0;
     this.inLava = false;
@@ -147,8 +156,14 @@ export class Player {
     this.mobDamageScale = 1; // difficulty
     this.cameraMode = 0; // index into CAMERA_MODES
     this._camDist = 0; // smoothed third-person camera distance
+    this._dt = 0; // (this frame's step: the camera's easing)
+    this.bowDraw = 0; // 0-1: a bow drawn (held-item.js): the view narrows, as vanilla's
+    this._hurtSide = 1; // (the hurt tilt's direction: the blow's side, and whether from ahead)
+    this._hurtFront = 0;
+    this._boost = new THREE.Vector2(); // a sprint-jump's push (x, z), fading in the air
 
     this.vehicle = null; // the vehicle the player is in (vehicles.js)
+    this.mount = null; // (Round 12) the boat or minecart the player sits in: its ride(player, dt) places them (js/boats.js)
     this.parachute = false; // descending under a parachute (no fall damage)
     this.beamLift = 0; // a UFO's tractor beam lifting the player (blocks/s), set every frame
     this.beamPull = new THREE.Vector3(); // ...and pulling toward the beam's middle
@@ -273,6 +288,7 @@ export class Player {
     this.sprinting = false;
     this.usingItem = false;
     this._slip = 0;
+    this._boost.set(0, 0);
     // (Round 11) Vanilla's respawn: full food, saturation 5, no effects, not burning.
     this.food = MAX_FOOD;
     this.saturation = START_SATURATION;
@@ -342,6 +358,19 @@ export class Player {
     this.health = Math.max(0, this.health - applied);
     this._sinceDamage = 0;
     this.hurtTime = 0;
+    // (Round 12) The view tilts away from where the blow came from (vanilla's
+    // hurt direction); a hurt from nowhere (a fall, a cactus) rolls it.
+    this._hurtSide = 1;
+    this._hurtFront = 0;
+    if (from && Number.isFinite(from.x)) {
+      const dx = from.x - this.position.x;
+      const dz = from.z - this.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-3) {
+        this._hurtSide = (dx * Math.cos(this.yaw) - dz * Math.sin(this.yaw)) / d;
+        this._hurtFront = (-dx * Math.sin(this.yaw) - dz * Math.cos(this.yaw)) / d;
+      }
+    }
     // (Round 11) A hit costs a little food (not the ones armor can't stop),
     // and wakes a sleeper.
     if (!BYPASSES_ARMOR.has(cause)) this.addExhaustion(EXHAUST.hurt);
@@ -468,6 +497,13 @@ export class Player {
         if (e.acc >= every - TICK_EPS) {
           e.acc -= every;
           if (this.health > 1) this.damage(1, "poison");
+        }
+      } else if (e.effect === "wither") {
+        // (Round 12: a half-heart every 40 ticks at I, 20 at II...; unlike poison it can kill)
+        const every = Math.max(0.05, 2 / (1 << (L - 1)));
+        if (e.acc >= every - TICK_EPS) {
+          e.acc -= every;
+          this.damage(1, "wither");
         }
       } else if (e.effect === "hunger") this.addExhaustion(0.1 * L * dt);
       else e.acc = 0;
@@ -632,14 +668,22 @@ export class Player {
   syncCamera() {
     let roll = 0;
     let drop = 0;
-    if (this.hurtTime < 0.4) roll = Math.sin((this.hurtTime / 0.4) * Math.PI) * 0.1;
+    let tiltPitch = 0;
+    if (this.hurtTime < 0.5 && !this.dead) {
+      // (Round 12) Vanilla's: sin(k^4 pi) x 14 degrees, k running 1 -> 0 over the
+      // hurt time: a quick knock, then a slow return.
+      const k = 1 - this.hurtTime / 0.5;
+      const tilt = Math.sin(k * k * k * k * Math.PI) * HURT_TILT;
+      roll = tilt * this._hurtSide;
+      tiltPitch = tilt * this._hurtFront * 0.6;
+    }
     if (this.dead) {
       const k = Math.min(1, this._deathTime / 0.55);
       roll = k * k * 1.2;
       drop = k * k * 1.15;
     }
     this.camera.rotation.order = "YXZ";
-    const pitch = Math.min(Math.PI / 2, this.pitch + this.recoil);
+    const pitch = Math.min(Math.PI / 2, this.pitch + this.recoil + tiltPitch);
     const eye = this.getEyePosition();
     eye.y -= drop;
     // A scoped weapon or binoculars always look from the eyes (first person).
@@ -672,14 +716,22 @@ export class Player {
     const sign = mode === "behind" ? -1 : 1;
     const dist = this._clearDistance(eye, f.x * sign, f.y * sign, f.z * sign, THIRD_PERSON_DISTANCE);
     // Snap in at once when something is in the way, ease back out otherwise.
-    this._camDist = dist < this._camDist ? dist : this._camDist + (dist - this._camDist) * 0.15;
+    this._camDist = dist < this._camDist ? dist : this._camDist + (dist - this._camDist) * Math.min(1, (this._dt || 1 / 60) * 9);
     this.camera.position.set(eye.x + f.x * sign * this._camDist, eye.y + f.y * sign * this._camDist, eye.z + f.z * sign * this._camDist);
     if (mode === "behind") this.camera.rotation.set(pitch, this.yaw, roll);
     else this.camera.rotation.set(-pitch, this.yaw + Math.PI, -roll);
   }
 
+  // Whether the view is a third-person one now (Round 12: not while a
+  // scope or the binoculars, or a bed, hold it at the eyes: the body is
+  // drawn only then).
   get thirdPerson() {
-    return this.cameraMode !== 0;
+    return this.cameraMode !== 0 && this.zoomFov == null && this.binocularFov == null && !this.sleeping;
+  }
+
+  // (Round 12) Seconds since dying (0 alive): the third-person body falls over.
+  get deathTime() {
+    return this.dead ? this._deathTime : 0;
   }
 
   // Cycles first person -> behind -> in front -> first person.
@@ -754,13 +806,17 @@ export class Player {
     for (let bx = Math.floor(p.x - r - e); bx <= Math.floor(p.x + r + e); bx++) {
       for (let bz = Math.floor(p.z - r - e); bz <= Math.floor(p.z + r + e); bz++) {
         const inXZ = bx + 1 > p.x - r && bx < p.x + r && bz + 1 > p.z - r && bz < p.z + r;
-        for (let by = Math.floor(p.y - e); by <= Math.floor(p.y + PLAYER_HEIGHT - 0.01); by++) {
+        for (let by = Math.floor(p.y - e); by <= Math.floor(p.y + PLAYER_HEIGHT + e); by++) {
           const id = w.getBlock(bx, by, bz);
           const f = BODY_FLAGS[id];
           if (!f) continue;
           const inside = inXZ && by + 1 > p.y && by < p.y + PLAYER_HEIGHT;
           if (inside) flags |= f & (BODY.LAVA | BODY.FIRE | BODY.WEB);
-          if (f & BODY.CACTUS) flags |= BODY.CACTUS;
+          // (A cactus: its cell touched from a side, stood on or bumped from
+          // below: the box grown by `e` reaches it, across a face, not just
+          // at an edge. Vanilla's cactus is 1/16 thinner than its cell, so a
+          // body against it is inside its cell.)
+          if (f & BODY.CACTUS && (inXZ || (by + 1 > p.y && by < p.y + PLAYER_HEIGHT))) flags |= BODY.CACTUS;
           if (f & BODY.CLIMB && by === feetY && (inXZ || IS_SOLID[id])) climb = true;
         }
       }
@@ -772,6 +828,7 @@ export class Player {
 
   update(dt) {
     if (!this.enabled) return;
+    this._dt = dt;
     this.jumpEvent = false;
     this.splashEvent = false;
     this.stepEvent = false;
@@ -790,6 +847,28 @@ export class Player {
       this._airborneMaxY = null;
       this._sinceDamage += dt;
       this._updateHealth(dt);
+      return;
+    }
+
+    // (Round 12) Seated in a boat or a minecart (js/boats.js): its ride()
+    // runs it and puts the player on the seat; the vitals go on as on foot
+    // (drowning in a sunk boat, fire, suffocation), Shift gets out.
+    if (this.mount && !this.dead) {
+      this.sprinting = false;
+      this.sneaking = false;
+      this.flying = false;
+      this.inWater = false;
+      this.inLava = false;
+      this._hotFloor = false;
+      this.mount.ride(this, dt);
+      this.onGround = false;
+      this._airborneMaxY = null;
+      this._bob = 0;
+      this._eyeOffset = 0;
+      this.headInWater = this._waterAt(EYE_HEIGHT);
+      this._scanBody();
+      this._updateVitals(dt);
+      this.syncCamera();
       return;
     }
 
@@ -859,7 +938,7 @@ export class Player {
     else if (this.inLava) speed = LAVA_SPEED;
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
-    if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1);
+    if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1) * this._floorSpeed;
     if (using) speed *= 0.2;
     let walkX = worldX * speed;
     let walkZ = worldZ * speed;
@@ -871,8 +950,16 @@ export class Player {
     }
     this._slideX = walkX;
     this._slideZ = walkZ;
-    this.velocity.x = walkX + this.knockback.x;
-    this.velocity.z = walkZ + this.knockback.z;
+    // (Round 12) A sprint-jump's push fades in the air and is gone on landing.
+    const boost = this._boost;
+    if (this.flying || this.inWater || this.inLava || web || this.onGround || this.onClimbable) boost.set(0, 0);
+    else boost.multiplyScalar(Math.exp(-AIR_DRAG * dt));
+    // (Round 12) Gliding on an elytra (js/dragon.js sets `glide`): its own flight model sets the velocity.
+    const gliding = !this.flying && !!this.glide?.(dt);
+    if (!gliding) {
+      this.velocity.x = walkX + this.knockback.x + boost.x;
+      this.velocity.z = walkZ + this.knockback.z + boost.y;
+    }
     const knockbackDecay = Math.exp(-(this.onGround ? 7 : 1.2) * dt);
     this.knockback.x *= knockbackDecay;
     this.knockback.z *= knockbackDecay;
@@ -887,11 +974,18 @@ export class Player {
       this.velocity.z += this.beamPull.z;
       this.beamLift = 0;
       this._airborneMaxY = null;
+    } else if (gliding) {
+      this._airborneMaxY = null; // (a glide's landing is no fall; a wall is its own hurt)
     } else if (this.flying) {
       let vy = 0;
       if (space) vy += 1;
       if (shift) vy -= 1;
       this.velocity.y = vy * speed;
+    } else if (this.effectLevel("levitation") > 0) {
+      // (Round 12) Levitation: up 0.9 blocks a second a level, no gravity (vanilla's); the fall counts from where it ends.
+      const up = 0.9 * this.effectLevel("levitation");
+      this.velocity.y += (up - this.velocity.y) * Math.min(1, dt * 4);
+      this._airborneMaxY = null;
     } else if (this.inWater) {
       this.velocity.y = Math.max(this.velocity.y + WATER_GRAVITY * dt, WATER_MAX_SINK);
       if (space) this.velocity.y = Math.min(this.velocity.y + 28 * dt, 3.6);
@@ -909,6 +1003,12 @@ export class Player {
       if (this.onGround && space && !this.onClimbable) {
         this.velocity.y = JUMP_SPEED;
         this.jumpEvent = true;
+        // (Round 12) Sprint-jumping: a push the way you face (vanilla's).
+        if (this.sprinting) {
+          this._boost.set(-sinY * SPRINT_JUMP_BOOST, -cosY * SPRINT_JUMP_BOOST);
+          this.velocity.x += this._boost.x;
+          this.velocity.z += this._boost.y;
+        }
       }
       if (this.onClimbable) {
         // (Round 11) On a ladder or vine (vanilla): walking into it or jumping
@@ -966,10 +1066,12 @@ export class Player {
     if (dx === 0) {
       this.velocity.x = 0;
       this.knockback.x = 0;
+      this._boost.x = 0;
     }
     if (dz === 0) {
       this.velocity.z = 0;
       this.knockback.z = 0;
+      this._boost.y = 0;
     }
     this._pushing = (blockedX || blockedZ) && len > 0;
     if (blockedX) this._slideX = 0;
@@ -977,6 +1079,10 @@ export class Player {
     // (Survival worlds) What the feet stand on: ice slides (kept in the air, until landing elsewhere).
     if (!isVanilla() || this.flying || this.inWater || this.inLava || this.onClimbable || web) this._slip = 0;
     else if (this.onGround) this._slip = BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))]?.slipperiness || 0;
+    // (Round 12) Soul sand slows, a magma block burns (Survival worlds; the Nether's blocks are theirs).
+    const under = this.onGround && !this.flying && isVanilla() ? BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))] : null;
+    this._floorSpeed = under?.speedFactor ?? 1;
+    this._hotFloor = !!under?.hotFloor;
 
     // Climb out of water onto a ledge when swimming against it.
     if ((this.inWater || this.inLava) && space && (blockedX || blockedZ)) this.velocity.y = Math.max(this.velocity.y, 6);
@@ -1045,9 +1151,17 @@ export class Player {
     return 0;
   }
 
+  // (Round 12) Vanilla's field of view: flying widens it x1.1, the walking
+  // speed by half its gain (sprinting x1.15, Speed wider, Slowness
+  // narrower), a drawn bow narrows it up to x0.85.
   _fovTarget() {
     if (this.binocularFov != null) return this.binocularFov;
-    return this.zoomFov != null ? this.zoomFov : this.baseFov + (this.sprinting ? 9 : 0) + (this.flying && this.sprinting ? 6 : 0);
+    if (this.zoomFov != null) return this.zoomFov;
+    let f = this.flying ? 1.1 : 1;
+    f *= ((this.sprinting ? 1.3 : 1) * (this.flying ? 1 : this._speedMul) + 1) / 2;
+    const d = Math.min(1, this.bowDraw || 0);
+    if (d > 0) f *= 1 - d * d * 0.15;
+    return this.baseFov * Math.max(0.1, Math.min(1.5, f));
   }
 
   // Jumps straight to the current field of view (no easing).
@@ -1125,9 +1239,10 @@ export class Player {
   // (Round 11) Vanilla's block hazards. Lava (4 a hit) and fire (1) hurt in
   // any world (their blocks only come from the Survival content) and set the
   // player burning: 15 s after lava, 8 after fire, a half-heart a second,
-  // until water puts it out. A cactus (1) and the eyes inside a block
-  // (suffocation, 1) hurt in Survival worlds. Each is tried every frame: the
-  // hurt grace time spaces the hits 0.5 s apart, as vanilla's.
+  // until water puts it out. A cactus (1) hurts in any world (Round 12: a
+  // Missions world's desert cacti too), the eyes inside a block
+  // (suffocation, 1) in Survival worlds. Each is tried every frame: the hurt
+  // grace time spaces the hits 0.5 s apart, as vanilla's.
   _updateHazards(dt) {
     if (this.creative) {
       this.fireTime = 0;
@@ -1151,9 +1266,10 @@ export class Player {
         if (!fireproof) this.damage(1, "burn");
       }
     } else this._burnTimer = 0;
-    if (!isVanilla() || this.dead) return;
+    if (this.dead) return;
     if (b & BODY.CACTUS) this.damage(1, "cactus");
-    if (this._eyeInWall) this.damage(1, "suffocate");
+    if (this._hotFloor && !this.sneaking && !fireproof) this.damage(1, "hot_floor"); // (Round 12: a magma block)
+    if (this._eyeInWall && isVanilla()) this.damage(1, "suffocate");
   }
 
   // Natural regeneration after a while without damage.

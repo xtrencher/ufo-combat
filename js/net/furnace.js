@@ -13,12 +13,22 @@
 // (js/net/world.js); a broken furnace's contents drop at the host and are
 // shared like any dropped item (js/net/items.js). The host smelts in the
 // ground it has loaded and near every guest. Older peers ignore these messages.
-import { Furnaces, FURNACE_SLOTS, isFurnace, NEAR_GUEST } from "../furnace.js";
+// (Round 12) A furnace of the Nether or the End: its messages carry the
+// dimension ("dm", js/dim-registry.js); the host keeps and smelts every
+// dimension's, near each guest in the guest's own dimension.
+// (Round 12) The smoker and the blast furnace are furnaces here. The
+// campfires (js/furnace.js Campfires) are the host's too: a guest laying
+// food on one asks the host ("cfput"), the host tells everyone what lies on
+// a campfire whenever it changes ("cfset"), and a joining player gets them
+// all with the host's state ("campfires"). Older peers ignore these.
+import { FURNACE_SLOTS, isFurnace, NEAR_GUEST, CAMP_SLOTS } from "../furnace.js";
 import { encodeStack, decodeStack } from "../chests.js";
 import { chunkKey, blockIndex } from "../constants.js";
+import { dimOfCode, dmOf, parseDimKey, codeOf } from "../dim-registry.js";
 
 const posOf = (p) => (Array.isArray(p) && p.length === 3 && p.every(Number.isInteger) && p[1] >= 0 && p[1] < 256 ? p : null);
-const keyPos = (key) => key.split(",").map(Number);
+const keyPos = (key) => parseDimKey(key)?.slice(0, 3) ?? key.split(",").map(Number);
+const keyDm = (key) => dmOf(parseDimKey(key)?.[3]);
 const BARS_EVERY = 1; // seconds between the bars sent to the screens open on a burning furnace
 
 export class FurnaceSync {
@@ -40,8 +50,21 @@ export class FurnaceSync {
     fu.onBars = (key) => this._sendBars(key);
     fu.onGone = (key) => this._sendGone(key);
     fu.watched = (key) => this.watchers.has(key);
-    fu.nearGuest = (x, z) => this._nearGuest(x, z);
+    fu.nearGuest = (x, z, dim) => this._nearGuest(x, z, dim);
+    // (Round 12) The campfires.
+    const cf = (this.campfires = fu.campfires || null);
+    if (cf) {
+      cf.remote = this;
+      cf.onChanged = (f) => this._sendCamp(f);
+      cf.nearGuest = (x, z, dim) => this._nearGuest(x, z, dim);
+    }
     const net = this.net;
+    net.on("cfput", (m, from) => this._onCampPut(m, from));
+    net.on("cfset", (m) => this._onCampSet(m));
+    net.registerSync?.("campfires", {
+      save: () => (cf ? cf.list() : []),
+      load: (list) => this._onCampAll(list),
+    });
     net.on("fuopen", (m, from) => this._onOpen(m, from));
     net.on("fuclose", (m, from) => this._onClose(m, from));
     net.on("fuop", (m, from) => this._onOp(m, from));
@@ -55,7 +78,10 @@ export class FurnaceSync {
     if (!this.furnaces) return;
     this.furnaces.authority = this.net.isHost;
     // (A guest keeps no furnaces of its own: what it shows comes from the host.)
-    if (!this.net.isHost) this.furnaces.store.clear();
+    if (!this.net.isHost) {
+      this.furnaces.store.clear();
+      this.campfires?.remoteAll([]);
+    }
   }
 
   stop() {
@@ -82,11 +108,14 @@ export class FurnaceSync {
     }
   }
 
-  // Host: is a guest near (x, z)? (Its furnaces burn though the host hasn't that ground.)
-  _nearGuest(x, z) {
+  // Host: is a guest near (x, z) in `dim`? (Its furnaces burn though the host hasn't that ground.)
+  _nearGuest(x, z, dim) {
     if (!this.mp.active || !this.net.isHost) return false;
-    for (const r of this.mp.players?.active?.() || []) {
-      const p = r.position;
+    const code = codeOf(dim);
+    const players = this.mp.players;
+    for (const r of players?.all?.() || players?.active?.() || []) {
+      if ((r.dim | 0) !== code) continue;
+      const p = r.livePos || r.position; // (where they are in their own dimension: position only follows the ones in ours)
       if (p && Math.abs(p.x - x) < NEAR_GUEST && Math.abs(p.z - z) < NEAR_GUEST) return true;
     }
     return false;
@@ -95,28 +124,29 @@ export class FurnaceSync {
   // ---------- A guest: asking the host (js/furnace.js calls these) ----------
 
   open(view) {
-    if (this.mp.active) this.net.toHost({ t: "fuopen", p: [view.x, view.y, view.z] });
+    if (this.mp.active) this.net.toHost({ t: "fuopen", p: [view.x, view.y, view.z], ...keyDm(view.key) });
   }
 
   // (A click already sent still settles from the host's "fures": the channel is ordered.)
   close(view) {
-    if (this.mp.active) this.net.toHost({ t: "fuclose", p: [view.x, view.y, view.z] });
+    if (this.mp.active) this.net.toHost({ t: "fuclose", p: [view.x, view.y, view.z], ...keyDm(view.key) });
   }
 
   op(view, changes, done) {
     if (!this.mp.active) return done(false);
     const n = this._n++;
     this._ops.set(n, done);
-    this.net.toHost({ t: "fuop", p: [view.x, view.y, view.z], n, c: changes.map(([i, b, a]) => [i, encodeStack(b), encodeStack(a)]) });
+    this.net.toHost({ t: "fuop", p: [view.x, view.y, view.z], n, c: changes.map(([i, b, a]) => [i, encodeStack(b), encodeStack(a)]), ...keyDm(view.key) });
   }
 
   // ---------- The host ----------
 
-  // Is there a furnace at p? (Ground the host hasn't loaded: a recorded edit must say so.)
-  _isFurnaceAt(x, y, z) {
+  // Is there a furnace at p in `dim`? (Ground the host hasn't loaded, or
+  // another dimension's: a recorded edit must say so.)
+  _isFurnaceAt(x, y, z, dim) {
     const world = this.game.world;
-    if (world.getChunk(x >> 4, z >> 4)) return isFurnace(world.getBlock(x, y, z));
-    return isFurnace(world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)));
+    if (dim === world.dim && world.getChunk(x >> 4, z >> 4)) return isFurnace(world.getBlock(x, y, z));
+    return isFurnace(world.editsOf(dim).get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15)));
   }
 
   _onOpen(m, from) {
@@ -124,22 +154,23 @@ export class FurnaceSync {
     const p = posOf(m.p);
     if (!p) return;
     const [x, y, z] = p;
-    if (!this._isFurnaceAt(x, y, z)) {
-      this.net.send(from, { t: "fust", p, s: 0 });
+    const dim = dimOfCode(m.dm);
+    if (!this._isFurnaceAt(x, y, z, dim)) {
+      this.net.send(from, { t: "fust", p, s: 0, ...dmOf(dim) });
       return;
     }
-    const f = this.furnaces.contents(x, y, z);
+    const f = this.furnaces.contents(x, y, z, dim);
     let set = this.watchers.get(f.key);
     if (!set) this.watchers.set(f.key, (set = new Set()));
     set.add(from);
-    this.net.send(from, { t: "fust", p, s: f.slots.map(encodeStack), b: this.furnaces.bars(f.key) });
+    this.net.send(from, { t: "fust", p, s: f.slots.map(encodeStack), b: this.furnaces.bars(f.key), ...dmOf(dim) });
   }
 
   _onClose(m, from) {
     if (!this.net.isHost) return;
     const p = posOf(m.p);
     if (!p) return;
-    const key = Furnaces.key(p[0], p[1], p[2]);
+    const key = this.furnaces.keyOf(p[0], p[1], p[2], dimOfCode(m.dm));
     const set = this.watchers.get(key);
     if (!set) return;
     set.delete(from);
@@ -150,7 +181,8 @@ export class FurnaceSync {
     if (!this.net.isHost || !this.furnaces) return;
     const p = posOf(m.p);
     if (!p || !Number.isInteger(m.n)) return;
-    const key = Furnaces.key(p[0], p[1], p[2]);
+    const dim = dimOfCode(m.dm);
+    const key = this.furnaces.keyOf(p[0], p[1], p[2], dim);
     let r = null;
     if (this.watchers.get(key)?.has(from) && Array.isArray(m.c) && m.c.length <= FURNACE_SLOTS) {
       // (A stack that doesn't decode makes the whole change invalid.)
@@ -164,10 +196,10 @@ export class FurnaceSync {
       }
       if (changes.length === m.c.length) r = this.furnaces.apply(key, changes, from);
     }
-    if (r) this.net.send(from, { t: "fures", p, n: m.n, ok: 1, ...(r.xp > 0 ? { xp: r.xp } : {}) });
+    if (r) this.net.send(from, { t: "fures", p, n: m.n, ok: 1, ...(r.xp > 0 ? { xp: r.xp } : {}), ...dmOf(dim) });
     else {
       const f = this.furnaces.store.get(key);
-      this.net.send(from, { t: "fures", p, n: m.n, ok: 0, s: f ? f.slots.map(encodeStack) : 0, b: f ? this.furnaces.bars(key) : 0 });
+      this.net.send(from, { t: "fures", p, n: m.n, ok: 0, s: f ? f.slots.map(encodeStack) : 0, b: f ? this.furnaces.bars(key) : 0, ...dmOf(dim) });
     }
   }
 
@@ -178,7 +210,7 @@ export class FurnaceSync {
     if (!this.mp.active || !this.net.isHost) return;
     const set = this.watchers.get(key);
     if (!set || !set.size) return;
-    const msg = { t: "fuset", p: keyPos(key), c: list.map(([i, s]) => [i, encodeStack(s)]), b: this.furnaces.bars(key) };
+    const msg = { t: "fuset", p: keyPos(key), c: list.map(([i, s]) => [i, encodeStack(s)]), b: this.furnaces.bars(key), ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
   }
 
@@ -187,7 +219,7 @@ export class FurnaceSync {
     const set = this.watchers.get(key);
     const b = set?.size ? this.furnaces.bars(key) : null;
     if (!b) return;
-    const msg = { t: "fubar", p: keyPos(key), b };
+    const msg = { t: "fubar", p: keyPos(key), b, ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
   }
 
@@ -195,8 +227,52 @@ export class FurnaceSync {
     const set = this.watchers.get(key);
     this.watchers.delete(key);
     if (!this.mp.active || !this.net.isHost || !set) return;
-    const msg = { t: "fust", p: keyPos(key), s: 0 };
+    const msg = { t: "fust", p: keyPos(key), s: 0, ...keyDm(key) };
     for (const pid of set) if (pid !== this.net.pid) this.net.send(pid, msg);
+  }
+
+  // ---------- (Round 12) Campfires ----------
+
+  // A guest: food laid on the campfire at (x, y, z) (js/furnace.js Campfires.put).
+  put(x, y, z, id) {
+    if (this.mp.active) this.net.toHost({ t: "cfput", p: [x, y, z], i: id, ...dmOf(this.game.world.dim) });
+  }
+
+  _onCampPut(m, from) {
+    if (!this.net.isHost || !this.campfires) return;
+    const p = posOf(m.p);
+    if (!p || !Number.isInteger(m.i)) return;
+    this.campfires.remotePut(p[0], p[1], p[2], dimOfCode(m.dm), m.i);
+    void from;
+  }
+
+  // Host: what lies on a campfire, to everyone.
+  _sendCamp(f) {
+    if (!this.mp.active || !this.net.isHost) return;
+    this.net.broadcast({ t: "cfset", p: [f.x, f.y, f.z], s: f.slots.map(encodeStack), ...dmOf(f.dim) });
+  }
+
+  _campSlots(s) {
+    if (!Array.isArray(s) || s.length !== CAMP_SLOTS) return null;
+    return s.map((e) => decodeStack(e));
+  }
+
+  _onCampSet(m) {
+    if (this.net.isHost || !this.campfires) return;
+    const p = posOf(m.p);
+    if (p) this.campfires.remoteSet(p[0], p[1], p[2], dimOfCode(m.dm), this._campSlots(m.s));
+  }
+
+  _onCampAll(list) {
+    if (this.net.isHost || !this.campfires || !Array.isArray(list)) return;
+    const out = [];
+    for (const e of list.slice(0, 4096)) {
+      if (!Array.isArray(e)) continue;
+      const p = posOf(e.slice(0, 3));
+      const slots = this._campSlots(e[4]);
+      if (p && slots) out.push([p[0], p[1], p[2], dimOfCode(e[3]), slots]);
+    }
+    this.campfires.remoteAll(out);
   }
 
   // ---------- A guest: the host's answers ----------
@@ -209,7 +285,7 @@ export class FurnaceSync {
   _onState(m) {
     if (this.net.isHost || !this.furnaces) return;
     const p = posOf(m.p);
-    if (p) this.furnaces.remoteState(Furnaces.key(p[0], p[1], p[2]), this._slotsOf(m.s), m.b);
+    if (p) this.furnaces.remoteState(this.furnaces.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), this._slotsOf(m.s), m.b);
   }
 
   _onSet(m) {
@@ -218,13 +294,13 @@ export class FurnaceSync {
     if (!p || !Array.isArray(m.c) || m.c.length > FURNACE_SLOTS) return;
     const list = [];
     for (const ch of m.c) if (Array.isArray(ch) && Number.isInteger(ch[0])) list.push([ch[0], decodeStack(ch[1])]);
-    this.furnaces.remoteSet(Furnaces.key(p[0], p[1], p[2]), list, m.b);
+    this.furnaces.remoteSet(this.furnaces.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), list, m.b);
   }
 
   _onBars(m) {
     if (this.net.isHost || !this.furnaces) return;
     const p = posOf(m.p);
-    if (p) this.furnaces.remoteBars(Furnaces.key(p[0], p[1], p[2]), m.b);
+    if (p) this.furnaces.remoteBars(this.furnaces.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), m.b);
   }
 
   _onResult(m) {
@@ -233,7 +309,7 @@ export class FurnaceSync {
     this._ops.delete(m.n);
     const p = posOf(m.p);
     // (Refused: the furnace as it is now, or gone.)
-    if (!m.ok && p && m.s !== undefined) this.furnaces.remoteState(Furnaces.key(p[0], p[1], p[2]), this._slotsOf(m.s), m.b);
+    if (!m.ok && p && m.s !== undefined) this.furnaces.remoteState(this.furnaces.keyOf(p[0], p[1], p[2], dimOfCode(m.dm)), this._slotsOf(m.s), m.b);
     const xp = Number.isInteger(m.xp) && m.xp > 0 && m.xp < 100000 ? m.xp : 0;
     done?.(!!m.ok, xp);
   }

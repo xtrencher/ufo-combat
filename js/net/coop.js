@@ -453,7 +453,8 @@ export class CoopSync {
     btn.style.marginLeft = "10px";
     btn.addEventListener("click", () => {
       const r = this._buddy();
-      if (r) this.game.respawnNear(r.livePos.x, r.livePos.z);
+      // (Round 12: their height too, for a floor near them under the Nether's roof.)
+      if (r) this.game.respawnNear(r.livePos.x, r.livePos.z, r.livePos.y);
     });
     document.getElementById("respawn-btn")?.after(btn);
   }
@@ -517,7 +518,7 @@ export class CoopSync {
     const you = p && this.guestData ? this.guestData[p.nick.toLowerCase()] || null : null;
     const hp = g.player.position;
     // (What every player has: a joiner who has more leaves it unchanged, so no "gown" would follow.)
-    return { you, host: g.player.dead || g.vehicles.active ? null : vec1(hp), mis: { ...this._missionState(), ...this._chainState() }, gown: this.groupOwned ? [...this.groupOwned] : null };
+    return { you, /* (Round 12: a new guest starts beside the host in the Overworld only) */ host: g.player.dead || g.vehicles.active || (g.dims && g.dims.dim !== "overworld") ? null : vec1(hp), mis: { ...this._missionState(), ...this._chainState() }, gown: this.groupOwned ? [...this.groupOwned] : null };
   }
 
   _loadJoinState(s) {

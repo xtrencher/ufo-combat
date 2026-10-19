@@ -13,8 +13,24 @@
 // shows the host's contents, and its clicks are asked of the host, applied
 // in the host's order and passed on to everyone with that chest open.
 //
+// (Round 12) Every dimension's chests are in the one store: a chest of the
+// Nether or the End is keyed "n:x,y,z" / "e:x,y,z" (js/dim-registry.js
+// dimKey; the Overworld's keep "x,y,z"), so a chest at the same place in two
+// dimensions is two chests, and the host keeps them all wherever it is.
+//
+// (Round 12) Every block that holds a chest's 27 slots is kept here: the
+// chest, the barrel and the shulker box (js/content/containers.js,
+// workstations.js: IS_STORAGE). Two chests side by side facing the same way
+// join (placeChest): each half keeps its own slots, one screen (openView)
+// shows both, the left half's on top; a half that goes leaves its other half
+// a single chest (the edit of whoever broke it). A barrel or shulker box
+// found in the world starts empty. A broken shulker box drops itself with
+// what it held in it (its item's tag.items: [[slot, ...stack], ...]), which
+// a box placed from it gets back (fillPlaced). The bell rings here too
+// (ringBell: every player near hears it, online through js/net/chests.js).
+//
 // Pure logic (no three.js, no DOM): the game sets the hooks.
-import { IS_CHEST, BLOCK } from "./blocks.js";
+import { IS_CHEST, BLOCK, BLOCK_INFO, BLOCK_LIMIT } from "./blocks.js";
 import { ITEM, itemInfo, maxStack, itemAllowed } from "./items.js";
 import { makeStack, encodeStack, decodeStack, sameStack } from "./inventory.js";
 import { pickCrateWeapon, pickTool, rollArmorDrop } from "./progression.js";
@@ -23,8 +39,24 @@ import { chunkKey, blockIndex } from "./constants.js";
 import { isVanilla } from "./worldtype.js";
 import * as V from "./content/ids.js";
 import { structureLootAt } from "./structures.js";
+import { dimKey, DIM_KEY_RE, OVERWORLD, codeOf, parseDimKey } from "./dim-registry.js";
+import { isDoubleChest, chestHalf, chestPartner, doubleChestId, isShulkerBox } from "./content/workstations.js";
+import { LIB } from "./content/base.js";
 
 export const CHEST_SLOTS = 27;
+// (Round 12) The blocks that hold a chest's slots: the chests (both halves
+// of a double one), the barrel, the shulker box.
+export const IS_STORAGE = new Uint8Array(BLOCK_LIMIT);
+for (const info of Object.values(BLOCK_INFO)) if (IS_CHEST[info.id] || info.chest || info.storage) IS_STORAGE[info.id] = 1;
+// The facings' fronts (js/content/workstations.js: 0 +Z, 1 -Z, 2 +X, 3 -X;
+// the single chest of facing k is BLOCK.CHEST + k).
+const FRONTS = [
+  [0, 1],
+  [0, -1],
+  [1, 0],
+  [-1, 0],
+];
+const BELL_HEAR = 64; // blocks
 // (A batch this big is a big blast: the chests in it that were never opened
 // burn with their loot instead of each spilling a fresh roll.)
 const BIG_BATCH = 2048;
@@ -122,42 +154,68 @@ export class Chests {
     this.world = world;
     this.store = new Map(); // "x,y,z" -> Array(27) of stacks (null for empty)
     this.authority = true; // false on a guest: the host owns the contents
-    this.remote = null; // a guest's link to the host (js/net/chests.js): open(view), close(view), op(view, changes, done)
-    this.view = null; // the chest open on this screen: { x, y, z, key, slots, ready, gone, onUpdate }
+    this.remote = null; // a guest's link to the host (js/net/chests.js): open(view), close(view), op(view, groups, done), fill, bell
+    this.view = null; // the chest open on this screen: { x, y, z, key, keys, parts, slots, ready, gone, onUpdate }
     this.pending = null; // a guest's click waiting for the host: { t, done }
+    this._placing = null; // (Round 12) a shulker box being placed from an item that holds things: { key, slots }
+    this._fills = new Map(); // (Round 12) the authority: a guest's box's contents that came before its block: key -> { slots, t }
     // Hooks set by the game.
     this.getTier = () => 0; // the loot tier (the chain's)
     this.getOwned = () => new Set(); // item ids already owned (online: the group's)
     this.onDrop = null; // (stack, x, y, z): a broken chest's contents into the world
     this.onChanged = null; // (key, [[i, stack]], fromPid): host, a chest changed (to everyone who has it open)
     this.onGone = null; // (key): host, a chest is gone
+    this.audio = null; // (Round 12: the bell's sound; else the redstone's audio)
     this._wrapWorld();
+    LIB.ringBell = (x, y, z) => this.ringBell(x, y, z);
   }
 
+  // (The Overworld's key; a key in any dimension: keyOf.)
   static key(x, y, z) {
     return `${x},${y},${z}`;
   }
 
+  // (Round 12) The chest at (x, y, z) in `dim` (default: the world's own).
+  keyOf(x, y, z, dim = this.world.dim ?? OVERWORLD) {
+    return dimKey(dim, x, y, z);
+  }
+
+  _edits(dim) {
+    return this.world.editsOf ? this.world.editsOf(dim ?? this.world.dim) : this.world.edits;
+  }
+
   // Whether the chest at (x, y, z) was placed by a player (an edit), not generated.
-  isPlaced(x, y, z) {
-    const id = this.world.edits.get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
-    return id !== undefined && IS_CHEST[id] === 1;
+  isPlaced(x, y, z, dim = this.world.dim) {
+    const id = this._edits(dim).get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
+    return id !== undefined && IS_STORAGE[id] === 1;
+  }
+
+  // (Round 12) The block at (x, y, z) in `dim` where this peer knows it (its
+  // ground loaded), else -1.
+  _known(x, y, z, dim = this.world.dim) {
+    const w = this.world;
+    if ((dim ?? OVERWORLD) !== (w.dim ?? OVERWORLD) || !w.getChunk?.(x >> 4, z >> 4)) return -1;
+    return w.getBlock(x, y, z);
   }
 
   // The contents of the chest at (x, y, z) (the authority only): rolled on
-  // first open for a generated chest, empty for a placed one.
-  contents(x, y, z) {
-    const key = Chests.key(x, y, z);
+  // first open for a generated chest, empty for a placed one (Round 12: and
+  // for a barrel or a shulker box).
+  contents(x, y, z, dim = this.world.dim) {
+    const key = this.keyOf(x, y, z, dim);
     let slots = this.store.get(key);
     if (!slots) {
-      slots = this.isPlaced(x, y, z) ? new Array(CHEST_SLOTS).fill(null) : this._roll(x, y, z);
+      const id = this._known(x, y, z, dim);
+      const empty = this.isPlaced(x, y, z, dim) || id === V.BARREL || isShulkerBox(id);
+      slots = empty ? new Array(CHEST_SLOTS).fill(null) : this._roll(x, y, z, dim);
       this.store.set(key, slots);
     }
     return slots;
   }
 
-  _roll(x, y, z) {
-    const seed = (this.world.seed ^ Math.imul(x, 0x2f6b1d35) ^ Math.imul(y, 0x5bd1e995) ^ Math.imul(z, 0x1b873593) ^ 0xc4e57a) >>> 0;
+  _roll(x, y, z, dim = this.world.dim) {
+    // (Round 12: another dimension's chest at the same place rolls its own.)
+    const seed = (this.world.seed ^ Math.imul(x, 0x2f6b1d35) ^ Math.imul(y, 0x5bd1e995) ^ Math.imul(z, 0x1b873593) ^ 0xc4e57a ^ Math.imul(codeOf(dim), 0x68e31da4)) >>> 0;
     const rand = mulberry32(seed);
     let owned;
     try {
@@ -168,7 +226,9 @@ export class Chests {
     const slots = new Array(CHEST_SLOTS).fill(null);
     // (Round 11) A Survival world's dungeons, mineshafts and desert temples
     // have vanilla's own tables (structures.js).
-    const loot = (isVanilla() && structureLootAt(this.world, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
+    // (Round 12: the chest's own dimension's structures, there or not.)
+    const w = !this.world.dim || dim === this.world.dim ? this.world : { terrain: this.world.terrainOf(dim), getBlock: (bx, by, bz) => this.world.blockIn(dim, bx, by, bz) };
+    const loot = (isVanilla() && structureLootAt(w, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
     for (const [id, n, tag] of loot) {
       let left = n;
       while (left > 0) {
@@ -184,24 +244,162 @@ export class Chests {
     return slots;
   }
 
+  // ---------- (Round 12) Double chests ----------
+
+  // The cells of the chest at (x, y, z): itself, or a double chest's two
+  // halves, the left one first (its slots are the screen's top three rows).
+  cellsOf(x, y, z) {
+    const w = this.world;
+    const id = w.getBlock(x, y, z);
+    if (!isDoubleChest(id)) return [[x, y, z]];
+    const [px, pz] = chestPartner(id, x, z);
+    const other = w.getBlock(px, y, pz);
+    const a = chestHalf(id);
+    const b = isDoubleChest(other) ? chestHalf(other) : null;
+    if (!b || b.k !== a.k || b.right === a.right) return [[x, y, z]];
+    return a.right ? [[px, y, pz], [x, y, z]] : [[x, y, z], [px, y, pz]];
+  }
+
+  // What placing a chest item at (x, y, z) with its front toward [fx, fz]
+  // puts there (js/interaction.js): [id, more cells or null]. Beside a single
+  // chest facing the same way it joins it (not while sneaking, as vanilla),
+  // the new one on its left first.
+  placeChest(x, y, z, fx, fz, sneaking = false) {
+    const k = Math.abs(fx) >= Math.abs(fz) ? (fx >= 0 ? 2 : 3) : fz >= 0 ? 0 : 1;
+    const single = BLOCK.CHEST + k;
+    if (sneaking) return [single, null];
+    const [dx, dz] = FRONTS[k];
+    for (const right of [false, true]) {
+      // (a left half's other half is on its right, seen from the front: [dz, -dx])
+      const s = right ? -1 : 1;
+      const nx = x + dz * s;
+      const nz = z - dx * s;
+      if (this.world.getBlock(nx, y, nz) !== single) continue;
+      return [doubleChestId(k, right), [nx, y, nz, doubleChestId(k, !right)]];
+    }
+    return [single, null];
+  }
+
+  // Halves that changed (broken, blown up): the other half, still there, is a single chest again.
+  _unpair(halves) {
+    const w = this.world;
+    const out = [];
+    for (const [x, y, z, was] of halves) {
+      if (w.getBlock(x, y, z) === was) continue;
+      const [px, pz] = chestPartner(was, x, z);
+      const o = w.getBlock(px, y, pz);
+      if (!isDoubleChest(o)) continue;
+      const [bx, bz] = chestPartner(o, px, pz);
+      if (bx === x && bz === z) out.push(px, y, pz, BLOCK.CHEST + chestHalf(o).k);
+    }
+    if (out.length) w.setBlocks(out);
+  }
+
+  // ---------- (Round 12) Shulker boxes ----------
+
+  // A shulker box is being placed at `place` from `stack` (js/content/
+  // workstations.js placeAs): what the item holds goes into it.
+  fillPlaced(place, stack) {
+    this._placing = null;
+    const items = stack?.tag?.items;
+    if (!place || !Array.isArray(items) || !items.length) return;
+    const slots = slotsOfItems(items);
+    this._placing = { key: this.keyOf(place[0], place[1], place[2]), slots };
+    // (placed within this click, or not at all)
+    queueMicrotask(() => (this._placing = null));
+  }
+
+  // The authority: a guest's box placed with things in it (js/net/chests.js
+  // "chfill"), before or after its block edit arrives.
+  remoteFill(x, y, z, slots, dim = this.world.dim) {
+    if (!this.authority || !Array.isArray(slots)) return;
+    const key = this.keyOf(x, y, z, dim);
+    const now = Date.now();
+    for (const [k, f] of this._fills) if (now - f.t > 10000) this._fills.delete(k);
+    const id = this._known(x, y, z, dim);
+    const have = this.store.get(key);
+    const empty = !have || have.every((s) => !s);
+    if (isShulkerBox(id)) {
+      if (empty) this.store.set(key, slots);
+      return;
+    }
+    // (Its block not here yet: kept for when it comes; in ground not loaded
+    // here, where the edit is only recorded, the record holds them meanwhile.)
+    this._fills.set(key, { slots, t: now });
+    if (id < 0 && empty) this.store.set(key, slots);
+  }
+
+  // A chest that appeared: a fresh record (a box placed from a full item: its things).
+  _fresh(x, y, z, opts) {
+    const key = this.keyOf(x, y, z);
+    this.store.delete(key);
+    let slots = null;
+    if (!opts?.remote && this._placing?.key === key) {
+      slots = this._placing.slots;
+      this._placing = null;
+      if (!this.authority) {
+        this.remote?.fill?.(x, y, z, slots);
+        return;
+      }
+    } else if (this._fills.has(key)) {
+      slots = this._fills.get(key).slots;
+      this._fills.delete(key);
+    }
+    if (slots && this.authority && isShulkerBox(this.world.getBlock(x, y, z))) this.store.set(key, slots);
+  }
+
+  // Whether the chest `key` is a shulker box (where this peer knows it).
+  _isShulkerKey(key) {
+    const p = parseDimKey(key);
+    return !!p && isShulkerBox(this._known(p[0], p[1], p[2], p[3]));
+  }
+
+  // ---------- (Round 12) The bell ----------
+
+  // The bell at (x, y, z) rings: heard here, and online by everyone near (remote: the ring came from the net).
+  ringBell(x, y, z, remote = false) {
+    const rs = LIB.redstoneSim;
+    const l = rs?.effects?.listener;
+    const dist = l ? Math.hypot(x + 0.5 - l.x, y + 0.5 - l.y, z + 0.5 - l.z) : 0;
+    if (dist <= BELL_HEAR) bellSound(this.audio || rs?.sounds?.audio, dist);
+    if (!remote) this.remote?.bell?.(x, y, z);
+    return true;
+  }
+
   // ---------- The chest open on this screen ----------
 
-  // Opens the chest at (x, y, z) for this player's screen; onUpdate() is
-  // called whenever its contents change (or it is gone: view.gone).
+  // Opens the chest at (x, y, z) for this player's screen (Round 12: a
+  // double chest's two halves, 54 slots); onUpdate() is called whenever its
+  // contents change (or it is gone: view.gone).
   openView(x, y, z, onUpdate) {
-    const key = Chests.key(x, y, z);
-    if (this.view && this.view.key === key) {
+    const cells = this.cellsOf(x, y, z);
+    const keys = cells.map(([cx, cy, cz]) => this.keyOf(cx, cy, cz));
+    if (this.view && this.view.keys.join("|") === keys.join("|")) {
       this.view.onUpdate = onUpdate;
       return this.view;
     }
     this.closeView();
-    const view = { x, y, z, key, slots: null, ready: false, gone: false, onUpdate };
+    const parts = cells.map(([cx, cy, cz], i) => ({ x: cx, y: cy, z: cz, key: keys[i], slots: null, ready: false }));
+    const view = { x, y, z, key: keys[0], keys, parts, slots: null, ready: false, gone: false, onUpdate };
     this.view = view;
     if (this.authority) {
-      view.slots = this.contents(x, y, z);
-      view.ready = true;
+      for (const p of parts) {
+        p.slots = this.contents(p.x, p.y, p.z);
+        p.ready = true;
+      }
+      this._sync(view);
     } else this.remote?.open(view);
     return view;
+  }
+
+  // The view's slots: its parts' in a row, once every part is in.
+  _sync(v) {
+    v.ready = v.parts.every((p) => p.ready);
+    v.slots = v.ready ? v.parts.flatMap((p) => p.slots) : null;
+  }
+
+  _part(key) {
+    return this.view?.parts.find((p) => p.key === key) || null;
   }
 
   closeView() {
@@ -214,14 +412,24 @@ export class Chests {
   }
 
   // A click on the open chest: changes [[slot, before, after], ...] (stacks
-  // or null). done(ok) once it is applied (at once offline and on the host;
-  // when the host answers on a guest) or refused (the chest changed meanwhile).
+  // or null; a double chest's slots 0-53). done(ok) once it is applied (at
+  // once offline and on the host; when the host answers on a guest) or
+  // refused (the chest changed meanwhile).
   submit(changes, done) {
     const v = this.view;
     if (!v || !v.ready || v.gone || this.pending) return done(false);
-    if (this.authority) return done(this.apply(v.key, changes, 0));
+    const groups = [];
+    for (const ch of changes) {
+      const part = Math.floor(ch[0] / CHEST_SLOTS);
+      if (!v.parts[part]) return done(false);
+      let g = groups.find((e) => e[0] === part);
+      if (!g) groups.push((g = [part, []]));
+      g[1].push([ch[0] % CHEST_SLOTS, ch[1], ch[2]]);
+    }
+    if (!groups.length) return done(false);
+    if (this.authority) return done(this.applyMulti(groups.map(([i, c]) => [v.parts[i].key, c]), 0));
     const p = (this.pending = { t: Date.now(), done });
-    this.remote.op(v, changes, (ok) => {
+    this.remote.op(v, groups, (ok) => {
       if (this.pending !== p) return;
       this.pending = null;
       done(ok);
@@ -241,35 +449,57 @@ export class Chests {
   // The authority: applies changes to the stored chest `key` if every slot
   // still holds what the changes expect. fromPid: who asked (0: this player).
   apply(key, changes, fromPid = 0) {
-    const slots = this.store.get(key);
-    if (!slots || !Array.isArray(changes) || changes.length < 1 || changes.length > CHEST_SLOTS) return false;
-    const seen = new Set();
-    const next = [];
-    for (const ch of changes) {
-      if (!Array.isArray(ch)) return false;
-      const [i, before, after] = ch;
-      if (!Number.isInteger(i) || i < 0 || i >= CHEST_SLOTS || seen.has(i)) return false;
-      seen.add(i);
-      if (!sameStack(slots[i], before || null)) return false;
-      const a = after ? decodeStack(encodeStack(after)) : null;
-      if (after && !a) return false;
-      next.push([i, a]);
+    return this.applyMulti([[key, changes]], fromPid);
+  }
+
+  // (Round 12) The same for several chests at once (a double chest's
+  // halves): all of it, or nothing. list: [[key, changes], ...].
+  applyMulti(list, fromPid = 0) {
+    const todo = [];
+    for (const [key, changes] of list) {
+      const slots = this.store.get(key);
+      if (!slots || !Array.isArray(changes) || changes.length < 1 || changes.length > CHEST_SLOTS) return false;
+      const shulker = this._isShulkerKey(key);
+      const seen = new Set();
+      const next = [];
+      for (const ch of changes) {
+        if (!Array.isArray(ch)) return false;
+        const [i, before, after] = ch;
+        if (!Number.isInteger(i) || i < 0 || i >= CHEST_SLOTS || seen.has(i)) return false;
+        seen.add(i);
+        if (!sameStack(slots[i], before || null)) return false;
+        const a = after ? decodeStack(encodeStack(after)) : null;
+        if (after && !a) return false;
+        // (A shulker box holds anything but another shulker box.)
+        if (a && shulker && isShulkerBox(a.id) && !sameStack(slots[i], a)) return false;
+        next.push([i, a]);
+      }
+      todo.push([key, slots, next]);
     }
-    for (const [i, a] of next) slots[i] = a;
-    this.onChanged?.(key, next, fromPid);
-    // (Someone else changed the chest this screen shows.)
-    if (fromPid && this.view?.key === key) this.view.onUpdate?.();
+    for (const [key, slots, next] of todo) {
+      for (const [i, a] of next) slots[i] = a;
+      this.onChanged?.(key, next, fromPid);
+    }
+    const v = this.view;
+    if (v && todo.some(([key]) => v.keys.includes(key))) {
+      if (this.authority) this._sync(v);
+      // (Someone else changed the chest this screen shows.)
+      if (fromPid) v.onUpdate?.();
+    }
     return true;
   }
 
-  // A guest: the host's word on the open chest (its whole contents, or null: gone).
+  // A guest: the host's word on a part of the open chest (its whole
+  // contents, or null: gone).
   remoteState(key, slots) {
     const v = this.view;
-    if (!v || v.key !== key) return;
+    const part = this._part(key);
+    if (!v || !part) return;
     if (!slots) v.gone = true;
     else {
-      v.slots = slots;
-      v.ready = true;
+      part.slots = slots;
+      part.ready = true;
+      this._sync(v);
     }
     v.onUpdate?.();
   }
@@ -277,8 +507,10 @@ export class Chests {
   // A guest: slots of the open chest changed at the host.
   remoteSet(key, list) {
     const v = this.view;
-    if (!v || v.key !== key || !v.ready) return;
-    for (const [i, s] of list) if (Number.isInteger(i) && i >= 0 && i < CHEST_SLOTS) v.slots[i] = s;
+    const part = this._part(key);
+    if (!v || !part || !part.ready) return;
+    for (const [i, s] of list) if (Number.isInteger(i) && i >= 0 && i < CHEST_SLOTS) part.slots[i] = s;
+    this._sync(v);
     v.onUpdate?.();
   }
 
@@ -286,7 +518,10 @@ export class Chests {
 
   // Every edit batch is looked at before it applies (what was there): a
   // chest that goes drops its contents (the authority), and a chest put
-  // where an old one's record lingered starts afresh.
+  // where an old one's record lingered starts afresh. (Round 12) A generated
+  // chest joined into a double one has its loot rolled before the edit makes
+  // it a placed one; a double chest's half that changes leaves its other half
+  // single (the peer that made the edit: it travels as one).
   _wrapWorld() {
     const world = this.world;
     if (!world || typeof world.setBlocks !== "function") return;
@@ -294,35 +529,46 @@ export class Chests {
     world.setBlocks = (list, opts) => {
       let gone = null;
       let fresh = null;
+      let halves = null;
       for (let i = 0; i < list.length; i += 4) {
-        const wasChest = IS_CHEST[world.getBlock(list[i], list[i + 1], list[i + 2])];
-        const isChest = IS_CHEST[list[i + 3]];
-        if (wasChest === isChest) continue;
+        const was = world.getBlock(list[i], list[i + 1], list[i + 2]);
+        const now = list[i + 3];
+        const wasChest = IS_STORAGE[was];
+        const isChest = IS_STORAGE[now];
+        if (was === now || (!wasChest && !isChest)) continue;
         const x = Math.floor(list[i]);
         const y = Math.floor(list[i + 1]);
         const z = Math.floor(list[i + 2]);
-        if (wasChest) (gone ||= []).push([x, y, z, this.isPlaced(x, y, z)]);
+        if (isDoubleChest(was) && !opts?.remote) (halves ||= []).push([x, y, z, was]);
+        if (wasChest && isChest) {
+          if (this.authority && !this.store.has(this.keyOf(x, y, z)) && !this.isPlaced(x, y, z)) this.contents(x, y, z);
+          continue;
+        }
+        if (wasChest) (gone ||= []).push([x, y, z, this.isPlaced(x, y, z), was]);
         else (fresh ||= []).push([x, y, z]);
       }
       const n = setBlocks(list, opts);
-      if (fresh) for (const [x, y, z] of fresh) if (IS_CHEST[world.getBlock(x, y, z)]) this.store.delete(Chests.key(x, y, z));
-      if (gone) for (const [x, y, z, placed] of gone) if (!IS_CHEST[world.getBlock(x, y, z)]) this._gone(x, y, z, placed, list.length, opts?.remote);
+      if (fresh) for (const [x, y, z] of fresh) if (IS_STORAGE[world.getBlock(x, y, z)]) this._fresh(x, y, z, opts);
+      if (gone) for (const [x, y, z, placed, was] of gone) if (!IS_STORAGE[world.getBlock(x, y, z)]) this._gone(x, y, z, placed, list.length, opts?.remote, was);
+      if (halves) this._unpair(halves);
       return n;
     };
-    // (A chest blown up far out, in ground not loaded here: its record goes.)
+    // (A chest blown up far out, in ground not loaded here: its record goes.
+    // Round 12: or in another dimension.)
     const queueEdit = world.queueEdit?.bind(world);
     if (queueEdit) {
-      world.queueEdit = (x, y, z, id) => {
-        if (!IS_CHEST[id] && !world.getChunk?.(Math.floor(x) >> 4, Math.floor(z) >> 4)) this.store.delete(Chests.key(Math.floor(x), Math.floor(y), Math.floor(z)));
-        return queueEdit(x, y, z, id);
+      world.queueEdit = (x, y, z, id, dim = world.dim) => {
+        const here = dim === world.dim && world.getChunk?.(Math.floor(x) >> 4, Math.floor(z) >> 4);
+        if (!IS_STORAGE[id] && !here) this.store.delete(this.keyOf(Math.floor(x), Math.floor(y), Math.floor(z), dim));
+        return queueEdit(x, y, z, id, dim);
       };
     }
   }
 
-  _gone(x, y, z, placed, batch, remote) {
-    const key = Chests.key(x, y, z);
+  _gone(x, y, z, placed, batch, remote, was = BLOCK.CHEST) {
+    const key = this.keyOf(x, y, z);
     const v = this.view;
-    if (v && v.key === key) {
+    if (v && v.keys.includes(key)) {
       v.gone = true;
       v.onUpdate?.();
     }
@@ -330,35 +576,51 @@ export class Chests {
     this.store.delete(key);
     if (!this.authority) {
       // (This guest broke a generated one: the host may not have that ground loaded.)
-      if (!remote && !placed && batch <= BIG_BATCH) this.remote?.goneLocal?.(x, y, z);
+      if (!remote && !placed && batch <= BIG_BATCH && !isShulkerBox(was) && was !== V.BARREL) this.remote?.goneLocal?.(x, y, z);
       return;
     }
     this.onGone?.(key);
+    // (Round 12) A shulker box: itself, with what it held.
+    if (isShulkerBox(was)) {
+      this.onDrop?.(shulkerStack(slots), x, y, z);
+      return;
+    }
     if (!slots) {
-      if (placed || batch > BIG_BATCH) return;
+      if (placed || batch > BIG_BATCH || was === V.BARREL) return;
       slots = this._roll(x, y, z);
     }
     for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
   }
 
   // The authority: a chest in ground not loaded here was replaced by a
-  // remote edit (it never passes setBlocks): its stored contents spill.
-  goneUnloaded(x, y, z) {
+  // remote edit (it never passes setBlocks): its stored contents spill
+  // (Round 12: in its own dimension, the world there or not; a shulker box
+  // as itself, with them in it).
+  goneUnloaded(x, y, z, dim = this.world.dim) {
     if (!this.authority) return false;
-    const key = Chests.key(x, y, z);
+    const key = this.keyOf(x, y, z, dim);
     const slots = this.store.get(key);
     if (!slots) return false;
+    const was = this._edits(dim).get(chunkKey(x >> 4, z >> 4))?.get(blockIndex(x & 15, y, z & 15));
     this.store.delete(key);
     this.onGone?.(key);
-    for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
+    this._spill(isShulkerBox(was) ? [shulkerStack(slots)] : slots, x, y, z, dim);
     return true;
   }
 
   // The authority: a generated chest nobody opened, broken by a guest in
   // ground not loaded here: its loot rolls and spills as if seen.
-  goneGenerated(x, y, z) {
-    if (!this.authority || this.store.has(Chests.key(x, y, z))) return;
-    for (const s of this._roll(x, y, z)) if (s) this.onDrop?.(s, x, y, z);
+  goneGenerated(x, y, z, dim = this.world.dim) {
+    if (!this.authority || this.store.has(this.keyOf(x, y, z, dim))) return;
+    this._spill(this._roll(x, y, z, dim), x, y, z, dim);
+  }
+
+  _spill(slots, x, y, z, dim) {
+    const drop = () => {
+      for (const s of slots) if (s) this.onDrop?.(s, x, y, z);
+    };
+    if (this.world.inDim && dim !== this.world.dim) this.world.inDim(dim, drop);
+    else drop();
   }
 
   // ---------- Save ----------
@@ -382,7 +644,7 @@ export class Chests {
     this.store.clear();
     if (!data || typeof data !== "object") return;
     for (const [key, list] of Object.entries(data)) {
-      if (!/^-?\d+,-?\d+,-?\d+$/.test(key) || !Array.isArray(list)) continue;
+      if (!DIM_KEY_RE.test(key) || !Array.isArray(list)) continue;
       const slots = new Array(CHEST_SLOTS).fill(null);
       for (const e of list) {
         if (!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0 || e[0] >= CHEST_SLOTS) continue;
@@ -390,5 +652,56 @@ export class Chests {
       }
       this.store.set(key, slots);
     }
+  }
+}
+
+// (Round 12) A shulker box's item, holding `slots` (tag.items; none: a plain box).
+export function shulkerStack(slots) {
+  const items = [];
+  (slots || []).forEach((s, i) => {
+    if (s) items.push([i, ...encodeStack(s)]);
+  });
+  return makeStack(V.SHULKER_BOX, 1, undefined, items.length ? { items } : undefined);
+}
+
+// The 27 slots a shulker box item's tag.items holds (no box in a box).
+export function slotsOfItems(items) {
+  const slots = new Array(CHEST_SLOTS).fill(null);
+  if (!Array.isArray(items)) return slots;
+  for (const e of items) {
+    if (!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0 || e[0] >= CHEST_SLOTS || slots[e[0]]) continue;
+    const s = decodeStack(e.slice(1));
+    if (s && !isShulkerBox(s.id)) slots[e[0]] = s;
+  }
+  return slots;
+}
+
+// (Round 12) The bell: a low struck tone with its inharmonic partials,
+// ringing on (the game's audio, its blocks bus).
+function bellSound(audio, dist) {
+  const ctx = audio?.ctx;
+  const gain = 0.6 / (1 + dist / 14);
+  if (!ctx || gain < 0.01) return;
+  const out = ctx.createGain();
+  out.gain.value = gain;
+  out.connect(audio.buses?.blocks || audio.master || ctx.destination);
+  const t = ctx.currentTime;
+  for (const [f, v, d] of [
+    [392, 0.32, 2.6],
+    [392 * 2, 0.14, 1.8],
+    [392 * 2.4, 0.08, 1.2],
+    [392 * 3.9, 0.05, 0.7],
+    [196, 0.1, 2.2],
+  ]) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(f, t);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + d + 0.05);
   }
 }

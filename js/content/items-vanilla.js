@@ -289,6 +289,12 @@ function pour(ctx, liquid) {
   const [x, y, z] = cell;
   const world = ctx.world;
   const here = world.getBlock(x, y, z);
+  // (Round 12) Where water boils away (the Nether): a hiss of steam, the bucket emptied.
+  if (liquid === BLOCK.WATER && world.dimInfo?.waterEvaporates) {
+    world.onEvaporate?.([x, y, z]);
+    exchangeHeld(ctx, V.BUCKET);
+    return true;
+  }
   if (here === liquid) {
     // Flowing water topped up into a source: the sim forgets its flow.
     const ws = world.waterSim;

@@ -180,13 +180,15 @@ export class Inventory {
     return Math.min(0.8, this.armorPoints() * ARMOR_REDUCTION_PER_POINT);
   }
 
-  // Every worn piece wears by `amount` (at least 1); returns the names of the
-  // pieces that broke. (Unbreaking: some of the points are skipped.)
+  // Every worn piece but an elytra wears by `amount` (at least 1); returns the
+  // names of the pieces that broke. (Unbreaking: some of the points are skipped.)
   damageArmor(amount = 1) {
     const broken = [];
     for (let i = 0; i < this.armor.length; i++) {
       const s = this.armor[i];
       if (!s || s.dur === undefined) continue;
+      // (an elytra isn't armour to a hit, as vanilla's: it wears only in flight)
+      if (itemInfo(s.id)?.elytra) continue;
       s.dur -= wearPoints(s, Math.max(1, Math.round(amount)), true);
       if (s.dur <= 0) {
         broken.push(itemInfo(s.id)?.name ?? "armor");

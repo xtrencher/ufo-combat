@@ -134,7 +134,7 @@ await check("rebrand: title, storage prefix, no logo on the menu (Round 8), defa
     keys: Object.keys(localStorage),
     preset: g.settings.graphics,
   }));
-  assert(s.title === "UFO COMBAT", `title ${s.title}`);
+  assert(s.title === "MINECLAUDE", `title ${s.title}`); // (Round 12) the name MINECLAUDE
   assert(s.logo === "none", `logo ${s.logo}`);
   assert(s.keys.length > 0 && s.keys.every((k) => k.startsWith("ufocombat_v1_")), `storage keys ${s.keys}`);
   assert(["ultra", "medium", "low"].includes(s.preset), `preset ${s.preset}`);
@@ -1070,8 +1070,10 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
   await ensureJet();
   const r = await v((g) => {
     const j = g.vehicles.active;
-    const mk = (personality) => {
-      const u = g.ufos.spawn({ size: "small", pos: j.pos.clone().add(new g.THREE.Vector3(150, 10, 0)), personality });
+    // (The fighter gets a bolt-firing style: a random one is a sweeping beam a
+    // quarter of the time, which fires no bolt and failed the check at random.)
+    const mk = (personality, style) => {
+      const u = g.ufos.spawn({ size: "small", pos: j.pos.clone().add(new g.THREE.Vector3(150, 10, 0)), personality, style });
       u.state = "attack";
       u.lastSeen = g.ufos.time;
       return u;
@@ -1079,7 +1081,7 @@ await check("UFOs vs the jet: evaders flee a bit slower than the jet, fast ones 
     j.pos.y = Math.max(j.pos.y, 150); // clear skies between them
     const ev = mk("evader");
     const fast = mk("fast");
-    const fighter = mk("fighter");
+    const fighter = mk("fighter", "volley");
     fighter.shotT = 0;
     j.incoming = 0;
     // (Their top speed while running: once they are far enough away they go back to roaming.)
@@ -1202,15 +1204,27 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
   await page.keyboard.down("ShiftLeft");
   const d0 = await v((g) => window.__u.pos.distanceTo(g.vehicles.active.pos));
   await page.mouse.down({ button: "right" }); // (Round 2: hold the right button to lock on)
-  const locked = await until((g) => {
-    const j = g.vehicles.active;
-    j.pos.y = Math.max(j.pos.y, 100); // (the chase must not end in a hill)
-    const d = window.__u.pos.clone().sub(j.pos).normalize();
-    j.aimYaw = Math.atan2(-d.x, -d.z);
-    j.aimPitch = Math.asin(d.y);
-    return j.lock.locked && window.__u.state === "attack" && { dist: window.__u.pos.distanceTo(j.pos), fleeing: window.__u.vel.length() };
-  }, 180000);
-  assert(locked, "chased the fleeing UFO and locked on");
+  // (The lock angers it, and now and then it turns on the jet head-on: the
+  // jet overruns it inside the lock's 25-block minimum before the second's
+  // lock is done, and the lock is lost. Then, as a pilot would, press again.)
+  let locked = null;
+  for (let tries = 0; tries < 4; tries++) {
+    locked = await until((g) => {
+      const j = g.vehicles.active;
+      if (!j) return { nojet: true };
+      j.pos.y = Math.max(j.pos.y, 100); // (the chase must not end in a hill)
+      const d = window.__u.pos.clone().sub(j.pos).normalize();
+      j.aimYaw = Math.atan2(-d.x, -d.z);
+      j.aimPitch = Math.asin(d.y);
+      if (j.lock.lost) return { lost: true };
+      return j.lock.locked && window.__u.state === "attack" && { dist: window.__u.pos.distanceTo(j.pos), fleeing: window.__u.vel.length() };
+    }, 180000);
+    if (!locked?.lost) break;
+    await page.mouse.up({ button: "right" });
+    await frames(2);
+    await page.mouse.down({ button: "right" });
+  }
+  assert(locked && !locked.lost && !locked.nojet, `chased the fleeing UFO and locked on ${JSON.stringify(locked)}`);
   // 4. Missile away.
   await page.mouse.up({ button: "right" }); // (letting go fires)
   await frames(2);

@@ -273,7 +273,9 @@ function enchantedDrops(blockId, tool, rand, ench) {
   // (New pairs: a module's drops may hand out shared ones.)
   return out.map(([id, n]) => {
     if (id === blockId) return [id, n];
-    if (FORTUNE_ORES.has(blockId)) return [id, fortuneCount(n, L, rand)];
+    const own = BLOCK_INFO[blockId]?.fortune; // (Round 12: a content block's own rule)
+    if (FORTUNE_ORES.has(blockId) || own === "ore") return [id, fortuneCount(n, L, rand)];
+    if (own === "glowstone") return [id, Math.min(4, n + Math.floor(rand() * (L + 1)))];
     if (redstone) return [id, n + Math.floor(rand() * (L + 1))];
     if (blockId === V.MELON) return [id, Math.min(9, n + Math.floor(rand() * (L + 1)))];
     return [id, n];

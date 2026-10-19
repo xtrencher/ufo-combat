@@ -151,3 +151,29 @@ export const FACE = Object.freeze({ PX: 0, NX: 1, PY: 2, NY: 3, PZ: 4, NZ: 5 });
 // the mesher's shapes may use its part.) Read it only inside functions,
 // never at a module's top level.
 export const LIB = {};
+
+// (Round 12) The block texture array's capacity. WebGL2 only promises 256
+// layers in one texture array, so the layers are split into pages of 256,
+// one texture array each (textures.js); the shaders pick the page from the
+// layer, which the mesher's vertices still carry in two bytes. Up to 4
+// pages, 1024 layers: the named tiles (blocks.js TILE_NAMES: 254 at the
+// start of Round 12) and the animation frames after them (TILE_FLIPBOOKS).
+export const TILE_PAGE = 256;
+export const TILE_MAX_PAGES = 4;
+export const TILE_CAPACITY = TILE_PAGE * TILE_MAX_PAGES;
+
+// (Round 12) Animated tiles. A flipbook is a strip of `frames` frames played
+// at `fps` (vanilla's fire: 32 frames, one a tick), painted by textures.js
+// (by `style`, in the `ramp` colours) into the layers after the named tiles;
+// a face with the tile shows the running frame (the mesher marks it, the
+// chunk shader picks the layer: no remeshing, no extra draws).
+export const TILE_FLIPBOOKS = Object.freeze([
+  { tile: "fire", frames: 32, fps: 20, style: "flames", ramp: [0x8a1a04, 0xc83a08, 0xf06a10, 0xffa424, 0xffd65a, 0xfff6c0] },
+  // (Round 12) The Nether's: soul fire's blue flames, the portal's turning swirl (js/content/nether.js's tiles).
+  { tile: "soul_fire", frames: 32, fps: 20, style: "flames", ramp: [0x063c5a, 0x0a6a8a, 0x18a8c8, 0x52d8f0, 0xb8f6ff, 0xf0ffff] },
+  { tile: "nether_portal", frames: 32, fps: 16, style: "portal", ramp: [0x16032e, 0x280660, 0x3e0c98, 0x5816c8, 0x7a30e6, 0xa060f6] },
+]);
+export const FLIPBOOK_LAYERS = TILE_FLIPBOOKS.reduce((n, f) => n + f.frames, 0);
+// Flowing tiles: a liquid's surface drawn moving (vanilla's lava: a slow
+// churn on a still pool, the flow along a flowing one and down its sides).
+export const TILE_FLOWING = Object.freeze(["lava"]);

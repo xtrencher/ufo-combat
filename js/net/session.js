@@ -18,6 +18,16 @@
 //   net.registerSync(name, { save(pidJoining), load(data) })
 //                                        a piece of the state a joining player gets
 // and the hooks onPlayerJoin / onPlayerLeave / onClosed.
+//
+// (Round 12) Dimensions (js/dimensions.js): `dimCode` is the dimension this
+// player is in (0 the Overworld). A message whose type is in `dimStamp`
+// leaves with "dm" set to it (unless it names one already: a relayed
+// message keeps its sender's), and arrives with "dm" filled in (0 when
+// absent: an Overworld peer's); one whose type is also in `dimDrop` (what
+// happens somewhere: explosions, shots, creatures' states) is dropped when
+// it is another dimension's, after the host has passed it on. Each player's
+// dimension is on its entry in the player list (players.get(pid).dim, the
+// host's word: setPlayerDim), for the lobby and for who simulates where.
 import { NET_VERSION, PEERJS_URL, ROOM_PREFIX, ROOM_CODE_LENGTH, ROOM_CODE_ALPHABET, MAX_PLAYERS, TIMEOUTS, RATES, peerOptions } from "./config.js";
 
 export const HOST_PID = 1;
@@ -132,6 +142,12 @@ class Link {
   send(msg, fast = false) {
     const ch = fast && this.fast && this.fast.open ? this.fast : this.rel;
     if (!ch || !ch.open || this.closed) return false;
+    // (Round 12: where it happened, for the dimension-scoped messages.)
+    const ss = this.session;
+    if (ss.dimStamp && ss.dimCode) {
+      const inner = msg.t === "_relay" ? msg.m : msg;
+      if (inner && inner.dm === undefined && ss.dimStamp.has(inner.t)) inner.dm = ss.dimCode;
+    }
     const s = JSON.stringify(msg);
     try {
       if (s.length <= PART_SIZE || (fast && ch === this.fast)) {
@@ -214,6 +230,10 @@ export class NetSession {
     this._bestRtt = Infinity;
     this.hostInfo = null; // client: what the welcome said
     this.closedReason = null;
+    // (Round 12) This player's dimension, and the message types scoped by it (see the top).
+    this.dimCode = 0;
+    this.dimStamp = null; // Set of types stamped with "dm"
+    this.dimDrop = null; // Set of types dropped when another dimension's
     // Hooks.
     this.onPlayerJoin = null; // (player) => void
     this.onPlayerLeave = null; // (player, reason) => void
@@ -293,6 +313,12 @@ export class NetSession {
   }
 
   _dispatch(msg, from) {
+    // (Round 12) A dimension-scoped message: its dimension always set (an
+    // Overworld peer's has none), and another dimension's happening dropped.
+    if (this.dimStamp?.has(msg.t)) {
+      msg.dm = msg.dm | 0;
+      if (msg.dm !== this.dimCode && this.dimDrop?.has(msg.t)) return;
+    }
     const list = this.handlers.get(msg.t);
     if (!list) return;
     for (const fn of list.slice()) {
@@ -326,7 +352,7 @@ export class NetSession {
     this.role = "host";
     this.pid = 1;
     this.players.clear();
-    this.players.set(1, { pid: 1, nick: this.nick, color: playerColor(1), host: true, ping: 0 });
+    this.players.set(1, { pid: 1, nick: this.nick, color: playerColor(1), host: true, ping: 0, ...(this.dimCode ? { dim: this.dimCode } : {}) });
     this.peer.on("connection", (conn) => this._hostIncoming(conn));
     this.peer.on("disconnected", () => {
       // Lost the signaling server: games in progress go on; reconnect so new
@@ -460,6 +486,18 @@ export class NetSession {
     this.players.delete(pid);
     this.broadcast({ t: "_players", players: [...this.players.values()], left: pid, reason });
     if (player) this.onPlayerLeave?.(player, reason);
+    this.onPlayersChanged?.();
+  }
+
+  // (Round 12) Host: player `pid` is in dimension `code` now: on their entry,
+  // and the list goes to everyone (the lobby, who simulates where).
+  setPlayerDim(pid, code) {
+    if (this.role !== "host") return;
+    const p = this.players.get(pid);
+    if (!p || (p.dim | 0) === (code | 0)) return;
+    if (code) p.dim = code | 0;
+    else delete p.dim;
+    this.broadcast({ t: "_players", players: [...this.players.values()] });
     this.onPlayersChanged?.();
   }
 

@@ -9,10 +9,17 @@
 // goes to the host ("sgset", plain text, cleaned the same at both ends),
 // which keeps it and passes it on to everyone; a joining player gets them
 // all with the world ("signs"). Peers without signs ignore the message.
+//
+// (Round 12) Every dimension's signs are in the one store (a Nether sign's
+// key "n:x,y,z": js/dim-registry.js), each with its `dim`; only those of the
+// dimension the world is in are drawn. Online "sgset" carries the dimension
+// ("dm"); every player keeps every dimension's text (a guest arriving in the
+// Nether reads its signs at once).
 import * as THREE from "three";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { LIB } from "./content/base.js";
 import { isSign, signFace, signInfo, DYE_TEXT_RGB, BLACK, COLOR_NAMES } from "./content/decor.js";
+import { dimKey, DIM_KEY_RE, parseDimKey, OVERWORLD, dimOfCode, dmOf } from "./dim-registry.js";
 
 export const SIGN_LINES = 4;
 export const SIGN_LINE_CHARS = 15;
@@ -23,7 +30,8 @@ const CANVAS_W = 256;
 const CANVAS_H = 128;
 const BOARD_RGB = ["#b08a52", "#6f4d2d", "#d5c48e"]; // (the editor's board: oak, spruce, birch)
 
-const key = (x, y, z) => `${x},${y},${z}`;
+// (Round 12: in a dimension; the Overworld's keys as before.)
+const key = (x, y, z, dim = OVERWORLD) => dimKey(dim, x, y, z);
 const chunkOf = (x, z) => ((x >> 4) & 0xffff) * 65536 + ((z >> 4) & 0xffff);
 
 // One line as plain text: no control characters, at most 15 characters.
@@ -72,12 +80,19 @@ export class Signs {
     LIB.dyeSign = (x, y, z, c) => this.dye(x, y, z, c);
     // (A sign gone, by anyone: its text goes too.)
     world.changeListeners.push((changed) => this._changed(changed));
+    // (Round 12: and one gone in ground not loaded here, js/net/world.js.)
+    world.signs ??= this; // (the game's: the first made on this world)
   }
 
   // ---------- The records ----------
 
-  get(x, y, z) {
-    return this.store.get(key(x, y, z)) || null;
+  // (Round 12) The dimension the world is in.
+  get _dim() {
+    return this.world.dim ?? OVERWORLD;
+  }
+
+  get(x, y, z, dim = this._dim) {
+    return this.store.get(key(x, y, z, dim)) || null;
   }
 
   // The text of the sign at (x, y, z), as plain lines.
@@ -87,14 +102,15 @@ export class Signs {
   }
 
   // Sets a sign's text (and colour); send: pass it on online (this player's own edit).
-  set(x, y, z, lines, color, send = false) {
-    const k = key(x, y, z);
+  // (Round 12) dim: another dimension's sign (online, or loading a save).
+  set(x, y, z, lines, color, send = false, dim = this._dim) {
+    const k = key(x, y, z, dim);
     let r = this.store.get(k);
     const clean = cleanLines(lines);
     const c = color === undefined ? r?.color ?? BLACK : cleanColor(color);
     if (!r) {
       if (blank(clean) && c === BLACK && !send) return null;
-      r = { x, y, z, lines: clean, color: c, mesh: null, canvas: null, texture: null, light: { sky: 15, block: 0 }, drawn: null };
+      r = { x, y, z, dim, lines: clean, color: c, mesh: null, canvas: null, texture: null, light: { sky: 15, block: 0 }, drawn: null };
       this.store.set(k, r);
       const ch = chunkOf(x, z);
       this._chunks.set(ch, (this._chunks.get(ch) || 0) + 1);
@@ -134,9 +150,18 @@ export class Signs {
       if (!this._chunks.has(chunkOf(x, z))) continue;
       const y = changed[i + 1];
       if (isSign(w.getBlock(x, y, z))) continue;
-      const k = key(x, y, z);
+      const k = key(x, y, z, this._dim);
       if (this.store.has(k)) this._remove(k);
     }
+  }
+
+  // (Round 12) Another player's edit of a cell in ground not loaded here
+  // (another dimension's, often: js/net/world.js): no sign there any more,
+  // its text goes, as _changed does for loaded ground.
+  goneUnloaded(x, y, z, id, dim = this._dim) {
+    if (!this.store.size || isSign(id) || !this._chunks.has(chunkOf(x, z))) return;
+    const k = key(x, y, z, dim);
+    if (this.store.has(k)) this._remove(k);
   }
 
   // A dye on the sign: its text in that colour (false: already so, or no sign).
@@ -161,7 +186,7 @@ export class Signs {
     const lines = fresh || !r ? cleanLines(null) : r.lines.slice();
     if (fresh && r) r.lines = lines.slice();
     const wood = signInfo(id)?.wood ?? 0;
-    this.editing = { key: key(x, y, z), x, y, z, color: fresh || !r ? BLACK : r.color };
+    this.editing = { key: key(x, y, z, this._dim), x, y, z, color: fresh || !r ? BLACK : r.color };
     ui.board.style.background = `linear-gradient(180deg, ${BOARD_RGB[wood]}, ${BOARD_RGB[wood]}dd)`;
     ui.inputs.forEach((inp, i) => {
       inp.value = lines[i];
@@ -272,7 +297,13 @@ export class Signs {
     if (this._t < REFRESH || !eye) return;
     this._t = 0;
     const w = this.world;
+    const here = this._dim;
     for (const r of this.store.values()) {
+      // (Round 12: another dimension's sign is not drawn here.)
+      if (r.dim !== here) {
+        if (r.mesh) this._drop(r);
+        continue;
+      }
       const d = Math.max(Math.abs(r.x + 0.5 - eye.x), Math.abs(r.y + 0.5 - eye.y), Math.abs(r.z + 0.5 - eye.z));
       const id = d < KEEP ? w.getBlock(r.x, r.y, r.z) : 0;
       if (d >= KEEP || (!r.mesh && (d >= VIEW || blank(r.lines))) || !isSign(id)) {
@@ -354,7 +385,7 @@ export class Signs {
     let n = 0;
     for (const [k, r] of this.store) {
       if (blank(r.lines) && r.color === BLACK) continue;
-      if (this.world.getChunk?.(r.x >> 4, r.z >> 4) && !isSign(this.world.getBlock(r.x, r.y, r.z))) continue;
+      if (r.dim === this._dim && this.world.getChunk?.(r.x >> 4, r.z >> 4) && !isSign(this.world.getBlock(r.x, r.y, r.z))) continue;
       out[k] = [...r.lines, r.color];
       n++;
     }
@@ -365,9 +396,9 @@ export class Signs {
     this.clear();
     if (!data || typeof data !== "object") return;
     for (const [k, list] of Object.entries(data)) {
-      if (!/^-?\d+,-?\d+,-?\d+$/.test(k) || !Array.isArray(list)) continue;
-      const [x, y, z] = k.split(",").map(Number);
-      this.set(x, y, z, list.slice(0, SIGN_LINES), list[SIGN_LINES]);
+      if (!DIM_KEY_RE.test(k) || !Array.isArray(list)) continue;
+      const [x, y, z, dim] = parseDimKey(k);
+      this.set(x, y, z, list.slice(0, SIGN_LINES), list[SIGN_LINES], false, dim);
     }
   }
 }
@@ -401,7 +432,7 @@ export class SignSync {
   // This player's edit: to the host (a guest), or to everyone (the host).
   send(r) {
     if (!this.mp.active) return;
-    const msg = { t: "sgset", p: [r.x, r.y, r.z], l: r.lines, c: r.color };
+    const msg = { t: "sgset", p: [r.x, r.y, r.z], l: r.lines, c: r.color, ...dmOf(r.dim) };
     if (this.net.isHost) this.net.broadcast(msg);
     else this.net.toHost(msg);
   }
@@ -410,17 +441,18 @@ export class SignSync {
     const p = posOf(m.p);
     if (!p || !this.signs) return;
     const [x, y, z] = p;
+    const dim = dimOfCode(m.dm);
     if (this.net.isHost) {
       // (A guest's edit: within reach of where they are.)
       const r = this.mp.players?.get(from);
       const at = r?.livePos;
       if (!at || Math.abs(at.x - x - 0.5) > 16 || Math.abs(at.y - y) > 16 || Math.abs(at.z - z - 0.5) > 16) return;
-      this.signs.set(x, y, z, m.l, cleanColor(m.c));
-      this.net.broadcast({ t: "sgset", p, l: cleanLines(m.l), c: cleanColor(m.c) }, { except: from });
+      this.signs.set(x, y, z, m.l, cleanColor(m.c), false, dim);
+      this.net.broadcast({ t: "sgset", p, l: cleanLines(m.l), c: cleanColor(m.c), ...dmOf(dim) }, { except: from });
       return;
     }
     // (A guest: the host's word, unless this player is typing on that sign.)
-    if (this.signs.editing?.key === key(x, y, z)) return;
-    this.signs.set(x, y, z, m.l, cleanColor(m.c));
+    if (this.signs.editing?.key === key(x, y, z, dim)) return;
+    this.signs.set(x, y, z, m.l, cleanColor(m.c), false, dim);
   }
 }
