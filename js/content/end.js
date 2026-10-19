@@ -194,10 +194,21 @@ for (let age = 0; age < 6; age++) {
     hardness: 0.4,
     tool: "axe",
     sound: "wood",
-    support: (below) => below === I.CHORUS_PLANT || below === I.END_STONE,
-    ...(age ? { item: I.CHORUS_FLOWER } : {}),
+    // (vanilla's canSurvive, chorusSurvives: on a plant or end stone, or over
+    // air beside one plant, as one grown sideways; the air case is left to the
+    // cascade, js/dragon.js, which knows what is beside it)
+    support: (below) => below === I.CHORUS_PLANT || below === I.END_STONE || below === BLOCK.AIR,
+    ...(age ? { item: I.CHORUS_FLOWER } : { placeAs: placeChorusFlower }),
   };
   drops[I.CHORUS_FLOWER + age] = () => [[I.CHORUS_FLOWER, 1]];
+}
+
+// A flower put down only where it would hold (chorusSurvives, with it there).
+function placeChorusFlower(ctx) {
+  const [px, py, pz] = ctx.place || [];
+  if (px === undefined) return null;
+  const get = (x, y, z) => (x === px && y === py && z === pz ? I.CHORUS_FLOWER : ctx.world.getBlock(x, y, z));
+  return chorusSurvives(get, px, py, pz) ? I.CHORUS_FLOWER : null;
 }
 
 // Vanilla's ChorusPlantBlock.canSurvive: end stone or a plant below, or a

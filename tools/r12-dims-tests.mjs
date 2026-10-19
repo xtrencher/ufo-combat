@@ -522,6 +522,126 @@ async function browserChecks() {
     await v(page, (g) => g.setMode("creative"));
   });
 
+  // (Round 12 wave C: the review's fixes, on a page of their own.)
+  await browserCheck("review fixes: paused in the arrival portal, saved under the loading screen, XP orbs kept, no nether portal in the End, the End's exit with the anchor gone, a dead save at an anchor, the Overworld's sleepers, a sign gone away, the water list kept", async () => {
+    const pg = await newPage("fixes", null, ctx);
+    await boot(pg, "seed=9103&type=survival&graphics=low");
+    // Paused alone (the player held) just after an arrival: still has to step out of the portal.
+    const pause = await v(pg, (g) => {
+      const d = g.dims;
+      g.setMode("creative");
+      d._needExit = true;
+      const was = g.player.enabled;
+      g.player.enabled = false;
+      for (let i = 0; i < 10; i++) d.update(0.1);
+      const held = d._needExit;
+      g.player.enabled = was;
+      d.update(0.1);
+      return { held, after: d._needExit };
+    });
+    assert(pause.held && !pause.after, `paused in the arrival portal: ${JSON.stringify(pause)}`);
+    // A save made under a portal trip's loading screen: where the trip started.
+    const mid = await v(pg, (g) => {
+      const d = g.dims;
+      const p = g.player.position;
+      const at = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+      const feet = p.y;
+      d._throughPortal({ kind: "nether", at });
+      return { pending: !!d.pending, s: d.pending ? d.serialize() : null, at, feet };
+    });
+    assert(mid.pending && mid.s.dim === undefined && mid.s.pos[0] === mid.at.x + 0.5 && mid.s.pos[2] === mid.at.z + 0.5 && Math.abs(mid.s.pos[1] - mid.feet) < 1e-6, `the save under the loading screen: ${JSON.stringify(mid)}`);
+    assert(await until(pg, (g) => !g.dims.pending && g.dims.dim === "nether", 60000), "the portal trip never ended");
+    // XP orbs left in the Nether are there on the return.
+    const n0 = await v(pg, (g) => {
+      const p = g.player.position;
+      g.xp.spawn(p.x + 20, p.y + 1, p.z, 30);
+      return { xp: g.xp.pending, at: [p.x, p.y, p.z] };
+    });
+    await travel(pg, "overworld", n0.at[0] * 8, 60, n0.at[2] * 8);
+    const away = await v(pg, (g) => g.xp.orbs.length);
+    await travel(pg, "nether", n0.at[0], n0.at[1], n0.at[2]);
+    const back = await v(pg, (g) => g.xp.pending);
+    assert(n0.xp === 30 && away === 0 && back === 30, `the Nether's orbs: ${n0.xp} -> ${away} away -> ${back}`);
+    // A respawn anchor: a save made dead (no pos) loads at it; gone, at the world spawn.
+    const A = await v(pg, async (g) => {
+      const V = await import("./js/content/ids.js");
+      const p = g.player.position;
+      const a = [Math.floor(p.x) + 1, Math.floor(p.y), Math.floor(p.z)];
+      g.world.setBlock(a[0], a[1], a[2], V.RESPAWN_ANCHOR + 2);
+      g.sleep.spawn = a.slice();
+      g.sleep.spawnDim = "nether";
+      return a;
+    });
+    await travel(pg, "overworld", A[0] * 8, 60, A[2] * 8);
+    const dead1 = await v(pg, (g) => {
+      g.dims.init({ dim: "nether", pos: null });
+      const p = g.player.position;
+      return { dim: g.dims.dim, pos: [p.x, p.y, p.z], spawn: g.sleep.spawn };
+    });
+    assert(dead1.dim === "nether" && Math.abs(dead1.pos[0] - (A[0] + 0.5)) <= 1.6 && Math.abs(dead1.pos[2] - (A[2] + 0.5)) <= 1.6 && Math.abs(dead1.pos[1] - A[1]) <= 1.6 && dead1.spawn, `a dead save at the anchor: ${JSON.stringify(dead1)} (anchor ${A})`);
+    await v(pg, (g, a) => g.world.setBlock(a[0], a[1], a[2], 0), A);
+    await travel(pg, "overworld", A[0] * 8, 60, A[2] * 8);
+    const dead2 = await v(pg, (g) => {
+      g.sleep.spawn = [Math.floor(g.player.position.x / 8), 40, Math.floor(g.player.position.z / 8)];
+      g.sleep.spawnDim = "nether";
+      g.dims.init({ dim: "nether", pos: null });
+      const p = g.player.position;
+      return { dim: g.dims.dim, pos: [p.x, p.z], spawn: g.sleep.spawn, world: [g.spawn.x, g.spawn.z] };
+    });
+    assert(dead2.dim === "overworld" && !dead2.spawn && Math.abs(dead2.pos[0] - (dead2.world[0] + 0.5)) < 1 && Math.abs(dead2.pos[1] - (dead2.world[1] + 0.5)) < 1, `a dead save at an anchor gone: ${JSON.stringify(dead2)}`);
+    // The End: no nether portal lights there; its exit with the anchor gone goes to the Overworld's spawn.
+    await v(pg, (g) => g.dims.debugTravel("end"));
+    assert(await until(pg, (g) => !g.dims.pending && g.dims.dim === "end", 60000), "the End travel never ended");
+    const end = await v(pg, async (g) => {
+      const { findPortalShape } = await import("./js/portal.js");
+      const V = await import("./js/content/ids.js");
+      const list = [];
+      for (const [x, y] of [[100, 49], [101, 49], [99, 50], [99, 51], [99, 52], [102, 50], [102, 51], [102, 52], [100, 53], [101, 53]]) list.push(x, y, 4, V.OBSIDIAN);
+      for (let x = 100; x <= 101; x++) for (let y = 50; y <= 52; y++) list.push(x, y, 4, 0);
+      g.world.setBlocks(list);
+      const shape = !!findPortalShape((x, y, z) => g.world.getBlock(x, y, z), 100, 50, 4, 0);
+      const lit = g.netherPortals.tryLight(100, 50, 4);
+      g.sleep.spawn = [3, 40, 3];
+      g.sleep.spawnDim = "nether";
+      g.dims.toSpawn();
+      return { shape, lit, to: g.dims.pending?.dim, spawn: g.sleep.spawn };
+    });
+    assert(end.shape && !end.lit, `a nether portal in the End: ${JSON.stringify(end)}`);
+    assert(end.to === "overworld" && !end.spawn, `the End's exit with no anchor: ${JSON.stringify(end)}`);
+    assert(await until(pg, (g) => !g.dims.pending && g.dims.dim === "overworld", 60000), "the End's exit never ended");
+    // The sleepers: the Overworld's only (a player in the Nether doesn't keep the night going).
+    const sl = await v(pg, async (g) => {
+      const { Sleep } = await import("./js/sleep.js");
+      const mk = (dim, others) => new Sleep({ player: { dead: false, sleeping: null }, sky: g.sky, world: { dim }, mobs: null, toast() {}, players: () => [], everyone: () => others, online: () => true, isHost: () => true, inGame: () => true, sendTime() {} });
+      const asleep = { dead: false, sleeping: true, sleepTime: 6, dim: 0 };
+      return [mk("nether", [asleep])._count(), mk("overworld", [asleep])._count(), mk("nether", [asleep, { dead: false, sleeping: false, dim: 1 }])._count()];
+    });
+    assert(JSON.stringify(sl) === JSON.stringify([[1, 1, true], [1, 2, false], [1, 1, true]]), `the sleepers counted: ${JSON.stringify(sl)}`);
+    // A sign broken in another dimension (another player's edit): its text goes.
+    const sign = await v(pg, async (g) => {
+      const { encodeChunkEdits } = await import("./js/storage.js");
+      g.signs.set(5, 40, 5, ["away"], undefined, false, "nether");
+      const had = !!g.signs.get(5, 40, 5, "nether");
+      g.mp.world._apply({ "0,0": encodeChunkEdits(new Map([[(40 << 8) | (5 << 4) | 5, 0]])) }, 2, "nether");
+      return { had, now: !!g.signs.get(5, 40, 5, "nether") };
+    });
+    assert(sign.had && !sign.now, `a sign gone in another dimension: ${JSON.stringify(sign)}`);
+    // Another dimension's flow cells: listed once, again only once they change.
+    const wl = await v(pg, (g) => {
+      const d = g.dims;
+      const s = d._stashOf("end");
+      s.water = { meta: new Map([["1,40,1", { level: 2, parent: [1, 40, 0] }]]), active: new Set() };
+      s.waterList = s.waterSaved = undefined;
+      const a = d._waterList(s);
+      const b = d._waterList(s);
+      d.waterMeta("end").set("2,40,1", { level: 3, parent: [1, 40, 1] });
+      const c = d._waterList(s);
+      return { same: a === b, a: a.length, c: c.length };
+    });
+    assert(wl.same && wl.a === 7 && wl.c === 14, `the stashed water's list: ${JSON.stringify(wl)}`);
+    await pg.close();
+  });
+
   await browserCheck("an old save (no dimension in it) loads in the Overworld with its edits", async () => {
     await v(page, async () => {
       const { encodeChunkEdits } = await import("./js/storage.js");

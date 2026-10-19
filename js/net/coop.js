@@ -453,7 +453,8 @@ export class CoopSync {
     btn.style.marginLeft = "10px";
     btn.addEventListener("click", () => {
       const r = this._buddy();
-      if (r) this.game.respawnNear(r.livePos.x, r.livePos.z);
+      // (Round 12: their height too, for a floor near them under the Nether's roof.)
+      if (r) this.game.respawnNear(r.livePos.x, r.livePos.z, r.livePos.y);
     });
     document.getElementById("respawn-btn")?.after(btn);
   }

@@ -400,15 +400,17 @@ export class GrassField {
 
   // (Round 12) Whether the items lying in range have changed since the last
   // fill (one came to rest, was picked up or moved a quarter block). Items
-  // still in the air don't count: they don't lie in the grass yet.
+  // still in the air don't count: they don't lie in the grass yet; nor do
+  // another dimension's (they wait there, unseen: js/entities.js).
   _itemsMoved(playerPos) {
     const list = this.items?.();
     if (!list || (!list.length && !this._itemSpots.length)) return false;
     const r = this.radius + 1;
+    const dim = this.world.dimCode ?? 0;
     let sig = 0;
     for (const it of list) {
       const p = it.pos;
-      if (!p || !it.onGround || Math.abs(p.x - playerPos.x) > r || Math.abs(p.z - playerPos.z) > r) continue;
+      if (!p || !it.onGround || it.dim !== dim || Math.abs(p.x - playerPos.x) > r || Math.abs(p.z - playerPos.z) > r) continue;
       sig = (Math.imul(sig, 31) + Math.imul(Math.floor(p.x * 4), 73856093) + Math.imul(Math.floor(p.z * 4), 19349663) + Math.floor(p.y * 2)) | 0;
     }
     if (sig === this._itemSig) return false;
@@ -426,9 +428,10 @@ export class GrassField {
     if (!list) return;
     const r = this.radius + 1;
     const reach = Math.ceil(ITEM_SHORT);
+    const dim = this.world.dimCode ?? 0;
     for (const it of list) {
       const p = it.pos;
-      if (!p || !it.onGround || Math.abs(p.x - playerPos.x) > r || Math.abs(p.z - playerPos.z) > r) continue;
+      if (!p || !it.onGround || it.dim !== dim || Math.abs(p.x - playerPos.x) > r || Math.abs(p.z - playerPos.z) > r) continue;
       spots.push(p.x, p.y, p.z);
       const ix = Math.floor(p.x);
       const iz = Math.floor(p.z);

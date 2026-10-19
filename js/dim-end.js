@@ -204,6 +204,9 @@ export function podiumCells(y, active, portalId = 0) {
   for (let dx = -4; dx <= 4; dx++) {
     for (let dz = -4; dz <= 4; dz++) {
       for (let dy = -1; dy <= 4; dy++) {
+        // (the middle pillar's own cells, below: not a portal or air cell too,
+        // which the lit portal's and the respawn's edits would put over its base)
+        if (dx === 0 && dz === 0 && dy >= 0) continue;
         const d2 = dx * dx + dy * dy + dz * dz;
         const inside = d2 < 6.25;
         if (!inside && d2 >= 12.25) continue;

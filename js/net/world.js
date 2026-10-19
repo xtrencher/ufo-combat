@@ -262,6 +262,8 @@ export class WorldSync {
     const host = this.net.isHost;
     // (Host: a chest with a record here, in ground not loaded, replaced: it spills.)
     const chests = host ? this.game.interaction?.chests : null;
+    // (Round 12) And a sign's text, on every peer: nobody here saw it go.
+    const signs = world.signs?.store?.size ? world.signs : null;
     const awayKeys = new Set();
     let count = 0;
     for (const [key, enc] of Object.entries(chunks)) {
@@ -293,11 +295,13 @@ export class WorldSync {
         if (loaded) list.push(x, y, z, id);
         else if (here) {
           if (chests?.store.size && !IS_CHEST[id]) chests.goneUnloaded(x, y, z);
+          signs?.goneUnloaded(x, y, z, id, dim);
           setEdit(world.edits, cx, cz, index, id);
           world.dirtyEditChunks.add(key);
           if (dim === OVERWORLD) world.lodDirty.add(key);
         } else {
           if (chests?.store.size && !IS_CHEST[id]) chests.goneUnloaded(x, y, z, dim);
+          signs?.goneUnloaded(x, y, z, id, dim);
           setEdit(edits, cx, cz, index, id);
           awayKeys.add(key);
         }

@@ -249,18 +249,21 @@ export class DimensionManager {
   // Per frame (main.js): portals, and a travel waiting for its ground.
   update(dt) {
     if (!this.enabled) return;
-    this._cool = Math.max(0, this._cool - dt);
-    if (!this._portal && PORTAL_BLOCKS.size && !this.pending && this.player.enabled && !this.player.dead) this._portalHere();
+    // (Held: paused alone, dead, waiting for ground. The wait, the cool-down
+    // and the step out of the arrival portal stay as they are meanwhile.)
+    const live = this.player.enabled && !this.player.dead;
+    if (live) this._cool = Math.max(0, this._cool - dt);
+    if (!this._portal && PORTAL_BLOCKS.size && !this.pending && live) this._portalHere();
     const pt = this._portal;
     this._portal = null;
-    if (pt && !this.pending) {
+    if (pt && !this.pending && live) {
       if (!this._needExit && this._cool <= 0) {
         if (pt.kind === "nether") {
           this._portalT += dt;
           if (this.player.creative || this._portalT >= PORTAL_TIME) this._throughPortal(pt);
         } else this._throughPortal(pt);
       }
-    } else if (!pt) {
+    } else if (!pt && live && !this.pending) {
       // (out of the portal: the wait drains, and the next one counts again)
       this._portalT = Math.max(0, this._portalT - dt * 4);
       this._needExit = false;
@@ -273,7 +276,7 @@ export class DimensionManager {
     const at = pt.at;
     this._portalT = 0;
     if (pt.kind === "end") {
-      this.travel(END, END_PLATFORM.x + 0.5, END_PLATFORM.y + 1, END_PLATFORM.z + 0.5, { place: "endPlatform", yaw: Math.PI / 2 });
+      this.travel(END, END_PLATFORM.x + 0.5, END_PLATFORM.y + 1, END_PLATFORM.z + 0.5, { place: "endPlatform", yaw: Math.PI / 2, from: this._from(at) });
     } else if (pt.kind === "end_exit") {
       this.toSpawn();
     } else if (pt.kind === "nether") {
@@ -286,8 +289,14 @@ export class DimensionManager {
       const r = PORTAL_SEARCH[to];
       const found = (link.find ? link.find(to, x, y, z, r, this) : this.nearestPortal(to, x, y, z, r)) || null;
       const dest = found ? { x: found[0] ?? found.x, y: found[1] ?? found.y, z: found[2] ?? found.z } : { x, y, z };
-      this.travel(to, dest.x + (found ? 0.5 : 0), dest.y, dest.z + (found ? 0.5 : 0), { place: "portal", kind: "nether", found: !!found, from: { dim: this.dim, x: at.x, y: at.y, z: at.z } });
+      this.travel(to, dest.x + (found ? 0.5 : 0), dest.y, dest.z + (found ? 0.5 : 0), { place: "portal", kind: "nether", found: !!found, from: this._from(at) });
     }
+  }
+
+  // (Where a trip through a portal started: the portal's cell, the player's
+  // height. A save made before the arrival puts them back there.)
+  _from(at) {
+    return { dim: this.dim, x: Math.floor(at.x), y: this.player.position.y, z: Math.floor(at.z) };
   }
 
   // To the player's spawn in the Overworld (the End's exit portal): the bed
@@ -351,8 +360,17 @@ export class DimensionManager {
   _spawnSpot(pd) {
     const bed = this.game.sleep?.spawn ? this.game.sleep.respawnSpot?.() : null;
     if (bed) return { x: bed.x, y: bed.y, z: bed.z };
-    const top = this.world.surfaceY(Math.floor(pd.x), Math.floor(pd.z));
-    return top >= 0 ? this.safeSpot(pd.x, top + 1, pd.z) : null;
+    let { x, z } = pd;
+    if (bed === false) {
+      // (The bed gone or obstructed (respawnSpot forgot it): the world spawn, as a respawn.)
+      const s = this.game.spawn || { x: 0, z: 0 };
+      x = s.x + 0.5;
+      z = s.z + 0.5;
+      this.world.prepareArea(x, z, 1);
+      this.game.toast?.("Your home bed was missing or obstructed", 4);
+    }
+    const top = this.world.surfaceY(Math.floor(x), Math.floor(z));
+    return top >= 0 ? this.safeSpot(x, top + 1, z) : null;
   }
 
   _cancelPending() {
@@ -434,7 +452,7 @@ export class DimensionManager {
   // ---------- The switch ----------
 
   _fresh() {
-    return { water: null, waterList: undefined, lava: null, fire: null, mobs: [], seeded: false };
+    return { water: null, waterList: undefined, waterSaved: undefined, lava: null, fire: null, mobs: [], seeded: false, xp: null };
   }
 
   _stashOf(dim) {
@@ -493,7 +511,8 @@ export class DimensionManager {
       mobs._kept = [];
     }
     g.redstone?.clear?.();
-    g.xp?.clear?.();
+    // (The orbs lying here wait for the player's return, as the kept creatures: a death's too.)
+    prev.xp = g.xp?.stash ? g.xp.stash() : (g.xp?.clear?.(), null);
     g.weapons?.throwables?.clear?.();
     x.potionThrows?.clear?.();
     const sp = x.spawners;
@@ -503,12 +522,15 @@ export class DimensionManager {
       if (Array.isArray(sp.active)) sp.active.length = 0;
     }
     this.stash.set(from, prev);
+    // (The last moment's Overworld edits to the distant tiles' builders: _resetLod forgets the rest.)
+    if (from === OVERWORLD) this._lodFlush?.(true);
     this.world.setDimension(dim);
     // The new one's.
     if (mobs) {
       mobs.loadKept?.(next.mobs || []);
       mobs._seeded = !!next.seeded;
     }
+    g.xp?.unstash?.(next.xp);
     x.weather?.dimChanged?.();
     g.sky?.setDimension?.(this.info);
     if (x.distant) x.distant.enabled = this.info.lod !== false;
@@ -544,6 +566,7 @@ export class DimensionManager {
     };
     // (Nothing to send its builders from another dimension's edits.)
     const flush = typeof lod._flushEdits === "function" ? lod._flushEdits.bind(lod) : null;
+    this._lodFlush = flush;
     if (flush) {
       lod._flushEdits = (force) => {
         if (this.info.lod === false) {
@@ -664,8 +687,9 @@ export class DimensionManager {
         cache = this._caches.get(dim);
         if (!cache) this._caches.set(dim, (cache = new Map()));
       }
-      if (!storeEdits(seed, edits, cache, dirty, dim)) ok = false;
-      dirty.clear();
+      // (A failed write keeps its chunks marked: tried again with the next save.)
+      if (storeEdits(seed, edits, cache, dirty, dim)) dirty.clear();
+      else ok = false;
     });
     return ok;
   }
@@ -689,7 +713,10 @@ export class DimensionManager {
   _waterList(s) {
     if (s.waterList) return s.waterList;
     const meta = s.water?.meta;
-    return meta?.size && this.game.waterSim ? this.game.waterSim.serializeMeta(WATER_CAP, meta) : undefined;
+    if (!meta?.size || !this.game.waterSim) return undefined;
+    // (Made once while its cells stay as they are: another peer's flow there
+    // comes through waterMeta, which forgets it. Not every 5 s save.)
+    return (s.waterSaved ||= this.game.waterSim.serializeMeta(WATER_CAP, meta));
   }
 
   // This dimension's and the other ones' state for the player's save:
@@ -711,9 +738,15 @@ export class DimensionManager {
     }
     const portals = this._savePortals();
     if (portals) dims.portals = portals;
-    // (A dead player is saved as respawned: in the Overworld.)
+    const out = Object.keys(dims).length ? dims : undefined;
+    // (Saved under a portal trip's loading screen: back in the portal it
+    // started from, not in ground never seen without a way back. Its pos
+    // replaces main.js's, the held one.)
+    const from = this.pending?.opts?.from;
+    if (from && !this.player.dead) return { dim: from.dim !== OVERWORLD ? from.dim : undefined, pos: [from.x + 0.5, from.y, from.z + 0.5], dims: out };
+    // (A dead player is saved as respawned: in the Overworld, or the Nether at a respawn anchor.)
     const here = this.player.dead ? this.respawnDimension() : this.dim;
-    return { dim: here !== OVERWORLD ? here : undefined, dims: Object.keys(dims).length ? dims : undefined };
+    return { dim: here !== OVERWORLD ? here : undefined, dims: out };
   }
 
   // From the player's save, before the first frame (main.js, once everything
@@ -736,13 +769,41 @@ export class DimensionManager {
     const dim = dimId(saved.dim);
     if (dim === OVERWORLD) return;
     const p = this.player;
-    const pos = Array.isArray(saved.pos) && saved.pos.length === 3 && saved.pos.every(Number.isFinite) ? saved.pos : [p.position.x, p.position.y, p.position.z];
+    const pos = Array.isArray(saved.pos) && saved.pos.length === 3 && saved.pos.every(Number.isFinite) ? saved.pos : null;
+    // (No place: saved dead, as respawned. In the Nether only at a respawn
+    // anchor (respawnDimension); anywhere else main.js's world spawn stands.)
+    if (!pos) {
+      const sleep = this.game.sleep;
+      if (dim === NETHER && sleep?.spawn && sleep.spawnDim === NETHER) this._initAtAnchor(sleep);
+      return;
+    }
     this.enterNow(dim);
     const [x, y, z] = pos;
     this.world.prepareArea(x, z, 2);
     const w = this.world;
     const stuck = w.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || w.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z));
     const spot = stuck ? this.safeSpot(x, y, z) || this.buildPlatform(x, y, z) : { x, y, z };
+    this._place(spot);
+  }
+
+  // (A save made dead with a respawn anchor set: respawned at the anchor, a
+  // charge used, as main.js's respawn; the anchor gone or empty: the world
+  // spawn, in the Overworld (js/portal.js _anchorSpot took the world back).)
+  _initAtAnchor(sleep) {
+    this.enterNow(NETHER);
+    this.world.prepareArea(sleep.spawn[0] + 0.5, sleep.spawn[2] + 0.5, 2);
+    const spot = sleep.respawnSpot();
+    if (spot) return this._place(spot);
+    if (this.dim !== OVERWORLD) this.enterNow(OVERWORLD);
+    const s = this.game.spawn || { x: 0, z: 0 };
+    this.world.prepareArea(s.x + 0.5, s.z + 0.5, 2);
+    this.player.spawnAt(s.x, s.z);
+    this._place(this.player.position);
+    this.game.toast?.("Your home bed was missing or obstructed", 4);
+  }
+
+  _place(spot) {
+    const p = this.player;
     p.position.set(spot.x, spot.y, spot.z);
     p.velocity.set(0, 0, 0);
     p.resetFall?.();
@@ -757,6 +818,7 @@ export class DimensionManager {
     if (dim === this.dim) return this.game.waterSim?.meta || null;
     const s = this._stashOf(dim);
     if (!this._waterState(s)) s.water = { meta: new Map(), active: new Set() };
+    s.waterSaved = undefined;
     return s.water.meta;
   }
 
@@ -767,7 +829,7 @@ export class DimensionManager {
     }
     const s = this._stashOf(dim);
     s.water = { meta: WaterSim.metaFromList(list), active: new Set() };
-    s.waterList = undefined;
+    s.waterList = s.waterSaved = undefined;
   }
 
   // ---------- Portals' places ----------

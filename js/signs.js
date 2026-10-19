@@ -80,6 +80,8 @@ export class Signs {
     LIB.dyeSign = (x, y, z, c) => this.dye(x, y, z, c);
     // (A sign gone, by anyone: its text goes too.)
     world.changeListeners.push((changed) => this._changed(changed));
+    // (Round 12: and one gone in ground not loaded here, js/net/world.js.)
+    world.signs ??= this; // (the game's: the first made on this world)
   }
 
   // ---------- The records ----------
@@ -151,6 +153,15 @@ export class Signs {
       const k = key(x, y, z, this._dim);
       if (this.store.has(k)) this._remove(k);
     }
+  }
+
+  // (Round 12) Another player's edit of a cell in ground not loaded here
+  // (another dimension's, often: js/net/world.js): no sign there any more,
+  // its text goes, as _changed does for loaded ground.
+  goneUnloaded(x, y, z, id, dim = this._dim) {
+    if (!this.store.size || isSign(id) || !this._chunks.has(chunkOf(x, z))) return;
+    const k = key(x, y, z, dim);
+    if (this.store.has(k)) this._remove(k);
   }
 
   // A dye on the sign: its text in that colour (false: already so, or no sign).

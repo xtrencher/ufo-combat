@@ -295,6 +295,77 @@ async function browserChecks() {
     await p.close();
   });
 
+  await check("browser: the Missions card opens a saved Missions world in its own mode; the tips follow the card", async () => {
+    const p = await newPage("missionsmode");
+    // A Missions world played in Creative, saved.
+    await boot(p, `${BASE}?seed=42`);
+    await p.click("#play-btn");
+    assert(await until(p, (g) => g.gameState === "playing", 60000), "Play");
+    await v(p, (g) => {
+      g.setMode("creative");
+      g.flushSave();
+    });
+    // From a Survival world's menu.
+    await boot(p, `${BASE}?seed=777&type=survival`);
+    const tips = () =>
+      p.evaluate(async () => {
+        const { MENU_TIPS, SURVIVAL_TIPS } = await import("./js/menu.js");
+        const t = document.getElementById("menu-tip").textContent.replace(/^Tip: /, "");
+        return MENU_TIPS.includes(t) && !SURVIVAL_TIPS.includes(t) ? "missions" : SURVIVAL_TIPS.includes(t) && !MENU_TIPS.includes(t) ? "survival" : t;
+      });
+    await frames(p, 3);
+    let t = await tips();
+    assert(t === "survival", `a Survival world's tips: ${t}`);
+    await p.click("#mode-card-survival");
+    await frames(p, 3);
+    t = await tips();
+    assert(t === "missions", `the Missions card's: ${t}`);
+    let m = await menu(p);
+    assert(m.play === "Continue Missions world", `the saved one: ${JSON.stringify(m)}`);
+    await Promise.all([p.waitForNavigation({ waitUntil: "load", timeout: 60000 }), p.click("#play-btn")]);
+    await rebooted(p);
+    m = await menu(p);
+    assert(m.wt === "missions" && m.mode === "creative" && !m.menu && /seed=42/.test(m.url), `in its own mode: ${JSON.stringify(m)}`);
+    await p.close();
+  });
+
+  await check("browser: Fullscreen: held Esc out of a keyboard-locked fullscreen turns the setting off; another tab's setting is taken over", async () => {
+    const p = await newPage("fsesc");
+    await boot(p, `${BASE}?seed=42`);
+    const on = () => v(p, () => document.getElementById("fullscreen-setting").checked);
+    // Another tab turns it on (a storage event).
+    await v(p, () => {
+      const key = "ufocombat_v1_settings";
+      const cur = JSON.parse(localStorage.getItem(key) || "{}");
+      window.dispatchEvent(new StorageEvent("storage", { key, newValue: JSON.stringify({ ...cur, fullscreen: true }) }));
+    });
+    assert(await on(), "taken over from another tab");
+    await p.click("#menu-fs-btn");
+    assert(await until(p, () => !!document.fullscreenElement, 10000), "fullscreen");
+    // (The Keyboard Lock, where the browser grants it: then Esc reaches the page,
+    // and a long press leaves. Seen from outside: a Ctrl combination held back on a menu.)
+    const granted = await until(
+      p,
+      () => {
+        const e = new KeyboardEvent("keydown", { code: "KeyJ", ctrlKey: true, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(e);
+        return e.defaultPrevented;
+      },
+      8000
+    );
+    if (granted) {
+      await v(p, () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+        document.exitFullscreen();
+      });
+      // (The fullscreen element goes before the change event comes: wait for the setting.)
+      const off = await until(p, () => !document.fullscreenElement && !document.getElementById("fullscreen-setting").checked, 10000);
+      await v(p, () => window.dispatchEvent(new KeyboardEvent("keyup", { code: "Escape", key: "Escape", bubbles: true })));
+      assert(off, "held Esc: the setting off");
+    } else console.log("    (no Keyboard Lock in this browser: the held-Esc part skipped)");
+    await p.close();
+  });
+
   await check("browser: Multiplayer in every mode: Survival, Creative, Missions, Dogfight; a Dogfight asked in a Survival world opens a Missions world with the room", async () => {
     const { createRequire } = await import("node:module");
     const require = createRequire(path.join(__dirname, "package.json"));

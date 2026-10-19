@@ -52,7 +52,7 @@ import { WITHER_SKELETON_SKULL } from "./content/mobs-vanilla.js";
 import { DIMS, PORTAL_BLOCKS } from "./dim-registry.js";
 import * as NetherGen from "./dim-nether.js";
 
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, ghast: 1, end_crystal: 6 }; // (a Survival world's blasts: explosion(); Round 12: a ghast's fireball)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, ghast: 1, end_crystal: 6, end_respawn: 5 }; // (a Survival world's blasts: explosion(); Round 12: a ghast's fireball)
 
 const GRAVITY = -26;
 const MAX_PASSIVE = 16;
@@ -5245,7 +5245,8 @@ export class MobManager {
   }
 
   // Explosions hurt and fling mobs like they do the player, scaled by size.
-  explosion(center, radius, byPlayer = true, source = null) {
+  // (info: main.js onExplosion's, { mirror, by }: for the wrappers, js/dragon.js)
+  explosion(center, radius, byPlayer = true, source = null, info = null) {
     const reach = radius * 1.8;
     const size = Math.sqrt(radius / 7);
     // (A Survival world: a creeper's or TNT's blast hurts as vanilla's, power

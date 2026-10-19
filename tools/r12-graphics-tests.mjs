@@ -3,9 +3,10 @@
 // In Node (fast): the tuner's ladder and rules, driven with made-up frame
 // times (best by default, a step down after a few seconds under 40 FPS,
 // hitches ignored, menus and chunk bursts ignored, one step back up at most,
-// stopping when a step gains nothing, the bottom, the player's choice, the
-// saved level, the safe start, ?graphics=, automated browsers), and the
-// settings upgrade of older saves.
+// a trial step up across sessions and its retry wait, online steps waiting
+// for a moment out of play, stopping when a step gains nothing, the bottom,
+// the player's choice, the saved level, the safe start, ?graphics=,
+// automated browsers), and the settings upgrade of older saves.
 // In the browser (the real game): an automated browser keeps the old
 // default with the tuner off; with ?autotune=1 the tuner steps down while
 // the frames are slow (faked through autotune.fakeFrameTime), saves where it
@@ -58,8 +59,8 @@ async function check(name, fn) {
 // ---------- In Node ----------
 
 // A tuner over a settings object normalized from `raw`, with recording hooks.
-function tuner(raw, opts = {}) {
-  const settings = normalizeSettings(raw);
+function tuner(raw, { raw: asIs = false, ...opts } = {}) {
+  const settings = asIs ? raw : normalizeSettings(raw);
   const t = new AutoTune(settings, { save: () => {}, automated: false, search: "", ...opts });
   const applied = [];
   const toasts = [];
@@ -141,7 +142,7 @@ await check("it steps on while slow, stops when steps gain nothing, and at the b
   assert(t.level >= 1, "a PC at 0.5 FPS is tuned too");
 });
 
-await check("one step back up at most, only to a level that ran fine this session", () => {
+await check("one step back up at most: to a level that ran fine this session, or on trial", () => {
   let { t, toasts } = tuner(null);
   run(t, 60, 1 / 50);
   run(t, 12, 1 / 30);
@@ -151,10 +152,62 @@ await check("one step back up at most, only to a level that ran fine this sessio
   run(t, 12, 1 / 30);
   run(t, 300, 1 / 60);
   assert(t.level === 1, "never up twice");
+  // (A session that starts lower, e.g. pushed down by a busy moment last time: one trial step up.)
   const saved = JSON.parse(JSON.stringify(tuner({ autoGraphics: { on: true, level: 2 } }).settings));
-  ({ t } = tuner(saved));
+  ({ t, toasts } = tuner(saved));
   run(t, 300, 1 / 60);
-  assert(t.level === 2, "no climb above where a session started");
+  assert(t.level === 1 && t.stats().upDone && /raised/.test(toasts[toasts.length - 1]), `a trial step up: ${JSON.stringify(t.stats())}`);
+  run(t, 600, 1 / 60);
+  assert(t.level === 1 && !t.stats().trial, `once, and it ran fine: ${JSON.stringify(t.stats())}`);
+  assert(t.settings.autoGraphics.retryAfter === undefined, "no retry wait");
+});
+
+await check("a trial step up that runs slow: back down, not tried again for a few sessions", () => {
+  // (Sessions over the saved settings as they are written: see settings.js for what survives a reload.)
+  const next = (s) => tuner(JSON.parse(JSON.stringify(s)), { raw: true });
+  let { settings: s, t } = tuner({ autoGraphics: { on: true, level: 3 } });
+  for (let x = 0; x < 200 && t.level === 3; x++) run(t, 1, 1 / 60);
+  assert(t.level === 2 && t.stats().trial, `the trial: ${JSON.stringify(t.stats())}`);
+  run(t, 40, (l) => (l >= 3 ? 1 / 60 : 1 / 30));
+  assert(t.level === 3 && s.autoGraphics.retryAfter === 5, `back down, a wait saved: ${JSON.stringify(s.autoGraphics)}`);
+  run(t, 400, (l) => (l >= 3 ? 1 / 60 : 1 / 30));
+  assert(t.level === 3, "not again this session");
+  for (let i = 4; i >= 0; i--) {
+    ({ settings: s, t } = next(s));
+    assert((s.autoGraphics.retryAfter ?? 0) === i, `session ${5 - i}: ${JSON.stringify(s.autoGraphics)}`);
+    run(t, 200, 1 / 60);
+    assert(t.level === 3, `no trial in session ${5 - i}`);
+  }
+  ({ settings: s, t } = next(s));
+  run(t, 200, 1 / 60);
+  assert(t.level === 2, `tried again after the wait: ${JSON.stringify(t.stats())}`);
+  // (Not a level this session stepped down from.)
+  ({ t } = tuner(null));
+  run(t, 12, 1 / 30);
+  run(t, 400, (l) => (l === 0 ? 1 / 30 : 1 / 60));
+  assert(t.level === 1, `a level that was slow this session: ${JSON.stringify(t.stats())}`);
+});
+
+await check("the saved settings keep the retry wait (js/settings.js)", () => {
+  const s = normalizeSettings({ v: 6, autoGraphics: { on: true, level: 3, retryAfter: 4 } });
+  assert(s.autoGraphics.retryAfter === 4, JSON.stringify(s.autoGraphics));
+  assert(normalizeSettings({ v: 6, autoGraphics: { on: true, level: 3, retryAfter: "x" } }).autoGraphics.retryAfter === undefined, "garbage");
+});
+
+await check("online: a step waits for a moment out of play (the world doesn't wait for the shaders)", () => {
+  let online = true;
+  const { t, applied, toasts } = tuner(null);
+  t.attach({ online: () => online });
+  run(t, 20, 1 / 25);
+  assert(t.level === 0 && !applied.length && t.stats().pending === 1, `held: ${JSON.stringify(t.stats())}`);
+  run(t, 60, 1 / 25);
+  assert(t.level === 0 && t.stats().pending === 1, "one step held, no more measured meanwhile");
+  t.update(1 / 25, false); // (the pause menu, the inventory, a death)
+  assert(t.level === 1 && applied[0] === LADDER[1].label && /lowered/.test(toasts[0]) && t.stats().pending === null, `applied out of play: ${JSON.stringify(t.stats())}`);
+  run(t, 20, 1 / 25);
+  online = false;
+  t.update(1 / 25, true);
+  assert(t.level === 2, `out of the room: at once (${t.level})`);
 });
 
 await check("the player's choice turns it off for good; Auto turns it on again", () => {

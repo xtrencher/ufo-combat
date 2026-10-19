@@ -100,6 +100,9 @@ export class RemotePlayer {
   }
 
   update(dt, now) {
+    // (Counted wherever they are: the host's count of the sleepers is of the
+    // Overworld's, the host maybe not there, js/sleep.js.)
+    this.sleepTime = this.sleeping ? this.sleepTime + dt : 0;
     const st = this.seen ? this.interp.sample(now) : null;
     if (!st) {
       if (this.chute?.active) this.chute.close(null);
@@ -123,7 +126,6 @@ export class RemotePlayer {
     this.shots = Number.isFinite(st.fx) ? st.fx : null;
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.onGround && speed > 0.5) this.walkPhase += speed * dt * 1.6;
-    this.sleepTime = this.sleeping ? this.sleepTime + dt : 0;
     // (Asleep: the head lies flat on the pillow.)
     if (this.sleeping) this.pitch = 0;
     // The live position: the newest state, carried forward a little.

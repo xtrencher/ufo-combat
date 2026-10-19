@@ -16,7 +16,9 @@
 //   the game goes fullscreen as it is entered (Play, Resume, "Click to play":
 //   applySetting, from main.js's requestLock). F11, Alt+Enter and the buttons
 //   set the setting too; leaving fullscreen some other way (the browser's
-//   own Esc) keeps it, and the next click into the game goes back.
+//   own Esc, which is the pause too) keeps it, and the next click into the
+//   game goes back. With the keyboard locked, though, a plain Esc is the
+//   game's: holding it to leave is the player's choice, the setting follows.
 // - Outside fullscreen nothing can stop Ctrl+W, Ctrl+T or Ctrl+N (browsers
 //   keep them): main.js asks "leave the page?" (beforeunload) mid-game.
 
@@ -47,6 +49,16 @@ export class FullscreenControl {
     document.addEventListener("fullscreenchange", () => this._changed());
     document.addEventListener("webkitfullscreenchange", () => this._changed());
     window.addEventListener("keydown", (e) => this._key(e), true);
+    // (Esc held down: see _changed.)
+    this._escHeld = false;
+    window.addEventListener(
+      "keyup",
+      (e) => {
+        if (e.code === "Escape") this._escHeld = false;
+      },
+      true
+    );
+    window.addEventListener("blur", () => (this._escHeld = false));
     this._changed();
   }
 
@@ -126,6 +138,13 @@ export class FullscreenControl {
     this._refreshMenus();
   }
 
+  // The setting as another tab of the game saved it (storage event: not saved again).
+  adopt(on) {
+    if (!this.settings || this.wanted === !!on) return;
+    this.settings.fullscreen = !!on;
+    this._refreshMenus();
+  }
+
   // F11, Alt+Enter, the buttons: a switch the setting follows.
   userToggle() {
     if (!this.supported) return Promise.resolve(false);
@@ -145,7 +164,10 @@ export class FullscreenControl {
   toggle() {
     if (!this.supported) return Promise.resolve(false);
     if (this.active) {
-      return Promise.resolve((document.exitFullscreen || document.webkitExitFullscreen).call(document)).catch(() => {});
+      this._selfExit = true; // (our own way out: the caller has set the setting)
+      return Promise.resolve((document.exitFullscreen || document.webkitExitFullscreen).call(document)).catch(() => {
+        this._selfExit = false;
+      });
     }
     const req = this.root.requestFullscreen || this.root.webkitRequestFullscreen;
     return Promise.resolve(req.call(this.root, { navigationUI: "hide" })).catch(() => {});
@@ -153,6 +175,10 @@ export class FullscreenControl {
 
   _changed() {
     const on = this.active;
+    // (Out of a keyboard-locked fullscreen by holding Esc: not a dialog, not our own switches.)
+    if (!on && this._wasOn && !this._selfExit && this.keyboardLocked && this._escHeld) this._setWanted(false);
+    if (!on) this._selfExit = false;
+    this._wasOn = on;
     document.body.classList.toggle("is-fullscreen", on);
     this.btn.title = on ? "Leave fullscreen (F11)" : "Fullscreen (F11)";
     if (on) this._lockKeys();
@@ -184,6 +210,7 @@ export class FullscreenControl {
   }
 
   _key(e) {
+    if (e.code === "Escape") this._escHeld = true;
     if (e.code === "F11" || (e.code === "Enter" && e.altKey)) {
       e.preventDefault();
       if (!e.repeat) this.userToggle();

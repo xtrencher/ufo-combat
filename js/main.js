@@ -2068,7 +2068,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
   // host's creatures and UFOs too, as nobody's kill: the guest's copies of
   // them make no claim for it.)
   const worldBlastHere = !info.mirror || (!byPlayer && net.isHost && mp.active);
-  if (worldBlastHere) mobs.explosion(center, radius, byPlayer, source);
+  if (worldBlastHere) mobs.explosion(center, radius, byPlayer, source, info);
   // The blast takes the plants with it (the burnt ring too), so none are left floating over the crater.
   if (grass.density > 0 && center.distanceTo(player.position) < 90) grass.clear(center.x, center.z, Math.min(radius + 2.5, 30));
   if (worldBlastHere) ufos.explosion(center, radius, byPlayer);
@@ -2096,7 +2096,7 @@ effects.onExplosion = (center, radius, source, info = {}) => {
 };
 // (A Survival world's creeper and TNT hurt as vanilla's, by their power;
 // the mod weapons keep the grenade curve below.)
-const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5, end_crystal: 6, ghast: 1 }; // (Round 12: a bed in the Nether or the End, a ghast's fireball)
+const VANILLA_BLAST_POWER = { creeper: 3, tnt: 4, bed: 5, end_crystal: 6, ghast: 1, end_respawn: 5 }; // (Round 12: a bed in the Nether or the End, a ghast's fireball, the dragon's respawn rebuilding a pillar)
 // What a blast does to this player on foot: damage close in, and a shove.
 function hurtByBlast(center, radius, source) {
   // (Seated, the blast already hit the vehicle: Player.damage would hand it
@@ -2115,7 +2115,7 @@ function hurtByBlast(center, radius, source) {
     if (q > 0 && !player.dead) {
       let dmg = Math.floor(((q * q + q) / 2) * 7 * 2 * power + 1);
       // (TNT isn't a mob's cause, so its difficulty is applied here; a creeper's is in Player.damage)
-      if (source === "tnt" || source === "bed" || source === "end_crystal") {
+      if (source === "tnt" || source === "bed" || source === "end_crystal" || source === "end_respawn") {
         const s = player.mobDamageScale;
         dmg = s <= 0 ? 0 : Math.max(1, Math.round(dmg * s));
       }

@@ -272,6 +272,33 @@ await check("chorus: a plant holds on end stone or a held plant beside it; a flo
   assert(gw.get("10,75,10") === V.END_GATEWAY && gw.get("10,76,10") === BLOCK.BEDROCK && gw.get("11,74,10") === BLOCK.BEDROCK && gw.get("10,77,10") === BLOCK.BEDROCK && gw.get("11,75,10") === BLOCK.AIR, "the gateway's shape");
 });
 
+await check("review fixes: the lit exit portal and the respawn leave its pillar's base; an elytra isn't worn by hits; a chorus flower goes only where it holds", async () => {
+  // The middle pillar's cells come only as bedrock (the portal's edits and the respawn's air are the rest).
+  for (const active of [true, false]) {
+    const cells = DE.podiumCells(60, active, V.END_PORTAL);
+    const mid = [];
+    for (let i = 0; i < cells.length; i += 4) if (cells[i] === 0 && cells[i + 2] === 0 && cells[i + 1] >= 60) mid.push(cells[i + 3]);
+    assert(mid.length === 4 && mid.every((id) => id === BLOCK.BEDROCK), `the middle (${active}): ${mid}`);
+  }
+  // Hits wear the armour, not the elytra (worn to 1, it stays).
+  const { Inventory } = await imp("js/inventory.js");
+  const inv = new Inventory();
+  let plate = 0;
+  for (let id = 1; id < 4096 && !plate; id++) if (itemInfo(id)?.armor?.slot === 0 && itemInfo(id).armor.points > 0) plate = id;
+  inv.armor[0] = { id: plate, count: 1, dur: 3 };
+  inv.armor[1] = { id: V.ELYTRA, count: 1, dur: 1 };
+  const broken = inv.damageArmor(10);
+  assert(broken.length === 1 && !inv.armor[0] && inv.armor[1]?.dur === 1, `worn: ${JSON.stringify({ broken, armor: inv.armor })}`);
+  // A chorus flower: on end stone or a plant, or over air beside just one plant (as one grown sideways).
+  const w = fakeWorld(null);
+  w.setBlocks([0, 10, 0, V.END_STONE, 5, 10, 0, BLOCK.STONE, 8, 11, 0, V.CHORUS_PLANT, 20, 11, 0, V.CHORUS_PLANT, 22, 11, 0, V.CHORUS_PLANT]);
+  const put = (x, y, z) => BLOCK_INFO[V.CHORUS_FLOWER].placeAs({ world: w, place: [x, y, z] });
+  assert(put(0, 11, 0) === V.CHORUS_FLOWER && put(9, 11, 0) === V.CHORUS_FLOWER, "on end stone, beside a plant");
+  assert(put(5, 11, 0) === null && put(6, 10, 0) === null && put(21, 11, 0) === null && put(30, 11, 0) === null, "on stone, beside stone, between two plants, in the air");
+  const { isSupportedBy } = await imp("js/blocks.js");
+  assert(isSupportedBy(V.CHORUS_FLOWER, BLOCK.AIR) && isSupportedBy(V.CHORUS_FLOWER + 3, V.END_STONE) && !isSupportedBy(V.CHORUS_FLOWER + 3, V.OBSIDIAN), "its hold: the air under a sideways one is the cascade's to judge");
+});
+
 // ---------- In the browser ----------
 
 if (!args.node) await browserChecks();
@@ -539,7 +566,17 @@ async function browserChecks() {
       await frames(page, 4);
       await page.screenshot({ path: path.join(out, "end-dragon-dying.png") });
     }
-    await fast(page, 6);
+    // (back over the exit portal first, as vanilla's, then its ten seconds there)
+    const died = await v(page, (g) => {
+      const e = g.endGame;
+      let at = null;
+      for (let i = 0; i < 20 * 30 && e.state.alive; i++) {
+        if (e.d) at = [e.d.pos.x, e.d.pos.z];
+        e.update(0.05);
+      }
+      return at && Math.hypot(at[0] - 0.5, at[1] - 0.5);
+    });
+    assert(died !== null && died < 12, `it died ${died} blocks from the portal`);
     const s = await v(page, (g) => {
       const e = g.endGame;
       const y = e.gen.podiumY;
@@ -615,6 +652,78 @@ async function browserChecks() {
     assert(r.placed.every(Boolean) && r.left === 0 && r.before.placed === 4 && !r.before.alive, `the crystals: ${JSON.stringify(r)}`);
     const a = r.after;
     assert(a.alive && a.d && a.hp === 200 && a.mask === 1023 && a.placed === 0 && a.portal === BLOCK.AIR && a.pillar === V.OBSIDIAN, `the new dragon: ${JSON.stringify(r)}`);
+  });
+
+  await browserCheck("review fixes in the End: a mirrored blast spares the dragon (its claim did it), TNT hurts it, a pearl's long step finds a gateway, a 17th crystal isn't used up, a dragon saved dying dies on, the pillar's base stays", async () => {
+    // (on its own: a page of its own in the End)
+    if (!(await v(page, (g) => g.dims?.dim === "end").catch(() => false))) {
+      if (!(await page.evaluate(() => !!window.__ufo).catch(() => false))) await boot(page, `seed=${SEED}&type=survival&graphics=low`);
+      await v(page, (g) => g.setMode("creative"));
+      await v(page, (g) => g.dims.debugTravel("end"));
+      assert(await until(page, (g) => g.dims.dim === "end" && !g.dims.pending && g.endGame.d, 90000), "the End");
+    }
+    const r = await v(page, async (g, GATEWAY) => {
+      const { LIB } = await import("/js/content/base.js");
+      const e = g.endGame;
+      const s = e.state;
+      if (!s.alive || !e.d) {
+        s.alive = true;
+        s.hp = 200;
+        s.dying = null;
+        e.d = e._spawnDragon();
+      }
+      const y = e.gen.podiumY;
+      e._think = () => {};
+      e.d.pos.set(0.5, y + 20, 0.5);
+      e.d.phase = "hold";
+      e.update(0.05);
+      const head = e.model.headPos();
+      const hp0 = e.d.hp;
+      g.mobs.explosion(head, 3, false, "tnt", { mirror: true, by: 2 });
+      const hp1 = e.d.hp;
+      g.mobs.explosion(head, 3, false, "tnt", {});
+      const hp2 = e.d.hp;
+      // A pearl's step of 12 blocks over a gateway.
+      // (over this player: its chunk is loaded)
+      const pp = g.player.position;
+      const gw = [Math.floor(pp.x), Math.min(120, Math.floor(pp.y) + 20), Math.floor(pp.z)];
+      g.world.setBlocks([gw[0], gw[1], gw[2], GATEWAY]);
+      const P = new e.d.pos.constructor(gw[0] - 5.5, gw[1] + 0.5, gw[2] + 0.5);
+      const V3 = new e.d.pos.constructor(60, 0, 0);
+      const along = e._gatewayAlong(P, V3, 0.2);
+      const one = e._gatewayAlong(P, V3, 0);
+      g.world.setBlocks([gw[0], gw[1], gw[2], 0]);
+      // Sixteen crystals placed: the 17th isn't put down, nor used up.
+      const placed = s.placed;
+      s.placed = Array.from({ length: 16 }, (_, i) => [200 + i * 3, 10, 200]);
+      g.inventory.slots[0] = { id: 870, count: 2 };
+      g.inventory.selected = 0;
+      const put = LIB.placeEndCrystal({ world: g.world, player: g.player, inventory: g.inventory, audio: g.audio, x: 3, y, z: 0, id: g.world.blockIn("end", 3, y, 0), normal: [0, 1, 0], stack: g.inventory.slots[0], creative: false });
+      const kept = g.inventory.slots[0]?.count ?? 0;
+      s.placed = placed;
+      // Its death saved halfway, loaded again: it dies on (never back at 0 health).
+      // (hit 60 out: back over the portal, within 10 of its top, before it rises)
+      e.d.pos.set(60, y + 20, 0);
+      e._damage("head", 999);
+      for (let i = 0; i < 20 * 25 && e.d && !(e.d.deathT > 0); i++) e.update(0.05);
+      const reached = e.d && Math.hypot(e.d.pos.x - 0.5, e.d.pos.y - y - 4, e.d.pos.z - 0.5);
+      e.d.deathT = 4;
+      const saved = e.serialize();
+      e.load(saved);
+      e.d = null;
+      e.update(0.05);
+      const back = { ph: e.d?.phase, hp: e.d?.hp, t: e.d?.deathT, alive: e.state.alive };
+      for (let i = 0; i < 20 * 30 && e.state.alive; i++) e.update(0.05);
+      // A dead state's word drops a puppet.
+      e.puppet = { interp: { sample: () => null, last: null }, flashT: 0, lastT: e.time };
+      e.applyState(e.state);
+      return { gw, one, reached, hp0, hp1, hp2, along, put, kept, saved: saved.dying, back, dead: !e.state.alive, puppet: !!e.puppet, base: [0, 1, 2, 3].map((k) => g.world.blockIn("end", 0, y + k, 0)) };
+    }, V.END_GATEWAY);
+    assert(r.hp1 === r.hp0 && r.hp2 < r.hp1, `the blasts: ${JSON.stringify(r)}`);
+    assert(r.along && r.along.join() === r.gw.join() && r.one === null, `the pearl: ${JSON.stringify(r)}`);
+    assert(r.put === false && r.kept === 2, `the 17th crystal: ${JSON.stringify(r)}`);
+    assert(r.saved === 4 && r.back.ph === "dying" && r.back.hp === 0 && r.back.t >= 4 && r.back.alive, `saved dying: ${JSON.stringify(r)}`);
+    assert(r.reached < 10.5 && r.dead && !r.puppet && r.base.every((id) => id === BLOCK.BEDROCK), `dead: ${JSON.stringify(r)}`);
   });
 
   // ---------- Online ----------
@@ -700,10 +809,12 @@ async function browserChecks() {
       // The host kills it; the guest sees the portal open.
       await v(host, (g) => g.endGame._damage("head", 999));
       await v(host, (g) => {
-        for (let i = 0; i < 230; i++) g.endGame.update(0.05);
+        for (let i = 0; i < 20 * 30 && g.endGame.state.alive; i++) g.endGame.update(0.05);
       });
       const y = await v(host, (g) => g.endGame.gen.podiumY);
       assert(await until(guest, (g, y) => g.world.getBlock(1, y, 1) === 2609 && g.endGame.state && !g.endGame.state.alive, 40000, y), "the guest never saw the portal open");
+      // (and the dead dragon's puppet is gone, not hanging in its last pose)
+      assert(await until(guest, (g) => !g.endGame.puppet && !g.endGame._poseNow, 10000), "the guest still sees the dead dragon");
       await guest.close();
       await host.close();
     });

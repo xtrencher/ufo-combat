@@ -22,10 +22,17 @@
 // down. A step that made no difference
 // twice running means the frame rate isn't the graphics' doing (a busy CPU):
 // the tuner stops for the session rather than strip everything for nothing.
-// Once in a session it may step back up one level, to a level that ran fine
-// earlier in that session, after a long time with lots of headroom (never
-// back and forth). The level is saved as it changes: the next session starts
-// there, and keeps tuning.
+// Once in a session it may step back up one level, after a long time with
+// lots of headroom (never back and forth): to a level that ran fine earlier
+// in that session, or else, on trial, to the one above where the session
+// started (a busy moment may have pushed it down in an earlier session; it
+// would only ever ratchet down otherwise). A trial that turns out slow steps
+// back down, and isn't tried again for RETRY_SESSIONS sessions. The level is
+// saved as it changes: the next session starts there, and keeps tuning.
+//
+// Online the world doesn't stop while a new level's shaders compile (nothing
+// is drawn meanwhile), so there a step waits for the next moment out of play
+// (the pause menu, the inventory, a death); alone, main.js holds the world.
 //
 // The player's choice wins: picking a preset (graphics or performance) or
 // changing any graphics or performance setting turns the tuner off for good
@@ -41,7 +48,8 @@
 // default (Medium) with the tuner off, as before, unless the page URL has
 // ?autotune=1; picking Auto in the menu turns it on there too.
 //
-// Settings: settings.autoGraphics = { on, level } (js/settings.js).
+// Settings: settings.autoGraphics = { on, level, retryAfter? } (js/settings.js;
+// retryAfter: the sessions still to go before a trial step up).
 
 export const LADDER = [
   { label: "Max", graphics: "ultra", renderDistance: 32, detail: 10, lod: "ultra", resolution: 1, effects: "high" },
@@ -64,6 +72,7 @@ const MAX_FRAME_S = 0.5; // (one frame's share of the window: a long stall doesn
 const FINE_S = 30; // seconds at a good frame rate before a level counts as fine
 const HEADROOM_FPS = 58; // lots of headroom (about a 60 Hz screen's full rate)...
 const HEADROOM_S = 90; // ...this long without a break: one step back up
+const RETRY_SESSIONS = 5; // a trial step up that ran slow: not tried again for this many sessions
 const NO_GAIN = 0.92; // a step that left the frame time above 92% of before gained nothing
 const EVAL_S = 0.5;
 const RING = 1024;
@@ -96,6 +105,7 @@ export class AutoTune {
     this.bootNotice = "";
     this.fakeFrameTime = null; // (tests: a frame time used instead of the real one)
     this._ft = new Float32Array(RING);
+    this._noTrial = false; // (a trial step up taken back lately: none this session)
     this._resetSession();
     // ?graphics=low|medium|high|ultra picks a preset (main.js): the player's choice.
     if (["low", "medium", "high", "ultra"].includes(q.get("graphics")) && this.state.on) {
@@ -113,9 +123,18 @@ export class AutoTune {
           this.bootNotice = `The last start didn't get as far as showing the world, so automatic graphics now start at ${LADDER[i].label}.`;
         }
       }
+      // (A session counted towards the next trial step up.)
+      const wait = Math.floor(Number(this.state.retryAfter)) || 0;
+      this._noTrial = wait > 0;
+      this._setRetry(wait - 1);
       writeLevel(settings, LADDER[this.state.level]);
       save();
     }
+  }
+
+  _setRetry(n) {
+    if (n > 0) this.state.retryAfter = Math.min(99, n);
+    else delete this.state.retryAfter;
   }
 
   // Whether the tuner picks the graphics this session.
@@ -139,6 +158,7 @@ export class AutoTune {
   // hooks: apply(level) puts a ladder level into effect (graphics, render
   // distance, the Performance settings) without counting as the player's
   // choice; toast(text, seconds); busy(): a burst of chunks is streaming in;
+  // online(): in a multiplayer game (a step waits for a moment out of play);
   // refresh(): the settings screen's preset rows show the state again;
   // panel: the SettingsPanel (its Performance rows count as a choice).
   attach(hooks) {
@@ -172,6 +192,7 @@ export class AutoTune {
     if (!state || typeof state !== "object") return;
     const on = state.on === true;
     const level = clampLevel(state.level);
+    this._setRetry(Math.floor(Number(state.retryAfter)) || 0);
     if (on === this.state.on && level === this.state.level) return;
     this.state.on = on;
     this.state.level = level;
@@ -195,9 +216,12 @@ export class AutoTune {
     this._noGain = 0;
     this._stopped = false;
     this._upDone = false;
+    this._trial = false; // (on a level stepped up to on trial: see the header)
+    this._pending = null; // (online: a step waiting for a moment out of play)
     this._bottomNoted = false;
     this._toasted = false;
     this.fine = new Set(); // levels that ran fine this session
+    this.slow = new Set(); // levels stepped down from this session
     this.lastFps = 0;
   }
 
@@ -221,6 +245,13 @@ export class AutoTune {
         this._roomT = 0;
         this._hold = Math.max(this._hold, WARMUP_S);
       }
+      if (this._pending) this._applyPending();
+      return;
+    }
+    if (this._pending) {
+      this._wasActive = true;
+      // (Out of the room meanwhile: nothing to wait for.)
+      if (!this.hooks.online?.()) this._applyPending();
       return;
     }
     // (A frame spanning a gap, e.g. the first one back from a hidden tab: a
@@ -283,9 +314,16 @@ export class AutoTune {
     this._lastDown = null;
     this._noGain = 0;
     this._fineT += dt;
-    if (this._fineT >= FINE_S) this.fine.add(this.state.level);
+    if (this._fineT >= FINE_S) {
+      this.fine.add(this.state.level);
+      this._trial = false; // (the trial went well)
+    }
     this._roomT = fps >= HEADROOM_FPS ? this._roomT + dt : 0;
-    if (this._roomT >= HEADROOM_S && !this._upDone && this.state.level > 0 && this.fine.has(this.state.level - 1)) this._stepUp();
+    if (this._roomT >= HEADROOM_S && !this._upDone && this.state.level > 0) {
+      const up = this.state.level - 1;
+      if (this.fine.has(up)) this._stepUp(false);
+      else if (!this._noTrial && !this.slow.has(up)) this._stepUp(true);
+    }
   }
 
   _median() {
@@ -315,18 +353,42 @@ export class AutoTune {
       return;
     }
     this._lastDown = med;
-    this._go(this.state.level + 1);
-    const label = this.label;
-    this.hooks.toast?.(this._toasted ? `Graphics lowered to ${label} for a smoother game.` : `Graphics lowered to ${label} for a smoother game (Settings > Graphics to choose your own).`, 3.5);
+    this.slow.add(this.state.level);
+    // (A trial step up that ran slow: back down, and not tried again for a while.)
+    if (this._trial) {
+      this._trial = false;
+      this._noTrial = true;
+      this._setRetry(RETRY_SESSIONS);
+    }
+    const label = LADDER[clampLevel(this.state.level + 1)].label;
+    this._change(this.state.level + 1, this._toasted ? `Graphics lowered to ${label} for a smoother game.` : `Graphics lowered to ${label} for a smoother game (Settings > Graphics to choose your own).`);
     this._toasted = true;
   }
 
-  _stepUp() {
+  _stepUp(trial) {
     this._upDone = true;
+    this._trial = trial;
     this._lastDown = null;
     this._noGain = 0;
-    this._go(this.state.level - 1);
-    this.hooks.toast?.(`Graphics raised to ${this.label}: this PC has room for it.`, 3.5);
+    this._change(this.state.level - 1, `Graphics raised to ${LADDER[clampLevel(this.state.level - 1)].label}: this PC has room for it.`);
+  }
+
+  // A step now, or online at the next moment out of play (see the header).
+  _change(level, text) {
+    if (this.hooks.online?.()) {
+      this._pending = { level, text };
+      this._clearWindow();
+      return;
+    }
+    this._go(level);
+    this.hooks.toast?.(text, 3.5);
+  }
+
+  _applyPending() {
+    const { level, text } = this._pending;
+    this._pending = null;
+    this._go(level);
+    this.hooks.toast?.(text, 3.5);
   }
 
   _go(level) {
@@ -342,6 +404,6 @@ export class AutoTune {
 
   // For tests and the debug overlay.
   stats() {
-    return { on: this.on, level: this.state.level, label: this.label, fps: Math.round(this.lastFps * 10) / 10, hold: Math.max(0, this._hold), span: this._span, stopped: this._stopped, upDone: this._upDone, fine: [...this.fine] };
+    return { on: this.on, level: this.state.level, label: this.label, fps: Math.round(this.lastFps * 10) / 10, hold: Math.max(0, this._hold), span: this._span, stopped: this._stopped, upDone: this._upDone, trial: this._trial, pending: this._pending?.level ?? null, fine: [...this.fine] };
   }
 }

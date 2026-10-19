@@ -270,7 +270,9 @@ class DragonModel {
     this.time += dt;
     root.position.set(s.p[0], s.p[1], s.p[2]);
     const dying = s.ph === "dying";
-    root.rotation.set(s.pi, s.y + (dying ? this.time * 0.6 : 0), s.r);
+    // (it turns slowly as it rises, from where it faced: not on its way back to the portal)
+    this.spin = dying && s.dt > 0 ? (this.spin || 0) + dt * 0.6 : 0;
+    root.rotation.set(s.pi, s.y + this.spin, s.r);
     const sitting = SITTING.has(s.ph);
     // (the wings beat faster climbing and slowly while gliding down; held
     // half folded when sitting)
@@ -644,7 +646,7 @@ export class EndGame {
   // ---------- State ----------
 
   _fresh() {
-    return { v: 1, alive: true, killed: false, hp: DRAGON_HP, pos: SPAWN_AT.slice(), crystals: 0x3ff, placed: [], gateways: [], exits: [], respawn: null };
+    return { v: 1, alive: true, killed: false, hp: DRAGON_HP, pos: SPAWN_AT.slice(), dying: null, crystals: 0x3ff, placed: [], gateways: [], exits: [], respawn: null };
   }
 
   // (the player's save: the host's or a single player's)
@@ -666,6 +668,8 @@ export class EndGame {
     if (this.d && s.alive) {
       s.hp = Math.round(this.d.hp * 10) / 10;
       s.pos = [r1(this.d.pos.x), r1(this.d.pos.y), r1(this.d.pos.z)];
+      // (in its death throes: how far in, so a reload or a hand-off goes on dying)
+      s.dying = this.d.phase === "dying" ? r1(this.d.deathT) : null;
     }
   }
 
@@ -677,6 +681,13 @@ export class EndGame {
     this.state = s;
     if (this.d && !s.alive && wasAlive) this.d = null;
     if (this.d && s.alive) this.d.hp = s.hp;
+    // (dead: the puppet goes, else its last pose, the dying one, would hang there)
+    if (!s.alive) this._dropPuppet();
+  }
+
+  _dropPuppet() {
+    this.puppet = null;
+    this.model?.hide();
   }
 
   _changed() {
@@ -740,6 +751,8 @@ export class EndGame {
         if (this.d || s.respawn) this._changed();
       }
     } else this.d = null;
+    // (no pose for a while: the one who flew it left, or it died unheard)
+    if (this.puppet && this.time - this.puppet.lastT > 3) this._dropPuppet();
     // What everyone sees: the dragon (simulated or a puppet), the crystals and their beams.
     const pose = this.d ? this._pose() : this.puppet ? this._puppetPose() : null;
     if (pose && pose.ph !== "gone") {
@@ -851,6 +864,8 @@ export class EndGame {
     const w = this.world;
     if (w.getBlock(x, y, z) !== BLOCK.AIR || w.getBlock(x, y + 1, z) !== BLOCK.AIR) return false;
     if (this.crystals().some((c) => Math.abs(c.x - (x + 0.5)) < 1 && Math.abs(c.z - (z + 0.5)) < 1 && Math.abs(c.y - y) < 2)) return false;
+    // (the state's limit: a crystal it would not keep is not used up)
+    if (this.state.placed.length >= 16) return false;
     if (!ctx.creative) ctx.inventory.consumeSelected(1);
     ctx.audio?.playPlace?.("glass");
     if (this.authority) this._addPlaced([x, y, z]);
@@ -908,6 +923,12 @@ export class EndGame {
       if (ph === "dying") d.phase = "dying";
       else if (SITTING.has(ph)) d.phase = "scan";
       d.deathT = last.dt || 0;
+    }
+    // (saved or handed over dying, or at no health: it dies on, never back to life at 0)
+    if (d.phase !== "dying" && (s.dying != null || s.hp <= 0)) {
+      d.phase = "dying";
+      d.t = 0;
+      d.deathT = s.dying || 0;
     }
     this.puppet = null;
     return d;
@@ -1226,8 +1247,16 @@ export class EndGame {
   // ---------- Its death ----------
 
   _dying(d, dt) {
+    // (vanilla's DragonDeathPhase: back over the exit portal first, to within
+    // 10 blocks of its top; then the 10 s rising there)
+    if (d.deathT <= 0) {
+      d.target.set(0.5, this.gen.podiumY + 4, 0.5);
+      if (this._fly(d, dt, 18, 2.5, 10) > 10 && d.t < 20) return;
+    }
     d.deathT += dt;
     d.vel.set(0, 2, 0);
+    d.pitch *= 1 - Math.min(1, dt * 2);
+    d.roll *= 1 - Math.min(1, dt * 2);
     d.pos.y += 2 * dt; // (vanilla: 0.1 a tick)
     const fx = this.game.effects;
     if (d.deathT > 9 && fx?.glow && Math.random() < 0.5) fx.glow.spawn({ x: d.pos.x + (Math.random() - 0.5) * 8, y: d.pos.y + (Math.random() - 0.5) * 4, z: d.pos.z + (Math.random() - 0.5) * 8, vx: 0, vy: 0, vz: 0, life: 0.6, size0: 3, size1: 6, color0: new THREE.Color(3, 2.2, 3), alpha: 0.8 });
@@ -1245,6 +1274,7 @@ export class EndGame {
     s.alive = false;
     s.killed = true;
     s.hp = 0;
+    s.dying = null;
     this.d = null;
     this.stats.kills++;
     const y = this.gen.podiumY;
@@ -1331,7 +1361,10 @@ export class EndGame {
   // Another peer's pose of its dragon (EndSync).
   onPose(m) {
     if (!this.inEnd || this.authority) return;
-    if (!this.puppet) this.puppet = { interp: new Interp({ angles: ["y", "pi", "r"], discrete: ["ph", "hl"], snap: 60 }), flashT: 0 };
+    // (a late pose of a dragon the state says is dead: dropped)
+    if (this.state && !this.state.alive) return;
+    if (!this.puppet) this.puppet = { interp: new Interp({ angles: ["y", "pi", "r"], discrete: ["ph", "hl"], snap: 60 }), flashT: 0, lastT: this.time };
+    this.puppet.lastT = this.time;
     this.puppet.interp.push(m, this.mp?.net?.time ?? 0);
   }
 
@@ -1524,6 +1557,7 @@ export class EndGame {
       s.alive = true;
       s.hp = DRAGON_HP;
       s.pos = SPAWN_AT.slice();
+      s.dying = null;
       this.d = this._spawnDragon();
       this.game.toast?.("The Ender Dragon returns");
       this._changed();
@@ -1862,7 +1896,7 @@ export class EndGame {
       // (a point of wear every second, as vanilla)
       if (!p.creative && (this._wearT = (this._wearT || 0) + 1) >= 20) {
         this._wearT = 0;
-        chest.dur = (chest.dur ?? 432) - 1;
+        chest.dur = Math.max(1, (chest.dur ?? 432) - 1); // (worn to its last point, never broken)
         this.game.markInventoryChanged?.();
       }
     }
@@ -1955,9 +1989,11 @@ export class EndGame {
     };
     // A blast (TNT, a bed, another crystal) reaches the crystals and the dragon's head.
     const explosion = mobs.explosion.bind(mobs);
-    mobs.explosion = (center, radius, byPlayer = true, source = null) => {
-      const r = explosion(center, radius, byPlayer, source);
-      if (this.inEnd) this._blast(center, radius, byPlayer, source);
+    // (info: main.js onExplosion's; a mirrored blast, another peer's, was
+    // judged for the dragon and the crystals where it went off: its claim)
+    mobs.explosion = (center, radius, byPlayer = true, source = null, info = null) => {
+      const r = explosion(center, radius, byPlayer, source, info);
+      if (this.inEnd && !info?.mirror) this._blast(center, radius, byPlayer, source);
       return r;
     };
     // The egg: a punch sends it away (vanilla: it can't be mined in Survival).
@@ -1982,8 +2018,8 @@ export class EndGame {
           for (let i = th.list.length - 1; i >= 0; i--) {
             const t = th.list[i];
             if (t.kind !== "pearl") continue;
-            const g = [Math.floor(t.pos.x), Math.floor(t.pos.y), Math.floor(t.pos.z)];
-            if (this.world.getBlock(g[0], g[1], g[2]) !== V.END_GATEWAY) continue;
+            const g = this._gatewayAlong(t.pos, t.vel, dt);
+            if (!g) continue;
             this.game.scene.remove(t.mesh);
             th.list.splice(i, 1);
             this.throughGateway(g);
@@ -1992,6 +2028,22 @@ export class EndGame {
         return up(dt);
       };
     }
+  }
+
+  // The gateway cell along this frame's move from `pos` (a slow frame's long
+  // step would jump over one), before any solid block; or null.
+  _gatewayAlong(pos, vel, dt) {
+    const step = _w.copy(vel).multiplyScalar(dt);
+    const n = Math.min(64, Math.max(1, Math.ceil(step.length() / 0.3)));
+    for (let k = 0; k <= n; k++) {
+      const x = Math.floor(pos.x + (step.x * k) / n);
+      const y = Math.floor(pos.y + (step.y * k) / n);
+      const z = Math.floor(pos.z + (step.z * k) / n);
+      const id = this.world.getBlock(x, y, z);
+      if (id === V.END_GATEWAY) return [x, y, z];
+      if (IS_SOLID[id]) return null;
+    }
+    return null;
   }
 
   // The stand-ins: the dragon's head and body, every crystal.
@@ -2041,9 +2093,10 @@ export class EndGame {
       if (this.authority) this._chain(c.key);
       else this.sync?.claim({ k: "c", c: c.key });
     }
-    // (the dragon: a blast a player caused, or a bed's: vanilla's always-hurts tag)
+    // (the dragon: a blast a player caused, or a bed's: vanilla's always-hurts
+    // tag; TNT is taken as a player's, as vanilla's lit by one: who lit it isn't kept)
     const pose = this._poseNow;
-    if (!pose || pose.ph === "dying" || !(byPlayer || source === "bed") || source === "end_crystal") return;
+    if (!pose || pose.ph === "dying" || !(byPlayer || source === "bed" || source === "tnt") || source === "end_crystal") return;
     const head = this.model.headPos(new THREE.Vector3());
     const q = 1 - head.distanceTo(center) / (2 * power);
     if (q <= 0) return;
@@ -2068,6 +2121,7 @@ export class EndGame {
     else if (m.k === "cl" && Array.isArray(m.p)) this._addCloud({ x: m.p[0], y: m.p[1], z: m.p[2], r: clamp(Number(m.r) || 3, 0.5, 8), grow: clamp(Number(m.g) || 0, 0, 1), life: clamp(Number(m.l) || 10, 0, 60), kind: m.kd === "breath" ? "breath" : "fireball" }, false);
     else if (m.k === "xp" && Array.isArray(m.p)) {
       this._dragonXp(m.p, clamp(Number(m.n) || 0, 0, 12000));
+      this._dropPuppet();
       this.game.toast?.("The Ender Dragon is dead");
     }
   }
@@ -2131,6 +2185,7 @@ function sanitizeState(st) {
     killed: !!st.killed,
     hp: Number.isFinite(hp) ? clamp(hp, 0, DRAGON_HP) : DRAGON_HP,
     pos: nums3(st.pos) ? st.pos.map((v, i) => clamp(v, i === 1 ? 10 : -400, i === 1 ? 126 : 400)) : SPAWN_AT.slice(),
+    dying: st.alive && Number.isFinite(st.dying) ? clamp(st.dying, 0, 10) : null,
     crystals: (Number(st.crystals) | 0) & 0x3ff,
     placed: Array.isArray(st.placed) ? st.placed.filter(ints3).slice(0, 16) : [],
     gateways: Array.isArray(st.gateways) ? [...new Set(st.gateways.filter((i) => Number.isInteger(i) && i >= 0 && i < 20))] : [],

@@ -210,6 +210,15 @@ export class MenuPerf {
     if (this.recEl) this.recEl.classList.add("hidden");
   }
 
+  // (Round 12) The tips for the world type the menu shows (it follows the
+  // picked card): a tip of the new set at once.
+  setTips(tips) {
+    if (!tips?.length || tips === this.tips) return;
+    this.tips = tips;
+    this._tip = Math.floor(Math.random() * tips.length);
+    this._tipT = 0;
+  }
+
   // The preset to suggest for a measured frame rate, or null when it is fine
   // (about 40 FPS is the goal; each step down is roughly 1.5x faster).
   static recommend(preset, fps, order = ["low", "medium", "high", "ultra"]) {

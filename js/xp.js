@@ -252,6 +252,25 @@ export class XpOrbs {
     for (let i = this.orbs.length - 1; i >= 0; i--) this._remove(i);
   }
 
+  // (Round 12) The orbs of a dimension the world leaves, kept aside without
+  // their sprites (js/dimensions.js), and back as they were on the return.
+  stash() {
+    const out = this.orbs.map((o) => ({ value: o.value, pos: o.pos.clone(), vel: o.vel.clone(), age: o.age, phase: o.phase }));
+    this.clear();
+    return out;
+  }
+
+  unstash(list) {
+    if (!Array.isArray(list)) return;
+    for (const s of list) {
+      if (this.orbs.length >= MAX_ORBS) break;
+      const o = { ...s, sprite: this._sprite() };
+      this._size(o);
+      o.sprite.position.copy(o.pos);
+      this.orbs.push(o);
+    }
+  }
+
   // Total points still lying around (tests, the debug overlay).
   get pending() {
     let n = 0;
@@ -276,6 +295,10 @@ export class XpOrbs {
     const drag = Math.pow(0.98, dt * 20);
     for (let i = this.orbs.length - 1; i >= 0; i--) {
       const o = this.orbs[i];
+      // (Round 12) Its ground not loaded (yet, back from another dimension; or
+      // left far behind): it waits there, as vanilla's unloaded entities, not
+      // falling through the world.
+      if (this.world.getChunk && !this.world.getChunk(Math.floor(o.pos.x) >> 4, Math.floor(o.pos.z) >> 4)) continue;
       o.age += dt;
       if (o.age > ORB_LIFE) {
         this._remove(i);

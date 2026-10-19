@@ -90,6 +90,8 @@ export const DEATH_MESSAGES = {
   dragon_breath: "Roasted in dragon's breath",
   end_crystal: "Blown up by an end crystal",
   end_crystal_fall: "Blown off your feet by an end crystal",
+  end_respawn: "Blew up", // (the respawn's pillar blasts: vanilla's for a blast nobody caused)
+  end_respawn_fall: "Fell from a high place",
   fly_into_wall: "Experienced kinetic energy",
   tnt_fall: "Blown off your feet by TNT",
   creeper: "Blown up by a creeper",

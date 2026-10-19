@@ -18,7 +18,8 @@
 //   a new portal is built: on the nearest spot within 16 blocks where its
 //   4 x 5 frame stands on solid ground with room in front and behind, else
 //   on a 3 x 2 obsidian platform at y 70 or the spot's height (vanilla's
-//   rule), registered for the way back. You come out standing in it (step
+//   rule; in the Overworld on its ground's top, or just over the sea: this
+//   world's sea is at 24), registered for the way back. You come out standing in it (step
 //   out before it works again).
 // - On screen: purple motes round portals, the portal's hum near one, the
 //   swirl closing in while you wait in it (the engine's overlay, turning
@@ -32,13 +33,13 @@
 // started it (another peer's edits arrive with their results): the portal
 // blocks, frames and anchors are shared in their dimension; each player
 // travels on their own; the registry is the engine's (shared by the host).
-import { PORTAL_BLOCKS, NETHER, OVERWORLD } from "./dim-registry.js";
+import { PORTAL_BLOCKS, NETHER, OVERWORLD, END } from "./dim-registry.js";
 import { BLOCK, BLOCK_INFO, IS_SOLID, IS_OPAQUE, IS_REPLACEABLE } from "./blocks.js";
 import { LIB } from "./content/base.js";
 import * as I from "./content/ids.js";
 import { isNetherPortal, isSoulFireBase, isWeepingVines, anchorCharge } from "./content/nether.js";
 import { isLava } from "./content/nature.js";
-import { WORLD_HEIGHT } from "./constants.js";
+import { WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 
 PORTAL_BLOCKS.set(I.NETHER_PORTAL, "nether");
 PORTAL_BLOCKS.set(I.NETHER_PORTAL + 1, "nether");
@@ -178,8 +179,9 @@ export class NetherPortals {
 
   // Lights the portal round a fire at (x, y, z), if it is in a frame. True if lit.
   tryLight(x, y, z) {
-    // (a Missions world never reaches the Nether: its frames stay frames)
-    if (!this.dims?.enabled) return false;
+    // (a Missions world never reaches the Nether: its frames stay frames;
+    // nor do they light in the End, as vanilla's)
+    if (!this.dims?.enabled || this.dims.dim === END) return false;
     const w = this.world;
     const get = (bx, by, bz) => w.getBlock(bx, by, bz);
     for (const axis of [0, 1]) {
@@ -373,9 +375,13 @@ export class NetherPortals {
     }
     let forced = false;
     if (!best) {
-      // (vanilla: at the spot, its height kept between 70 and the top less 10, on obsidian)
+      // (vanilla: at the spot, its height kept between 70 and the top less
+      // 10, on obsidian. This Overworld's sea is at 24, not 63, its ground
+      // far under 70: there it stands on the ground's top, or just over the
+      // sea, not floating 46 blocks up)
       forced = true;
-      best = { x, y: Math.max(info.ceiling ? 70 : 70, Math.min(info.ceiling ? 110 : WORLD_HEIGHT - 10, y)), z, axis: 0 };
+      const fy = info.ceiling ? Math.max(70, y) : Math.max(SEA_LEVEL + 1, w.surfaceY(x, z) + 1);
+      best = { x, y: Math.min(info.ceiling ? 110 : WORLD_HEIGHT - 10, fy), z, axis: 0 };
     }
     const { axis } = best;
     const [ax, az] = AXIS[axis];
@@ -435,6 +441,14 @@ export class NetherPortals {
     d.toSpawn = () => {
       if (!(sleep?.spawn && sleep.spawnDim === NETHER)) return toSpawn();
       const [x, y, z] = sleep.spawn;
+      // (the anchor gone or empty, its ground not loaded from here: the spawn
+      // forgotten, the bed's way instead, as at a respawn)
+      if (!(anchorCharge(this.world.blockIn(NETHER, x, y, z)) > 0)) {
+        sleep.spawn = null;
+        sleep.spawnDim = OVERWORLD;
+        this.game.toast?.("Your home bed was missing or obstructed", 4);
+        return toSpawn();
+      }
       return d.travel(NETHER, x + 0.5, y + 1, z + 0.5, { place: "safe" });
     };
   }

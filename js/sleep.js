@@ -49,9 +49,11 @@ export function standUp(avatar) {
 }
 
 export class Sleep {
-  // deps: { player, sky, world, mobs, toast, players () => remote players,
-  // online () => bool, isHost () => bool, inGame () => bool, sendTime () => void,
-  // and the optional onSpawnSet, onSleep, onWake, onSkip, thundering () => bool }
+  // deps: { player, sky, world, mobs, toast, players () => remote players
+  // here, online () => bool, isHost () => bool, inGame () => bool, sendTime
+  // () => void, and the optional onSpawnSet, onSleep, onWake, onSkip,
+  // thundering () => bool, everyone () => every remote player, whatever their
+  // dimension (Round 12: net/players.js all()) }
   constructor(deps) {
     this.d = deps;
     this.spawn = null; // [x, y, z]: the bed's head cell, or null (the world spawn)
@@ -216,19 +218,21 @@ export class Sleep {
   }
 
   // Everyone in the game (dead players don't count): [asleep, total, all
-  // asleep long enough].
+  // asleep long enough]. (Round 12) Only the Overworld's, as vanilla's
+  // sleepers are counted in their own world: a player in the Nether or the
+  // End doesn't keep the night going (their dimension: world.dim, r.dim).
   _count() {
     const p = this.player;
     let asleep = 0;
     let total = 0;
     let ready = true;
-    if (!p.dead && this.d.inGame?.() !== false) {
+    if (!p.dead && this.d.inGame?.() !== false && (this.d.world.dim ?? "overworld") === "overworld") {
       total++;
       if (p.sleeping) asleep++;
       if (!p.sleeping || p.sleeping.t < SLEEP_TIME) ready = false;
     }
-    for (const r of this.d.players()) {
-      if (r.dead) continue;
+    for (const r of this.d.everyone?.() ?? this.d.players()) {
+      if (r.dead || (r.dim | 0) !== 0) continue;
       total++;
       if (r.sleeping) asleep++;
       if (!r.sleeping || (r.sleepTime ?? 0) < SLEEP_TIME) ready = false;
