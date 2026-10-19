@@ -31,6 +31,12 @@ const args = Object.fromEntries(
     })
 );
 const imp = (p) => import(pathToFileURL(path.join(ROOT, p)).href);
+// (js/furnace.js draws campfire food with three.js: in node "three" is the tools' copy.)
+{
+  const { register } = await import("node:module");
+  const three = pathToFileURL(path.join(__dirname, "node_modules", "three", "build", "three.module.js")).href;
+  register("data:text/javascript," + encodeURIComponent(`export async function resolve(s, c, n) { return s === "three" ? n(${JSON.stringify(three)}, c) : n(s, c); }`));
+}
 const R = await imp("js/dim-registry.js");
 const { BLOCK } = await imp("js/content/base.js");
 const V = await imp("js/content/ids.js");

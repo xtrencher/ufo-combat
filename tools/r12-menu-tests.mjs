@@ -311,15 +311,16 @@ async function browserChecks() {
       p.evaluate(async () => {
         const { MENU_TIPS, SURVIVAL_TIPS } = await import("./js/menu.js");
         const t = document.getElementById("menu-tip").textContent.replace(/^Tip: /, "");
-        return MENU_TIPS.includes(t) && !SURVIVAL_TIPS.includes(t) ? "missions" : SURVIVAL_TIPS.includes(t) && !MENU_TIPS.includes(t) ? "survival" : t;
+        // (A tip both sets have, the Fullscreen one, says nothing either way.)
+        return MENU_TIPS.includes(t) && SURVIVAL_TIPS.includes(t) ? "shared" : MENU_TIPS.includes(t) ? "missions" : SURVIVAL_TIPS.includes(t) ? "survival" : t;
       });
     await frames(p, 3);
     let t = await tips();
-    assert(t === "survival", `a Survival world's tips: ${t}`);
+    assert(t === "survival" || t === "shared", `a Survival world's tips: ${t}`);
     await p.click("#mode-card-survival");
     await frames(p, 3);
     t = await tips();
-    assert(t === "missions", `the Missions card's: ${t}`);
+    assert(t === "missions" || t === "shared", `the Missions card's: ${t}`);
     let m = await menu(p);
     assert(m.play === "Continue Missions world", `the saved one: ${JSON.stringify(m)}`);
     await Promise.all([p.waitForNavigation({ waitUntil: "load", timeout: 60000 }), p.click("#play-btn")]);

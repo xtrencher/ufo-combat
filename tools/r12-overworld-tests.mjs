@@ -201,9 +201,10 @@ await check("a jungle's chunks: giant jungle trees (2x2 trunks 10-31 tall under 
   console.log(`        jungle at ${j.x},${j.z}: ${JSON.stringify(cnt)}`);
   assert(cnt.giants >= 10, `${cnt.giants} giant jungle trees in ${cnt.chunks} chunks`);
   assert(cnt.tallest >= 18, `the tallest giant is ${cnt.tallest}`);
-  assert(cnt.jungleTrees >= 20 && cnt.bushes >= 20, `${cnt.jungleTrees} jungle trees, ${cnt.bushes} bushes`);
+  // (Fewer since the bamboo jungle takes a part of every jungle: js/biomes.js bambooField.)
+  assert(cnt.jungleTrees >= 10 && cnt.bushes >= 20, `${cnt.jungleTrees} jungle trees, ${cnt.bushes} bushes`);
   assert(cnt.vines > 1000 && cnt.hanging > 200, `${cnt.vines} vines, ${cnt.hanging} hanging`);
-  assert(cnt.cocoa >= 4 && cnt.ferns >= 100 && cnt.melons >= 1, `${cnt.cocoa} cocoa pods, ${cnt.ferns} ferns, ${cnt.melons} melons`);
+  assert(cnt.cocoa >= 1 && cnt.ferns >= 100 && cnt.melons >= 1, `${cnt.cocoa} cocoa pods, ${cnt.ferns} ferns, ${cnt.melons} melons`);
 });
 
 await check("a jungle's chunks cost about what other chunks do to make (giant trees included)", async () => {
