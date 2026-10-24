@@ -614,6 +614,9 @@ export class Tel extends GroundVehicle {
 
 VehicleManager.register("tel", Tel);
 
+// (Round 13) Creative's launcher (the palette's Vehicles tab): on the ground only.
+VehicleManager.registerSummon?.("tel", { type: "tel", alt: 0, data: () => ({}) });
+
 // Puts a TEL down (the Creative palette, a mission).
 export function summonTel(vehicles, pos, yaw = 0, extra = {}) {
   const v = vehicles.create("tel", { pos: [pos.x, pos.y, pos.z], yaw, ...extra });

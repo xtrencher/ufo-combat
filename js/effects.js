@@ -13,7 +13,7 @@
 import * as THREE from "three";
 import { LAYER_FX } from "./layers.js";
 import { BLOCK, IS_WET, BLOCK_INFO, BLOCK_LIMIT } from "./blocks.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { SEA_LEVEL, WORLD_HEIGHT } from "./constants.js";
 import { DebrisPool, BillboardPool } from "./particles.js";
 import { shakeFalloff } from "./falloff.js";
@@ -229,7 +229,7 @@ export class EffectsSystem {
     const bz = Math.floor(center.z);
     const removed = [];
     const edits = [];
-    const proof = isVanilla() ? BLAST_PROOF : null;
+    const proof = vanillaRules() ? BLAST_PROOF : null; // (Round 13: in both world types)
     const y0 = Math.max(0, by - vReach);
     const y1 = Math.min(WORLD_HEIGHT - 1, by + vReach);
     const maxR2 = (r + lumpiness) * (r + lumpiness);
@@ -537,11 +537,11 @@ export class EffectsSystem {
       this.shockSphere(muzzle, 1, 9 * size, 0.22, 0.8);
       this.muzzleFlash(muzzle, 5 * size);
       // 3. The muzzle smoke: rolling out ahead, hanging, drifting.
-      const puffs = Math.round(16 * q * size) + 4;
+      const puffs = Math.round(22 * q * size) + 5;
       for (let i = 0; i < puffs; i++) {
         const k = Math.random();
-        const v = new THREE.Vector3(dir.x * (4 + k * 14) + rnd(-2.5, 2.5), dir.y * (4 + k * 10) + rnd(0, 2), dir.z * (4 + k * 14) + rnd(-2.5, 2.5));
-        this.smoke.spawn({ x: muzzle.x, y: muzzle.y, z: muzzle.z, vx: v.x, vy: v.y, vz: v.z, life: rnd(5, 8), size0: rnd(1.2, 2.2) * size, size1: rnd(6, 10) * size, color0: c.s0, color1: c.s1, alpha: rnd(0.4, 0.6), drag: 1.6, gravity: -0.02, hold: 0.25 });
+        const v = new THREE.Vector3(dir.x * (3 + k * 12) + rnd(-2.5, 2.5), dir.y * (3 + k * 8) + rnd(0, 2), dir.z * (3 + k * 12) + rnd(-2.5, 2.5));
+        this.smoke.spawn({ x: muzzle.x + dir.x * k * 2, y: muzzle.y, z: muzzle.z + dir.z * k * 2, vx: v.x, vy: v.y, vz: v.z, life: rnd(5, 9), size0: rnd(1.6, 2.8) * size, size1: rnd(8, 13) * size, color0: c.s0, color1: c.s1, alpha: rnd(0.55, 0.75), drag: 1.5, gravity: -0.02, hold: 0.35 });
       }
       const ears = this.listener;
       const d = ears ? muzzle.distanceTo(ears) : 30;
@@ -554,7 +554,7 @@ export class EffectsSystem {
   // ground, a sphere), sparks, the smoke column; the rim scorched.
   _shellImpact(center, removed, radius, look, kind, mirror) {
     const c = this._colors;
-    const k = this._siC || (this._siC = { dirt: new THREE.Color(0.42, 0.34, 0.24), dirt1: new THREE.Color(0.6, 0.53, 0.43), hot: new THREE.Color(6, 4, 1.6), white: new THREE.Color(7, 6.5, 5.5) });
+    const k = this._siC || (this._siC = { dirt: new THREE.Color(0.5, 0.4, 0.27), dirt1: new THREE.Color(0.64, 0.57, 0.46), hot: new THREE.Color(6, 4, 1.6), white: new THREE.Color(7, 6.5, 5.5) });
     const rnd = (a, b) => a + Math.random() * (b - a);
     const q = effectsQuality.scale;
     const big = Math.sqrt(look / GRENADE_RADIUS);
@@ -579,18 +579,18 @@ export class EffectsSystem {
       const out = rnd(3, 9) * big;
       this.debris.spawn(x, y, z, (ox / l) * out, rnd(9, 20) * big, (oz / l) * out, rnd(0.14, 0.34) * Math.min(big, 1.8), color, rnd(2, 3.6) * Math.min(big, 1.6));
     }
-    const fountain = Math.round((huge ? 60 : 30) * Math.min(big, 2.5) * q) + 6;
+    const fountain = Math.round((huge ? 70 : 40) * Math.min(big, 2.5) * q) + 8;
     for (let i = 0; i < fountain; i++) {
       const a = Math.random() * Math.PI * 2;
-      const spread = rnd(0, 0.45);
-      const up = rnd(10, 24) * big;
-      this.smoke.spawn({ x: center.x + rnd(-1, 1) * big, y: center.y, z: center.z + rnd(-1, 1) * big, vx: Math.cos(a) * up * spread, vy: up, vz: Math.sin(a) * up * spread, life: rnd(1.6, 2.8) * Math.min(big, 1.8), size0: rnd(1, 2) * big, size1: rnd(3.5, 6) * big, color0: k.dirt, color1: k.dirt1, alpha: 0.75, drag: 1.8, gravity: 0.55 });
+      const spread = rnd(0, 0.38);
+      const up = rnd(12, 30) * big;
+      this.smoke.spawn({ x: center.x + rnd(-1, 1) * big, y: center.y, z: center.z + rnd(-1, 1) * big, vx: Math.cos(a) * up * spread, vy: up, vz: Math.sin(a) * up * spread, life: rnd(1.8, 3.2) * Math.min(big, 1.8), size0: rnd(1.6, 3) * big, size1: rnd(5, 9) * big, color0: k.dirt, color1: k.dirt1, alpha: 0.88, drag: 1.7, gravity: 0.5, hold: 0.3 });
     }
     const skirt = Math.max(10, Math.round((huge ? 48 : 28) * Math.min(big, 2.4) * q));
     for (let i = 0; i < skirt; i++) {
       const a = (i / skirt) * Math.PI * 2 + rnd(-0.1, 0.1);
       const sp = rnd(10, 18) * big;
-      this.smoke.spawn({ x: center.x, y: center.y - 0.3, z: center.z, vx: Math.cos(a) * sp, vy: rnd(0.4, 1.8), vz: Math.sin(a) * sp, life: rnd(1.8, 3) * Math.min(big, 1.7), size0: 1.6 * big, size1: rnd(5, 7.5) * big, color0: c.dust, color1: c.smokeLight, alpha: 0.5, drag: 2.1 / Math.min(big, 1.6) });
+      this.smoke.spawn({ x: center.x, y: center.y - 0.3, z: center.z, vx: Math.cos(a) * sp, vy: rnd(0.4, 1.8), vz: Math.sin(a) * sp, life: rnd(2, 3.4) * Math.min(big, 1.7), size0: 2 * big, size1: rnd(7, 10) * big, color0: k.dirt1, color1: c.smokeLight, alpha: 0.62, drag: 2.1 / Math.min(big, 1.6), hold: 0.25 });
     }
     // 2. The fireball, the shock: a moment later.
     this._after(0.07, () => {
@@ -600,10 +600,10 @@ export class EffectsSystem {
         this.lastShellFx.shockAt = at;
       }
       this.glow.spawn({ x: center.x, y: center.y + big, z: center.z, life: 0.12, size0: 9 * big, size1: 3 * big, color0: k.white, alpha: 0.9 });
-      const fire = Math.round((huge ? 70 : 34) * Math.min(big, 3) * q) + 6;
+      const fire = Math.round((huge ? 80 : 44) * Math.min(big, 3) * q) + 6;
       for (let i = 0; i < fire; i++) {
         const v = new THREE.Vector3(rnd(-1, 1), rnd(0, 1.3), rnd(-1, 1)).normalize().multiplyScalar(rnd(3, 11) * big);
-        this.glow.spawn({ x: center.x + rnd(-1, 1) * big, y: center.y + rnd(0, 1.5) * big, z: center.z + rnd(-1, 1) * big, vx: v.x, vy: v.y + 2 * big, vz: v.z, life: rnd(0.3, 0.75) * Math.min(big, 2), size0: rnd(1.5, 3) * big, size1: rnd(4, 7) * big, color0: c.fireHot, color1: Math.random() < 0.5 ? c.fireMid : c.fireEnd, alpha: 0.45, drag: 3.2 / big, gravity: -0.14 });
+        this.glow.spawn({ x: center.x + rnd(-1, 1) * big, y: center.y + rnd(0, 1.5) * big, z: center.z + rnd(-1, 1) * big, vx: v.x, vy: v.y + 2 * big, vz: v.z, life: rnd(0.3, 0.8) * Math.min(big, 2), size0: rnd(1.8, 3.4) * big, size1: rnd(5, 8.5) * big, color0: c.fireHot, color1: Math.random() < 0.5 ? c.fireMid : c.fireEnd, alpha: 0.45, drag: 3.2 / big, gravity: -0.14 });
       }
       const sparks = Math.round(50 * Math.min(big, 2) * q);
       for (let i = 0; i < sparks; i++) {
@@ -622,7 +622,9 @@ export class EffectsSystem {
       const n = Math.round((huge ? 70 : 34) * Math.min(big, 3) * q) + 6;
       for (let i = 0; i < n; i++) {
         const v = new THREE.Vector3(rnd(-1, 1), rnd(0.2, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(1, 4) * big);
-        this.smoke.spawn({ x: center.x + rnd(-1.5, 1.5) * big, y: center.y + rnd(0, 2) * big, z: center.z + rnd(-1.5, 1.5) * big, vx: v.x, vy: v.y + rnd(2.5, 6) * big * (huge ? 1.6 : 1), vz: v.z, life: rnd(4, 8) * Math.min(big, 1.8), size0: rnd(2, 4) * big, size1: rnd(7, 12) * big, color0: c.smokeDark, color1: c.smokeLight, alpha: rnd(0.5, 0.75), drag: 1.1 / big, gravity: -0.03, hold: 0.2 });
+        // (a column: some rise fast and high, the rest billow low)
+        const tall = Math.random() < 0.45;
+        this.smoke.spawn({ x: center.x + rnd(-1.5, 1.5) * big, y: center.y + rnd(0, 2) * big, z: center.z + rnd(-1.5, 1.5) * big, vx: v.x * (tall ? 0.4 : 1), vy: v.y + (tall ? rnd(6, 12) : rnd(2, 5)) * big * (huge ? 1.6 : 1), vz: v.z * (tall ? 0.4 : 1), life: rnd(5, 9) * Math.min(big, 1.8), size0: rnd(2, 4) * big, size1: rnd(7, 13) * big, color0: c.smokeDark, color1: c.smokeLight, alpha: rnd(0.55, 0.8), drag: (tall ? 0.6 : 1.1) / big, gravity: -0.03, hold: 0.25 });
       }
     });
     // The rim: scorched, churned ground (the blast's owner's edit: everyone gets it).

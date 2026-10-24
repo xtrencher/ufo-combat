@@ -9,7 +9,7 @@
 // Bumped whenever the messages between peers change incompatibly: a host and
 // a client with different versions refuse to play together (with a message
 // saying to reload), instead of misbehaving.
-export const NET_VERSION = 10; // (9: Survival worlds, wide block edits; 10: dimensions)
+export const NET_VERSION = 11; // (9: Survival worlds, wide block edits; 10: dimensions; 11: one world (the terrain's generator in the welcome, vanilla rules in Missions rooms))
 
 // The PeerJS client library (loaded only when multiplayer is used, so single
 // player never needs it).

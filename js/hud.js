@@ -6,7 +6,7 @@
 import { HOTBAR_SIZE } from "./inventory.js";
 import { MAX_HEALTH, MAX_AIR, CAMERA_MODES } from "./player.js";
 import { SlotView, stackLabel } from "./slot-view.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { EFFECTS, MAX_FOOD, formatEffectTime, effectLevelName } from "./survival.js";
 
 const PX = 2; // screen pixels per art pixel
@@ -486,8 +486,8 @@ export class Hud {
       this.heartsEl.classList.toggle("hidden", player.creative);
       this._shownHealth = -1;
     }
-    // (Round 11) A Survival world's bars: hunger and XP (not in Creative).
-    const survival = isVanilla() && !player.creative;
+    // (Round 11) The hunger and XP bars (not in Creative; Round 13: in both world types).
+    const survival = vanillaRules() && !player.creative;
     if (survival !== this._survivalHud) {
       this._survivalHud = survival;
       this.foodEl.classList.toggle("hidden", !survival);
@@ -687,7 +687,7 @@ export class Hud {
       this.scoreEl.style.cssText = "margin-top: 10px; font-size: 18px; color: #fff; text-shadow: 2px 2px 0 #300; animation: death-fade 0.8s ease-out 0.4s both;";
       this.deathCauseEl.after(this.scoreEl);
     }
-    this.scoreEl.classList.toggle("hidden", !isVanilla());
+    this.scoreEl.classList.toggle("hidden", !vanillaRules());
     this.scoreEl.innerHTML = `Score: <span style="color: #ffff55">${this._score}</span>`;
     this.deathEl.classList.remove("hidden");
     // Replaying the entrance animation.

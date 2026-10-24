@@ -14,12 +14,19 @@ export const F22_ITEM = 266;
 export const F16_ITEM = 267;
 export const B2_ITEM = 268;
 export const UFO_ITEM = 269;
+// (Round 13) The ground war's (js/vehicle-tank.js, js/ballistic.js).
+export const TIGER_ITEM = 316;
+export const MBT_ITEM = 317;
+export const TEL_ITEM = 318;
 
 export const items = {
   [F22_ITEM]: { name: "F-22 Raptor", icon: "vehicle_f22", stack: 1, vehicle: "f22" },
   [F16_ITEM]: { name: "F-16 Fighting Falcon", icon: "vehicle_f16", stack: 1, vehicle: "f16" },
   [B2_ITEM]: { name: "B-2 Spirit", icon: "vehicle_b2", stack: 1, vehicle: "b2" },
   [UFO_ITEM]: { name: "UFO", icon: "vehicle_ufo", stack: 1, vehicle: "ufo" },
+  [TIGER_ITEM]: { name: "Tiger Tank", icon: "vehicle_tiger", stack: 1, vehicle: "tiger" },
+  [MBT_ITEM]: { name: "Battle Tank", icon: "vehicle_mbt", stack: 1, vehicle: "mbt" },
+  [TEL_ITEM]: { name: "Missile Launcher (TEL)", icon: "vehicle_tel", stack: 1, vehicle: "tel" },
 };
 
 export const itemUse = {};
@@ -79,4 +86,47 @@ icons.vehicle_ufo = (kit) => {
   const dome = kit.ramp(0x1d4f5e, 0x2c7488, 0x45a0b4, 0x74c8d6, 0xb4ecf2);
   const light = kit.ramp(0x2d7a2a, 0x47a83f, 0x6cd65e, 0xa0f28c, 0xd8ffc8);
   return c.render([hull, dome, light], [16, 18, 22]);
+};
+
+// (Round 13) A tank from the side: the tracks and road wheels, the hull, the
+// turret and the long gun (the Tiger boxy and grey, the modern tank low and green).
+function tankIcon(kit, tiger) {
+  const c = new kit.Canvas();
+  const BODY = 0;
+  const TRACK = 1;
+  const WHEEL = 2;
+  c.poly(TRACK, [[3, 21], [29, 21], [27, 27.5], [5, 27.5]], () => -0.1);
+  for (const x of tiger ? [7, 11, 15, 19, 23, 26] : [7, 11.5, 16, 20.5, 25]) c.disc(WHEEL, x, 24.3, 2, 2, (px, py) => (py < 24 ? 0.4 : -0.2));
+  if (tiger) {
+    c.poly(BODY, [[2, 15.5], [30, 15.5], [30, 21], [2, 21]], (x, y) => (y < 17 ? 0.35 : 0));
+    c.poly(BODY, [[9, 10], [22, 10], [23, 15.5], [8, 15.5]], (x, y) => (y < 12 ? 0.45 : 0.1));
+    c.line(BODY, 8, 12.5, 0.5, 12.5, 1.4, () => 0.2);
+    c.disc(TRACK, 1.2, 12.5, 1.3, 1.4, () => 0);
+  } else {
+    c.poly(BODY, [[1.5, 18.5], [6, 15.5], [30, 15.5], [30, 21], [3, 21]], (x, y) => (y < 17 ? 0.35 : 0));
+    c.poly(BODY, [[7, 12.5], [13, 10.5], [25, 10.5], [26, 15.5], [9, 15.5]], (x, y) => (y < 12.5 ? 0.45 : 0.1));
+    c.line(BODY, 9, 12.5, 0.5, 12.5, 1.2, () => 0.2);
+  }
+  const body = tiger ? kit.ramp(0x2a2e31, 0x3a3f43, 0x4d5357, 0x646b70, 0x80878c) : kit.ramp(0x2b311d, 0x3c4429, 0x4f5936, 0x667146, 0x7f8b58);
+  const track = kit.ramp(0x141312, 0x1f1d1b, 0x2b2825, 0x3a3632, 0x4a4540);
+  const wheel = kit.ramp(0x1c1c1c, 0x2e2e2e, 0x444444, 0x5e5e5e, 0x7a7a7a);
+  return c.render([body, track, wheel], [14, 16, 18]);
+}
+icons.vehicle_tiger = (kit) => tankIcon(kit, true);
+icons.vehicle_mbt = (kit) => tankIcon(kit, false);
+// The missile truck: the cab, the long bed on eight wheels, the white missile raised a little.
+icons.vehicle_tel = (kit) => {
+  const c = new kit.Canvas();
+  const BODY = 0;
+  const WHEEL = 1;
+  const MISSILE = 2;
+  c.poly(BODY, [[1.5, 16], [7.5, 16], [8, 22.5], [1.5, 22.5]], (x, y) => (y < 18 ? 0.35 : 0));
+  c.poly(BODY, [[7.5, 19.5], [30.5, 19.5], [30.5, 23], [7.5, 23]], () => 0.1);
+  c.poly(MISSILE, [[6, 16.5], [27, 12.5], [27.8, 14.2], [6.8, 18.2]], (x, y) => (y < 15 ? 0.4 : 0));
+  c.poly(BODY, [[3, 14.5], [6.5, 16.2], [6.9, 18.2], [3.2, 17]], () => 0.5);
+  for (const x of [5, 10, 21, 26]) c.disc(WHEEL, x, 24.5, 2.3, 2.3, (px, py) => (py < 24 ? 0.4 : -0.2));
+  const body = kit.ramp(0x2b311d, 0x3c4429, 0x4f5936, 0x667146, 0x7f8b58);
+  const wheel = kit.ramp(0x111111, 0x1d1d1d, 0x2c2c2c, 0x3e3e3e, 0x525252);
+  const missile = kit.ramp(0x8e8c84, 0xaeaca4, 0xcac8c0, 0xe0ded6, 0xf6f4ee);
+  return c.render([body, wheel, missile], [14, 16, 20]);
 };

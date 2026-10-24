@@ -1342,6 +1342,10 @@ export function smokeBlocks(a, b) {
 
 VehicleManager.register("tank", Tank);
 
+// (Round 13) Creative's tanks (the palette's Vehicles tab: js/content/vehicles.js): on the ground only.
+VehicleManager.registerSummon?.("tiger", { type: "tank", alt: 0, data: () => ({ kind: "tiger" }) });
+VehicleManager.registerSummon?.("mbt", { type: "tank", alt: 0, data: () => ({ kind: "mbt" }) });
+
 // Puts a drivable tank down (the Creative palette, a call-in, a mission):
 // kind "tiger" | "mbt", at pos (a Vector3 on the ground), heading yaw.
 export function summonTank(vehicles, kind = "mbt", pos, yaw = 0, extra = {}) {

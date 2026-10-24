@@ -6,7 +6,7 @@ import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky, DAY_LENGTH, dayLength } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, lastEditsBytes } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, hasSavedEdits, lastEditsBytes } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
@@ -76,7 +76,7 @@ import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
 import { roomMode, playerModeOf } from "./net/rules.js";
-import { setWorldType, worldType, isVanilla, normalizeWorldType, newWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
+import { setWorldType, worldType, isVanilla, vanillaRules, terrainGenOf, terrainGen, terrainOptions, normalizeWorldType, newWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
 import { goUrl, takeGo } from "./menu-go.js";
 import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
 import { Sleep } from "./sleep.js";
@@ -156,7 +156,11 @@ const NEW_PICK = savedPlayer || GUEST ? null : newWorldPick();
 // (Round 12) Reloaded into a world picked on the main menu: straight into the
 // game (menu-go.js; the end of this file). Read at once: it leaves the address.
 const GO = GUEST ? null : takeGo(SEED);
-setWorldType(GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : NEW_PICK.type);
+// (Round 13) And its terrain's generator: a Missions world saved before
+// Round 13 (no "gen" in its save; edits without a saved player too) keeps
+// the old terrain; a guest's is the host's (an older host's: the old one).
+const WORLD_TYPE = GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : NEW_PICK.type;
+setWorldType(WORLD_TYPE, { gen: terrainGenOf(WORLD_TYPE, GUEST ? joinWelcome.gen : savedPlayer?.gen, { old: GUEST || !!savedPlayer || hasSavedEdits(SEED) }) });
 
 // ---------- Renderer / scene / camera ----------
 const canvas = document.getElementById("game-canvas");
@@ -318,9 +322,11 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- World ----------
-// (sites: false: no airports or cities in a Survival world's terrain; the
-// generators in the workers and the LOD get the same options from the world.)
-const world = new World(scene, SEED, { sites: !isVanilla(), vanilla: isVanilla() });
+// (sites: false: no airports or cities in a Survival world's terrain; Round
+// 13: vanilla, the vanilla terrain, in every world but an old Missions save:
+// worldtype.js terrainOptions. The generators in the workers and the LOD get
+// the same options from the world.)
+const world = new World(scene, SEED, terrainOptions());
 if (!GUEST) world.loadEdits(loadEdits(SEED));
 // (Round 12) The Nether's and the End's edits (js/dimensions.js), kept aside until the player goes there.
 if (!GUEST) loadDimensionEdits(world, SEED);
@@ -431,7 +437,7 @@ const avatar = new PlayerAvatar(scene, world.atlas);
 // js/sleep.js). Other code gives XP through LIB.giveXp and the building
 // part's bed calls LIB.onBedUse.
 const xp = new XpOrbs({ scene, world, player, audio });
-xp.enabled = isVanilla();
+xp.enabled = vanillaRules();
 const sleep = new Sleep({
   player,
   sky,
@@ -451,12 +457,14 @@ const sleep = new Sleep({
     weather.clearAfterSleep(); // (Round 11: a night slept through ends the rain)
   },
   thundering: () => weather.isThundering, // (a bed works in a thunderstorm)
+  // (Round 13) A Missions world's night mission: nobody sleeps it away.
+  noRest: () => (missionDirector.enabled && (missionDirector.mission?.event === "night" || missionDirector.mission?.event === "swarm") ? "You may not rest now; the invasion goes on tonight" : null),
 });
 LIB.onBedUse = (ctx) => sleep.useBed(ctx);
 // XP points at (x, y, z) (default: the player): a whole number of them, a
 // fraction being the chance of one more (smelting's 0.7 an ingot).
 LIB.giveXp = (amount, x, y, z) => {
-  if (!isVanilla() || player.dead) return;
+  if (!vanillaRules() || player.dead) return;
   const p = player.position;
   xp.spawn(Number.isFinite(x) ? x : p.x, Number.isFinite(y) ? y : p.y + 1, Number.isFinite(z) ? z : p.z, wholeXp(amount));
 };
@@ -979,7 +987,7 @@ function mobKilled(m, { mine = true } = {}) {
   const add = mine ? (k) => stats.add(k) : (k) => stats.addWorld(k);
   // (Round 11) A Survival world: the killer's XP orbs (online, a guest's kill
   // reaches here on the guest's own machine, as m: its kind and place).
-  if (mine && isVanilla() && m.pos) xp.spawn(m.pos.x, m.pos.y + 0.5, m.pos.z, killXp(m, m.spec && "hostile" in m.spec ? null : specOf(m.kind)));
+  if (mine && vanillaRules() && m.pos) xp.spawn(m.pos.x, m.pos.y + 0.5, m.pos.z, killXp(m, m.spec && "hostile" in m.spec ? null : specOf(m.kind)));
   if (m.spec.alien) add("aliensKilled");
   else if (m.kind === "guard") add("guardsKilled");
   else if (m.kind === "zombie") add("zombiesKilled");
@@ -1335,8 +1343,8 @@ if (savedPlayer) {
   // (An older save's "survivalStash", the inventory set aside in Creative,
   // is no longer used: the inventory a save has is the one it keeps.)
   loadoutGiven = savedPlayer.loadout !== false;
-  // (Round 11) A Survival world's hunger, effects, XP and bed (an older save: full and none).
-  if (isVanilla()) {
+  // (Round 11) The hunger, effects, XP and bed (an older save: full and none; Round 13: in both world types).
+  if (vanillaRules()) {
     player.loadSurvival(savedPlayer.surv);
     sleep.load(savedPlayer.bed);
     weather.load(savedPlayer.weather);
@@ -1354,8 +1362,8 @@ if (savedPlayer) {
 let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
 mods.onChange((on) => {
-  ufos.setEnabled(on);
-  vehicles.setEnabled(on);
+  ufos.setEnabled(on && missionsHere());
+  vehicles.setEnabled(on && missionsHere());
   if (!on) mobs.removeKind("alien");
 });
 // (A Survival world: Mods off for that world, whatever the setting, which is
@@ -1498,9 +1506,15 @@ const testFlags = { noMissions: false };
 // (Online Dogfight: no missions or supply drops while it lasts.)
 let survivalPaused = false;
 let progressOffAt = null; // (the mission stats when the chain went off)
+// (Round 13) A Missions world's layer (UFOs, missions, supply drops, the
+// aircraft) is the Overworld's: off while this player is in the Nether or
+// the End (dims.onChange below), back on the way home.
+function missionsHere() {
+  return (world.dim ?? "overworld") === "overworld";
+}
 function refreshSurvivalSystems() {
   // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
-  const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla();
+  const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla() && missionsHere();
   settingsPanel.setSurvival(!player.creative);
   crates.enabled = on;
   const wasOn = progress.enabled;
@@ -1772,6 +1786,7 @@ function playerState() {
   const kept = mp.dogfight?.keptInventory;
   return {
     worldType: worldType(),
+    gen: terrainGen(), // (Round 13: the terrain's generator, worldtype.js)
     mode: kept ? "survival" : player.mode,
     pos: p ? [round3(p.x), round3(p.y), round3(p.z)] : null,
     yaw: round3(player.yaw),
@@ -1780,9 +1795,9 @@ function playerState() {
     air: player.dead ? MAX_AIR : round3(player.air),
     absorb: player.dead ? 0 : player.absorption,
     // (Round 11) A Survival world: food, effects, XP (a dead player: as respawned) and the bed.
-    surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined,
-    bed: isVanilla() ? sleep.serialize() : undefined,
-    weather: isVanilla() ? weather.serialize() : undefined, // (Round 11) the rain and thunder's cycle
+    surv: vanillaRules() && !player.dead ? player.serializeSurvival() : undefined,
+    bed: vanillaRules() ? sleep.serialize() : undefined,
+    weather: vanillaRules() ? weather.serialize() : undefined, // (Round 11) the rain and thunder's cycle
     inv: kept ? kept.slots : serializeInvWithCursor(),
     armor: kept ? kept.armor : inventory.serializeArmor(),
     sel: kept ? kept.sel : inventory.selected,
@@ -1819,7 +1834,7 @@ function savedWaterMeta() {
   const ver = waterSim.metaVersion;
   if (!waterMetaList || ver === undefined || ver !== waterMetaVersion) {
     // (A Survival world's flows reach 7 blocks, about three times the cells: a bigger cap.)
-    waterMetaList = waterSim.serializeMeta(isVanilla() ? 12000 : 3000);
+    waterMetaList = waterSim.serializeMeta(vanillaRules() ? 12000 : 3000);
     waterMetaVersion = ver;
   }
   return waterMetaList;
@@ -1906,7 +1921,7 @@ interaction.onBlockBroken = (x, y, z, id, tool, silk) => {
   player.addExhaustion(0.005);
   const spec = oreXp(id);
   // (Round 11: an ore taken whole with Silk Touch gives no experience, as vanilla.)
-  if (spec != null && isVanilla() && !silk && canHarvest(id, tool)) xp.spawn(x + 0.5, y + 0.5, z + 0.5, rollXp(spec));
+  if (spec != null && vanillaRules() && !silk && canHarvest(id, tool)) xp.spawn(x + 0.5, y + 0.5, z + 0.5, rollXp(spec));
 };
 interaction.onAttack = () => player.addExhaustion(0.1);
 weapons.onChange = markInventoryChanged;
@@ -1995,8 +2010,8 @@ function dropEverything() {
   });
   inventory.clear();
   markInventoryChanged();
-  // (Round 11) A Survival world: 7 XP a level (at most 100) as orbs, the rest lost.
-  if (isVanilla()) {
+  // (Round 11) 7 XP a level (at most 100) as orbs, the rest lost.
+  if (vanillaRules()) {
     xp.spawn(at.x, at.y, at.z, deathXp(player));
     resetXp(player);
   }
@@ -2142,7 +2157,7 @@ function hurtByBlast(center, radius, source) {
   offset.sub(center);
   const dist = offset.length();
   const hurtReach = radius * 1.8;
-  const power = isVanilla() ? VANILLA_BLAST_POWER[source] : 0;
+  const power = vanillaRules() ? VANILLA_BLAST_POWER[source] : 0;
   if (power) {
     // vanilla: from the blast to the feet, reach 2 x power (exposure taken as 1)
     const q = 1 - player.position.distanceTo(center) / (2 * power);
@@ -2871,7 +2886,7 @@ newSeedInput.addEventListener("input", () => {
 const NEW_TYPE_HINTS = {
   survival: "A Survival world: normal Minecraft. You start with nothing; no UFOs, missions, airports, cities or mod weapons. (Creative is in its pause menu too.)",
   creative: "A Survival world in Creative: every block, flight, no damage, in plain Minecraft. The pause menu switches it to Survival any time.",
-  missions: "A Missions world, with the mods: the UFO war, with missions, loot, supply drops, vehicles and the mod weapons. (Its Creative, with every mod item and the call-ins, is in its pause menu.)",
+  missions: "A Missions world: the normal world (everything a Survival world has) with the mods on top: the UFO war, with airports and cities, missions, loot, supply drops, vehicles and the mod weapons. (Its Creative, with every mod item and the call-ins, is in its pause menu.)",
 };
 let newType = "survival";
 function pickNewType(t) {
@@ -3058,7 +3073,7 @@ window.addEventListener("keydown", (e) => {
     // (Round 13) F boards a vehicle in reach that this player may fly (in a
     // Survival world: in Creative); otherwise it swaps the hands.
     if (vehicles.wantsF()) vehicles.toggle();
-    else if (isVanilla() && inventory.swapOffhand()) markInventoryChanged();
+    else if (vanillaRules() && inventory.swapOffhand()) markInventoryChanged();
   }
   else if (e.code === "KeyR") {
     // Reload the weapon in hand early.
@@ -3114,9 +3129,9 @@ function updateDebug(dt, frameTime) {
     `Block: ${bx} ${by} ${bz}   Chunk: ${bx >> 4} ${bz >> 4}  (in chunk ${bx & 15} ${bz & 15})`,
     debugFacing(player.yaw, player.pitch),
     `Biome: ${biome}   Light: sky ${light.sky}, block ${light.block}`,
-    `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}${isVanilla() ? `   Weather: ${weather.kind}` : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
+    `Time: ${formatHours(sky.hours)}${sky.locked ? " (locked)" : ""}${vanillaRules() ? `   Weather: ${weather.kind}` : ""}   Camera: ${["first person", "behind", "in front"][player.cameraMode]}`,
     `World: ${worldType()}   Mode: ${player.mode}${player.flying ? ", flying" : ""}   Difficulty: ${settings.difficulty}${settings.mobSpawning ? "" : ", no spawning"}`,
-    ...(isVanilla() ? [`Food: ${player.food} (saturation ${player.saturation.toFixed(1)}, exhaustion ${player.exhaustion.toFixed(2)})   XP: level ${player.xpLevel} + ${Math.round(player.xpProgress * 100)}% (${player.xpTotal} in all)   Orbs: ${xp.orbs.length}${sleep.spawn ? `   Bed: ${sleep.spawn.join(" ")}` : ""}`] : []),
+    ...(vanillaRules() ? [`Food: ${player.food} (saturation ${player.saturation.toFixed(1)}, exhaustion ${player.exhaustion.toFixed(2)})   XP: level ${player.xpLevel} + ${Math.round(player.xpProgress * 100)}% (${player.xpTotal} in all)   Orbs: ${xp.orbs.length}${sleep.spawn ? `   Bed: ${sleep.spawn.join(" ")}` : ""}`] : []),
     `Chunks: ${world.chunks.size} loaded   LOD tiles: ${lod.tiles.size}   Render distance: ${renderDistance}${viewRD !== renderDistance ? ` (${viewRD} at altitude)` : ""}`,
     `Mobs: ${mobs.mobs.length} (zombies ${mobs.countKind("zombie")})   Items: ${entities.items.length}   Plants: ${activePreset.grass ? grass.count ?? 0 : 0}`,
     `UFOs: ${ufos.count} (max ${ufos.maxCount})   Vehicles: ${vehicles.vehicles.length}${vehicles.active ? ` (in ${vehicles.active.name})` : ""}   Mods: ${mods.enabled ? "on" : "off"}`,
@@ -3402,7 +3417,7 @@ const game = {
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
     const air = vehicles.active || player.parachute;
     const kept = mp.dogfight?.keptInventory;
-    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: isVanilla() && !player.dead ? player.serializeSurvival() : undefined, bed: isVanilla() ? sleep.serialize() : undefined, dim: dims.dim !== "overworld" ? dims.dim : undefined };
+    return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: vanillaRules() && !player.dead ? player.serializeSurvival() : undefined, bed: vanillaRules() ? sleep.serialize() : undefined, dim: dims.dim !== "overworld" ? dims.dim : undefined };
   },
   applyPlayerData(d) {
     if (!d || typeof d !== "object") return;
@@ -3415,8 +3430,8 @@ const game = {
     if (Number.isInteger(d.sel)) inventory.selected = Math.max(0, Math.min(HOTBAR_SIZE - 1, d.sel));
     if (Number.isFinite(d.health)) player.health = Math.max(1, Math.min(MAX_HEALTH, d.health));
     if (Number.isFinite(d.absorb)) player.absorption = Math.max(0, Math.min(20, d.absorb));
-    // (Round 11) A Survival room: the guest's food, XP and bed, kept by the host.
-    if (isVanilla()) {
+    // (Round 11) The guest's food, XP and bed, kept by the host (Round 13: in both world types).
+    if (vanillaRules()) {
       player.loadSurvival(d.surv);
       sleep.load(d.bed);
     }
@@ -3609,6 +3624,12 @@ mp.addModule(new GadgetSync(mp, gadgets)); // (Round 12: the boxes', frames' and
 // (Round 12) The dimensions: the Nether and the End, the travel, their saves and their online part (js/dimensions.js).
 const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionThrows, spawners, weather, invScreen, streamAround, mp });
 game.dims = dims;
+// (Round 13) The Missions layer stays in the Overworld (missionsHere).
+dims.onChange.push(() => {
+  ufos.setEnabled(mods.enabled && missionsHere());
+  vehicles.setEnabled(mods.enabled && missionsHere());
+  refreshSurvivalSystems();
+});
 if (dims.sync) mp.addModule(dims.sync);
 // (Round 12) Boats and minecarts (js/boats.js, js/minecarts.js: the rails' redstone too), saved with the world, online (js/net/transport.js).
 transport = new Transport(game, { dims, mp, invScreen, chests, openInventory: (kind) => openInventory(kind), closeInventory: () => closeInventory() });
@@ -4223,8 +4244,10 @@ function simulate(dt, frameTime) {
     // Vehicles (the seated player rides along) and UFOs.
     vehicles.night = worldUniforms.uNight.value;
     vehicles.update(dt);
-    enemyJets.update(dt);
-    airports.update(dt);
+    if (missionsHere()) {
+      enemyJets.update(dt);
+      airports.update(dt);
+    }
     crates.update(dt);
     furnaces.update(dt);
     brewing.update(dt); // (Round 11)

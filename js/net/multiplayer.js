@@ -17,6 +17,7 @@
 // A mod can add its own module the same way (mp.addModule(m)), and its own
 // messages with net.on(type, fn) / net.toAll(msg).
 import { HOST_PID } from "./session.js";
+import { terrainGen } from "../worldtype.js";
 import { BackgroundClock } from "./bgclock.js";
 import { MpMenus } from "./ui.js";
 import { soloUrl, hideBootJoin } from "./boot-join.js";
@@ -70,7 +71,8 @@ export class Multiplayer {
     };
     net.onPlayersChanged = () => this.ui.refresh();
     // (Round 11: the world's type too, Missions or Survival: the guest builds its world by it.)
-    net.welcomeExtra = () => ({ seed: game.SEED, hostNick: net.nick, mode: this.mode, worldType: game.worldType });
+    // (Round 13: gen, the terrain's generator, so a guest makes the host's chunks)
+    net.welcomeExtra = () => ({ seed: game.SEED, hostNick: net.nick, mode: this.mode, worldType: game.worldType, gen: terrainGen() });
     // (Round 8) The nukes' blast zones: a joining guest clears the ground the
     // same way when it streams in (see nuke.js).
     net.registerSync("blastZones", {

@@ -877,7 +877,11 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
       q.layers.set(LAYER_FX);
       flash.add(q);
     }
-    const star = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), fm);
+    // (The star: a sprite, so it faces the camera from any side.)
+    const sm = new THREE.SpriteMaterial({ map: flashTexture(), color: new THREE.Color(3, 2.4, 1.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true });
+    mats.push(sm);
+    const star = new THREE.Sprite(sm);
+    star.scale.setScalar(2.6);
     star.layers.set(LAYER_FX);
     flash.add(star);
     flash.visible = false;
@@ -930,7 +934,7 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
     if (k > 0) {
       const s = size * (0.6 + 0.6 * k);
       f.scale.set(s, s, s * (0.8 + Math.random() * 0.4));
-      model._star.rotation.z = Math.random() * 6.28;
+      model._star.material.rotation = Math.random() * 6.28;
     }
   };
 
@@ -1026,7 +1030,7 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
     wheels?.dispose?.();
     smalls?.dispose?.();
     if (model._ram) model._ram.geometry.dispose();
-    if (model._flash) for (const c of model._flash.children) c.geometry.dispose();
+    if (model._flash) for (const c of model._flash.children) if (!c.isSprite) c.geometry.dispose();
   };
   return model;
 }

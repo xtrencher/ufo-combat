@@ -556,7 +556,7 @@ export class SiteGrower {
           const openSide = v === r[3];
           if (edge && !openSide) for (let y = 1; y < h; y++) put(y, y <= 2 ? STONE_BRICKS : GRAY_CONCRETE);
           if (openSide && (u - r[0]) % 7 === 0) for (let y = 1; y < h; y++) put(y, STONE_BRICKS);
-          put(h, GRAY_CONCRETE);
+          put(h, LIGHT_GRAY_CONCRETE);
           if (!edge && (u - r[0]) % 7 === 3 && (v - r[2]) % 6 === 3) put(h - 1, BLOCK.LUMEN);
           break;
         }
