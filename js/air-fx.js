@@ -473,7 +473,7 @@ export class AirFx {
     if (cam.lengthSq() < 1e-4) cam.set(0, 1, 0);
     cam.normalize();
     const warm = this._warm || (this._warm = new THREE.Color(1, 0.86, 0.62));
-    this._spawnRing(pos, cam, radius * 0.6, radius * 4.2 * k, 0.7, 0.5, true, warm);
+    this._spawnRing(pos, cam, radius * 0.6, radius * 3.6 * k, 0.55, 0.45, true, warm);
     this._spawnRing(pos, UP, radius * 0.6, radius * 3.4 * k, 0.45, 0.6, true, warm);
     fx.shake?.add?.(0.22 * (1 - smooth(dist / (radius * 14 + 40))));
     this.mgr.audio?.playBlastBoom?.(dist, k);
