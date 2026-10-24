@@ -74,7 +74,7 @@ export const SCHEMA = [
 
   // ----- Controls -----
   { key: "fov", id: "fov", group: "controls", type: "range", label: "Field of view", min: 50, max: 110, step: 1, def: 75, fmt: int, static: true },
-  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 0.6, fmt: (v) => `${v.toFixed(2)}x`, static: true },
+  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 0.5, fmt: (v) => `${v.toFixed(2)}x`, static: true },
   { key: "invertY", id: "invert-y", group: "controls", type: "checkbox", label: "Invert mouse Y", def: false, static: true },
   { key: "binocularZoom", group: "controls", type: "range", label: "Binocular zoom (hold both mouse buttons)", min: 2, max: 12, step: 0.5, def: 6, fmt: times },
 
@@ -171,7 +171,7 @@ export function validValue(e, raw) {
 // The settings object's format version (the `v` field). Older saves (no
 // version) are read and upgraded; unknown or broken values fall back to
 // their defaults.
-export const SETTINGS_VERSION = 6;
+export const SETTINGS_VERSION = 7;
 
 export const DEFAULT_SETTINGS = {
   v: SETTINGS_VERSION,
@@ -184,7 +184,7 @@ export const DEFAULT_SETTINGS = {
   // (Round 12) Automatic graphics (js/autotune.js): on for a new install,
   // off for good once the player picks their own; `level` is where it settled.
   autoGraphics: { on: true, level: 0 },
-  volume: { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
+  volume: { master: 0.15, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,
   fullscreen: false, // (Round 12: play fullscreen, applied on the next click into the game: fullscreen.js)
 };
@@ -248,6 +248,13 @@ export function normalizeSettings(raw, opts = {}) {
   // Round 5 made the jets much faster: a top speed still at the old default
   // follows the new one, once.
   if ((!Number.isFinite(s.v) || s.v < 5) && out.vehicles.jetMaxSpeed === 160) out.vehicles.jetMaxSpeed = 300;
+  // (Round 13) The mouse at 0.5 and the master volume at 15% by default: a
+  // value still at the old default (0.6, 30%) follows the new one, once.
+  if (!Number.isFinite(s.v) || s.v < 7) {
+    for (const g of Object.keys(out)) if (out[g] && typeof out[g] === "object" && out[g].sensitivity === 0.6) out[g].sensitivity = 0.5;
+    if (out.sensitivity === 0.6) out.sensitivity = 0.5;
+    if (out.volume.master === 0.3) out.volume.master = 0.15;
+  }
   return out;
 }
 
