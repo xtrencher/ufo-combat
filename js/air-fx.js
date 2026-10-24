@@ -64,12 +64,15 @@ function coneTexture() {
   for (let x = 0; x < W; x++) {
     let s = 0;
     for (const w of waves) s += Math.sin((x / W) * 6.283 * w.f + w.p) * w.a;
-    const streak = 0.62 + 0.38 * Math.tanh(s * 1.4);
+    const streak = 0.5 + 0.5 * Math.tanh(s * 2.2);
     for (let y = 0; y < H; y++) {
       const v = y / (H - 1);
-      const front = smooth(v / 0.06); // a crisp (not hard) leading edge
-      const tail = Math.exp(-v * 3.2) * (1 - smooth((v - 0.7) / 0.3));
-      const a = front * tail * (0.55 + 0.45 * streak * (0.6 + 0.4 * (1 - v)));
+      // (A crisp, not hard, leading edge a little way back, so the narrow
+      // front stays clear: seen from behind it is a halo round the hull,
+      // not a disc; then it feathers out toward the wide end.)
+      const front = smooth((v - 0.16) / 0.07);
+      const tail = Math.exp(-(v - 0.16) * 2.6) * (1 - smooth((v - 0.72) / 0.28));
+      const a = front * tail * (0.25 + 0.75 * streak);
       const i = (y * W + x) * 4;
       img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(255 * Math.min(1, a));
       img.data[i + 3] = 255;
@@ -112,7 +115,7 @@ function ringTexture() {
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const r = Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2) / (N / 2);
-      const a = r > 1 ? 0 : smooth((1 - r) / 0.04) * Math.pow(smooth((r - 0.62) / 0.36), 2.2);
+      const a = r > 1 ? 0 : smooth((1 - r) / 0.04) * Math.pow(smooth((r - 0.78) / 0.2), 2);
       const i = (y * N + x) * 4;
       img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(255 * a);
       img.data[i + 3] = 255;
@@ -153,7 +156,7 @@ function coneMaterial() {
       void main() {
         float a = texture2D(map, vec2(vUv.x + shift, vUv.y)).g;
         float rim = 1.0 - abs(dot(normalize(vN), normalize(vV)));
-        a *= opacity * (0.18 + 0.82 * pow(rim, 1.8));
+        a *= opacity * (0.12 + 0.88 * pow(rim, 2.2));
         gl_FragColor = vec4(color, a);
       }`,
     transparent: true,
@@ -317,7 +320,7 @@ export class AirFx {
     if (up) {
       // A puff of condensation round the cone's rim.
       const q = effectsQuality.scale;
-      const n = Math.max(4, Math.round(14 * q));
+      const n = Math.max(4, Math.round(10 * q));
       const c = this._colors;
       const side = _w.set(0, 1, 0).cross(dir);
       if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
@@ -331,7 +334,7 @@ export class AirFx {
         const y = o.pos.y + dir.y * (shape.ahead - shape.len * 0.6) + (side.y * Math.cos(a) + upv.y * Math.sin(a)) * rr;
         const z = o.pos.z + dir.z * (shape.ahead - shape.len * 0.6) + (side.z * Math.cos(a) + upv.z * Math.sin(a)) * rr;
         const vv = o.vel || _w.set(0, 0, 0);
-        fx.smoke.spawn({ x, y, z, vx: vv.x * 0.12, vy: vv.y * 0.12, vz: vv.z * 0.12, life: 0.7 + Math.random() * 0.5, size0: shape.rad * 0.35, size1: shape.rad * 1.1, color0: c.mist, color1: c.mist2, alpha: 0.32 * day, drag: 2.5 });
+        fx.smoke.spawn({ x, y, z, vx: vv.x * 0.12, vy: vv.y * 0.12, vz: vv.z * 0.12, life: 0.5 + Math.random() * 0.4, size0: shape.rad * 0.18, size1: shape.rad * 0.5, color0: c.mist, color1: c.mist2, alpha: 0.22 * day, drag: 2.5 });
       }
     }
   }
@@ -382,7 +385,7 @@ export class AirFx {
       // A flash: up in a tenth of a second, held, then gone over most of a second.
       const a = c.age < 0.08 ? c.age / 0.08 : c.age < 0.3 ? 1 : 1 - smooth((c.age - 0.3) / (CONE_LIFE - 0.3));
       const u = c.mesh.material.uniforms;
-      u.opacity.value = 0.95 * a;
+      u.opacity.value = 0.85 * a;
       const k = 1 - 0.72 * night;
       u.color.value.setRGB(k, k, k * 1.02);
       u.shift.value += dt * 0.05;

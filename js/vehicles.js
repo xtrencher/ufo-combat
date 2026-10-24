@@ -438,8 +438,9 @@ export class VehicleManager {
     // Too many parked / wrecked vehicles: the oldest unused one goes (never
     // the one being added, a living fighter or another peer's puppet; only
     // this peer's own vehicles count, so puppets don't push them out).
-    if (this.vehicles.reduce((n, v) => n + (v.puppet ? 0 : 1), 0) > MAX_VEHICLES) {
-      const old = this.vehicles.find((v) => v !== vehicle && v !== this.active && !v.keep && !v.puppet && !(v.isEnemyJet && v.alive));
+    // (Round 13: nor the AI's ground units and the bases' parked vehicles, `npc`: tanks.js keeps those in check.)
+    if (this.vehicles.reduce((n, v) => n + (v.puppet || v.npc ? 0 : 1), 0) > MAX_VEHICLES) {
+      const old = this.vehicles.find((v) => v !== vehicle && v !== this.active && !v.keep && !v.puppet && !v.npc && !(v.isEnemyJet && v.alive));
       if (old) this.remove(old);
     }
     this.onAdded?.(vehicle);

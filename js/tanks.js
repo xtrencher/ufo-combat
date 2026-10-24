@@ -38,6 +38,7 @@ import { missileGeometry } from "./vehicle-jet.js";
 import { isPlayerCause } from "./damage.js";
 import { effectsQuality } from "./effects.js";
 import { SEA_LEVEL } from "./constants.js";
+import { IS_WET } from "./blocks.js";
 
 const MAX_UNITS = 10; // enemy ground units at once
 const FAR = 1600; // beyond this from every player an ambient unit goes
@@ -625,7 +626,8 @@ export class GroundWar {
   // The players the units fight (alive).
   foes() {
     const list = this.targets ? this.targets() : [this.player];
-    return list.filter((t) => !t.dead);
+    // (On Peaceful the aliens' machines leave this player be: mobDamageScale 0.)
+    return list.filter((t) => !t.dead && !(t === this.player && t.mobDamageScale === 0));
   }
 
   _near(p, r) {
@@ -634,19 +636,23 @@ export class GroundWar {
   }
 
   // A spot on dry, fairly flat land near (x, z): [x, y, z] or null.
+  // (The loaded ground where there is some (built on, levelled), else the
+  // terrain's height map; flat first, then any dry spot, a wider search last.)
   landAt(x, z, spread = 30) {
-    const T = this.world.terrain;
-    for (let k = 0; k < 24; k++) {
+    const w = this.world;
+    const T = w.terrain;
+    const height = (px, pz) => (w.getChunk(px >> 4, pz >> 4) ? this.vehicles.groundBelow(px + 0.5, 300, pz + 0.5) - 1 : T ? T.heightAt(px, pz) : w.heightAt(px, pz));
+    const wet = (px, pz, h) => (w.getChunk(px >> 4, pz >> 4) ? !!IS_WET[w.getBlock(px, h, pz)] : h <= SEA_LEVEL + 1);
+    for (let k = 0; k < 60; k++) {
       const a = Math.random() * Math.PI * 2;
-      const r = k ? Math.random() * spread : 0;
+      const r = k ? Math.random() * spread * (k < 30 ? 1 : 2.5) : 0;
       const px = Math.floor(x + Math.cos(a) * r);
       const pz = Math.floor(z + Math.sin(a) * r);
-      const h = T ? T.heightAt(px, pz) : this.world.heightAt(px, pz);
-      if (h <= SEA_LEVEL + 1) continue;
-      const hs = [[4, 0], [-4, 0], [0, 4], [0, -4]].map(([dx, dz]) => (T ? T.heightAt(px + dx, pz + dz) : this.world.heightAt(px + dx, pz + dz)));
-      if (hs.some((q) => Math.abs(q - h) > 2)) continue;
-      const g = this.vehicles.groundBelow(px + 0.5, 300, pz + 0.5);
-      return [px + 0.5, g, pz + 0.5];
+      const h = height(px, pz);
+      if (wet(px, pz, h)) continue;
+      const steep = k < 40 ? 2 : 5;
+      if ([[4, 0], [-4, 0], [0, 4], [0, -4]].some(([dx, dz]) => Math.abs(height(px + dx, pz + dz) - h) > steep)) continue;
+      return [px + 0.5, h + 1, pz + 0.5];
     }
     return null;
   }

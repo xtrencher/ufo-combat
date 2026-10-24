@@ -1006,7 +1006,9 @@ export class MissionDirector {
       return;
     }
     const w = st.wave ?? 0;
-    if (w < waves.length && (st.nt ?? 0) >= waves[w].at) {
+    // (Round 13: the waves' times are for a 600 s day's night; a Missions world now has
+    // vanilla's 1200 s day, so they stretch with the night: the same three parties, spread over it.)
+    if (w < waves.length && (st.nt ?? 0) >= waves[w].at * (dayLength() / 600)) {
       st.wave = w + 1;
       st.alive = st.alive || [];
       const near = this._anyone().position;
@@ -2175,6 +2177,7 @@ export class MissionDirector {
         units.push(u);
       }
       if (list.length) this.toast?.(`ENEMY TANKS: ${list.length > 1 ? `${list.length} of them are` : "one is"} rolling in!`, 4);
+      else st.waitT = 1; // (no land there, the sea: another way soon)
       // (The next platoon from somewhere else.)
       st.dir += rand(0.8, 2.2);
     }
@@ -2297,12 +2300,25 @@ export class MissionDirector {
       st.waitT = 30;
       st.toldEscape = false;
       const c = this._groupMiddle();
-      const a = Math.random() * Math.PI * 2;
-      const side = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-      const along = new THREE.Vector3(-side.z, 0, side.x);
-      const d = rand(500, 700);
-      const from = c.clone().addScaledVector(side, d).addScaledVector(along, -800);
-      const to = c.clone().addScaledVector(side, d).addScaledVector(along, 900);
+      // (A road over land: its start, middle and end on dry ground.)
+      let from = null;
+      let to = null;
+      for (let k = 0; k < 10 && !to; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const side = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+        const along = new THREE.Vector3(-side.z, 0, side.x);
+        const d = rand(500, 700);
+        const f = c.clone().addScaledVector(side, d).addScaledVector(along, -800);
+        const t = c.clone().addScaledVector(side, d).addScaledVector(along, 900);
+        if (war.landAt(f.x, f.z, 20) && war.landAt(t.x, t.z, 40) && war.landAt((f.x + t.x) / 2, (f.z + t.z) / 2, 40)) {
+          from = f;
+          to = t;
+        }
+      }
+      if (!to) {
+        st.waitT = 3;
+        return;
+      }
       const list = war.spawnConvoy(from, to, { n: Math.max(left, v === 1 ? 7 : 5) });
       if (v === 2) {
         const at = war.landAt(from.x, from.z, 20);
@@ -2363,10 +2379,11 @@ export class MissionDirector {
       }
       this.toast?.("AA vehicles have set up round here (marked): SAMs and flak!", 4);
     }
-    const t = this._nearestOf(aas);
-    if (t) this._setTarget(t, `AA vehicle (${aas.length})`);
+    const t = this._nearestOf(units.filter((u) => u.type === "aa"));
+    const n = units.filter((u) => u.type === "aa").length;
+    if (t) this._setTarget(t, `AA vehicle (${n})`);
     else this.target = null;
-    st.note = aas.length ? "They track aircraft: flares (C) fool their SAMs." : "";
+    st.note = n ? "They track aircraft: flares (C) fool their SAMs." : "";
   }
 
   // Base assault: an airbase (or an airport) held by the aliens: tanks in

@@ -1043,6 +1043,11 @@ export class Jet extends Vehicle {
     for (const v of mgr.vehicles) {
       // (Dogfight online: the other players' aircraft too.)
       const rival = mgr.pvp && v.puppet && v.netOcc && !this.isEnemyJet;
+      // (Round 13: the aliens' tanks, AA vehicles and launchers too, as "vehicle" targets.)
+      if (v.isEnemyGround && v.alive && !this.isEnemyJet) {
+        list.push({ kind: "vehicle", ref: v, weight: 0.9, attacking: !!v.ai?.foe });
+        continue;
+      }
       if (v === this || !v.alive || !(v.isEnemyJet || rival)) continue;
       list.push({ kind: "jet", ref: v, weight: 0.85, attacking: !this.isEnemyJet && (v.hostile || v.provoked > 0) });
     }
@@ -1648,6 +1653,10 @@ export class Jet extends Vehicle {
         if (!boom && vh && (vh.vehicle.isEnemyJet || (mgr.pvp && vh.vehicle.puppet && vh.vehicle.netOcc))) {
           boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
           direct = { kind: "jet", ref: vh.vehicle };
+        } else if (!boom && vh && vh.vehicle.isEnemyGround) {
+          // (Round 13) A tank, an AA vehicle or a launcher in the way.
+          boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
+          direct = { kind: "vehicle", ref: vh.vehicle };
         }
       }
       if (!boom && m.hostile && m.age > 0.6 && !m.evaded) {

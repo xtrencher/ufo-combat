@@ -386,6 +386,7 @@ await check("sonic boom: a fighter on its afterburner breaks Mach 1 (one boom, a
   const under = await v((g) => {
     const jet = window.__j;
     const booms = [];
+    g.vehicles.update(1 / 30); // (the air effects come with the first frame)
     g.vehicles.airFx.onBoom = (o, up) => booms.push(up);
     const dt = 1 / 30;
     let maxSp = 0;
@@ -438,6 +439,39 @@ await check("sonic boom: a fighter on its afterburner breaks Mach 1 (one boom, a
   });
   await frames(2);
   await shot("vapor-cone");
+  // (From the side: a free look.)
+  await v((g) => {
+    const j = window.__coneJet;
+    j._sb.cool = 0;
+    g.vehicles.airFx.lastBoom = -99;
+    j.freeLook = true;
+    j.lookYaw = 1.35;
+    j.lookPitch = -0.15;
+    g.vehicles.airFx.boom(j, true);
+    j._sb.cool = 0;
+  });
+  await frames(2);
+  if (process.env.DBG) console.log(JSON.stringify(await v((g) => {
+    const j = window.__coneJet;
+    const out = [];
+    g.scene.traverse((o) => {
+      if (!o.isMesh || !o.visible || !o.material?.transparent) return;
+      const p = new g.THREE.Vector3();
+      o.getWorldPosition(p);
+      if (p.distanceTo(j.pos) < 60) out.push([o.geometry.type, o.material.type, o.scale.toArray().map((x) => +x.toFixed(1)), +p.distanceTo(j.pos).toFixed(1), o.material.opacity ?? o.material.uniforms?.opacity?.value]);
+    });
+    return out;
+  })));
+  await shot("vapor-cone-side");
+  if (process.env.DBG) {
+    await v((g) => g.vehicles.airFx.cones.forEach((c) => (c.mesh.material.visible = false)));
+    await frames(1);
+    await shot("dbg-no-cone");
+    await v((g) => g.vehicles.airFx.cones.forEach((c) => (c.mesh.material.visible = true)));
+  }
+  await v(() => {
+    window.__coneJet.freeLook = false;
+  });
   const down = await v((g) => {
     const jet = window.__j;
     const booms = [];

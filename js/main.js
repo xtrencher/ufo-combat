@@ -62,6 +62,7 @@ import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
+import { installGround } from "./tanks.js"; // (Round 13: tanks, AA vehicles, missile launchers)
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
@@ -89,6 +90,7 @@ import { NetherAtmosphere } from "./nether-fx.js";
 import { EndGame } from "./dragon.js";
 import { Transport } from "./boats.js"; // (Round 12: boats and minecarts)
 import { TransportSync } from "./net/transport.js";
+import { GroundSync } from "./net/ground.js"; // (Round 13)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -1481,6 +1483,9 @@ crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast, weapons, effects, audio, world });
 missionDirector.entities = entities;
+// (Round 13) The ground war (js/tanks.js): enemy tanks, AA vehicles and missile launchers, the
+// bases' parked tanks, the shells and ballistic missiles. It runs right after the vehicles each frame.
+const ground = installGround({ scene, camera, world, player, vehicles, effects, audio, lasers, ufos, mobs, crates, stats, progress, missions: missionDirector, airports, toast, hud, mods });
 // (Round 10) A mission's loot (the crash site's wreck): what a wreck of that
 // size gives, at the spot, for whoever gets there (online the host's items are everyone's).
 missionDirector.dropLoot = (kind, detail, at) => {
@@ -3636,6 +3641,7 @@ transport = new Transport(game, { dims, mp, invScreen, chests, openInventory: (k
 transport.load(savedPlayer?.transport);
 game.transport = transport;
 mp.addModule(new TransportSync(mp, transport));
+mp.addModule(new GroundSync(mp, ground)); // (Round 13: the ground war's shots, missiles and kills)
 interaction.combat = transport.combat(mobs); // (hitting them, aiming at them)
 // (Round 12) The Nether: its portals (lit, broken, the way through and back), the respawn anchor, its biomes' fog and air.
 const netherPortals = new NetherPortals(game, dims);
@@ -3731,6 +3737,7 @@ window.__ufo = window.__voxelands = {
   enemyJets,
   airports,
   sites: world.terrain.sites,
+  ground, // (Round 13)
   progress,
   crates,
   missions: missionDirector,

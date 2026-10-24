@@ -135,17 +135,21 @@ class EngineSound {
     o1.connect(lp);
     o2.connect(g2).connect(lp);
     // The tracks: filtered noise, louder with speed.
-    const noise = a._noise ? a._noise(ctx.currentTime, 60) : null;
+    // (a looping noise of its own: the shared one stops after its duration)
+    let noise = null;
+    if (a._noiseBuffer) {
+      noise = ctx.createBufferSource();
+      noise.buffer = a._noiseBuffer;
+      noise.loop = true;
+      noise.start();
+    }
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.frequency.value = 700;
     bp.Q.value = 0.8;
     const ng = ctx.createGain();
     ng.gain.value = 0;
-    if (noise) {
-      noise.loop = true;
-      noise.connect(bp).connect(ng).connect(out);
-    }
+    if (noise) noise.connect(bp).connect(ng).connect(out);
     // The traverse: a thin electric whine.
     const ow = ctx.createOscillator();
     ow.type = "triangle";
