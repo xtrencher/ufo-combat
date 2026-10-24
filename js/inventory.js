@@ -10,7 +10,7 @@
 // clickSlot()/quickMove() on arrays of slots (a crafting grid's, a furnace's).
 import { maxStack, itemInfo, ARMOR_SLOTS, ARMOR_REDUCTION_PER_POINT } from "./items.js";
 import { cleanTag, sameTag, unbreakingSaves } from "./enchant.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 
 export const HOTBAR_SIZE = 9;
 export const INVENTORY_SIZE = 36;
@@ -202,11 +202,11 @@ export class Inventory {
     return this.slots[this.selected];
   }
 
-  // Whether add() puts item `id` on at once: armor with its slot free (a
-  // Missions-world convenience; in a Survival world it goes into the
-  // inventory, as vanilla).
+  // Whether add() puts item `id` on at once: armor with its slot free (the
+  // Missions worlds' convenience before Round 13; now it goes into the
+  // inventory in both, as vanilla).
   wouldWear(id) {
-    const aslot = isVanilla() ? -1 : Inventory.armorSlotOf(id);
+    const aslot = vanillaRules() ? -1 : Inventory.armorSlotOf(id);
     return aslot >= 0 && !this.armor[aslot];
   }
 

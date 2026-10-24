@@ -31,7 +31,7 @@
 import { BLOCK, IS_SOLID, IS_WET, IS_LEAVES, IS_OPAQUE, BLOCK_INFO } from "./blocks.js";
 import { WORLD_HEIGHT, CHUNK_SIZE } from "./constants.js";
 import { BIOME } from "./biomes.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { SNOWY_GRASS, flammability } from "./content/nature.js";
@@ -61,7 +61,7 @@ export class Weather {
     this.difficulty = difficulty;
     this.tick = dayLength / VANILLA_DAY_TICKS; // seconds of this world's time per vanilla game tick
     this.authority = true; // false on a guest: the host's weather (net/weather.js)
-    this.enabled = () => isVanilla();
+    this.enabled = () => vanillaRules(); // (Round 13: in both world types)
     this.rand = Math.random;
     // The cycle (the authority's): vanilla's level.dat fields, in seconds.
     this.raining = false;

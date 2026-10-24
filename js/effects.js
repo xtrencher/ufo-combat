@@ -4,6 +4,12 @@
 // a light flash, camera shake and a boom. Everything scales with the blast
 // radius; shake and sound fall off smoothly with the listener's distance.
 // Also owns the shared particle pools and the persistent dynamic lights.
+// (Round 13) The ground war's guns: a tank firing (tankFire: the dust kicked
+// off the ground around it first, then the muzzle's fire and blast, the
+// shock, the smoke cloud) and a shell's burst (the dirt thrown up first,
+// then the fireball, the shock ring and a shock sphere, debris, a smoke
+// column, the scorched rim), and the ballistic missile's huge impact;
+// a long-lived trail pool for missiles' smoke.
 import * as THREE from "three";
 import { LAYER_FX } from "./layers.js";
 import { BLOCK, IS_WET, BLOCK_INFO, BLOCK_LIMIT } from "./blocks.js";
@@ -11,6 +17,7 @@ import { isVanilla } from "./worldtype.js";
 import { SEA_LEVEL, WORLD_HEIGHT } from "./constants.js";
 import { DebrisPool, BillboardPool } from "./particles.js";
 import { shakeFalloff } from "./falloff.js";
+import { COARSE_DIRT } from "./content/ids.js";
 
 export const GRENADE_RADIUS = 7;
 // Was 5x a grenade's radius; reduced to a third of that size.
@@ -30,6 +37,30 @@ for (const b of Object.values(BLOCK_INFO)) if ((b.blastResistance ?? 0) >= 1200 
 export const explosionScale = { grenade: 1, bazooka: 1, airstrike: 1, nuke: 1 };
 // Effects detail (Performance settings): scales particle counts everywhere.
 export const effectsQuality = { scale: 1 };
+// (Round 13) The blasts that play the ground war's sequence (1: a shell, 2:
+// a ballistic missile's warhead) instead of the plain explosion.
+export const SHELL_FX = { tankshell: 1, enemyshell: 1, ballistic: 2 };
+const SCORCHED = new Set([BLOCK.GRASS, BLOCK.DIRT]);
+
+// A shock sphere's look: bright only at its edge (a shimmering shell of air).
+const shockVertex = /* glsl */ `
+varying vec3 vN;
+varying vec3 vV;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}`;
+const shockFragment = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+varying vec3 vN;
+varying vec3 vV;
+void main() {
+  float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.5);
+  gl_FragColor = vec4(uColor * rim * uOpacity, rim * uOpacity);
+}`;
 
 // A lumpy crater shape: the blast radius varies smoothly with direction (a
 // few random low-frequency waves over the sphere of directions). Because the
@@ -107,6 +138,27 @@ export class EffectsSystem {
     this.debris = new DebrisPool(scene, world, 700);
     this.smoke = new BillboardPool(scene, 520, { additive: false });
     this.glow = new BillboardPool(scene, 700, { additive: true });
+    // (Round 13) Long-lived smoke: the ballistic missiles' trails, a launch's
+    // cloud, SAM trails (they stay and drift: a pool of their own, so the
+    // battle's smoke doesn't push them out).
+    this.trail = new BillboardPool(scene, 900, { additive: false });
+    // Things a moment later (the ground war's sequences), and the shock spheres.
+    this._later = [];
+    this._shocks = [];
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(1, 2),
+        new THREE.ShaderMaterial({ uniforms: { uColor: { value: new THREE.Color(1.6, 1.4, 1.1) }, uOpacity: { value: 0 } }, vertexShader: shockVertex, fragmentShader: shockFragment, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })
+      );
+      m.visible = false;
+      m.layers.set(LAYER_FX);
+      m.renderOrder = 13;
+      m.userData = { age: 9, dur: 0.3, r: 1 };
+      scene.add(m);
+      this._shocks.push(m);
+    }
+    this.lastShellFx = null; // (tests: when each part of the last shell's burst showed)
+    this.lastTankFire = null;
 
     // The light count never changes at runtime: adding/removing a light makes
     // three.js recompile every lit material, which would hitch on every shot
@@ -279,7 +331,9 @@ export class EffectsSystem {
     if (removed.length) this.floodInto(removed);
     const carveMs = performance.now() - t0;
     const look = visual ? Math.max(radius, visual * scale) : radius; // the size it looks
-    this._spawnExplosionParticles(position, removed, radius, look);
+    const shell = SHELL_FX[source] || 0;
+    if (shell) this._shellImpact(position, removed, radius, look, shell, mirror);
+    else this._spawnExplosionParticles(position, removed, radius, look);
 
     // Summary of the most recent blast (read by the smoke test and handy
     // when poking at the game from the dev console).
@@ -292,13 +346,15 @@ export class EffectsSystem {
     const size = look / GRENADE_RADIUS;
     // Close blasts rattle the camera hard; distant ones barely or not at all.
     const shake = Math.min(1, shakeFalloff(distance, look) * (0.9 + 0.2 * size));
-    this.shake.add(shake);
+    // (A shell's shake and flash come with its fireball, a moment after the dirt.)
+    if (shell) this._after(0.07, () => this.shake.add(shake));
+    else this.shake.add(shake);
     if (this.audio) this.audio.playExplosion(distance, size);
 
     this.flashLight.position.copy(position);
     this.flashLight.distance = 40 + look * 3;
     this._flashPower = 900 * Math.sqrt(size);
-    this._flashTime = 0;
+    this._flashTime = shell ? -0.07 : 0;
     this.lastExplosion = { x: position.x, y: position.y, z: position.z, radius, look, source, removed: removed.length / 4, maxDist, carveMs, distance, shake };
     this.explosionCount++;
     // (What it hurts: the crater's size, a little more for a blast that looks bigger.)
@@ -399,6 +455,205 @@ export class EffectsSystem {
     ring.visible = true;
   }
 
+  // ---------- (Round 13) The ground war ----------
+
+  // fn() in `t` seconds (the sequences' later parts).
+  _after(t, fn) {
+    this._later.push({ t, fn });
+  }
+
+  // A shock sphere: from r0 to r1 blocks over dur seconds, fading.
+  shockSphere(at, r0, r1, dur = 0.3, strength = 1) {
+    const m = this._shocks.find((o) => !o.visible) || this._shocks.reduce((a, b) => (b.userData.age > a.userData.age ? b : a));
+    m.position.set(at.x, at.y, at.z);
+    m.userData = { age: 0, dur, r0, r1, k: strength };
+    m.visible = true;
+    m.scale.setScalar(r0);
+    return m;
+  }
+
+  // A flat shock ring on the ground (the explosions' rings).
+  shockRing(at, radius) {
+    const ring = this._rings.find((r) => !r.visible) || this._rings.reduce((a, b) => (b.userData.age > a.userData.age ? b : a));
+    ring.position.set(at.x, at.y + 0.2, at.z);
+    ring.userData.age = 0;
+    ring.userData.radius = radius;
+    ring.visible = true;
+  }
+
+  // A tank's gun firing at `muzzle` along `dir`: first the dust thrown off
+  // the ground all round the tank by the blast (a ring racing out, and a
+  // fan blown forward under the muzzle), then the muzzle's fire (a flash,
+  // the blast cone, the brake's side jets), a quick shock sphere, the light,
+  // and the muzzle smoke: a big grey cloud rolling out and drifting.
+  // opts: { size (1), groundY (the ground's height there), hull (the tank's
+  // position: the ring's middle) }.
+  tankFire(muzzle, dir, { size = 1, groundY = null, hull = null } = {}) {
+    const q = effectsQuality.scale;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const c = this._tfC || (this._tfC = { dust: new THREE.Color(0.58, 0.5, 0.38), dust1: new THREE.Color(0.68, 0.63, 0.55), hot: new THREE.Color(6, 4.4, 2), mid: new THREE.Color(3.5, 1.5, 0.4), s0: new THREE.Color(0.55, 0.53, 0.5), s1: new THREE.Color(0.75, 0.74, 0.72) });
+    const gy = groundY ?? muzzle.y - 2.2;
+    const mid = hull || muzzle;
+    const t0 = performance.now();
+    // 1. The dust, first: a ring off the ground round the tank, a fan ahead of it.
+    const ring = Math.max(10, Math.round(30 * q * size));
+    for (let i = 0; i < ring; i++) {
+      const a = (i / ring) * Math.PI * 2 + rnd(-0.1, 0.1);
+      const r0 = rnd(2.5, 4) * size;
+      const sp = rnd(10, 17) * size;
+      this.smoke.spawn({ x: mid.x + Math.cos(a) * r0, y: gy + 0.4, z: mid.z + Math.sin(a) * r0, vx: Math.cos(a) * sp, vy: rnd(0.5, 2.2), vz: Math.sin(a) * sp, life: rnd(1.6, 2.6), size0: 1.2 * size, size1: rnd(4, 6.5) * size, color0: c.dust, color1: c.dust1, alpha: 0.5, drag: 2.4 });
+    }
+    const fan = Math.max(6, Math.round(16 * q * size));
+    const fx = dir.x;
+    const fz = dir.z;
+    const fl = Math.hypot(fx, fz) || 1;
+    for (let i = 0; i < fan; i++) {
+      const along = rnd(1, 7) * size;
+      const side = rnd(-1, 1) * along * 0.6;
+      const x = muzzle.x + (fx / fl) * along - (fz / fl) * side;
+      const z = muzzle.z + (fz / fl) * along + (fx / fl) * side;
+      this.smoke.spawn({ x, y: gy + 0.3, z, vx: (fx / fl) * rnd(8, 16) + (Math.random() - 0.5) * 6, vy: rnd(1, 4), vz: (fz / fl) * rnd(8, 16) + (Math.random() - 0.5) * 6, life: rnd(1.4, 2.4), size0: 1.4 * size, size1: rnd(4.5, 7) * size, color0: c.dust, color1: c.dust1, alpha: 0.55, drag: 2 });
+    }
+    // Debris of the turf kicked up under the muzzle.
+    if (this.world?.blockColors) {
+      const col = this._tmpColor0.setRGB(0.36, 0.3, 0.2);
+      for (let i = 0; i < Math.round(10 * q); i++) this.debris.spawn(muzzle.x + (fx / fl) * rnd(1, 4), gy + 0.3, muzzle.z + (fz / fl) * rnd(1, 4), (fx / fl) * rnd(3, 8) + rnd(-2, 2), rnd(3, 7), (fz / fl) * rnd(3, 8) + rnd(-2, 2), rnd(0.08, 0.16), col, rnd(1, 2));
+    }
+    this.lastTankFire = { t: t0, dustAt: t0, flashAt: null };
+    // 2. A moment later, the muzzle's fire and blast.
+    this._after(0.035, () => {
+      const at = performance.now();
+      if (this.lastTankFire && this.lastTankFire.t === t0) this.lastTankFire.flashAt = at;
+      for (let i = 0; i < 3; i++) this.glow.spawn({ x: muzzle.x + dir.x * i * 0.8, y: muzzle.y + dir.y * i * 0.8, z: muzzle.z + dir.z * i * 0.8, life: 0.12, size0: (4.5 - i) * size, size1: 1.5 * size, color0: c.hot, alpha: 0.9 });
+      const cone = Math.round(26 * q * size) + 6;
+      for (let i = 0; i < cone; i++) {
+        const v = new THREE.Vector3(dir.x + rnd(-0.25, 0.25), dir.y + rnd(-0.2, 0.25), dir.z + rnd(-0.25, 0.25)).normalize().multiplyScalar(rnd(25, 70) * size);
+        this.glow.spawn({ x: muzzle.x, y: muzzle.y, z: muzzle.z, vx: v.x, vy: v.y, vz: v.z, life: rnd(0.12, 0.28), size0: rnd(1, 2.2) * size, size1: rnd(2.5, 4) * size, color0: c.hot, color1: c.mid, alpha: 0.6, drag: 7 });
+      }
+      // The muzzle brake's side jets.
+      const rx = -fz / fl;
+      const rz = fx / fl;
+      for (const s of [-1, 1]) for (let i = 0; i < 4; i++) this.glow.spawn({ x: muzzle.x, y: muzzle.y, z: muzzle.z, vx: rx * s * rnd(12, 22) * size + dir.x * 6, vy: rnd(-1, 2), vz: rz * s * rnd(12, 22) * size + dir.z * 6, life: rnd(0.1, 0.18), size0: 1.4 * size, size1: 2.4 * size, color0: c.hot, color1: c.mid, alpha: 0.55, drag: 6 });
+      this.shockSphere(muzzle, 1, 9 * size, 0.22, 0.8);
+      this.muzzleFlash(muzzle, 5 * size);
+      // 3. The muzzle smoke: rolling out ahead, hanging, drifting.
+      const puffs = Math.round(16 * q * size) + 4;
+      for (let i = 0; i < puffs; i++) {
+        const k = Math.random();
+        const v = new THREE.Vector3(dir.x * (4 + k * 14) + rnd(-2.5, 2.5), dir.y * (4 + k * 10) + rnd(0, 2), dir.z * (4 + k * 14) + rnd(-2.5, 2.5));
+        this.smoke.spawn({ x: muzzle.x, y: muzzle.y, z: muzzle.z, vx: v.x, vy: v.y, vz: v.z, life: rnd(5, 8), size0: rnd(1.2, 2.2) * size, size1: rnd(6, 10) * size, color0: c.s0, color1: c.s1, alpha: rnd(0.4, 0.6), drag: 1.6, gravity: -0.02, hold: 0.25 });
+      }
+      const ears = this.listener;
+      const d = ears ? muzzle.distanceTo(ears) : 30;
+      this.shake.add(Math.min(0.5, shakeFalloff(d, 6) * 0.55 * size));
+    });
+  }
+
+  // A shell's (or a ballistic missile's: kind 2) burst: the dirt and dust
+  // thrown up first, then the fireball, the light, the shock (a ring on the
+  // ground, a sphere), sparks, the smoke column; the rim scorched.
+  _shellImpact(center, removed, radius, look, kind, mirror) {
+    const c = this._colors;
+    const k = this._siC || (this._siC = { dirt: new THREE.Color(0.42, 0.34, 0.24), dirt1: new THREE.Color(0.6, 0.53, 0.43), hot: new THREE.Color(6, 4, 1.6), white: new THREE.Color(7, 6.5, 5.5) });
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const q = effectsQuality.scale;
+    const big = Math.sqrt(look / GRENADE_RADIUS);
+    const huge = kind === 2;
+    const t0 = performance.now();
+    this.lastShellFx = { t: t0, dustAt: t0, fireAt: null, shockAt: null, kind };
+    // 1. The ground goes up: chunks of what it dug, a fountain of dirt, a dust skirt.
+    const maxDebris = Math.round((huge ? 220 : 120) * Math.min(big, 2.4) * q);
+    const blockCount = removed.length / 4;
+    const step = Math.max(1, Math.floor(blockCount / Math.max(1, maxDebris)));
+    const color = this._tmpColor0;
+    for (let i = Math.floor(Math.random() * step) * 4; i < removed.length; i += step * 4) {
+      const x = removed[i] + 0.5;
+      const y = removed[i + 1] + 0.5;
+      const z = removed[i + 2] + 0.5;
+      const rgb = this.world.blockColors[removed[i + 3]] || [0.5, 0.42, 0.3];
+      const sh = rnd(0.7, 1.1);
+      color.setRGB(rgb[0] * sh, rgb[1] * sh, rgb[2] * sh, THREE.SRGBColorSpace);
+      const ox = x - center.x;
+      const oz = z - center.z;
+      const l = Math.hypot(ox, oz) || 1;
+      const out = rnd(3, 9) * big;
+      this.debris.spawn(x, y, z, (ox / l) * out, rnd(9, 20) * big, (oz / l) * out, rnd(0.14, 0.34) * Math.min(big, 1.8), color, rnd(2, 3.6) * Math.min(big, 1.6));
+    }
+    const fountain = Math.round((huge ? 60 : 30) * Math.min(big, 2.5) * q) + 6;
+    for (let i = 0; i < fountain; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spread = rnd(0, 0.45);
+      const up = rnd(10, 24) * big;
+      this.smoke.spawn({ x: center.x + rnd(-1, 1) * big, y: center.y, z: center.z + rnd(-1, 1) * big, vx: Math.cos(a) * up * spread, vy: up, vz: Math.sin(a) * up * spread, life: rnd(1.6, 2.8) * Math.min(big, 1.8), size0: rnd(1, 2) * big, size1: rnd(3.5, 6) * big, color0: k.dirt, color1: k.dirt1, alpha: 0.75, drag: 1.8, gravity: 0.55 });
+    }
+    const skirt = Math.max(10, Math.round((huge ? 48 : 28) * Math.min(big, 2.4) * q));
+    for (let i = 0; i < skirt; i++) {
+      const a = (i / skirt) * Math.PI * 2 + rnd(-0.1, 0.1);
+      const sp = rnd(10, 18) * big;
+      this.smoke.spawn({ x: center.x, y: center.y - 0.3, z: center.z, vx: Math.cos(a) * sp, vy: rnd(0.4, 1.8), vz: Math.sin(a) * sp, life: rnd(1.8, 3) * Math.min(big, 1.7), size0: 1.6 * big, size1: rnd(5, 7.5) * big, color0: c.dust, color1: c.smokeLight, alpha: 0.5, drag: 2.1 / Math.min(big, 1.6) });
+    }
+    // 2. The fireball, the shock: a moment later.
+    this._after(0.07, () => {
+      const at = performance.now();
+      if (this.lastShellFx?.t === t0) {
+        this.lastShellFx.fireAt = at;
+        this.lastShellFx.shockAt = at;
+      }
+      this.glow.spawn({ x: center.x, y: center.y + big, z: center.z, life: 0.12, size0: 9 * big, size1: 3 * big, color0: k.white, alpha: 0.9 });
+      const fire = Math.round((huge ? 70 : 34) * Math.min(big, 3) * q) + 6;
+      for (let i = 0; i < fire; i++) {
+        const v = new THREE.Vector3(rnd(-1, 1), rnd(0, 1.3), rnd(-1, 1)).normalize().multiplyScalar(rnd(3, 11) * big);
+        this.glow.spawn({ x: center.x + rnd(-1, 1) * big, y: center.y + rnd(0, 1.5) * big, z: center.z + rnd(-1, 1) * big, vx: v.x, vy: v.y + 2 * big, vz: v.z, life: rnd(0.3, 0.75) * Math.min(big, 2), size0: rnd(1.5, 3) * big, size1: rnd(4, 7) * big, color0: c.fireHot, color1: Math.random() < 0.5 ? c.fireMid : c.fireEnd, alpha: 0.45, drag: 3.2 / big, gravity: -0.14 });
+      }
+      const sparks = Math.round(50 * Math.min(big, 2) * q);
+      for (let i = 0; i < sparks; i++) {
+        const v = new THREE.Vector3(rnd(-1, 1), rnd(0.1, 1.3), rnd(-1, 1)).normalize().multiplyScalar(rnd(12, 30) * big);
+        this.glow.spawn({ x: center.x, y: center.y + 0.5, z: center.z, vx: v.x, vy: v.y, vz: v.z, life: rnd(0.5, 1.2) * Math.min(big, 1.6), size0: rnd(0.15, 0.32) * Math.min(big, 1.6), size1: 0.05, color0: c.spark, color1: c.fireMid, alpha: 1, drag: 1.1, gravity: 0.7 });
+      }
+      this.shockRing(center, look * (huge ? 1.4 : 1.1));
+      this.shockSphere(center, look * 0.2, look * (huge ? 2.6 : 2), huge ? 0.6 : 0.34, huge ? 0.6 : 0.9);
+      if (huge) {
+        // The warhead's rising fireball and its cap of smoke.
+        for (let i = 0; i < Math.round(40 * q) + 8; i++) this.glow.spawn({ x: center.x + rnd(-2, 2) * big, y: center.y + rnd(0, 3) * big, z: center.z + rnd(-2, 2) * big, vx: rnd(-2, 2), vy: rnd(8, 18), vz: rnd(-2, 2), life: rnd(1.2, 2.2), size0: rnd(3, 5) * big, size1: rnd(6, 10) * big, color0: c.fireHot, color1: c.fireEnd, alpha: 0.4, drag: 1.2 });
+      }
+    });
+    // 3. The smoke column, rising and lingering.
+    this._after(0.18, () => {
+      const n = Math.round((huge ? 70 : 34) * Math.min(big, 3) * q) + 6;
+      for (let i = 0; i < n; i++) {
+        const v = new THREE.Vector3(rnd(-1, 1), rnd(0.2, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(1, 4) * big);
+        this.smoke.spawn({ x: center.x + rnd(-1.5, 1.5) * big, y: center.y + rnd(0, 2) * big, z: center.z + rnd(-1.5, 1.5) * big, vx: v.x, vy: v.y + rnd(2.5, 6) * big * (huge ? 1.6 : 1), vz: v.z, life: rnd(4, 8) * Math.min(big, 1.8), size0: rnd(2, 4) * big, size1: rnd(7, 12) * big, color0: c.smokeDark, color1: c.smokeLight, alpha: rnd(0.5, 0.75), drag: 1.1 / big, gravity: -0.03, hold: 0.2 });
+      }
+    });
+    // The rim: scorched, churned ground (the blast's owner's edit: everyone gets it).
+    if (!mirror) this._scorch(center, radius * (huge ? 1.25 : 1.4));
+  }
+
+  // The ground's top blocks within r of a blast turn to churned, coarse dirt.
+  _scorch(center, r) {
+    const w = this.world;
+    const edits = [];
+    const R = Math.ceil(r);
+    const cx = Math.floor(center.x);
+    const cz = Math.floor(center.z);
+    for (let dx = -R; dx <= R; dx++) {
+      for (let dz = -R; dz <= R; dz++) {
+        const d = Math.hypot(dx, dz);
+        if (d > r || Math.random() < (d / r) * 0.6) continue;
+        const x = cx + dx;
+        const z = cz + dz;
+        if (!w.getChunk(x >> 4, z >> 4)) continue;
+        for (let y = Math.min(WORLD_HEIGHT - 2, Math.floor(center.y) + 3); y > Math.floor(center.y) - R - 2 && y > 1; y--) {
+          const id = w.getBlock(x, y, z);
+          if (id === BLOCK.AIR) continue;
+          if (SCORCHED.has(id) && w.getBlock(x, y + 1, z) === BLOCK.AIR) edits.push(x, y, z, COARSE_DIRT);
+          break;
+        }
+      }
+    }
+    if (edits.length) w.setBlocks(edits);
+  }
+
   // A brief muzzle flash of light at `pos` (the pistol and the bazooka).
   muzzleFlash(pos, strength = 1) {
     this.muzzleLight.position.copy(pos);
@@ -408,10 +663,31 @@ export class EffectsSystem {
 
   update(dt) {
     this.shake.update(dt);
+    // (Round 13) The sequences' later parts, the shock spheres.
+    for (let i = this._later.length - 1; i >= 0; i--) {
+      const e = this._later[i];
+      e.t -= dt;
+      if (e.t > 0) continue;
+      this._later.splice(i, 1);
+      e.fn();
+    }
+    for (const m of this._shocks) {
+      if (!m.visible) continue;
+      const u = m.userData;
+      u.age += dt;
+      const t = u.age / u.dur;
+      if (t >= 1) {
+        m.visible = false;
+        continue;
+      }
+      const e = 1 - (1 - t) * (1 - t) * (1 - t);
+      m.scale.setScalar(u.r0 + (u.r1 - u.r0) * e);
+      m.material.uniforms.uOpacity.value = 1.6 * (u.k ?? 1) * (1 - t) * (1 - t);
+    }
 
     // Explosion flash: bright, then a fast exponential falloff.
     this._flashTime += dt;
-    this.flashLight.intensity = this._flashTime < 1.5 ? this._flashPower * Math.exp(-this._flashTime * 6) : 0;
+    this.flashLight.intensity = this._flashTime >= 0 && this._flashTime < 1.5 ? this._flashPower * Math.exp(-this._flashTime * 6) : 0;
     this._muzzleTime += dt;
     this.muzzleLight.intensity = this._muzzleTime < 0.08 ? 40 * (this.muzzleLight.userData.strength || 1) * (1 - this._muzzleTime / 0.08) : 0;
 
@@ -432,5 +708,6 @@ export class EffectsSystem {
     this.debris.update(dt);
     this.smoke.update(dt);
     this.glow.update(dt);
+    this.trail.update(dt);
   }
 }

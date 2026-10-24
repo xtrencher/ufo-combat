@@ -41,7 +41,7 @@ import { SEA_LEVEL } from "./constants.js";
 import { Chests } from "./chests.js";
 import { BLOCK_USE, ITEM_USE } from "./content/index.js";
 import { enchLevel, efficiencyBonus, meleeBonus } from "./enchant.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { GLASS_BOTTLE } from "./content/ids.js";
 import { offhandUse } from "./content/items-vanilla.js";
 import { cactusHolds } from "./content/nature.js";
@@ -429,14 +429,14 @@ export class Interaction {
     return out;
   }
 
-  // The seconds to mine block `id` now: the tool and its Efficiency; in a
-  // Survival world vanilla's 5x with the head under water (unless the
+  // The seconds to mine block `id` now: the tool and its Efficiency; and
+  // vanilla's 5x with the head under water (unless the
   // helmet has Aqua Affinity) and another 5x off the ground (on a ladder,
   // mid-jump, swimming, in a cobweb).
   _breakTime(id) {
     const stack = this.inventory.selectedStack;
     let t = breakTime(id, this._tool(), stack?.tag ? efficiencyBonus(stack) : 0);
-    if (!isVanilla() || !Number.isFinite(t) || t <= 0) return t;
+    if (!vanillaRules() || !Number.isFinite(t) || t <= 0) return t;
     const p = this.player;
     if (p.headInWater && !enchLevel(this.inventory.armor?.[0], "aqua_affinity")) t *= 5;
     if (!p.onGround && !p.flying) t *= 5;
@@ -529,8 +529,8 @@ export class Interaction {
     // none for an ore taken whole with Silk Touch).
     this.onBlockBroken?.(x, y, z, id, tool, silk);
     if (tool && BLOCK_INFO[id].hardness > 0 && !OWN_USE_WEAR.has(tool.type)) {
-      // (A Survival world's sword wears by 2 a block, as vanilla's.)
-      if (this.inventory.damageSelected(tool.type === "sword" && isVanilla() ? 2 : 1)) this.audio.playToolBreak();
+      // (A sword wears by 2 a block, as vanilla's.)
+      if (this.inventory.damageSelected(tool.type === "sword" && vanillaRules() ? 2 : 1)) this.audio.playToolBreak();
     }
     this._changed();
   }

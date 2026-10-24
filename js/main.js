@@ -1171,9 +1171,11 @@ function removePlayerJets() {
 // in that nobody sits in goes. Online the aircraft is shared like any other
 // player's (net/vehicles.js), for the host and guests alike.
 function callIn(kind) {
-  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight" || isVanilla()) return false;
-  if (!mods.enabled) {
-    toast("Switch the mods on first (Settings > Missions mods).", 3);
+  if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight") return false;
+  // (Round 13: a Survival world's Creative too; never in the Nether or the End, nor a Missions world with the Mods off.)
+  const why = vehicles.summonRefusal({ seatedOk: true });
+  if (why) {
+    toast(`${why}.`, 3);
     return false;
   }
   if (vehicles.active) vehicles.exit({ force: true });
@@ -1201,10 +1203,10 @@ function callIn(kind) {
   toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3);
   return true;
 }
-// The call-ins show in the pause menu in Creative only (and never in a
-// Survival world: no aircraft there).
+// The call-ins show in the pause menu in Creative only (Round 13: in a
+// Survival world's too: its Creative has the aircraft).
 function refreshCallIns() {
-  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight" || isVanilla());
+  document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight");
 }
 for (const b of document.querySelectorAll("#pause-callins [data-callin]")) {
   b.addEventListener("click", () => {
@@ -1652,7 +1654,12 @@ function inFront(dist, up) {
   return player.position.clone().addScaledVector(f, dist).add(new THREE.Vector3(0, up, 0));
 }
 function creativeSpawnUfo(design) {
-  if (!creativeToolCheck()) return;
+  // (Round 13: a ship to fly is Creative's in a Survival world too: the vehicles' own check.)
+  const why = gameState === "start" ? "Start playing first: these place things in front of you." : vehicles.summonRefusal();
+  if (why) {
+    document.getElementById("mods-tools-note").textContent = why;
+    return;
+  }
   const radius = Number(document.getElementById("spawn-ufo-size").value) || 7;
   const pos = inFront(radius + 5, radius * 0.5 + 2);
   const v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [pos.x, pos.y, pos.z], yaw: player.yaw });
@@ -3048,7 +3055,9 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyE") openInventory("inventory");
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF") {
-    if (mods.enabled) vehicles.toggle();
+    // (Round 13) F boards a vehicle in reach that this player may fly (in a
+    // Survival world: in Creative); otherwise it swaps the hands.
+    if (vehicles.wantsF()) vehicles.toggle();
     else if (isVanilla() && inventory.swapOffhand()) markInventoryChanged();
   }
   else if (e.code === "KeyR") {

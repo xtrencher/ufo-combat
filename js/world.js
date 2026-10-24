@@ -36,7 +36,7 @@ import { buildBlockTextures } from "./textures.js";
 import { createChunkMaterials } from "./shaders.js";
 import { RANDOM_TICK, TICKS_RANDOMLY, TICKING } from "./content/index.js";
 import { cactusHolds } from "./content/nature.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules, legacyTerrain } from "./worldtype.js";
 
 export { SEA_LEVEL };
 
@@ -97,8 +97,10 @@ const RANDOM_TICK_RANGE = 8;
 const EDIT_REMESH_BUDGET_MS = 10; // extra per-frame time for rebuilding after huge edits
 
 export class World {
-  // terrainOptions: { sites } (Round 11: false in a Survival world, no airports
-  // or cities), for the generator here, in the workers and in the LOD (lod.js).
+  // terrainOptions: { sites, vanilla } (Round 11: sites false in a Survival
+  // world, no airports or cities; Round 13: vanilla, the vanilla terrain, in
+  // every world but an old Missions save: worldtype.js terrainOptions), for
+  // the generator here, in the workers and in the LOD (lod.js).
   constructor(scene, seed, terrainOptions = {}) {
     this.scene = scene;
     this.seed = seed >>> 0;
@@ -307,7 +309,7 @@ export class World {
     const pop = (x, y, z, id) => {
       if (apply(x, y, z, BLOCK.AIR) && this.onBlockPopped && !remote) this.onBlockPopped(x, y, z, id);
     };
-    const cactusRule = isVanilla(); // (Survival: vanilla's cactus, nature.js cactusHolds)
+    const cactusRule = vanillaRules() && !legacyTerrain(); // (vanilla's cactus, nature.js cactusHolds; an old Missions save keeps its old cacti)
     for (let i = 0; i < changed.length; i += 3) {
       const x = changed[i];
       const y = changed[i + 1] + 1;

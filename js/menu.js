@@ -7,7 +7,7 @@
 // returns to it.
 import * as THREE from "three";
 import { createUfoModel, randomUfoSpec } from "./ufo-models.js";
-import { isVanilla } from "./worldtype.js";
+import { missionsLayer } from "./worldtype.js";
 
 // The controls reference: [section, [[keys, action], ...]].
 export const CONTROLS = [
@@ -284,7 +284,7 @@ export class MenuPerf {
 // shows Survival and Creative as plain Minecraft): setUfos, as the menu's
 // cards change; switched on, one flies in, switched off, it climbs away.
 export class MenuFlyover {
-  constructor(scene, world, { effects = null, audio = null, ufos = !isVanilla() } = {}) {
+  constructor(scene, world, { effects = null, audio = null, ufos = missionsLayer() } = {}) {
     this.world = world;
     this.scene = scene;
     this.effects = effects;

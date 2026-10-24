@@ -370,4 +370,19 @@ export function hasSavedWorld(seed) {
   }
 }
 
+// (Round 13) Whether the world has saved block edits (in any dimension):
+// main.js takes a Missions world with edits but no saved player (a save
+// from before the player record had its terrain version, "gen") for an old
+// one, so its builds keep their landscape (worldtype.js terrainGenOf).
+export function hasSavedEdits(seed) {
+  try {
+    if (localStorage.getItem(editsKey(seed)) !== null) return true;
+    const head = `${PREFIX}edits_${seed}_`;
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(head)) return true;
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
 export const STORAGE_PREFIX = PREFIX;

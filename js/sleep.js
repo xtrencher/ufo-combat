@@ -1,4 +1,4 @@
-// Beds and sleeping (Round 11, Survival worlds), as vanilla:
+// Beds and sleeping (Round 11; Round 13: in both world types), as vanilla:
 // - Right click on a bed (the building part's blockUse calls LIB.onBedUse,
 //   which main.js points here) sets the respawn point to it ("Respawn point
 //   set"), then lies down if it is night (18:32 to 5:27, vanilla's sleep
@@ -16,10 +16,12 @@
 //   next to it, else at the world spawn ("Your home bed was missing or
 //   obstructed"). The spawn point is saved with the player (a guest's: by
 //   the host, with the guest's things).
-// Missions worlds keep their own respawn rules: a bed there only says so.
+// (Round 13) A Missions world too: a mission's own respawn spot comes first
+// (main.js), and while a mission needs the night (d.noRest: its reason) no
+// one can lie down to skip it.
 import * as THREE from "three";
 import { BLOCK_INFO, IS_SOLID, IS_WET } from "./blocks.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { BED_PART, SUFFOCATES, BODY, BODY_FLAGS } from "./survival.js";
 
 export const SLEEP_TIME = 5; // seconds asleep before the night is skipped (vanilla: 100 ticks)
@@ -53,7 +55,8 @@ export class Sleep {
   // here, online () => bool, isHost () => bool, inGame () => bool, sendTime
   // () => void, and the optional onSpawnSet, onSleep, onWake, onSkip,
   // thundering () => bool, everyone () => every remote player, whatever their
-  // dimension (Round 12: net/players.js all()) }
+  // dimension (Round 12: net/players.js all()), noRest () => why no one may
+  // sleep now, or null (Round 13: a Missions world's night mission) }
   constructor(deps) {
     this.d = deps;
     this.spawn = null; // [x, y, z]: the bed's head cell, or null (the world spawn)
@@ -120,10 +123,7 @@ export class Sleep {
   useBed(ctx) {
     const d = this.d;
     const p = this.player;
-    if (!isVanilla()) {
-      d.toast("Beds set the spawn point and skip the night in Survival worlds.", 2.5);
-      return true;
-    }
+    if (!vanillaRules()) return false;
     if (p.sleeping || p.dead || p.vehicle) return true;
     // (ctx.bed: the building part's own reading of the bed, { foot, head }.)
     const b = ctx.bed;
@@ -152,6 +152,11 @@ export class Sleep {
     }
     if (!this.canSleepNow()) {
       d.toast(same ? "You can sleep only at night or during thunderstorms" : "Respawn point set. You can sleep only at night or during thunderstorms", 2.5);
+      return true;
+    }
+    const noRest = d.noRest?.();
+    if (noRest) {
+      d.toast(same ? noRest : `Respawn point set. ${noRest}`, 2.5);
       return true;
     }
     if (!p.creative && this._monstersNear(bed)) {
@@ -195,7 +200,7 @@ export class Sleep {
   // (the bed is gone or obstructed: the spawn point is forgotten). The bed's
   // chunks must be loaded (main.js prepares the area first).
   respawnSpot() {
-    if (!this.spawn || !isVanilla()) return null;
+    if (!this.spawn || !vanillaRules()) return null;
     const [x, y, z] = this.spawn;
     const bed = this.bedAt(x, y, z);
     const spot = bed ? this.standSpot(bed.x, bed.y, bed.z, bed.dx, bed.dz) : null;
@@ -248,7 +253,7 @@ export class Sleep {
       s.t += dt;
       // (Shift or a hit, the bed gone, the morning, a vehicle: up.)
       const gone = !this.bedAt(s.x, s.y, s.z);
-      if (p.wantsToLeaveBed || gone || p.dead || p.vehicle || !isVanilla() || (s.t > 0.5 && !this.canSleepNow())) this.wake();
+      if (p.wantsToLeaveBed || gone || p.dead || p.vehicle || !vanillaRules() || (s.t > 0.5 && !this.canSleepNow())) this.wake();
     }
     const online = d.online();
     const [asleep, total, ready] = online ? this._count() : [p.sleeping ? 1 : 0, 1, !!p.sleeping && p.sleeping.t >= SLEEP_TIME];

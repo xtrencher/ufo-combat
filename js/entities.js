@@ -17,7 +17,7 @@ import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { EGG, SNOWBALL, ENDER_PEARL } from "./content/ids.js";
 import { LIB } from "./content/base.js";
 import { BODY, BODY_FLAGS } from "./survival.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 
 const GRAVITY = -20;
 const DESPAWN_SECONDS = 300;
@@ -181,7 +181,7 @@ export class ItemEntities {
     const feet = player?.position;
     if (feet && (!this._hasPrev || player.vehicle || this._prev.distanceToSquared(feet) > 16)) this._prev.copy(feet);
     this._hasPrev = !!feet;
-    const magnet = !isVanilla();
+    const magnet = !vanillaRules(); // (Round 13: vanilla's pickup in both world types; the old Missions magnet is off)
     this._updateFlying(dt);
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];

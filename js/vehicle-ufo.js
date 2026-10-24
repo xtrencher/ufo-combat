@@ -779,10 +779,14 @@ export class PilotUfo extends Vehicle {
     if (L.t >= LOCK_TIME && L.t - dt < LOCK_TIME) mgr.onMessage?.("LOCKED: keep holding T for the salvo");
     if (pip > L.pips && pip < n) mgr.audio?.playSalvoPip?.(pip, n);
     L.pips = pip;
-    L.beepT -= dt;
-    if (L.beepT <= 0) {
-      L.beepT = L.t >= LOCK_TIME ? 0.1 : 0.34 - Math.min(1, L.t / LOCK_TIME) * 0.22;
-      mgr.audio?.playLockTone?.(L.t >= LOCK_TIME);
+    // (Round 13) The seeker's growl rising to a solid tone, as the jets'.
+    if (mgr.audio?.setSeekerTone) mgr.audio.setSeekerTone(L.t >= LOCK_TIME ? 2 : 1, Math.min(1, L.t / LOCK_TIME));
+    else {
+      L.beepT -= dt;
+      if (L.beepT <= 0) {
+        L.beepT = L.t >= LOCK_TIME ? 0.1 : 0.34 - Math.min(1, L.t / LOCK_TIME) * 0.22;
+        mgr.audio?.playLockTone?.(L.t >= LOCK_TIME);
+      }
     }
     if (L.t >= SALVO_TIME) {
       // Fire: the bolts leave 70 ms apart.
@@ -850,7 +854,28 @@ export class PilotUfo extends Vehicle {
         out.lock = { x: p.x, y: p.y, locked, salvo: false, progress: Math.min(1, L.t / LOCK_TIME), charge, pips: Math.min(8, n) };
       }
     }
+    out.hud = this._hudData();
     return out;
+  }
+
+  // (Round 13) The fighter HUD's data (js/fighter-hud.js, as the jets'):
+  // the boresight, and the lock-on salvo's target (hold T) with its charge.
+  _hudData() {
+    const L = this.lockOn;
+    const bore = this._viewDir(new THREE.Vector3()).multiplyScalar(600).add(this.pos);
+    let target = null;
+    const t = L.target && this._lockAlive(L.target) ? L.target : null;
+    if (t) {
+      const pos = !t.radius && Number.isFinite(t.spec?.h) ? new THREE.Vector3(t.pos.x, t.pos.y + t.spec.h * 0.5, t.pos.z) : t.pos.clone();
+      const d = _v.copy(pos).sub(this.pos);
+      const dist = d.length();
+      const closure = dist > 1e-3 ? (this.vel.dot(d) - (t.vel ? t.vel.dot(d) : 0)) / dist : 0;
+      const locked = L.t >= LOCK_TIME;
+      const n = this._salvoSize();
+      const name = t.boss ? String(t.bossName || "BOSS").toUpperCase() : t.design === "sphere" ? "BALL UFO" : t.isEnemyJet ? "BANDIT" : t.state !== undefined && t.radius ? "UFO" : t.kind ? String(t.kind).replace(/_/g, " ").toUpperCase() : "TARGET";
+      target = { pos, radius: t.hitRadius || t.radius || (Number.isFinite(t.spec?.h) ? t.spec.h * 0.6 : 2), name, dist, closure, progress: Math.min(1, L.t / LOCK_TIME), locked, salvo: false, charge: locked ? THREE.MathUtils.clamp((L.t - LOCK_TIME) / (SALVO_TIME - LOCK_TIME), 0, 1) : 0, n: Math.min(8, n), pips: Math.min(8, L.pips), holding: true, auto: false, salvoAuto: true };
+    }
+    return { bore, cone: 0, target, missiles: [], threat: null, spiked: null };
   }
 
   // The sweeping beam: a continuous red laser from the belly to whatever is

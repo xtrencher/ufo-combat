@@ -19,6 +19,9 @@
 // street's level: small, medium and big houses with beds, farms, animal
 // pens, a library, a church, a blacksmith and the other trades' houses, each
 // with its job's block and a chest of vanilla's loot, lamp posts and hay.
+//
+// (Round 13) A new Missions world's terrain is the vanilla one: its villages
+// are these too, kept off its airports and cities (_onSite).
 import { hash2, mulberry32 } from "./noise.js";
 import { BLOCK, BLOCK_INFO, wallTorch, chest } from "./blocks.js";
 import * as V from "./content/ids.js";
@@ -56,7 +59,8 @@ export class VillageGrower {
     this.seed = terrain.seed;
     this._centers = new Map(); // "cellX,cellZ" -> center or null (cache)
     this._shapes = new Map(); // "x,z" -> flat [dx, dy, dz, id, ...]
-    // (A Survival world's terrain: no airports or cities, see terrain.js.)
+    // (vanilla: the vanilla terrain's villages, a Survival world's and, from
+    // Round 13, a new Missions world's; an old Missions world's are its own.)
     const o = terrain.options || {};
     this.vanilla = o.vanilla ?? o.sites === false;
     // (Round 12) How far a village reaches from its middle (a Survival world's are bigger).
@@ -337,7 +341,8 @@ export class VillageGrower {
       const z = cellZ * CELL + Math.floor(jz * (CELL - R * 2)) + R;
       const h = this.terrain.heightAt(x, z);
       const style = V_STYLES[this.terrain.biomeAt(x, z)];
-      if (h <= SEA_LEVEL + 2 || !style) continue;
+      // (Round 13: a Missions world's vanilla villages keep off its airports and cities)
+      if (h <= SEA_LEVEL + 2 || !style || this._onSite(x, z, R + 40)) continue;
       let lo = h;
       let hi = h;
       let wet = 0;
@@ -356,6 +361,21 @@ export class VillageGrower {
       return { x, z, groundY: h, style };
     }
     return null;
+  }
+
+  // (Round 13) Whether a site (an airport or a city: sites.js) comes within
+  // `r` of (x, z): its middle and eight points round it (a site is found from
+  // the column asked about, and a village's edge can reach a site its middle
+  // is outside of). Never in a Survival world (no sites).
+  _onSite(x, z, r) {
+    const sites = this.terrain.sites;
+    if (!sites || sites.off) return false;
+    if (sites.covers(x, z, r)) return true;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      if (sites.covers(Math.round(x + Math.cos(a) * r), Math.round(z + Math.sin(a) * r), 0)) return true;
+    }
+    return false;
   }
 
   // A Survival world's village's blocks, by chunk: Map "cx,cz" -> Int16Array

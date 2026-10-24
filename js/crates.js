@@ -141,6 +141,8 @@ export class SupplyCrates {
   // Sends a crate down near the player (opts.center: near that point
   // instead). opts.dist: how far (blocks). opts.net: a crate another peer
   // dropped ({ id, x, z, y, sway, age }): made exactly like theirs.
+  // (Round 13) opts.at: a crate thrown clear of a destroyed vehicle there
+  // (a short tumble a few blocks off it, no parachute ride from the sky).
   drop(opts = {}) {
     const p = opts.center || this.player.position;
     let x;
@@ -148,6 +150,13 @@ export class SupplyCrates {
     let y;
     if (opts.net) {
       ({ x, z, y } = opts.net);
+    } else if (opts.at) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 4 + Math.random() * 3;
+      x = opts.at.x + Math.cos(a) * r;
+      z = opts.at.z + Math.sin(a) * r;
+      if (!this._isLand(x, z)) return null;
+      y = this._surface(x, z) + 3.5;
     } else {
       const site = this._findLand(p, opts.dist ?? 55 + Math.random() * 60);
       if (!site) return null; // all water around: no drop
@@ -168,10 +177,17 @@ export class SupplyCrates {
     this.scene.add(group);
     const crate = { id: opts.net?.id ?? this._id++, pos: new THREE.Vector3(x, y, z), group, canopy, cords, state: "falling", age: 0, smokeT: 0, x, z, y0: y, sway: opts.net?.sway ?? Math.random() * 6 };
     this.crates.push(crate);
+    if (opts.at) {
+      canopy.visible = false;
+      cords.visible = false;
+    }
     // (A crate that has been on its way a while when it reaches us: where it is by now.)
     if (opts.net?.age > 0) this._advance(crate, opts.net.age);
     const me = this.player.position;
-    if (Math.hypot(me.x - x, me.z - z) < 260) {
+    if (opts.at || opts.net?.wreck) {
+      crate.wreck = true;
+      if (Math.hypot(me.x - x, me.z - z) < 260) this.onMessage?.("The wreck left a supply crate (orange smoke).");
+    } else if (Math.hypot(me.x - x, me.z - z) < 260) {
       this.onMessage?.("SUPPLY CRATE dropping nearby! Follow the orange smoke.");
       this.audio?.playSupplyDrop?.();
     }

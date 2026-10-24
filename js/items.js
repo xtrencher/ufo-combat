@@ -12,7 +12,7 @@ import { BLOCK, BLOCK_INFO, ITEM_OF, BLOCK_LIMIT, isBlockId } from "./blocks.js"
 import { ITEM, LIB } from "./content/base.js";
 import { CONTENT_ITEMS, CONTENT_ORDER, BLOCK_DROPS } from "./content/index.js";
 import * as V from "./content/ids.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { fortuneCount } from "./enchant.js";
 
 export { ITEM };
@@ -218,7 +218,7 @@ NEEDS_TOOL[V.COBWEB] = 1;
 export function canHarvest(blockId, tool) {
   const b = BLOCK_INFO[blockId];
   if (!b || b.hardness < 0) return false;
-  if (b.minTier === 0) return !NEEDS_TOOL[blockId] || !isVanilla() || (!!tool && tool.type === b.tool);
+  if (b.minTier === 0) return !NEEDS_TOOL[blockId] || !vanillaRules() || (!!tool && tool.type === b.tool);
   return !!tool && tool.type === b.tool && tool.tier >= b.minTier;
 }
 
@@ -226,7 +226,7 @@ export function canHarvest(blockId, tool) {
 function toolSpeed(b, tool) {
   if (!tool) return 1;
   // (Before the main tool's: a cobweb's tool is the sword, at 15 whatever its material.)
-  if (tool.type === "sword" && SWORD_SPEED[b.id] && isVanilla()) return SWORD_SPEED[b.id];
+  if (tool.type === "sword" && SWORD_SPEED[b.id] && vanillaRules()) return SWORD_SPEED[b.id];
   if (tool.type === b.tool) return tool.speed ?? 1;
   if (tool.type === "shears") return SHEARS_SPEED[b.id] || 1;
   if (tool.type === "hoe" && HOE_BLOCK[b.id]) return tool.speed ?? 1;
@@ -264,7 +264,7 @@ function enchantedDrops(blockId, tool, rand, ench) {
     if (id) return [[id, 1]];
   }
   const L = ench.fortune | 0;
-  if (L > 0 && blockId === BLOCK.GRAVEL && isVanilla() && itemInfo(V.FLINT) && canHarvest(blockId, tool)) {
+  if (L > 0 && blockId === BLOCK.GRAVEL && vanillaRules() && itemInfo(V.FLINT) && canHarvest(blockId, tool)) {
     return [[rand() < [0.1, 0.14, 0.25, 1][Math.min(3, L)] ? V.FLINT : BLOCK.GRAVEL, 1]];
   }
   const out = blockDrops(blockId, tool, rand);
@@ -294,9 +294,9 @@ export function blockDrops(blockId, tool, rand = Math.random, ench = null) {
   if (!canHarvest(blockId, tool)) return [];
   const custom = BLOCK_DROPS[blockId]?.(tool, rand);
   if (custom) return custom.filter(([id, n]) => n > 0 && itemInfo(id));
-  // (Round 11) A Survival world's core blocks drop as in the classic game;
-  // a Missions world's as before.
-  if (isVanilla()) {
+  // (Round 11) The core blocks drop as in the classic game (Round 13: in
+  // both world types; the old Missions drops below are the fallback).
+  if (vanillaRules()) {
     const out = vanillaDrops(blockId, tool, rand);
     if (out) return out.filter(([id, n]) => n > 0 && itemInfo(id));
   }

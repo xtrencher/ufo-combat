@@ -247,7 +247,7 @@ export class VehicleSync {
     v.update = v._realUpdate;
     v.damage = v._realDamage;
     v.transient = false;
-    v.keep = v.type === "ufo" && !v.wreck;
+    v.keep = (v.type === "ufo" && !v.wreck) || !!v.summoned; // (Round 13: a Creative summon stays kept)
     v.net.owner = this.net.pid;
     v.interp?.clear();
     // Where it was last seen, at rest.

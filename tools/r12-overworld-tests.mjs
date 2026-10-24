@@ -422,7 +422,8 @@ await check("jungle temples stand in jungles: two chests of the jungle temple's 
   assert(loot.length >= 1 && loot.every(([id]) => itemInfo(id)), `jungle temple loot: ${JSON.stringify(loot)}`);
 });
 
-await check("a Missions world's chunks are unchanged", async () => {
+// (Round 13: an old Missions save's terrain, the old generator: a new Missions world's is the vanilla one, r13-unify-tests.mjs.)
+await check("an old Missions world's chunks are unchanged", async () => {
   WT.setWorldType("missions");
   const MISSIONS_HASHES = { 12345: 1268467022, 777: 739122713, 2024: 48227652 };
   const coords = [[0, 0], [1, 0], [-3, 2], [10, -7], [40, 40], [-60, 13], [100, -100], [7, 200], [-250, -31], [333, 90]];

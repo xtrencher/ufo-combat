@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(process.env.GAME_ROOT || path.join(__dirname, "..")); // (GAME_ROOT=dir: another copy of the game)
 const args = Object.fromEntries(
   process.argv
     .slice(2)
@@ -138,7 +138,7 @@ async function afterNavigation(action) {
 
 async function play(p = page) {
   const t0 = Date.now();
-  while (Date.now() - t0 < 90000) {
+  while (Date.now() - t0 < 180000) { // (Round 13: a slow, shared machine)
     const st = await v(p, (g) => g.gameState);
     if (st === "playing") return;
     if (st === "dead") {

@@ -11,13 +11,23 @@
 //     kills its pilot (unless they got out in time);
 //   - saving: every vehicle in the world and the one the player is in;
 //   - pausing (vehicles simply don't update), and mods switched off while
-//     flying (the player is set down safely and the vehicles are put away).
-// Vehicle types register themselves with VehicleManager.register().
+//     flying (the player is set down safely and the vehicles are put away);
+//   - (Round 13) Creative's summons: the vehicle items of the Creative
+//     palette (js/content/vehicles.js) put a vehicle on the ground aimed at,
+//     or, aimed at the sky, the player straight into it in the air. In a
+//     Survival world (no Mods there) the vehicles are on all the same, but
+//     only a player in Creative summons or boards one (F swaps the hands
+//     otherwise); vehicles are the Overworld's (hidden and still elsewhere).
+// Vehicle types register themselves with VehicleManager.register(), and
+// what Creative can summon with VehicleManager.registerSummon().
 import * as THREE from "three";
 import { IS_SOLID, IS_WET } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { sweptSphere } from "./lasers.js";
 import { hullRay, hullDistance, hullContact, discShape, CONTACT } from "./hitboxes.js";
+import { LIB } from "./content/base.js";
+import { isMissionsWorld } from "./worldtype.js";
+import { UFO_DESIGNS } from "./ufo-models.js";
 
 const ENTER_REACH = 4.5; // blocks from a vehicle's hull
 const MAX_VEHICLES = 12; // parked / wrecked vehicles kept in a world
@@ -29,6 +39,14 @@ const MAX_VEHICLES = 12; // parked / wrecked vehicles kept in a world
 const BUMP_SPEED = 4;
 const CRASH_SPEED = 28;
 const PAIR_COOLDOWN = 1; // seconds before the same two can hurt each other again
+// (Round 13) Creative's summons: how far the aim reaches for the ground, the
+// most summoned vehicles kept (the oldest empty one goes), the debounce of a
+// held right button (an item's use repeats while it is held).
+const SUMMON_REACH = 96;
+const MAX_SUMMONED = 8;
+const SUMMON_REPEAT = 0.8; // seconds (the item's use repeats every 0.22 s while held, or every frame at a low frame rate)
+const SUMMON_UFO_RADIUS = 7; // a medium ship (sneaking: a small one)
+const SUMMON_UFO_SMALL = 4.5;
 const _dir = new THREE.Vector3();
 // (Collision scratch: a pose for a ship (no quaternion of its own) and the contact normal.)
 const _n = new THREE.Vector3();
@@ -180,6 +198,8 @@ export class Vehicle {
     const data = { type: this.type, pos: this.pos.toArray().map((v) => Math.round(v * 100) / 100), health: this.health };
     // (A Creative call-in stays one after a reload: the next call-in removes it.)
     if (this.calledIn) data.calledIn = true;
+    // (Round 13: and a Creative summon one, kept like a boat until taken away.)
+    if (this.summoned) data.summoned = true;
     return data;
   }
 
@@ -273,6 +293,17 @@ export class VehicleManager {
     VehicleManager.types[type] = cls;
   }
 
+  // (Round 13) What Creative can summon (a vehicle item's `vehicle` key,
+  // js/content/vehicles.js): key -> { type, data(mgr, ctx) (the creation data
+  // without pos and yaw), alt (blocks above the ground a summon into the sky
+  // starts at; 0: ground only), launch(v) (set it flying: a summon into the
+  // sky) }. A new kind (a tank) registers itself next to its class.
+  static summons = {};
+
+  static registerSummon(key, def) {
+    VehicleManager.summons[key] = def;
+  }
+
   constructor({ scene, world, player, effects, audio, lasers, mobs, inventory, entities }) {
     this.scene = scene;
     this.world = world;
@@ -286,7 +317,10 @@ export class VehicleManager {
     this.vehicles = [];
     this.active = null;
     this.nextId = 1;
-    this.enabled = true;
+    this._on = true; // (the Mods' switch, setEnabled; see `enabled`)
+    this.away = false; // (Round 13) the player is in the Nether or the End: the vehicles stay behind
+    this._summonT = -99; // (the last summon's time, for the held button)
+    this._ufoNext = Math.floor(Math.random() * UFO_DESIGNS.length); // (the UFO item's next design)
     this.restoring = false; // true while load() puts the player back in a saved seat
     this.config = {}; // per-type settings (Vehicles tab), filled in by main.js
     this.parachute = new Parachute(scene);
@@ -310,6 +344,33 @@ export class VehicleManager {
     this._hudTimer = 0;
     this._seat = new THREE.Vector3();
     this.contacts = 0; // aircraft that touched (tests)
+    // (Round 13) The Creative palette's vehicle items place through this (js/content/vehicles.js).
+    LIB.summonVehicle = (ctx, key) => this.summonFromItem(ctx, key);
+  }
+
+  // Whether vehicles exist and work here: with the Mods on, or in any world
+  // that is not a Missions world (a Survival world has no Mods but has
+  // Creative's vehicles), and only in the Overworld.
+  get enabled() {
+    return (this._on || !isMissionsWorld()) && !this.away;
+  }
+
+  set enabled(on) {
+    this._on = !!on;
+  }
+
+  // (Round 13) A Survival world: only a player in Creative summons or boards
+  // a vehicle (a Missions world has its own locks: canBoard).
+  get creativeOnly() {
+    return !isMissionsWorld() && !this.player.creative;
+  }
+
+  // (Round 13) Whether F is the vehicles' just now: seated, or a vehicle in
+  // reach that this player may board (else F is the game's: the off hand).
+  wantsF() {
+    if (!this.enabled) return false;
+    if (this.active) return true;
+    return !this.creativeOnly && !!this.nearestEnterable();
   }
 
   // ---------- World helpers ----------
@@ -396,7 +457,13 @@ export class VehicleManager {
   create(type, data) {
     const cls = VehicleManager.types[type];
     if (!cls) return null;
-    return this.add(new cls(this, data));
+    const v = new cls(this, data);
+    // (Round 13) A Creative summon stays one (a reload, another player's copy).
+    if (data?.summoned) {
+      v.summoned = true;
+      v.keep = true;
+    }
+    return this.add(v);
   }
 
   // The vehicle the player could board right now, or null.
@@ -432,6 +499,10 @@ export class VehicleManager {
     }
     const v = this.nearestEnterable();
     if (!v) return false;
+    if (this.creativeOnly) {
+      this.onMessage?.("Vehicles are Creative's in a Survival world");
+      return false;
+    }
     // (Survival: the game can hold a vehicle back, e.g. jets before their mission.)
     const why = this.canBoard ? this.canBoard(v) : null;
     if (why) {
@@ -573,6 +644,169 @@ export class VehicleManager {
     if (d >= reach) return;
     const f = 1 - d / reach;
     v.damage(Math.floor(45 * Math.sqrt(radius / 7) * f), cause);
+  }
+
+  // ---------- Creative's summons (Round 13) ----------
+
+  // Why nothing can be summoned just now (the message), or null. seatedOk:
+  // the caller takes the player out of a vehicle first (the call-ins).
+  summonRefusal({ seatedOk = false } = {}) {
+    if (!this.player.creative) return "Vehicles are summoned in Creative only";
+    if (this.away) return "Vehicles fly in the Overworld only";
+    if (!this.enabled) return "Switch the mods on first (Settings > Missions mods)";
+    if (this.player.dead) return "Not now";
+    if (this.active && !seatedOk) return "Get out of your vehicle first (F)";
+    return null;
+  }
+
+  // A vehicle item used (right click, js/content/vehicles.js): the vehicle
+  // on the ground aimed at (up to SUMMON_REACH away, its tail clear of the
+  // player, facing the way the player looks), or, aimed at the sky, the
+  // player straight into it up in the air. Always handled (true): a held
+  // button doesn't summon a second one.
+  summonFromItem(ctx, key) {
+    // (The use repeats while the button is held: each repeat pushes the next summon on.)
+    const now = performance.now() / 1000;
+    const held = now - this._summonT < SUMMON_REPEAT;
+    this._summonT = now;
+    if (held) return true;
+    const why = this.summonRefusal();
+    const def = VehicleManager.summons[key];
+    if (why || !def || !VehicleManager.types[def.type]) {
+      this.onMessage?.(why || "That vehicle isn't here yet");
+      return true;
+    }
+    const eye = this.player.getEyePosition();
+    const f = Array.isArray(ctx?.forward) ? new THREE.Vector3().fromArray(ctx.forward) : this.player.getForwardVector();
+    const hit = this._aimGround(eye, f.normalize());
+    if (hit) this.summonOnGround(key, hit, ctx);
+    else this.summonInAir(key, ctx);
+    return true;
+  }
+
+  // The first solid or water cell along the aim: { x, y, z } where it is met, or null.
+  _aimGround(eye, dir) {
+    const w = this.world;
+    for (let t = 0.3; t <= SUMMON_REACH; t += 0.3) {
+      const x = eye.x + dir.x * t;
+      const y = eye.y + dir.y * t;
+      const z = eye.z + dir.z * t;
+      if (y < 0 || y >= WORLD_HEIGHT) {
+        if (dir.y >= 0) return null;
+        continue;
+      }
+      const id = w.getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
+      if (IS_SOLID[id] || IS_WET[id]) return { x, y, z };
+    }
+    return null;
+  }
+
+  // A summoned vehicle parked at `at` ({ x, y, z }: on the ground there).
+  // Returns it, or null (no room: a message says why).
+  summonOnGround(key, at, ctx = null) {
+    const def = VehicleManager.summons[key];
+    const cls = def && VehicleManager.types[def.type];
+    if (!cls) return null;
+    const p = this.player.position;
+    const yaw = this.player.yaw;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const v = new cls(this, { ...(def.data?.(this, ctx) || {}), pos: [at.x, at.y, at.z], yaw });
+    // Its tail (or rim) clear of the player: pushed on along the aim if the spot is too close.
+    const back = (v.spec?.probes?.tail ?? v.hitRadius ?? v.radius) + 1.5;
+    let cx = at.x;
+    let cz = at.z;
+    const along = (cx - p.x) * fx + (cz - p.z) * fz;
+    if (along < back) {
+      cx += fx * (back - along);
+      cz += fz * (back - along);
+    }
+    const g = this.groundBelow(cx, Math.max(at.y, p.y) + 4, cz);
+    const wet = !!IS_WET[this.world.getBlock(Math.floor(cx), Math.floor(g - 1), Math.floor(cz))];
+    const fail = (text) => {
+      v.dispose();
+      this.onMessage?.(text);
+      return null;
+    };
+    if (!this.world.getChunk(Math.floor(cx) >> 4, Math.floor(cz) >> 4)) return fail("Too far: that ground isn't loaded");
+    v.pos.set(cx, g + v.bottom + (v.type === "jet" ? 0 : 0.3), cz);
+    if (v.type === "jet") {
+      // (On its three wheels, on dry ground: water under them would wreck it.)
+      const c = typeof v._contacts === "function" ? v._contacts(yaw) : null;
+      if (wet || c?.wet) return fail(`Not on the water: the ${v.name} needs dry ground (or aim at the sky to start in the air)`);
+      if (c) v.pos.y = Math.max(v.pos.y, c.centerY);
+    }
+    if (!this._roomFor(v, yaw)) return fail(`No room for the ${v.name} there: aim at open, flat ground (or at the sky to start in the air)`);
+    v._place?.();
+    this._addSummoned(v);
+    this.audio?.playNotice?.();
+    this.onMessage?.(`${v.name} is ready: walk up to it and press F`);
+    return v;
+  }
+
+  // Nothing solid where its airframe (an aircraft's nose, wingtips, tail and
+  // back) or its rim and top (a ship) would be.
+  _roomFor(v, yaw) {
+    const w = this.world;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const rx = Math.cos(yaw);
+    const rz = -Math.sin(yaw);
+    const solid = (x, y, z) => IS_SOLID[w.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))];
+    const { x, y, z } = v.pos;
+    const pr = v.spec?.probes;
+    if (pr) {
+      const pts = [[pr.nose, 0, 0], [3, 0, 0], [0, pr.wing, 0], [0, -pr.wing, 0], [-pr.tail, 0, 2.2], [0, 0, 1.2], [pr.nose * 0.5, pr.wing * 0.5, 0], [pr.nose * 0.5, -pr.wing * 0.5, 0]];
+      return !pts.some(([f, r, u]) => solid(x + fx * f + rx * r, y + u, z + fz * f + rz * r));
+    }
+    const r = (v.hitRadius ?? v.radius) * 0.85;
+    const top = v.info ? (v.info.top ?? v.info.bottom) * v.radius : v.radius * 0.3;
+    if (solid(x, y + top * 0.5, z)) return false;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      if (solid(x + Math.cos(a) * r, y, z + Math.sin(a) * r) || solid(x + Math.cos(a) * r * 0.6, y + top * 0.5, z + Math.sin(a) * r * 0.6)) return false;
+    }
+    return true;
+  }
+
+  // A summon into the sky: high above the player, flying, with them at the
+  // controls (a ground vehicle, alt 0, only goes on the ground).
+  summonInAir(key, ctx = null) {
+    const def = VehicleManager.summons[key];
+    const cls = def && VehicleManager.types[def.type];
+    if (!cls) return null;
+    if (!def.alt) {
+      this.onMessage?.("Aim at the ground to place it");
+      return null;
+    }
+    if (this.active) this.exit({ force: true });
+    const p = this.player.position;
+    const ground = Math.max(this.world.heightAt(Math.floor(p.x), Math.floor(p.z)), 0);
+    const y = Math.min(210, Math.max(ground + def.alt, p.y + 30));
+    const v = new cls(this, { ...(def.data?.(this, ctx) || {}), pos: [p.x, y, p.z], yaw: this.player.yaw, airborne: true });
+    def.launch?.(v);
+    v._place?.();
+    this._addSummoned(v);
+    this.enter(v);
+    this.audio?.playNotice?.();
+    this.onMessage?.(`${v.name}: you're in the air!`);
+    return v;
+  }
+
+  // Kept with the world like a boat (and never the vehicle cap's); past
+  // MAX_SUMMONED of this player's own, the oldest empty one goes.
+  _addSummoned(v) {
+    v.summoned = true;
+    v.keep = true;
+    this.add(v);
+    const mine = this.vehicles.filter((o) => o.summoned && !o.puppet && o.alive);
+    let extra = mine.length - MAX_SUMMONED;
+    for (const old of mine) {
+      if (extra <= 0) break;
+      if (old === v || old === this.active || old.occupied) continue;
+      this.remove(old);
+      extra--;
+    }
   }
 
   // ---------- Collisions ----------
@@ -746,6 +980,19 @@ export class VehicleManager {
 
   update(dt) {
     const p = this.player;
+    // (Round 13) In the Nether or the End the vehicles stay in the Overworld:
+    // hidden and still until the player is back. (Nobody travels seated: dimensions.js.)
+    const away = !!this.world.dim && this.world.dim !== "overworld";
+    if (away !== this.away) {
+      this.away = away;
+      for (const v of this.vehicles) v.root.visible = this.enabled;
+      if (away && this.active) this.exit({ force: true });
+    }
+    // (Round 13) Switched to Survival while flying in a Survival world: out (a parachute up high).
+    if (this.active && this.creativeOnly && !p.dead) {
+      this.onMessage?.("Vehicles are Creative's in a Survival world");
+      this.exit();
+    }
     for (let i = this.vehicles.length - 1; i >= 0; i--) {
       const v = this.vehicles[i];
       if (!this.enabled) continue;
@@ -791,7 +1038,8 @@ export class VehicleManager {
       if (!playing || !v) this.infoOpen = this.infoOpen && !!v && playing;
       this.refreshInfo();
     }
-    const near = playing && !v ? this.nearestEnterable() : null;
+    // (Round 13: no hint where boarding is Creative's and F swaps the hands.)
+    const near = playing && !v && !this.creativeOnly ? this.nearestEnterable() : null;
     if (this.promptEl) {
       this.promptEl.classList.toggle("hidden", !near);
       // (Written only when it changes: no DOM work every frame.)
@@ -841,7 +1089,16 @@ export class VehicleManager {
 
   // Mods switched off: a seated player is set down safely (on the ground
   // below, no parachute), and every vehicle is put away until mods return.
+  // (Round 13) The Mods' switch; a Survival world keeps its Creative vehicles
+  // whatever it says (only `enabled` turning off puts them away).
   setEnabled(on) {
+    const was = this.enabled;
+    this._on = !!on;
+    on = this.enabled;
+    if (on && was) {
+      for (const v of this.vehicles) v.root.visible = true;
+      return;
+    }
     if (!on && this.active) {
       const v = this.active;
       const p = this.player;
@@ -862,7 +1119,6 @@ export class VehicleManager {
       if (this.onExit) this.onExit(v);
     }
     if (!on) this.parachute.close(this.player);
-    this.enabled = on;
     for (const v of this.vehicles) {
       v.root.visible = on;
       if (!on) v.onDisabled?.();
@@ -908,3 +1164,25 @@ export class VehicleManager {
     if (!this.enabled && this.active) this.setEnabled(false);
   }
 }
+
+// (Round 13) Creative's aircraft: the fighters and the B-2 (vehicle-jet.js:
+// parked on the wheels, or launched at cruise speed into the sky), and a
+// pilot UFO of the next design each time (vehicle-ufo.js; sneaking: a
+// small one). (Data only: the classes are looked up when summoned.)
+const jetSummon = (jetType, alt) => ({
+  type: "jet",
+  alt,
+  data: () => ({ jetType }),
+  launch(v) {
+    v.vel.copy(v.forward(new THREE.Vector3())).multiplyScalar(v.cfg.maxSpeed * 0.62);
+    v.throttle = 0.75;
+  },
+});
+VehicleManager.registerSummon("f22", jetSummon("f22", 75));
+VehicleManager.registerSummon("f16", jetSummon("f16", 75));
+VehicleManager.registerSummon("b2", jetSummon("b2", 100));
+VehicleManager.registerSummon("ufo", {
+  type: "ufo",
+  alt: 40,
+  data: (mgr, ctx) => ({ design: UFO_DESIGNS[mgr._ufoNext++ % UFO_DESIGNS.length], seed: Math.floor(Math.random() * 1e6), radius: ctx?.sneaking ? SUMMON_UFO_SMALL : SUMMON_UFO_RADIUS }),
+});

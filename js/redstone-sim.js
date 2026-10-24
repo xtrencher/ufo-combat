@@ -53,7 +53,7 @@ import { K, KIND, VAR, ON, FLIP, ATTACH, FACING, WOOD, STICKY, FUSE, DX, DY, DZ,
 import { boxSlots } from "./content/gadgets.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 
 export const TICK = 0.1; // a redstone tick (two game ticks)
 const MAX_CATCHUP = 5; // ticks a slow frame catches up at most
@@ -1239,8 +1239,8 @@ export class RedstoneSim {
     // (in water it breaks nothing, as vanilla)
     const wet = !!IS_WET[this.world.getBlock(t.x, t.y + 0.5, t.z)];
     const removed = this.effects.explode(at, { radius: TNT_RADIUS, source: "tnt", carve: !wet });
-    // (a Survival world: every block it breaks drops, as vanilla's TNT)
-    if (Array.isArray(removed) && removed.length && isVanilla()) this.mobs?.blastDrops?.(removed, at, 1);
+    // (every block it breaks drops, as vanilla's TNT)
+    if (Array.isArray(removed) && removed.length && vanillaRules()) this.mobs?.blastDrops?.(removed, at, 1);
   }
 
   // A blast: primed TNT near it is thrown; TNT blocks it reached go off

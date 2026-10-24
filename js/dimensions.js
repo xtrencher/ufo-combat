@@ -29,8 +29,10 @@
 //     Overworld's only (weather.js), the distant tiles are the Overworld's
 //     only (the view is capped there instead, the LOD planning made all
 //     full chunks: _wrapLod), the distant villages hide.
-// A Missions world keeps its Overworld (its UFOs, missions and jets live
-// there): every travel is refused, nothing here runs.
+// (Round 13) A Missions world has them too; its Missions layer (UFOs,
+// missions, supply drops, the aircraft) stays in the Overworld: main.js
+// pauses it while this player is elsewhere (onChange), and the messages
+// about it from a peer in another dimension are dropped (DIM_DROP).
 //
 // Saves: each dimension's edits under a key of its own (storage.js,
 // saveEdits below), and in the player's save `dim` (where the player is;
@@ -103,7 +105,7 @@ import { isLava } from "./content/nature.js";
 import { LIB } from "./content/base.js";
 import { HOST_PID } from "./net/session.js";
 import { WORLD_HEIGHT } from "./constants.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 
 export { DIMS, PORTAL_BLOCKS };
 
@@ -118,16 +120,17 @@ const BED_RADIUS = (5 * 4) / 3; // (effects.js units: vanilla's power 5, TNT's 4
 const DIM_DROP = ["fx", "pj", "eadd", "es", "erem", "rs", "bolt", "pth", "psp", "alarm", "dashw", "abd"];
 const SMOKE = { r: 0.75, g: 0.75, b: 0.78 };
 
-// The dimension a save was made in (the Overworld for a Missions world, an
-// older save, a guest's page).
+// The dimension a save was made in (the Overworld for an older save, a
+// guest's page). (Round 13: a Missions world's too: the dimensions are in
+// both world types; its Missions layer stays in the Overworld, main.js.)
 export function savedDimension(saved) {
-  return isVanilla() ? dimId(saved?.dim) : OVERWORLD;
+  return vanillaRules() ? dimId(saved?.dim) : OVERWORLD;
 }
 
 // The other dimensions' saved edits into the world (main.js, at startup,
 // after the Overworld's).
 export function loadDimensionEdits(world, seed) {
-  if (!isVanilla()) return;
+  if (!vanillaRules()) return;
   for (const dim of DIM_IDS) {
     if (dim === OVERWORLD) continue;
     const edits = loadEdits(seed, dim);
@@ -146,7 +149,7 @@ export class DimensionManager {
     this.player = game.player;
     this.mp = extra.mp || null;
     this.world.dims = this;
-    this.enabled = isVanilla();
+    this.enabled = vanillaRules(); // (Round 13: a Missions world's too)
     this.stash = new Map(); // dim -> the state of a dimension the world is not in
     this.portals = new Map(); // dim -> [[x, y, z], ...] (registered portal blocks)
     this.portalLinks = {}; // kind -> { find, arrive } (the Nether's and the End's parts)
@@ -192,7 +195,7 @@ export class DimensionManager {
   // and the player is held under a loading screen until the ground is in,
   // then put on a safe spot near (opts.place: "safe" (default), "exact",
   // "portal" (opts.kind, opts.found), "endPlatform", "spawn"); opts.yaw: the
-  // way they face. False if refused (a Missions world, already travelling).
+  // way they face. False if refused (already travelling, in a vehicle).
   travel(dim, x, y, z, opts = {}) {
     dim = dimId(dim);
     if (!this.enabled || this.pending || this.player.vehicle) return false;
@@ -934,7 +937,7 @@ export class DimensionManager {
 
   // ---------- Testing (Creative) ----------
 
-  // F7 in Creative, in a Survival world: Overworld -> Nether -> End -> Overworld.
+  // F7 in Creative: Overworld -> Nether -> End -> Overworld.
   _key(e) {
     if (e.code !== "F7" || e.repeat) return;
     if (!this.player.creative || this.game.gameState !== "playing") return;

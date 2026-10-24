@@ -114,7 +114,7 @@ export class Audio {
     this._shaperCurve = null;
     // Per-category volume (0-1), set from the settings menu. Each category
     // has its own gain node feeding the master gain.
-    this.volumes = { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 };
+    this.volumes = { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1, voice: 1 };
     this.buses = {};
     this._out = null; // the bus of the sound being played
   }
@@ -171,7 +171,7 @@ export class Audio {
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.9 * this.volumes.master;
       this.master.connect(compressor);
-      for (const name of ["blocks", "weapons", "creatures", "player", "ui"]) {
+      for (const name of ["blocks", "weapons", "creatures", "player", "ui", "voice"]) {
         const bus = this.ctx.createGain();
         bus.gain.value = this.volumes[name];
         bus.connect(this.master);
@@ -813,6 +813,193 @@ export class Audio {
     o.connect(g).connect(this._out || this.master);
     o.start(t);
     o.stop(t + 0.1);
+  }
+
+  // (Round 13) The missile seeker's tone, an AIM-9's: silent with nothing in
+  // the seeker; a low growl that rises and quickens as the lock builds
+  // (state 1, progress 0-1); a solid high tone once locked (state 2). Called
+  // every frame while it should sound: it fades out by itself a moment after
+  // the calls stop (the pilot got out, the game paused, the jet blew up).
+  setSeekerTone(state, progress = 0) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._seeker) {
+      if (!state) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.buses.weapons || this.master);
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = 400;
+      const filt = ctx.createBiquadFilter();
+      filt.type = "lowpass";
+      filt.frequency.value = 1500;
+      filt.Q.value = 3;
+      // The growl: the tone pulsed by a fast LFO (0-1 around 0.5).
+      const am = ctx.createGain();
+      am.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 16;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.5;
+      lfo.connect(depth).connect(am.gain);
+      osc.connect(filt).connect(am).connect(out);
+      osc.start();
+      lfo.start();
+      this._seeker = { out, osc, filt, lfo, depth };
+    }
+    const s = this._seeker;
+    const t = ctx.currentTime;
+    const p = Math.max(0, Math.min(1, progress));
+    const vol = state === 2 ? 0.05 : state === 1 ? 0.02 + 0.026 * p : 0;
+    const hold = (param, v, tc) => {
+      if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(t);
+      else param.cancelScheduledValues(t);
+      param.setTargetAtTime(v, t, tc);
+    };
+    hold(s.out.gain, vol, 0.03);
+    s.out.gain.setTargetAtTime(0, t + 0.3, 0.06); // (the watchdog: silent unless called again)
+    hold(s.osc.frequency, state === 2 ? 1340 : 330 + 560 * Math.pow(p, 1.3), 0.05);
+    hold(s.filt.frequency, state === 2 ? 3200 : 900 + 1400 * p, 0.05);
+    hold(s.lfo.frequency, state === 2 ? 0.5 : 13 + 17 * p, 0.05);
+    hold(s.depth.gain, state === 2 ? 0.02 : 0.5, 0.04);
+  }
+
+  // (Round 13) Something locked on to you (a radar spike): a quick, thin warble.
+  playRwrSpike() {
+    this._cat("ui");
+    this._tone(2600, 0.05, { type: "square", vol: 0.035 });
+    this._tone(2100, 0.05, { type: "square", vol: 0.035, at: 0.07 });
+  }
+
+  // (Round 13) A sonic boom, `distance` blocks away: the double crack of the
+  // shock wave's N-wave (its front and its tail, a fraction of a second
+  // apart; longer for a big hull) over a deep thump and a rumble, muffled
+  // and fading with distance and arriving at the speed of sound. soft: the
+  // aircraft slowing back through the barrier. inside: the pilot's own
+  // (heard through the airframe: a dull, close thud, no delay).
+  playSonicBoom(distance = 0, { soft = false, inside = false, big = false } = {}) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const d = Math.max(0, distance);
+    const delay = inside ? 0 : Math.min(9, d / 343);
+    const gain = (soft ? 0.45 : 1) * (inside ? 0.55 : 1.25 / (1 + d / 320));
+    if (gain < 0.01) return;
+    const t0 = ctx.currentTime + delay;
+    const muffle = ctx.createBiquadFilter();
+    muffle.type = "lowpass";
+    muffle.frequency.value = inside ? 700 : Math.max(260, 9000 * Math.exp(-d / 1100));
+    muffle.Q.value = 0.5;
+    const out = ctx.createGain();
+    out.gain.value = gain;
+    muffle.connect(out).connect(this._out || this.master);
+    const gap = big ? 0.24 : 0.14;
+    for (const [at, v] of [[0, 1], [gap, 0.85]]) {
+      const t = t0 + at;
+      const crack = this._noise(t, 0.22);
+      const f = ctx.createBiquadFilter();
+      f.type = "lowpass";
+      f.frequency.setValueAtTime(5200, t);
+      f.frequency.exponentialRampToValueAtTime(260, t + 0.2);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(1.3 * v, t + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      crack.connect(f).connect(g).connect(muffle);
+      const sub = ctx.createOscillator();
+      sub.type = "sine";
+      sub.frequency.setValueAtTime(big ? 62 : 78, t);
+      sub.frequency.exponentialRampToValueAtTime(28, t + 0.45);
+      const sg = ctx.createGain();
+      sg.gain.setValueAtTime(0.0001, t);
+      sg.gain.exponentialRampToValueAtTime(1.1 * v, t + 0.006);
+      sg.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+      sub.connect(sg).connect(muffle);
+      sub.start(t);
+      sub.stop(t + 0.55);
+    }
+    const len = soft ? 1.1 : 2.2;
+    const rumble = this._noise(t0, len);
+    const rf = ctx.createBiquadFilter();
+    rf.type = "lowpass";
+    rf.frequency.value = 130;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t0);
+    rg.gain.exponentialRampToValueAtTime(0.75, t0 + 0.08);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+    rumble.connect(rf).connect(rg).connect(muffle);
+  }
+
+  // (Round 13) A missile's blast, a deeper boom on top of the usual
+  // explosion (vehicle-jet.js's missiles are big now): a sub punch and a
+  // rolling rumble, fading with distance. k: 1 for ours, less for an enemy's.
+  playBlastBoom(distance = 0, k = 1) {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const p = explosionSound(distance, 2.6 * k);
+    if (p.gain < 0.006) return;
+    const t0 = ctx.currentTime + p.delay;
+    const muffle = ctx.createBiquadFilter();
+    muffle.type = "lowpass";
+    muffle.frequency.value = Math.min(2400, p.cutoff);
+    const out = ctx.createGain();
+    out.gain.value = p.gain * 0.7;
+    muffle.connect(out).connect(this._out || this.master);
+    const sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(70, t0);
+    sub.frequency.exponentialRampToValueAtTime(24, t0 + 1.1);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.0001, t0);
+    sg.gain.exponentialRampToValueAtTime(1.2, t0 + 0.01);
+    sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.3);
+    sub.connect(sg).connect(muffle);
+    sub.start(t0);
+    sub.stop(t0 + 1.4);
+    const rumble = this._noise(t0, 2.2);
+    const rf = ctx.createBiquadFilter();
+    rf.type = "lowpass";
+    rf.frequency.setValueAtTime(600, t0);
+    rf.frequency.exponentialRampToValueAtTime(110, t0 + 1.8);
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t0);
+    rg.gain.exponentialRampToValueAtTime(0.9, t0 + 0.05);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.2);
+    rumble.connect(rf).connect(rg).connect(muffle);
+  }
+
+  // (Round 13) The pilot's radio (js/voice.js): the key-up click and a burst
+  // of squelch before a callout (open), the squelch tail and the release
+  // click after it; and a faint static bed while the voice is on the air.
+  playRadio(open) {
+    this._cat("voice");
+    if (!this.ctx) return;
+    this._tone(open ? 2900 : 2300, 0.014, { type: "square", vol: 0.05, attack: 0.001 });
+    this._hit({ type: "bandpass", f: 2400, q: 0.8, d: open ? 0.08 : 0.2, v: open ? 0.08 : 0.11, attack: 0.004 }, 0.012);
+    if (!open) this._tone(1900, 0.012, { type: "square", vol: 0.04, at: 0.2, attack: 0.001 });
+  }
+  setRadioHiss(on) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._hiss) {
+      if (!on) return;
+      const src = ctx.createBufferSource();
+      src.buffer = this._noiseBuffer;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 2600;
+      f.Q.value = 0.7;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      src.connect(f).connect(g).connect(this.buses.voice || this.master);
+      src.start();
+      this._hiss = g;
+    }
+    this._hiss.gain.setTargetAtTime(on ? 0.018 : 0, ctx.currentTime, on ? 0.02 : 0.06);
   }
 
   // ---------- Jet and UFO gadgets ----------

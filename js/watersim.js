@@ -19,7 +19,7 @@
 // the reason the voxel light engine two-phases its own removal).
 import { BLOCK, IS_REPLACEABLE, IS_WET, IS_SOLID } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { isLava } from "./content/nature.js";
 
 export const MAX_FLOW_DISTANCE = 4; // sideways reach of a flow from its source, in blocks
@@ -177,12 +177,12 @@ export class WaterSim {
       // (Survival: vanilla's infinite water, a flow between two sources
       // over solid ground or a source becomes one; its neighbours may then
       // meet the rule too)
-      if (isVanilla() && this._sourceSides(x, y, z) >= 2 && (y === 0 || IS_SOLID[this._get(x, y - 1, z)] || this._isSource(x, y - 1, z))) {
+      if (vanillaRules() && this._sourceSides(x, y, z) >= 2 && (y === 0 || IS_SOLID[this._get(x, y - 1, z)] || this._isSource(x, y - 1, z))) {
         this.meta.delete(key);
         this.metaVersion++;
         this._wakeAround(x, y, z);
       } else level = info.level;
-    } else if (isVanilla()) {
+    } else if (vanillaRules()) {
       // (a new source, a bucket poured onto flow: the flow beside it checks the rule)
       for (const [dx, dz] of SIDES) {
         const k = this._key(x + dx, y, z + dz);
@@ -198,7 +198,7 @@ export class WaterSim {
 
     // Spread sideways into open cells, one level weaker each step, up to the
     // flow's reach.
-    if (level < (isVanilla() ? VANILLA_FLOW_DISTANCE : MAX_FLOW_DISTANCE)) {
+    if (level < (vanillaRules() ? VANILLA_FLOW_DISTANCE : MAX_FLOW_DISTANCE)) {
       for (const [dx, dz] of SIDES) {
         const nx = x + dx;
         const nz = z + dz;
