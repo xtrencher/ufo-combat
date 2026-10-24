@@ -58,6 +58,8 @@ import { VehicleManager } from "./vehicles.js";
 import "./vehicle-ufo.js";
 import { JET_TYPES } from "./vehicle-jet.js";
 import { Radar } from "./radar.js";
+import { FighterHud } from "./fighter-hud.js";
+import { voice } from "./voice.js";
 import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
@@ -562,6 +564,9 @@ settingsPanel.on("vehicles.jetTurn", (v) => (vehicles.config.jet.turnRate = v));
 settingsPanel.on("vehicles.jetStall", (v) => (vehicles.config.jet.stallSpeed = v));
 settingsPanel.on("vehicles.jetAssist", (v) => (vehicles.config.jet.assist = v));
 settingsPanel.on("vehicles.jetAimAssist", (v) => (vehicles.config.jet.aimAssist = v));
+settingsPanel.on("vehicles.jetAutoAim", (v) => (vehicles.config.jet.autoAim = v));
+settingsPanel.on("vehicles.voiceCallouts", (v) => (voice.enabled = v !== false));
+voice.attach({ audio, stats, ufos, listener: effects.listener });
 // Airports and cities (sites.js): aircraft parked on the aprons, runways to call the jet to.
 const airports = new AirportManager({ sites: world.terrain.sites, vehicles, world, player, mobs });
 // Enemy jets (patrolling neutral, hostile once provoked).
@@ -1486,6 +1491,7 @@ missionDirector.entities = entities;
 // (Round 13) The ground war (js/tanks.js): enemy tanks, AA vehicles and missile launchers, the
 // bases' parked tanks, the shells and ballistic missiles. It runs right after the vehicles each frame.
 const ground = installGround({ scene, camera, world, player, vehicles, effects, audio, lasers, ufos, mobs, crates, stats, progress, missions: missionDirector, airports, toast, hud, mods });
+ground.voice = voice; // (Round 13: the pilot's callouts, js/voice.js)
 // (Round 10) A mission's loot (the crash site's wreck): what a wreck of that
 // size gives, at the spot, for whoever gets there (online the host's items are everyone's).
 missionDirector.dropLoot = (kind, detail, at) => {
@@ -3881,6 +3887,7 @@ const jetAimEl = document.getElementById("jet-aim");
 const missileWarnEl = document.getElementById("missile-warn");
 const missileWarnTextEl = missileWarnEl.querySelector(".mw-text");
 const _lockV = new THREE.Vector3();
+const fighterHud = new FighterHud(document.getElementById("fighter-hud"));
 function updateJetOverlay() {
   const v = vehicles.active;
   const o = (v?.type === "jet" || v?.type === "ufo") && v.overlay && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
@@ -3895,38 +3902,15 @@ function updateJetOverlay() {
     const p = l.target.center(_lockV).project(camera);
     if (p.z < 1) lock = { x: p.x, y: p.y, locked: l.locked, progress: l.progress };
   }
-  lockBoxEl.classList.toggle("hidden", !lock);
-  if (!lock) salvoGlowEl.style.opacity = "0";
-  if (lock) {
-    place(lockBoxEl, lock);
-    lockBoxEl.classList.toggle("locked", lock.locked);
-    lockBoxEl.classList.toggle("salvo", !!lock.salvo);
-    // The salvo charging (jet): a ring around the box, one pip per missile, a glow at the screen's edge.
-    const charge = lock.charge || 0;
-    lockBoxEl.classList.toggle("charging", !!lock.spiral && !lock.salvo);
-    lockBoxEl.style.setProperty("--c", charge.toFixed(3));
-    // The spiral: wide and loose at first, it turns and closes in to the target as the salvo charges.
-    spiralEl.style.setProperty("--s", lock.salvo ? "0.82" : (2.3 - 1.48 * charge).toFixed(3));
-    spiralEl.style.setProperty("--r", `${Math.round(charge * 600)}deg`);
-    salvoGlowEl.style.opacity = charge > 0 ? (lock.salvo ? 1 : 0.15 + charge * 0.6).toFixed(2) : "0";
-    salvoGlowEl.classList.toggle("salvo", !!lock.salvo);
-    const size = lock.locked ? 40 : 80 - lock.progress * 40;
-    lockBoxEl.style.width = lockBoxEl.style.height = `${size}px`;
-    lockBoxEl.style.margin = `${-size / 2}px 0 0 ${-size / 2}px`;
-  }
+  // (Round 13) The targeting symbols and the warnings: js/fighter-hud.js.
+  lockBoxEl.classList.add("hidden");
+  salvoGlowEl.style.opacity = "0";
+  missileWarnEl.classList.add("hidden");
+  fighterHud.update({ vehicle: v, camera, overlay: o, lock: o?.hud ? null : lock });
   jetNoseEl.classList.toggle("hidden", !o?.nose || v.cameraModes[v.cameraMode] === "cockpit");
   if (o?.nose) place(jetNoseEl, o.nose);
   jetAimEl.classList.toggle("hidden", !o?.aim);
   if (o?.aim) place(jetAimEl, o.aim);
-  // Incoming missile: an arrow pointing where it comes from, blinking faster as it closes.
-  const w = o?.warn;
-  missileWarnEl.classList.toggle("hidden", !w);
-  if (w) {
-    missileWarnEl.firstElementChild.style.transform = `rotate(${w.angle}rad)`;
-    missileWarnEl.classList.toggle("fast", w.dist < 350);
-    missileWarnEl.classList.toggle("slow", w.dist >= 350);
-    missileWarnTextEl.textContent = w.kind === "missile" ? `MISSILE ${Math.round(w.dist)}` : "INCOMING";
-  }
 }
 // The aircraft radar (Round 8, js/radar.js): bottom right while flying.
 const radar = new Radar(document.getElementById("radar"));

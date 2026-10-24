@@ -1056,7 +1056,7 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
     return j.lock.locked;
   }, 90000);
   assert(locked, "locked on");
-  const box = await v(() => ({ shown: !document.getElementById("lock-box").classList.contains("hidden"), locked: document.getElementById("lock-box").classList.contains("locked") }));
+  const box = await v(() => ({ shown: !document.getElementById("fighter-hud").classList.contains("hidden"), locked: document.getElementById("fighter-hud").dataset.state === "locked" }));
   assert(box.shown && box.locked, `lock box ${JSON.stringify(box)}`);
   await page.mouse.up({ button: "right" }); // (letting go fires)
   const missile = await until((g) => g.vehicles.active.missiles.length > 0 && { guided: !!g.vehicles.active.missiles[0].target, dist: window.__u.pos.distanceTo(g.vehicles.active.pos) }, 20000);
