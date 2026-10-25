@@ -88,7 +88,9 @@ Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
 Settings, Fullscreen, Missions (in a Missions world), Stats, Multiplayer, Copy
 world link, Save & main menu, and the **Game mode**; in Creative (either
 world type) also the **call-ins**: F-22, F-16, B-2 or a random UFO, and
-you are straight in the air at the controls of it).
+you are straight in the air at the controls of it; or the Tiger tank, the
+battle tank or the missile truck, parked on open ground just ahead with you
+straight in it).
 
 **Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
 fullscreen: with it on, the game goes fullscreen as you enter it (Play,
@@ -1797,7 +1799,7 @@ keeps running there (it just isn't drawn).
   Creative settings (UFO activity and the rest) apply. A guest's "summon a
   UFO" (Missions mods screen) asks the host's game for it. Everyone can use the
   pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
-  air): the others see the aircraft and who flies it. The palette's vehicle
+  air; a tank or the missile truck on the ground): the others see the aircraft and who flies it. The palette's vehicle
   items work the same online, in a Survival world's Creative too: everyone
   sees the aircraft anyone puts down or flies. Switching between
   Creative and Missions (or Survival) never changes anyone's inventory.

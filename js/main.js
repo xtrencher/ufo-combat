@@ -1199,6 +1199,37 @@ function callIn(kind) {
     return false;
   }
   if (vehicles.active) vehicles.exit({ force: true });
+  // (Round 13) A ground vehicle (the tanks, the missile truck): parked on the
+  // ground a few blocks ahead, the player straight in it.
+  const groundDef = VehicleManager.summons[kind];
+  if (groundDef && !groundDef.alt) {
+    // (The first open spot ahead, then round about: trees and houses are in the way now and then.)
+    const p0 = player.position;
+    const say = vehicles.onMessage;
+    let gv = null;
+    let last = "";
+    vehicles.onMessage = (t) => (last = t);
+    for (const d of [9, 14, 20, 28]) {
+      for (const a of [0, 0.6, -0.6, 1.3, -1.3, 2.2, -2.2, Math.PI]) {
+        const yaw = player.yaw + a;
+        const gx = p0.x - Math.sin(yaw) * d;
+        const gz = p0.z - Math.cos(yaw) * d;
+        const gy = Math.max(world.heightAt(Math.floor(gx), Math.floor(gz)), SEA_LEVEL) + 1;
+        gv = vehicles.summonOnGround(kind, { x: gx, y: gy, z: gz });
+        if (gv) break;
+      }
+      if (gv) break;
+    }
+    vehicles.onMessage = say;
+    if (!gv) {
+      toast(`${last || "No room here"}.`, 3);
+      return false;
+    }
+    vehicles.enter(gv);
+    audio.playNotice();
+    toast(`${gv.name}: you're in!`, 3);
+    return true;
+  }
   removePlayerJets();
   const p = player.position;
   const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), SEA_LEVEL);

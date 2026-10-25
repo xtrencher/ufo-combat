@@ -766,9 +766,11 @@ export class VehicleManager {
     const r = (v.hitRadius ?? v.radius) * 0.85;
     const top = v.info ? (v.info.top ?? v.info.bottom) * v.radius : v.radius * 0.3;
     if (solid(x, y + top * 0.5, z)) return false;
+    // (A ground vehicle climbs a block's step: its ring is checked a block up, over the bumps.)
+    const yr = v.half ? y + 1.1 : y;
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
-      if (solid(x + Math.cos(a) * r, y, z + Math.sin(a) * r) || solid(x + Math.cos(a) * r * 0.6, y + top * 0.5, z + Math.sin(a) * r * 0.6)) return false;
+      if (solid(x + Math.cos(a) * r, yr, z + Math.sin(a) * r) || solid(x + Math.cos(a) * r * 0.6, y + top * 0.5, z + Math.sin(a) * r * 0.6)) return false;
     }
     return true;
   }
