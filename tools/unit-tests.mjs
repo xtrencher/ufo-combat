@@ -1858,8 +1858,8 @@ console.log("\nProgression (progression.js)");
     const crateSet = new Set(CRATE_WEAPONS.map(([id]) => id));
     const alienSet = new Set(ALIEN_WEAPONS.map(([id]) => id));
     const isWeapon = (id) => crateSet.has(id) || alienSet.has(id) || id === ITEM.BOW;
-    // Skeletons: the bow (once).
-    assert.deepEqual(rollLoot("skeleton", null, 0, new Set(), rand), [[ITEM.BOW, 1]]);
+    // Skeletons: the bow (once), with arrows for it (Round 13: the bow takes arrows).
+    assert.deepEqual(rollLoot("skeleton", null, 0, new Set(), rand), [[ITEM.BOW, 1], [373, 16]]);
     assert.deepEqual(rollLoot("skeleton", null, 0, new Set([ITEM.BOW]), rand), []);
     // Wrecks and fighters: never a weapon.
     for (let i = 0; i < 300; i++) {

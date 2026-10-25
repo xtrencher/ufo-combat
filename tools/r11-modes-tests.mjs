@@ -4,9 +4,10 @@
 //    missions, Mods on) and the main menu's three cards;
 //  - a new Survival world made from the New World screen: empty-handed, Mods
 //    off for it (the setting untouched, the switch locked), no missions,
-//    crates, UFOs, aliens, vehicles or call-ins, no Missions button, and no
-//    airports or cities in its terrain (once the terrain takes the option);
-//  - Creative and back in it keeps it a Survival world, and its type
+//    crates, UFOs, aliens, parked vehicles or call-ins, no Missions button,
+//    and no airports or cities in its terrain (once the terrain takes the option);
+//  - Creative and back in it keeps it a Survival world (Round 13: Creative's
+//    vehicles and call-ins there too), and its type
 //    survives a reload (the save's, not the link's);
 //  - an old save without a type loads as a Missions world;
 //  - the other type's card opens the last world of that type (Round 12:
@@ -173,6 +174,7 @@ const STATE = (g) => {
     crates: g.crates.enabled,
     ufos: g.ufos.enabled,
     vehicles: g.vehicles.enabled,
+    parked: g.vehicles.vehicles.length, // (Round 13: vehicles are on in a Survival world too, for Creative's; none waiting about)
     aliens: g.mobs.countKind("alien"),
     missionsBtn: !document.getElementById("pause-missions-btn").classList.contains("hidden"),
     callins: !document.getElementById("pause-callins").classList.contains("hidden"),
@@ -236,7 +238,7 @@ await check("New world > Survival: empty-handed, Mods off for that world only, n
   await frames(page, 30);
   const s = await v(page, STATE);
   assert(s.items === 0, `nothing to start with: ${JSON.stringify(s)}`);
-  assert(!s.progress && !s.director && !s.crates && !s.ufos && !s.vehicles && s.aliens === 0, `no missions, crates, UFOs or vehicles: ${JSON.stringify(s)}`);
+  assert(!s.progress && !s.director && !s.crates && !s.ufos && s.parked === 0 && s.aliens === 0, `no missions, crates, UFOs or vehicles: ${JSON.stringify(s)}`);
   assert(!s.missionsBtn, "no Missions button in the pause menu");
   if (s.sitesOption === undefined) console.log("        (terrain option not in yet: airports and cities still generate)");
   else assert(s.sitesOption === false && s.sitesNear === 0, `no airports or cities: ${JSON.stringify(s)}`);
@@ -260,8 +262,11 @@ await check("Creative and back in a Survival world keeps it a Survival world; th
     g.setMode("creative");
     return { type: g.worldType, mode: g.player.mode, mods: g.mods.enabled, callins: !document.getElementById("pause-callins").classList.contains("hidden"), progress: g.progress.enabled, call: g.mp.game.callIn("f16") };
   });
-  assert(c.type === "survival" && c.mode === "creative" && !c.mods && !c.callins && !c.progress && !c.call, `Creative in a Survival world: ${JSON.stringify(c)}`);
+  // (Round 13: Creative's vehicles and call-ins in a Survival world too.)
+  assert(c.type === "survival" && c.mode === "creative" && !c.mods && c.callins && !c.progress && c.call, `Creative in a Survival world: ${JSON.stringify(c)}`);
   const back = await v(page, (g) => {
+    if (g.vehicles.active) g.vehicles.toggle();
+    for (const x of [...g.vehicles.vehicles]) g.vehicles.remove(x);
     g.setMode("survival");
     return { type: g.worldType, mode: g.player.mode, mods: g.mods.enabled, progress: g.progress.enabled, crates: g.crates.enabled };
   });
@@ -378,7 +383,7 @@ async function online() {
     await play(guest);
     await frames(guest, 20);
     const s = await v(guest, STATE);
-    assert(s.type === "survival" && !s.mods && s.items === 0 && !s.progress && !s.crates && !s.ufos && !s.vehicles && !s.missionsBtn, `the guest's world: ${JSON.stringify(s)}`);
+    assert(s.type === "survival" && !s.mods && s.items === 0 && !s.progress && !s.crates && !s.ufos && s.parked === 0 && !s.missionsBtn, `the guest's world: ${JSON.stringify(s)}`);
     assert(s.modsBox.disabled && !s.modsBox.checked, `the guest's Mods switch: ${JSON.stringify(s.modsBox)}`);
     const gm = await v(guest, (g) => ({ mode: g.mp.mode, lobby: [...document.getElementById("mp-lobby-mode").options].filter((o) => !o.hidden).map((o) => o.value) }));
     assert(gm.mode === "survival" && JSON.stringify(gm.lobby) === JSON.stringify(["survival", "creative"]), JSON.stringify(gm));
@@ -388,7 +393,7 @@ async function online() {
     await v(host, (g) => (g.mp.rules.setMode("creative"), true));
     assert(await until(guest, (g) => g.player.mode === "creative" && g.mp.mode === "creative", 15000), "the guest never went Creative");
     const c = await v(guest, (g) => ({ type: g.worldType, mods: g.mods.enabled, callins: !document.getElementById("pause-callins").classList.contains("hidden") }));
-    assert(c.type === "survival" && !c.mods && !c.callins, `Creative in the Survival room: ${JSON.stringify(c)}`);
+    assert(c.type === "survival" && !c.mods && c.callins, `Creative in the Survival room (Round 13: with its call-ins): ${JSON.stringify(c)}`);
     // (Dogfight needs a Missions world: refused, the room stays in Creative.)
     await v(host, (g) => (g.mp.rules.setMode("dogfight"), true));
     await new Promise((r) => setTimeout(r, 1500));

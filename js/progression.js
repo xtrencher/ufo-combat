@@ -4,7 +4,7 @@
 //
 // A new Survival game starts with basic gear (a stone sword, a stone pickaxe,
 // apples). Weapons come from four places, each in its own lane:
-//   - skeletons: the bow;
+//   - skeletons: the bow (Round 13: with a quiver of 16 arrows);
 //   - supply crates: standard weapons (pistol, grenades, machine gun,
 //     sniper rifle, bazooka, airstrike designator), by tier;
 //   - aliens: alien weapons, weakest to strongest (laser blaster, laser
@@ -12,6 +12,7 @@
 //   - missions: apples and golden apples only (no weapons).
 // UFO wrecks and patrol fighters drop food, golden apples and tools.
 import { ITEM, armorId } from "./items.js";
+import { ARROW } from "./content/ids.js";
 import { STAT_LABELS } from "./stats.js";
 
 // ---------- Weapons by source and tier ----------
@@ -1080,8 +1081,13 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
   const food = () => (rand() < 0.5 ? ITEM.COOKED_MEAT : ITEM.APPLE);
   switch (kind) {
     case "skeleton": {
-      // Its bow, if you don't have one yet.
-      if (!have.has(ITEM.BOW)) add(ITEM.BOW, 1);
+      // Its bow, if you don't have one yet, (Round 13) with arrows for it: the
+      // bow takes arrows now, as vanilla's, and the opening's next mission (the
+      // landing party) is fought with it.
+      if (!have.has(ITEM.BOW)) {
+        add(ITEM.BOW, 1);
+        add(ARROW, 16);
+      }
       break;
     }
     case "alien": {

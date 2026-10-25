@@ -192,7 +192,9 @@ await check("a village: wall torches hang on real walls and light the rooms; hou
     }
     return { torches: vil.torches.length, floating, dim, blockedFront, chests: vil.chests.length, chestsOk, houses: vil.houses };
   }, village);
-  assert(r.torches >= r.houses * 2 && r.floating === 0 && r.dim === 0 && r.blockedFront === 0, JSON.stringify(r));
+  // (Round 13: a new Missions world's villages are vanilla's, whose houses light up
+  // with a torch or two each, and lamp posts in the streets: not two in every house.)
+  assert(r.torches >= r.houses && r.floating === 0 && r.dim === 0 && r.blockedFront === 0, JSON.stringify(r));
   assert(r.chests >= 1 && r.chestsOk === r.chests, JSON.stringify(r));
 });
 

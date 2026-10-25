@@ -11,7 +11,7 @@
 //  - a big slime splits; a spawn egg makes its creature;
 //  - a wolf tamed with bones sits, stands, follows and defends its owner;
 //  - a villager's trade swaps the items (the trade screen, js/trading.js);
-//  - in a Missions world the mob set (and the drops) are today's.
+//  - in a Missions world (Round 13: one world) the vanilla mob set and drops, with the Missions animals too.
 //
 //  - online (a host and a guest through a local PeerJS server): the guest
 //    sees the host's mobs as they are, shears, feeds and trades with them (the
@@ -495,7 +495,8 @@ await check("Survival drops: a zombie drops rotten flesh, not coal; cooked meat 
 
 // ================= A Missions world =================
 
-await check("Missions world: the mob set and the drops are today's", async () => {
+// (Round 13: one world: a Missions world has the vanilla creatures and drops, its own animals beside them.)
+await check("Missions world: the vanilla mob set and drops, with the Missions animals too", async () => {
   if (page) await page.context().close();
   await boot(`seed=${SEED}`);
   await v(HELPERS);
@@ -527,14 +528,15 @@ await check("Missions world: the mob set and the drops are today's", async () =>
       const z = Math.floor(P.z + Math.sin(k) * 12);
       tops.push(g.world.getBlock(x, g.world.surfaceY(x, z), z));
     }
-    return { type: g.worldType, seen, drops, coal: ITEM.COAL, health, tops };
+    const V = await import("./js/content/ids.js");
+    return { type: g.worldType, seen, drops, flesh: V.ROTTEN_FLESH, health, tops };
   });
   const vanillaOnly = ["creeper", "enderman", "witch", "slime", "slime_medium", "slime_small", "sheep", "wolf", "iron_golem", "cod", "salmon"];
   assert(r.type === "missions", "a Missions world");
-  const bad = Object.keys(r.seen).filter((k) => vanillaOnly.includes(k));
-  assert(!bad.length, `no Survival-world kinds: ${bad} in ${JSON.stringify(r.seen)}`);
-  assert(Object.keys(r.seen).some((k) => ["fluffalo", "hoplet", "mossback", "cow", "pig", "chicken"].includes(k)), `today's animals: ${JSON.stringify(r.seen)}`);
-  assert(r.drops && r.drops[0] === r.coal, `today's zombie drops (coal): ${JSON.stringify(r)}`);
+  const vanilla = Object.keys(r.seen).filter((k) => vanillaOnly.includes(k));
+  assert(vanilla.length >= 3, `the vanilla kinds: ${vanilla} in ${JSON.stringify(r.seen)}`);
+  assert(Object.keys(r.seen).some((k) => ["fluffalo", "hoplet", "mossback"].includes(k)), `the Missions animals too: ${JSON.stringify(r.seen)}`);
+  assert(r.drops && r.drops[0] === r.flesh && r.health === 20, `vanilla's zombie (rotten flesh, 20 health): ${JSON.stringify(r)}`);
 });
 
 // ================= Online: a host and a guest =================

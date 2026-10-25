@@ -1530,10 +1530,15 @@ export class Jet extends Vehicle {
     mesh.castShadow = true;
     mgr.scene.add(mesh);
     // A target behind the jet: the missile makes a hard turn to get around.
+    // (Round 13) So does one close by and well off the nose (a jet at Mach
+    // overruns a fleeing UFO): without it the missile circles it, outside its
+    // turn, in a spiral, and loses it.
     let behind = false;
     if (target) {
-      const d = this._targetPos(target, _w).sub(this.pos).normalize();
-      behind = d.dot(fwd) < 0.25;
+      const d = this._targetPos(target, _w).sub(this.pos);
+      const dist = d.length();
+      const c = dist > 1e-3 ? d.divideScalar(dist).dot(fwd) : 1;
+      behind = c < 0.25 || (!hostile && c < 0.8 && dist < 220); // (an enemy's missile at the player as before)
     }
     const m = { pos, vel: this.vel.clone().addScaledVector(fwd, 12), dir: fwd.clone(), target, age: 0, mesh, trail: 0, hostile, rogue, behind, lostT: 0, launcher: this, decoyed: false };
     this.missiles.push(m);

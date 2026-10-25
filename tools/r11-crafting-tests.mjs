@@ -8,7 +8,7 @@
 //  - the crafting table (its block use): the 3x3 grid, a wooden pickaxe,
 //    an axe mirrored, a tool shifted in the grid, a milk bucket's bucket left
 //    behind (if the items are in);
-//  - a Missions world has no grid, and its crafting table opens nothing;
+//  - a Missions world (Round 13) has the grid and the table too;
 //  - the furnace: placed facing the player, its screen, raw iron (or
 //    cobblestone) and coal into an ingot after 10 s of game time, the burn
 //    times (coal 80 s, planks 15 s, a stick 5 s), the lit block and its
@@ -524,7 +524,8 @@ await check("the furnace: contents kept through a save and a reload; breaking it
   assert(r.gone && (r.dropped === null || r.dropped === 3), `broken: its three stacks drop: ${JSON.stringify(r)}`);
 });
 
-await check("a Missions world: no crafting grid, and the crafting table opens nothing", async () => {
+// (Round 13: one world: a Missions world has the vanilla game's crafting too.)
+await check("a Missions world crafts too: the 2x2 grid, and the crafting table opens its 3x3", async () => {
   await boot(`seed=${MISSIONS_SEED}`);
   await play();
   await v(page, noDraw);
@@ -539,10 +540,12 @@ await check("a Missions world: no crafting grid, and the crafting table opens no
     g.world.setBlock(x, y, z, T.B.CRAFTING_TABLE);
     out.used = T.use(x, y, z);
     out.state = g.gameState;
+    out.tableWidth = s.gridWidth;
+    if (s.isOpen) s.close();
     return out;
   });
-  assert(r.type === "missions" && r.width === 0 && r.hidden, `no grid in a Missions world: ${JSON.stringify(r)}`);
-  assert(!r.used && r.state === "playing", `the table does nothing new: ${JSON.stringify(r)}`);
+  assert(r.type === "missions" && r.width === 2 && !r.hidden, `a 2x2 grid in a Missions world: ${JSON.stringify(r)}`);
+  assert(r.used && r.state === "inventory" && r.tableWidth === 3, `the table opens its 3x3: ${JSON.stringify(r)}`);
 });
 
 // ================= Online =================

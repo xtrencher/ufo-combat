@@ -132,13 +132,13 @@ async function play() {
 
 await play();
 
-await check("defaults: Medium preset, render distance 25 chunks (Round 6), master volume 30%", async () => {
+await check("defaults: Medium preset, render distance 25 chunks (Round 6), master volume 15% (Round 13)", async () => {
   const r = await v(async () => {
     const { DEFAULT_SETTINGS } = await import("./js/settings.js");
     const { DEFAULT_PRESET } = await import("./js/graphics.js");
     return { preset: DEFAULT_PRESET, graphics: DEFAULT_SETTINGS.graphics, rd: DEFAULT_SETTINGS.renderDistance, vol: DEFAULT_SETTINGS.volume.master };
   });
-  assert(r.preset === "medium" && r.graphics === "medium" && r.rd === 25 && Math.abs(r.vol - 0.3) < 1e-9, JSON.stringify(r));
+  assert(r.preset === "medium" && r.graphics === "medium" && r.rd === 25 && Math.abs(r.vol - 0.15) < 1e-9, JSON.stringify(r));
 });
 
 await check("jet: speed follows the throttle (0-100%), about 1000 km/h at 100%", async () => {
@@ -236,13 +236,21 @@ await check("jet: both mouse buttons freeze the controls and look around freely"
   await v((g) => g.vehicles.exit({ force: true }));
 });
 
-await check("armor: four slots, worn on pickup, damage is reduced, no shield", async () => {
+// (Round 13: a Missions world has vanilla's rules: picked-up armor goes into the
+// inventory and is put on with a use, equipSelectedArmor.)
+await check("armor: four slots, into the inventory on pickup and worn with a use, damage is reduced, no shield", async () => {
   const r = await v(async (g) => {
     const items = await import("./js/items.js");
     g.setMode("survival");
     g.inventory.clear();
     const out = { shield: items.ITEM.SHIELD ?? null, slots: items.ARMOR_SLOTS.length };
     for (let slot = 0; slot < 4; slot++) g.inventory.add(items.armorId(2, slot), 1);
+    out.wornOnPickup = g.inventory.armor.filter(Boolean).length;
+    for (let i = 0; i < 9; i++) {
+      g.inventory.selected = i;
+      g.inventory.equipSelectedArmor();
+    }
+    g.inventory.selected = 0;
     out.points = g.inventory.armorPoints();
     out.reduction = g.inventory.armorReduction();
     out.worn = g.inventory.armor.filter(Boolean).length;
@@ -250,7 +258,7 @@ await check("armor: four slots, worn on pickup, damage is reduced, no shield", a
     g.setMode("creative");
     return out;
   });
-  assert(r.shield === null && r.slots === 4 && r.worn === 4 && r.points > 0 && r.reduction > 0.2 && r.reduction <= 0.8, JSON.stringify(r));
+  assert(r.shield === null && r.slots === 4 && r.wornOnPickup === 0 && r.worn === 4 && r.points > 0 && r.reduction > 0.2 && r.reduction <= 0.8, JSON.stringify(r));
 });
 
 await check("bunkers: a ship hovers in the hall under armed guards; the alarm goes off in the zone", async () => {
@@ -347,7 +355,8 @@ await check("the Long Night: the clock runs to dusk, a landing party arrives, a 
   assert(dusk, "night comes");
   const night = await v((g) => ({ h: g.sky.hours, ts: g.sky.timeScale, locked: g.sky.locked }));
   assert((night.h >= 19.5 || night.h < 5.5) && night.ts === 1 && !night.locked, JSON.stringify(night));
-  await v((g) => { g.missions.state.nt = 35; });
+  // (Round 13: the waves' times stretch with the day: 30 s of a 600 s day's night.)
+  await v(async (g) => { const { dayLength } = await import("./js/sky.js"); g.missions.state.nt = 35 * (dayLength() / 600); });
   const wave = await until((g) => g.missions.state.wave >= 1 && g.mobs.mobs.filter((m) => m.spec.alien).length >= 3, 60000);
   assert(wave, "a landing party");
   await v((g) => { g.testFlags.noMissions = true; g.missions.enabled = false; g.progress.step = 0; g.sky.timeScale = 1; g.mobs.clear(); g.setMode("creative"); });

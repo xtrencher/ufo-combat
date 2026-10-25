@@ -356,7 +356,7 @@ in a Missions world is a Survival world's.
 
   | Act | Mission | What to do | Optional |
   | --- | --- | --- | --- |
-  | I: On foot | The archer | Kill a skeleton with your sword and take its **bow** | |
+  | I: On foot | The archer | Kill a skeleton with your sword and take its **bow** (and the 16 arrows it drops with it) | |
   | I | Visitors | A small UFO lands; its two aliens look around (about 35 s) before they attack: kill them (bow, or sword in melee) | yes |
   | I | Supply drop | Open the supply crate dropped for you: the **pistol** | |
   | I | First contact | Shoot down a small scout UFO | |
@@ -424,7 +424,8 @@ in a Missions world is a Survival world's.
   meteor", "Shot down by Bob", and so on.
 - **Where weapons come from** (each lane has its own weapons, so nothing
   arrives twice or out of order):
-  - **The skeleton** ("The archer", always first or second): the bow.
+  - **The skeleton** ("The archer", always first or second): the bow, with
+    16 arrows (the bow takes arrows, as vanilla's).
   - **Supply crates** (the first one with "Supply drop", then every 1.5 to 3 minutes
     after it): a standard weapon you don't have yet while any are left, the
     lower ones first as the chain unlocks them (pistol; grenades, machine

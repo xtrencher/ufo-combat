@@ -772,7 +772,14 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
       g.player.position.copy(bow.pos);
       window.__step(1.5);
     }
+    // (Round 13: the bow takes arrows now; the skeleton's loot has a quiver with it.)
+    const quiver = g.entities.items.find((x) => x.id === 373);
+    if (quiver) {
+      g.player.position.copy(quiver.pos);
+      window.__step(1.5);
+    }
     out.bow = g.inventory.slots.some((s) => s && s.id === 297);
+    out.quiver = g.inventory.countItem(373);
     out.m2 = g.progress.mission?.id;
     // 2. The landing.
     let crew = [];
@@ -894,7 +901,7 @@ await check("Survival opening: basic gear; a skeleton drops the bow; a UFO lands
   const j = JSON.stringify({ ...r, hurt });
   assert(!r.fail, `the opening ran through: ${j}`);
   assert(r.gear === "261,271,275", `basic gear: ${j}`);
-  assert(r.bow && r.m2 === "landing", `the skeleton's bow: ${j}`);
+  assert(r.bow && r.quiver >= 8 && r.m2 === "landing", `the skeleton's bow and arrows: ${j}`);
   assert(r.calm && r.calmHp && r.stareHostile === false, `the landed crew waits (and watching the ship come down doesn't anger it): ${j}`);
   assert(r.m3 === "supply" && r.arrows <= 8, `arrows kill the crew: ${j}`);
   assert(r.pistol && r.m4 === "first_contact", `the crate's pistol: ${j}`);

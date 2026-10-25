@@ -442,7 +442,8 @@ await check("Night of the swarm: the clock runs to dusk, then a swarm of small f
     // Night (an evening start counts at once: most of the night is ahead).
     g.missions.state = { t: 0 };
     g.sky.setHours(20);
-    for (let i = 0; i < 120; i++) {
+    // (Round 13: the waves' times stretch with the day, 1200 s now: the first party at 70 s.)
+    for (let i = 0; i < 160; i++) {
       g.missions.checkT = 0;
       g.missions.update(0.5);
     }
