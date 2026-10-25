@@ -931,8 +931,18 @@ try {
     assert(!mist.motes, "motes should hide above water");
     assert(mist.dawn > mist.noon * 3, `mist should thicken at dawn: ${JSON.stringify(mist)}`);
     assert(sun.kind === "sun" && sun.strength > 0.3, `expected sunbeams toward the low sun: ${JSON.stringify(sun)}`);
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       const v = window.__voxelands;
+      // (Round 13: the shore's water drained: as vanilla's it runs 7 blocks, and the
+      // weapon checks' runway below cuts into the shore's corner.)
+      const { IS_WET } = await import("./js/blocks.js");
+      const drain = [];
+      for (let dx = -14; dx <= 14; dx++) for (let dz = -14; dz <= 14; dz++) for (let y = 40; y <= 50; y++) {
+        const x = v.spawn.x - 30 + dx;
+        const z = v.spawn.z + 26 + dz;
+        if (IS_WET[v.world.getBlock(x, y, z)]) drain.push(x, y, z, 0);
+      }
+      v.world.setBlocks(drain, { recordEdit: false });
       v.setGraphics("low");
       v.setRenderDistance(20);
       v.player.flying = false;
@@ -1755,6 +1765,10 @@ try {
       const x0 = spawn.x - 30;
       const z0 = spawn.z - 30;
       const y = 30;
+      // (Round 13: the checks before may leave the player far off, by the new
+      // terrain's sea 200 blocks away: back by the bank, its chunks loaded.)
+      v.player.spawnAt(spawn.x, spawn.z);
+      world.prepareArea(x0, z0, 2);
       const e = [];
       for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) for (let yy = y; yy <= y + 20; yy++) e.push(x0 + dx, yy, z0 + dz, yy < y + 8 ? 3 : yy < y + 14 ? 4 : 0);
       world.setBlocks(e);
@@ -1778,13 +1792,16 @@ try {
           for (let yy = s.y + 1; yy <= s.y + 20; yy++) {
             const id = world.getBlock(s.x0 + dx, yy, s.z0 + dz);
             const below = world.getBlock(s.x0 + dx, yy - 1, s.z0 + dz);
-            if ((id === 4 || id === 12) && (below === 0 || below === 5)) n++;
+            if ((id === 4 || id === 12) && (below === 0 || below === 5)) {
+              n++;
+              (window.__floating ||= []).push([dx, yy - s.y, dz, id, below]);
+            }
           }
         }
       }
       return n;
     });
-    assert(floating === 0, `${floating} sand blocks left floating`);
+    assert(floating === 0, `${floating} sand blocks left floating: ${JSON.stringify(await page.evaluate(() => window.__floating))} (dx, dy, dz, id, below)`);
   });
 
   await check("sound effects all play; the jump and burp sounds are gone", async () => {
