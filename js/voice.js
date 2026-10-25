@@ -1,7 +1,7 @@
 // (Round 13) The pilot's radio voice: short callouts, the way a fighter
 // pilot calls them, when you shoot down an aircraft ("Splash one!"), a UFO
 // ("UFO destroyed!"), a Ball UFO ("Ball UFO down!"), a boss ("Target
-// destroyed!"), a tank ("Tank destroyed!"); "Fox two!" when a guided missile
+// destroyed!"), a tank ("Tank destroyed!"), an AA vehicle; "Fox two!" when a guided missile
 // leaves the rail, "Missile, missile!" when one comes for you.
 //
 // The words come from the browser's own speech (the Web Speech API): an
@@ -13,7 +13,7 @@
 // Without speech (an old browser, a test page), just the radio clicks.
 //
 //   voice.say(key)          one of LINES below (other parts call this too)
-//   voice.kill(kind, ref)   a kill: "jet", "ufo" (ref: the UFO), "boss", "tank", "launcher"
+//   voice.kill(kind, ref)   a kill: "jet", "ufo" (ref: the UFO), "boss", "tank", "aa", "launcher"
 //   voice.attach({ audio, stats, ufos, listener })
 //     audio: its master and voice volumes, the radio sounds; stats: the
 //     kills of this player (stats.add of "ufosDown", "enemyJetsDown", ...,
@@ -29,6 +29,7 @@ export const LINES = {
   mothership: ["Mothership destroyed!", "Mothership is going down!"],
   boss: ["Target destroyed!", "Primary target destroyed. Good kill!"],
   tank: ["Tank destroyed!", "Armor down. Good hit!"],
+  aa: ["AA vehicle destroyed!", "Triple-A down!"],
   launcher: ["Launcher destroyed!", "Missile launcher down!"],
   fox2: ["Fox two!"],
   salvo: ["Fox two, salvo!"],
@@ -43,8 +44,8 @@ const URGENT = new Set(["missile", "defeated"]);
 const STALE = 4.5;
 const MAX_QUEUE = 3;
 // The stats that are this player's kills, and what each is called out as.
-const KILL_STATS = { ufosDown: "ufo", enemyJetsDown: "jet", bossesDown: "boss", tanksDown: "tank", launchersDown: "launcher", telsDown: "launcher" };
-const RANK = { ufo: 1, ball: 2, mothership: 3, boss: 4, tank: 1, launcher: 1 };
+const KILL_STATS = { ufosDown: "ufo", enemyJetsDown: "jet", bossesDown: "boss", tanksDown: "tank", aaDown: "aa", launchersDown: "launcher", telsDown: "launcher" };
+const RANK = { ufo: 1, ball: 2, mothership: 3, boss: 4, tank: 1, aa: 1, launcher: 1 };
 
 function now() {
   return typeof performance !== "undefined" ? performance.now() / 1000 : Date.now() / 1000;
@@ -103,6 +104,8 @@ export class PilotVoice {
     if (synth && synth.addEventListener && !this._listening) {
       this._listening = true;
       synth.addEventListener("voiceschanged", () => (this._voice = undefined));
+      // (The browser's own queue outlives the page: nothing said into the next one.)
+      window.addEventListener?.("pagehide", () => this.clear());
     }
     return this;
   }
@@ -190,6 +193,8 @@ export class PilotVoice {
       if (/female|zira|susan|samantha|victoria|karen|moira|tessa|hazel|libby|sonia|aria|jenny/i.test(name)) s -= 2;
       if (lang === "en-us" || lang === "en-gb" || lang === "en_us" || lang === "en_gb") s += 1;
       if (/google|natural|neural|online/i.test(name)) s += 1;
+      // (An installed voice speaks at once; a network one can lag seconds behind the kill.)
+      if (v.localService) s += 2;
       if (s > bs) {
         bs = s;
         best = v;
@@ -244,6 +249,9 @@ export class PilotVoice {
         u.volume = vol;
         u.onend = finish;
         u.onerror = finish;
+        // (A line still in the browser's own queue, past STALE and MAX_QUEUE
+        // (a slow network voice, a missed onend): this one replaces it.)
+        if (synth.speaking || synth.pending) synth.cancel();
         synth.speak(u);
       } catch {
         finish();

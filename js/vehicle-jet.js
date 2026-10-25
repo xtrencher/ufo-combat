@@ -166,6 +166,12 @@ function missileMaterial() {
   return _missileMat || (_missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 
+// (Round 13) A ground vehicle's name on the HUD (null: not one).
+function groundName(r) {
+  const t = r?.isGround ? r.type : null;
+  return t === "aa" ? "AA" : t === "enemytel" || t === "tel" ? "LAUNCHER" : t ? "TANK" : null;
+}
+
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v;
 }
@@ -414,8 +420,9 @@ export class Jet extends Vehicle {
     const thrust = (this.onGround ? THRUST_GROUND : THRUST_AIR) * cfg.accel * this.throttle * this.throttle * ab;
     acc.addScaledVector(fwd, thrust);
     // Drag: top speed with the afterburner lit is the max speed setting
-    // (Round 13: in the air, at least the fighter's own supersonic top).
-    const top = this.afterburner && !this.onGround && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.spec.mach) : maxSpeed;
+    // (Round 13: in the air, at least the fighter's own supersonic top; an
+    // enemy fighter keeps its edge over that too, enemy-jets.js speedEdge).
+    const top = this.afterburner && !this.onGround && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.spec.mach * (this.speedEdge ?? 1)) : maxSpeed;
     const kD = (THRUST_AIR * cfg.accel * AB_THRUST) / (top * top);
     // (Induced drag from the wings' lift only once airborne: on the takeoff
     // roll a raised nose would otherwise eat the speed it needs to lift off.)
@@ -1380,7 +1387,9 @@ export class Jet extends Vehicle {
     lock.locked = !!lock.target && (lock.locked || lock.t >= AUTO_LOCK_TIME);
     lock.progress = lock.target ? (lock.locked ? 1 : Math.min(1, lock.t / AUTO_LOCK_TIME)) : 0;
     lock.salvo = false;
-    if (lock.locked && lock.target.kind === "ufo") lock.target.ref.lockedOn = mgr.ufos?.time ?? 0;
+    // (A passive auto lock leaves a neutral UFO be: only one already hostile
+    // feels it. A missile fired at it does, see _fireLock.)
+    if (lock.locked && lock.target.kind === "ufo" && lock.target.ref.hostile) lock.target.ref.lockedOn = mgr.ufos?.time ?? 0;
     if (lock.locked && !was) mgr.audio?.playSalvoPip?.(1, 2);
     if (lock.target) mgr.audio?.setSeekerTone?.(lock.locked ? 2 : 1, lock.progress);
   }
@@ -1426,6 +1435,7 @@ export class Jet extends Vehicle {
     if (this.missileT > 0) return;
     const target = lock.target && this._targetAlive(lock.target) ? lock.target : null;
     if (target && lock.locked) {
+      if (target.kind === "ufo") target.ref.lockedOn = this.manager.ufos?.time ?? 0;
       const follow = { target, missiles: [], after: FOLLOW_AFTER, last: null };
       if (lock.salvo && this.spec.salvo > 1) {
         // The salvo, a fraction of a second apart, all at the locked target
@@ -1988,7 +1998,7 @@ export class Jet extends Vehicle {
     let heading = ((Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI + 360) % 360;
     const card = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(heading / 45) % 8];
     const lock = this.lock;
-    const nameOf = (t) => (t.kind === "ufo" ? "UFO" : "ENEMY JET");
+    const nameOf = (t) => (t.kind === "ufo" ? "UFO" : groundName(t.ref) || "ENEMY JET");
     const lockText = lock.auto && lock.target && !lock.holding
       ? lock.locked
         ? `<span class="vh-lock">LOCKED ${nameOf(lock.target)}</span> (auto aim): RMB fires`
@@ -2135,11 +2145,12 @@ export class Jet extends Vehicle {
   _hudData() {
     const L = this.lock;
     const look = this.cfg.assist ? _w.set(0, 0, -1).applyQuaternion(this.aimQ) : this.forward(_w);
-    const bore = new THREE.Vector3().copy(this.pos).addScaledVector(look, 600);
+    // (Its own vectors, reused: the HUD reads them at once, every frame.)
+    const bore = (this._hudBore ||= new THREE.Vector3()).copy(this.pos).addScaledVector(look, 600);
     const t = L.target && this._targetAlive(L.target) ? L.target : null;
     let target = null;
     if (t) {
-      const pos = this._targetPos(t, new THREE.Vector3());
+      const pos = this._targetPos(t, (this._hudTp ||= new THREE.Vector3()));
       const r = t.ref;
       const d = _v.copy(pos).sub(this.pos);
       const dist = d.length();
@@ -2147,7 +2158,7 @@ export class Jet extends Vehicle {
       const closure = dist > 1e-3 ? (this.vel.dot(d) - (tv ? tv.dot(d) : 0)) / dist : 0;
       const canSalvo = this.spec.salvo > 1;
       const charge = !canSalvo || L.auto ? 0 : L.locked && L.holding ? clamp((L.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME), 0, 1) : L.salvo ? 1 : 0;
-      const name = t.kind === "ufo" ? (r.boss ? String(r.bossName || "BOSS").toUpperCase() : r.design === "sphere" ? "BALL UFO" : r.size === "mothership" || r.size === "giant" ? "MOTHERSHIP" : "UFO") : r.isEnemyJet ? (r.hijacked ? "HIJACKED" : "BANDIT") : "PILOT";
+      const name = t.kind === "ufo" ? (r.boss ? String(r.bossName || "BOSS").toUpperCase() : r.design === "sphere" ? "BALL UFO" : r.size === "mothership" || r.size === "giant" ? "MOTHERSHIP" : "UFO") : r.isEnemyJet ? (r.hijacked ? "HIJACKED" : "BANDIT") : groundName(r) || "PILOT";
       target = { pos, radius: t.kind === "ufo" ? r.radius : (r.hitRadius ?? r.radius ?? 5), name, dist, closure, progress: L.progress, locked: L.locked, salvo: L.salvo, charge, n: canSalvo ? this.spec.salvo : 0, pips: L.pip || 0, holding: L.holding, auto: !!L.auto };
     }
     const missiles = [];

@@ -111,7 +111,6 @@ export class GroundSync {
     if (this.net.isHost || typeof m.k !== "string") return;
     const g = this.game;
     for (const k of [...(KILL_STATS[m.k] || []), "groundDown"]) g.stats?.add?.(k);
-    g.toast?.(m.k === "enemytel" ? "LAUNCHER DESTROYED!" : m.k === "aa" ? "AA VEHICLE DESTROYED!" : "TANK DESTROYED!", 2.5);
-    this.war.say(m.k === "enemytel" ? "target" : "tank");
+    g.toast?.(m.k === "enemytel" ? "LAUNCHER DESTROYED!" : m.k === "aa" ? "AA VEHICLE DESTROYED!" : "TANK DESTROYED!", 2.5); // (the callout: the stats, voice.js)
   }
 }

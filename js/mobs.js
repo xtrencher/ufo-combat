@@ -421,6 +421,10 @@ const VANILLA_ANIMALS_TAIGA = [["sheep", 12], ["pig", 10], ["chicken", 10], ["co
 const VANILLA_MAX_HOSTILE = 20; // per player (vanilla's 70 covers a far bigger area than the game keeps loaded)
 const VANILLA_MAX_PASSIVE = 16;
 const VANILLA_MAX_TOTAL = 56;
+// (Round 13) A Missions world's Overworld: lower caps, as its aliens, guards
+// and soldiers come on top of them (weak PCs).
+const MISSIONS_MAX_HOSTILE = 12;
+const MISSIONS_MAX_TOTAL = 40;
 // (Round 13) In a Missions world, the share of the animal herds that are its
 // own creatures (by their SPECIES weights), among vanilla's farm animals.
 const MISSIONS_CRITTERS = ["fluffalo", "hoplet", "mossback"];
@@ -1146,6 +1150,7 @@ export class MobManager {
     let radius = 34;
     let cap = VILLAGERS_PER_VILLAGE;
     let spread = 20;
+    let fromSite = false;
     // Airports and cities (sites.js) have their people too: a few around an
     // airport's apron, a crowd in a city.
     const site = terrain.sites?.nearest(p.x, p.z, 320);
@@ -1156,6 +1161,7 @@ export class MobManager {
         radius = st.radius + 10;
         cap = site.kind === "city" ? 9 : 3;
         spread = st.radius * 0.8;
+        fromSite = true;
       }
     }
     if (!village) return;
@@ -1181,7 +1187,9 @@ export class MobManager {
     // villagers about, and after one is killed not for 5-10 minutes (an
     // endless iron farm otherwise).
     const vkey = villageKey(village);
-    const golem = vanilla && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
+    // (Round 13: not an airport's or a city's people: no golem, and they
+    // come and go as before, not kept with the world.)
+    const golem = vanilla && !fromSite && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
     if (nearby >= cap && !golem) return;
     let sx;
     let sz;
@@ -1208,7 +1216,7 @@ export class MobManager {
     if (top < 0 || !this._freeAt(sx, top + 1, sz, SPECIES[kind].h)) return;
     const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5, { variant });
     // (Survival: kept with the world, with their trades, as vanilla's never despawn.)
-    if (m && vanilla) {
+    if (m && vanilla && !fromSite) {
       m.persist = true;
       if (golem) m.villageKey = vkey;
     }
@@ -1470,13 +1478,14 @@ export class MobManager {
     if (this._spawnTimer > 0) return;
     this._spawnTimer = SPAWN_INTERVAL;
     const players = this.targets ? Math.min(3, this.targets().length) : 1;
+    const missions = missionsLayer();
     let total = 0;
     for (const m of this.mobs) if (!m.persist && !m.spec.flies && m.kind !== "zombie" && !m.spec.projectile) total++;
-    if (total >= VANILLA_MAX_TOTAL * Math.min(2, players)) return;
+    if (total >= (missions ? MISSIONS_MAX_TOTAL : VANILLA_MAX_TOTAL) * Math.min(2, players)) return;
     const passiveCap = VANILLA_MAX_PASSIVE * players;
     if (this.countAnimals() - this._keptAnimals() < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countAnimals() + this._keptAnimals()));
     if (hostiles) {
-      const cap = VANILLA_MAX_HOSTILE * players;
+      const cap = (missions ? MISSIONS_MAX_HOSTILE : VANILLA_MAX_HOSTILE) * players;
       for (let k = 0; k < 2; k++) if (this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnHostile(pickWeighted(VANILLA_HOSTILES)));
       if (Math.random() < 0.2 && this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnSlime());
       this._portalPiglins(SPAWN_INTERVAL); // (Round 12)

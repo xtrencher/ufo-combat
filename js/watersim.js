@@ -19,12 +19,15 @@
 // the reason the voxel light engine two-phases its own removal).
 import { BLOCK, IS_REPLACEABLE, IS_WET, IS_SOLID } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
-import { vanillaRules } from "./worldtype.js";
+import { vanillaRules, legacyTerrain } from "./worldtype.js";
 import { isLava } from "./content/nature.js";
 
 export const MAX_FLOW_DISTANCE = 4; // sideways reach of a flow from its source, in blocks
 // (Round 11) A Survival world's water runs as far as vanilla's: 7.
 export const VANILLA_FLOW_DISTANCE = 7;
+// (Round 13) Vanilla's water (its reach, infinite sources), but not in an old
+// Missions save on its old terrain: its builds' channels keep their water.
+const vanillaWater = () => vanillaRules() && !legacyTerrain();
 // Where water may flow: open cells, never lava (lava touched by water
 // hardens instead: lavasim.js).
 const openTo = (id) => !IS_WET[id] && IS_REPLACEABLE[id] && !isLava(id);
@@ -177,12 +180,12 @@ export class WaterSim {
       // (Survival: vanilla's infinite water, a flow between two sources
       // over solid ground or a source becomes one; its neighbours may then
       // meet the rule too)
-      if (vanillaRules() && this._sourceSides(x, y, z) >= 2 && (y === 0 || IS_SOLID[this._get(x, y - 1, z)] || this._isSource(x, y - 1, z))) {
+      if (vanillaWater() && this._sourceSides(x, y, z) >= 2 && (y === 0 || IS_SOLID[this._get(x, y - 1, z)] || this._isSource(x, y - 1, z))) {
         this.meta.delete(key);
         this.metaVersion++;
         this._wakeAround(x, y, z);
       } else level = info.level;
-    } else if (vanillaRules()) {
+    } else if (vanillaWater()) {
       // (a new source, a bucket poured onto flow: the flow beside it checks the rule)
       for (const [dx, dz] of SIDES) {
         const k = this._key(x + dx, y, z + dz);
@@ -198,7 +201,7 @@ export class WaterSim {
 
     // Spread sideways into open cells, one level weaker each step, up to the
     // flow's reach.
-    if (level < (vanillaRules() ? VANILLA_FLOW_DISTANCE : MAX_FLOW_DISTANCE)) {
+    if (level < (vanillaWater() ? VANILLA_FLOW_DISTANCE : MAX_FLOW_DISTANCE)) {
       for (const [dx, dz] of SIDES) {
         const nx = x + dx;
         const nz = z + dz;

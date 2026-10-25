@@ -340,6 +340,29 @@ export function savePlayer(seed, data) {
   }
 }
 
+// (Round 13) A world's own small record, written once, with its first save:
+// { type, gen } (its world type and terrain generator, worldtype.js). The
+// player save has them too, but a world whose player save failed (storage
+// full) while its edits were saved would otherwise reload as an old save.
+export function worldRecordKey(seed) {
+  return `${PREFIX}world_${seed}`;
+}
+
+export function loadWorldRecord(seed) {
+  try {
+    const raw = localStorage.getItem(worldRecordKey(seed));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" && Number.isFinite(data.gen) ? data : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+export function saveWorldRecord(seed, { type, gen }) {
+  return trySet(worldRecordKey(seed), JSON.stringify({ type, gen }));
+}
+
 // Small JSON records outside any one world: the last world played (so the
 // main menu can offer to continue it), and the all-time stats.
 export function loadJSON(name, fallback = null) {

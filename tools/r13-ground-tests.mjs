@@ -378,6 +378,62 @@ async function browserChecks() {
     assert(r.tank && r.tel, `summoned: ${JSON.stringify(r)}`);
   });
 
+  await browserCheck("review fixes: a boarded base tank isn't set out again (and keeps its spot over a save); an enemy launcher's warhead isn't a player's; a convoy launcher drives its road; AA with SAMs up never idles; a tank lost with the player inside hides its overlay", async () => {
+    const f = await field(page);
+    const r = await v(page, async (g, f) => {
+      g.player.setMode("creative");
+      const war = g.vehicles.ground;
+      const out = {};
+      // The base's yard: one spot by the player (a stub site).
+      const spot = { key: "test#y0", x: f.x0 + 0.5, y: f.y + 1, z: f.z0 - 12, yaw: 0, kind: "mbt", paint: "olive" };
+      const sites = war.sites;
+      war.sites = { yardSpots: () => [spot], within: () => [{ id: "test" }] };
+      war._yardUpkeep();
+      const parked = war.yard.get(spot.key);
+      g.vehicles.enter(parked);
+      g.vehicles.exit({ force: true });
+      for (let i = 0; i < 3; i++) war._yardUpkeep();
+      out.yard = { parked: !!parked, again: g.vehicles.vehicles.filter((o) => o.alive && o.isGround && Math.hypot(o.pos.x - spot.x, o.pos.z - spot.z) < 6).length, took: parked?.tookKey, npc: !!parked?.npc, saved: parked?.serialize().tookKey };
+      war.sites = sites;
+      g.vehicles.remove(parked);
+      war.yard.clear();
+      // An enemy launcher's warhead.
+      war.ballistics.impact({ T: new g.THREE.Vector3(f.x0 + 200, f.y, f.z0 - 200), owner: { enemy: true } });
+      out.src = g.effects.lastExplosion?.source;
+      // A convoy's launcher on its road.
+      const tel = war._spawn("enemytel", [f.x0 + 0.5, f.y + 1, f.z0 - 20], 0, { route: [[f.x0 + 0.5, 0, f.z0 - 90]], force: true });
+      tel.pos.y = f.y + 1;
+      const z0 = tel.pos.z;
+      for (let i = 0; i < 30 * 6; i++) g.vehicles.update(1 / 30);
+      out.telMoved = z0 - tel.pos.z;
+      g.vehicles.remove(tel);
+      // The idle rule: far off, an AA vehicle with a SAM in the air keeps going.
+      const aa = war.spawnAA([f.x0 + 1400, f.y + 1, f.z0], 0, { force: true });
+      aa.missiles.push({ fake: true });
+      war._farT = 0;
+      war.update(0);
+      out.aaIdle = aa.idle;
+      aa.missiles.length = 0;
+      g.vehicles.remove(aa);
+      // A tank destroyed with the player inside.
+      const { summonTank } = await import("./js/vehicle-tank.js");
+      const t = summonTank(g.vehicles, "mbt", new g.THREE.Vector3(f.x0 + 0.5, f.y + 1, f.z0 - 8), 0);
+      g.vehicles.enter(t);
+      t._hudSeen = performance.now();
+      t._drawOverlay(g.camera);
+      const shown = document.getElementById("tank-overlay")?.style.display;
+      g.vehicles.destroy(t, "test");
+      out.overlay = [shown, document.getElementById("tank-overlay")?.style.display, t.model.barrel ? t.model.barrel.visible : true];
+      g.vehicles.remove(t);
+      return out;
+    }, f);
+    assert(r.yard.parked && r.yard.again === 1 && r.yard.took === "test#y0" && !r.yard.npc && r.yard.saved === "test#y0", `the yard: ${JSON.stringify(r.yard)}`);
+    assert(r.src === "enemyballistic", `an enemy warhead: ${r.src}`);
+    assert(r.telMoved > 10, `the convoy launcher moved ${r.telMoved}`);
+    assert(r.aaIdle === false, "an AA vehicle with a SAM up doesn't idle");
+    assert(r.overlay[0] === "block" && r.overlay[1] === "none" && r.overlay[2], `the overlay: ${JSON.stringify(r.overlay)}`);
+  });
+
   await browserCheck("the new missions start, set out their units and complete", async () => {
     await field(page);
     const r = await v(page, async (g) => {

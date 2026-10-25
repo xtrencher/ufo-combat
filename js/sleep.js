@@ -253,12 +253,18 @@ export class Sleep {
       s.t += dt;
       // (Shift or a hit, the bed gone, the morning, a vehicle: up.)
       const gone = !this.bedAt(s.x, s.y, s.z);
-      if (p.wantsToLeaveBed || gone || p.dead || p.vehicle || !vanillaRules() || (s.t > 0.5 && !this.canSleepNow())) this.wake();
+      // (Round 13: a night or swarm mission starting while in bed too: it
+      // is not slept away. A guest's comes from the host: no skip below.)
+      const noRest = d.noRest?.();
+      if (p.wantsToLeaveBed || gone || p.dead || p.vehicle || !vanillaRules() || noRest || (s.t > 0.5 && !this.canSleepNow())) {
+        this.wake();
+        if (noRest) d.toast(noRest, 2.5);
+      }
     }
     const online = d.online();
     const [asleep, total, ready] = online ? this._count() : [p.sleeping ? 1 : 0, 1, !!p.sleeping && p.sleeping.t >= SLEEP_TIME];
     // The night is skipped where the clock lives (single player; the host).
-    if (ready && !this._skipped && (!online || d.isHost()) && this.canSleepNow()) {
+    if (ready && !this._skipped && (!online || d.isHost()) && this.canSleepNow() && !d.noRest?.()) {
       this._skipped = true;
       d.sky.skipToMorning(MORNING);
       if (online) d.sendTime();

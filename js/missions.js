@@ -972,7 +972,8 @@ export class MissionDirector {
       // still ahead (the landings need about three minutes); late at night it
       // waits for the next one.
       st.lateChecked = true;
-      if (this._secondsUntil(5.5) >= 170) {
+      // (Round 13: 170 s of a 600 s day, scaled with the day like the waves.)
+      if (this._secondsUntil(5.5) >= 170 * (dayLength() / 600)) {
         st.fastDone = true;
         st.nt = 0;
         st.wave = 0;
@@ -2130,6 +2131,15 @@ export class MissionDirector {
     // (All of them lost: one more, after a while.)
     if (!mine.length && st[`${key}Given`] && (st[`${key}T`] = (st[`${key}T`] ?? 30) - 0.5) > 0) return mine;
     st[`${key}T`] = 30;
+    // (The ones given before a reload are saved with the world: those first,
+    // so they don't pile up.)
+    for (const v of this.vehicles.vehicles) {
+      if (mine.length >= Math.min(3, this.groupN)) break;
+      if (v.missionTank && v.alive && !v.puppet && !mine.includes(v)) {
+        mine.push(v);
+        st[`${key}Given`] = (st[`${key}Given`] || 0) + 1;
+      }
+    }
     const yaw = Math.atan2(-(face.x - c.x), -(face.z - c.z));
     for (let i = mine.length; i < Math.min(3, this.groupN); i++) {
       const side = (i - 1) * 9;
@@ -2256,6 +2266,9 @@ export class MissionDirector {
         }
         next = Math.min(next, Math.max(0, t.fireT));
       } else if (t.busy) next = 0;
+      // (Reloading: its reload, then its countdown; every launcher reloading
+      // used to leave "Infinity:NaN".)
+      else next = Math.min(next, Math.max(0, t.telReloadT ?? t.reloadTime ?? 80) + Math.max(0, t.fireT ?? 0));
       if (t.lastMissile && t.lastMissile !== t._told) {
         t._told = t.lastMissile;
         const m = t.lastMissile;

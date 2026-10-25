@@ -33,6 +33,10 @@
 // missions, supply drops, the aircraft) stays in the Overworld: main.js
 // pauses it while this player is elsewhere (onChange), and the messages
 // about it from a peer in another dimension are dropped (DIM_DROP).
+// Online the layer is the host's: while the host is out of the Overworld it
+// pauses for everyone (its UFOs and fighters go; a guest in the Overworld
+// then has none: DimSync._creatures drops the host's puppets, and the host's
+// "eadd" draws them again once it is back).
 //
 // Saves: each dimension's edits under a key of its own (storage.js,
 // saveEdits below), and in the player's save `dim` (where the player is;
@@ -117,7 +121,7 @@ const WATER_CAP = 12000; // flow cells saved per dimension (a Survival world's, 
 const MAX_PORTALS = 512; // registered per dimension
 const BED_RADIUS = (5 * 4) / 3; // (effects.js units: vanilla's power 5, TNT's 4 being 16/3)
 // What happens somewhere: dropped by a peer in another dimension (js/net/session.js).
-const DIM_DROP = ["fx", "pj", "eadd", "es", "erem", "rs", "bolt", "pth", "psp", "alarm", "dashw", "abd"];
+const DIM_DROP = ["fx", "pj", "eadd", "es", "erem", "rs", "bolt", "pth", "psp", "alarm", "dashw", "abd", "gfire", "gbm"]; // (Round 13: the ground war's shots and missiles, js/net/ground.js)
 const SMOKE = { r: 0.75, g: 0.75, b: 0.78 };
 
 // The dimension a save was made in (the Overworld for an older save, a
@@ -1072,6 +1076,10 @@ export class DimSync {
         for (const m of es.mobById.values()) es._removeMob?.(m);
         es.mobById.clear();
       }
+      // (Round 13: the host's UFOs and fighters too. A guest's Missions layer
+      // stays the host's: it has none of its own while the host is away,
+      // and the host's pauses while the host is out of the Overworld.)
+      es?.dropAirPuppets?.();
       mobs.puppets = false;
     } else {
       for (let i = mobs.mobs.length - 1; i >= 0; i--) if (!mobs.mobs[i].spec.flies) mobs._remove(i);

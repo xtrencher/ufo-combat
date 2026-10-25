@@ -39,7 +39,7 @@ export const explosionScale = { grenade: 1, bazooka: 1, airstrike: 1, nuke: 1 };
 export const effectsQuality = { scale: 1 };
 // (Round 13) The blasts that play the ground war's sequence (1: a shell, 2:
 // a ballistic missile's warhead) instead of the plain explosion.
-export const SHELL_FX = { tankshell: 1, enemyshell: 1, ballistic: 2 };
+export const SHELL_FX = { tankshell: 1, enemyshell: 1, ballistic: 2, enemyballistic: 2 };
 const SCORCHED = new Set([BLOCK.GRASS, BLOCK.DIRT]);
 
 // A shock sphere's look: bright only at its edge (a shimmering shell of air).

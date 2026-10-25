@@ -237,7 +237,7 @@ async function browserChecks() {
     if (out) await page.screenshot({ path: path.join(out, "creative-palette.png") });
     await v(page, (g) => g.invScreen.close());
     assert(r.type === "survival" && !r.mods && r.on, `a Survival world, Mods off, vehicles on: ${JSON.stringify(r)}`);
-    assert(r.tab >= 0 && r.shown === 4, `the Vehicles tab: ${JSON.stringify(r)}`);
+    assert(r.tab >= 0 && r.shown >= 4, `the Vehicles tab (the four aircraft, and the ground war's vehicles): ${JSON.stringify(r)}`);
   });
 
   await browserCheck("a jet from the palette: on its wheels on the grass aimed at, its tail clear of the player; F boards it", async () => {
@@ -319,10 +319,18 @@ async function browserChecks() {
       const bomber = g.vehicles.vehicles.find((v) => v.jetType === "b2");
       g.player.position.set(bomber.pos.x, bomber.pos.y - bomber.bottom, bomber.pos.z + 9);
       g.vehicles.toggle();
-      return { inUfo, inB2: g.vehicles.active === bomber, ufos: g.ufos.ufos.length, ufosOn: g.ufos.enabled, aliens: g.mobs.countKind("alien"), progress: g.progress.enabled, mods: g.mods.enabled };
+      // (Review fix) No patrol fighters either: they are the Missions layer's.
+      const ej = g.enemyJets;
+      const count = ej.config.count;
+      ej.config.count = 4;
+      ej.timer = 0;
+      ej.update(1 / 30);
+      const patrols = ej.jets.length;
+      ej.config.count = count;
+      return { inUfo, inB2: g.vehicles.active === bomber, ufos: g.ufos.ufos.length, ufosOn: g.ufos.enabled, aliens: g.mobs.countKind("alien"), progress: g.progress.enabled, mods: g.mods.enabled, patrols };
     });
     assert(s.inUfo && s.inB2, `boarded: ${JSON.stringify(s)}`);
-    assert(s.ufos === 0 && !s.mods && s.aliens === 0, `no fleets: ${JSON.stringify(s)}`);
+    assert(s.ufos === 0 && !s.mods && s.aliens === 0 && s.patrols === 0, `no fleets: ${JSON.stringify(s)}`);
     if (out) {
       await frames(page, 4);
       await page.screenshot({ path: path.join(out, "creative-b2.png") });

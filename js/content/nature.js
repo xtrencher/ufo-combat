@@ -1079,7 +1079,7 @@ for (let wet = 0; wet < 2; wet++) {
 // mycelium the same.
 function spreadingTick(self) {
   return (world, x, y, z, id, rand) => {
-    if (self === BLOCK.GRASS && !vanillaRules()) return;
+    if (self === BLOCK.GRASS && (!vanillaRules() || legacyTerrain())) return; // (Round 13: an old Missions save's grass under its builds stays)
     const above = world.getBlock(x, y + 1, z);
     if (LIB.IS_OPAQUE[above] || isWater(above) || isLava(above)) {
       world.setBlock(x, y, z, BLOCK.DIRT);

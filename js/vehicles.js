@@ -366,11 +366,14 @@ export class VehicleManager {
   }
 
   // (Round 13) Whether F is the vehicles' just now: seated, or a vehicle in
-  // reach that this player may board (else F is the game's: the off hand).
+  // reach that this player may board (else F is the game's: the off hand;
+  // a locked one says so on its prompt: canBoard's reason).
   wantsF() {
     if (!this.enabled) return false;
     if (this.active) return true;
-    return !this.creativeOnly && !!this.nearestEnterable();
+    if (this.creativeOnly) return false;
+    const v = this.nearestEnterable();
+    return !!v && !this.canBoard?.(v);
   }
 
   // ---------- World helpers ----------

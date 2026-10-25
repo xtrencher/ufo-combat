@@ -162,6 +162,64 @@ await check("an old Missions save's terrain is the old generator's exactly; a Su
   assert(same(chunkOf(m2, 3, 3), chunkOf(m3, 3, 3)), "the same options make the same chunks");
 });
 
+// (Review fix) An old Missions save's water stays the old game's (4 blocks of
+// reach, no infinite sources), as its terrain: vanilla's in a new one.
+await check("water: vanilla's reach and infinite sources in a new Missions world, the old water in an old Missions save", async () => {
+  const { WaterSim } = await imp("js/watersim.js");
+  const run = (gen) => {
+    WT.setWorldType("missions", { gen });
+    const cells = new Map();
+    const key = (x, y, z) => `${x},${y},${z}`;
+    const world = {
+      changeListeners: [],
+      getChunk: () => ({}),
+      getBlock: (x, y, z) => cells.get(key(x, y, z)) ?? (y <= 10 ? BLOCK.STONE : BLOCK.AIR),
+      setBlocks(list) {
+        const changed = [];
+        for (let i = 0; i < list.length; i += 4) {
+          cells.set(key(list[i], list[i + 1], list[i + 2]), list[i + 3]);
+          changed.push(list[i], list[i + 1], list[i + 2]);
+        }
+        for (const fn of this.changeListeners) fn(changed, {});
+      },
+    };
+    const sim = new WaterSim(world);
+    // A source at 0,11,0 on a stone floor, and two sources with a gap between them.
+    world.setBlocks([0, 11, 0, BLOCK.WATER, 40, 11, 0, BLOCK.WATER, 42, 11, 0, BLOCK.WATER]);
+    for (let i = 0; i < 400 && sim.activeCount; i++) sim.update();
+    let reach = 0;
+    while (world.getBlock(-(reach + 1), 11, 0) === BLOCK.WATER) reach++;
+    return { reach, gapSource: world.getBlock(41, 11, 0) === BLOCK.WATER && !sim.meta.has("41,11,0") };
+  };
+  const now = run(2);
+  const old = run(1);
+  WT.setWorldType("missions", { gen: 2 });
+  assert(now.reach === 7 && now.gapSource, `a new Missions world's water: ${JSON.stringify(now)}`);
+  assert(old.reach === 4 && !old.gapSource, `an old Missions save's water: ${JSON.stringify(old)}`);
+});
+
+// (Review fix) A world's own record (its type and terrain) is kept apart from
+// the player save: a new Missions world whose player save failed is not taken
+// for an old one.
+await check("the world's own record: its type and terrain, apart from the player save", async () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k), key: (i) => [...store.keys()][i] ?? null, get length() { return store.size; } };
+  try {
+    const St = await imp("js/storage.js");
+    assert(St.loadWorldRecord(777) === null, "none yet");
+    assert(St.saveWorldRecord(777, { type: "missions", gen: 2 }), "not saved");
+    const r = St.loadWorldRecord(777);
+    assert(r && r.type === "missions" && r.gen === 2, `read back: ${JSON.stringify(r)}`);
+    assert(!St.hasSavedEdits(777) && !St.hasSavedWorld(777), "it is neither edits nor a player save");
+    const gen = WT.terrainGenOf(r.type, r.gen, { old: true });
+    assert(gen === WT.GEN_ONE_WORLD, `edits without a player: the record's terrain (${gen})`);
+    store.set(St.worldRecordKey(778), "{junk");
+    assert(St.loadWorldRecord(778) === null, "junk is no record");
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
 if (!args.node) await browserChecks();
 
 async function browserChecks() {
@@ -360,6 +418,35 @@ async function browserChecks() {
         return { type: d.worldType, gen: d.gen, surv: !!d.surv };
       }, SEED);
       assert(saved.type === "missions" && saved.gen === 2 && saved.surv, `the save: ${JSON.stringify(saved)}`);
+    });
+
+    // (Review fix) The world's own record: a new Missions world with edits but
+    // no player save (it failed: storage full) is not taken for an old one.
+    await browserCheck("a new Missions world whose player save is gone but its edits are saved: its new terrain again", async () => {
+      await v(page, (g) => {
+        const p = g.player.position;
+        g.world.setBlock(Math.floor(p.x) + 3, Math.floor(p.y) + 2, Math.floor(p.z), 1);
+        g.flushSave();
+        return true;
+      });
+      const before = await page.evaluate(async (seed) => {
+        const St = await import("./js/storage.js");
+        localStorage.removeItem(St.playerKey(seed));
+        // (The player save fails from now on, as in a full storage: leaving the page saves none.)
+        const key = St.playerKey(seed);
+        const set = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (k, val) {
+          if (k === key) throw new Error("full");
+          return set.call(this, k, val);
+        };
+        return { edits: St.hasSavedEdits(seed), rec: St.loadWorldRecord(seed) };
+      }, SEED);
+      assert(before.edits && before.rec && before.rec.type === "missions" && before.rec.gen === 2, `saved: ${JSON.stringify(before)}`);
+      await page.goto(`http://127.0.0.1:${PORT}/index.html?seed=${SEED}&graphics=low`, { waitUntil: "load", timeout: 60000 });
+      await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
+      const w = await v(page, WORLD);
+      const noPlayer = await page.evaluate(async (seed) => localStorage.getItem((await import("./js/storage.js")).playerKey(seed)) === null, SEED);
+      assert(w.type === "missions" && w.gen === 2 && w.opts.vanilla === true && noPlayer, `reloaded (no player save: ${noPlayer}): ${JSON.stringify(w)}`);
     });
 
     await browserCheck("an old Missions save (no terrain version) loads with its old terrain, plays, and keeps it in its save", async () => {

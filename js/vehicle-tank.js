@@ -409,6 +409,8 @@ export class GroundVehicle extends Vehicle {
     this.yawRate = 0;
     this.vy = 0;
     this.turretYaw = Number.isFinite(data.turret) ? data.turret : 0; // (relative to the hull)
+    if (typeof data.tookKey === "string") this.tookKey = data.tookKey;
+    if (data.missionTank) this.missionTank = true;
     this.gunPitch = 0;
     this.trackL = 0;
     this.trackR = 0;
@@ -846,6 +848,9 @@ export class GroundVehicle extends Vehicle {
 
   onDestroyed(cause) {
     const mgr = this.manager;
+    // (Destroyed with the player inside: vehicles.destroy doesn't call onExit,
+    // which hides the overlay, shows the barrel and puts the sight's zoom back.)
+    if (this.occupied && !this.puppet) this.onExit();
     this.cookT = 0;
     this.speed = 0;
     this.removeAt = WRECK_TIME;
@@ -1012,7 +1017,11 @@ export class GroundVehicle extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), kind: this.kind, paint: this.paint, yaw: Math.round(this.yaw * 1000) / 1000, turret: Math.round(this.turretYaw * 1000) / 1000 };
+    const data = { ...super.serialize(), kind: this.kind, paint: this.paint, yaw: Math.round(this.yaw * 1000) / 1000, turret: Math.round(this.turretYaw * 1000) / 1000 };
+    // (Round 13: a base's spot it was taken from, and a mission's own tank: both kept over a reload.)
+    if (this.tookKey) data.tookKey = this.tookKey;
+    if (this.missionTank) data.missionTank = true;
+    return data;
   }
 
   dispose() {

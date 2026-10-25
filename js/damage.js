@@ -138,6 +138,8 @@ export const DEATH_MESSAGES = {
   tankshell_fall: "Sent flying by your own tank shell",
   ballistic: "Too close to your own ballistic missile",
   ballistic_fall: "Thrown far by your own ballistic missile",
+  enemyballistic: "Caught in an enemy ballistic missile's blast",
+  enemyballistic_fall: "Thrown far by an enemy ballistic missile",
   enemyshell: "Hit by an enemy tank's shell",
   enemyshell_fall: "Blown off your feet by an enemy tank's shell",
   tank_boom: "Caught in an exploding tank",
@@ -207,7 +209,7 @@ export function pilotCause(vehicleType, cause) {
     if (c === "alien" || c === "soldier" || /^alien_/.test(c)) return "jet_down_ground";
     return "jet_down";
   }
-  if (vehicleType === "tank" || vehicleType === "tel") return c === "enemyshell" || c === "sam" ? c : "tank_down"; // (Round 13)
+  if (vehicleType === "tank" || vehicleType === "tel") return c === "enemyshell" || c === "sam" || c === "enemyballistic" ? c : "tank_down"; // (Round 13)
   if (c === "ufo_laser" || c === "ufo_blast") return "ufo_down_ufo";
   return "ufo_down";
 }

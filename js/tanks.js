@@ -192,7 +192,7 @@ export class EnemyTank extends EnemyMixin(Tank) {
       steer = clamp(d * 2.2, -1, 1);
       throttle = Math.abs(d) > 1.2 ? 0.15 : speed;
     };
-    const fp = foe ? foePos(foe, _p).clone() : null;
+    const fp = foe ? foePos(foe, this._fp || (this._fp = new THREE.Vector3())) : null; // (its own: _p is shared)
     const dist = fp ? fp.distanceTo(this.pos) : Infinity;
     if (this.route) {
       // A convoy: along its road, whatever happens (it fires on the move).
@@ -233,7 +233,7 @@ export class EnemyTank extends EnemyMixin(Tank) {
       const lead = foeVel(foe);
       const tof = dist / this.spec.shellSpeed;
       const aim = _w.copy(fp).addScaledVector(lead, tof * 0.55);
-      const want = this._aimAt(aim, new THREE.Vector3());
+      const want = this._aimAt(aim, this._want || (this._want = new THREE.Vector3())); // (fireGun copies it)
       const err = this._traverse(dt, want);
       // The local player gets a warning when a turret comes onto them.
       if (foe === mgr.player && err < 0.25 && ai.warnT <= 0) {
@@ -244,7 +244,8 @@ export class EnemyTank extends EnemyMixin(Tank) {
       if (err < 0.035 && ai.reload <= 0) {
         ai.settleT += dt;
         // (The aim settles: a moment you can see the gun come to rest on you.)
-        if (ai.settleT > 0.9 && Math.abs(this.speed) < 3) {
+        // (A convoy's fire on the move: under its road speed.)
+        if (ai.settleT > 0.9 && Math.abs(this.speed) < (this.route ? 9 : 3)) {
           ai.settleT = 0;
           ai.reload = rand(7, 9.5);
           const spread = 0.028;
@@ -298,7 +299,7 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
       let best = null;
       let bd = AA_RANGE;
       for (const f of this._foes()) {
-        if (f.dead || !airborne(f, mgr)) continue;
+        if (f.dead || f.creative || !airborne(f, mgr)) continue;
         const p = foePos(f, _p);
         const d = p.distanceTo(this.pos);
         if (d < bd && !mgr.world.raycast(_u.copy(this.pos).setY(this.pos.y + 3.5), _w.copy(p).sub(_u).normalize(), d - 4, { solidOnly: true })) {
@@ -326,7 +327,7 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
     ai.samReload -= dt;
     if (ai.samReload <= 0 && ai.sams <= 0) ai.sams = 4;
     if (foe) {
-      const p = foePos(foe, _p).clone();
+      const p = foePos(foe, this._fp || (this._fp = new THREE.Vector3())); // (its own: _p is shared)
       const d = p.distanceTo(this.pos);
       const tof = d / AA_SPEC.shellSpeed;
       const aim = _w.copy(p).addScaledVector(foeVel(foe), tof * 0.85).sub(this.muzzleWorld(_u)).normalize();
@@ -559,9 +560,26 @@ export class EnemyTel extends EnemyMixin(Tel) {
     this._enemyInit();
     this.type = "enemytel";
     this.reloadTime = data.reloadTime ?? 80;
+    this.route = Array.isArray(data.route) ? data.route.map((p) => new THREE.Vector3(p[0], p[1] ?? 0, p[2])) : null;
+    this.routeI = 0;
   }
   serialize() {
     return { ...super.serialize(), type: "enemytel", enemy: true };
+  }
+  // A convoy's: along its road like the others (a launch or a reload halts it).
+  _control(dt, input) {
+    const wp = this.route && !this.busy && this.state === "travel" ? this.route[this.routeI] : null;
+    if (!wp) {
+      if (this.route && this.routeI >= this.route.length) this.routeDone = true;
+      return super._control(dt, input);
+    }
+    this._reloading = false;
+    const want = Math.atan2(-(wp.x - this.pos.x), -(wp.z - this.pos.z));
+    const d = Math.atan2(Math.sin(want - this.yaw), Math.cos(want - this.yaw));
+    this._drive(dt, Math.abs(d) > 1.2 ? 0.15 : 0.55, clamp(d * 2.2, -1, 1));
+    if (Math.hypot(wp.x - this.pos.x, wp.z - this.pos.z) < 12) this.routeI++;
+    this.model.setErector(this.erect);
+    this.model.setJacks(this.jacks);
   }
   hud() {
     return { title: this.name, rows: [], health: this.health / this.maxHealth };
@@ -737,8 +755,7 @@ export class GroundWar {
     if (anyone && this.stats) for (const k of statsOf(u)) (mine ? this.stats.add(k) : this.stats.addWorld(k));
     if (mine) {
       const what = u.type === "enemytel" ? "LAUNCHER DESTROYED!" : u.type === "aa" ? "AA VEHICLE DESTROYED!" : "TANK DESTROYED!";
-      this.toast?.(what, 2.5);
-      this.say(u.type === "enemytel" ? "target" : "tank");
+      this.toast?.(what, 2.5); // (the callout: the stats above, voice.js)
     } else if (anyone) this.onRemoteKill?.(pid, u);
     // Its loot: a supply crate thrown clear, sometimes (always from a launcher).
     if (anyone && this.crates?.enabled && Math.random() < (u.type === "enemytel" ? 1 : u.type === "aa" ? 0.5 : 0.45)) {
@@ -768,6 +785,9 @@ export class GroundWar {
           for (const y of sites.yardSpots(s)) {
             if (Math.hypot(y.x - c.x, y.z - c.z) < YARD_NEAR) want.add(y.key);
             if (!want.has(y.key) || this.yard.has(y.key) || taken?.has(y.key)) continue;
+            // (Nor while the one a player took from this spot is still about:
+            // airports.taken is only kept online.)
+            if (this.vehicles.vehicles.some((o) => o.alive && o.tookKey === y.key)) continue;
             const type = y.kind === "tel" ? "tel" : "tank";
             const v = this.vehicles.create(type, { pos: [y.x, y.y, y.z], yaw: y.yaw, kind: y.kind === "tel" ? undefined : y.kind, paint: y.paint });
             if (!v) continue;
@@ -786,7 +806,13 @@ export class GroundWar {
     for (const [key, v] of this.yard) {
       const gone = !this.vehicles.vehicles.includes(v) || !v.parkedAt;
       if (gone) {
-        // (Boarded: no longer the base's; blown up: set out again when the players come back.)
+        // (Boarded: no longer the base's, a player's vehicle (its spot stays
+        // empty while it's about); blown up: set out again when the players come back.)
+        if (this.vehicles.vehicles.includes(v)) {
+          v.tookKey = key;
+          v.npc = false;
+          v.keep = false;
+        }
         this.yard.delete(key);
         continue;
       }
@@ -816,7 +842,7 @@ export class GroundWar {
     const at = this.landAt(c.x + Math.cos(a) * R, c.z + Math.sin(a) * R, 60);
     if (!at) return;
     const flying = foes.some((q) => q.vehicle && !q.vehicle.isGround && !q.vehicle.onGround);
-    const list = flying ? [this.spawnAA(new THREE.Vector3(...at), a)] : this.spawnPlatoon(new THREE.Vector3(at[0], at[1], at[2]), 2, { face: c });
+    const list = flying ? [this.spawnAA(at, a)] : this.spawnPlatoon(new THREE.Vector3(at[0], at[1], at[2]), 2, { face: c });
     for (const u of list) if (u) u.ambient = true;
     if (list.length) {
       const dir = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"][Math.round(((Math.atan2(Math.sin(a), Math.cos(a)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8];
@@ -847,8 +873,10 @@ export class GroundWar {
     if (this._farT <= 0) {
       this._farT = 1;
       for (const u of this.units) {
-        const near = this._near(u.pos, IDLE_FAR);
-        u.idle = !near;
+        // (An AA vehicle out to its radar; never one with SAMs in the air, nor
+        // a launcher reloading: those would freeze mid-flight / never reload.)
+        const near = this._near(u.pos, u.type === "aa" ? AA_RANGE + 100 : IDLE_FAR);
+        u.idle = !near && !u.missiles?.length && u.state !== "empty";
         if (u.ambient && !this._near(u.pos, FAR)) veh.remove(u);
       }
     }

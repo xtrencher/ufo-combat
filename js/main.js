@@ -6,7 +6,7 @@ import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
 import { Sky, DAY_LENGTH, dayLength } from "./sky.js";
-import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, hasSavedEdits, lastEditsBytes } from "./storage.js";
+import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setStorageFullHandler, loadPlayer, savePlayer, loadBootRecord, saveBootRecord, loadJSON, saveJSON, hasSavedWorld, hasSavedEdits, lastEditsBytes, loadWorldRecord, saveWorldRecord } from "./storage.js";
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
@@ -79,7 +79,7 @@ import { NetSession, normalizeRoomCode } from "./net/session.js";
 import { bootJoin, inviteUrl, hideBootJoin } from "./net/boot-join.js";
 import { Multiplayer } from "./net/multiplayer.js";
 import { roomMode, playerModeOf } from "./net/rules.js";
-import { setWorldType, worldType, isVanilla, vanillaRules, terrainGenOf, terrainGen, terrainOptions, normalizeWorldType, newWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
+import { setWorldType, worldType, isVanilla, vanillaRules, missionsLayer, terrainGenOf, terrainGen, terrainOptions, normalizeWorldType, newWorldType, worldLabel, WORLD_TYPE_NAMES } from "./worldtype.js";
 import { goUrl, takeGo } from "./menu-go.js";
 import { XpOrbs, killXp, rollXp, wholeXp, deathXp, resetXp } from "./xp.js";
 import { Sleep } from "./sleep.js";
@@ -163,8 +163,12 @@ const GO = GUEST ? null : takeGo(SEED);
 // (Round 13) And its terrain's generator: a Missions world saved before
 // Round 13 (no "gen" in its save; edits without a saved player too) keeps
 // the old terrain; a guest's is the host's (an older host's: the old one).
-const WORLD_TYPE = GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : NEW_PICK.type;
-setWorldType(WORLD_TYPE, { gen: terrainGenOf(WORLD_TYPE, GUEST ? joinWelcome.gen : savedPlayer?.gen, { old: GUEST || !!savedPlayer || hasSavedEdits(SEED) }) });
+// (The world's own record, storage.js, when its player save is missing: a
+// world whose player save failed keeps its type and terrain.)
+const WORLD_REC = GUEST ? null : loadWorldRecord(SEED);
+let worldRecorded = !!WORLD_REC;
+const WORLD_TYPE = GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : WORLD_REC?.type ?? NEW_PICK.type;
+setWorldType(WORLD_TYPE, { gen: terrainGenOf(WORLD_TYPE, GUEST ? joinWelcome.gen : savedPlayer?.gen ?? WORLD_REC?.gen, { old: GUEST || !!savedPlayer || hasSavedEdits(SEED) }) });
 
 // ---------- Renderer / scene / camera ----------
 const canvas = document.getElementById("game-canvas");
@@ -1121,7 +1125,8 @@ const b2LockedText = () => `The B-2 bomber and its nuke come with ${missionRef("
 vehicles.canBoard = (v) =>
   v.type === "jet" && jetLocked() ? jetLockedText() : v.type === "jet" && v.jetType === "b2" && b2Locked() ? b2LockedText() : v.type === "ufo" && ufoLocked() ? ufoLockedText() : null;
 // Patrol fighters (they hunt UFOs) join the sky with the player's own jets.
-enemyJets.allowed = () => !jetLocked();
+// (Round 13: a Missions world's, with its Mods on; never a Survival world's.)
+enemyJets.allowed = () => missionsLayer() && mods.enabled && !jetLocked();
 // (Round 6: there is no calling in a jet any more. Jets are taken from the
 // airports, where they are parked. `callJet` below is only a test hook,
 // exposed on window.__voxelands; no key, item or menu reaches it.)
@@ -1871,6 +1876,9 @@ function flushSave(force = true) {
     return;
   }
   let failed = false;
+  // (Round 13) The world's own small record first (its type and terrain,
+  // storage.js), once: it fits where a player save may not.
+  if (!worldRecorded) worldRecorded = saveWorldRecord(SEED, { type: worldType(), gen: terrainGen() });
   if (pendingSave && (force || performance.now() >= nextEditTry)) {
     // (A failed save keeps the edits: the cache holds them all for the next try.)
     // (Round 12: every dimension's that changed, js/dimensions.js.)

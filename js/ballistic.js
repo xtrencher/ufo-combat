@@ -221,7 +221,11 @@ class Ballistic {
     const moved = prev.distanceTo(this.pos);
     this.trail += moved;
     const q = Math.max(0.35, effectsQuality.scale);
-    const spacing = (this.t < 4 ? 0.8 : 2.6 + speed * 0.012) / q;
+    // (Round 13: farther apart at speed, the puffs grow to 9-13 blocks anyway,
+    // and twice as far once the pool is filling: a long flight, or two at once,
+    // used to overflow its 900 and cut the trail's far end off.)
+    const pool = fx.trail.particles?.length / (fx.trail.capacity || 900) || 0;
+    const spacing = ((this.t < 4 ? 0.8 : 3 + speed * 0.02) / q) * (pool > 0.7 ? 2 : 1);
     const c = this.sys._c;
     let guard = 0;
     while (this.trail > spacing && guard++ < 40) {
@@ -281,7 +285,8 @@ export class BallisticSystem {
     const at = m.T.clone();
     this.impacts.push({ at: at.clone(), t: performance.now() });
     if (this.impacts.length > 6) this.impacts.shift();
-    this.effects.explode(at, { radius: WARHEAD_RADIUS, source: "ballistic", visual: WARHEAD_LOOK });
+    // (An enemy launcher's is not a player's: no PvP rule, no kill credit, its own death message.)
+    this.effects.explode(at, { radius: WARHEAD_RADIUS, source: m.owner?.enemy ? "enemyballistic" : "ballistic", visual: WARHEAD_LOOK });
     this.onImpact?.(m, at);
   }
 
