@@ -2639,3 +2639,6 @@ Parts (wave A, parallel): **unify** (one world), **creative** (vehicles in Creat
 - **Defaults:** mouse 0.5, master volume 15% (settings v7).
 - **Review:** two reviews, 24 findings fixed (patrol jets in Survival worlds, ghost UFOs after dimension travel, a yard-tank farm, enemy warheads credited to the player, AA at the origin and idling with SAMs up, auto aim angering neutral UFOs, night-mission timing, and more); the old suites updated to the one world (three real fixes: arrows with the opening bow, floating sand, close off-nose missile turns).
 - Not built: no limits added this round beyond Round 12's list.
+
+### Round 13 test status (final code)
+- All green: unit 73/73; r13-unify 9/9 (+online), r13-creative 11/11 (+online), r13-air 7/7, r13-ground 10/10 (+online); every Round 12 and Round 11 suite; r10-*; round9..round2; settings; smoke 67/67; perf; check-mob-models; chaos 0 problems; ufo-tests 35/35; mp-tests 23/23, mp-round9 8/8, mp-damage 444/444 (the bow given arrows: it takes them in a Missions world now).
