@@ -2763,6 +2763,7 @@ function showPause() {
 let entered = false; // enterGame has run (respawn checks it)
 function enterGame() {
   entered = true;
+  voice.clear(); // (Round 13: no callout left over in the browser's speech queue)
   // Online the room decides the mode (Dogfight plays by Survival's rules, in a jet).
   setMode(mp.active ? playerModeOf(mp.mode) : ui.modeSelect.value);
   fillStartingWeapons(newWorld);

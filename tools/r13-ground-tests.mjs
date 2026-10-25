@@ -328,6 +328,9 @@ async function browserChecks() {
       g.vehicles.exit({ force: true });
       g.vehicles.remove(jet);
       g.vehicles.remove(aa);
+      // (Back on the field: the jet took the player a thousand blocks out, maybe over the sea,
+      // where the later checks would find no land for their units.)
+      g.player.position.set(f.x0 + 0.5, f.y + 1, f.z0 + 0.5);
       return { flak: g.lasers.fired - fired0, sam, warn };
     }, f);
     assert(r.flak >= 9 && r.sam >= 1 && r.warn, `the AA: ${JSON.stringify(r)}`);

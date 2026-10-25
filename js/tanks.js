@@ -192,7 +192,7 @@ export class EnemyTank extends EnemyMixin(Tank) {
       steer = clamp(d * 2.2, -1, 1);
       throttle = Math.abs(d) > 1.2 ? 0.15 : speed;
     };
-    const fp = foe ? foePos(foe, this._fp || (this._fp = new THREE.Vector3())) : null; // (its own: _p is shared)
+    const fp = foe ? foePos(foe, this._foeP || (this._foeP = new THREE.Vector3())) : null; // (its own: _p is shared)
     const dist = fp ? fp.distanceTo(this.pos) : Infinity;
     if (this.route) {
       // A convoy: along its road, whatever happens (it fires on the move).
@@ -327,7 +327,7 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
     ai.samReload -= dt;
     if (ai.samReload <= 0 && ai.sams <= 0) ai.sams = 4;
     if (foe) {
-      const p = foePos(foe, this._fp || (this._fp = new THREE.Vector3())); // (its own: _p is shared)
+      const p = foePos(foe, this._foeP || (this._foeP = new THREE.Vector3())); // (its own: _p is shared)
       const d = p.distanceTo(this.pos);
       const tof = d / AA_SPEC.shellSpeed;
       const aim = _w.copy(p).addScaledVector(foeVel(foe), tof * 0.85).sub(this.muzzleWorld(_u)).normalize();
