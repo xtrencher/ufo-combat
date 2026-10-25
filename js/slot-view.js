@@ -7,7 +7,7 @@
 // the item's.
 import { BLOCK_INFO } from "./blocks.js";
 import { itemInfo, foodHeal } from "./items.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { itemIconCanvas } from "./itemtextures.js";
 import { drawBlockIcon } from "./textures.js";
 import { enchantLines, isEnchanted } from "./enchant.js";
@@ -76,9 +76,9 @@ export function stackLabel(stack) {
   const name = stackName(stack);
   const wear = info.tool || info.armor; // (armor wears out too)
   if (stack.dur !== undefined && wear) return `${name} (${stack.dur}/${wear.durability})`;
-  // (A food in a Missions world: what it heals at once; a Survival world shows
-  // the name alone, as vanilla.)
-  const heal = !isVanilla() ? foodHeal(info) : 0;
+  // (A food before Round 13's vanilla hunger in a Missions world: what it
+  // healed at once; now the name alone, as vanilla.)
+  const heal = !vanillaRules() ? foodHeal(info) : 0;
   if (heal > 0) return `${name} (heals ${heal / 2} ♥)`;
   return name;
 }

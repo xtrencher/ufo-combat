@@ -62,7 +62,7 @@ import { itemModel } from "./models.js";
 import { LAYER_FX } from "./layers.js";
 import { HOST_PID } from "./net/session.js";
 import { Interp, r2, r1 } from "./net/interp.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { makeStack } from "./inventory.js";
 
 const PX = 1 / 16;
@@ -592,7 +592,7 @@ export class EndGame {
     this.dims = dims;
     this.mp = mp;
     this.renderer = renderer;
-    this.enabled = isVanilla();
+    this.enabled = vanillaRules(); // (Round 13: a Missions world's too)
     this.state = null; // the fight (see _fresh); null: the End not visited yet
     this.d = null; // the dragon simulated here (the authority), or null
     this.puppet = null; // { interp, last } a dragon drawn from another peer's states
@@ -1590,7 +1590,7 @@ export class EndGame {
     const portals = [];
     const gateways = [];
     const p = this.player.position;
-    if (w.dim === OVERWORLD && isVanilla()) {
+    if (w.dim === OVERWORLD && vanillaRules()) {
       const g = this._strongholds();
       // (a stronghold's place is worked out only when one may be near: its
       // ring's place within 112 + 80 + 160 blocks)
@@ -1738,7 +1738,7 @@ export class EndGame {
   // ---------- Eyes of ender ----------
 
   // Thrown (the eye's use): toward the nearest stronghold, in the Overworld
-  // of a Survival world.
+  // (none in an old Missions save's terrain: it has no strongholds).
   throwEye(ctx) {
     if (!this.enabled || this.world.dim !== OVERWORLD || ctx.player.vehicle) return false;
     const g = this._strongholds();
@@ -1924,7 +1924,7 @@ export class EndGame {
     const eat = p.eat.bind(p);
     p.eat = (info, id) => {
       const back = eat(info, id);
-      if (id === V.CHORUS_FRUIT && isVanilla()) this._chorusTeleport();
+      if (id === V.CHORUS_FRUIT && vanillaRules()) this._chorusTeleport();
       return back;
     };
   }

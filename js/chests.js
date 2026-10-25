@@ -36,7 +36,7 @@ import { makeStack, encodeStack, decodeStack, sameStack } from "./inventory.js";
 import { pickCrateWeapon, pickTool, rollArmorDrop } from "./progression.js";
 import { mulberry32 } from "./noise.js";
 import { chunkKey, blockIndex } from "./constants.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules, missionsLayer } from "./worldtype.js";
 import * as V from "./content/ids.js";
 import { structureLootAt } from "./structures.js";
 import { dimKey, DIM_KEY_RE, OVERWORLD, codeOf, parseDimKey } from "./dim-registry.js";
@@ -115,9 +115,11 @@ export function rollVillageLoot(rand = Math.random) {
 
 // What a chest holds when first opened: [[itemId, count], ...]. `owned`: a
 // Set of the item ids the player (online: the group) has already.
-// (A Survival world's: the classic village loot, rollVillageLoot.)
-export function rollChestLoot(tier, owned, rand = Math.random) {
-  if (isVanilla()) return rollVillageLoot(rand);
+// (Without the Missions layer, a Survival world's: the classic village
+// loot, rollVillageLoot; Round 13: a vanilla village's chest in a Missions
+// world too, opts.village.)
+export function rollChestLoot(tier, owned, rand = Math.random, { village = false } = {}) {
+  if (!missionsLayer() || village) return rollVillageLoot(rand);
   const out = [];
   const have = new Set(owned);
   const add = (id, n = 1) => {
@@ -224,11 +226,15 @@ export class Chests {
       owned = new Set();
     }
     const slots = new Array(CHEST_SLOTS).fill(null);
-    // (Round 11) A Survival world's dungeons, mineshafts and desert temples
+    // (Round 11) The vanilla terrain's dungeons, mineshafts and temples
     // have vanilla's own tables (structures.js).
     // (Round 12: the chest's own dimension's structures, there or not.)
+    // (Round 13) A Missions world's: so do its vanilla villages' chests; a
+    // city's (and an old Missions save's village's) have the missions' loot.
     const w = !this.world.dim || dim === this.world.dim ? this.world : { terrain: this.world.terrainOf(dim), getBlock: (bx, by, bz) => this.world.blockIn(dim, bx, by, bz) };
-    const loot = (isVanilla() && structureLootAt(w, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand);
+    const vg = w.terrain?.villages;
+    const village = !!vg?.vanilla && (dim ?? "overworld") === "overworld" && !!vg.nearestVillage(x, z, vg.reach);
+    const loot = (vanillaRules() && structureLootAt(w, x, y, z, rand)) || rollChestLoot(this.getTier() | 0, owned, rand, { village });
     for (const [id, n, tag] of loot) {
       let left = n;
       while (left > 0) {

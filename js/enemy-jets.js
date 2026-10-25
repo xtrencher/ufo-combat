@@ -54,6 +54,7 @@ export class EnemyJet extends Jet {
     super(manager, { ...data, airborne: true }, { type: "enemyjet", name: hijacked ? "Hijacked fighter" : "Patrol fighter", paint: hijacked ? "enemy" : "patrol", maxHealth: 120 });
     this.hijacked = hijacked;
     this.isEnemyJet = true;
+    this.speedEdge = SPEED; // (its supersonic top too: vehicle-jet.js)
     this.unusable = true; // can't be boarded
     this.transient = true; // never saved
     this.cannonOwner = "enemyjet";

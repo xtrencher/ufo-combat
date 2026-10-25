@@ -106,6 +106,7 @@ import * as end from "./end.js"; // (Round 12: the End)
 import * as gadgets from "./gadgets.js"; // (Round 12: hoppers, droppers, dispensers, observers, tripwire, item frames, armor stands, bamboo)
 import * as workstations from "./workstations.js"; // (Round 12: double chests, the smoker, the campfire, the job blocks...)
 import * as transport from "./transport.js"; // (Round 12: rails, boats and minecarts)
+import * as vehicles from "./vehicles.js"; // (Round 13: Creative's aircraft)
 
 // Each module and its id ranges ([lo, hi] inclusive).
 const MODULES = [
@@ -121,6 +122,8 @@ const MODULES = [
   { name: "gadgets", mod: gadgets, blocks: [[2944, 3071]], items: [[992, 1023]] }, // (Round 12)
   { name: "workstations", mod: workstations, blocks: [[2816, 2879]], items: [] }, // (Round 12)
   { name: "transport", mod: transport, blocks: [[2880, 2943]], items: [[960, 991]] }, // (Round 12)
+  // (Round 13: in the core item range's unused ids; 316-319 kept for more vehicles.)
+  { name: "vehicles", mod: vehicles, blocks: [], items: [[266, 269], [316, 319]] },
   // (Test-only blocks: never in the palette or the terrain; tools/r11-engine16-tests.mjs.)
   { name: "debug", mod: debug, blocks: [[4064, 4095]], items: [] },
 ];

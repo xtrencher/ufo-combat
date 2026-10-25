@@ -15,7 +15,7 @@
 // only) and the trees js/trees.js.
 import { BLOCK, ITEM, RENDER, FACE, LIB } from "./base.js";
 import * as ID from "./ids.js";
-import { isVanilla } from "../worldtype.js";
+import { vanillaRules, legacyTerrain } from "../worldtype.js";
 
 const {
   REDSTONE_ORE, LAPIS_ORE, EMERALD_ORE, COPPER_ORE,
@@ -898,10 +898,11 @@ for (const [stem, seeds] of [
 }
 // Leaves: shears take the block; otherwise a sapling now and then (1 in 20,
 // jungle 1 in 40), sticks (2%: 1-2) and from oak and dark oak an apple (1 in
-// 200), as vanilla. The core leaves keep their old drops in a Missions world.
+// 200), as vanilla. (The core leaves' old drops were a Missions world's
+// before Round 13.)
 function leafDrops(leaf, sapling, chance, apples) {
   return (tool, rand) => {
-    if (leaf < 1024 && !isVanilla()) return null;
+    if (leaf < 1024 && !vanillaRules()) return null;
     if (isShears(tool)) return [[leaf, 1]];
     const out = [];
     if (rand() < chance) out.push([sapling, 1]);
@@ -986,11 +987,11 @@ for (const [stem, fruit] of [
     };
   }
 }
-// Whether a cactus can stand at (x, y, z): in a Survival world, as vanilla,
-// only on sand, red sand or cactus and with no solid block beside it
-// (world.js pops one that can't; a Missions world keeps its old cacti).
+// Whether a cactus can stand at (x, y, z): as vanilla, only on sand, red
+// sand or cactus and with no solid block beside it (world.js pops one that
+// can't; Round 13: an old Missions save keeps its old cacti, legacyTerrain).
 export function cactusHolds(world, x, y, z) {
-  if (!isVanilla()) return true;
+  if (!vanillaRules() || legacyTerrain()) return true;
   const below = world.getBlock(x, y - 1, z);
   if (below !== BLOCK.CACTUS && below !== BLOCK.SAND && below !== RED_SAND) return false;
   for (const [dx, dz] of SIDES) if (LIB.IS_SOLID[world.getBlock(x + dx, y, z + dz)]) return false;
@@ -1002,7 +1003,7 @@ export function cactusHolds(world, x, y, z) {
 // root (deviation: vanilla notices at once, here on its next tick).
 function columnTick(id0, needsWater) {
   return (world, x, y, z, id, rand) => {
-    if (id0 === BLOCK.CACTUS && !isVanilla()) return;
+    if (id0 === BLOCK.CACTUS && !vanillaRules()) return;
     if (id0 === BLOCK.CACTUS && !cactusHolds(world, x, y, z)) {
       world.setBlock(x, y, z, BLOCK.AIR); // (the rest pops off: world.js)
       world.onBlockPopped?.(x, y, z, id0, true);
@@ -1074,11 +1075,11 @@ for (let wet = 0; wet < 2; wet++) {
     else if (!cropBase(above) && !isStem(above)) world.setBlock(x, y, z, BLOCK.DIRT);
   };
 }
-// Grass spreads to dirt nearby in the light and dies under a block (Survival
-// worlds; vanilla), mycelium the same.
+// Grass spreads to dirt nearby in the light and dies under a block (vanilla),
+// mycelium the same.
 function spreadingTick(self) {
   return (world, x, y, z, id, rand) => {
-    if (self === BLOCK.GRASS && !isVanilla()) return;
+    if (self === BLOCK.GRASS && (!vanillaRules() || legacyTerrain())) return; // (Round 13: an old Missions save's grass under its builds stays)
     const above = world.getBlock(x, y + 1, z);
     if (LIB.IS_OPAQUE[above] || isWater(above) || isLava(above)) {
       world.setBlock(x, y, z, BLOCK.DIRT);
@@ -1165,7 +1166,8 @@ export function leavesHeld(world, x, y, z) {
 for (const leaf of NATURAL_LEAVES) {
   randomTick[leaf] = (world, x, y, z, id) => {
     // (a log beside it: the common case, without the search)
-    if (!isVanilla() || !world.getChunk(x >> 4, z >> 4)) return;
+    // (Round 13: an old Missions save's leaves were all placed as these: they stay)
+    if (!vanillaRules() || legacyTerrain() || !world.getChunk(x >> 4, z >> 4)) return;
     for (const [sx, sy, sz] of STEPS6) if (LIB.BLOCK_INFO[world.getBlock(x + sx, y + sy, z + sz)]?.log) return;
     if (leavesHeld(world, x, y, z)) return;
     // (true: the world's doing, not a player's break: it drops even for a host in Creative, as vanilla)
@@ -1306,10 +1308,10 @@ function till(ctx) {
 }
 for (const hoe of [ID.WOODEN_HOE, ID.STONE_HOE, ID.IRON_HOE, ID.GOLDEN_HOE, ID.DIAMOND_HOE]) itemUse[hoe] = till;
 // Shovels flatten grass and dirt into a path (vanilla 1.17+), under open air
-// (Survival worlds: a Missions world's shovel does what it always did).
+// (Round 13: in both world types).
 const PATHS = new Set([BLOCK.GRASS, BLOCK.DIRT, PODZOL, MYCELIUM, COARSE_DIRT, SNOWY_GRASS]);
 function flatten(ctx) {
-  if (!isVanilla() || !PATHS.has(ctx.id) || !ctx.normal || ctx.normal[1] === -1) return false;
+  if (!vanillaRules() || !PATHS.has(ctx.id) || !ctx.normal || ctx.normal[1] === -1) return false;
   const world = ctx.world;
   if (world.getBlock(ctx.x, ctx.y + 1, ctx.z) !== BLOCK.AIR) return false;
   if (!world.setBlock(ctx.x, ctx.y, ctx.z, DIRT_PATH)) return false;
@@ -1389,10 +1391,10 @@ itemUse[BONE_MEAL] = (ctx) => {
   return true;
 };
 
-// Leaves a player places never decay (Survival worlds): placed as their
-// persistent ids, through the game's own placing.
+// Leaves a player places never decay: placed as their persistent ids,
+// through the game's own placing.
 NATURAL_LEAVES.forEach((leaf, i) => {
-  itemUse[leaf] = (ctx) => (isVanilla() && ctx.interaction?._place ? !!ctx.interaction._place(PERSISTENT_LEAVES + i) : false);
+  itemUse[leaf] = (ctx) => (vanillaRules() && ctx.interaction?._place ? !!ctx.interaction._place(PERSISTENT_LEAVES + i) : false);
 });
 
 // Lily pads go on the water's surface: the first water cell along the view

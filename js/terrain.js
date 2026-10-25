@@ -156,9 +156,13 @@ function hash3(seed, x, y, z) {
 
 export class TerrainGenerator {
   // opts.sites: false for a terrain without airports and cities (a Survival world, Round 11).
+  // opts.vanilla: the vanilla terrain (biomes' climate, ores, structures, vanilla
+  // villages...): a Survival world's and (Round 13) a new Missions world's,
+  // with its sites on it (worldtype.js terrainOptions); an old Missions
+  // world's terrain is without (sites and the old features only).
   constructor(seed, opts = {}) {
     this.seed = seed >>> 0;
-    // (vanilla: a Survival world's terrain; by default when there are no sites)
+    // (by default the vanilla terrain when there are no sites)
     this.options = { sites: opts?.sites !== false, vanilla: opts?.vanilla ?? opts?.sites === false };
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
@@ -166,7 +170,7 @@ export class TerrainGenerator {
     this.sites = new SiteGrower(this, { off: !this.options.sites }); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
-    // (Round 11) A Survival world's dungeons, mineshafts and desert temples.
+    // (Round 11) The vanilla terrain's dungeons, mineshafts, temples, strongholds...
     this.structures = this.options.vanilla ? new StructureGrower(this) : null;
   }
 
@@ -583,7 +587,7 @@ export class TerrainGenerator {
     if (h0 <= SEA_LEVEL + 2 || h0 >= WORLD_HEIGHT - 4 || isOceanBiome(b) || b === BIOME.RIVER || b === BIOME.BEACH || b === BIOME.SWAMP) return;
     const wx0 = cx * S + lx0;
     const wz0 = cz * S + lz0;
-    if (this.villages.nearestVillage(wx0, wz0, this.villages.reach + 12) || this.structures.blocksTree(wx0, wz0, 9)) return;
+    if (this.villages.nearestVillage(wx0, wz0, this.villages.reach + 12) || this.structures.blocksTree(wx0, wz0, 9) || this.structures._onSite(wx0, wz0, 8)) return;
     const rx = 2 + rand() * 1.6;
     const rz = 2 + rand() * 1.6;
     const cells = [];

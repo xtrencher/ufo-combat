@@ -25,6 +25,12 @@
 // bomb (B) on a drogue parachute. A warning shows where missiles are
 // coming from. Views: chase and cockpit (F5). F on the ground gets out;
 // in the air it ejects.
+// (Round 13) Auto aim (a setting, on by default): a UFO or aircraft kept in
+// the seeker circle round the crosshair for about two seconds is locked
+// without a click (the seeker's growl rises to a solid tone), and a right
+// click then sends a missile after it that homes by proportional
+// navigation. With the afterburner lit the fighters go a little past Mach 1
+// (the sonic boom: air-fx.js); missile blasts are bigger.
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
 import { createJetModel, PAINT_SCHEMES } from "./jet-model.js";
@@ -33,6 +39,8 @@ import { IS_SOLID, IS_WET } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { hullShape } from "./hitboxes.js";
+import { AirFx, MACH1 } from "./air-fx.js";
+import { voice } from "./voice.js";
 
 export const JET_DEFAULTS = { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 const G = 14; // gravity on the jet (blocks/s^2)
@@ -48,6 +56,19 @@ const LOCK_LOSE_RANGE = 2200; // a tracked target is lost only beyond this (bloc
 const LOCK_PEACEFUL = 0.6; // lock score penalty (radians off the view centre) for targets not attacking you
 const FOLLOW_AFTER = 0.8; // seconds the camera stays on the target after the missile got there
 const MISSILE_TURN = 3.2; // rad/s
+// (Round 13) Auto aim: a target within AUTO_CONE of the crosshair starts the
+// seeker; kept within AUTO_HOLD it locks in AUTO_LOCK_TIME (a slip out of
+// it costs time rather than the lock: AUTO_DECAY x as fast); once locked it
+// is held anywhere within AUTO_GIMBAL of the view (a seeker's gimbal), and
+// lost AUTO_GRACE s after it leaves that or the range.
+const AUTO_LOCK_TIME = 2;
+const AUTO_CONE = 0.12; // radians (~7 degrees)
+const AUTO_HOLD = 0.2;
+const AUTO_GIMBAL = 1.0;
+const AUTO_DECAY = 1.5;
+const AUTO_GRACE = 0.5;
+const PN_GAIN = 4; // proportional navigation: the missile turns this many times as fast as the line of sight
+const PN_PURSUIT = 0.6; // radians: further off than this the missile first turns onto the target (a launch at one behind)
 const FLARE_COOLDOWN = 5;
 // (Round 12) A salvo, one flare after another as a real dispenser fires
 // them: left and right in turn, each with its own spread.
@@ -107,9 +128,13 @@ const MISSILE_FUSE = 2.5; // blocks from an aircraft's surface: the proximity fu
 // lazier in the turns than the fighters, with a long takeoff roll; no
 // cannon and no afterburner; it fires its missiles one at a time (no
 // salvo) and it is the only aircraft that carries the nuke.
+// (Round 13) mach: the fighters' afterburner tops out at this x Mach 1 (the
+// top speed setting, if higher, still wins): the real F-22 and F-16 are
+// supersonic, so the sound barrier is there to break. The bomber, like the
+// real B-2, stays subsonic (unless the setting is raised in Creative).
 export const JET_TYPES = {
-  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1.25, seat: [0, 0.8, -3.6], nuke: false, ab: true },
-  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1, seat: [0, 0.8, -3.6], nuke: false, ab: true },
+  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1.25, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.1 },
+  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.06 },
   b2: { id: "b2", name: "B-2 Spirit", short: "stealth bomber (the nuke)", takeoff: "about 270 blocks", maxHealth: 420, speed: 0.52, stall: 0.85, accel: 0.62, turn: 0.42, roll: 0.42, cannonRate: 0, cannonDamage: 0, heatPerShot: 0, salvo: 1, salvoTime: 99, missileCooldown: 1.4, probes: { nose: 9.0, wing: 21.6, tail: 7.5 }, gear: B2_GEAR_HEIGHT, touchPitch: 0.3, radius: 22, hitRadius: 13, mass: 6, seat: [0, 1.7, -5.8], nuke: true, ab: false },
 };
 const ROGUE_MISSILE_DAMAGE = 70; // an enemy fighter's missile at a UFO (they help, but never clear the sky for you)
@@ -139,6 +164,12 @@ let _nukeGeo = null;
 let _missileMat = null;
 function missileMaterial() {
   return _missileMat || (_missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+
+// (Round 13) A ground vehicle's name on the HUD (null: not one).
+function groundName(r) {
+  const t = r?.isGround ? r.type : null;
+  return t === "aa" ? "AA" : t === "enemytel" || t === "tel" ? "LAUNCHER" : t ? "TANK" : null;
 }
 
 function clamp(v, a, b) {
@@ -338,6 +369,8 @@ export class Jet extends Vehicle {
     this.lock.look = 0;
     this.lock.follow = null;
     this.lock.suppress = false;
+    this.lock.auto = false;
+    this.lock.autoSave = null;
     this.queued.length = 0;
     this.afterburner = false;
     this.freeLook = false;
@@ -386,8 +419,11 @@ export class Jet extends Vehicle {
     const ab = this.afterburner ? (this.onGround ? 1.55 : AB_THRUST) : 1;
     const thrust = (this.onGround ? THRUST_GROUND : THRUST_AIR) * cfg.accel * this.throttle * this.throttle * ab;
     acc.addScaledVector(fwd, thrust);
-    // Drag: top speed with the afterburner lit is the max speed setting.
-    const kD = (THRUST_AIR * cfg.accel * AB_THRUST) / (maxSpeed * maxSpeed);
+    // Drag: top speed with the afterburner lit is the max speed setting
+    // (Round 13: in the air, at least the fighter's own supersonic top; an
+    // enemy fighter keeps its edge over that too, enemy-jets.js speedEdge).
+    const top = this.afterburner && !this.onGround && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.spec.mach * (this.speedEdge ?? 1)) : maxSpeed;
+    const kD = (THRUST_AIR * cfg.accel * AB_THRUST) / (top * top);
     // (Induced drag from the wings' lift only once airborne: on the takeoff
     // roll a raised nose would otherwise eat the speed it needs to lift off.)
     const induced = this.onGround ? 0 : 1.5 * cl * cl;
@@ -1014,6 +1050,11 @@ export class Jet extends Vehicle {
     for (const v of mgr.vehicles) {
       // (Dogfight online: the other players' aircraft too.)
       const rival = mgr.pvp && v.puppet && v.netOcc && !this.isEnemyJet;
+      // (Round 13: the aliens' tanks, AA vehicles and launchers too, as "vehicle" targets.)
+      if (v.isEnemyGround && v.alive && !this.isEnemyJet) {
+        list.push({ kind: "vehicle", ref: v, weight: 0.9, attacking: !!v.ai?.foe });
+        continue;
+      }
       if (v === this || !v.alive || !(v.isEnemyJet || rival)) continue;
       list.push({ kind: "jet", ref: v, weight: 0.85, attacking: !this.isEnemyJet && (v.hostile || v.provoked > 0) });
     }
@@ -1109,6 +1150,10 @@ export class Jet extends Vehicle {
   //  - after a guided launch the camera stays on the target until the
   //    missile hits (or misses), then comes back; a click brings it back at
   //    once.
+  //  - (Round 13) with auto aim, while the button is up the seeker locks
+  //    what is kept round the crosshair (_autoLock); a click then fires a
+  //    guided missile at it (the camera stays with you), and holding the
+  //    button carries that lock on (a salvo, the view on the target).
   _updateLock(dt, input) {
     const mgr = this.manager;
     const lock = this.lock;
@@ -1152,10 +1197,16 @@ export class Jet extends Vehicle {
     }
     if (held) {
       if (!lock.holding) {
+        // (Round 13) A press with the auto aim's seeker on something goes on
+        // from there: a lock it has is a lock, one building is part done.
+        const auto = lock.auto && lock.target && this._targetAlive(lock.target) ? lock.target : null;
+        lock.autoSave = auto ? { target: auto, t: lock.t, locked: lock.locked } : null;
         lock.holding = true;
-        lock.t = 0;
+        lock.t = auto ? (lock.locked ? LOCK_TIME : Math.min(0.9, lock.progress) * LOCK_TIME) : 0;
+        lock.fromAuto = !!auto && lock.locked;
+        lock.auto = false;
         lock.held = 0;
-        lock.target = null;
+        lock.target = auto;
         lock.progress = 0;
         lock.locked = false;
         lock.salvo = false;
@@ -1201,6 +1252,7 @@ export class Jet extends Vehicle {
       } else if (best) {
         lock.target = { kind: best.kind, ref: best.ref };
         lock.t = 0;
+        lock.fromAuto = false;
         this._lockToneT = 0;
       } else {
         lock.target = null;
@@ -1222,18 +1274,15 @@ export class Jet extends Vehicle {
       } else {
         lock.look += (0 - lock.look) * lookRate;
       }
-      // Tones: ticks that speed up, a solid tone, a double tone for the salvo.
-      lock.beepT -= dt;
-      if (lock.target && lock.held > TAP_TIME && lock.beepT <= 0) {
-        lock.beepT = lock.salvo ? 0.06 : lock.locked ? 0.1 : 0.34 - lock.progress * 0.22;
-        mgr.audio?.playLockTone?.(lock.locked);
-      }
+      // (Round 13) The seeker's tone: a growl rising as the lock builds, a
+      // solid tone once locked (the salvo's pips and chirp on top).
+      if (lock.target && (lock.held > TAP_TIME || lock.fromAuto)) mgr.audio?.setSeekerTone?.(lock.locked ? 2 : 1, lock.progress);
       // The salvo charges pip by pip (one click per missile, each higher than the last).
       const n = this.spec.salvo;
       const pip = lock.locked ? Math.min(n, Math.floor(((lock.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME)) * n)) : 0;
       if (pip > (lock.pip || 0) && pip < n) mgr.audio?.playSalvoPip?.(pip, n);
       lock.pip = pip;
-      if (lock.locked && !wasLocked) mgr.onMessage?.(this.spec.salvo > 1 ? "LOCKED: release to fire (hold for a salvo; left click cancels)" : "LOCKED: release to fire (left click cancels)");
+      if (lock.locked && !wasLocked && !lock.fromAuto) mgr.onMessage?.(this.spec.salvo > 1 ? "LOCKED: release to fire (hold for a salvo; left click cancels)" : "LOCKED: release to fire (left click cancels)");
       if (lock.salvo && !wasSalvo) {
         mgr.onMessage?.(`SALVO READY x${this.spec.salvo}`);
         mgr.audio?.playSalvoTone?.();
@@ -1242,21 +1291,107 @@ export class Jet extends Vehicle {
     } else {
       if (lock.holding) {
         lock.holding = false;
+        const save = lock.autoSave;
+        lock.autoSave = null;
         this._fireLock();
+        // (Round 13) After a click the auto aim's seeker goes on as it was
+        // (a lock still a lock, one building still part done).
+        if (save && !lock.follow && lock.held <= TAP_TIME && this._targetAlive(save.target)) {
+          lock.auto = true;
+          lock.target = save.target;
+          lock.t = save.t;
+          lock.locked = save.locked;
+          lock.out = 0;
+        }
       }
       if (lock.follow) return;
       lock.look += (0 - lock.look) * lookRate;
       if (lock.look < 0.02) {
         lock.look = 0;
-        if (!lock.holding) {
+        if (this.autoAim) this._autoLock(dt);
+        else if (!lock.holding) {
           lock.progress = 0;
           lock.locked = false;
           lock.salvo = false;
           lock.target = null;
           lock.t = 0;
+          lock.auto = false;
         }
       }
     }
+  }
+
+  // (Round 13) Auto aim (the setting; the jets and the B-2 only).
+  get autoAim() {
+    return this.cfg.autoAim !== false && !this.isEnemyJet;
+  }
+
+  // (Round 13) Auto aim with the button up: the UFO or aircraft nearest the
+  // crosshair within the seeker circle (AUTO_CONE) is picked and the lock
+  // builds while it stays near it (AUTO_HOLD): AUTO_LOCK_TIME to lock. A
+  // slip out costs time (it drains AUTO_DECAY x as fast) instead of the
+  // whole lock; a lock made is held within the seeker's gimbal (AUTO_GIMBAL)
+  // and range, and lost AUTO_GRACE s after it leaves them. Only a lock made
+  // tells the UFO it is locked (it gets angry): looking at one doesn't.
+  _autoLock(dt) {
+    const mgr = this.manager;
+    const lock = this.lock;
+    if (!lock.auto) {
+      lock.auto = true;
+      lock.target = null;
+      lock.t = 0;
+      lock.out = 0;
+      lock.locked = false;
+      lock.salvo = false;
+      lock.progress = 0;
+    }
+    lock.held = 0;
+    const view = this.cfg.assist ? _a[0].set(0, 0, -1).applyQuaternion(this.aimQ) : this.forward(_a[0]);
+    const tp = _w;
+    if (lock.target && !this._targetAlive(lock.target)) lock.target = null;
+    if (lock.target) {
+      const dv = this._targetPos(lock.target, tp).sub(this.pos);
+      const dist = dv.length();
+      const ang = dist > 1e-3 ? dv.divideScalar(dist).angleTo(view) : 0;
+      const inRange = dist >= 25 && dist <= LOCK_LOSE_RANGE;
+      if (lock.locked) {
+        if (inRange && ang < AUTO_GIMBAL) lock.out = 0;
+        else if ((lock.out += dt) > AUTO_GRACE) lock.target = null;
+      } else if (inRange && ang < AUTO_HOLD) {
+        lock.t += dt;
+        lock.out = 0;
+      } else {
+        lock.t -= dt * AUTO_DECAY;
+        if (lock.t <= 0 || !inRange) lock.target = null;
+      }
+    }
+    if (!lock.target) {
+      lock.t = 0;
+      lock.out = 0;
+      lock.locked = false;
+      let best = null;
+      let bestAng = AUTO_CONE;
+      for (const c of this._lockables()) {
+        const dv = this._targetPos(c, tp).sub(this.pos);
+        const dist = dv.length();
+        if (dist < 25 || dist > 1600) continue;
+        const ang = dv.divideScalar(dist).angleTo(view);
+        if (ang < bestAng) {
+          bestAng = ang;
+          best = c;
+        }
+      }
+      if (best) lock.target = { kind: best.kind, ref: best.ref };
+    }
+    const was = lock.locked;
+    lock.locked = !!lock.target && (lock.locked || lock.t >= AUTO_LOCK_TIME);
+    lock.progress = lock.target ? (lock.locked ? 1 : Math.min(1, lock.t / AUTO_LOCK_TIME)) : 0;
+    lock.salvo = false;
+    // (A passive auto lock leaves a neutral UFO be: only one already hostile
+    // feels it. A missile fired at it does, see _fireLock.)
+    if (lock.locked && lock.target.kind === "ufo" && lock.target.ref.hostile) lock.target.ref.lockedOn = mgr.ufos?.time ?? 0;
+    if (lock.locked && !was) mgr.audio?.playSalvoPip?.(1, 2);
+    if (lock.target) mgr.audio?.setSeekerTone?.(lock.locked ? 2 : 1, lock.progress);
   }
 
   // The lock is cancelled (a left click): no missile, the camera comes back,
@@ -1271,6 +1406,7 @@ export class Jet extends Vehicle {
     lock.t = 0;
     lock.lost = false;
     lock.suppress = true;
+    lock.autoSave = null;
     this.manager.onMessage?.("Lock cancelled");
   }
 
@@ -1299,6 +1435,7 @@ export class Jet extends Vehicle {
     if (this.missileT > 0) return;
     const target = lock.target && this._targetAlive(lock.target) ? lock.target : null;
     if (target && lock.locked) {
+      if (target.kind === "ufo") target.ref.lockedOn = this.manager.ufos?.time ?? 0;
       const follow = { target, missiles: [], after: FOLLOW_AFTER, last: null };
       if (lock.salvo && this.spec.salvo > 1) {
         // The salvo, a fraction of a second apart, all at the locked target
@@ -1309,8 +1446,11 @@ export class Jet extends Vehicle {
         follow.missiles.push(this._launchMissile(target));
         this.missileT = this.spec.missileCooldown;
       }
-      // The camera stays on the target until the missile gets there.
-      lock.follow = follow;
+      // The camera stays on the target until the missile gets there (Round
+      // 13: not for a click on an auto aim lock: the view stays with the
+      // pilot, and so does the lock, for the next missile).
+      if (!(lock.fromAuto && lock.held <= TAP_TIME)) lock.follow = follow;
+      if (this === this.manager.active) voice.say(lock.salvo && this.spec.salvo > 1 ? "salvo" : "fox2");
     } else if (lock.held <= TAP_TIME || !lock.target) {
       // A quick click, or nothing to lock on to: an unguided missile,
       // straight ahead.
@@ -1390,10 +1530,15 @@ export class Jet extends Vehicle {
     mesh.castShadow = true;
     mgr.scene.add(mesh);
     // A target behind the jet: the missile makes a hard turn to get around.
+    // (Round 13) So does one close by and well off the nose (a jet at Mach
+    // overruns a fleeing UFO): without it the missile circles it, outside its
+    // turn, in a spiral, and loses it.
     let behind = false;
     if (target) {
-      const d = this._targetPos(target, _w).sub(this.pos).normalize();
-      behind = d.dot(fwd) < 0.25;
+      const d = this._targetPos(target, _w).sub(this.pos);
+      const dist = d.length();
+      const c = dist > 1e-3 ? d.divideScalar(dist).dot(fwd) : 1;
+      behind = c < 0.25 || (!hostile && c < 0.8 && dist < 220); // (an enemy's missile at the player as before)
     }
     const m = { pos, vel: this.vel.clone().addScaledVector(fwd, 12), dir: fwd.clone(), target, age: 0, mesh, trail: 0, hostile, rogue, behind, lostT: 0, launcher: this, decoyed: false };
     this.missiles.push(m);
@@ -1449,16 +1594,25 @@ export class Jet extends Vehicle {
           continue;
         }
       }
-      const maxSpeed = m.hostile ? 330 : 420;
+      // (Round 13) A target going supersonic doesn't outrun the missile: it
+      // keeps its old edge over the jets (an enemy's 30 blocks/s, ours 85).
+      const tvl = m.target && m.target.kind !== "decoy" ? this._targetVel(m.target)?.length() || 0 : 0;
+      const maxSpeed = m.hostile ? clamp(tvl + 30, 330, 440) : clamp(tvl + 85, 420, 520);
       const speed = Math.min(maxSpeed, m.vel.length() + 260 * dt);
       if ((m.hostile || m.target?.kind === "jet") && m.age > 0.3) this._checkDecoys(m);
       // Guidance: lead pursuit, with a turn-rate limit. A rear shot gets a
       // hard turn at first. A target crossing the seeker's view too fast
       // (a sharp turn) is lost and the missile flies on.
+      // (Round 13) Our own missiles fly proportional navigation, as real
+      // ones do: they turn PN_GAIN times as fast as the line of sight to the
+      // target turns, which puts them on a collision course with a target
+      // that turns and jinks (still within the turn-rate limit: a hard
+      // enough break, or a flare, still beats them).
       if (m.target && this._targetAlive(m.target) && m.age > 0.15) {
         const tp = this._targetPos(m.target, _v);
         const tv = this._targetVel(m.target);
         const tgo = tp.distanceTo(m.pos) / Math.max(50, speed);
+        const pn = !m.hostile && m.target.kind !== "decoy" ? this._pnTurn(m, tp, tv, speed, dt) : false;
         if (tv) tp.addScaledVector(tv, tgo);
         // The target rolled away at the last moment: the missile loses it and goes by.
         if (m.hostile && !m.evaded && m.age > 0.8) {
@@ -1470,7 +1624,7 @@ export class Jet extends Vehicle {
           const ang = m.dir.angleTo(want);
           const boost = m.behind && m.age < 2.2 ? 2.3 : 1;
           const maxTurn = (m.hostile ? MISSILE_TURN * 0.85 : MISSILE_TURN) * boost * dt;
-          turnToward(m.dir, want, maxTurn);
+          if (!pn) turnToward(m.dir, want, maxTurn);
           // Lost track: the target is far outside what the missile can turn onto.
           if (ang > 1.05 && m.age > 2.4) m.lostT += dt;
           else m.lostT = Math.max(0, m.lostT - dt);
@@ -1514,6 +1668,10 @@ export class Jet extends Vehicle {
         if (!boom && vh && (vh.vehicle.isEnemyJet || (mgr.pvp && vh.vehicle.puppet && vh.vehicle.netOcc))) {
           boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
           direct = { kind: "jet", ref: vh.vehicle };
+        } else if (!boom && vh && vh.vehicle.isEnemyGround) {
+          // (Round 13) A tank, an AA vehicle or a launcher in the way.
+          boom = m.pos.clone().addScaledVector(m.dir, vh.distance);
+          direct = { kind: "vehicle", ref: vh.vehicle };
         }
       }
       if (!boom && m.hostile && m.age > 0.6 && !m.evaded) {
@@ -1560,7 +1718,9 @@ export class Jet extends Vehicle {
             // theirs, "missile"; it used to count as an enemy fighter's.)
             v?.damage?.(MISSILE_DAMAGE * 0.55, m.hostile ? "enemymissile" : m.rogue ? "roguemissile" : "missile");
           }
-          fx.explode(boom, { radius: src === "missile" ? 5 : 4.5, source: src });
+          // (Round 13: ours a third bigger, 6.5; the fireball, shock sphere
+          // and the rest on top come from air-fx.js, on every machine.)
+          fx.explode(boom, { radius: src === "missile" ? 6.5 : 4.5, source: src });
         }
         continue;
       }
@@ -1579,6 +1739,24 @@ export class Jet extends Vehicle {
       fx.glow.spawn({ x: m.pos.x - m.dir.x, y: m.pos.y - m.dir.y, z: m.pos.z - m.dir.z, life: 0.08, size0: 1.3, size1: 0.4, color0: c[2], alpha: 0.9 });
     }
     this._updateBombs(dt);
+  }
+
+  // (Round 13) One step of proportional navigation for missile `m` at a
+  // target at `tp` moving at `tv`: the line of sight's turn rate (r x v / r^2),
+  // times PN_GAIN, is how the missile turns, within its turn-rate limit.
+  // False (lead pursuit instead) while it is still far off the target (just
+  // launched at one behind, or across the nose).
+  _pnTurn(m, tp, tv, speed, dt) {
+    const r = _a[1].copy(tp).sub(m.pos);
+    const d2 = r.lengthSq();
+    if (d2 < 1) return false;
+    if (m.dir.angleTo(_a[2].copy(r).normalize()) > PN_PURSUIT) return false;
+    const rel = _a[2].copy(m.dir).multiplyScalar(-speed);
+    if (tv) rel.add(tv);
+    const w = _a[3].crossVectors(r, rel).divideScalar(d2).multiplyScalar(PN_GAIN);
+    const rate = w.length();
+    if (rate > 1e-6) m.dir.applyAxisAngle(w.divideScalar(rate), Math.min(rate * dt, MISSILE_TURN * dt)).normalize();
+    return true;
   }
 
   // Can this jet shrug off the hostile missile `m` by rolling? (Called by the
@@ -1608,6 +1786,7 @@ export class Jet extends Vehicle {
     const mgr = this.manager;
     // (Only for our own pilot: online a guest's puppet jet is `occupied` too.)
     if (jet === mgr.active) mgr.onMessage?.("MISSILE EVADED!");
+    if (jet === mgr.active) voice.say("defeated");
     if (jet === mgr.active) mgr.effects?.shake?.add?.(0.12);
   }
 
@@ -1697,11 +1876,14 @@ export class Jet extends Vehicle {
     for (const b of mgr.lasers.bolts) if (b.homing && !b.homing.returned && b.homing.target === this) consider(b.pos, "seeker");
     // (Online: missiles fired on another machine at this jet.)
     if (mgr.remoteMissiles && !this.puppet) for (const pos of mgr.remoteMissiles(this)) consider(pos, "missile");
+    if (pilot) this._updateSpike(dt);
     if (!best || bestD > 1500) {
       this.warn = null;
       this._warnPos = null;
       return;
     }
+    // (Round 13) The wingman's call when one first comes for you.
+    if (pilot && best.kind === "missile" && this.warn?.kind !== "missile") voice.say("missile");
     const local = _w.copy(best.pos).sub(this.pos).applyQuaternion(_q.copy(this.q).invert());
     this.warn = { dist: bestD, angle: Math.atan2(local.x, -local.z), elev: Math.atan2(local.y, Math.hypot(local.x, local.z)), kind: best.kind };
     this._warnPos = (this._warnPos || new THREE.Vector3()).copy(best.pos);
@@ -1710,6 +1892,33 @@ export class Jet extends Vehicle {
     if (pilot && this.warnT <= 0) {
       this.warnT = clamp(bestD / 900, 0.1, 0.8);
       mgr.audio?.playMissileWarning?.(bestD < 350);
+    }
+  }
+
+  // (Round 13) Locked on to (the radar warning's "spike"): an aircraft out
+  // to get us (an angry patrol fighter, a hijacked one; another player's in
+  // a Dogfight) with its nose on us, close enough to fire. Nothing is sent
+  // for it: each machine sees the others' noses. A thin warble now and then.
+  _updateSpike(dt) {
+    const mgr = this.manager;
+    let best = null;
+    let bd = 1700;
+    for (const v of mgr.vehicles) {
+      if (v === this || !v.alive || !v.forward || v.onGround) continue;
+      const foe = v.isEnemyJet ? (v.hijacked || v.provoked > 0 || v.hostile) && v.foe === mgr.player : mgr.pvp && v.puppet && v.netOcc;
+      if (!foe) continue;
+      const d = _a[4].copy(this.pos).sub(v.pos);
+      const dist = d.length();
+      if (dist > bd || dist < 1) continue;
+      if (d.divideScalar(dist).dot(v.forward(_a[5])) < 0.975) continue; // (within ~13 degrees of its nose)
+      bd = dist;
+      best = v;
+    }
+    this.spiked = best ? { pos: (this._spikePos || (this._spikePos = new THREE.Vector3())).copy(best.pos), dist: bd } : null;
+    this._spikeT = (this._spikeT ?? 0) - dt;
+    if (best && this._spikeT <= 0) {
+      this._spikeT = 1.1;
+      mgr.audio?.playRwrSpike?.();
     }
   }
 
@@ -1794,8 +2003,12 @@ export class Jet extends Vehicle {
     let heading = ((Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI + 360) % 360;
     const card = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(heading / 45) % 8];
     const lock = this.lock;
-    const nameOf = (t) => (t.kind === "ufo" ? "UFO" : "ENEMY JET");
-    const lockText = lock.follow
+    const nameOf = (t) => (t.kind === "ufo" ? "UFO" : groundName(t.ref) || "ENEMY JET");
+    const lockText = lock.auto && lock.target && !lock.holding
+      ? lock.locked
+        ? `<span class="vh-lock">LOCKED ${nameOf(lock.target)}</span> (auto aim): RMB fires`
+        : `auto aim: locking ${Math.round(lock.progress * 100)}%`
+      : lock.follow
       ? `<span class="vh-lock">TRACKING ${nameOf(lock.follow.target)}</span> (RMB: view back)`
       : lock.salvo
         ? `<span class="vh-lock">SALVO x${this.spec.salvo} ${nameOf(lock.target)}</span>`
@@ -1807,7 +2020,9 @@ export class Jet extends Vehicle {
               ? "searching..."
               : this.missileT > 0
                 ? "reloading"
-                : "RMB click: fire · hold: lock";
+                : this.autoAim
+                  ? "keep a target in the seeker circle to lock it · RMB fire · hold: lock"
+                  : "RMB click: fire · hold: lock";
     const warnings = [];
     if (this.stalled) warnings.push("STALL");
     else if (this.airbrake > 0.3 && !this.onGround && speed < this.cfg.stallSpeed * 1.35) warnings.push("LOW SPEED: BRAKES OPEN");
@@ -1830,7 +2045,7 @@ export class Jet extends Vehicle {
     return {
       title: this.name,
       rows: [
-        ["Speed", `${Math.round(speed * 3.6)} km/h (${Math.round(speed)} b/s)`],
+        ["Speed", `${Math.round(speed * 3.6)} km/h (${Math.round(speed)} b/s) · M ${(speed / MACH1).toFixed(2)}`],
         ["Altitude", `${Math.round(this.pos.y)} (${Math.round(agl)} above ground)`],
         ["Throttle", `${Math.round(this.throttle * 100)}%${this.afterburner ? " AFTERBURNER" : ""}${this.brake && this.onGround ? " · BRAKES" : ""}`],
         ...(this.airbrake > 0.02 ? [["Air brakes", `<span class="vh-on">${this.airbrake > 0.97 ? "OPEN" : this.onGround ? "wheel brakes" : "OPENING"}</span> ${"▮".repeat(Math.round(this.airbrake * 5))}${"▯".repeat(5 - Math.round(this.airbrake * 5))}`]] : []),
@@ -1855,12 +2070,13 @@ export class Jet extends Vehicle {
     return {
       title: `${this.name}: ${this.isEnemyJet ? "hostile fighter" : this.spec.nuke ? "your stealth bomber" : "your fighter jet"}`,
       stats: [
-        ["Top speed", `${Math.round(cfg.maxSpeed * 3.6)} km/h with the afterburner (${Math.round((cfg.maxSpeed / Math.sqrt(AB_THRUST)) * 3.6)} km/h at 100% throttle); speed follows the throttle, 0% to 100%`],
+        ["Top speed", `${Math.round(Math.max(cfg.maxSpeed, MACH1 * (this.spec.mach || 0)) * 3.6)} km/h with the afterburner${this.spec.mach && MACH1 * this.spec.mach > cfg.maxSpeed ? ` (Mach ${this.spec.mach}: past the sound barrier, 1235 km/h)` : ""} (${Math.round((cfg.maxSpeed / Math.sqrt(AB_THRUST)) * 3.6)} km/h at 100% throttle); speed follows the throttle, 0% to 100%`],
         ["Stall speed", `${Math.round(cfg.stallSpeed * 3.6)} km/h: the wings stop lifting below it`],
         ["Takeoff run", `${this.spec.takeoff}; the nose rises at ${ROTATE_SPEED}x the stall speed`],
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
         ...(this.spec.cannonRate > 0 ? [["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`]] : [["Autocannon", "none (a bomber)"]]),
-        ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the spiral closes in on the target (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
+        ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the salvo's pips fill under the target box (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
+        ["Auto aim", this.autoAim ? `on: keep a UFO or aircraft in the seeker circle round the crosshair for ${AUTO_LOCK_TIME} s and it is locked (the tone goes solid); a click then sends a homing missile after it` : "off (Settings > Vehicles): lock by holding the right button"],
         ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the nuke"],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],
@@ -1876,7 +2092,7 @@ export class Jet extends Vehicle {
         ["Q / E", "Rudder (yaw)"],
         ["Space (hold)", "Air brakes: panels / control surfaces open, the jet sheds speed very fast and turns much tighter (too slow and it stalls); on the ground the wheel brakes"],
         ["Left click", this.spec.cannonRate > 0 ? "Autocannon (hold; watch the heat bar); while locking: cancel the lock" : "While locking: cancel the lock"],
-        ["Right click", "Unguided missile straight ahead"],
+        ["Right click", this.autoAim ? "Missile: homing at the auto aim's lock, else straight ahead" : "Unguided missile straight ahead"],
         ["Right click (hold)", "Missile lock on the UFO or aircraft nearest the view centre (attackers first); release to fire; click again to bring the view back"],
         ["C", "Flares"],
         ["B", this.spec.nuke ? "Drop the nuke" : "(the B-2 only: the nuke)"],
@@ -1921,7 +2137,51 @@ export class Jet extends Vehicle {
         out.warn = { angle: Math.atan2(d.dot(camRight), d.dot(camDir)), dist: this.warn.dist, kind: this.warn.kind };
       }
     }
+    out.hud = this._hudData();
     return out;
+  }
+
+  // (Round 13) What the fighter HUD draws (js/fighter-hud.js), in world
+  // space: the boresight (where the crosshair points), the seeker circle's
+  // size (the auto aim's cone), the target being locked (where, how big,
+  // its range and closure, the lock's progress, the salvo's charge), our
+  // guided missiles on their way (time to go), the missile coming for us
+  // and the aircraft locked on to us.
+  _hudData() {
+    const L = this.lock;
+    const look = this.cfg.assist ? _w.set(0, 0, -1).applyQuaternion(this.aimQ) : this.forward(_w);
+    // (Its own vectors, reused: the HUD reads them at once, every frame.)
+    const bore = (this._hudBore ||= new THREE.Vector3()).copy(this.pos).addScaledVector(look, 600);
+    const t = L.target && this._targetAlive(L.target) ? L.target : null;
+    let target = null;
+    if (t) {
+      const pos = this._targetPos(t, (this._hudTp ||= new THREE.Vector3()));
+      const r = t.ref;
+      const d = _v.copy(pos).sub(this.pos);
+      const dist = d.length();
+      const tv = this._targetVel(t);
+      const closure = dist > 1e-3 ? (this.vel.dot(d) - (tv ? tv.dot(d) : 0)) / dist : 0;
+      const canSalvo = this.spec.salvo > 1;
+      const charge = !canSalvo || L.auto ? 0 : L.locked && L.holding ? clamp((L.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME), 0, 1) : L.salvo ? 1 : 0;
+      const name = t.kind === "ufo" ? (r.boss ? String(r.bossName || "BOSS").toUpperCase() : r.design === "sphere" ? "BALL UFO" : r.size === "mothership" || r.size === "giant" ? "MOTHERSHIP" : "UFO") : r.isEnemyJet ? (r.hijacked ? "HIJACKED" : "BANDIT") : groundName(r) || "PILOT";
+      target = { pos, radius: t.kind === "ufo" ? r.radius : (r.hitRadius ?? r.radius ?? 5), name, dist, closure, progress: L.progress, locked: L.locked, salvo: L.salvo, charge, n: canSalvo ? this.spec.salvo : 0, pips: L.pip || 0, holding: L.holding, auto: !!L.auto };
+    }
+    const missiles = [];
+    for (const m of this.missiles) {
+      if (!m.target || m.hostile || m.evaded || m.target.kind === "decoy") continue;
+      const tp = this._targetPos(m.target, _v);
+      const tv = this._targetVel(m.target);
+      const close = Math.max(40, m.vel.length() - (tv ? tv.dot(m.dir) : 0));
+      missiles.push({ pos: m.pos, ttg: tp.distanceTo(m.pos) / close, onTarget: !!t && m.target.ref === t.ref });
+    }
+    return {
+      bore,
+      cone: this.autoAim && !L.holding && !L.follow && !this.freeLook ? AUTO_CONE : 0,
+      target,
+      missiles,
+      threat: this.warn && this._warnPos ? { pos: this._warnPos, dist: this.warn.dist, kind: this.warn.kind } : null,
+      spiked: this.spiked || null,
+    };
   }
 
   // Shot down (or broken up) in the air: a big blast, then the burning wreck
@@ -2088,11 +2348,14 @@ function stepBombs(mgr, list, dt) {
 }
 
 // The strays are moved once per frame after the vehicles (hooked here:
-// vehicles.js can't import this module).
+// vehicles.js can't import this module). (Round 13) So are the sonic booms
+// and the missile blasts' extras (air-fx.js), made with the first frame.
 const _vmUpdate = VehicleManager.prototype.update;
 VehicleManager.prototype.update = function (dt) {
   _vmUpdate.call(this, dt);
   if (this.enabled && this.strayBombs?.length) stepBombs(this, this.strayBombs, dt);
+  if (!this.airFx && this.scene && this.effects) this.airFx = new AirFx(this);
+  if (this.enabled) this.airFx?.update(dt);
 };
 
 // A missile: white body, grey fins, dark seeker head (along -Z).

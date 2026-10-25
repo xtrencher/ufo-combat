@@ -1,7 +1,7 @@
 // Round 11 survival mechanics (vanilla, in Survival worlds): boots the real
 // game in headless Chromium (software WebGL, Low preset) and checks:
-//  - a Missions world keeps today's rules (no hunger bar, food heals, free
-//    regeneration);
+//  - a Missions world has the vanilla rules too (Round 13: one world): the
+//    hunger and XP bars, food fills hunger, regeneration from the food bar;
 //  - hunger: sprinting drains food over distance, starving stops at the
 //    difficulty's floor (Easy 10, Normal 1, Hard none), regeneration needs
 //    18 food points (fast with saturation at a full bar), Peaceful refills;
@@ -254,7 +254,7 @@ const tt = (p, fn, arg) => p.evaluate(([src, a]) => new Function("g", "t", "arg"
 
 // ================= A Missions world =================
 
-await check("a Missions world keeps today's rules: no hunger or XP bar, food heals, free regeneration", async () => {
+await check("a Missions world has the vanilla rules too (Round 13): the hunger and XP bars, food fills hunger, regeneration from the food bar", async () => {
   await boot(`seed=${MISSIONS_SEED}`);
   await play();
   await installTools();
@@ -265,19 +265,22 @@ await check("a Missions world keeps today's rules: no hunger or XP bar, food hea
     const p = g.player;
     const hud = { food: !document.getElementById("food").classList.contains("hidden"), xp: !document.getElementById("xp-bar").classList.contains("hidden") };
     p.health = 12;
+    p.food = 10;
+    p.saturation = 0;
     const apple = t.items.itemInfo(t.items.ITEM.APPLE);
     const can = p.canEat(apple, t.items.ITEM.APPLE);
     p.eat(apple, t.items.ITEM.APPLE);
     const afterApple = p.health;
+    const foodAfter = p.food;
     p.food = 20;
     p.health = 10;
     p._sinceDamage = 99;
     t.run(6);
-    return { type: g.worldType, hunger: p.hungerOn, hud, can, afterApple, regen: p.health, food: p.food, eatTime: p.eatTime(apple, t.items.ITEM.APPLE) };
+    return { type: g.worldType, hunger: p.hungerOn, hud, can, afterApple, foodAfter, regen: p.health, food: p.food, eatTime: p.eatTime(apple, t.items.ITEM.APPLE) };
   });
-  assert(r.type === "missions" && !r.hunger && !r.hud.food && !r.hud.xp, `no hunger in a Missions world: ${JSON.stringify(r)}`);
-  assert(r.can && r.afterApple === 16 && r.eatTime === 1.1, `an apple heals 4 as before: ${JSON.stringify(r)}`);
-  assert(r.regen > 10 && r.food === 20, `the old free regeneration: ${JSON.stringify(r)}`);
+  assert(r.type === "missions" && r.hunger && r.hud.food && r.hud.xp, `hunger and XP in a Missions world: ${JSON.stringify(r)}`);
+  assert(r.can && r.afterApple === 12 && r.foodAfter === 14 && r.eatTime === 1.6, `an apple fills 4 food (vanilla's), no health: ${JSON.stringify(r)}`);
+  assert(r.regen > 10, `regeneration from a full food bar: ${JSON.stringify(r)}`);
 });
 
 // ================= A Survival world =================

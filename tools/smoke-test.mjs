@@ -126,6 +126,17 @@ async function setupArena(page, offX = 20, offZ = 20, y = 46) {
   );
 }
 
+// Steps the player onto a dropped item of `id` lying near by (it takes a
+// moment to be thrown out of its block).
+async function walkToDrop(page, id) {
+  await page.waitForFunction((id) => window.__voxelands.entities.items.some((e) => e.id === id), id, { timeout: 30000, polling: 100 }).catch(() => {});
+  await page.evaluate((id) => {
+    const v = window.__voxelands;
+    const it = v.entities.items.find((e) => e.id === id);
+    if (it) v.player.position.set(it.pos.x, v.player.position.y, it.pos.z);
+  }, id);
+}
+
 // Turns the view toward the center of block [x, y, z] and waits until the
 // crosshair raycast targets it.
 async function aimAt(page, block) {
@@ -177,6 +188,9 @@ try {
     // in ufo-tests.mjs) dropping in to abduct the player mid-check. The
     // setting is saved, so it holds across the reloads below.
     await page.evaluate(() => window.__voxelands.settingsPanel.set("ufos.activity", 0));
+    // (Nor the patrol fighters, another mod feature: their missiles at a UFO went off
+    // in the grenade checks. Round 13: ufo-tests.mjs does the same.)
+    await page.evaluate(() => window.__voxelands.settingsPanel.set("vehicles.enemyJets", 0));
     console.log(`        (page ready in ${Date.now() - t0} ms)`);
     await page.waitForTimeout(1500);
   });
@@ -782,6 +796,16 @@ try {
           if (dx >= 4 && dz >= 4) e.push(x0 + dx, y + 5, z0 + dz, 7); // leafy roof
         }
       }
+      // (Round 13: a stone rim round the water, or it runs off over the land
+      // as vanilla's water does, into the later checks' runways.)
+      // (And a floor under it: its sand would fall into a cave below.)
+      for (let k = -13; k <= 13; k++) {
+        for (let yy = y - 4; yy <= y; yy++) {
+          e.push(x0 - 13, yy, z0 + k, 3);
+          if (k <= -3) e.push(x0 + k, yy, z0 - 13, 3, x0 + k, yy, z0 + 13, 3);
+        }
+        if (k <= -3) for (let dz = -12; dz <= 12; dz++) e.push(x0 + k, y - 4, z0 + dz, 3);
+      }
       world.setBlocks(e, { recordEdit: false });
       v.setRenderDistance(6);
       v.setGraphics("ultra");
@@ -907,8 +931,18 @@ try {
     assert(!mist.motes, "motes should hide above water");
     assert(mist.dawn > mist.noon * 3, `mist should thicken at dawn: ${JSON.stringify(mist)}`);
     assert(sun.kind === "sun" && sun.strength > 0.3, `expected sunbeams toward the low sun: ${JSON.stringify(sun)}`);
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       const v = window.__voxelands;
+      // (Round 13: the shore's water drained: as vanilla's it runs 7 blocks, and the
+      // weapon checks' runway below cuts into the shore's corner.)
+      const { IS_WET } = await import("./js/blocks.js");
+      const drain = [];
+      for (let dx = -14; dx <= 14; dx++) for (let dz = -14; dz <= 14; dz++) for (let y = 40; y <= 50; y++) {
+        const x = v.spawn.x - 30 + dx;
+        const z = v.spawn.z + 26 + dz;
+        if (IS_WET[v.world.getBlock(x, y, z)]) drain.push(x, y, z, 0);
+      }
+      v.world.setBlocks(drain, { recordEdit: false });
       v.setGraphics("low");
       v.setRenderDistance(20);
       v.player.flying = false;
@@ -1270,7 +1304,10 @@ try {
     await page.waitForFunction(() => window.__voxelands.weapons.charge > 0.5, null, { timeout: 30000, polling: 16 });
     await page.mouse.up({ button: "right" });
     const t0 = await page.evaluate(() => window.__voxelands.uniforms.uTime.value);
-    const boom = await waitForExplosion(prev);
+    const boom = await waitForExplosion(prev).catch(async (e) => {
+      const d = await page.evaluate(() => { const v = window.__voxelands; const g = v.weapons.grenades[0]; const wet = []; const p0 = v.player.position; for (let dx = -12; dx <= 12; dx++) for (let dz = -45; dz <= 8; dz++) for (let dy = 0; dy <= 9; dy++) { const x = Math.floor(p0.x) + dx, y = 45 + dy, z = Math.floor(p0.z) - 4 + dz; if (v.world.getBlock(x, y, z) === 5 && wet.length < 8) wet.push([x, y, z]); } return { wet, zb: window.__zb.pos.toArray().map(Math.round), hp: window.__zb.health, dead: window.__zb.dead, p: v.player.position.toArray().map(Math.round), g: g && g.pos.toArray().map(Math.round), gv: g && g.vel.toArray().map(Math.round), t: v.uniforms.uTime.value }; });
+      throw new Error(`${e.message.split("\n")[0]} ${JSON.stringify(d)}`);
+    });
     const dead = await page.evaluate(() => window.__zb.dead);
     console.log(`        exploded ${(boom.time - t0).toFixed(2)} s after the throw; zombie dead: ${dead}`);
     assert(boom.time - t0 < 2 && dead, "a direct hit should explode at once and kill the zombie");
@@ -1347,7 +1384,7 @@ try {
     await page.mouse.up({ button: "right" });
     await page.waitForTimeout(200);
     const placed = await page.evaluate(({ x, y, z }) => window.__voxelands.world.getBlock(x, y + 1, z + 2), a);
-    assert(placed === 0, "right-click with a pistol must not place a block");
+    assert(placed === 0, `right-click with a pistol must not place a block (block ${placed})`);
   });
 
   await check("bazooka: a fast, nearly flat rocket with a smoke trail and a blast a third of its old size", async () => {
@@ -1728,6 +1765,10 @@ try {
       const x0 = spawn.x - 30;
       const z0 = spawn.z - 30;
       const y = 30;
+      // (Round 13: the checks before may leave the player far off, by the new
+      // terrain's sea 200 blocks away: back by the bank, its chunks loaded.)
+      v.player.spawnAt(spawn.x, spawn.z);
+      world.prepareArea(x0, z0, 2);
       const e = [];
       for (let dx = -12; dx <= 12; dx++) for (let dz = -12; dz <= 12; dz++) for (let yy = y; yy <= y + 20; yy++) e.push(x0 + dx, yy, z0 + dz, yy < y + 8 ? 3 : yy < y + 14 ? 4 : 0);
       world.setBlocks(e);
@@ -1751,13 +1792,16 @@ try {
           for (let yy = s.y + 1; yy <= s.y + 20; yy++) {
             const id = world.getBlock(s.x0 + dx, yy, s.z0 + dz);
             const below = world.getBlock(s.x0 + dx, yy - 1, s.z0 + dz);
-            if ((id === 4 || id === 12) && (below === 0 || below === 5)) n++;
+            if ((id === 4 || id === 12) && (below === 0 || below === 5)) {
+              n++;
+              (window.__floating ||= []).push([dx, yy - s.y, dz, id, below]);
+            }
           }
         }
       }
       return n;
     });
-    assert(floating === 0, `${floating} sand blocks left floating`);
+    assert(floating === 0, `${floating} sand blocks left floating: ${JSON.stringify(await page.evaluate(() => window.__floating))} (dx, dy, dz, id, below)`);
   });
 
   await check("sound effects all play; the jump and burp sounds are gone", async () => {
@@ -1816,7 +1860,9 @@ try {
     assert(mid.id === 2 && mid.cracks, `block should still be there, cracking, while being mined (${JSON.stringify(mid)})`);
     await page.waitForFunction(([x, y, z]) => window.__voxelands.world.getBlock(x, y, z) === 0, target, { timeout: 60000, polling: 50 });
     await page.mouse.up({ button: "left" });
-    // The dropped dirt flies to the player and lands in the hotbar.
+    // (Round 13: a Missions world picks up as vanilla does: the drop lies where the
+    // block was, two blocks off; walk up to it.) It lands in the hotbar.
+    await walkToDrop(page, 2);
     await page.waitForFunction(() => window.__voxelands.inventory.countItem(2) === 1, null, { timeout: 60000, polling: 100 });
     const inv = await invState();
     console.log(`        dirt mined by hand and collected: slot 1 = ${JSON.stringify(inv.slots[0])}`);
@@ -1831,13 +1877,14 @@ try {
     await page.mouse.down({ button: "left" });
     await page.waitForFunction(([x, y, z]) => window.__voxelands.world.getBlock(x, y, z) === 0, target, { timeout: 90000, polling: 50 });
     await page.mouse.up({ button: "left" });
+    await walkToDrop(page, 10);
     await page.waitForFunction(() => window.__voxelands.inventory.countItem(10) === 1, null, { timeout: 60000, polling: 100 });
     const pick = await page.evaluate(() => window.__voxelands.inventory.slots[1]);
     console.log(`        stone mined with a wooden pickaxe -> cobblestone; pickaxe durability ${pick.dur}/60`);
     assert(pick.id === 274 && pick.dur === 59, `pickaxe should lose 1 durability: ${JSON.stringify(pick)}`);
   });
 
-  await check("inventory screen: E opens it (no crafting), items move with the mouse, E closes it", async () => {
+  await check("inventory screen: E opens it (with its 2x2 crafting grid), items move with the mouse, E closes it", async () => {
     await page.evaluate(() => {
       const v = window.__voxelands;
       v.inventory.clear();
@@ -1848,8 +1895,8 @@ try {
     await page.waitForFunction(() => window.__voxelands.gameState === "inventory", null, { timeout: 10000 });
     const visible = await page.$eval("#inventory-screen", (el) => !el.classList.contains("hidden"));
     assert(visible, "inventory screen should be visible");
-    // (Round 11: crafting is a Survival world's; a Missions world shows none of it.)
-    assert(await page.$$eval(".craft-grid, .recipe-book, .result-slot", (els) => !els.some((e) => e.offsetParent !== null)), "there is no crafting UI");
+    // (Round 13: a Missions world has the vanilla crafting too: the inventory's 2x2 grid.)
+    assert(await page.$$eval(".craft-grid, .result-slot", (els) => els.some((e) => e.offsetParent !== null)), "the crafting grid shows");
     // Pick up the logs, put one into another slot, the rest back.
     await page.click(".inv-hotbar .slot:nth-child(1)", { timeout: 20000 });
     await page.click(".inv-hotbar .slot:nth-child(2)", { button: "right", timeout: 20000 });
@@ -1861,20 +1908,22 @@ try {
     assert(JSON.stringify(inv.slots[0]) === "[6,1]" && JSON.stringify(inv.slots[1]) === "[6,1]", `expected a log in each of two slots, got ${JSON.stringify(inv.slots.slice(0, 3))}`);
   });
 
-  await check("survival: eating an apple heals", async () => {
+  // (Round 13: a Missions world has vanilla's hunger: an apple fills the food bar.)
+  await check("survival: eating an apple fills the food bar", async () => {
     await setupArena(page);
     await page.evaluate(() => {
       const v = window.__voxelands;
       v.inventory.clear();
       v.inventory.slots[0] = { id: 261, count: 2 };
       v.inventory.selected = 0;
-      v.player.health = 10;
+      v.player.food = 10;
+      v.player.saturation = 0;
     });
     await page.mouse.down({ button: "right" });
     await page.waitForFunction(() => window.__voxelands.inventory.countItem(261) === 1, null, { timeout: 60000, polling: 50 });
     await page.mouse.up({ button: "right" });
-    const hp = await page.evaluate(() => window.__voxelands.player.health);
-    assert(hp >= 14, `an apple should heal 2 hearts (health ${hp})`);
+    const food = await page.evaluate(() => window.__voxelands.player.food);
+    assert(food >= 14, `an apple should fill 4 food points (food ${food})`);
   });
 
   await check("survival: falls hurt, a long fall kills, the NOOB! death screen shows the cause, Respawn works", async () => {
@@ -2170,7 +2219,19 @@ try {
       const it = v.entities.items[0];
       v.player.position.set(it.pos.x, it.pos.y + 0.1, it.pos.z + 0.5);
     });
-    await page.waitForFunction(() => window.__voxelands.inventory.countItem(265) > 0 && window.__voxelands.inventory.countItem(263) > 0, null, { timeout: 60000, polling: 100 });
+    // (Round 13: a Missions world picks up as vanilla does, within a block or so:
+    // over to each drop in turn when they fell apart.)
+    await page.waitForFunction(
+      () => {
+        const v = window.__voxelands;
+        if (v.inventory.countItem(265) > 0 && v.inventory.countItem(263) > 0) return true;
+        const it = v.entities.items.find((i) => i.id === 265 || i.id === 263);
+        if (it && Math.hypot(it.pos.x - v.player.position.x, it.pos.z - v.player.position.z) > 0.6) v.player.position.set(it.pos.x, it.pos.y + 0.1, it.pos.z + 0.3);
+        return false;
+      },
+      null,
+      { timeout: 60000, polling: 300 }
+    );
     const inv = await page.evaluate(() => ({ fluff: window.__voxelands.inventory.countItem(265), meat: window.__voxelands.inventory.countItem(263) }));
     console.log(`        Fluffalo dropped and the player picked up ${inv.fluff} fluff and ${inv.meat} raw meat`);
   });
@@ -2404,7 +2465,8 @@ try {
     savedRaw = await page.evaluate((k) => localStorage.getItem(k), EDITS_KEY);
     assert(savedRaw, "expected saved block edits after break/place/explosions");
     const parsed = JSON.parse(savedRaw);
-    assert(parsed.v === 2 && Object.keys(parsed.chunks).length > 0, "expected v2 per-chunk format");
+    // (v3 once a chunk holds a block id above 255: Round 13's Missions world has every vanilla block.)
+    assert((parsed.v === 2 || parsed.v === 3) && Object.keys(parsed.chunks).length > 0, `expected the v2/v3 per-chunk format: v${parsed.v}`);
     editCount = await countEdits();
     console.log(`        ${editCount} block changes saved in ${savedRaw.length} chars`);
     assert(editCount > 300, "explosion edits missing");
@@ -2412,11 +2474,18 @@ try {
 
   let savedPlayer = null;
   await check("edits survive a page reload", async () => {
+    // (Round 13: a Missions world changes itself, its leaves decaying and its water
+    // flowing as vanilla's: paused, nothing runs between the save and the reload.)
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForFunction(() => window.__voxelands.gameState !== "playing", null, { timeout: 10000 }).catch(() => {});
     savedPlayer = await page.evaluate(() => {
       const v = window.__voxelands;
       v.flushSave();
       return { mode: v.player.mode, inv: JSON.stringify(v.inventory.serialize()), selected: v.inventory.selected, x: v.player.position.x, z: v.player.position.z };
     });
+    // (What was saved just now: the world went on changing itself since the last check.)
+    savedRaw = await page.evaluate((k) => localStorage.getItem(k), EDITS_KEY);
+    editCount = await countEdits();
     await page.reload({ waitUntil: "load", timeout: 30000 });
     await page.waitForFunction(() => !!window.__voxelands, null, { timeout: 30000 });
     await page.waitForTimeout(1000);

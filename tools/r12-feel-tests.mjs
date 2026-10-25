@@ -433,10 +433,26 @@ await check("a Survival world's death screen shows the score", async () => {
   assert(r === "Score: 37", `the score: ${r}`);
 });
 
-await check("a cactus hurts in a Missions world too", async () => {
+// (Round 13: a new Missions world's cactus is vanilla's, a Survival world's: one hung in
+// the air pops off; an old Missions save on its old terrain keeps its old cacti, and the
+// one bumped from below is that world's.)
+await check("a cactus hurts in a Missions world too (an old Missions save's from below too)", async () => {
   await boot("missions");
-  const r = await cactusRun(true);
-  assert(r.side.hp <= 18 && r.top.hp <= 18 && r.fall.hp <= 19 && r.below.hp <= 19 && r.edge.hp === 20 && r.item.gone, `missions: ${JSON.stringify(r)}`);
+  const r = await cactusRun(false);
+  assert(r.side.hp <= 18 && r.top.hp <= 18 && r.fall.hp <= 19 && r.edge.hp === 20 && r.edge.cactus && r.item.gone, `missions: ${JSON.stringify(r)}`);
+  const gen = await v(async () => {
+    const WT = await import("./js/worldtype.js");
+    const was = WT.terrainGen();
+    WT.setWorldType("missions", { gen: WT.GEN_LEGACY });
+    return { was, legacy: WT.legacyTerrain() };
+  });
+  try {
+    assert(gen.legacy, `an old Missions save: ${JSON.stringify(gen)}`);
+    const o = await cactusRun(true);
+    assert(o.side.hp <= 18 && o.top.hp <= 18 && o.fall.hp <= 19 && o.below.hp <= 19 && o.edge.hp === 20 && o.item.gone, `an old Missions save: ${JSON.stringify(o)}`);
+  } finally {
+    await v(async (g, was) => (await import("./js/worldtype.js")).setWorldType("missions", { gen: was }), gen.was);
+  }
 });
 
 await check("flares: a salvo of 6, one every 0.1 s, left and right in turn; missiles still go for them", async () => {

@@ -765,7 +765,8 @@ await test("mining: tool tiers gate drops and speed up breaking", () => {
   assert.deepEqual(blockDrops(BLOCK.GRASS, null), [[BLOCK.DIRT, 1]]);
   assert.deepEqual(blockDrops(BLOCK.COAL_ORE, woodPick), [[ITEM.COAL, 1]]);
   assert.deepEqual(blockDrops(BLOCK.GLASS, null), []);
-  assert.deepEqual(blockDrops(BLOCK.LEAVES, null, () => 0.01), [[ITEM.APPLE, 1]]);
+  // (Round 13: vanilla's leaf drops in both world types: a sapling now and then, sticks, an apple)
+  assert.ok(blockDrops(BLOCK.LEAVES, null, () => 0.01).length > 0, "leaves drop vanilla's things");
 });
 
 await test("inventory add/merge/overflow and tool durability", () => {
@@ -842,7 +843,12 @@ await test("armor (Round 5): 4 slots, worn on pickup, reduces damage 4% a point 
     assert.equal(Inventory.armorSlotOf(id), slot);
     ids.push(id);
     assert.equal(inv.add(id, 1), 0);
-    assert.equal(inv.armor[slot]?.id, id, "picked up into its free slot, worn at once");
+    // (Round 13: as vanilla in both world types, a piece picked up goes into the inventory; put on from there)
+    assert.equal(inv.armor[slot], null, "picked up into the inventory, not worn");
+    const k = inv.slots.findIndex((s) => s?.id === id);
+    inv.armor[slot] = inv.slots[k];
+    inv.slots[k] = null;
+    assert.equal(inv.armor[slot]?.id, id, "worn");
   }
   assert.ok(inv.armorPoints() > 0 && inv.armorReduction() <= 0.8);
   const before = inv.armor[1].dur;
@@ -1136,7 +1142,7 @@ console.log("\nDistant terrain (lod-mesher.js)");
 
 console.log("\nFlowing water (watersim.js)");
 {
-  const { WaterSim, MAX_FLOW_DISTANCE } = await import("../js/watersim.js");
+  const { WaterSim, MAX_FLOW_DISTANCE, VANILLA_FLOW_DISTANCE } = await import("../js/watersim.js");
   const { BLOCK } = await import("../js/blocks.js");
 
   // A minimal stand-in for World: a sparse block map plus the same
@@ -1212,8 +1218,9 @@ console.log("\nFlowing water (watersim.js)");
     const sim = new WaterSim(w);
     sim.active.add(sim._key(0, 11, 0)); // wake it manually: it was placed before the sim existed
     drain(sim);
-    for (let x = 1; x <= MAX_FLOW_DISTANCE; x++) assert.equal(w.getBlock(x, 11, 0), BLOCK.WATER, `should have reached x=${x}`);
-    assert.equal(w.getBlock(MAX_FLOW_DISTANCE + 1, 11, 0), BLOCK.AIR, "flow should stop at its maximum distance");
+    // (Round 13: vanilla's reach in both world types)
+    for (let x = 1; x <= VANILLA_FLOW_DISTANCE; x++) assert.equal(w.getBlock(x, 11, 0), BLOCK.WATER, `should have reached x=${x}`);
+    assert.equal(w.getBlock(VANILLA_FLOW_DISTANCE + 1, 11, 0), BLOCK.AIR, "flow should stop at its maximum distance");
   });
 
   await test("a flow dries up once its source is removed", () => {
@@ -1554,7 +1561,7 @@ console.log("\nProgression (progression.js)");
     assert.deepEqual(MISSIONS.slice(0, 28).map((m) => m.id), CLASSIC_IDS, "the classic missions keep their places in the list");
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 34, "the classic 28 and Round 10's six");
+    assert.equal(MISSIONS.length, 39, "the classic 28, Round 10's six and Round 13's five (the ground war)");
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1775,7 +1782,7 @@ console.log("\nProgression (progression.js)");
     const known = new Set(STAT_LABELS.map(([k]) => k));
     const NEW = ["evac", "hunted", "crash_site", "hold_line", "rescue", "sabotage"];
     const byId = new Map(MISSIONS.map((m) => [m.id, m]));
-    const EVENTS = new Set(["skeleton", "landing", "scout", "crew", "crate", "night", "intact", "hunt", "squad", "takeoff", "landjet", "dogfight", "fighter", "airraid", "abduct", "giant", "swarm", "fortress", "village", "large", "meteors", "boss", "airport", "steal", "hunters", "hold", "crashsite", "evac", "rescue", "beacons"]);
+    const EVENTS = new Set(["skeleton", "landing", "scout", "crew", "crate", "night", "intact", "hunt", "squad", "takeoff", "landjet", "dogfight", "fighter", "airraid", "abduct", "giant", "swarm", "fortress", "village", "large", "meteors", "boss", "airport", "steal", "hunters", "hold", "crashsite", "evac", "rescue", "beacons", "tanks", "launch", "convoy", "aasites", "baseassault"]); // (Round 13: the ground war's)
     for (const m of MISSIONS) {
       assert.ok(m.objectives.length >= 1, `${m.id} has objectives`);
       for (const o of m.objectives) {
@@ -1851,8 +1858,8 @@ console.log("\nProgression (progression.js)");
     const crateSet = new Set(CRATE_WEAPONS.map(([id]) => id));
     const alienSet = new Set(ALIEN_WEAPONS.map(([id]) => id));
     const isWeapon = (id) => crateSet.has(id) || alienSet.has(id) || id === ITEM.BOW;
-    // Skeletons: the bow (once).
-    assert.deepEqual(rollLoot("skeleton", null, 0, new Set(), rand), [[ITEM.BOW, 1]]);
+    // Skeletons: the bow (once), with arrows for it (Round 13: the bow takes arrows).
+    assert.deepEqual(rollLoot("skeleton", null, 0, new Set(), rand), [[ITEM.BOW, 1], [373, 16]]);
     assert.deepEqual(rollLoot("skeleton", null, 0, new Set([ITEM.BOW]), rand), []);
     // Wrecks and fighters: never a weapon.
     for (let i = 0; i < 300; i++) {

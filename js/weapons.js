@@ -22,7 +22,7 @@ import { LASER_COLORS } from "./lasers.js";
 import { LAYER_FX } from "./layers.js";
 import { WEAPON_STATS } from "./weapon-stats.js";
 import { WORLD_HEIGHT } from "./constants.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { ARROW } from "./content/ids.js";
 import { enchLevel } from "./enchant.js";
 import { Fishing } from "./fishing.js";
@@ -1192,9 +1192,9 @@ export class WeaponSystem {
 
   // ---------- Bow ----------
 
-  // Whether the bow uses up arrows: a Survival world, out of Creative.
+  // Whether the bow uses up arrows: out of Creative (Round 13: in both world types).
   _needsArrows() {
-    return isVanilla() && !this.player.creative && !!this.inventory;
+    return vanillaRules() && !this.player.creative && !!this.inventory;
   }
 
   // Takes one arrow from the inventory (the first stack); false if none.

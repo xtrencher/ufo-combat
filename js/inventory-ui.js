@@ -7,11 +7,11 @@
 // above the inventory, with the same clicks (shift-click moves between the
 // chest and the inventory). Its clicks go through js/chests.js, which online
 // asks the host first: until it answers, the screen takes no more clicks.
-// (Round 11) In a Survival world the inventory has vanilla's 2x2 crafting
+// (Round 11) The inventory has vanilla's 2x2 crafting
 // grid and its result (not in Creative, as in vanilla), and the crafting
 // table's screen ("table") the 3x3 one; the recipes are js/crafting.js's.
 // What is left in a grid goes back into the inventory when the screen closes.
-// A Missions world keeps its loot economy: no grid. The furnace's screen
+// (Round 13: in both world types; a Missions world had no grid.) The furnace's screen
 // ("furnace": input, fuel, output, the flame and the arrow) works like the
 // chest's, through js/furnace.js (online: the host's).
 // (Round 11, magic) The enchanting table ("enchanting": the item, the lapis,
@@ -42,7 +42,7 @@ import { BARREL, GRINDSTONE, STONECUTTER, ENCHANTED_BOOK, BOOK } from "./content
 import { sameStack } from "./inventory.js";
 import { craftResult, gridIds, consumeGrid, isFuel } from "./crafting.js";
 import { FURNACE_SLOTS, furnaceAccepts } from "./furnace.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { tableOffers, applyOffer, countBookshelves, enchantSeed, nextEnchantSeed, anvilResult, enchantName } from "./enchant.js";
 import { BREWING_SLOTS, BREW_TICKS, BREWING_FUEL, brewingAccepts, isBottle, isIngredient, isBrewingFuel } from "./brewing.js";
 import { spendLevels } from "./xp.js";
@@ -114,20 +114,23 @@ function injectCraftCss() {
 }
 
 // Creative palette tabs: name -> predicate on the item id (null: the search
-// box's). A Survival world has vanilla's Combat tab in Weapons' place (the
-// swords, the bow, the arrows, the shield and the armor) and no Armor tab.
+// box's). Vanilla's Combat tab in Weapons' place (the swords, the bow, the
+// arrows, the shield, the armor and, with Mods on, the mod weapons) and no
+// Armor tab (Round 13: in both world types; the Missions worlds' Weapons and
+// Armor tabs were before).
 const WEAPON_SET = new Set(ALL_WEAPONS);
 const COMBAT = (id) => {
   const info = itemInfo(id);
   return WEAPON_SET.has(id) || !!info?.weapon || !!info?.armor || !!info?.shield || info?.tool?.type === "sword" || id === ARROW;
 };
-const notCombat = (id) => !isVanilla() || !COMBAT(id);
+const notCombat = (id) => !vanillaRules() || !COMBAT(id);
 const TABS = [
-  ["Weapons", (id) => (isVanilla() ? COMBAT(id) : WEAPON_SET.has(id) || !!itemInfo(id)?.weapon)],
+  ["Weapons", (id) => (vanillaRules() ? COMBAT(id) : WEAPON_SET.has(id) || !!itemInfo(id)?.weapon)],
   ["Blocks", (id) => itemInfo(id)?.block !== undefined && !WEAPON_SET.has(id)],
   ["Tools", (id) => !!itemInfo(id)?.tool && !itemInfo(id)?.weapon && notCombat(id)],
-  ["Armor", (id) => !isVanilla() && !!itemInfo(id)?.armor],
-  ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !itemInfo(id)?.armor && !WEAPON_SET.has(id) && notCombat(id)],
+  ["Armor", (id) => !vanillaRules() && !!itemInfo(id)?.armor],
+  ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !itemInfo(id)?.armor && !itemInfo(id)?.vehicle && !WEAPON_SET.has(id) && notCombat(id)],
+  ["Vehicles", (id) => !!itemInfo(id)?.vehicle], // (Round 13: Creative's aircraft, js/content/vehicles.js)
   ["Search", null],
 ];
 
@@ -390,7 +393,7 @@ export class InventoryScreen {
       this._bindSlot(v.el, { area: "armor", index: i });
       return v;
     });
-    // (A Survival world: vanilla's off hand next to them, any item; F swaps
+    // (Vanilla's off hand next to them, any item; F swaps
     // the hovered slot with it.)
     this.offhandView = new SlotView(icons);
     this.offhandView.el.title = "Off hand";
@@ -456,7 +459,7 @@ export class InventoryScreen {
   // kind: "inventory", "chest" (the chest at chestPos, above the inventory),
   // "table" (the crafting table at screenPos: the 3x3 grid) or "furnace" (the
   // furnace at screenPos). In creative the item palette shows (on the
-  // inventory only); in a Survival world's survival the inventory has the
+  // inventory only); in survival the inventory has the
   // 2x2 grid. (Opened again while open, e.g. the mode switched: a grid that
   // stays keeps what is in it.)
   open(kind, creative) {
@@ -473,7 +476,7 @@ export class InventoryScreen {
     if (((this.kind === "grindstone" || this.kind === "stonecutter") && !this.screenPos) || (this.kind === "chest" && !chest) || (this.kind === "box" && !box) || (this.kind === "table" && !table) || (this.kind === "furnace" && !furnace) || (this.kind === "enchanting" && !enchanting) || (this.kind === "anvil" && !anvil) || (this.kind === "brewing" && !brewing)) this.kind = "inventory";
     this.creative = creative;
     const palette = creative && this.kind === "inventory";
-    const width = table ? 3 : this.kind === "inventory" && !creative && isVanilla() ? 2 : 0;
+    const width = table ? 3 : this.kind === "inventory" && !creative && vanillaRules() ? 2 : 0;
     if (width !== this.gridWidth) {
       this._returnGrid();
       this.gridWidth = width;
@@ -482,9 +485,8 @@ export class InventoryScreen {
     }
     this.tabsEl.classList.toggle("hidden", !palette);
     this.paletteEl.classList.toggle("hidden", !palette);
-    // (The tabs of this world's type; a new type opens on its first useful tab:
-    // a Survival world's Blocks, as vanilla.)
-    const vanilla = isVanilla();
+    // (The vanilla tabs; they open on Blocks, as vanilla.)
+    const vanilla = vanillaRules();
     if (this._tabsVanilla !== vanilla) {
       this._tabsVanilla = vanilla;
       this.tabBtns[0].textContent = vanilla ? "Combat" : "Weapons";
@@ -493,7 +495,7 @@ export class InventoryScreen {
     }
     this.chestEl.classList.toggle("hidden", !chest && !box);
     this.armorRow.classList.toggle("hidden", this.kind !== "inventory");
-    this.offhandView.el.classList.toggle("hidden", !isVanilla());
+    this.offhandView.el.classList.toggle("hidden", !vanillaRules());
     this.craftBox.classList.toggle("hidden", !width);
     this.craftBox.classList.toggle("wide", width === 3);
     this.craftLabel.classList.toggle("hidden", width === 3);
@@ -798,14 +800,14 @@ export class InventoryScreen {
     } else if (ref.area === "inv") {
       const st = inv.slots[ref.index];
       const slot = st && !this.cursor ? Inventory.armorSlotOf(st.id) : -1;
-      if (shift && !this.cursor && st?.id === SHIELD && isVanilla() && !inv.offhand) {
+      if (shift && !this.cursor && st?.id === SHIELD && vanillaRules() && !inv.offhand) {
         // Shift-click a shield: into the free off hand (vanilla).
         inv.offhand = st;
         inv.slots[ref.index] = null;
-      } else if (shift && slot >= 0 && (!isVanilla() || !inv.armor[slot])) {
-        // Shift-click armor: onto the body (a Missions world swaps places with
-        // what is worn; a Survival world only into a free slot, else it moves
-        // like any item, as vanilla).
+      } else if (shift && slot >= 0 && (!vanillaRules() || !inv.armor[slot])) {
+        // Shift-click armor: onto the body, only into a free slot, else it
+        // moves like any item, as vanilla (before Round 13 a Missions world's
+        // swapped places with what is worn).
         inv.slots[ref.index] = inv.armor[slot];
         inv.armor[slot] = st;
       } else if (shift && !this.cursor) sound = quickMove(inv, ref.index);
@@ -954,10 +956,9 @@ export class InventoryScreen {
     if (!v) return false;
     const before = v.slots[i] ? { ...v.slots[i] } : null;
     if (shift) {
-      // Into the inventory, as much as fits (a Survival world: the hotbar's
-      // right end first, as vanilla; a Missions world: the hotbar from the left).
+      // Into the inventory, as much as fits (the hotbar's right end first, as vanilla).
       if (!before || this.cursor) return false;
-      const order = isVanilla() ? ORDER_RESULT : null;
+      const order = vanillaRules() ? ORDER_RESULT : null;
       const moving = { ...before };
       if (order) addInOrder(copySlots(this.inventory.slots), moving, order);
       else addToRange(copySlots(this.inventory.slots), moving, 0, INVENTORY_SIZE);
@@ -1592,7 +1593,7 @@ export class InventoryScreen {
       this._changed();
       return true;
     }
-    if (code === "KeyF" && isVanilla() && this.hover && this.hover.area === "inv") {
+    if (code === "KeyF" && vanillaRules() && this.hover && this.hover.area === "inv") {
       // (Vanilla's F: the hovered slot swaps with the off hand.)
       const i = this.hover.index;
       const slots = this.inventory.slots;

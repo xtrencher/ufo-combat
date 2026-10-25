@@ -2,8 +2,9 @@
 // desert temples and desert wells, as vanilla's, deterministic from the seed
 // like the villages (pure logic, no three.js: the chunk workers and the
 // distant terrain's edited chunks run it through terrain.js, so every
-// generator agrees). A Missions world has none (terrain.js only calls this
-// for a vanilla terrain).
+// generator agrees). Only on the vanilla terrain (terrain.js): a Survival
+// world's and (Round 13) a new Missions world's, where the surface ones keep
+// off its airports and cities (_onSite); an old Missions world has none.
 // - Dungeons (vanilla's monster room): eight tries a chunk, kept inside their
 //   chunk; a room is built only where its floor and ceiling are solid and a
 //   cave opens into it 1-5 times. Mossy cobblestone floor, cobblestone walls,
@@ -122,6 +123,22 @@ export class StructureGrower {
     this._jungleTemples = new Map(); // "rx,rz" -> jungle temple or null
     this.ruined = new RuinedPortals(terrain); // (Round 12: js/nether-structures.js)
     this.strongholds = new StrongholdGrower(terrain); // (Round 12: js/stronghold.js)
+    // (Round 13) A Missions world's vanilla terrain: no ruined portal on an
+    // airport or in a city (its plans are filtered, so its chest goes too).
+    if (terrain.sites && !terrain.sites.off) {
+      const planOf = this.ruined.planOf.bind(this.ruined);
+      this.ruined.planOf = (rx, rz) => {
+        const p = planOf(rx, rz);
+        return p && this._onSite(p.x, p.z, 16) ? null : p;
+      };
+    }
+  }
+
+  // (Round 13) Whether (x, z) is within `m` of an airport's or a city's
+  // levelled ground and its slopes (sites.js; never in a Survival world).
+  _onSite(x, z, m) {
+    const sites = this.terrain.sites;
+    return !!sites && !sites.off && sites.covers(x, z, m + 30);
   }
 
   // ---------- In a chunk (terrain.js) ----------
@@ -384,7 +401,7 @@ export class StructureGrower {
       const lo = Math.min(...hs);
       const hi = Math.max(...hs);
       // (on fairly level, dry sand, never in a village)
-      if (hi - lo <= 4 && lo > SEA_LEVEL + 1 && lo - TEMPLE_DEPTH > 3 && lo + TEMPLE_HEIGHT < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + mid, z0 + mid, tr.villages.reach + 20)) {
+      if (hi - lo <= 4 && lo > SEA_LEVEL + 1 && lo - TEMPLE_DEPTH > 3 && lo + TEMPLE_HEIGHT < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + mid, z0 + mid, tr.villages.reach + 20) && !this._onSite(x0 + mid, z0 + mid, TEMPLE_SIZE)) {
         t = { x0, z0, floor: lo, rot, chests: [] };
         for (const [u, v, f] of TEMPLE_CHESTS) {
           const [x, z] = templeWorld(t, u, v);
@@ -464,7 +481,7 @@ export class StructureGrower {
       const hi = Math.max(...hs);
       const floor = hs.slice().sort((a, b) => a - b)[2];
       // (never where a village's streets run out into the jungle)
-      if (hi - lo <= 6 && lo > SEA_LEVEL && floor + JT_LOW > LAVA_TOP + 2 && floor + JT_TOP < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + (w >> 1), z0 + (d >> 1), tr.villages.reach + 20)) {
+      if (hi - lo <= 6 && lo > SEA_LEVEL && floor + JT_LOW > LAVA_TOP + 2 && floor + JT_TOP < WORLD_HEIGHT && !tr.villages.nearestVillage(x0 + (w >> 1), z0 + (d >> 1), tr.villages.reach + 20) && !this._onSite(x0 + (w >> 1), z0 + (d >> 1), JT_D)) {
         t = { x0, z0, w, d, floor, rot, chests: [], cells: null };
         for (const [u, v, f] of JT_CHESTS) {
           const [x, z] = jungleWorld(t, u, v);
@@ -539,7 +556,7 @@ export class StructureGrower {
     // (Round 12) never in a village or a temple
     const wx = cx * S + lx;
     const wz = cz * S + lz;
-    if (this.terrain.villages.nearestVillage(wx, wz, this.terrain.villages.reach + 4) || this._templesNear(wx - 3, wz - 3, wx + 3, wz + 3).length) return;
+    if (this.terrain.villages.nearestVillage(wx, wz, this.terrain.villages.reach + 4) || this._templesNear(wx - 3, wz - 3, wx + 3, wz + 3).length || this._onSite(wx, wz, 4)) return;
     for (let dx = -2; dx <= 2; dx++) {
       for (let dz = -2; dz <= 2; dz++) if (!IS_SOLID[blocks[idx(lx + dx, y - 1, lz + dz)]] && !IS_SOLID[blocks[idx(lx + dx, y - 2, lz + dz)]]) return;
     }

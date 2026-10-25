@@ -26,6 +26,7 @@ export const AUDIO_CATEGORIES = [
   ["creatures", "Creatures"],
   ["player", "Player (hurt, splash)"],
   ["ui", "Menus and pickups"],
+  ["voice", "Pilot voice"],
 ];
 
 // Tabs of the settings screen, in order. `page` is the tab's data-page
@@ -74,7 +75,7 @@ export const SCHEMA = [
 
   // ----- Controls -----
   { key: "fov", id: "fov", group: "controls", type: "range", label: "Field of view", min: 50, max: 110, step: 1, def: 75, fmt: int, static: true },
-  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 0.6, fmt: (v) => `${v.toFixed(2)}x`, static: true },
+  { key: "sensitivity", id: "sensitivity", group: "controls", type: "range", label: "Mouse sensitivity", min: 0.1, max: 4, step: 0.05, def: 0.5, fmt: (v) => `${v.toFixed(2)}x`, static: true },
   { key: "invertY", id: "invert-y", group: "controls", type: "checkbox", label: "Invert mouse Y", def: false, static: true },
   { key: "binocularZoom", group: "controls", type: "range", label: "Binocular zoom (hold both mouse buttons)", min: 2, max: 12, step: 0.5, def: 6, fmt: times },
 
@@ -125,6 +126,8 @@ export const SCHEMA = [
   { key: "vehicles.jetAssist", group: "vehicles", type: "checkbox", label: "Flight assist (the jet flies toward the crosshair)", def: true, sub: "Fighter jet", hint: "Off: the mouse is the stick (up/down pitch, left/right roll), for experienced pilots." },
   { key: "vehicles.jetMaxSpeed", creativeOnly: true, group: "vehicles", type: "range", label: "Jet top speed (afterburner)", min: 80, max: 700, step: 10, def: 300, fmt: (v) => `${Math.round(v * 3.6)} km/h`, hint: "The afterburner top speed (100% throttle alone gives about 88% of it). The default is about 1080 km/h.", note: (v) => (v > 480 ? "This fast, the world can't always load in time: you'll outrun the terrain." : "") },
   { key: "vehicles.jetAimAssist", creativeOnly: true, group: "vehicles", type: "checkbox", label: "Cannon aim assist (pulls shots toward a target near the nose)", def: true },
+  { key: "vehicles.jetAutoAim", group: "vehicles", type: "checkbox", label: "Auto aim (missiles): keep a target in the seeker circle ~2 s to lock it", def: true },
+  { key: "vehicles.voiceCallouts", group: "vehicles", type: "checkbox", label: "Pilot voice callouts (\"Splash one!\", \"UFO destroyed!\")", def: true },
   { key: "vehicles.enemyJets", creativeOnly: true, group: "vehicles", type: "range", label: "Patrol fighters at once", min: 0, max: 3, step: 1, def: 1, fmt: int, hint: "Fighters that hunt UFOs and leave you alone, unless you attack one of them: that one hunts you with missiles and guns. (Survival: from mission 10, 'Take to the air'.)" },
   { key: "vehicles.jetAccel", creativeOnly: true, group: "vehicles", type: "range", label: "Jet acceleration (thrust)", min: 0.5, max: 2.5, step: 0.1, def: 1, fmt: times },
   { key: "vehicles.jetTurn", creativeOnly: true, group: "vehicles", type: "range", label: "Jet turn rate", min: 0.5, max: 2, step: 0.1, def: 1, fmt: times },
@@ -171,7 +174,7 @@ export function validValue(e, raw) {
 // The settings object's format version (the `v` field). Older saves (no
 // version) are read and upgraded; unknown or broken values fall back to
 // their defaults.
-export const SETTINGS_VERSION = 6;
+export const SETTINGS_VERSION = 7;
 
 export const DEFAULT_SETTINGS = {
   v: SETTINGS_VERSION,
@@ -184,7 +187,7 @@ export const DEFAULT_SETTINGS = {
   // (Round 12) Automatic graphics (js/autotune.js): on for a new install,
   // off for good once the player picks their own; `level` is where it settled.
   autoGraphics: { on: true, level: 0 },
-  volume: { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
+  volume: { master: 0.15, voice: 1, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1 },
   mods: true,
   fullscreen: false, // (Round 12: play fullscreen, applied on the next click into the game: fullscreen.js)
 };
@@ -248,6 +251,13 @@ export function normalizeSettings(raw, opts = {}) {
   // Round 5 made the jets much faster: a top speed still at the old default
   // follows the new one, once.
   if ((!Number.isFinite(s.v) || s.v < 5) && out.vehicles.jetMaxSpeed === 160) out.vehicles.jetMaxSpeed = 300;
+  // (Round 13) The mouse at 0.5 and the master volume at 15% by default: a
+  // value still at the old default (0.6, 30%) follows the new one, once.
+  if (!Number.isFinite(s.v) || s.v < 7) {
+    for (const g of Object.keys(out)) if (out[g] && typeof out[g] === "object" && out[g].sensitivity === 0.6) out[g].sensitivity = 0.5;
+    if (out.sensitivity === 0.6) out.sensitivity = 0.5;
+    if (out.volume.master === 0.3) out.volume.master = 0.15;
+  }
   return out;
 }
 

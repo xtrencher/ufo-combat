@@ -4,7 +4,7 @@
 //
 // A new Survival game starts with basic gear (a stone sword, a stone pickaxe,
 // apples). Weapons come from four places, each in its own lane:
-//   - skeletons: the bow;
+//   - skeletons: the bow (Round 13: with a quiver of 16 arrows);
 //   - supply crates: standard weapons (pistol, grenades, machine gun,
 //     sniper rifle, bazooka, airstrike designator), by tier;
 //   - aliens: alien weapons, weakest to strongest (laser blaster, laser
@@ -12,6 +12,8 @@
 //   - missions: apples and golden apples only (no weapons).
 // UFO wrecks and patrol fighters drop food, golden apples and tools.
 import { ITEM, armorId } from "./items.js";
+import { ARROW } from "./content/ids.js";
+import { STAT_LABELS } from "./stats.js";
 
 // ---------- Weapons by source and tier ----------
 
@@ -53,7 +55,7 @@ export const MAX_TIER = 5;
 
 // ---------- Missions ----------
 //
-// The missions (thirty-four so far). They start on foot with a sword: a
+// The missions (thirty-nine so far). They start on foot with a sword: a
 // skeleton (its bow), a UFO that lands and lets its crew out (they give you
 // a moment before they attack), the first supply crate (a pistol), a first
 // scout to shoot down and its crew, a run for cover under a bombardment;
@@ -490,12 +492,80 @@ export const MISSIONS = [
     tier: 4,
     rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
   },
+  // ---------- (Round 13) The ground war: tanks, AA, missile launchers ----------
+  {
+    id: "tank_battle",
+    title: "Tank battle",
+    text: "The aliens have hijacked a platoon of tanks, and it is rolling this way. One of ours stands ready for you (marked): get in (F) and knock the enemy tanks out. Left click fires the main gun (mind the reload), right click the machine gun, V the gunner's sight, C a smoke screen. Keep moving: their turrets are slow to come round, and their aim settles a moment before they fire.",
+    objectives: [{ stat: "tanksDown", goal: 3, goals: [3, 3, 4, 2], label: "Enemy tanks destroyed", scale: "group" }],
+    event: "tanks",
+    act: [2, 3], after: ["patrol"], // (always in a run: the tanks' own mission)
+    twists: { 1: "A heavy Tiger leads them.", 2: "An AA vehicle rolls with them: mind the sky if you fly.", 3: "Only two of them, but both are heavy Tigers." },
+    tier: 3,
+    rules: R({ small: 3, medium: 2 }, 0.8, 0.75, 0.75, 1, 0.012, GREEN_GRAY),
+    sky: { max: 1, rate: 0.01 }, // (a quiet sky: the fight is on the ground)
+  },
+  {
+    id: "stop_launch",
+    title: "Stop the launch",
+    text: "The aliens have taken a battery of ballistic missile launchers (marked, a long way off) and are fuelling their missiles to fire at our airport. Destroy the launchers before they fire: once a launcher's missile is upright you have seconds. A jet gets you there fast. A missile that gets away comes down hard on the airport: keep clear of the red ring.",
+    objectives: [{ stat: "telsDown", goal: 2, goals: [2, 2, 3, 2], label: "Missile launchers destroyed" }],
+    event: "launch",
+    act: [3, 4], after: ["wings"], optional: true,
+    twists: { 1: "An AA vehicle guards them.", 2: "They are spread far apart.", 3: "Their first countdown is short: hurry!" },
+    tier: 4,
+    rules: R({ small: 2.5, medium: 4, large: 2, mothership: 0.15 }, 1, 1, 1, 3, 0.035, ALL_CREWS),
+  },
+  {
+    id: "convoy",
+    title: "Convoy",
+    text: "A convoy of hijacked tanks and missile trucks (marked) is on its way to the aliens' lines. Destroy it from the air before it gets there: missiles, the cannon, bombs. Its AA vehicle shoots back with flak and SAMs: flares (C) and hard turns.",
+    objectives: [{ stat: "convoyDown", goal: 4, goals: [4, 5, 4, 3], label: "Convoy vehicles destroyed", scale: "group" }],
+    event: "convoy",
+    act: 3, after: ["wings"], optional: true,
+    twists: { 1: "It's a long convoy.", 2: "Two AA vehicles escort it." },
+    tier: 3,
+    rules: R({ small: 3, medium: 4, large: 1 }, 0.9, 0.85, 0.85, 3, 0.03, GREEN_GRAY),
+  },
+  {
+    id: "air_defense",
+    title: "Air defense",
+    text: "The aliens have set up AA vehicles (marked) round here to keep our jets out of the sky. Take them out: from the air (they fire tracer flak and SAMs: flares, C, and hard turns fool them) or by sneaking up on the ground.",
+    objectives: [{ stat: "aaDown", goal: 3, goals: [3, 4, 3, 2], label: "AA vehicles destroyed", scale: "group" }],
+    event: "aasites",
+    act: [3, 4], after: ["wings"], optional: true,
+    twists: { 1: "More of them, closer together.", 2: "A tank guards each one.", 3: "Two big sites, far apart." },
+    tier: 4,
+    rules: R({ small: 3, medium: 4, large: 1.2, mothership: 0.05 }, 0.9, 0.9, 0.9, 3, 0.03, GREEN_GRAY_BLUE),
+  },
+  {
+    id: "base_assault",
+    title: "Base assault",
+    text: "The aliens hold one of our military bases (marked): tanks, AA vehicles and missile launchers behind its walls, and squads in its yards. Take it back: destroy six of its defenders. A tank of ours waits outside the gate; the sky is yours if you can dodge the SAMs.",
+    objectives: [{ stat: "baseDefensesDown", goal: 6, goals: [6, 7, 6, 5], label: "Base defenders destroyed" }],
+    event: "baseassault",
+    act: 4, after: ["tank_battle"], optional: true, bonus: 2,
+    twists: { 1: "Its launchers are fuelling a missile at you.", 2: "Red brutes hold the yard.", 3: "Heavy Tigers guard the gate." },
+    tier: 5,
+    rules: R(LATE, 1.12, 1.12, 1.25, 4, 0.04, ALL_CREWS),
+  },
 ];
 
 // After the last mission (free play): a busy sky, a little calmer than the finale's.
 const POSTGAME_RULES = R(LATE, 1.15, 1.15, 1.3, 6, 0.055, ALL_CREWS);
 
 const BY_ID = new Map(MISSIONS.map((m) => [m.id, m]));
+
+// (Round 13) The ground war's counts (stats.js keeps every stat listed there).
+const GROUND_STATS = [
+  ["tanksDown", "Enemy tanks destroyed"],
+  ["aaDown", "Enemy AA vehicles destroyed"],
+  ["telsDown", "Missile launchers destroyed"],
+  ["groundDown", "Enemy ground vehicles destroyed"],
+  ["convoyDown", "Convoy vehicles destroyed (mission)"],
+  ["baseDefensesDown", "Base defenders destroyed (mission)"],
+];
+for (const e of GROUND_STATS) if (!STAT_LABELS.some(([k]) => k === e[0])) STAT_LABELS.push(e);
 export const missionById = (id) => BY_ID.get(id) || null;
 
 // The classic chain (Round 9's order; saves from before Round 10 keep it, and
@@ -1011,8 +1081,13 @@ export function rollLoot(kind, detail, tier, owned, rand = Math.random) {
   const food = () => (rand() < 0.5 ? ITEM.COOKED_MEAT : ITEM.APPLE);
   switch (kind) {
     case "skeleton": {
-      // Its bow, if you don't have one yet.
-      if (!have.has(ITEM.BOW)) add(ITEM.BOW, 1);
+      // Its bow, if you don't have one yet, (Round 13) with arrows for it: the
+      // bow takes arrows now, as vanilla's, and the opening's next mission (the
+      // landing party) is fought with it.
+      if (!have.has(ITEM.BOW)) {
+        add(ITEM.BOW, 1);
+        add(ARROW, 16);
+      }
       break;
     }
     case "alien": {

@@ -103,19 +103,33 @@ export class FallingBlocks {
     const clear = [];
     const place = [];
     const broken = [];
+    // (Two loose runs in one column, an air gap between them, settle in the
+    // same batch: the upper one lands on where the lower one ends up, not on
+    // where it was. So the lowest first, and the batch's own moves are seen.)
+    const moved = new Map(); // "x,y,z" -> the id there after this batch
+    const at = (x, y, z) => {
+      const m = moved.get(`${x},${y},${z}`);
+      return m !== undefined ? m : w.getBlock(x, y, z);
+    };
+    columns.sort((a, b) => a[1] - b[1]);
     for (const [x, y, z, ids] of columns) {
       let floor = y - 1;
-      while (floor >= 0 && !IS_SOLID[w.getBlock(x, floor, z)]) floor--;
+      while (floor >= 0 && !IS_SOLID[at(x, floor, z)]) floor--;
       const land = floor + 1;
       if (land === y) continue;
-      for (let k = 0; k < ids.length; k++) clear.push(x, y + k, z, BLOCK.AIR);
+      for (let k = 0; k < ids.length; k++) {
+        clear.push(x, y + k, z, BLOCK.AIR);
+        moved.set(`${x},${y + k},${z}`, BLOCK.AIR);
+      }
       for (let k = 0; k < ids.length; k++) {
         const t = land + k;
         // (The column's own cells are cleared first. A torch or flower in the
         // way stays and the rest of the column breaks on it, as in _land.)
-        const here = t >= y ? BLOCK.AIR : w.getBlock(x, t, z);
-        if (here === BLOCK.AIR || IS_REPLACEABLE[here]) place.push(x, t, z, ids[k]);
-        else {
+        const here = t >= y ? BLOCK.AIR : at(x, t, z);
+        if (here === BLOCK.AIR || IS_REPLACEABLE[here]) {
+          place.push(x, t, z, ids[k]);
+          moved.set(`${x},${t},${z}`, ids[k]);
+        } else {
           for (let r = k; r < ids.length; r++) broken.push([x, t, z, ids[r]]);
           break;
         }

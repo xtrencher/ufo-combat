@@ -340,6 +340,29 @@ export function savePlayer(seed, data) {
   }
 }
 
+// (Round 13) A world's own small record, written once, with its first save:
+// { type, gen } (its world type and terrain generator, worldtype.js). The
+// player save has them too, but a world whose player save failed (storage
+// full) while its edits were saved would otherwise reload as an old save.
+export function worldRecordKey(seed) {
+  return `${PREFIX}world_${seed}`;
+}
+
+export function loadWorldRecord(seed) {
+  try {
+    const raw = localStorage.getItem(worldRecordKey(seed));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" && Number.isFinite(data.gen) ? data : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+export function saveWorldRecord(seed, { type, gen }) {
+  return trySet(worldRecordKey(seed), JSON.stringify({ type, gen }));
+}
+
 // Small JSON records outside any one world: the last world played (so the
 // main menu can offer to continue it), and the all-time stats.
 export function loadJSON(name, fallback = null) {
@@ -365,6 +388,21 @@ export function saveJSON(name, data) {
 export function hasSavedWorld(seed) {
   try {
     return localStorage.getItem(playerKey(seed)) !== null;
+  } catch (err) {
+    return false;
+  }
+}
+
+// (Round 13) Whether the world has saved block edits (in any dimension):
+// main.js takes a Missions world with edits but no saved player (a save
+// from before the player record had its terrain version, "gen") for an old
+// one, so its builds keep their landscape (worldtype.js terrainGenOf).
+export function hasSavedEdits(seed) {
+  try {
+    if (localStorage.getItem(editsKey(seed)) !== null) return true;
+    const head = `${PREFIX}edits_${seed}_`;
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(head)) return true;
+    return false;
   } catch (err) {
     return false;
   }

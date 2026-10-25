@@ -21,7 +21,7 @@
 // other work blocks are ./workstations.js's.
 import { BLOCK, FACE, LIB } from "./base.js";
 import { FURNACE, ENCHANTING_TABLE, ANVIL, BREWING_STAND, CAULDRON, BARREL, BUCKET, WATER_BUCKET, GLASS_BOTTLE, POTION, BLAZE_ROD, BLACKSTONE } from "./ids.js";
-import { isVanilla } from "../worldtype.js";
+import { vanillaRules } from "../worldtype.js";
 
 // (Round 11) The anvil's worn states (4 facings each, after the barrel).
 export const CHIPPED_ANVIL = 1811;
@@ -466,8 +466,8 @@ function useCauldron(ctx) {
 }
 
 export const blockUse = {
-  // (Missions worlds keep their loot economy: the table does nothing new there.)
-  [BLOCK.CRAFTING_TABLE]: (ctx) => isVanilla() && openScreen(ctx, "table"),
+  // (Round 13: in both world types)
+  [BLOCK.CRAFTING_TABLE]: (ctx) => vanillaRules() && openScreen(ctx, "table"),
   [ENCHANTING_TABLE]: (ctx) => openScreen(ctx, "enchanting"),
   [BREWING_STAND]: (ctx) => openScreen(ctx, "brewing"),
 };

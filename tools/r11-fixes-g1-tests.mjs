@@ -2,20 +2,19 @@
 // stand-in DOM (no browser):
 //  - closing the screen (or a late container answer) gives the cursor's
 //    stack back with its tag (enchantments, name);
-//  - a Survival world doesn't put picked-up armor on (a Missions world does);
-//    shift-click armor goes on only into a free slot there (else it moves
-//    like any item); number keys over an armor slot swap with the hotbar;
+//  - picked-up armor isn't put on (Round 13: in a Missions world neither,
+//    one world's vanilla rules); shift-click armor goes on only into a free
+//    slot (else it moves like any item); number keys over an armor slot swap
+//    with the hotbar;
 //  - shift-click out of a chest, a brewing stand or the enchanting table
-//    fills from the hotbar's right end in a Survival world (a Missions
-//    world's chest: the hotbar from the left, as before);
+//    fills from the hotbar's right end (both world types, Round 13);
 //  - the off hand: saved after the armor (old saves: none), F over a slot
 //    swaps with it, a shift-clicked shield goes into it, the shield raised
 //    from it blocks; an axe's blow disables it for 5 s;
 //  - the enchanting seed can be set back (from a save);
-//  - a food's label: "heals N" in a Missions world, the name alone in a
-//    Survival world;
-//  - the Creative palette: a Survival world's Combat tab, Blocks first, a
-//    search box; a Missions world's tabs as before.
+//  - a food's label: the name alone (both world types, Round 13);
+//  - the Creative palette: the Combat tab, Blocks first, a search box (both
+//    world types, Round 13).
 //
 //   node r11-fixes-g1-tests.mjs
 import path from "node:path";
@@ -174,21 +173,21 @@ await check("a late container answer gives the cursor back with its tag", () => 
   assert(back && JSON.stringify(back.tag) === JSON.stringify(TAG) && back.dur === 50, JSON.stringify(back));
 });
 
-await check("picked-up armor: put on in a Missions world, into the inventory in a Survival world", () => {
-  WT.setWorldType("missions");
-  const a = new Inventory();
-  a.add(HELMET, 1);
-  assert(a.armor[0]?.id === HELMET && !a.slots[0], "Missions: worn at once");
-  WT.setWorldType("survival");
-  const b = new Inventory();
-  b.add(HELMET, 1);
-  assert(!b.armor[0] && b.slots[0]?.id === HELMET && !b.wouldWear(HELMET), "Survival: into the hotbar");
+// (Round 13: a Missions world has vanilla's rules: the armor goes into the inventory there too.)
+await check("picked-up armor goes into the inventory, in both world types", () => {
+  for (const type of ["missions", "survival"]) {
+    WT.setWorldType(type);
+    const b = new Inventory();
+    b.add(HELMET, 1);
+    assert(!b.armor[0] && b.slots[0]?.id === HELMET && !b.wouldWear(HELMET), `${type}: into the hotbar`);
+  }
 });
 
-await check("shift-click armor: Survival only into a free slot; Missions swaps; number keys over an armor slot", () => {
+await check("shift-click armor: only into a free slot (both world types); number keys over an armor slot", () => {
   const [better, worse] = CHEST2;
-  WT.setWorldType("survival");
-  let s = screen();
+  for (const type of ["survival", "missions"]) {
+  WT.setWorldType(type);
+  const s = screen();
   s.open("inventory", false);
   const inv = s.inventory;
   inv.armor[1] = makeStack(better);
@@ -210,17 +209,11 @@ await check("shift-click armor: Survival only into a free slot; Missions swaps; 
   s.handleKey("Digit5", false);
   assert(inv.armor[1]?.id === worse && inv.slots[4]?.id === SWORD, "a sword doesn't go on");
   s.close();
-  WT.setWorldType("missions");
-  s = screen();
-  s.open("inventory", false);
-  s.inventory.armor[1] = makeStack(better);
-  s.inventory.slots[20] = makeStack(worse);
-  s._click({ area: "inv", index: 20 }, 0, true);
-  assert(s.inventory.armor[1]?.id === worse && s.inventory.slots[20]?.id === better, "Missions: swapped as before");
+  }
 });
 
-await check("shift-click from the chest: the hotbar's right end first (Survival), the left (Missions)", () => {
-  for (const [type, want] of [["survival", HOTBAR_SIZE - 1], ["missions", 0]]) {
+await check("shift-click from the chest: the hotbar's right end first (both world types)", () => {
+  for (const [type, want] of [["survival", HOTBAR_SIZE - 1], ["missions", HOTBAR_SIZE - 1]]) {
     WT.setWorldType(type);
     const s = screen();
     const view = { ready: true, gone: false, slots: new Array(27).fill(null) };
@@ -283,12 +276,15 @@ await check("the off hand in the screen: F over a slot swaps; a shift-clicked sh
   s.hover = { area: "inv", index: 3 };
   assert(s.handleKey("KeyF", false) === true && inv.offhand && !inv.slots[3], "F: into the off hand");
   s.close();
+  // (Round 13: a Missions world has the off hand too.)
   WT.setWorldType("missions");
   const m = screen();
   m.open("inventory", false);
-  assert(m.offhandView.el.classList.contains("hidden"), "hidden in a Missions world");
+  assert(!m.offhandView.el.classList.contains("hidden"), "shown in a Missions world");
+  m.inventory.slots[0] = makeStack(V.SHIELD);
   m.hover = { area: "inv", index: 0 };
-  assert(m.handleKey("KeyF", false) === false, "F does nothing there");
+  assert(m.handleKey("KeyF", false) === true && m.inventory.offhand?.id === V.SHIELD, "F swaps there too");
+  m.close();
 });
 
 await check("the shield raised from the off hand blocks; an axe's blow disables it for 5 s", () => {
@@ -316,26 +312,23 @@ await check("the enchanting seed set back from a save", () => {
   assert(enchantSeed() === 123456, "junk ignored");
 });
 
-await check("food labels: 'heals N' in a Missions world, the name alone in a Survival world", () => {
-  WT.setWorldType("missions");
-  const m = [ITEM.APPLE, ITEM.GOLDEN_APPLE, ITEM.RAW_MEAT, ITEM.COOKED_MEAT].map((id) => stackLabel(makeStack(id)));
-  assert(m.join("|") === "Apple (heals 2 ♥)|Golden Apple (heals 10 ♥)|Raw Meat (heals 1 ♥)|Cooked Meat (heals 4 ♥)", m.join("|"));
-  WT.setWorldType("survival");
-  assert(stackLabel(makeStack(ITEM.APPLE)) === "Apple", stackLabel(makeStack(ITEM.APPLE)));
+// (Round 13: food fills hunger in a Missions world too: no "heals N" there either.)
+await check("food labels: the name alone, in both world types", () => {
+  for (const type of ["missions", "survival"]) {
+    WT.setWorldType(type);
+    const m = [ITEM.APPLE, ITEM.GOLDEN_APPLE, ITEM.RAW_MEAT, ITEM.COOKED_MEAT].map((id) => stackLabel(makeStack(id)));
+    assert(m.join("|") === "Apple|Golden Apple|Raw Meat|Cooked Meat", `${type}: ${m.join("|")}`);
+  }
 });
 
-await check("Creative palette: Survival opens on Blocks, a Combat tab, search; Missions as before", () => {
+await check("Creative palette: opens on Blocks, a Combat tab, search (both world types, Round 13)", () => {
   const shown = (s) => s.paletteViews.filter((v) => !v.el.classList.contains("hidden")).map((v, k) => v);
   const ids = (s) => CREATIVE_ITEMS.filter((id, k) => !s.paletteViews[k].el.classList.contains("hidden"));
-  WT.setWorldType("missions");
-  let s = screen();
+  for (const type of ["missions", "survival"]) {
+  WT.setWorldType(type);
+  const s = screen();
   s.open("inventory", true);
-  assert(s.tab === 0 && s.tabBtns[0].textContent === "Weapons" && !s.tabBtns[3].classList.contains("hidden"), "Missions: Weapons first, an Armor tab");
-  s.close();
-  WT.setWorldType("survival");
-  s = screen();
-  s.open("inventory", true);
-  assert(s.tab === 1 && s.tabBtns[0].textContent === "Combat" && s.tabBtns[3].classList.contains("hidden"), "Survival: opens on Blocks, Combat, no Armor tab");
+  assert(s.tab === 1 && s.tabBtns[0].textContent === "Combat" && s.tabBtns[3].classList.contains("hidden"), `${type}: opens on Blocks, Combat, no Armor tab`);
   s.setTab(0);
   const combat = ids(s);
   assert(combat.includes(V.SHIELD) && combat.includes(V.ARROW) && combat.includes(HELMET) && combat.some((id) => itemInfo(id)?.tool?.type === "sword"), "Combat: shield, arrow, armor, swords");
@@ -350,7 +343,9 @@ await check("Creative palette: Survival opens on Blocks, a Combat tab, search; M
   assert(found.length >= 1 && found.every((n) => /oak fence gate/i.test(n)), `found: ${found}`);
   s.setTab(1);
   assert(s.searchEl.classList.contains("hidden"), "hidden on the other tabs");
+  s.searchEl.value = "";
   s.close();
+  }
 });
 
 console.log(`\n${passed} passed, ${failed} failed.`);

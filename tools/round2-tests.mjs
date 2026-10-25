@@ -363,7 +363,9 @@ await check("terrain heights stay inside the world and match between chunks and 
   const r = await v(async (g) => {
     const { LodTerrain } = await import("./js/lod-mesher.js");
     const { WORLD_HEIGHT, SEA_LEVEL } = await import("./js/constants.js");
-    const lt = new LodTerrain(g.world.terrain.seed);
+    // (Round 13: with the world's terrain options, as js/lod.js builds it: a new
+    // Missions world has the vanilla terrain)
+    const lt = new LodTerrain(g.world.terrain.seed, g.world.terrainOptions);
     const t = g.world.terrain;
     // Find mountains.
     let peaks = 0;
@@ -738,11 +740,13 @@ const equip = (name) =>
     g.held.setItem(ITEM[n]);
   }, name);
 
-await check("no crafting: no recipe module or grid; E shows the inventory, Creative a tabbed palette with every weapon", async () => {
+// (Round 13: a Missions world has the vanilla crafting now, r11-crafting-tests checks it; the
+// Creative palette has vanilla's tabs there too: Combat, with every mod weapon in it.)
+await check("the inventory: E shows it, Creative a tabbed palette with every weapon in its Combat tab", async () => {
   await play();
   const r = await v(async (g) => {
     const craftingModule = false; // (checked from the file system below)
-    const { ALL_WEAPONS, CREATIVE_LOADOUT, SURVIVAL_LOADOUT, ITEM } = await import("./js/items.js");
+    const { ALL_WEAPONS, CREATIVE_LOADOUT, SURVIVAL_LOADOUT, ITEM, CREATIVE_ITEMS } = await import("./js/items.js");
     g.invScreen.open("inventory", true);
     const el = document.getElementById("inventory-screen");
     const out = {
@@ -756,6 +760,9 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     const shown = () => [...el.querySelectorAll(".inv-palette .slot")].filter((s) => !s.classList.contains("hidden")).length;
     g.invScreen.setTab(0);
     out.weaponsShown = shown();
+    out.tab0 = g.invScreen.tabBtns[0].textContent;
+    const visible = new Set(CREATIVE_ITEMS.filter((id, k) => !g.invScreen.paletteViews[k].el.classList.contains("hidden")));
+    out.weaponsMissing = ALL_WEAPONS.filter((id) => !visible.has(id)).length + (visible.has(ITEM.BOW) ? 0 : 1);
     g.invScreen.setTab(1);
     out.blocksShown = shown();
     g.invScreen.close();
@@ -776,14 +783,14 @@ await check("no crafting: no recipe module or grid; E shows the inventory, Creat
     out.keeps = JSON.stringify(g.inventory.slots) === withRail;
     g.inventory.slots[free] = null;
     g.setMode("creative");
-    out.missing = ALL_WEAPONS.length - out.weaponsShown + 1; // (the weapons tab: every weapon and the bow)
+    out.missing = out.weaponsMissing; // (the Combat tab: every weapon and the bow)
     return out;
   });
-  assert(!r.craftingModule && !r.grid && !r.book, `crafting is gone: ${JSON.stringify(r)}`);
+  assert(!r.grid && !r.book, `no crafting grid in the Creative palette: ${JSON.stringify(r)}`);
   assert(r.tabs.length >= 3, `palette tabs: ${r.tabs}`);
   // (Round 4: Survival starts with basic gear; the shield is an off-hand item, the bow is in Creative's loadout.)
   assert(r.loadouts[0] === 9 && r.loadouts[1] === 10 && r.loadouts[2] === 3 && r.loadouts[3], `loadouts ${r.loadouts} (Round 6: no Jet Radio)`);
-  assert(r.weaponsShown === 10 && r.blocksShown > 15, `weapons tab ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
+  assert(r.tab0 === "Combat" && r.weaponsShown > 10 && r.blocksShown > 15, `Combat tab ${r.tab0} ${r.weaponsShown}, blocks tab ${r.blocksShown}`);
   assert(r.missing === 0 && r.unchanged && r.back && r.keeps, `creative: every weapon in the palette, switching keeps the inventory (Creative's things stay): ${JSON.stringify(r)}`);
 });
 

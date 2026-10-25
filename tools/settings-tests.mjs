@@ -270,10 +270,11 @@ await check("versioned, one object under the game's prefix; missing, corrupted o
     assert(r.state === "start" && r.v === r.SETTINGS_VERSION && r.fov === r.def && r.master >= 0 && r.master <= 1 && r.rd >= 2 && r.rd <= 256 && r.perfOk && typeof r.overrides === "object" && !Array.isArray(r.overrides), `${mode}: ${JSON.stringify(r)}`);
     assert(r.keys.length === 1 && r.keys[0] === KEY, `${mode}: one settings key: ${r.keys}`);
   }
-  // An older save (no version) keeps its values.
+  // An older save (no version) keeps its values. (Round 13: its master volume, 30%, was
+  // the old default, so it follows the new one, 15%: settings v7.)
   await freshBoot("legacy");
   const r = await v(() => ({ s: window.__ufo.settings, g: window.__ufo.graphics, rd: window.__ufo.renderDistance }));
-  assert(r.s.fov === 88 && r.rd === 21 && r.g === "medium" && r.s.volume.master === 0.3 && r.s.ufos.activity === 4, `an unversioned save is kept: ${JSON.stringify({ fov: r.s.fov, rd: r.rd, g: r.g, m: r.s.volume.master, a: r.s.ufos.activity })}`);
+  assert(r.s.fov === 88 && r.rd === 21 && r.g === "medium" && r.s.volume.master === 0.15 && r.s.ufos.activity === 4, `an unversioned save is kept: ${JSON.stringify({ fov: r.s.fov, rd: r.rd, g: r.g, m: r.s.volume.master, a: r.s.ufos.activity })}`);
   await freshBoot("clear");
 });
 

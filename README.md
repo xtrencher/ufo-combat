@@ -6,8 +6,8 @@ install, no build step, no accounts. There are three ways to play (see
 crafting, smelting, mining, farming, hunger, experience, beds, redstone,
 enchanting, brewing, weather, the Nether and the End, and vanilla blocks,
 items, mobs, villagers, structures and terrain. **Creative** builds and flies
-with every block. **Missions** is the mods add-on, in a world of its own: the
-UFO war, where you build and survive in a block world, then take on UFOs with
+with every block. **Missions** is the mods add-on: the same normal world with
+the UFO war on top, where you build and survive, then take on UFOs with
 a bow, guns, a railgun, a laser minigun, homing rockets, meteor airstrikes,
 two fighter jets (an F-22 and an F-16, with missiles, flares, radar and a
 real runway takeoff), a B-2 stealth bomber that carries the nuke and, late in
@@ -41,7 +41,7 @@ for a moment out of play (the pause menu, the inventory), since the picture
 stops while a new level is prepared. Pick any preset or change any graphics
 or performance setting and Auto is off for good: your choice is saved and
 always wins (**Auto (best for this PC)** in Settings turns it back on).
-Master volume starts at 30%.
+Master volume starts at 15%.
 
 Every screen (main menu, pause menu, settings, inventory, mods, missions,
 stats) shares one clean, dark glass style.
@@ -55,7 +55,7 @@ The main menu has:
     mod weapons.
   - **Creative**: build with every block, fly, no damage, in plain Minecraft
     (a Survival world played in Creative).
-  - **Missions**: the mods add-on, in a world of its own: the UFO war
+  - **Missions**: the mods add-on: the normal world with the UFO war on top
     (missions, loot, supply drops, vehicles, the mod weapons). Its own
     Creative, with every mod item and the call-ins, is in its pause menu
     (**Game mode**).
@@ -86,8 +86,8 @@ The main menu has:
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
 Settings, Fullscreen, Missions (in a Missions world), Stats, Multiplayer, Copy
-world link, Save & main menu, and the **Game mode**; in Creative in a
-Missions world also the **call-ins**: F-22, F-16, B-2 or a random UFO, and
+world link, Save & main menu, and the **Game mode**; in Creative (either
+world type) also the **call-ins**: F-22, F-16, B-2 or a random UFO, and
 you are straight in the air at the controls of it).
 
 **Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
@@ -123,25 +123,40 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   Missions button in the pause menu, and its land has **no airports or
   cities** (villages stay). Difficulty and Peaceful work as everywhere.
 - **Creative:** every block and item in the tabbed **E** palette, instant
-  mining, flight, and no damage. The main menu's Creative card plays a
-  Survival world (plain Minecraft); a Missions world has its own Creative in
-  its pause menu, with every weapon in your hotbar and the call-ins too.
-- **Missions** (the mods add-on): you start with basic gear only (a stone
-  sword, a stone pickaxe and five apples) at 17:50 (the golden hour before
-  sunset), and a **campaign** of 26 to 30 **missions** drawn afresh for every
-  new Missions game from a pool of 34 (see **Missions** below): it starts
-  with a skeleton and its bow, goes through jets, a meteor storm and a
-  mothership boss, abductor ships hunting you, crash sites and radio beacons
-  to hold, then the aliens' counterattack (fighter wings, abductors, a titan,
-  a night of swarms, a fortress), and ends with the Armada and its flagship:
-  win that and the war is won (a victory screen; the game goes on). There is
-  no crafting, and missions pay in apples and golden apples only: weapons
-  come from the places that make sense (the skeleton's bow, standard weapons
-  in **supply crates** that drop by parachute with orange smoke, alien
-  weapons from alien leaders). The fighter jets (parked at airports) join
-  with "Take to the air", alien ships with "Salvage". Watch your hearts:
-  falls, drowning, zombies, aliens and your own grenades and rockets can all
-  kill you.
+  mining, flight, and no damage, and (Round 13) the aircraft: the palette's
+  **Vehicles** tab has the **F-22 Raptor**, the **F-16 Fighting Falcon**, the
+  **B-2 Spirit** and a **UFO**, in either world type (see **Vehicles in
+  Creative** below). The main menu's Creative card plays a Survival world
+  (plain Minecraft: its land stays as it is, with no airports or cities, no
+  UFO fleets and no missions); a Missions world has its own Creative in its
+  pause menu, with every weapon in your hotbar and the call-ins too.
+- **Missions** (the mods add-on): **the normal world with the UFO war on
+  top** (Round 13). It is a Survival world in everything (the same land,
+  villages, structures, ores, the Nether and the End, crafting and smelting,
+  hunger, experience, beds, weather, vanilla's creatures and drops, every
+  block and item) plus its airports, cities and military bases, the UFOs and
+  aliens, the missions, supply crates, the mod weapons and the vehicles.
+  You start with basic gear (a stone sword, a stone pickaxe and five apples)
+  at 17:50 (the golden hour before sunset), fed, and a **campaign** of 26 to
+  30 **missions** drawn afresh for every new Missions game from a pool of 34
+  (see **Missions** below): it starts with a skeleton and its bow, goes
+  through jets, a meteor storm and a mothership boss, abductor ships hunting
+  you, crash sites and radio beacons to hold, then the aliens'
+  counterattack (fighter wings, abductors, a titan, a night of swarms, a
+  fortress), and ends with the Armada and its flagship: win that and the war
+  is won (a victory screen; the game goes on). Missions pay in apples and
+  golden apples; the mod weapons come from the places that make sense (the
+  skeleton's bow, standard weapons in **supply crates** that drop by
+  parachute with orange smoke, alien weapons from alien leaders): they can't
+  be crafted. The fighter jets (parked at airports) join with "Take to the
+  air", alien ships with "Salvage". Watch your hearts and your hunger.
+
+  (Worlds saved before Round 13: a Missions world keeps the land it was made
+  with, so your builds stay where they were: the old terrain, with its own
+  villages and no vanilla structures, ores or strongholds (so no way into
+  the End there; the Nether is: build a portal). Everything else, crafting,
+  hunger, beds and the rest, is the same as in a new one. A new Missions
+  world gets the new land.)
 
 You can switch between the world's own game and Creative at any time in the
 pause menu (**Game mode**: Missions or Creative in a Missions world, Survival
@@ -149,7 +164,8 @@ or Creative in a Survival world, like vanilla's game mode): a Survival world
 in Creative stays a Survival world, and the switch never changes your
 inventory (what you took from the Creative palette stays, and nothing is added
 or taken away). Each world remembers its type, its mode, your position,
-inventory and health; a world saved before Round 11 is a Missions world. A
+inventory and health; a world saved before Round 11 is a Missions
+world (and one saved before Round 13 keeps its old land: see above). A
 new world starts on flat, open, dry ground. A world link (`?seed=N`)
 without a type still opens a Missions world, as it always did; a new player's
 first world (no link, nothing saved) is a Survival world.
@@ -162,31 +178,31 @@ first world (no link, nothing saved) is a Survival world.
 | Look around | Mouse |
 | Jump / swim up | `Space` |
 | Climb a ladder or vine | Walk into it, or `Space`; `Shift` holds you in place |
-| Sprint (in a Survival world not with 6 food points or less; the view widens, and a sprint-jump carries you further, as in Minecraft) | `Ctrl` + `W`, or double-tap `W` |
+| Sprint (not with 6 food points or less, outside Creative; the view widens, and a sprint-jump carries you further, as in Minecraft) | `Ctrl` + `W`, or double-tap `W` |
 | Sneak (slow, won't walk off edges; in bed: get up) | `Shift` |
 | Mine a block / attack (hold to keep mining) | Left click |
 | Place a block / use / eat or drink (hold) / fire the weapon in hand | Right click |
 | Use a vanilla item in hand: raise a shield (hold), cast and reel in a fishing rod, throw an egg, snowball, ender pearl, eye of ender, splash potion or bottle o' enchanting, fill or pour a bucket, fill a glass bottle at water or a cauldron, till with a hoe (a shovel makes a path), grow things with bone meal, light a fire, TNT or a nether portal with flint and steel or a fire charge, put an eye of ender in an end portal frame, charge a respawn anchor with glowstone, turn diamond gear into netherite at a smithing table | Right click |
 | Wear a piece of armor (when it is in your hand) | Right click |
 | Open a chest, a barrel or a shulker box (whatever is in your hand) | Right click |
-| Open a crafting table (Survival worlds), a furnace, smoker or blast furnace, an enchanting table, an anvil, a brewing stand, a grindstone, a stonecutter, a hopper, a dropper or a dispenser (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
+| Open a crafting table, a furnace, smoker or blast furnace, an enchanting table, an anvil, a brewing stand, a grindstone, a stonecutter, a hopper, a dropper or a dispenser (whatever is in your hand; `Shift` with something in hand places against it) | Right click |
 | Open or close a door, trapdoor or fence gate (not an iron one) | Right click |
-| Sleep in a bed / set your spawn point (Survival worlds) | Right click (on the bed) |
+| Sleep in a bed / set your spawn point | Right click (on the bed) |
 | Flip a lever, press a button, set a repeater's delay, tune a note block, edit a sign, eat a slice of cake, plant in a flower pot or take the plant back, ring a bell, put raw food on a campfire, fill a composter, put an item in an item frame (or turn it), dress an armor stand | Right click (on it) |
 | Get into a boat or a minecart | Right click (on it) |
 | **In a boat or a minecart:** row a boat (`W` in a cart nudges it) / get out | `W` `A` `S` `D` / `Shift` |
-| Trade with a villager, milk a cow (empty bucket), shear or dye a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand, barter with a piglin (a gold ingot) (Survival worlds) | Right click (on it, with the item) |
+| Trade with a villager, milk a cow (empty bucket), shear or dye a sheep, feed or breed an animal, tame a wolf (bones) and make it sit or stand, barter with a piglin (a gold ingot) | Right click (on it, with the item) |
 | Reload the weapon in hand | `R` |
 | **Binoculars** (a strong zoom, with a rangefinder) | Hold **both** mouse buttons |
 | Select hotbar slot | `1`-`9` or scroll wheel |
-| Inventory (in Creative: every block, tool and item, and in a Missions world every weapon, in tabs; in a Survival world with a 2x2 crafting grid) | `E` |
+| Inventory (in Creative: every block, tool and item, and in a Missions world every weapon, in tabs; outside Creative with a 2x2 crafting grid) | `E` |
 | Drop the held item (whole stack with `Ctrl`) | `Q` |
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
 | Glide with an elytra (worn in the chest slot) | `Space` while falling |
 | Pick the targeted block (Creative) | Middle click |
 | Pause menu | `Esc` (also steps back out of any menu screen) |
-| Board / leave a vehicle (Mods on) | `F` |
-| Swap the item in hand with the off hand (Survival worlds) | `F` |
+| Board / leave a vehicle (Mods on; in a Survival world: in Creative) | `F` (near it) |
+| Swap the item in hand with the off hand (when no vehicle you can board is in reach) | `F` |
 | Stats and controls of the vehicle you are in | `I` |
 | Fullscreen (and the keyboard lock in Chromium) | `F11` or `Alt+Enter` |
 | Hide the HUD / debug info | `F1` / `F3` |
@@ -214,11 +230,12 @@ A scope, the binoculars and a bed always look from your eyes.
 right click takes half or places one; `Shift` + click moves a stack between
 the hotbar and the inventory; number keys swap the hovered slot with a hotbar
 slot; `Q` drops from the hovered slot; clicking outside the window drops what
-you're carrying. In Creative the palette has tabs (Weapons, Blocks, Tools,
-Armor, Items, Search; in a Survival world: Combat, Blocks, Tools, Items,
-Search, opening on Blocks): click to take a stack, `Shift` + click to add it
-to the inventory; the Search tab filters every item by name. In a Survival
-world the armor row has an **off-hand** slot: `F` swaps the item in hand with
+you're carrying. In Creative the palette has tabs (Combat, Blocks, Tools,
+Items, Vehicles, Search, opening on Blocks; Round 13: in both world types, a
+Missions world's Combat tab with the mod weapons too): click to take a
+stack, `Shift` + click to add it to the inventory; the Search tab filters
+every item by name. The armor row has an **off-hand** slot (Round 13: in
+both world types): `F` swaps the item in hand with
 it (or, in the inventory, the hovered slot's), and a shield there blocks with
 right click while the main hand holds a tool or nothing.
 **A chest** (right click on it) opens the same screen with the chest's 27
@@ -226,9 +243,9 @@ slots (a large chest's 54; a barrel's, a shulker box's or a chest boat's or
 minecart's 27) above your inventory and the same clicks: `Shift` + click
 moves a stack between the chest and your inventory. `E` or `Esc` closes it.
 
-**Crafting** (Survival worlds): the inventory has a 2x2 **crafting grid**
-(top right; not in Creative, as in Minecraft), and a **crafting table** (right
-click on it) opens a 3x3 one. Put the ingredients in the grid's shape
+**Crafting** (both world types; Missions since Round 13): the inventory has
+a 2x2 **crafting grid** (top right; not in Creative, as in Minecraft), and a
+**crafting table** (right click on it) opens a 3x3 one. Put the ingredients in the grid's shape
 (anywhere in the grid, and mirrored left to right where that matters): the
 result shows on the right. Click it (left or right) to take one craft onto the
 mouse (again to add another of the same), `Shift` + click to craft as many as
@@ -249,43 +266,49 @@ the output gives the experience of what was smelted.
 ## Missions
 
 The UFO war (a **Missions** world): everything in this section, and the
-**UFOs** and **Vehicles** sections further down, belongs to it. A Survival
-world has none of it (see **Survival (vanilla Minecraft)**).
+**UFOs**, **Vehicles** and **The ground war** sections further down, belongs
+to it (except Creative's aircraft: see **Vehicles in Creative**). A Survival
+world has none of it (see **Survival (vanilla Minecraft)**); everything else
+in a Missions world is a Survival world's.
 
 ### Missions basics
 
-- **Health:** 10 hearts. They come back slowly on their own; food heals
-  faster (apples, cooked meat). A **golden apple** heals fully and adds four
-  golden hearts on top that soak damage first.
-- **Mining:** harder blocks take longer; the right tool is much faster.
-  Stone and coal need a pickaxe; gold needs an iron pickaxe or better. Tools wear
-  out. In a Missions world there is **no crafting**: tools drop from UFOs,
-  aliens and supply crates. In a Survival world you craft them (see
-  **Crafting and smelting**).
-- **Caves and ores:** caves wind underground with coal and gold (iron and
-  diamonds are gone: nothing uses them any more; old iron and diamond ore
-  blocks in older worlds still break, into cobblestone). Glowing lumen
-  crystals grow on deep cave ceilings.
+- **Health and hunger** (Round 13: as in a Survival world): 10 hearts and 10
+  drumsticks. Health comes back while you are well fed; food fills the
+  hunger bar (see **Food, hunger and health**). A **golden apple** heals and
+  adds golden hearts on top that soak damage first. Supply crates, wrecks and
+  chests bring food.
+- **Mining and crafting:** as in a Survival world (see **Crafting and
+  smelting**, **Mining and ores**): the 2x2 grid in the inventory, the
+  crafting table, the furnace. Tools also drop from UFOs, aliens and supply
+  crates.
+- **Caves and ores:** vanilla's (iron, copper, redstone, lapis, diamonds,
+  emeralds...); an old Missions world's (before Round 13) keeps coal, gold
+  and the glowing lumen crystals on deep cave ceilings.
 - **Torches and chests** (Round 10): a torch placed on the side of a block
   hangs on the wall, leaning out like in classic block games (on top of a
   block it stands; under a block it doesn't go), and drops off as a torch
   when its wall is mined or blown away. **Chests** hold 27 stacks. The chests
-  in village houses and city lobbies (see **The world**) hold loot, rolled
+  in city lobbies (and an old Missions world's village houses; see **The
+  world**) hold the missions' loot, rolled
   the first time anyone opens one: food, torches, now and then a golden
   apple or a tool, sometimes a standard weapon the campaign already allows,
   rarely a piece of armor (less than a supply crate). A chest you place
   (Creative palette, or one you broke and picked up) starts empty. Breaking
-  a chest spills what it holds. Opened chests are saved with the world.
-- **Armor** (Round 5; a Missions world has no shield): four slots (head, chest, legs,
+  a chest spills what it holds. Opened chests are saved with the world. A
+  new Missions world's villages, dungeons, mineshafts and temples have
+  vanilla's loot, as in a Survival world.
+- **Armor** (Round 5): four slots (head, chest, legs,
   feet) in four tiers (leather, gold, iron, diamond). Every defense point
   turns away 4% of the damage (up to 80%), the HUD shows an armor bar, and
-  every hit wears each piece. Pick a piece up with its slot free and it is
-  worn at once; right click one in your hand, or use the armor row in the
-  inventory. Aliens, zombies, skeletons and bunker guards drop armor, better
+  every hit wears each piece. Right click one in your hand to put it on, or
+  use the armor row in the inventory (Round 13: as vanilla, a piece you pick
+  up goes into your inventory). Aliens, zombies, skeletons and bunker guards drop armor, better
   the further the mission chain has got. Falls, drowning and fire go through.
 - **Dying** shows a big red **NOOB!** with the cause. You drop everything
   where you died and respawn with full health around the current mission's
-  location (at the world spawn when no mission is running).
+  location (when no mission is running, at your bed or the world spawn: see
+  **Beds, sleeping and dying**).
 
 ### Missions, loot and supply crates
 
@@ -333,7 +356,7 @@ world has none of it (see **Survival (vanilla Minecraft)**).
 
   | Act | Mission | What to do | Optional |
   | --- | --- | --- | --- |
-  | I: On foot | The archer | Kill a skeleton with your sword and take its **bow** | |
+  | I: On foot | The archer | Kill a skeleton with your sword and take its **bow** (and the 16 arrows it drops with it) | |
   | I | Visitors | A small UFO lands; its two aliens look around (about 35 s) before they attack: kill them (bow, or sword in melee) | yes |
   | I | Supply drop | Open the supply crate dropped for you: the **pistol** | |
   | I | First contact | Shoot down a small scout UFO | |
@@ -401,7 +424,8 @@ world has none of it (see **Survival (vanilla Minecraft)**).
   meteor", "Shot down by Bob", and so on.
 - **Where weapons come from** (each lane has its own weapons, so nothing
   arrives twice or out of order):
-  - **The skeleton** ("The archer", always first or second): the bow.
+  - **The skeleton** ("The archer", always first or second): the bow, with
+    16 arrows (the bow takes arrows, as vanilla's).
   - **Supply crates** (the first one with "Supply drop", then every 1.5 to 3 minutes
     after it): a standard weapon you don't have yet while any are left, the
     lower ones first as the chain unlocks them (pistol; grenades, machine
@@ -414,9 +438,9 @@ world has none of it (see **Survival (vanilla Minecraft)**).
     someone in the group still lacks it, and the drop never despawns. Later on ordinary aliens
     of that kind or stronger can drop one you missed. Otherwise aliens drop
     food, tools and golden apples, better the further you are.
-  - **Chests** in villages and cities: now and then a standard weapon the
-    campaign already allows (see **Missions basics**; a Survival world's
-    chests hold the classic village loot instead).
+  - **Chests** in city lobbies (and an old Missions world's villages): now
+    and then a standard weapon the campaign already allows (see **Missions
+    basics**; vanilla's villages and structures hold vanilla's loot).
   - **Missions:** apples and golden apples only.
   - Downed UFOs and enemy fighters drop food, tools and golden apples.
 - **Supply crates:** a crate drifts down on a parachute near you, trailing
@@ -425,8 +449,9 @@ world has none of it (see **Survival (vanilla Minecraft)**).
 
 ### Creatures
 
-These are a Missions world's creatures; a Survival world has vanilla
-Minecraft's instead (see **Mobs**).
+These are the Missions world's own creatures (Round 13: among vanilla's: a
+quarter of the herds are fluffalos, hoplets or mossbacks, and butterflies
+flutter by the flowers; see **Mobs** for the rest).
 
 - **Fluffalo:** a shaggy, humped grazer with a cream mane. Drops fluff and raw
   meat.
@@ -439,7 +464,7 @@ Minecraft's instead (see **Mobs**).
 - **Zombie:** comes out in the dark (at night, or in unlit caves), chases
   you, and hits hard. Zombies burn in daylight. Swords recharge between
   swings (watch the bar under the crosshair); hit while falling for a
-  critical hit. (In a Survival world melee is Java's: each tool's own damage
+  critical hit. (Melee is Java's, in both world types since Round 13: each tool's own damage
   and attack speed, an axe slow and strong, a full-charge sword hit sweeps
   the creatures around the target, and no crit while sprinting.)
 - **Skeletons** shoot real arrows from their bows (and drop them);
@@ -540,15 +565,16 @@ vanilla's recipes, numbers, blocks, items, creatures and terrain. You start
 with nothing; everything you have, you gather, craft, smelt, farm or trade
 for, and your body works like normal Minecraft's (hunger, experience, beds).
 There are no UFOs, missions, mod weapons or mod vehicles (see **Three ways to
-play**). None of the body rules are in a **Missions** world (food heals directly and
-health comes back on its own, as always) or in **Creative**. Every new block
-and item is in the Creative palette in both world types; a Missions world's
-items, drops, bow and chests are unchanged.
+play**). (Round 13) Everything in this section is in a **Missions** world
+too: it is the same world with the missions on top. None of the body rules
+are in **Creative**. Every block and item is in the Creative palette in both
+world types (a Missions world's has the mod weapons too, in the Combat tab).
 
-A Survival world's day is vanilla's **20 minutes** (a Missions world's stays
-10), and a new one starts at 6:00 in the morning.
+The day is vanilla's **20 minutes** in both world types (Round 13: a
+Missions world's was 10); a new Survival world starts at 6:00 in the
+morning, a new Missions world at 17:50.
 
-A Survival world has the **Nether** and the **End** too (see **The Nether and
+Both world types have the **Nether** and the **End** (see **The Nether and
 the End** below). Not in this game (yet): maps, banners (so the loom has no
 screen), trapped chests, hopper, TNT and furnace minecarts, comparators and
 glow item frames.
@@ -574,7 +600,6 @@ glow item frames.
   growing**, **Dyes and decoration**, **Redstone and TNT**, **Boats,
   minecarts and rails**, **Enchanting, anvils and brewing** and **Chests and
   work blocks**).
-  In a Missions world the crafting table does nothing.
 - **Smelting:** a furnace cooks one item every **10 seconds** while its fuel
   burns: coal or charcoal 80 s (8 items), a coal block 800 s, a log or planks
   15 s, a wooden slab 7.5 s, a stick or a sapling 5 s, a lava bucket 1000 s
@@ -586,13 +611,12 @@ glow item frames.
   (light 13) and keeps working while you are away (as long as its ground is
   loaded); the experience of what it smelted waits in it until someone takes
   from the output. Breaking a furnace drops what is in it. Furnaces are saved
-  with the world. (A furnace works in a Missions world too, from the Creative
-  palette.)
+  with the world.
 
 ### Mining and ores
 
-A Survival world's terrain is vanilla Minecraft's, fitted to this world (128
-blocks tall, the sea at 24):
+A Survival world's terrain (and, since Round 13, a new Missions world's) is
+vanilla Minecraft's, fitted to this world (128 blocks tall, the sea at 24):
 
 - **Ores** at their usual depths: coal everywhere up into the hills, iron and
   copper common down to the sea and a little above, gold under 30 (and plenty
@@ -634,8 +658,9 @@ blocks tall, the sea at 24):
   or two of the start. **Bamboo jungles** inside the jungles (about a third
   of them): tall thick bamboo everywhere on podzol, fewer trees (the giants
   and bushes); a stalk of bamboo now and then in the rest of the jungle.
-- **No airports or cities;** villages, temples and the other structures are
-  vanilla's (see **Structures**).
+- **No airports or cities** in a Survival world (a Missions world has them,
+  and its military bases, on top); villages, temples and the other
+  structures are vanilla's (see **Structures**).
 
 ### Structures
 
@@ -792,7 +817,10 @@ died; the rest is lost.
   set", any time of day) and, at night (from about 18:30 to 5:30) or in a
   thunderstorm, to sleep: not with monsters within 8 blocks ("You may not
   rest now; there are monsters nearby"). Asleep, the screen darkens; after 5 seconds the night is
-  skipped to the morning. `Shift` gets you up (so does being hit).
+  skipped to the morning. `Shift` gets you up (so does being hit). In a
+  Missions world nobody can sleep through a night mission ("You may not rest
+  now; the invasion goes on tonight"), and a mission's own respawn spot
+  comes before your bed.
 - **Dying** shows the **NOOB!** screen (with your **score**, the experience
   you collected, as Minecraft's) and drops everything where you died, as in
   Missions. You respawn next to your bed (or a charged respawn anchor in the
@@ -804,7 +832,7 @@ died; the rest is lost.
 ### Weather
 
 - **Rain** comes and goes as in vanilla: clear for 10 minutes to 2.5 hours,
-  rain for 10 to 20 minutes (a Survival world's day is vanilla's 20 minutes). The sky turns grey and darker, the clouds close in, the
+  rain for 10 to 20 minutes (the day is vanilla's 20 minutes). The sky turns grey and darker, the clouds close in, the
   haze thickens, and you hear it (muffled under a roof). Rain falls only
   where the sky is open: not under roofs or trees.
 - **Snow** falls instead in the snowy plains, the snowy taigas, the
@@ -822,8 +850,7 @@ died; the rest is lost.
   zombies and skeletons don't burn in daylight while it rains on them.
 - You can **sleep** during a thunderstorm, day or night; a night slept
   through ends the rain.
-- A Missions world's sky stays clear. Online the host's weather is everyone's
-  (the same rain, the same bolts).
+- Online the host's weather is everyone's (the same rain, the same bolts).
 
 ### Lava, water, fire and other dangers
 
@@ -835,7 +862,7 @@ died; the rest is lost.
   blocks over flat ground, slowly (a block every 1.5 s; three times faster in
   the Nether), and falls into holes. Water on a lava source makes
   **obsidian**, on flowing lava **cobblestone**; lava pouring onto water
-  makes **stone**. Water flows 7 blocks (4 in a Missions world).
+  makes **stone**. Water flows 7 blocks.
 - **Fire** (flint and steel, a fire charge, lava, lightning) burns with moving
   flames (as vanilla's, 20 frames a second), spreads to planks, logs, leaves,
   wool, hay, grass and flowers, burns them away and goes out once nothing is
@@ -847,8 +874,7 @@ died; the rest is lost.
   fire for 15 s, fire for 8 s (half a heart a second while burning, the
   flames show on screen); water puts you out. A **cactus** pricks (half a
   heart every half second you touch it: walking into it, standing or
-  landing on it, jumping into one overhead; in a Missions world too, never
-  in Creative; creatures too) and destroys items that touch it. A block at
+  landing on it, jumping into one overhead; never in Creative; creatures too) and destroys items that touch it. A block at
   your eyes **suffocates**, and your breath lasts **15 seconds** under water (10
   bubbles). Falls hurt as before (a half-heart a block beyond 3); a hay bale
   takes 80% of it, a bed half. Armor helps against lava, fire, cactus and
@@ -954,7 +980,7 @@ How they behave, as in vanilla:
 - **The cake** (3 milk buckets, 2 sugar, an egg, 3 wheat; the buckets come
   back): right click with it to place it on a block, right click the cake to
   eat a slice (7 slices; 2 food points, 0.4 saturation each; only when you
-  aren't full; in a Missions world a slice heals 1 heart). Broken, it drops
+  aren't full). Broken, it drops
   nothing.
 - **Flower pots** (3 bricks in a V): right click one with a flower, a
   sapling (oak, spruce, birch, jungle, acacia, dark oak), a fern, a dead
@@ -978,8 +1004,7 @@ How they behave, as in vanilla:
 ### Redstone and TNT
 
 Vanilla redstone, with vanilla recipes; Creative has every piece in its
-palette, and circuits work in both world types (in a Missions world only
-Creative can get the pieces).
+palette, and circuits work in both world types.
 
 - **Redstone dust:** right click with redstone dust on top of a block (a
   full block, glass, a top slab, an upside-down stair, a piston). It joins
@@ -1131,8 +1156,7 @@ A Survival world has the classic game's items, with its numbers:
   full bucket stays full.
 - **The bow takes arrows:** one arrow a shot, from your inventory (no
   arrows, no draw); an arrow stuck in a block can be picked up again for a
-  minute. In Creative no arrows are needed (and none are left to pick up);
-  in a Missions world the bow never runs out, as before.
+  minute. In Creative no arrows are needed (and none are left to pick up).
 - **Fishing:** right click with a fishing rod casts the bobber; where it
   lands in water, wait (5-30 s, slower under a roof): bubbles come in, the
   bobber dips with a splash, and a right click within a second or two reels
@@ -1165,8 +1189,7 @@ A Survival world has the classic game's items, with its numbers:
   freshly dropped item waits half a second, one you throw (`Q`, or from
   the inventory) 2 seconds, before anyone can take it. Online the host
   gives each item to the first player who reaches it, and everyone sees
-  it fly to them. (In a Missions world items still roll toward you from
-  a little further off.)
+  it fly to them.
 
 ### Enchanting, anvils and brewing
 
@@ -1288,8 +1311,9 @@ contents and what lies on each campfire.
 
 ### Mobs
 
-A Survival world has vanilla Minecraft's creatures instead of the Missions
-world's (no fluffalos, hoplets, mossbacks or butterflies there):
+Both world types have vanilla Minecraft's creatures (a Missions world adds
+its own among them: fluffalos, hoplets, mossbacks and butterflies, see
+**Creatures**; a Survival world has none of those):
 
 - **By night and in the dark** (no torch light at all, as in vanilla):
   **zombies** (rotten flesh; rarely iron, a carrot or a potato; one in twenty
@@ -1374,9 +1398,14 @@ golem is replaced after 5 to 10 minutes.)
 
 ## The Nether and the End
 
-A Survival world has three dimensions, as in Minecraft: the **Overworld**,
-the **Nether** and the **End** (Creative in a Survival world too). A Missions
-world keeps its Overworld only: its UFOs, missions and jets live there.
+Both world types have three dimensions, as in Minecraft: the **Overworld**,
+the **Nether** and the **End** (Creative too). In a **Missions** world the
+UFO war stays in the Overworld: in the Nether and the End there are no UFOs,
+aliens, missions, supply drops or aircraft (fly in? You can't: get out of the
+aircraft first), and they are back when you come home (a mission's fight
+starts over: a boss you left comes back at full strength). Online the war
+follows the host: while the host is in the Nether or the End the missions
+wait for everyone.
 
 - **Travelling.** Standing in a nether portal for 4 seconds (at once in
   Creative) takes you to the other side: the Nether is 8 times smaller, so a
@@ -1664,6 +1693,8 @@ play normal Minecraft (empty-handed when new, Mods off for everyone), guests
 in a Missions room the UFO war. Once the room is open, the lobby (Esc >
 Multiplayer) switches between the world's modes: a Survival world's
 Survival and Creative, a Missions world's Missions, Creative and Dogfight.
+A Missions room's guests play the host's world as it is (its land's version
+too: an old Missions world's guests get its old land).
 
 The host is in charge: only the host picks the **game mode** (Esc >
 Multiplayer, any time) and the **game settings** for everyone (Settings:
@@ -1766,7 +1797,9 @@ keeps running there (it just isn't drawn).
   Creative settings (UFO activity and the rest) apply. A guest's "summon a
   UFO" (Missions mods screen) asks the host's game for it. Everyone can use the
   pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
-  air): the others see the aircraft and who flies it. Switching between
+  air): the others see the aircraft and who flies it. The palette's vehicle
+  items work the same online, in a Survival world's Creative too: everyone
+  sees the aircraft anyone puts down or flies. Switching between
   Creative and Missions (or Survival) never changes anyone's inventory.
 - **Dogfight:** everyone flies an F-22, all against all. After a countdown
   everyone is put in a jet high over the arena; shoot the others down with
@@ -1931,7 +1964,7 @@ follows how far you can see), and there are far more of them at night.
 aggression, detection range, beam lift strength, sizes, night multiplier and
 toughness.
 
-## Vehicles (Mods on)
+## Vehicles
 
 | Action | Key |
 | --- | --- |
@@ -1944,6 +1977,45 @@ out of a tunnel). From high up you drop out under a **parachute** (a jet
 ejects you upward first). Hits on you while seated damage the vehicle; if it
 is destroyed with you inside, you go down with it. Vehicles are saved with
 the world, including the one you're sitting in.
+
+### Vehicles in Creative
+
+In Creative, in a Survival world as much as in a Missions world, you can fly
+everything: the palette's **Vehicles** tab (`E`) has the **F-22 Raptor**, the
+**F-16 Fighting Falcon**, the **B-2 Spirit** (with its nuke) and a **UFO**.
+Take one into your hotbar and **right click**:
+
+- aimed at the ground (up to about 96 blocks away), the aircraft is put down
+  there, facing the way you look, its tail clear of you: on its wheels (a
+  jet) or hovering just over the ground (a UFO). Walk up and press `F`. A jet
+  needs dry, open ground (not water; a B-2's wings span 43 blocks): if
+  something is in the way you are told so;
+- aimed at the sky, you are straight in the air at the controls (like the
+  pause menu's call-ins).
+
+Each UFO you put down is the next of the nine designs (sneak while you place
+it for a small one; the Mods screen's "Spawn a UFO to fly" picks the design
+and size). Everything works as in a Missions world: the flight, the cannon,
+the missiles, the bombs and the nuke, the UFO's weapons and beam, at the
+creatures around (a Survival world still makes no UFO fleets, aliens,
+missions, airports or cities). A jet takes off from any long, flat field and
+lands on any flat ground: no runway needed. The vehicles you put down stay in
+the world and are saved with it, like boats (up to 8: the oldest empty one
+goes when you put down a ninth). They stay in the Overworld: in the Nether or
+the End you can't summon one, and the ones you left are waiting when you are
+back.
+
+The Vehicles tab also has the **Tiger Tank**, the **Battle Tank** and the
+**Missile Launcher (TEL)** (see **The ground war**): put one down on the
+ground (right click) and get in with F. In the launcher, aim at the ground
+and left click: it raises the missile and launches at that point (at least
+120 blocks off); right click calls it off before ignition.
+
+In a Survival world this is Creative's only: in Survival mode the vehicle
+items do nothing, you can't board a vehicle (`F` swaps your hands as usual),
+and switching to Survival while flying sets you down (on a parachute from up
+high). Online, everyone sees everyone's aircraft (a host or guest in Creative
+puts them down; a player in Survival mode can't).
 
 ### Your UFO
 
@@ -1966,7 +2038,7 @@ ship low in the view so the crosshair is always clear.
 | Boost (3x) | `Ctrl`, or `W` tapped twice and held (no Ctrl+W outside fullscreen) |
 | The ship's own weapon (what its kind fires: rapid bursts, heavy plasma, spread fans, charged shots, a sweeping beam, seeker plasma or pulse bolts; bigger ships hit harder) | Left click |
 | Tractor beam: works at **any altitude**; lifts creatures and loose blocks, and a bigger ship also **pulls in and swallows smaller UFOs** (at least 1.3x smaller) **and enemy jets** (ship radius 6.5+) | Hold right click |
-| **Lock-on salvo**: lock the UFO, jet or hostile creature nearest the crosshair; after 3 s a salvo of homing laser bolts (more for bigger ships) leaves by itself; let go earlier to cancel; 7 s to recharge | Hold `T` |
+| **Lock-on salvo**: lock the UFO, jet or hostile creature nearest the crosshair; after 3 s a salvo of homing laser bolts (more for bigger ships) leaves by itself; let go earlier to cancel; 7 s to recharge. (Round 13) It uses the same targeting symbols and seeker tone as the jets | Hold `T` |
 | **Teleport dash**: the ship streaks along the view at extreme speed (a split second; distance, travel time or off in Settings > Vehicles; shown in the I panel) and always ends somewhere in view. **Hold** `R` to keep streaking, with no distance limit: it gathers speed over a second or so, and never runs ahead of the land drawn around you (on a slower computer it waits a moment for the world to catch up). Every ship has its own random dash speed (about 900-3500 b/s) | `R` |
 | **Ghost ram**: with ghost mode on (`G`), a dash rams everything it flies through: creatures, UFOs, parked or flying aircraft (and other players, when the room allows PvP), each once per dash, for heavy damage that grows with your ship's size (half against a boss, nothing through a shield). Each ship or aircraft you plough through costs your hull 3%, and a dash that rammed anything has the full 2.5 s cooldown | `R` with `G` on |
 | **Superweapon**: after a short charge, a huge laser straight down; hold the ship moving and it carves a continuous trench along its path | `B` |
@@ -1984,7 +2056,8 @@ you beam up are "stored": their drops go to your inventory, as do the blocks.
 
 ### Fighter jet
 
-**There is no calling in a jet:** fighters stand **parked at airports**, in front
+**In Missions there is no calling in a jet** (Creative: see **Vehicles in
+Creative**): fighters stand **parked at airports**, in front
 of the hangars (F-22 Raptors and F-16 Fighting Falcons), and (Round 10) now and
 then **inside a hangar**, nose to the open doorway, with a clear way out to the
 taxiway (nothing is parked in front of it): get in and taxi straight out. And a
@@ -2092,9 +2165,10 @@ counted once.
 | Rudder (yaw) | `Q` / `E` |
 | **Air brakes** (hold): panels / control surfaces open with a hydraulic whine, the jet sheds speed very fast and turns much tighter (HUD: "Air brakes OPEN"); too slow with them open and it **stalls**. On the ground: the wheel brakes (reverse: `S` at 0%) | `Space` |
 | Autocannon (tracers) | Left click (aims a little for you; **overheats** after about two seconds: watch the heat bar) |
-| **Missile** | A **click** of right click fires one **unguided** missile straight ahead (also when there's nothing to lock) |
-| **Missile lock** | (Round 8: a lock never switches targets: if it loses its target it is gone until you press again; a salvo goes entirely at the locked target; a **left click cancels** the lock, nothing fires.) **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it **while you keep full control of the jet** (the mouse still steers, a ring on the HUD shows where; every key works). Release after **1 s** for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
-| **Salvo charge** | From the solid lock to the salvo time a **spiral turns and closes in around the target box** (Round 8), with a rising click per missile (4 on the F-22, 2 on the F-16), the box shakes and the screen edge glows orange; when it becomes a solid pulsing circle a release fires the salvo (before that, one missile) |
+| **Missile** | A **click** of right click fires a missile: a **homing** one at the target the auto aim has locked (see below), else one **unguided**, straight ahead |
+| **Auto aim** (Round 13, Settings > Vehicles, on by default) | A **seeker circle** sits round the crosshair. Keep a UFO or an enemy aircraft in it and the seeker **slides onto it and closes round it** while the lock builds (a low **growl** that rises and quickens); after about **2 s** it is **LOCKED** (a solid box with a diamond, a **LOCK** tag, a solid high tone, like a real AIM-9's). A slip out of the circle costs time, not the whole lock; once locked it holds while the target stays within about 55 degrees of your view and 2200 blocks. A right **click** then sends a missile after it (your view stays with you, and so does the lock, for the next one); **holding** right click goes on from the lock as before (the salvo, the view on the target). Only a lock made tells a UFO it is locked (it gets angry): just looking at one doesn't |
+| **Missile lock** | (Round 8: a lock never switches targets: if it loses its target it is gone until you press again; a salvo goes entirely at the locked target; a **left click cancels** the lock, nothing fires.) **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it **while you keep full control of the jet** (the mouse still steers, a ring on the HUD shows where; every key works). Release after **1 s** (at once if the auto aim already has it locked) for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
+| **Salvo charge** | From the solid lock to the salvo time the salvo's **pips fill one by one under the target box** (Round 13; it was a spiral), with a rising click per missile (4 on the F-22, 2 on the F-16); when they are all lit (**SALVO x4**) a release fires the salvo (before that, one missile) |
 | **Roll out of a missile** | A hostile missile that gets close when you have **rolled more than about 90 degrees** (either way) loses you and **passes narrowly by** ("MISSILE EVADED!"); it needs a few seconds before it works again, so rolling all the time does not make you immune. Flares still work as always |
 | **Flares** | `C` (a salvo of 6 decoys, one after another every tenth of a second, left and right in turn, as a real dispenser fires them; any of them can fool a missile or a seeking shot, which may even turn on whoever fired it; 5 s to reload; the B-2 and the enemy fighters fire the same salvo) |
 | Nuclear bomb (**B-2 only**) | `B` (it drops on a parachute: get clear! No cooldown) |
@@ -2102,16 +2176,62 @@ counted once.
 | Get out / eject | `F` |
 | Stats and controls panel | `I` |
 
-The HUD shows speed, altitude, throttle, heading, the missile lock, flares,
-the nuke, the cannon **heat bar**, the jet's health, takeoff hints, and
-warnings: **STALL**, **PULL UP**, **CANNON OVERHEATED**, and **MISSILE
-INCOMING** with a red arrow around the crosshair pointing at where it comes
-from and a beeping that speeds up as it closes in. Missiles have a limited
-turn rate: **sharp turns (and flares) make them miss**. With flight assist
-off, the mouse is the stick (up/down pitch, left/right roll). **Settings >
-Vehicles:** top speed up to 2500 km/h (default about 1000), acceleration, turn
-rate, stall speed, flight assist, cannon aim assist, patrol fighters, and
-patrol fighters.
+The HUD shows speed (with the **Mach number**), altitude, throttle, heading,
+the missile lock, flares, the nuke, the cannon **heat bar**, the jet's
+health, takeoff hints, and warnings: **STALL**, **PULL UP**, **CANNON
+OVERHEATED**. (Round 13) **The targeting symbols** are a fighter's HUD: the
+seeker circle, corner brackets that track the target (sized to it) with its
+**name** (UFO, BALL UFO, MOTHERSHIP, the boss's name, BANDIT), its **range**
+and **closure speed** (VC, km/h) beside them, the lock's progress, then the
+solid box, diamond and LOCK tag; an **arrow on the screen's edge** when the
+target is off the screen; a small **diamond on each of your guided missiles**
+on its way, with its **time to go** (TTG) by the target. **MISSILE** flashes
+low in the middle of the screen (faster when it is close, with its range)
+with a red triangle on a ring round the crosshair pointing where it comes
+from, and a beeping that speeds up as it closes in; an amber **LOCK** (and a
+thin warble) means an aircraft out to get you has its nose on you. Your
+guided missiles fly **proportional navigation**, as real ones do (they lead a
+crossing target onto a collision course); missiles still have a limited
+turn rate: **sharp turns (and flares) make them miss**, and an enemy fighter
+drops flares at yours. With flight assist off, the mouse is the stick
+(up/down pitch, left/right roll). **Settings > Vehicles:** top speed (default
+about 1000 km/h), acceleration, turn rate, stall speed, flight assist,
+cannon aim assist, **auto aim (missiles)**, **pilot voice callouts**, and
+patrol fighters. (**Settings > Audio:** a **Pilot voice** volume.)
+
+**The sound barrier** (Round 13): Mach 1 is **1235 km/h** (767 mph; the HUD
+shows the Mach number). With the **afterburner lit** the fighters now go a
+little past it (the F-22 to about Mach 1.1, 1360 km/h, the F-16 to about
+Mach 1.06), as the real ones do; the B-2 stays subsonic like the real one
+(unless the top speed setting is raised in Creative). Going through it: a
+**vapor cone**, a white conical collar of mist round the fuselage that
+flashes for about a second, a **shock ring** racing out from it, a puff of
+condensation, a jolt, and the **sonic boom**, the double crack of the shock
+wave over a deep thump: heard by everyone around, later and more muffled the
+farther away they are (at the speed of sound), and felt close by. Slowing
+back through it: a softer boom and a faint ring, no cone. Your UFO does it
+too (it is fast), and so do the enemy fighters, the UFOs and, online, the
+other players' aircraft: each machine sees them break it. (A missile chasing
+a supersonic jet is faster too: it keeps its old edge.)
+
+**Missile blasts** (Round 13) are bigger: a white-hot flash, a larger rolling
+fireball, a shock sphere, burning fragments arcing out, a dark smoke ball
+and a deeper boom; on the ground a crater a third wider (6.5). The damage to
+UFOs and creatures is as before (190 for a hit; the splash a few points more
+from the wider blast). Online everyone sees them.
+
+**The pilot's voice** (Round 13): callouts over the radio (a click and a
+burst of squelch before and after each line): **"Splash one!"** for an
+enemy fighter, **"UFO destroyed!"** (or "Object taken down!", "Bogey
+down!"), **"Ball UFO down!"**, **"Mothership destroyed!"**, **"Target
+destroyed!"** for a boss, **"Tank destroyed!"**; **"Fox two!"** when a guided
+missile leaves the rail, **"Missile, missile!"** when one comes for you,
+**"Missile defeated!"** when you roll out of one. One line at a time, never
+the same twice in a row; the words are your browser's own speech (an
+English voice: Chrome and Edge have good ones); without speech you hear
+just the radio. **Settings > Vehicles: Pilot voice callouts** (on by
+default); **Settings > Audio: Pilot voice** volume (it follows the master
+volume too).
 
 **Patrol fighters:** friendly fighters patrol high up, a little faster than
 yours, and **hunt UFOs** (only UFOs: they help, but never clear the sky for
@@ -2139,6 +2259,62 @@ loads later: the zone is saved with the world (and sent to players who join)
 and applied to every chunk as it generates.
 **Settings > Weapons:** nuke size (12-200, default 96) and effects intensity.
 
+## The ground war: tanks and missile launchers
+
+**Tanks.** Two to drive: the **Tiger** (a heavy WWII tank: thick armour, the
+long 88, a slow turret) and a modern **battle tank** (faster, a quicker
+turret). Walk up and press **F**.
+
+| Key | |
+|---|---|
+| W / S | forward / brake, then reverse |
+| A / D | turn the hull (on the spot too) |
+| Space | brake |
+| Mouse | aim: the turret and the gun follow at their own speed |
+| Left click | the main gun (an HE shell on a real arc; reload 4-5 s) |
+| Right click | the coaxial machine gun |
+| V (or F5) | the gunner's sight: zoomed, with stadia, range marks and the rangefinder |
+| C | smoke launchers: a white screen the enemy can't see through (25 s) |
+| F | get out |
+
+The white cross is where you aim; the green circle is where a shell would
+land right now: it slides onto the cross as the turret comes round (the
+fire control works out the range and the elevation). The ring round the
+cross fills as the gun reloads. A tank climbs one-block steps, crushes
+leaves and plants, is slowed by water and won't go into deep water; walls
+and tree trunks stop it. Below half its armour it smokes, below a quarter
+it burns; at nothing it cooks off and throws its turret.
+
+**Enemy tanks, AA and launchers (Missions).** The aliens have hijacked
+tanks, AA vehicles and ballistic missile launchers. Their tanks swing their
+turrets round slowly and their aim settles a moment before they fire: keep
+moving. AA vehicles track aircraft with their radar: tracer flak with black
+bursts, and SAMs (your missile warning sees them; flares, C, and hard turns
+fool them). Their wrecks often leave a supply crate. After the tank battle
+mission, a platoon or an AA site turns up now and then on its own.
+
+**Ballistic missiles.** A launcher (a TEL truck) lowers its jacks, raises
+its missile upright, vents, and lights it: the missile leaves very slowly,
+then climbs faster and faster high into the sky on a long flame and a thick
+white trail, arcs over and comes down far away in a huge blast. A red ring
+on the ground marks where an incoming one will land.
+
+**Military bases.** New Missions worlds have airbases: an airfield with a
+big walled base behind it (fences, walls and watchtowers with floodlights,
+a gate with guardhouses, barracks, a command building, vehicle sheds, a
+yard of parked tanks and missile trucks, radar dishes, a helipad, fuel
+tanks, ammo bunkers, AA positions). The yard's tanks are yours to take from
+the tank battle mission on (in Creative at once). Worlds saved before
+Round 13 keep their land and sites as they were.
+
+**New missions:** *Tank battle* (always in a run: a tank of ours, a platoon
+of theirs), *Stop the launch* (destroy the launchers before they fire at
+the airport), *Convoy* (destroy a column from the air), *Air defense*
+(destroy the AA vehicles), *Base assault* (take back an enemy-held base).
+
+Online: the host runs the enemy; everyone sees the tanks, their shots, the
+SAMs and the missiles; anyone's hits count.
+
 ## Stats
 
 The pause menu's **Stats** screen counts, for this world and for all your
@@ -2155,9 +2331,9 @@ default).
 
 **Missions mods** (the button at the top of Settings) switches all the Missions content on
 or off. It's on by default. Off takes the UFO war out of a Missions world:
-no guns, explosives, vehicles, UFOs or aliens (swords and tools stay; for
-normal Minecraft, with crafting, hunger and vanilla mobs, make a Survival
-world). Switching mid-game is instant and clean: mod items are put away and come
+no guns, explosives, vehicles, UFOs or aliens (swords and tools stay, and
+so does everything of normal Minecraft underneath: crafting, hunger, vanilla
+mobs and the rest). Switching mid-game is instant and clean: mod items are put away and come
 back to the same slots when you switch mods on again; projectiles, UFOs,
 aliens and vehicles leave the world.
 
@@ -2218,7 +2394,7 @@ glowing blocks): the sun and the moon never reach rock that can't see the sky
 cave's air holds no sky-coloured haze or mist. A cave without any light is
 dark but faintly visible, as vanilla's light level 0, and the same by day and
 by night. Under water, High and Ultra add light shafts from the surface, and
-every preset shows drifting particles. **Rain and snow** (Survival worlds) are
+every preset shows drifting particles. **Rain and snow** (both world types) are
 drawn round the camera on Medium, High and Ultra (more drops on the higher
 presets); Low draws none (the sky still turns grey, and you still hear the
 rain).
@@ -2270,13 +2446,13 @@ filled up by big world saves can't stop them from being saved.
 | --- | --- |
 | Graphics | Render distance 2-256 chunks (Auto's), graphics preset **Auto (best for this PC)** / Low / Medium / High / Ultra with individual options, show FPS (on), Fullscreen |
 | Performance | One-click presets **Auto** / Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto's), far terrain quality Low-Extreme (Auto's), resolution scale 50-200% (Auto's), effects detail (Auto's) |
-| Controls | Field of view 50-110 (75), mouse sensitivity 0.1-4x (0.6x), invert Y (off), binocular zoom 2-12x (6x) |
-| Audio | Master, blocks and footsteps, weapons and explosions, creatures, player, menus |
+| Controls | Field of view 50-110 (75), mouse sensitivity 0.1-4x (0.5x), invert Y (off), binocular zoom 2-12x (6x) |
+| Audio | Master (15%), blocks and footsteps, weapons and explosions, creatures, player, menus, pilot voice |
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, stats on the HUD (off); **Creative only:** creatures spawn (on), time of day and lock |
 | Weapons | Laser blaster color Red / Green / Blue (Red), nuke effects intensity Low / Medium / **High**. **Creative only:** grenade and bazooka blast size (1x); airstrike: meteors per strike 1-40 (7), spread 0-80 (22), delay 1-20 s (5 s), fall angle 0-70 degrees (35), fall speed 30-250 (95), meteor blast size (1x); nuke size 12-200 (96) |
 | Mobs | **(Creative only)** Zombie spawn rate Off to APOCALYPSE (1x), max zombies 0-400 (8), zombie health and damage 0.25-5x (1x), daylight zombies (off) |
 | UFOs | (**All of this tab is Creative only**: in Missions the mission chain sets the sky.) UFO activity Off to UFO APOCALYPSE (Occasional); **advanced:** spawn chance, max UFOs (Auto), aggression (Never attack to 2x), detection range 40-300 (130), tractor beam lift speed (4), sizes (Balanced), night multiplier 1-6x (3x), toughness 0.25-4x (1x) |
-| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on; the only one Missions keeps), jet top speed 288-2520 km/h (1080), cannon aim assist (on), patrol fighters 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
+| Vehicles | UFO top speed 20-1200 (300) and slowest speed 0.5-8 (2), ghost mode (off), beam lifts loose blocks (on), teleport dash distance Off-3x (1x) and travel time 0.08-0.6 s (0.25 s), jet flight assist (on; the only one Missions keeps), jet top speed 288-2520 km/h (1080), cannon aim assist (on), auto aim for missiles (on), pilot voice callouts (on), patrol fighters 0-3 (1), acceleration 0.5-2.5x (1x), turn rate 0.5-2x (1x), stall speed 90-252 km/h (151) |
 
 **Missions and Survival fix the rules of the game.** Every setting that changes weapon stats, creature or UFO numbers and strength, vehicle performance or the clock (marked *Creative only* above) is hidden outside Creative, and there the game uses their defaults whatever was set in Creative (switch modes in the pause menu and your Creative values come back). Missions and Survival keep graphics, performance, controls, audio, difficulty, the stats overlay, the blaster color, the nuke's visual intensity and the jet's flight assist.
 
@@ -2285,14 +2461,16 @@ hundreds of zombies, or a long full-detail distance).
 
 ## The world
 
-(Round 11) This is a Missions world's land: its terrain, ores, trees and
-water are exactly as before Round 11 (its old saves look the same), and the
-new blocks and items are in its Creative palette. A Survival world has the
-same scale and landforms, but vanilla's ores, lava, frozen water, biomes,
-trees and jungles, villages, its structures (dungeons, mineshafts, desert
-and jungle temples, ruined portals, strongholds) and weather, the Nether and
-the End, and no airports or cities (see **Survival (vanilla Minecraft)** and
-**The Nether and the End**).
+(Round 13) A new Missions world's land is a Survival world's (vanilla's
+ores, lava, frozen water, biomes, trees and jungles, villages, its
+structures: dungeons, mineshafts, desert and jungle temples, ruined portals,
+strongholds; see **Survival (vanilla Minecraft)** and **The Nether and the
+End**), with the airports, cities and military bases on top; a Survival
+world has no airports or cities. What follows is the land of a Missions
+world made before Round 13, which keeps it (its old saves look the same:
+the terrain, ores, trees and water as before Round 11), with all the blocks
+and items in its Creative palette; the airports and cities below are in new
+Missions worlds too.
 
 A world at the scale of classic block games, 128 blocks tall, now with very
 different landforms: continents and big oceans; **mountain ranges** with bare
@@ -2304,7 +2482,7 @@ flowery **meadows** with a lone tree here and there, deserts as flat as a
 table, room for the jets and the fights); rivers; and big biomes (forests, plains, taigas,
 snowy lands, **much larger deserts and jungles** (the jungle has giant old
 oaks), savannas, swamps, badlands, meadows), with caves, coal and gold, and
-glowing crystals underground. (Iron and diamonds are gone from a Missions world.) Forests and meadows alternate: oaks with irregular crowns and
+glowing crystals underground. (Iron and diamonds are gone from an old Missions world.) Forests and meadows alternate: oaks with irregular crowns and
 branches, pale birch groves, dark pine woods on the hills, and rare huge old
 oaks with roots spreading over the ground. On High and Ultra the ground
 comes alive with grass, reeds along the water, ferns in the shade of trees,
@@ -2317,7 +2495,8 @@ Round 10: wall torches inside every house and beside every door, and a
 **chest** with loot in about half the houses, one more in the biggest;
 a Survival world's villages are vanilla's since Round 12, in the style of
 their biome (see **Structures** under **Survival (vanilla Minecraft)**),
-while a Missions world's villages are as before), and much bigger **airports and cities** (Missions worlds only), are rarer (and spread far apart), except for one regular
+and so are a new Missions world's (Round 13), while an old Missions world's
+villages are as before), and much bigger **airports and cities** (Missions worlds only), are rarer (and spread far apart), except for one regular
 airport close to where a new world starts (**F3** shows the nearest). The land is levelled under them, distant terrain
 included. **Airports** come in three sizes (small field, regional,
 international) with runways from 600 to 920 blocks long and 18-26 wide, an
@@ -2717,6 +2896,16 @@ thread's byte for byte:
 All the Round 11 suites take `--only=substring`; the browser ones, like the
 others, fail on any console or page error.
 
+- `r13-air-tests.mjs` (Round 13, part air): auto aim locks a UFO kept
+  round the crosshair in about 2 s (not before 1.6 s) with the seeker's
+  growl then a solid tone, and the HUD canvas shows the lock building and
+  made; a click then fires a missile that homes on a UFO flying across and
+  hits it, with "Fox two"; with nothing in the seeker a missile flies
+  straight; a fighter on its afterburner breaks Mach 1 (one boom, a vapor
+  cone), one under Mach 1 makes none, slowing through it booms softly; a
+  missile's blast is the bigger one (6.5) with its shock rings; kills queue
+  the callouts ("UFO destroyed", "Ball UFO down", "Splash one"; speech is
+  stubbed). `SHOTS=dir` saves screenshots, `SIZE=1600x900` a bigger page.
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client
   and real WebRTC data channels, through a local PeerJS signaling server

@@ -512,6 +512,7 @@ function installDm() {
       }
       case "bow":
         dm.give(297);
+        if (g.inventory.countItem(373) < 8) g.inventory.add(373, 64); // (Round 13: the bow takes arrows in a Missions world too)
         dm.aimAt(c.clone().setY(c.y + 0.15));
         W.bow.drawing = true;
         W.bow.t = 1.2;

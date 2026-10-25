@@ -10,13 +10,16 @@
 // a player can reach quickly (real targets at sniper range), with a total
 // mob cap and simplified, cheaper AI for anything far from the player.
 //
-// (Round 11) A Survival world (worldtype.js isVanilla()) has vanilla's mobs
+// (Round 11) A Survival world (worldtype.js vanillaRules()) has vanilla's mobs
 // instead: zombies, skeletons, spiders, creepers, endermen, slimes and
 // witches by night; cows, pigs, chickens and sheep that breed, babies that
 // grow up, villagers who trade (trading.js) and iron golems guarding them;
-// cod and salmon in the water; vanilla drops, health and AI. A Missions world
-// keeps its mobs exactly as before (the new kinds never spawn there, except
-// from a Creative spawn egg).
+// cod and salmon in the water; vanilla drops, health and AI. (Round 13) A
+// Missions world has them too (vanillaRules), with its own creatures among
+// them: fluffalos, hoplets and mossbacks in some of the herds
+// (MISSIONS_CRITTERS), butterflies by the flowers, and the missions' aliens
+// and guards (ufos.js, missions.js); online its hostile creatures are still
+// a little tougher for a bigger group (missionsLayer).
 //
 // (Round 12) The Nether's and the End's creatures (vanilla Java 1.20): the
 // ghast and its fireballs (hit one back), zombified piglins (a whole group
@@ -39,7 +42,7 @@ import { BIOME } from "./biomes.js";
 import { Crowd } from "./crowd.js";
 import { Pathfinder } from "./pathfinding.js";
 import { meleeCause, shooterCause } from "./damage.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules, missionsLayer } from "./worldtype.js";
 import { touchesCactus } from "./survival.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
@@ -390,7 +393,7 @@ for (const [k, c] of Object.entries(VANILLA_CHANGES)) VANILLA_SPECIES[k] = { ...
 
 // A kind's spec in this world.
 export function specOf(kind) {
-  return (isVanilla() && VANILLA_SPECIES[kind]) || SPECIES[kind];
+  return (vanillaRules() && VANILLA_SPECIES[kind]) || SPECIES[kind];
 }
 
 // A baby's spec: half the size, quicker (its parents' spec otherwise).
@@ -418,6 +421,14 @@ const VANILLA_ANIMALS_TAIGA = [["sheep", 12], ["pig", 10], ["chicken", 10], ["co
 const VANILLA_MAX_HOSTILE = 20; // per player (vanilla's 70 covers a far bigger area than the game keeps loaded)
 const VANILLA_MAX_PASSIVE = 16;
 const VANILLA_MAX_TOTAL = 56;
+// (Round 13) A Missions world's Overworld: lower caps, as its aliens, guards
+// and soldiers come on top of them (weak PCs).
+const MISSIONS_MAX_HOSTILE = 12;
+const MISSIONS_MAX_TOTAL = 40;
+// (Round 13) In a Missions world, the share of the animal herds that are its
+// own creatures (by their SPECIES weights), among vanilla's farm animals.
+const MISSIONS_CRITTERS = ["fluffalo", "hoplet", "mossback"];
+const MISSIONS_CRITTER_SHARE = 0.25;
 // Sheep colours (vanilla's odds: mostly white, a few grey, black or brown,
 // very rarely pink); wool block ids by colour (mob-models.js WOOL_COLORS order).
 const SHEEP_ODDS = [[0, 81.836], [7, 5], [8, 5], [15, 5], [12, 3], [6, 0.164]];
@@ -669,8 +680,8 @@ const VILLAGE_SEARCH_RADIUS = 60;
 
 // Seconds for a full-strength swing with the given tool.
 function attackCooldown(tool) {
-  // (A Survival world: Java's attack speeds, 1 / the tool's vSpeed (items.js); the hand 4 a second.)
-  if (isVanilla() && (!tool || tool.vSpeed)) return tool ? 1 / tool.vSpeed : 0.25;
+  // (Java's attack speeds, 1 / the tool's vSpeed (items.js); the hand 4 a second.)
+  if (vanillaRules() && (!tool || tool.vSpeed)) return tool ? 1 / tool.vSpeed : 0.25;
   if (!tool) return 0.35;
   if (tool.type === "sword") return 0.6;
   if (tool.type === "axe") return 0.9;
@@ -835,12 +846,12 @@ export class MobManager {
     }
     if (variant === undefined) variant = this._pickVariant(kind, x, y, z);
     variant = Math.max(0, Math.min(15, variant | 0));
-    if (kind === "villager" && !isVanilla()) variant = 0;
+    if (kind === "villager" && !vanillaRules()) variant = 0;
     if (baby) spec = babySpec(spec);
     const model = createMobModel(kind, variant);
     // (Online the host's hostile creatures are a little tougher for a bigger
     // group, in a Missions world only: vanilla's health does not scale.)
-    const health = spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile && !isVanilla() ? this.groupHealth ?? 1 : 1);
+    const health = spec.health * (kind === "zombie" ? this.zombies.health : 1) * (spec.hostile && missionsLayer() ? this.groupHealth ?? 1 : 1);
     const m = {
       id: this._nextId++,
       kind,
@@ -917,7 +928,7 @@ export class MobManager {
       for (const [c, w] of SHEEP_ODDS) if ((r -= w) <= 0) return c;
       return 0;
     }
-    if (kind === "villager" && isVanilla()) return 1 + (Math.random() < 0.05 ? NITWIT : Math.floor(Math.random() * NITWIT));
+    if (kind === "villager" && vanillaRules()) return 1 + (Math.random() < 0.05 ? NITWIT : Math.floor(Math.random() * NITWIT));
     return 0;
   }
 
@@ -1017,8 +1028,8 @@ export class MobManager {
     if (top < 0 || !isGrassy(this.world.getBlock(x, top, z))) return 0;
     if (this.world.lightAt(x + 0.5, top + 1.5, z + 0.5).sky < 10) return 0;
     const kind = this._pickPassive(x, z);
-    // (A Survival world's herds: vanilla's up to four.)
-    const herd = kind === "mossback" ? 1 + (Math.random() < 0.3 ? 1 : 0) : 2 + Math.floor(Math.random() * (isVanilla() ? 3 : 2));
+    // (Vanilla's herds: up to four.)
+    const herd = kind === "mossback" ? 1 + (Math.random() < 0.3 ? 1 : 0) : 2 + Math.floor(Math.random() * (vanillaRules() ? 3 : 2));
     const n = Math.min(herd, room);
     let spawned = 0;
     for (let i = 0; i < n; i++) {
@@ -1034,7 +1045,9 @@ export class MobManager {
   }
 
   _pickPassive(x, z) {
-    if (isVanilla()) {
+    // (Round 13) A Missions world's own creatures, in some of its herds.
+    if (vanillaRules() && missionsLayer() && Math.random() < MISSIONS_CRITTER_SHARE) return pickWeighted(MISSIONS_CRITTERS.map((k) => [k, SPECIES[k].weight]));
+    if (vanillaRules()) {
       // (Wolves in forests and the taiga, vanilla's packs.)
       const b = x === undefined ? -1 : this.world.terrain?.biomeAt?.(x, z);
       if (b === BIOME.FOREST || b === BIOME.TAIGA || b === BIOME.SNOWY_TAIGA || b === BIOME.DARK_FOREST) return pickWeighted(b === BIOME.FOREST ? VANILLA_ANIMALS_FOREST : VANILLA_ANIMALS_TAIGA);
@@ -1062,13 +1075,13 @@ export class MobManager {
     const top = this.world.surfaceY(x, z);
     if (top < 0) return false;
     const anyLight = kind === "zombie" && this.zombies.daylight;
-    const vanilla = isVanilla();
+    const vanilla = vanillaRules();
     // Start from the surface or from a random depth, then look for a floor.
     let y = Math.random() < 0.5 ? top + 1 : 2 + Math.floor(Math.random() * Math.max(1, top - 3));
     for (let k = 0; k < 12 && y > 1; k++, y--) {
       const below = this.world.getBlock(x, y - 1, z);
       if (!IS_SOLID[below] || IS_LEAVES[below]) continue;
-      // (A Survival world: only on a full, opaque block, as in vanilla: not
+      // (Only on a full, opaque block, as in vanilla: not
       // glass, a slab, a fence, leaves.)
       if (vanilla && (!IS_OPAQUE[below] || COLLISION_BOXES[below])) continue;
       if (!this._freeAt(x, y, z, SPECIES[kind].h)) continue;
@@ -1080,11 +1093,11 @@ export class MobManager {
     return false;
   }
 
-  // Dark enough for a monster: in a Missions world the old rule (light 4 or
-  // less); in a Survival world vanilla's (no block light at all, and the
-  // sky's light, dimmed by night, no more than a random 0-7).
+  // Dark enough for a monster: vanilla's rule (no block light at all, and
+  // the sky's light, dimmed by night, no more than a random 0-7); before
+  // Round 13 a Missions world's was light 4 or less.
   _darkEnough(x, y, z) {
-    if (!isVanilla()) return this._effectiveLight(x, y, z) <= 4;
+    if (!vanillaRules()) return this._effectiveLight(x, y, z) <= 4;
     const l = this.world.lightAt(x + 0.5, y + 0.5, z + 0.5);
     if (l.block > 0) return false;
     // (Round 11: a thunderstorm darkens the day for them: vanilla's sky darkening of 10)
@@ -1137,6 +1150,7 @@ export class MobManager {
     let radius = 34;
     let cap = VILLAGERS_PER_VILLAGE;
     let spread = 20;
+    let fromSite = false;
     // Airports and cities (sites.js) have their people too: a few around an
     // airport's apron, a crowd in a city.
     const site = terrain.sites?.nearest(p.x, p.z, 320);
@@ -1147,6 +1161,7 @@ export class MobManager {
         radius = st.radius + 10;
         cap = site.kind === "city" ? 9 : 3;
         spread = st.radius * 0.8;
+        fromSite = true;
       }
     }
     if (!village) return;
@@ -1159,7 +1174,7 @@ export class MobManager {
       radius = villages.villageBounds(village).radius + 4;
       this._fillPens(villages, village);
     }
-    const vanilla = isVanilla();
+    const vanilla = vanillaRules();
     const near = (x, z, r) => Math.hypot(x - village.x, z - village.z) < r;
     let nearby = this.mobs.filter((m) => !m.dead && m.kind === "villager" && near(m.pos.x, m.pos.z, radius)).length;
     let hasGolem = this.mobs.some((m) => !m.dead && m.kind === "iron_golem" && near(m.pos.x, m.pos.z, radius + 16));
@@ -1172,7 +1187,9 @@ export class MobManager {
     // villagers about, and after one is killed not for 5-10 minutes (an
     // endless iron farm otherwise).
     const vkey = villageKey(village);
-    const golem = vanilla && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
+    // (Round 13: not an airport's or a city's people: no golem, and they
+    // come and go as before, not kept with the world.)
+    const golem = vanilla && !fromSite && !hasGolem && nearby >= 3 && this.time >= (this._golemCd.get(vkey) ?? 0);
     if (nearby >= cap && !golem) return;
     let sx;
     let sz;
@@ -1199,7 +1216,7 @@ export class MobManager {
     if (top < 0 || !this._freeAt(sx, top + 1, sz, SPECIES[kind].h)) return;
     const m = this.spawn(kind, sx + 0.5, top + 1, sz + 0.5, { variant });
     // (Survival: kept with the world, with their trades, as vanilla's never despawn.)
-    if (m && vanilla) {
+    if (m && vanilla && !fromSite) {
       m.persist = true;
       if (golem) m.villageKey = vkey;
     }
@@ -1243,9 +1260,9 @@ export class MobManager {
     const top = this.world.surfaceY(x, z);
     if (top < 0) return;
     const above = this.world.getBlock(x, top + 1, z);
-    const vanilla = isVanilla();
-    // (A Survival world: no butterflies; cod in the sea, salmon in rivers and cold water.)
-    if ((above === BLOCK.FLOWER_RED || above === BLOCK.FLOWER_YELLOW) && !vanilla) {
+    const vanilla = vanillaRules();
+    // (Cod in the sea, salmon in rivers and cold water; butterflies a Missions world's own, Round 13.)
+    if ((above === BLOCK.FLOWER_RED || above === BLOCK.FLOWER_YELLOW) && (!vanilla || missionsLayer())) {
       if (this.world.lightAt(x + 0.5, top + 2.5, z + 0.5).sky > 8) this.spawn("butterfly", x + 0.5, top + 2, z + 0.5);
       return;
     }
@@ -1407,7 +1424,7 @@ export class MobManager {
       this._seeded = true;
       for (let i = 0; i < 40 && this.countAnimals() < MAX_PASSIVE - 2; i++) this._trySpawnPassive(14, 50, MAX_PASSIVE - 2 - this.countAnimals());
     }
-    if (isVanilla()) {
+    if (vanillaRules()) {
       this._updateSpawningVanilla(dt);
       return;
     }
@@ -1438,8 +1455,8 @@ export class MobManager {
     if (Math.random() < 0.4) this._trySpawnFlyers();
   }
 
-  // (Round 11) A Survival world: zombies at their own rate and cap (the Mobs
-  // settings, as in a Missions world), the other monsters by vanilla's
+  // (Round 11; Round 13: both world types) Zombies at their own rate and cap
+  // (the Mobs settings), the other monsters by vanilla's
   // weights, slimes, herds of animals, villagers and their golems, fish.
   // Farm animals (kept: bred, fed, shorn) don't count against the caps.
   _updateSpawningVanilla(dt) {
@@ -1461,13 +1478,14 @@ export class MobManager {
     if (this._spawnTimer > 0) return;
     this._spawnTimer = SPAWN_INTERVAL;
     const players = this.targets ? Math.min(3, this.targets().length) : 1;
+    const missions = missionsLayer();
     let total = 0;
     for (const m of this.mobs) if (!m.persist && !m.spec.flies && m.kind !== "zombie" && !m.spec.projectile) total++;
-    if (total >= VANILLA_MAX_TOTAL * Math.min(2, players)) return;
+    if (total >= (missions ? MISSIONS_MAX_TOTAL : VANILLA_MAX_TOTAL) * Math.min(2, players)) return;
     const passiveCap = VANILLA_MAX_PASSIVE * players;
     if (this.countAnimals() - this._keptAnimals() < passiveCap && Math.random() < 0.3) this._aroundAnyone(() => this._trySpawnPassive(30, 80, passiveCap - this.countAnimals() + this._keptAnimals()));
     if (hostiles) {
-      const cap = VANILLA_MAX_HOSTILE * players;
+      const cap = (missions ? MISSIONS_MAX_HOSTILE : VANILLA_MAX_HOSTILE) * players;
       for (let k = 0; k < 2; k++) if (this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnHostile(pickWeighted(VANILLA_HOSTILES)));
       if (Math.random() < 0.2 && this.countOf(true) < cap) this._aroundAnyone(() => this._trySpawnSlime());
       this._portalPiglins(SPAWN_INTERVAL); // (Round 12)
@@ -2014,7 +2032,7 @@ export class MobManager {
     const i = this.mobs.indexOf(m);
     if (i >= 0) this._remove(i);
     const removed = this.effects.explode(at, { radius: CREEPER_RADIUS, source: "creeper" });
-    if (Array.isArray(removed) && isVanilla()) this.blastDrops(removed, at, 1 / 3);
+    if (Array.isArray(removed) && vanillaRules()) this.blastDrops(removed, at, 1 / 3);
   }
 
   // What blown-up blocks leave (vanilla: each drops as if mined, one in
@@ -2095,7 +2113,7 @@ export class MobManager {
     }
     // Daylight under the open sky: it wanders off by teleport now and then.
     if (this.sky.daylight > 0.6 && m.light.sky >= 13 && Math.random() < dt * 0.05) this._teleport(m);
-    if (isVanilla()) this._endermanBlocks(m, dt);
+    if (vanillaRules()) this._endermanBlocks(m, dt);
     return this._wander(m, dt, dist);
   }
 
@@ -2794,7 +2812,7 @@ export class MobManager {
   // goes to them online: onRemoteXp). Survival worlds only. (A kill's
   // experience is xp.js's killXp, from the spec's `xp`.)
   _giveXp(pid, amount, pos) {
-    if (!(amount > 0) || !isVanilla()) return;
+    if (!(amount > 0) || !vanillaRules()) return;
     if (!pid || pid === 1 || !this.targets) LIB.giveXp?.(amount, pos.x, pos.y + 0.5, pos.z);
     else this.onRemoteXp?.(pid, amount, pos);
   }
@@ -3074,7 +3092,7 @@ export class MobManager {
   // someone's), sitting, a villager's offers (trading.js encodeOffers) or 0,
   // a tame wolf's owner's nickname or 0]. (Older saves stop at sitting.)
   serializeKept() {
-    if (this.puppets || !isVanilla()) return undefined;
+    if (this.puppets || !vanillaRules()) return undefined;
     const out = [];
     for (const m of this.mobs) {
       if (!m.persist || m.dead || m.net || (m.spec.hostile && !m.spec.keeps) || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
@@ -3093,7 +3111,7 @@ export class MobManager {
   loadKept(list) {
     this._structDone = new Set();
     this._structNone = new Set();
-    if (!Array.isArray(list) || !isVanilla()) return;
+    if (!Array.isArray(list) || !vanillaRules()) return;
     const done = list.find((e) => Array.isArray(e) && e[0] === "@s");
     if (done) for (const k of done.slice(1)) if (typeof k === "string" && /^-?\d+,-?\d+$/.test(k)) this._structDone.add(k);
     this._kept = list.filter((e) => Array.isArray(e) && Object.hasOwn(SPECIES, e[0]) && (!SPECIES[e[0]].hostile || SPECIES[e[0]].keeps) && !SPECIES[e[0]].special && [1, 2, 3].every((k) => Number.isFinite(e[k]))).slice(0, 400);
@@ -3132,8 +3150,8 @@ export class MobManager {
     const d = this._audioDist(m);
     // (Round 12: a ghast is heard far off.)
     if (d > (m.spec.loud ? 90 : 40)) return;
-    // (A Missions world's own creatures keep the voices they had.)
-    const own = m.spec.vanilla || isVanilla();
+    // (A Missions world's own creatures keep the voices they had: none here.)
+    const own = m.spec.vanilla || vanillaRules();
     const parts = own ? VANILLA_VOICES[m.kind]?.[event] || (m.spec.magma ? VANILLA_VOICES.magma[event] : m.kind.startsWith("slime") ? VANILLA_VOICES.slime[event] : null) : null;
     const a = this.audio;
     if (!parts || typeof a?._voice !== "function" || typeof a._hit !== "function") {
@@ -3457,7 +3475,7 @@ export class MobManager {
   // A thrown ender pearl took its thrower away from (x, y, z): one time in
   // twenty an endermite is left there (vanilla; LIB.pearlLanded, js/entities.js).
   pearlLanded(x, y, z) {
-    if (!isVanilla() || Math.random() >= 0.05) return null;
+    if (!vanillaRules() || Math.random() >= 0.05) return null;
     return this.requestSpawn("endermite", x, y, z);
   }
 
@@ -3537,7 +3555,7 @@ export class MobManager {
   // Out of the Nether a piglin or a hoglin shakes for 15 s and turns into
   // its zombified kind (vanilla), where it stands, as hurt as it was.
   _zombify(m, dt, into) {
-    if (this.world.dim === "nether" || !isVanilla()) {
+    if (this.world.dim === "nether" || !vanillaRules()) {
       m.zombT = 0;
       m.shakeT = 0;
       return false;
@@ -4260,7 +4278,7 @@ export class MobManager {
           this._hitBy(o, 5, dir, 0);
           o.fireT = Math.max(o.fireT ?? 0, 5);
         }
-      } else if (blk && isVanilla() && Number.isFinite(V.FIRE)) {
+      } else if (blk && vanillaRules() && Number.isFinite(V.FIRE)) {
         // (It sets fire where it lands, as vanilla's.)
         const [x, y, z] = blk.place;
         if (this.world.getBlock(x, y, z) === BLOCK.AIR) this.world.setBlock(x, y, z, V.FIRE);
@@ -4278,7 +4296,7 @@ export class MobManager {
   // on a third of the open spots around (vanilla's).
   _fireballBlast(at) {
     const removed = this.effects.explode(at, { radius: GHAST_BLAST, source: "ghast" });
-    if (!isVanilla() || !Array.isArray(removed)) return;
+    if (!vanillaRules() || !Array.isArray(removed)) return;
     this.blastDrops(removed, at, 1);
     if (!Number.isFinite(V.FIRE)) return;
     const w = this.world;
@@ -4589,8 +4607,8 @@ export class MobManager {
       // (Round 12) A wither skeleton's blow withers (vanilla: 10 s).
       if (m.spec.hitEffect) this._effectOn(this.player, ...m.spec.hitEffect);
       if (this.onPlayerHurt) this.onPlayerHurt(m);
-      if (isVanilla()) this._rallyWolves(this._pidOf(this.player), m); // (Round 11: their wolves defend them)
-    } else if (isVanilla() && this.player.shieldBlockedAt > performance.now() / 1000 - 0.1) {
+      if (vanillaRules()) this._rallyWolves(this._pidOf(this.player), m); // (Round 11: their wolves defend them)
+    } else if (vanillaRules() && this.player.shieldBlockedAt > performance.now() / 1000 - 0.1) {
       // (A blow turned away by a shield pushes the attacker back, as vanilla.)
       m.stagger = 0.45;
       m.knock.x -= nx * 5;
@@ -5119,7 +5137,7 @@ export class MobManager {
           o.angerT = 30;
         }
       }
-      if (isVanilla() && !(m.kind === "wolf" && m.tamed && m.owner === pid)) this._rallyWolves(pid, m);
+      if (vanillaRules() && !(m.kind === "wolf" && m.tamed && m.owner === pid)) this._rallyWolves(pid, m);
     }
     // A calm crew member (just landed, looking around) that gets hit
     // stops looking around: it (and its mates) fight back at once.
@@ -5232,7 +5250,7 @@ export class MobManager {
       if (n > 0 && isValidItem(item)) this.entities.spawn(item, n, new THREE.Vector3(c.x, c.y + 0.4, c.z));
     }
     if (keep && !m.net) {
-      if (isVanilla() || m.spec.vanilla) this._vanillaDrops(m, byPlayer);
+      if (vanillaRules() || m.spec.vanilla) this._vanillaDrops(m, byPlayer);
       if (m.spec.split) this._split(m);
     }
     // (A killed iron golem's village waits 5-10 minutes for the next.)
@@ -5249,10 +5267,10 @@ export class MobManager {
   explosion(center, radius, byPlayer = true, source = null, info = null) {
     const reach = radius * 1.8;
     const size = Math.sqrt(radius / 7);
-    // (A Survival world: a creeper's or TNT's blast hurts as vanilla's, power
+    // (A creeper's or TNT's blast hurts as vanilla's, power
     // 3 or 4, reach 2 x power from the feet, exposure taken as 1; main.js
     // hurtByBlast does the same for the player.)
-    const power = isVanilla() ? VANILLA_BLAST_POWER[source] : 0;
+    const power = vanillaRules() ? VANILLA_BLAST_POWER[source] : 0;
     if (power) {
       for (const m of this.mobs) {
         if (m.dead || m.spec.projectile) continue;
@@ -5358,8 +5376,8 @@ export class MobManager {
     const charge = this.charge(tool);
     this.lastAttackTime = this.time;
     if (mob.dead) return false;
-    const vanilla = isVanilla();
-    // (A Survival world: Java's damage, the tool's vDamage (items.js) when it has one.)
+    const vanilla = vanillaRules();
+    // (Java's damage, the tool's vDamage (items.js) when it has one.)
     const base = vanilla && tool?.vDamage != null ? tool.vDamage : meleeDamage(tool);
     let dmg = Math.max(0, base + (extra?.bonus ?? 0)) * (0.2 + 0.8 * charge * charge);
     // Critical hit: striking while falling (in a Survival world as Java: not
@@ -5581,8 +5599,8 @@ export class MobManager {
           this._physics(m, step, want);
           this._sounds(m, step);
           this._daylight(m, step, daylight);
-          // (Round 11) A Survival world's animals' clocks, and fire and lava.
-          if (isVanilla() && !m.dead) {
+          // (Round 11) The animals' clocks, and fire and lava.
+          if (vanillaRules() && !m.dead) {
             this._animalTick(m, step);
             this._fireTick(m, step);
             if (m.spec.wet && !m.dead) this._wetTick(m, step); // (Round 12: a blaze, a strider)
@@ -5640,7 +5658,7 @@ export class MobManager {
     if (m.burnTimer >= 1) {
       m.burnTimer = 0;
       m.invulnerable = 0;
-      this._hurt(m, isVanilla() ? 1 : 2, null, 0); // (vanilla's fire: 1 a second)
+      this._hurt(m, vanillaRules() ? 1 : 2, null, 0); // (vanilla's fire: 1 a second)
     }
     if (Math.random() < dt * 14) {
       const c = this._burnC;

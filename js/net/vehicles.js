@@ -247,7 +247,7 @@ export class VehicleSync {
     v.update = v._realUpdate;
     v.damage = v._realDamage;
     v.transient = false;
-    v.keep = v.type === "ufo" && !v.wreck;
+    v.keep = (v.type === "ufo" && !v.wreck) || !!v.summoned; // (Round 13: a Creative summon stays kept)
     v.net.owner = this.net.pid;
     v.interp?.clear();
     // Where it was last seen, at rest.
@@ -360,6 +360,8 @@ export class VehicleSync {
       v._place();
       v.model.lightsOn = v.downed ? 0 : 1;
       v.model.animate(v.time, { night, damage: 1 - v.health / v.maxHealth, beam: v.beam.strength, speed: v.vel.length() });
+    } else if (v.netPuppet) {
+      v.netPuppet(st, dt); // (Round 13: a tank's or a launcher's pose: vehicle-tank.js)
     } else {
       v.root.position.copy(v.pos);
     }
@@ -649,6 +651,7 @@ export class VehicleSync {
         s.se = [r2(_a.x), r2(_a.y), r2(_a.z), r2(gb.scale.x)];
       }
     }
+    v.netState?.(s); // (Round 13: a tank's hull, turret and gun, a launcher's erector)
     return s;
   }
 

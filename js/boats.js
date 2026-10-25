@@ -37,7 +37,7 @@ import { blockCubeGeometry } from "./models.js";
 import { encodeStack, decodeStack, sameStack } from "./inventory.js";
 import { PICKUP_DELAY } from "./entities.js";
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { LIB } from "./content/base.js";
 import * as I from "./content/ids.js";
 import { WOODS, boatItem, cartItem, isRail, RAIL_SHAPE, isAscending, EW, ASC_E, ASC_W } from "./content/transport.js";
@@ -1032,7 +1032,7 @@ export class Transport {
     const mobs = this.game.mobs;
     const charge = mobs ? mobs.charge(tool) : 1;
     mobs?.swing();
-    const base = isVanilla() && tool?.vDamage != null ? tool.vDamage : meleeDamage(tool);
+    const base = vanillaRules() && tool?.vDamage != null ? tool.vDamage : meleeDamage(tool);
     const amount = Math.max(0.5, base) * (0.2 + 0.8 * charge * charge);
     const creative = !!this.player.creative;
     this.game.audio?.playDig?.(v.kind === "boat" ? "wood" : "stone");

@@ -22,7 +22,7 @@
 // ("pvp", the PvP rule applies), the host's AI's hits too ("dmg").
 
 // Explosions and shots that are a player's doing.
-const PLAYER_CAUSES = new Set(["grenade", "bazooka", "airstrike", "missile", "nuke", "ufocannon", "cannon", "explosion", "beam", "player", "pvp", "pk"]);
+const PLAYER_CAUSES = new Set(["grenade", "bazooka", "airstrike", "missile", "nuke", "ufocannon", "cannon", "explosion", "beam", "player", "pvp", "pk", "tankshell", "ballistic"]); // (Round 13: a tank's shell, a launcher's missile)
 
 // "grenade@3_fall" -> "grenade".
 export function baseCause(cause) {
@@ -133,6 +133,21 @@ export const DEATH_MESSAGES = {
   ufocannon: "Blasted by your own UFO cannon",
   ufocannon_fall: "Blasted off a cliff by your own UFO cannon",
   nuke: "Too close to your own nuke",
+  // (Round 13) The ground war.
+  tankshell: "Blown up by your own tank shell",
+  tankshell_fall: "Sent flying by your own tank shell",
+  ballistic: "Too close to your own ballistic missile",
+  ballistic_fall: "Thrown far by your own ballistic missile",
+  enemyballistic: "Caught in an enemy ballistic missile's blast",
+  enemyballistic_fall: "Thrown far by an enemy ballistic missile",
+  enemyshell: "Hit by an enemy tank's shell",
+  enemyshell_fall: "Blown off your feet by an enemy tank's shell",
+  tank_boom: "Caught in an exploding tank",
+  tank_boom_fall: "Thrown by an exploding tank",
+  flak: "Shot down by flak",
+  sam: "Hit by a SAM",
+  sam_fall: "Blown out of the sky by a SAM",
+  tank_down: "Went up with your tank",
   nuke_fall: "Blown away by your own nuke",
   missile: "Hit by your own missile",
   missile_fall: "Sent flying by your own missile",
@@ -194,6 +209,7 @@ export function pilotCause(vehicleType, cause) {
     if (c === "alien" || c === "soldier" || /^alien_/.test(c)) return "jet_down_ground";
     return "jet_down";
   }
+  if (vehicleType === "tank" || vehicleType === "tel") return c === "enemyshell" || c === "sam" || c === "enemyballistic" ? c : "tank_down"; // (Round 13)
   if (c === "ufo_laser" || c === "ufo_blast") return "ufo_down_ufo";
   return "ufo_down";
 }

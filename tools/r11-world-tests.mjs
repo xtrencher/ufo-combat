@@ -240,7 +240,7 @@ await check("loot keeps vanilla's odds: what the game lacks gives nothing (a dun
   assert(books / rolls > 0.05 && books / rolls < 0.11, `enchanted books per roll: ${(books / rolls).toFixed(3)} (vanilla 10/127 = 0.079)`);
 });
 
-await check("a Missions world's chunks are unchanged (no structures), and the distant terrain of a Survival world still matches its chunks' heights", async () => {
+await check("an old Missions save's chunks (Round 13: the legacy generator) are unchanged (no structures), and the distant terrain of a Survival world still matches its chunks' heights", async () => {
   WT.setWorldType("missions");
   const MISSIONS_HASHES = { 12345: 1268467022, 777: 739122713, 2024: 48227652 };
   const coords = [[0, 0], [1, 0], [-3, 2], [10, -7], [40, 40], [-60, 13], [100, -100], [7, 200], [-250, -31], [333, 90]];
@@ -387,10 +387,10 @@ await check("the weather cycles within vanilla's times (on this world's day) and
   assert(w2.raining && w2.thundering && w2.isThundering && Math.abs(w2.rainTime - w.rainTime) < 0.2, "the saved weather");
   w2.load(undefined);
   assert(!w2.raining && !w2.isRaining, "an old save: clear");
-  // A Missions world: never.
+  // (Round 13: a Missions world has the weather too.)
   WT.setWorldType("missions");
   w.update(1);
-  assert(w.levels.rain === 0 && !w.isRaining && !w.rainingAt(0, 40, 0), "rain in a Missions world");
+  assert(w.levels.rain === 1 && w.isRaining, "the weather goes on in a Missions world");
   WT.setWorldType("survival");
 });
 

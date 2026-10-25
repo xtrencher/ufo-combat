@@ -20,6 +20,15 @@
 //   buildings of every kind next to it: low houses, mid-rise blocks, parks
 //   and downtown skyscrapers (glass towers with setbacks, crowns and
 //   antennas, up to ~80 blocks tall).
+//   (Round 13) airbase: a military airfield with a big walled base behind
+//   its apron: an outer fence and an inner wall with watchtowers and
+//   floodlights, a main gate with guardhouses and a back gate, roads, rows
+//   of barracks, a command building (radar dish and antennas on its roof,
+//   a flag), vehicle sheds and a vehicle yard with parked tanks and missile
+//   trucks (yardSpots: the players can take the tanks), radar dishes, a
+//   helipad, fuel tanks, earth-covered ammo bunkers, sandbagged AA
+//   positions. Only in worlds made with the Round 13 terrain (an older
+//   Missions world keeps its sites as they were).
 //
 // Local coordinates: u runs along the runway, v across it (the apron and the
 // city lie on the +v side); the runway's centre is (u, v) = (0, 0). `axis`
@@ -28,6 +37,7 @@
 import { hash2, mulberry32 } from "./noise.js";
 import { BLOCK, wallTorch, chest } from "./blocks.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
+import { STONE_BRICKS, IRON_BARS, GRAY_CONCRETE, LIGHT_GRAY_CONCRETE, WHITE_CONCRETE, YELLOW_CONCRETE, SMOOTH_STONE, SANDSTONE, IRON_BLOCK, GREEN_WOOL, RED_WOOL, POLISHED_ANDESITE, BLACK_CONCRETE } from "./content/ids.js";
 
 export const SITE_CELL = 1300; // grid cell a site candidate is picked from (Round 6: bigger cells and lower chances: airports are rarer)
 const CITY_CHANCE = 0.22;
@@ -45,6 +55,11 @@ const LOT_DECO_SALT = 0x51a7e006;
 const JET_HANGAR_CHANCE = 0.5; // (Round 10) the share of hangars with a fighter in them (where the way out is clear)
 const MIN_ROOM = 4; // (Round 10) a hangar takes a fighter only where the airport keeps room for this many (or as many as before): a group of four always finds a jet each
 const CITY_CHEST_CHANCE = 0.3; // (Round 10) the share of city buildings with a chest in the lobby
+// (Round 13) Military airbases: this share of the airports becomes one, and
+// this share of the cells that had no site gets one (new terrain only).
+const BASE_SALT = 0x51a7e007;
+const BASE_SHARE = 0.4;
+const BASE_EXTRA = 0.16;
 
 // The smallest runway's half length (what older callers assume); each site
 // has its own: `site.half`, and `site.rw` for its half width.
@@ -60,6 +75,9 @@ const AIRPORT_SIZES = {
   field: { half: 300, rw: 14, apronHalfW: 82, apronD: 48, hangars: 2, tanks: 3, parking: 2, tower: 20, terminal: false, radar: false, bunker: 0.35 },
   regional: { half: 380, rw: 16, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 4, parking: 3, tower: 26, terminal: true, radar: false, bunker: 0.6 },
   international: { half: 460, rw: 18, apronHalfW: 150, apronD: 72, hangars: 4, tanks: 6, parking: 5, tower: 34, terminal: true, radar: true, bunker: 0.95 },
+  // (Round 13) The military airbase: a regional field's runway and apron, no
+  // terminal, and the walled base behind it (see _planBase).
+  airbase: { half: 380, rw: 16, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 3, parking: 3, tower: 26, terminal: false, radar: true, bunker: 0, base: true },
 };
 
 const CITY_V_GAP = 6; // between the apron and the first street of the city
@@ -87,6 +105,9 @@ export class SiteGrower {
     // (Round 11) off: a Survival world's terrain, with no airports or cities
     // (no home airport, no site in any cell; every query finds none).
     this.off = off;
+    // (Round 13) The airbases come with the Round 13 terrain only (the vanilla
+    // land under a Missions world): an older world's land stays as it was.
+    this.bases = !off && !!terrain.options?.vanilla;
     if (off) {
       this._homeDone = true;
       this.home = null;
@@ -114,11 +135,13 @@ export class SiteGrower {
   _make(cx, cz) {
     if (this.off) return null;
     const roll = hash2((this.seed ^ KIND_SALT) >>> 0, cx, cz);
-    if (roll >= CITY_CHANCE + AIRPORT_CHANCE) return null;
+    const baseRoll = this.bases ? hash2((this.seed ^ BASE_SALT) >>> 0, cx, cz) : 1;
+    const extraBase = roll >= CITY_CHANCE + AIRPORT_CHANCE && baseRoll < BASE_EXTRA;
+    if (roll >= CITY_CHANCE + AIRPORT_CHANCE && !extraBase) return null;
     const kind = roll < CITY_CHANCE ? "city" : "airport";
-    const terrain = this.terrain;
     const sizeRoll = hash2((this.seed ^ SIZE_SALT) >>> 0, cx, cz);
-    const sizeName = kind === "city" ? (sizeRoll < 0.6 ? "regional" : "international") : sizeRoll < 0.45 ? "field" : sizeRoll < 0.8 ? "regional" : "international";
+    let sizeName = kind === "city" ? (sizeRoll < 0.6 ? "regional" : "international") : sizeRoll < 0.45 ? "field" : sizeRoll < 0.8 ? "regional" : "international";
+    if (kind === "airport" && (extraBase || baseRoll < BASE_SHARE)) sizeName = "airbase";
     for (let t = 0; t < TRIES; t++) {
       const jx = hash2((this.seed ^ PLACE_SALT) >>> 0, cx * 16 + t, cz);
       const jz = hash2((this.seed ^ PLACE_SALT ^ 0x9e37) >>> 0, cx * 16 + t, cz);
@@ -297,9 +320,12 @@ export class SiteGrower {
         });
       }
     }
+    // (Round 13) The military base behind the apron.
+    site.base = S.base ? this._planBase(site, apron) : null;
     // The levelled rectangle.
     let v1 = apron.v1 + 6;
     if (site.bunkers.length) v1 = Math.max(v1, site.bunkers[0].cv1 + 4);
+    if (site.base) v1 = Math.max(v1, site.base.v1 + 6);
     let u0 = -(half + 24);
     let u1 = half + 24;
     if (site.kind === "city") {
@@ -324,7 +350,332 @@ export class SiteGrower {
         u1 = Math.max(u1, b.cu1 + 4);
       }
     }
+    if (site.base) {
+      u0 = Math.min(u0, site.base.u0 - 6);
+      u1 = Math.max(u1, site.base.u1 + 6);
+    }
     site.rect = { u0, u1, v0: -(rw + 13), v1 };
+  }
+
+  // (Round 13) The military base: everything in local (u, v) from its own
+  // random stream (the rest of the airport's plan is untouched).
+  // Rects are [u0, u1, v0, v1] inclusive.
+  _planBase(site, apron) {
+    const rand = mulberry32(site.seed ^ 0xba5e);
+    const W = 150 + Math.floor(rand() * 4) * 10; // half width
+    const D = 200 + Math.floor(rand() * 4) * 10; // depth
+    const uc = Math.round((apron.u0 + apron.u1) / 2);
+    const b = { u0: uc - W, u1: uc + W, v0: apron.v1 + 10, v1: apron.v1 + 10 + D, uc };
+    const { u0, u1, v0, v1 } = b;
+    // The gates: the main one toward the apron, a back gate.
+    b.gate = uc;
+    b.backGate = uc + Math.round((rand() - 0.5) * W);
+    // The roads: the main road in from the gate, a cross road, the ring inside the wall.
+    const cross = v0 + Math.round(D * (0.42 + rand() * 0.12));
+    b.cross = cross;
+    b.roads = [[uc - 4, uc + 4, v0, v1 - 6], [u0 + 9, u1 - 9, cross - 3, cross + 3], [u0 + 7, u0 + 12, v0 + 7, v1 - 7], [u1 - 12, u1 - 7, v0 + 7, v1 - 7], [u0 + 7, u1 - 7, v0 + 7, v0 + 12], [u0 + 7, u1 - 7, v1 - 12, v1 - 7], [b.backGate - 3, b.backGate + 3, cross, v1]];
+    // Watchtowers: the corners and along the walls.
+    b.towers = [];
+    const tw = (u, v) => b.towers.push({ u, v, h: 13 + Math.floor(rand() * 3) });
+    for (const [u, v] of [[u0 + 4, v0 + 4], [u1 - 4, v0 + 4], [u0 + 4, v1 - 4], [u1 - 4, v1 - 4]]) tw(u, v);
+    for (let u = u0 + 70; u < u1 - 40; u += 70) {
+      if (Math.abs(u - uc) > 18) tw(u, v0 + 4);
+      if (Math.abs(u - b.backGate) > 14) tw(u, v1 - 4);
+    }
+    for (let v = v0 + 70; v < v1 - 40; v += 70) {
+      tw(u0 + 4, v);
+      tw(u1 - 4, v);
+    }
+    b.guardhouses = [[uc - 15, uc - 8, v0 + 2, v0 + 9], [uc + 8, uc + 15, v0 + 2, v0 + 9]];
+    // The left half (seen from the gate): barracks rows, the command building.
+    const L0 = u0 + 18;
+    const L1 = uc - 12;
+    b.barracks = [];
+    for (let i = 0; i < 4; i++) {
+      const bv0 = v0 + 20 + i * 18;
+      if (bv0 + 11 >= cross - 6) break;
+      b.barracks.push({ r: [L0 + 6, Math.min(L1 - 6, L0 + 6 + 44 + Math.floor(rand() * 10)), bv0, bv0 + 10], h: 6 });
+    }
+    const cw = 26;
+    b.command = { r: [L1 - 8 - cw, L1 - 8, cross + 10, cross + 30], h: 15, dish: rand() < 0.5 };
+    b.flag = { u: b.command.r[1] + 6, v: cross + 8 };
+    // Fuel tanks and the ammo bunkers in the back left.
+    b.fuel = [];
+    for (let i = 0; i < 4; i++) b.fuel.push({ u: L0 + 10 + (i % 2) * 13, v: cross + 44 + Math.floor(i / 2) * 13, r: 4.6, h: 8 });
+    b.fuelBerm = [L0 + 2, L0 + 32, cross + 36, cross + 64];
+    b.ammo = [];
+    for (let i = 0; i < 4; i++) {
+      const au = L0 + 44 + i * 20;
+      if (au + 7 > L1 - cw - 14) break;
+      b.ammo.push({ r: [au, au + 12, v1 - 34, v1 - 18] });
+    }
+    // The right half: the vehicle sheds, the yard, the radar dishes, the helipad.
+    const R0 = uc + 12;
+    const R1 = u1 - 18;
+    b.sheds = [];
+    for (let i = 0; i < 2; i++) {
+      const s0 = R0 + 8 + i * 34;
+      if (s0 + 28 > R1) break;
+      b.sheds.push({ r: [s0, s0 + 28, v0 + 18, v0 + 36], h: 10 });
+    }
+    b.yard = [R0 + 8, Math.min(R1 - 4, R0 + 8 + 80), v0 + 44, Math.min(cross - 6, v0 + 44 + 46)];
+    b.helipad = { u: R1 - 24, v: cross + 26, r: 11 };
+    b.dishes = [{ u: R0 + 18, v: cross + 22, r: 6 }, { u: R0 + 18, v: cross + 48, r: 5 }];
+    b.radarMast = { u: R1 - 22, v: v1 - 30 };
+    // AA positions: sandbag rings by the corners and the gate (tanks.js sets
+    // AA vehicles there in a fight; empty, a gun mount stands in each).
+    b.aa = [{ u: uc - 28, v: v0 + 22 }, { u: uc + 28, v: v0 + 22 }, { u: u0 + 22, v: v1 - 22 }, { u: u1 - 22, v: v1 - 22 }, { u: R1 - 8, v: cross + 6 }];
+    // The yard's parked vehicles: tanks in rows, the missile trucks at the back.
+    b.slots = [];
+    const [y0, y1, yv0, yv1] = b.yard;
+    let k = 0;
+    for (let u = y0 + 6; u + 6 <= y1; u += 11) {
+      b.slots.push({ u, v: yv0 + 8, face: -1, kind: k % 3 === 2 ? "tiger" : "mbt", paint: rand() < 0.5 ? "olive" : rand() < 0.5 ? "desert" : "grey" });
+      k++;
+      if (b.slots.length >= 6) break;
+    }
+    for (let i = 0; i < 2 && y0 + 10 + i * 18 + 8 <= y1; i++) b.slots.push({ u: y0 + 10 + i * 18, v: yv1 - 10, face: -1, kind: "tel", paint: "olive" });
+    // Lamp posts along the main and the cross road.
+    b.lamps = [];
+    for (let v = v0 + 16; v < v1 - 12; v += 16) b.lamps.push([uc - 6, v], [uc + 6, v]);
+    for (let u = u0 + 20; u < u1 - 16; u += 18) if (Math.abs(u - uc) > 8) b.lamps.push([u, cross - 5]);
+    // (The bounding boxes of what stands, for quick look-ups per column.)
+    const items = [];
+    const add = (t, r, o) => items.push({ t, r, o });
+    for (const t of b.towers) add("tower", [t.u - 2, t.u + 2, t.v - 2, t.v + 2], t);
+    for (const g of b.guardhouses) add("hut", g, { r: g, h: 5 });
+    for (const x of b.barracks) add("barracks", x.r, x);
+    add("command", [b.command.r[0], b.command.r[1], b.command.r[2], b.command.r[3]], b.command);
+    add("flag", [b.flag.u, b.flag.u, b.flag.v, b.flag.v], b.flag);
+    for (const f of b.fuel) add("fuel", [Math.floor(f.u - f.r), Math.ceil(f.u + f.r), Math.floor(f.v - f.r), Math.ceil(f.v + f.r)], f);
+    add("berm", b.fuelBerm, { r: b.fuelBerm });
+    for (const a of b.ammo) add("ammo", a.r, a);
+    for (const x of b.sheds) add("shed", x.r, x);
+    for (const d of b.dishes) add("dish", [d.u - d.r - 1, d.u + d.r + 1, d.v - d.r - 1, d.v + d.r + 1], d);
+    add("mast", [b.radarMast.u - 2, b.radarMast.u + 2, b.radarMast.v - 2, b.radarMast.v + 2], b.radarMast);
+    for (const a of b.aa) add("aa", [a.u - 5, a.u + 5, a.v - 5, a.v + 5], a);
+    for (const [u, v] of b.lamps) add("lamp", [u, u, v, v], null);
+    b.items = items;
+    // (Distant view: a few boxes for the buildings: [u0, u1, v0, v1, h].)
+    b.far = [...b.barracks.map((x) => [...x.r, x.h]), [...b.command.r, b.command.h], ...b.sheds.map((x) => [...x.r, x.h]), ...b.towers.map((t) => [t.u - 2, t.u + 2, t.v - 2, t.v + 2, t.h])];
+    return b;
+  }
+
+  // The base's ground at (u, v): roads, the yard's concrete, the helipad, grass.
+  _baseSurface(b, u, v) {
+    const inR = (r) => u >= r[0] && u <= r[1] && v >= r[2] && v <= r[3];
+    const h = b.helipad;
+    const dh = Math.hypot(u - h.u, v - h.v);
+    if (dh <= h.r) {
+      // A concrete pad: a yellow ring, a white H.
+      if (dh > h.r - 1.2) return YELLOW_CONCRETE;
+      const du = u - h.u;
+      const dv = v - h.v;
+      if ((Math.abs(du) <= 4 && Math.abs(du) >= 3 && Math.abs(dv) <= 5) || (Math.abs(dv) <= 0.5 && Math.abs(du) <= 3)) return WHITE_CONCRETE;
+      return GRAY_CONCRETE;
+    }
+    if (inR(b.yard)) {
+      // The yard: concrete with parking lines.
+      if ((u - b.yard[0]) % 11 === 0 && v < b.yard[2] + 16) return YELLOW_CONCRETE;
+      return (u + v) % 9 === 0 ? POLISHED_ANDESITE : LIGHT_GRAY_CONCRETE;
+    }
+    for (const r of b.roads) if (inR(r)) return (u * 7 + v * 3) % 11 === 0 ? BLOCK.GRAVEL : GRAY_CONCRETE;
+    // The wall's foot, the path along the fence.
+    if (u <= b.u0 + 4 || u >= b.u1 - 4 || v <= b.v0 + 4 || v >= b.v1 - 4) return BLOCK.GRAVEL;
+    for (const x of b.items) if ((x.t === "barracks" || x.t === "command" || x.t === "shed" || x.t === "hut") && u >= x.r[0] - 2 && u <= x.r[1] + 2 && v >= x.r[2] - 2 && v <= x.r[3] + 2) return SMOOTH_STONE;
+    return BLOCK.GRASS;
+  }
+
+  // One column of the base: put(yr, id) for each block above the pad (yr 1..).
+  _baseColumn(b, u, v, put) {
+    // The outer fence on the rim, the inner wall 3 blocks in (both with their gates).
+    const onRim = u === b.u0 || u === b.u1 || v === b.v0 || v === b.v1;
+    const wallRing = (u === b.u0 + 3 || u === b.u1 - 3) && v >= b.v0 + 3 && v <= b.v1 - 3 || (v === b.v0 + 3 || v === b.v1 - 3) && u >= b.u0 + 3 && u <= b.u1 - 3;
+    const inGate = ((v <= b.v0 + 3) && Math.abs(u - b.gate) <= 5) || ((v >= b.v1 - 3) && Math.abs(u - b.backGate) <= 4);
+    if (onRim && !inGate) {
+      for (let y = 1; y <= 3; y++) put(y, IRON_BARS);
+      if ((u + v) % 6 === 0) put(4, IRON_BARS);
+      return;
+    }
+    if (wallRing && !inGate) {
+      for (let y = 1; y <= 4; y++) put(y, STONE_BRICKS);
+      // Crenels, and a light every so often.
+      if ((u + v) % 2 === 0) put(5, STONE_BRICKS);
+      if ((u + v) % 24 === 0) put(5, BLOCK.LUMEN);
+      return;
+    }
+    // The gate's barrier and its posts.
+    if (v === b.v0 + 3 && Math.abs(u - b.gate) <= 5) {
+      if (Math.abs(u - b.gate) === 5) for (let y = 1; y <= 6; y++) put(y, y === 6 ? BLOCK.LUMEN : STONE_BRICKS);
+      else put(2, (u & 1) ? RED_WOOL : WHITE_CONCRETE);
+      return;
+    }
+    for (const x of b.items) {
+      const r = x.r;
+      if (u < r[0] || u > r[1] || v < r[2] || v > r[3]) continue;
+      this._baseItem(x, u, v, put);
+    }
+  }
+
+  _baseItem(x, u, v, put) {
+    const r = x.r;
+    const o = x.o;
+    const edge = u === r[0] || u === r[1] || v === r[2] || v === r[3];
+    switch (x.t) {
+      case "tower": {
+        // A watchtower: four legs, a cabin with glass, a roof, a floodlight.
+        const du = Math.abs(u - o.u);
+        const dv = Math.abs(v - o.v);
+        const h = o.h;
+        if (du === 2 && dv === 2) for (let y = 1; y < h - 3; y++) put(y, POLISHED_ANDESITE);
+        if (du <= 2 && dv <= 2) {
+          put(h - 3, SMOOTH_STONE);
+          if (du === 2 || dv === 2) {
+            put(h - 2, du === 2 && dv === 2 ? POLISHED_ANDESITE : BLOCK.GLASS);
+            put(h - 1, du === 2 && dv === 2 ? POLISHED_ANDESITE : BLOCK.GLASS);
+          }
+          put(h, SMOOTH_STONE);
+          if (du === 0 && dv === 0) {
+            put(h + 1, IRON_BLOCK);
+            put(h + 2, BLOCK.LUMEN);
+          }
+          // A ladder shaft's frame every few blocks (cross braces).
+          if (du === 0 && dv === 2 && (h - 3) > 4) for (let y = 3; y < h - 3; y += 4) put(y, POLISHED_ANDESITE);
+        }
+        break;
+      }
+      case "hut":
+      case "barracks":
+      case "command":
+      case "shed": {
+        const h = o.h;
+        const cu = Math.floor((r[0] + r[1]) / 2);
+        const cv = Math.floor((r[2] + r[3]) / 2);
+        if (x.t === "shed") {
+          // A vehicle shed: open toward the yard (the +v side), a roof on pillars.
+          const openSide = v === r[3];
+          if (edge && !openSide) for (let y = 1; y < h; y++) put(y, y <= 2 ? STONE_BRICKS : GRAY_CONCRETE);
+          if (openSide && (u - r[0]) % 7 === 0) for (let y = 1; y < h; y++) put(y, STONE_BRICKS);
+          put(h, LIGHT_GRAY_CONCRETE);
+          if (!edge && (u - r[0]) % 7 === 3 && (v - r[2]) % 6 === 3) put(h - 1, BLOCK.LUMEN);
+          break;
+        }
+        if (edge) {
+          for (let y = 1; y <= h; y++) {
+            const door = (x.t === "hut" ? v === r[3] : v === r[2]) && Math.abs(u - cu) <= (x.t === "command" ? 1 : 0) && y <= 3;
+            if (door) continue;
+            const win = y % 5 >= 2 && y % 5 <= 3 && (u + v) % 3 !== 0 && !(u === r[0] && v === r[2]) && !(u === r[1] && v === r[3]) && !(u === r[0] && v === r[3]) && !(u === r[1] && v === r[2]);
+            put(y, win ? BLOCK.GLASS : x.t === "command" ? STONE_BRICKS : y === 1 ? STONE_BRICKS : LIGHT_GRAY_CONCRETE);
+          }
+        } else {
+          // Floors every five blocks, a light on each.
+          for (let y = 5; y < h; y += 5) put(y, SMOOTH_STONE);
+          if (u === cu && v === cv) for (let y = 1; y < h; y += 5) put(y + 3, BLOCK.LUMEN);
+        }
+        put(h + 1, x.t === "command" ? GRAY_CONCRETE : SMOOTH_STONE);
+        if (edge) put(h + 2, x.t === "command" ? STONE_BRICKS : 0);
+        // The command building's roof: antennas, a dish, a light.
+        if (x.t === "command") {
+          if (u === r[0] + 3 && v === r[2] + 3) for (let y = h + 2; y < h + 12; y++) put(y, y === h + 11 ? BLOCK.LUMEN : IRON_BARS);
+          if (u === r[1] - 3 && v === r[3] - 3) for (let y = h + 2; y < h + 9; y++) put(y, IRON_BARS);
+          if (o.dish) {
+            const du = u - cu;
+            const dv = v - cv;
+            if (du === 0 && dv === 0) put(h + 2, IRON_BLOCK), put(h + 3, IRON_BLOCK);
+            if (Math.abs(du) <= 3 && Math.abs(dv) <= 0 + 1 && Math.hypot(du, dv * 2) <= 3.5) put(h + 4 + Math.round(Math.abs(du) * 0.4), BLOCK.WOOL);
+          }
+        }
+        break;
+      }
+      case "flag":
+        for (let y = 1; y <= 12; y++) put(y, IRON_BARS);
+        break;
+      case "fuel": {
+        const d = Math.hypot(u - o.u, v - o.v);
+        if (d > o.r) break;
+        for (let y = 1; y <= o.h; y++) put(y, y === o.h ? SMOOTH_STONE : d > o.r - 1 ? (y % 3 === 0 ? GRAY_CONCRETE : WHITE_CONCRETE) : WHITE_CONCRETE);
+        break;
+      }
+      case "berm":
+        if (edge) for (let y = 1; y <= 2; y++) put(y, BLOCK.DIRT);
+        if (edge) put(3, BLOCK.GRASS);
+        break;
+      case "ammo": {
+        // An earth-covered bunker: a low mound, a concrete front with a steel door.
+        const cu = (r[0] + r[1]) / 2;
+        const depth = r[3] - r[2];
+        const dz = (v - r[2]) / depth; // 0 at the front
+        const hu = Math.abs(u - cu) / ((r[1] - r[0]) / 2);
+        const top = Math.round(5 * Math.sqrt(Math.max(0, 1 - hu * hu)) * Math.min(1, 0.4 + dz * 1.6));
+        if (v === r[2]) {
+          for (let y = 1; y <= 5; y++) put(y, Math.abs(u - cu) <= 1.5 && y <= 3 ? IRON_BLOCK : GRAY_CONCRETE);
+          break;
+        }
+        for (let y = 1; y <= top; y++) put(y, y === top ? BLOCK.GRASS : BLOCK.DIRT);
+        break;
+      }
+      case "dish": {
+        // A radar dish: a pedestal and a tilted round reflector of white blocks.
+        const du = u - o.u;
+        const dv = v - o.v;
+        if (Math.abs(du) <= 0 && Math.abs(dv) <= 0) for (let y = 1; y <= 4; y++) put(y, IRON_BLOCK);
+        const d = Math.hypot(du, dv);
+        if (d <= o.r) {
+          const y = Math.round(5 + o.r * 0.6 + dv * 0.7 - (o.r - d) * 0.35);
+          put(y, BLOCK.WOOL);
+        }
+        if (du === 0 && dv === -Math.round(o.r * 0.4)) put(Math.round(5 + o.r * 0.9), IRON_BLOCK);
+        break;
+      }
+      case "mast": {
+        const du = Math.abs(u - o.u);
+        const dv = Math.abs(v - o.v);
+        if (du === 0 && dv === 0) for (let y = 1; y <= 26; y++) put(y, y === 26 ? BLOCK.LUMEN : IRON_BARS);
+        if (du + dv === 2 && du !== dv) put(1, IRON_BLOCK);
+        if (du === 0 && dv === 0) put(13, IRON_BLOCK);
+        break;
+      }
+      case "aa": {
+        // Sandbags round a gun mount.
+        const d = Math.hypot(u - o.u, v - o.v);
+        if (d >= 4 && d < 5 && !(v > o.v + 3 && Math.abs(u - o.u) <= 1)) {
+          put(1, SANDSTONE);
+          put(2, SANDSTONE);
+        }
+        if (d < 0.5) put(1, IRON_BLOCK);
+        break;
+      }
+      case "lamp":
+        for (let y = 1; y <= 6; y++) put(y, y === 6 ? BLOCK.LUMEN : POLISHED_ANDESITE);
+        break;
+    }
+  }
+
+  // (Round 13) The base's parked vehicles: [{ x, y, z, yaw, kind, paint, key }]
+  // (each player's own copy, like the airports' aircraft, until boarded).
+  yardSpots(site) {
+    if (!site?.base) return [];
+    if (site._yardSlots) return site._yardSlots;
+    const [vx, vz] = this.dirV(site);
+    site._yardSlots = site.base.slots.map((sl, i) => {
+      const [x, z] = this.toWorld(site, sl.u, sl.v);
+      // (Facing -v: toward the yard's front and the main gate.)
+      const yaw = Math.atan2(vx, vz);
+      return { x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw, kind: sl.kind, paint: sl.paint, key: `${site.id}#y${i}` };
+    });
+    return site._yardSlots;
+  }
+
+  // (Round 13) The base's AA positions and the middle of its yard (the missions' garrisons):
+  // { aa: [{ x, y, z }], yard: { x, y, z }, gate: { x, z }, center: { x, z } } or null.
+  baseSpots(site) {
+    const b = site?.base;
+    if (!b) return null;
+    const at = (u, v) => {
+      const [x, z] = this.toWorld(site, u, v);
+      return { x: x + 0.5, y: site.y + 1, z: z + 0.5 };
+    };
+    return { aa: b.aa.map((a) => at(a.u, a.v)), yard: at((b.yard[0] + b.yard[1]) / 2, (b.yard[2] + b.yard[3]) / 2), gate: at(b.gate, b.v0), center: at(b.uc, b.cross), command: at((b.command.r[0] + b.command.r[1]) / 2, b.command.r[2] - 4) };
   }
 
   // The building lots of a city grid: [{ m, k, kind, u0, u1, v0, v1, boxes, wall, roof, doorSide, ... }].
@@ -793,6 +1144,9 @@ export class SiteGrower {
     // Apron.
     const a = s.apron;
     if (v >= a.v0 && v <= a.v1 && u >= a.u0 && u <= a.u1) return (u + 1200) % 16 === 0 || (v & 15) === 0 ? BLOCK.GRAVEL : BLOCK.STONE;
+    // (Round 13) The military base.
+    const mb = s.base;
+    if (mb && u >= mb.u0 && u <= mb.u1 && v >= mb.v0 && v <= mb.v1) return this._baseSurface(mb, u, v);
     // The secured compounds behind the apron: a concrete yard.
     if (s.bunkers) {
       for (const b of s.bunkers) {
@@ -842,6 +1196,9 @@ export class SiteGrower {
     if (s.bunkers) {
       for (const b of s.bunkers) if (u >= b.cu0 && u <= b.cu1 && v >= b.cv0 && v <= b.cv1) out.push({ t: "bunker", o: b });
     }
+    // (Round 13) The military base: one column at a time (_baseColumn).
+    const mb = s.base;
+    if (mb && u >= mb.u0 && u <= mb.u1 && v >= mb.v0 && v <= mb.v1) out.push({ t: "base", o: mb });
     if (s.lots) {
       // Lots are on a grid: find the one covering (u, v).
       const l = this._lotAt(s, u, v);
@@ -1121,6 +1478,13 @@ export class SiteGrower {
         // Structures.
         const list = this._structuresAt(site, u, v);
         for (const st of list) {
+          if (st.t === "base") {
+            this._baseColumn(st.o, u, v, (yr, id) => {
+              const y = y0 + yr;
+              if (y >= 1 && y < WORLD_HEIGHT) blocks[idx(lx, y, lz)] = id;
+            });
+            continue;
+          }
           if (st.t === "bunker") {
             // Above the surface and below it (the ramp and the hall are dug into the ground).
             for (let yr = -(BUNKER_RAMP >> 1) - 2; yr <= 40; yr++) {

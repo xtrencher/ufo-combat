@@ -9,8 +9,8 @@
 // are thrown (the pearl takes you there, 5 damage); shears cut leaves whole;
 // golden tools mine at gold's speed; the core ores drop raw metal and gems;
 // a village chest holds the classic village loot; the compass and clock turn
-// in hand. Then a Missions world: the bow needs no arrows and the ores and
-// chests are as before.
+// in hand. Then a Missions world (Round 13: one world): the bow takes arrows
+// and the ores drop as in a Survival world; its loot chests are as before.
 //
 //   node r11-items-tests.mjs [--only=substring] [--seed=4711]
 //
@@ -530,7 +530,7 @@ await page.context().close();
 page = await newPage();
 await boot(`seed=${SEED + 1}`);
 
-await check("a Missions world: the bow needs no arrows, ores and chests as before", async () => {
+await check("a Missions world: the bow takes arrows and the ores drop as vanilla's (Round 13); its loot chests as before", async () => {
   const r = await v(async (g) => {
     const I = await import("./js/items.js");
     const C = await import("./js/chests.js");
@@ -539,18 +539,31 @@ await check("a Missions world: the bow needs no arrows, ores and chests as befor
     g.testFlags.noMissions = true;
     g.setMode("survival");
     g.inventory.clear();
+    const V = await import("./js/content/ids.js");
     await window.__ti.hold(g, I.ITEM.BOW);
+    const n0 = w.arrows.length;
+    w.refill();
+    w.press("bow");
+    const drewEmpty = w.bow.drawing;
+    w.bow.t = 1;
+    w.release();
+    const shotEmpty = w.arrows.length - n0;
+    g.inventory.slots[5] = { id: V.ARROW, count: 3 };
     const n = w.arrows.length;
     w.refill();
     w.press("bow");
     w.bow.t = 1;
     w.release();
     const bowDur = g.inventory.selectedStack?.dur;
+    const arrowsLeft = g.inventory.countItem(V.ARROW);
     const ironPick = I.itemInfo(I.ITEM.IRON_PICKAXE).tool;
     const loot = new Set();
     for (let i = 0; i < 30; i++) for (const [id] of C.rollChestLoot(2, new Set())) loot.add(id);
     return {
       type: g.worldType,
+      drewEmpty,
+      shotEmpty,
+      arrowsLeft,
       bowDur,
       shot: w.arrows.length - n,
       pickup: w.arrows[w.arrows.length - 1]?.pickup,
@@ -558,11 +571,14 @@ await check("a Missions world: the bow needs no arrows, ores and chests as befor
       gravel: I.blockDrops(BLOCK.GRAVEL, null, () => 0.01)[0][0],
       grass: I.blockDrops(BLOCK.TALL_GRASS, null, () => 0.01).length,
       vanillaLoot: [324, 347, 320].filter((id) => loot.has(id)).length,
+      ids: [V.RAW_IRON, V.RAW_GOLD, V.DIAMOND, V.FLINT],
     };
   });
   assert(r.type === "missions", `a Missions world: ${r.type}`);
-  assert(r.shot === 1 && r.pickup === false && r.bowDur === 385, `the bow shoots without arrows, never wearing: ${JSON.stringify(r)}`);
-  assert(String(r.ores) === "10,259,10" && r.gravel === 12 && r.grass === 0 && r.vanillaLoot === 0, `drops and loot as before: ${JSON.stringify(r)}`);
+  assert(!r.drewEmpty && r.shotEmpty === 0, `no shot without arrows: ${JSON.stringify(r)}`);
+  assert(r.shot === 1 && r.arrowsLeft === 2 && r.pickup === true && r.bowDur === 384, `one arrow and one use a shot: ${JSON.stringify(r)}`);
+  assert(String(r.ores) === String(r.ids.slice(0, 3)) && r.gravel === r.ids[3] && r.grass === 1, `vanilla's drops: ${JSON.stringify(r)}`);
+  assert(r.vanillaLoot === 0, `the Missions loot chests as before: ${JSON.stringify(r)}`);
 });
 
 // ---------- Summary ----------

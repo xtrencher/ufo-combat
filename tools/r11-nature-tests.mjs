@@ -187,7 +187,7 @@ const MISSIONS_HASHES = {
   777: [739122713, 4069794209, "3,9"],
   2024: [48227652, 1157504331, "15,-33"],
 };
-await check("a Missions world's terrain is unchanged: its chunks, distant terrain and spawn hash as before, and it has no vanilla ores", async () => {
+await check("an old Missions save's terrain (Round 13: the legacy generator) is unchanged: its chunks, distant terrain and spawn hash as before, and it has no vanilla ores", async () => {
   WT.setWorldType("missions");
   const coords = [[0, 0], [1, 0], [-3, 2], [10, -7], [40, 40], [-60, 13], [100, -100], [7, 200], [-250, -31], [333, 90]];
   for (const [seed, [hash, lodHash, spawn]] of Object.entries(MISSIONS_HASHES)) {
@@ -463,15 +463,16 @@ await check("lava and water: water on a lava source makes obsidian, on flowing l
   for (let i = 0; i < 20; i++) water4.update();
   assert(w4.getBlock(1, 31, 0) === V.LAVA, `water left the lava alone: ${w4.getBlock(1, 31, 0)}`);
 });
-await check("water runs 7 blocks in a Survival world and 4 in a Missions world", async () => {
-  for (const [type, reach] of [["survival", 7], ["missions", 4]]) {
-    WT.setWorldType(type);
+// (Round 13: a new Missions world has vanilla's water; an old Missions save on its old terrain keeps 4.)
+await check("water runs 7 blocks in a Survival world and a new Missions world, 4 in an old Missions save", async () => {
+  for (const [type, reach, gen] of [["survival", 7], ["missions", 7], ["missions", 4, WT.GEN_LEGACY]]) {
+    WT.setWorldType(type, { gen });
     const w = new TestWorld().build(1);
     const water = new WaterSim(w);
     w.setBlock(0, 31, 0, BLOCK.WATER);
     for (let i = 0; i < 60; i++) water.update();
     const far = [reach, reach + 1].map((x) => w.getBlock(x, 31, 0));
-    assert(far[0] === BLOCK.WATER && far[1] === BLOCK.AIR, `${type}: ${far}`);
+    assert(far[0] === BLOCK.WATER && far[1] === BLOCK.AIR, `${type}${gen ? " (old save)" : ""}: ${far}`);
   }
   WT.setWorldType("survival");
 });
@@ -552,7 +553,7 @@ await check("bone meal grows a sapling into its tree; four dark oak saplings mak
   const trunk = [[8, 8], [9, 8], [8, 9], [9, 9]].every(([x, z]) => w.getBlock(x, 31, z) === V.DARK_OAK_LOG);
   assert(trunk, `a 2x2 dark oak trunk: ${[[8, 8], [9, 8], [8, 9], [9, 9]].map(([x, z]) => w.getBlock(x, 31, z))}`);
 });
-await check("leaves decay once their log is gone (Survival worlds; never in a Missions world, never a player's) and drop saplings now and then", async () => {
+await check("leaves decay once their log is gone (Survival and new Missions worlds; never in an old Missions save, never a player's) and drop saplings now and then", async () => {
   const build = () => {
     const w = new TestWorld().build(1);
     const list = [];
@@ -580,11 +581,17 @@ await check("leaves decay once their log is gone (Survival worlds; never in a Mi
   const r = seeded(3);
   for (let i = 0; i < 2000; i++) for (const [id] of blockDrops(BLOCK.LEAVES, null, r)) if (id === V.OAK_SAPLING) saplings++;
   assert(saplings > 60 && saplings < 150, `about 1 in 20 leaves gives a sapling: ${saplings}/2000`);
+  // (Round 13: a new Missions world's leaves decay as vanilla's; an old Missions save's never.)
   WT.setWorldType("missions");
+  const n = build();
+  for (let y = 31; y < 35; y++) n.setBlock(0, y, 0, BLOCK.AIR);
+  for (let x = -2; x <= 3; x++) for (let z = -2; z <= 2; z++) for (let y = 34; y < 37; y++) n.tick(x, y, z, 1);
+  assert(leavesLeft(n) === 1, `a new Missions world's crown decays: ${leavesLeft(n)}`);
+  WT.setWorldType("missions", { gen: WT.GEN_LEGACY });
   const m = build();
   for (let y = 31; y < 35; y++) m.setBlock(0, y, 0, BLOCK.AIR);
   for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) for (let y = 34; y < 37; y++) m.tick(x, y, z, 2);
-  assert(leavesLeft(m) === before, "a Missions world's leaves never decay");
+  assert(leavesLeft(m) === before, "an old Missions save's leaves never decay");
   WT.setWorldType("survival");
 });
 await check("sugar cane grows to 3 by water and dries out without it; a stem grows its fruit beside it", async () => {

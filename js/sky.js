@@ -9,14 +9,15 @@
 // runs (it is the Overworld's, and everyone's online).
 import * as THREE from "three";
 import { worldUniforms, createSkyMaterial } from "./shaders.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 
 export const DAY_LENGTH = 600; // seconds for a full day/night cycle (a Missions world)
-export const SURVIVAL_DAY_LENGTH = 1200; // a Survival world's: vanilla's 20 minutes
+export const SURVIVAL_DAY_LENGTH = 1200; // vanilla's 20 minutes (Round 13: every world's)
 
-// This world's day (the world type is set at startup, before anything reads it).
+// This world's day (DAY_LENGTH: a Missions world's before Round 13; a save
+// from then keeps its hour, main.js).
 export function dayLength() {
-  return isVanilla() ? SURVIVAL_DAY_LENGTH : DAY_LENGTH;
+  return vanillaRules() ? SURVIVAL_DAY_LENGTH : DAY_LENGTH;
 }
 const DAY_SHARE = 0.62; // fraction of the cycle with the sun above the horizon
 const SUN_TILT = 0.42; // radians the sun's path is tilted off the zenith

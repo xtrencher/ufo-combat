@@ -892,6 +892,18 @@ export class EntitySync {
     }
   }
 
+  // (Round 13) A guest leaving the host's dimension (js/dimensions.js
+  // DimSync): the host's UFOs and fighters go with its creatures (the
+  // host stops sending them, and its "erem" would be dropped as another
+  // dimension's), so the host's "eadd" draws them afresh on the way back.
+  dropAirPuppets() {
+    const g = this.game;
+    for (const u of this.ufoById.values()) u.state = "gone";
+    for (const j of this.jetById.values()) if (g.vehicles.vehicles.includes(j)) g.vehicles.remove(j);
+    this.ufoById.clear();
+    this.jetById.clear();
+  }
+
   _removeMob(mob) {
     const list = this.game.mobs.mobs;
     const i = list.indexOf(mob);

@@ -931,6 +931,9 @@
   #salvo-glow.salvo { animation: salvo-pulse 0.4s ease-in-out infinite alternate; }
   @keyframes salvo-pulse { from { filter: brightness(1); } to { filter: brightness(1.8); } }
   #lock-box.locked::after { content: "LOCK"; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font: 700 11px ui-monospace, Consolas, monospace; color: #ff3a2a; letter-spacing: 1px; }
+  /* (Round 13: air) The fighter HUD's canvas: the seeker, the target box, the warnings. */
+  #fighter-hud { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 10; }
+  /* (end Round 13: air) */
   #jet-nose {
     position: fixed;
     width: 26px;
@@ -1419,6 +1422,9 @@
     <div id="beam-overlay"></div>
     <div id="lock-box" class="hidden"><div class="lb-ring"></div><svg class="lb-spiral" viewBox="-50 -50 100 100" aria-hidden="true"><path class="lb-spiral-path" d="" /><circle class="lb-circle" r="40" /></svg></div>
     <div id="salvo-glow"></div>
+    <!-- (Round 13: air) The fighter HUD's targeting symbols (js/fighter-hud.js). -->
+    <canvas id="fighter-hud" class="hidden" aria-hidden="true"></canvas>
+    <!-- (end Round 13: air) -->
     <div id="jet-nose" class="hidden"></div>
     <div id="jet-aim" class="hidden"></div>
   </div>

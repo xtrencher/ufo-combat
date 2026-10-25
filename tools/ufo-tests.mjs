@@ -1056,7 +1056,7 @@ await check("jet weapons: autocannon tracers hit a UFO; missiles lock on (box + 
     return j.lock.locked;
   }, 90000);
   assert(locked, "locked on");
-  const box = await v(() => ({ shown: !document.getElementById("lock-box").classList.contains("hidden"), locked: document.getElementById("lock-box").classList.contains("locked") }));
+  const box = await v(() => ({ shown: !document.getElementById("fighter-hud").classList.contains("hidden"), locked: document.getElementById("fighter-hud").dataset.state === "locked" }));
   assert(box.shown && box.locked, `lock box ${JSON.stringify(box)}`);
   await page.mouse.up({ button: "right" }); // (letting go fires)
   const missile = await until((g) => g.vehicles.active.missiles.length > 0 && { guided: !!g.vehicles.active.missiles[0].target, dist: window.__u.pos.distanceTo(g.vehicles.active.pos) }, 20000);
@@ -1265,7 +1265,8 @@ await check("FULL SCENARIO: jet chase -> lock -> missile -> UFO crash -> eject -
     g.player.velocity.set(0, -3, 0);
   }, wreck);
   const landed = await until((g) => g.player.onGround && !g.vehicles.parachute.active, 120000);
-  assert(landed && (await v((g) => g.gameState)) === "playing", "landed safely");
+  const ldbg = await v((g) => ({ state: g.gameState, ground: g.player.onGround, chute: g.vehicles.parachute.active, water: !!g.player.inWater, y: +g.player.position.y.toFixed(2), cause: g.deathCause, hp: g.player.health, below: g.world.getBlock(Math.floor(g.player.position.x), Math.floor(g.player.position.y - 0.5), Math.floor(g.player.position.z)) }));
+  assert(landed && ldbg.state === "playing", `landed safely ${JSON.stringify(ldbg)}`);
   // 7. The aliens come out and fight: shoot them with the laser blaster.
   // (Round 3: every alien shot that reaches you counts; keep the test player
   // alive from the moment it lands.)

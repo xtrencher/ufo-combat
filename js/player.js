@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BLOCK, BLOCK_INFO, IS_WET, IS_SOLID } from "./blocks.js";
 import { sweepAxis } from "./physics.js";
-import { isVanilla } from "./worldtype.js";
+import { vanillaRules } from "./worldtype.js";
 import { enchantSeed, setEnchantSeed } from "./enchant.js";
 import { BYPASSES_ARMOR } from "./damage.js";
 import { BODY, BODY_FLAGS, SUFFOCATES, FALL_FACTOR, MAX_FOOD, START_SATURATION, EAT_TIME, EFFECTS, foodOf, missionsHeal, effectsOf, normalizeEffect } from "./survival.js";
@@ -34,7 +34,7 @@ const STEP_HEIGHT = 0.6; // walks up slabs and stairs
 const CLIMB_SPEED = 2.35; // blocks/s up a ladder (vanilla: 0.1176 a tick)
 const CLIMB_SLIDE = 3; // ...and the most it slides down (0.15 a tick)
 const LAVA_SPEED = 1.3; // swimming in lava: half the speed in water
-// Survival worlds: 15 s of breath (vanilla's 300 ticks) for the ten bubbles.
+// 15 s of breath (vanilla's 300 ticks) for the ten bubbles.
 const VANILLA_AIR_TIME = 15;
 // (Timers compare with a hair's margin: 0.05 s steps summed in floating point
 // fall just short of 0.5.)
@@ -79,9 +79,9 @@ export class Player {
     this.sprinting = false;
     this.sneaking = false;
     // Eating, drinking, drawing a bow, a raised shield (main.js sets it each frame):
-    // a Survival world's 20% walk, no sprint (vanilla).
+    // a 20% walk, no sprint (vanilla).
     this.usingItem = false;
-    // (Survival worlds) The ice under the feet (its slipperiness, 0: none; kept
+    // The ice under the feet (its slipperiness, 0: none; kept
     // in the air off it) and the walk it carries on.
     this._slip = 0;
     this._slideX = 0;
@@ -106,7 +106,7 @@ export class Player {
     this._voidTimer = 0;
     this._airborneMaxY = null;
     this._eyeOffset = 0; // smoothed sneak camera drop (and a step up, eased)
-    // (Round 11) Survival worlds (vanilla): hunger, status effects, fire.
+    // (Round 11) Vanilla's hunger, status effects, fire (Round 13: in both world types).
     this.food = MAX_FOOD; // 0-20 (drumsticks x 2)
     this.saturation = START_SATURATION;
     this.exhaustion = 0;
@@ -187,12 +187,12 @@ export class Player {
     return this.mode === "creative";
   }
 
-  // (Round 11) Hunger and the other vanilla vitals run: a Survival world, survival mode.
+  // (Round 11) Hunger and the other vanilla vitals run: survival mode (Round 13: in both world types).
   get hungerOn() {
-    return isVanilla() && !this.creative;
+    return vanillaRules() && !this.creative;
   }
 
-  // Sprinting needs more than 3 drumsticks (vanilla), in a Survival world.
+  // Sprinting needs more than 3 drumsticks (vanilla).
   get canSprint() {
     return !this.hungerOn || this.food > 6;
   }
@@ -388,33 +388,33 @@ export class Player {
     return true;
   }
 
-  // ---------- Hunger, food and status effects (Round 11, Survival worlds) ----------
+  // ---------- Hunger, food and status effects (Round 11; Round 13: both world types) ----------
 
   addExhaustion(amount) {
     if (this.hungerOn && amount > 0) this.exhaustion = Math.min(40, this.exhaustion + amount);
   }
 
-  // Whether the food can be eaten now: a Survival world, when not full (or
-  // food that can always be eaten); a Missions world, when hurt (as before).
+  // Whether the food can be eaten now: when not full (or food that can
+  // always be eaten); before Round 13 a Missions world's, when hurt.
   canEat(info, id) {
     if (!info?.food || this.creative || this.dead) return false;
-    if (!isVanilla()) return this.health < MAX_HEALTH || (!!info.absorb && this.absorption < 20) || !!info.clearEffects;
+    if (!vanillaRules()) return this.health < MAX_HEALTH || (!!info.absorb && this.absorption < 20) || !!info.clearEffects;
     const f = foodOf(info, id);
     return !!f && (this.food < MAX_FOOD || f.alwaysEat);
   }
 
-  // Seconds it takes to eat (Missions worlds keep their quicker bite).
+  // Seconds it takes to eat (1.1: the Missions worlds' quicker bite before Round 13).
   eatTime(info, id) {
-    return isVanilla() ? foodOf(info, id)?.eatTime ?? EAT_TIME : 1.1;
+    return vanillaRules() ? foodOf(info, id)?.eatTime ?? EAT_TIME : 1.1;
   }
 
-  // Eats the food: hunger and saturation and its effects (a Survival world),
-  // or health (a Missions world). Returns the item left in hand (a stew's
-  // bowl), or 0.
+  // Eats the food: hunger and saturation and its effects (Round 13: in both
+  // world types; before, a Missions world's healed at once). Returns the
+  // item left in hand (a stew's bowl), or 0.
   eat(info, id) {
     // (Milk: every effect gone, in either world.)
     if (info.clearEffects) this.clearEffects();
-    if (!isVanilla()) {
+    if (!vanillaRules()) {
       this.heal(missionsHeal(info, id));
       if (info.absorb) this.addAbsorption(info.absorb);
       return foodOf(info, id)?.returns || 0;
@@ -512,7 +512,7 @@ export class Player {
     }
   }
 
-  // Vanilla's food rules (FoodData.tick), in a Survival world: exhaustion
+  // Vanilla's food rules (FoodData.tick): exhaustion
   // takes saturation, then food; with a full bar (and saturation) health
   // comes back fast, from 18 food points slowly; at 0 you starve, down to the
   // difficulty's floor. Peaceful: food refills and health comes back.
@@ -559,12 +559,12 @@ export class Player {
     } else this._foodTimer = 0;
   }
 
-  // Health comes back: the food rules in a Survival world, the old free
-  // regeneration in a Missions world. Effects run in both.
+  // Health comes back: the food rules (Round 13: in both world types; the
+  // old free regeneration was a Missions world's). Effects run in both.
   _updateHealth(dt) {
     this._updateEffects(dt);
     if (this.dead) return;
-    if (isVanilla()) this._updateFood(dt);
+    if (vanillaRules()) this._updateFood(dt);
     else this._updateRegen(dt);
   }
 
@@ -904,7 +904,7 @@ export class Player {
     if ((this.keys.has("ControlLeft") || this.keys.has("ControlRight")) && this.keys.has("KeyW") && this.canSprint) this.sprinting = true;
     const shift = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
     this.sneaking = shift && !this.flying;
-    const using = this.usingItem && !this.flying && isVanilla();
+    const using = this.usingItem && !this.flying && vanillaRules();
     if (this.sneaking || moveZ >= 0 || !this.canSprint || using) this.sprinting = false;
 
     const len = Math.hypot(moveX, moveZ);
@@ -1076,11 +1076,11 @@ export class Player {
     this._pushing = (blockedX || blockedZ) && len > 0;
     if (blockedX) this._slideX = 0;
     if (blockedZ) this._slideZ = 0;
-    // (Survival worlds) What the feet stand on: ice slides (kept in the air, until landing elsewhere).
-    if (!isVanilla() || this.flying || this.inWater || this.inLava || this.onClimbable || web) this._slip = 0;
+    // What the feet stand on: ice slides (kept in the air, until landing elsewhere).
+    if (!vanillaRules() || this.flying || this.inWater || this.inLava || this.onClimbable || web) this._slip = 0;
     else if (this.onGround) this._slip = BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))]?.slipperiness || 0;
-    // (Round 12) Soul sand slows, a magma block burns (Survival worlds; the Nether's blocks are theirs).
-    const under = this.onGround && !this.flying && isVanilla() ? BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))] : null;
+    // (Round 12) Soul sand slows, a magma block burns.
+    const under = this.onGround && !this.flying && vanillaRules() ? BLOCK_INFO[this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.05), Math.floor(this.position.z))] : null;
     this._floorSpeed = under?.speedFactor ?? 1;
     this._hotFloor = !!under?.hotFloor;
 
@@ -1203,10 +1203,10 @@ export class Player {
   _updateVitals(dt) {
     this._sinceDamage += dt;
     // Breath: drains with the head under water, refills quickly above it.
-    // (Survival worlds: the ten bubbles last vanilla's 15 s.)
+    // (The ten bubbles last vanilla's 15 s.)
     if (this.headInWater && !this.creative && !this.effectLevel("water_breathing")) {
       // (Round 11: Respiration on the helmet, main.js player.respiration: breath lasts 1 + level times longer, as vanilla on average.)
-      this.air = Math.max(0, this.air - (isVanilla() ? (dt * MAX_AIR) / VANILLA_AIR_TIME : dt) / (1 + (this.respiration | 0)));
+      this.air = Math.max(0, this.air - (vanillaRules() ? (dt * MAX_AIR) / VANILLA_AIR_TIME : dt) / (1 + (this.respiration | 0)));
       if (this.air <= 0) {
         this._drownTimer += dt;
         if (this._drownTimer >= 1) {
@@ -1241,7 +1241,7 @@ export class Player {
   // player burning: 15 s after lava, 8 after fire, a half-heart a second,
   // until water puts it out. A cactus (1) hurts in any world (Round 12: a
   // Missions world's desert cacti too), the eyes inside a block
-  // (suffocation, 1) in Survival worlds. Each is tried every frame: the hurt
+  // (suffocation, 1). Each is tried every frame: the hurt
   // grace time spaces the hits 0.5 s apart, as vanilla's.
   _updateHazards(dt) {
     if (this.creative) {
@@ -1269,7 +1269,7 @@ export class Player {
     if (this.dead) return;
     if (b & BODY.CACTUS) this.damage(1, "cactus");
     if (this._hotFloor && !this.sneaking && !fireproof) this.damage(1, "hot_floor"); // (Round 12: a magma block)
-    if (this._eyeInWall && isVanilla()) this.damage(1, "suffocate");
+    if (this._eyeInWall && vanillaRules()) this.damage(1, "suffocate");
   }
 
   // Natural regeneration after a while without damage.
