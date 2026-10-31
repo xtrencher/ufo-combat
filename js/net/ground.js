@@ -95,6 +95,7 @@ export class GroundSync {
     } else if (m.k === "flak" && Array.isArray(m.q)) {
       const pts = m.q.slice(0, 6).map(vec).filter(Boolean);
       if (pts.length) flakBursts(this.war.vehicles, pts, 0.4);
+      v?.netFire?.("flak", p); // (Round 14: the AA puppet's barrels fire by turns)
     }
   }
 
