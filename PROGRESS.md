@@ -2642,3 +2642,22 @@ Parts (wave A, parallel): **unify** (one world), **creative** (vehicles in Creat
 
 ### Round 13 test status (final code)
 - All green: unit 73/73; r13-unify 9/9 (+online), r13-creative 11/11 (+online), r13-air 7/7, r13-ground 10/10 (+online); every Round 12 and Round 11 suite; r10-*; round9..round2; settings; smoke 67/67; perf; check-mob-models; chaos 0 problems; ufo-tests 35/35; mp-tests 23/23, mp-round9 8/8, mp-damage 444/444 (the bow given arrows: it takes them in a Missions world now).
+
+# Round 14 plan: fixes and the helicopter
+The owner: the missile truck can't be aimed ("pick a flat target or something"); the new aircraft aiming display is too big (the circle and such) — the old one was better: combine them so it works well; the tank models aren't right (the machine gun fires from the main gun tube and such); add a helicopter, with missions; tanks at airports and military bases, randomly; lava that looks real, like the water ("not transparent... like RTX"); mobs' sounds too loud and too frequent (always).
+
+Decisions:
+- **Aiming display:** the Round 12 lock box and its look come back (smaller, thinner); auto aim, LOCK, the range readout and the warnings stay, compact.
+- **Missile truck:** any point it can see or the crosshair's point on the ground at any range (up to its maximum range) is a target; no "flat ground" refusal.
+- **Helicopter:** an attack helicopter (player-flyable: Creative call-in, Missions airports/bases; enemy gunships in Missions) and missions for it.
+- **Lava:** a better looking lava surface (glow, flowing crust and bright cracks, heat haze), the water's level of finish; it stays opaque enough to read as lava.
+- **Mob sounds:** quieter and rarer ambient calls.
+
+Parts (parallel): **aim** (the HUD, the missile truck's targeting), **tanks** (models, the coax, random tanks at airports and bases), **heli** (the helicopter, enemies, missions), **look** (lava, mob sounds). Then tests, the PR merged.
+
+### Round 14: what was built and test status
+- **Aim:** the missile truck targets whatever the crosshair is on (js/ballistic.js telAim: 120 m to 2 km, capped at max range, a ground ring and a range marker); the aircraft lock back to Round 12's compact box (js/fighter-hud.js rewritten: a faint seeker ring, LOCK, range, small edge warnings).
+- **Tanks:** models corrected (real gun lengths, muzzle brakes, coax and roof MG placed), every weapon from its own muzzle (coax, the roof MG for off-axis and high targets, the AA's four barrels in turn, SAM tubes), tanks and AA parked at every airport and varied yards at bases, patrols.
+- **Helicopters:** js/vehicle-heli.js, js/heli-model.js (AH-64 Apache, UH-60 Black Hawk), js/helis.js (the aliens' gunships, parked helicopters), js/net/heli.js; missions Air cavalry, Search and rescue, Gunship hunt; a run is 27-31 missions.
+- **Look:** lava meshed by the mesher (vanilla's sloped surface, per-vertex flow), its own material and shader variant (a flowing crust with glowing cracks, rim, embers; heat haze on High/Ultra); mob sounds quieter (0.6 bus) and rarer (10-22 s per creature, per-kind and global caps, 16-block falloff).
+- Tests: unit 73/73; r14-aim 3/3, r14-look 4/4, r14-heli 8/8 (+online); r13-air, r13-ground 13/13, r13-creative, r13-unify; r12-render 8/8, r12-transport, r12-nether 18/18, r11-engine16; round2, round6, round9, r10-missions; smoke 67/67; ufo-tests 35/35; mp-tests 23/23; mp-damage 444/444; perf 5/5; chaos 0 problems.

@@ -275,7 +275,8 @@ export function applyPreset(name, ctx) {
 
   // Terrain relief: normal maps (and parallax up close) on the top presets.
   if (ctx.chunkMaterials) {
-    for (const m of [ctx.chunkMaterials.opaque, ctx.chunkMaterials.cutout]) {
+    for (const m of [ctx.chunkMaterials.opaque, ctx.chunkMaterials.cutout, ctx.chunkMaterials.lava]) {
+      if (!m) continue;
       setDefine(m, "USE_NORMALMAP", p.normalMap);
       setDefine(m, "USE_POM", p.pom);
     }

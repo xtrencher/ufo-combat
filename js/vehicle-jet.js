@@ -168,6 +168,7 @@ function missileMaterial() {
 
 // (Round 13) A ground vehicle's name on the HUD (null: not one).
 function groundName(r) {
+  if (r?.isGunship) return "GUNSHIP"; // (Round 14: the aliens' helicopters)
   const t = r?.isGround ? r.type : null;
   return t === "aa" ? "AA" : t === "enemytel" || t === "tel" ? "LAUNCHER" : t ? "TANK" : null;
 }
@@ -2021,7 +2022,7 @@ export class Jet extends Vehicle {
               : this.missileT > 0
                 ? "reloading"
                 : this.autoAim
-                  ? "keep a target in the seeker circle to lock it · RMB fire · hold: lock"
+                  ? "keep a target in the seeker ring to lock it · RMB fire · hold: lock"
                   : "RMB click: fire · hold: lock";
     const warnings = [];
     if (this.stalled) warnings.push("STALL");
@@ -2076,7 +2077,7 @@ export class Jet extends Vehicle {
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
         ...(this.spec.cannonRate > 0 ? [["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`]] : [["Autocannon", "none (a bomber)"]]),
         ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the salvo's pips fill under the target box (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
-        ["Auto aim", this.autoAim ? `on: keep a UFO or aircraft in the seeker circle round the crosshair for ${AUTO_LOCK_TIME} s and it is locked (the tone goes solid); a click then sends a homing missile after it` : "off (Settings > Vehicles): lock by holding the right button"],
+        ["Auto aim", this.autoAim ? `on: keep a UFO or aircraft in (or near) the seeker ring round the crosshair for ${AUTO_LOCK_TIME} s and it is locked (the tone goes solid); a click then sends a homing missile after it` : "off (Settings > Vehicles): lock by holding the right button"],
         ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the nuke"],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],

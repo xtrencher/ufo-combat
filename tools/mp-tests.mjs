@@ -863,11 +863,24 @@ async function threePlayers() {
     const z = g.mobs.spawn("zombie", r.position.x + 3, r.position.y, r.position.z);
     if (!z) return null;
     z.calmT = 30;
+    // (Kept: this is about the creature reaching her, not the host's despawning.
+    // If it goes on the host all the same, how is told below.)
+    z.persist = true;
+    window.__zGone = null;
+    const remove = g.mobs._remove;
+    g.mobs._remove = function (i) {
+      if (this.mobs[i] === z && !window.__zGone) window.__zGone = new Error().stack.split("\n").slice(2, 5).map((l) => l.trim()).join(" < ");
+      return remove.call(this, i);
+    };
     return z.id;
   });
   assert(zid, "host spawned a zombie near Carol");
-  const cz = await until(carol, (g, id) => [...(g.mp.entities?.mobById?.values() || [])].some((m) => m.kind === "zombie" && !m.dead), 20000, zid);
-  assert(cz, "Carol sees the host's zombie");
+  // (This zombie, by its id: any zombie would do for the check before Round 14,
+  // and the night's own near her passed it while the host's never arrived.)
+  const cz = await until(carol, (g, id) => { const m = g.mp.entities?.mobById?.get(id); return !!m && !m.dead; }, 20000, zid);
+  const why = cz ? null : await v(host, (g, id) => ({ onHost: g.mobs.mobs.some((m) => m.id === id), gone: window.__zGone }), zid);
+  await v(host, (g) => delete g.mobs._remove);
+  assert(cz, `Carol sees the host's zombie: ${JSON.stringify(why)}`);
   // Carol leaves mid-mission: the goal shrinks back to two players' share.
   await Promise.all([carol.waitForURL((u) => !u.searchParams.has("join"), { timeout: 30000 }), carol.evaluate(() => window.__ufo.mp.leave())]);
   const g2 = await until(host, (g) => g.net.playerCount === 2 && g.progress.groupN === 2 && g.progress.objectives(g.stats.world)[0].goal, 15000);

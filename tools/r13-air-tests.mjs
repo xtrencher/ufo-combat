@@ -2,7 +2,8 @@
 // missiles, the sonic boom, bigger missile blasts and the pilot's voice.
 // Boots the real game in headless Chromium (software WebGL, Low preset):
 // keeping a UFO round the crosshair locks it in about 2 s with auto aim
-// (not before 1.6 s) and the HUD canvas shows the lock; a click then sends a
+// (not before 1.6 s) and the HUD canvas shows the lock (Round 14: Round
+// 12's small lock box again, on the target); a click then sends a
 // missile that homes on a UFO flying across and hits it; a click with
 // nothing in the seeker fires one straight ahead; a fighter on its
 // afterburner breaks the sound barrier (a boom and a vapor cone, once) and a
@@ -270,11 +271,21 @@ await check("auto aim: a UFO kept round the crosshair locks in about 2 s (not be
     return c && !c.classList.contains("hidden") && c.dataset.state === "locked" && { state: c.dataset.state, lockBoxHidden: document.getElementById("lock-box").classList.contains("hidden") };
   }, null, 60000);
   if (!hud) console.log(JSON.stringify(await v(() => window.__dbg)));
-  assert(hud && hud.lockBoxHidden, `the HUD canvas shows the lock (the old box is gone): ${JSON.stringify(hud)}`);
+  assert(hud && hud.lockBoxHidden, `the HUD canvas shows the lock (the old DOM box stays hidden): ${JSON.stringify(hud)}`);
+  // (Round 14) Small: Round 12's locked box (32 at 720 lines), not a big circle.
+  const box = await until(async () => {
+    const j = window.__j;
+    window.__u.pos.copy(j.pos).addScaledVector(new window.__ufo.THREE.Vector3(0, 0, -1).applyQuaternion(j.aimQ), 500);
+    j.pos.y = 200;
+    const { FighterHud } = await import("./js/fighter-hud.js");
+    const H = FighterHud.last;
+    return H && H.box.ok && H.pop >= 1 && Math.abs(H.box.size - 32 * H.s) < 2 && { size: H.box.size, s: H.s, ring: H.ring };
+  }, null, 30000);
+  assert(box && box.size <= 34 * box.s && box.ring <= 22 * box.s + 0.01, `the locked box and the seeker ring are small: ${JSON.stringify(box)}`);
   await shot("lock-locked");
 });
 
-await check("auto aim: the lock's HUD while building (the seeker sliding onto the target), and the idle seeker circle", async () => {
+await check("auto aim: the lock's HUD while building (the box closing in on the target), and the idle seeker ring", async () => {
   await sky();
   await v((g) => {
     const jet = window.__j;
@@ -306,7 +317,7 @@ await check("auto aim: the lock's HUD while building (the seeker sliding onto th
     const c = document.getElementById("fighter-hud");
     return c.dataset.state === "seek" && c.dataset.state;
   }, null, 60000);
-  assert(idle === "seek", `the idle seeker circle: ${idle}`);
+  assert(idle === "seek", `the idle seeker ring: ${idle}`);
 });
 
 await check("a missile fired with the lock homes on a UFO flying across and hits it; Fox two is called", async () => {

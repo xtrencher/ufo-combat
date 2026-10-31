@@ -3154,13 +3154,17 @@ export class MobManager {
     const own = m.spec.vanilla || vanillaRules();
     const parts = own ? VANILLA_VOICES[m.kind]?.[event] || (m.spec.magma ? VANILLA_VOICES.magma[event] : m.kind.startsWith("slime") ? VANILLA_VOICES.slime[event] : null) : null;
     const a = this.audio;
+    // (Round 14) An ambient call is heard within 16 blocks and waits its
+    // turn: a herd takes turns (audio.js creatureGain, AmbientGate; playMob's own).
+    const gain = a?.creatureGain ? a.creatureGain(event, d, m.spec.loud) : 1 / (1 + d / (m.spec.loud ? 18 : 7));
+    if (gain < 0.005) return;
     if (!parts || typeof a?._voice !== "function" || typeof a._hit !== "function") {
       a?.playMob?.(m.kind, event, d);
       return;
     }
     if (!a.ctx) return;
+    if ((event === "idle" || event === "angry") && a.ambientTurn && !a.ambientTurn(m.kind)) return;
     a._cat?.("creatures");
-    const gain = 1 / (1 + d / (m.spec.loud ? 18 : 7));
     for (const part of parts) {
       if (part.noise) a._hit({ ...part.noise, v: part.noise.v * gain }, part.delay || 0);
       else a._voice(part, gain);
@@ -5645,8 +5649,9 @@ export class MobManager {
   _sounds(m, dt) {
     m.soundTimer -= dt;
     if (m.soundTimer > 0) return;
-    m.soundTimer = (m.spec.hostile ? 4 : 7) + Math.random() * 9;
-    if (this._audioDist(m) < 24) this._voice(m, "idle");
+    // (Round 14) Rarer: every 10-22 s (a monster 7-17 s), heard within 16 blocks (audio.js).
+    m.soundTimer = this.audio?.ambientDelay ? this.audio.ambientDelay(!!m.spec.hostile) : (m.spec.hostile ? 4 : 7) + Math.random() * 9;
+    if (this._audioDist(m) < (m.spec.loud ? 80 : 16)) this._voice(m, "idle");
   }
 
   // Zombies burn in direct daylight.

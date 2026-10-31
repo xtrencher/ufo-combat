@@ -7,7 +7,8 @@
 // dropped by anything. Placing is the vehicles' (js/vehicles.js sets
 // LIB.summonVehicle; `vehicle` is the key of VehicleManager.summons).
 // Ids: the core item range's unused 266-269; 316-319 are kept for more
-// vehicles (the tanks).
+// vehicles (the tanks; Round 14: 319 the helicopter, placed as the Black
+// Hawk while sneaking).
 import { LIB } from "./base.js";
 
 export const F22_ITEM = 266;
@@ -18,6 +19,8 @@ export const UFO_ITEM = 269;
 export const TIGER_ITEM = 316;
 export const MBT_ITEM = 317;
 export const TEL_ITEM = 318;
+// (Round 14) The helicopter (js/vehicle-heli.js; sneaking: the Black Hawk).
+export const HELI_ITEM = 319;
 
 export const items = {
   [F22_ITEM]: { name: "F-22 Raptor", icon: "vehicle_f22", stack: 1, vehicle: "f22" },
@@ -27,6 +30,7 @@ export const items = {
   [TIGER_ITEM]: { name: "Tiger Tank", icon: "vehicle_tiger", stack: 1, vehicle: "tiger" },
   [MBT_ITEM]: { name: "Battle Tank", icon: "vehicle_mbt", stack: 1, vehicle: "mbt" },
   [TEL_ITEM]: { name: "Missile Launcher (TEL)", icon: "vehicle_tel", stack: 1, vehicle: "tel" },
+  [HELI_ITEM]: { name: "Helicopter (AH-64 Apache)", icon: "vehicle_heli", stack: 1, vehicle: "heli" },
 };
 
 export const itemUse = {};
@@ -129,4 +133,28 @@ icons.vehicle_tel = (kit) => {
   const wheel = kit.ramp(0x111111, 0x1d1d1d, 0x2c2c2c, 0x3e3e3e, 0x525252);
   const missile = kit.ramp(0x8e8c84, 0xaeaca4, 0xcac8c0, 0xe0ded6, 0xf6f4ee);
   return c.render([body, wheel, missile], [14, 16, 20]);
+};
+
+// (Round 14) The Apache from the side: the slim fuselage with the stepped
+// canopy, the tail boom and fin, the rotor across the top, a stub wing with
+// its rocket pod, the wheels.
+icons.vehicle_heli = (kit) => {
+  const c = new kit.Canvas();
+  const BODY = 0;
+  const DARK = 1;
+  const GLASS = 2;
+  c.line(DARK, 2, 9.2, 30, 9.2, 1.1, () => 0); // (the rotor)
+  c.poly(DARK, [[15, 9.5], [16.6, 9.5], [16.6, 12.5], [15, 12.5]], () => 0.2); // (the mast)
+  c.poly(BODY, [[3, 18], [5.5, 15.6], [9, 14.6], [11.5, 12.6], [17.5, 12.2], [21, 14], [29, 15.6], [29.5, 17.2], [21, 18.2], [17, 21.2], [7, 21.2]], (x, y) => (y < 15 ? 0.4 : y > 19.5 ? -0.25 : 0.1));
+  c.poly(BODY, [[27.5, 10.5], [29.5, 10.5], [30, 16], [27.8, 16]], () => 0.15); // (the fin)
+  c.poly(GLASS, [[6.4, 15.6], [9.2, 14.9], [11.6, 12.9], [14.6, 12.7], [14.6, 15.4], [7, 16.4]], (x, y) => (y < 14.5 ? 0.5 : 0.1));
+  c.disc(DARK, 28.6, 11.6, 2.2, 2.2, () => -0.1); // (the tail rotor)
+  c.poly(DARK, [[12.5, 20.2], [19.5, 20.2], [19.5, 22.2], [12.5, 22.2]], (x) => (x < 14 ? 0.3 : 0)); // (the rocket pod)
+  c.line(DARK, 4.5, 21.5, 2.2, 23.4, 1.1, () => 0); // (the chin gun)
+  c.disc(DARK, 9, 24.4, 1.6, 1.6, () => -0.2);
+  c.disc(DARK, 27.5, 18.9, 1.1, 1.1, () => -0.2);
+  const body = kit.ramp(0x262b20, 0x343a2c, 0x454c3b, 0x596150, 0x6f7866);
+  const dark = kit.ramp(0x121212, 0x1c1c1c, 0x2a2a2a, 0x3a3a3a, 0x4c4c4c);
+  const glass = kit.ramp(0x14222a, 0x203640, 0x2f4e5c, 0x456c7c, 0x6a92a0);
+  return c.render([body, dark, glass], [14, 16, 18]);
 };

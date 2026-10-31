@@ -14,6 +14,57 @@ import { explosionSound } from "./falloff.js";
 
 const NOISE_SECONDS = 2.5;
 
+// (Round 14) Creatures, quieter and rarer than they were (the owner: "too
+// loud and too frequent"). Their bus plays at CREATURE_LEVEL of the
+// Creatures slider. An ambient call (a moo, a groan: "idle") fades out over
+// AMBIENT_RANGE blocks, as vanilla's do over 16, and comes every
+// ambientDelay() seconds per creature (vanilla: about every 7 s; here
+// 10-22 s, 7-17 s for a monster); and AmbientGate lets one kind call at
+// most once in KIND_GAP seconds and all of them at most AMBIENT_CAP times
+// in AMBIENT_WINDOW seconds, never two within AMBIENT_SPACING, so a herd or
+// a horde takes turns instead of a chorus. Hurt, death and attack sounds
+// keep their old falloff (only the bus's level), so a fight stays clear.
+export const CREATURE_LEVEL = 0.6;
+export const AMBIENT_RANGE = 16;
+export const AMBIENT_EVENTS = new Set(["idle", "angry"]);
+const KIND_GAP = 6;
+const AMBIENT_WINDOW = 10;
+const AMBIENT_CAP = 2;
+const AMBIENT_SPACING = 2;
+
+// Seconds until a creature's next ambient call.
+export function ambientDelay(hostile, rand = Math.random) {
+  return hostile ? 7 + rand() * 10 : 10 + rand() * 12;
+}
+
+// Whose turn it is to call (`now` in seconds).
+export class AmbientGate {
+  constructor() {
+    this.times = []; // the latest calls (within AMBIENT_WINDOW)
+    this.last = new Map(); // kind -> its latest call
+  }
+  allow(kind, now) {
+    const prev = this.last.get(kind);
+    if (prev !== undefined && now - prev < KIND_GAP && now >= prev) return false;
+    while (this.times.length && !(now - this.times[0] < AMBIENT_WINDOW && now >= this.times[0])) this.times.shift();
+    if (this.times.length >= AMBIENT_CAP) return false;
+    if (this.times.length && now - this.times[this.times.length - 1] < AMBIENT_SPACING) return false;
+    this.times.push(now);
+    this.last.set(kind, now);
+    return true;
+  }
+}
+
+// A creature sound's gain `distance` blocks off (`loud`: a ghast, heard far).
+export function creatureGain(event, distance, loud = false) {
+  const d = Math.max(0, distance);
+  if (AMBIENT_EVENTS.has(event)) {
+    const k = Math.max(0, 1 - d / (loud ? 80 : AMBIENT_RANGE));
+    return 0.75 * k * Math.sqrt(k);
+  }
+  return 1 / (1 + d / (loud ? 18 : 7));
+}
+
 // Block material sounds: layers of filtered noise.
 //   f: filter frequency, q: resonance, type: filter type, d: duration (s),
 //   v: volume, n: number of staggered grains, spread: seconds between grains.
@@ -117,6 +168,26 @@ export class Audio {
     this.volumes = { master: 0.3, blocks: 1, weapons: 1, creatures: 1, player: 1, ui: 1, voice: 1 };
     this.buses = {};
     this._out = null; // the bus of the sound being played
+    this._ambient = new AmbientGate(); // (Round 14)
+  }
+
+  // (Round 14) A category bus's gain for its slider's value.
+  _busGain(category, v) {
+    return category === "creatures" ? v * CREATURE_LEVEL : v;
+  }
+
+  // (Round 14) A creature's ambient call: whether it may call now (see AmbientGate).
+  ambientTurn(kind) {
+    const now = this.ctx ? this.ctx.currentTime : performance.now() / 1000;
+    return this._ambient.allow(kind, now);
+  }
+
+  ambientDelay(hostile) {
+    return ambientDelay(hostile);
+  }
+
+  creatureGain(event, distance, loud = false) {
+    return creatureGain(event, distance, loud);
   }
 
   setVolume(category, value) {
@@ -125,7 +196,7 @@ export class Audio {
     this.volumes[category] = v;
     if (!this.ctx) return;
     if (category === "master") this.master.gain.value = 0.9 * v;
-    else if (this.buses[category]) this.buses[category].gain.value = v;
+    else if (this.buses[category]) this.buses[category].gain.value = this._busGain(category, v);
   }
 
   // Routes the following sounds into a category's bus.
@@ -173,7 +244,7 @@ export class Audio {
       this.master.connect(compressor);
       for (const name of ["blocks", "weapons", "creatures", "player", "ui", "voice"]) {
         const bus = this.ctx.createGain();
-        bus.gain.value = this.volumes[name];
+        bus.gain.value = this._busGain(name, this.volumes[name]);
         bus.connect(this.master);
         this.buses[name] = bus;
       }
@@ -1372,14 +1443,17 @@ export class Audio {
   }
 
   // Mob voices: `event` is "idle", "hurt", "death" or "attack"; quieter
-  // with distance (blocks), silent beyond 40.
+  // with distance (blocks), silent beyond 40 (Round 14: an idle call beyond
+  // AMBIENT_RANGE, see creatureGain).
   playMob(kind, event, distance = 0) {
     this._cat("creatures");
     if (!this.ctx || distance > 40) return;
-    const gain = 1 / (1 + distance / 7);
+    const gain = creatureGain(event, distance);
+    if (gain < 0.005) return;
     // Variants ("alien_gray") share their family's voice.
     const parts = (VOICES[kind] || VOICES[String(kind).split("_")[0]])?.[event];
     if (!parts) return;
+    if (AMBIENT_EVENTS.has(event) && !this.ambientTurn(kind)) return;
     for (const part of parts) {
       if (part.noise) this._hit({ ...part.noise, v: part.noise.v * gain }, part.delay || 0);
       else this._voice(part, gain);

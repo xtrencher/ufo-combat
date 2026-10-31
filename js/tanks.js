@@ -54,6 +54,9 @@ const SAM_DAMAGE = 62;
 const SAM_FUSE = 3;
 const YARD_NEAR = 520; // a base's vehicles are set out within this of a player
 const YARD_FAR = 850;
+// (Round 14) The most parked and patrolling vehicles of the bases and the
+// airports set out at once (by the effects setting: weak PCs fewer).
+const YARD_MAX = { low: 8, high: 16 };
 
 // Enemy shells: lighter than the players' (fair on foot), but they look the part.
 export const ENEMY_SHELL = { damage: 38, ufoDamage: 0, radius: 2, look: 7.5 };
@@ -276,7 +279,7 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
     super(manager, { ...data, paint: data.paint || "enemy" }, { type: "aa", name: "Hijacked AA vehicle", spec: AA_SPEC, kind: "aa", model: "aa", maxHealth: AA_SPEC.maxHealth });
     this._enemyInit();
     this.missiles = [];
-    this.ai = { foe: null, pickT: 0, track: 0, burstT: rand(1, 3), burstLeft: 0, gunI: 0, samT: rand(4, 7), sams: 4, samReload: 0, warnT: 0 };
+    this.ai = { foe: null, pickT: 0, track: 0, burstT: rand(1, 3), burstLeft: 0, gunI: 0, samI: 0, samT: rand(4, 7), sams: 4, samReload: 0, warnT: 0 };
     this.home = this.pos.clone();
     this.route = Array.isArray(data.route) ? data.route.map((p) => new THREE.Vector3(p[0], p[1] ?? 0, p[2])) : null;
     this.routeI = 0;
@@ -364,20 +367,22 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
     this._updateSams(dt);
   }
 
-  // One flak round from the cannon on alternate sides.
+  // One flak round: the cannons' four barrels by turns (left, right), each
+  // from its own muzzle, its barrel kicking back.
   _flak(dir) {
     const mgr = this.manager;
     const guns = this.model.guns || [];
-    const g = guns[this.ai.gunI++ % Math.max(1, guns.length)];
+    const i = this.ai.gunI++ % Math.max(1, guns.length);
+    const g = guns[i];
     this.root.updateMatrixWorld(true);
     const from = g ? g.getWorldPosition(new THREE.Vector3()) : this.muzzleWorld(new THREE.Vector3());
+    this.model.kickGun?.(i);
     const d = dir.clone();
     d.x += rand(-0.012, 0.012);
     d.y += rand(-0.012, 0.012);
     d.z += rand(-0.012, 0.012);
     d.normalize();
     mgr.lasers?.fire({ from, dir: d, color: _flakC, speed: AA_SPEC.shellSpeed, damage: 4, owner: "enemyjet", source: this, range: FLAK_RANGE + 60, radius: 0.08, length: 4, sound: false, tracer: true, cause: "flak", scorch: false });
-    this.recoil = 0.6;
     const fx = mgr.effects;
     fx.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.06, size0: 1.4, size1: 0.4, color0: _hotC, alpha: 0.9 });
     if (this.ai.gunI % 3 === 0) fx.smoke.spawn({ x: from.x, y: from.y, z: from.z, vx: d.x * 3, vy: d.y * 3 + 0.5, vz: d.z * 3, life: 1.5, size0: 0.5, size1: 2, color0: _greyC, alpha: 0.35, drag: 1.5 });
@@ -399,7 +404,8 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
     const mgr = this.manager;
     const tubes = this.model.sams || [];
     this.root.updateMatrixWorld(true);
-    const t = tubes[(this.ai.sams + 4) % Math.max(1, tubes.length)];
+    // (From the containers by turns, left and right: each its own mouth.)
+    const t = tubes[this.ai.samI++ % Math.max(1, tubes.length)];
     const from = t ? t.getWorldPosition(new THREE.Vector3()) : this.pos.clone().setY(this.pos.y + 3);
     const dir = this.gunDir(new THREE.Vector3());
     const mesh = new THREE.Mesh(_samGeo || (_samGeo = missileGeometry()), _samMat || (_samMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
@@ -526,6 +532,32 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
     super.dispose();
   }
 
+  // (Round 14) Another machine's AA vehicle opened fire (net/ground.js
+  // "flak"): its barrels kick by turns for the burst, a flash at each
+  // muzzle (the rounds themselves come as the host's tracers).
+  netFire(kind, from, vel) {
+    if (kind === "flak") {
+      this._netBurst = 9;
+      this._netBurstT = 0;
+    } else super.netFire(kind, from, vel);
+  }
+
+  netPuppet(st, dt) {
+    super.netPuppet(st, dt);
+    if (!(this._netBurst > 0) || !this.alive) return;
+    const guns = this.model.guns || [];
+    this._netBurstT -= dt;
+    while (this._netBurstT <= 0 && this._netBurst > 0 && guns.length) {
+      this._netBurstT += 0.085;
+      this._netBurst--;
+      const i = this.ai.gunI++ % guns.length;
+      this.model.kickGun?.(i);
+      this.root.updateMatrixWorld(true);
+      const p = guns[i].getWorldPosition(_w);
+      this.manager.effects?.glow.spawn({ x: p.x, y: p.y, z: p.z, life: 0.06, size0: 1.4, size1: 0.4, color0: _hotC, alpha: 0.9 });
+    }
+  }
+
   hud() {
     return { title: this.name, rows: [], health: this.health / this.maxHealth };
   }
@@ -588,6 +620,27 @@ export class EnemyTel extends EnemyMixin(Tel) {
 
 VehicleManager.register("enemytank", EnemyTank);
 VehicleManager.register("aa", AAVehicle);
+
+// (Round 14) Our AA vehicle, parked at an airport or a base (sites.js
+// yardSpots): the same machine as the aliens' in our paint, standing by
+// (no crew: it can't be boarded, it fires at nothing), its guns up, its
+// search radar turning. Each player's own copy, like the parked tanks.
+export class ParkedAA extends GroundVehicle {
+  constructor(manager, data = {}) {
+    super(manager, { ...data, paint: data.paint || "olive" }, { type: "aapark", name: "AA vehicle", spec: AA_SPEC, kind: "aa", model: "aa", maxHealth: AA_SPEC.maxHealth });
+    this.unusable = true;
+    this.gunPitch = 0.6;
+  }
+
+  _control(dt) {
+    this._drive(dt, 0, 0, true);
+  }
+
+  serialize() {
+    return { ...super.serialize(), type: "aapark" };
+  }
+}
+VehicleManager.register("aapark", ParkedAA);
 VehicleManager.register("enemytel", EnemyTel);
 
 // ---------- The manager ----------
@@ -779,17 +832,24 @@ export class GroundWar {
     if (!centers.length) centers.push(this.player.position);
     const taken = this.vehicles.airportsTaken;
     const want = new Set();
+    const held = new Set(); // (Round 14: the sites the aliens hold: none of ours there)
+    const max = effectsQuality.scale < 0.5 ? YARD_MAX.low : YARD_MAX.high;
     if (allowed) {
       for (const c of centers) {
         for (const s of sites.within(c.x, c.z, YARD_NEAR + 300)) {
+          if (this.enemyHeld?.(s)) {
+            held.add(s.id);
+            continue;
+          }
           for (const y of sites.yardSpots(s)) {
             if (Math.hypot(y.x - c.x, y.z - c.z) < YARD_NEAR) want.add(y.key);
-            if (!want.has(y.key) || this.yard.has(y.key) || taken?.has(y.key)) continue;
+            if (!want.has(y.key) || this.yard.has(y.key) || taken?.has(y.key) || this.yard.size >= max) continue;
             // (Nor while the one a player took from this spot is still about:
             // airports.taken is only kept online.)
             if (this.vehicles.vehicles.some((o) => o.alive && o.tookKey === y.key)) continue;
-            const type = y.kind === "tel" ? "tel" : "tank";
-            const v = this.vehicles.create(type, { pos: [y.x, y.y, y.z], yaw: y.yaw, kind: y.kind === "tel" ? undefined : y.kind, paint: y.paint });
+            // (Round 14: a parked AA vehicle is ours, standing by: aapark.)
+            const type = y.kind === "tel" ? "tel" : y.kind === "aa" ? "aapark" : "tank";
+            const v = this.vehicles.create(type, { pos: [y.x, y.y, y.z], yaw: y.yaw, kind: type === "tank" ? y.kind : undefined, paint: y.paint });
             if (!v) continue;
             v.parkedAt = s.id;
             v.parkKey = y.key;
@@ -797,6 +857,8 @@ export class GroundWar {
             v.keep = true;
             v.npc = true;
             if (type === "tel") v.unusable = true; // (in Creative a TEL is the palette's)
+            // (Round 14) A patrol: round its loop from the next corner (vehicle-tank.js _patrolDrive).
+            if (y.patrol) v.patrol = { pts: y.patrol, i: y.leg ?? 0 };
             v.settle(true);
             this.yard.set(y.key, v);
           }
@@ -817,7 +879,7 @@ export class GroundWar {
         continue;
       }
       const far = centers.every((c) => Math.hypot(v.pos.x - c.x, v.pos.z - c.z) > YARD_FAR);
-      if ((far || !allowed || taken?.has(key)) && !v.occupied) {
+      if ((far || !allowed || taken?.has(key) || held.has(v.parkedAt)) && !v.occupied) {
         this.vehicles.remove(v);
         this.yard.delete(key);
       }
@@ -919,6 +981,17 @@ export function installGround(game) {
   war.ambientAllowed = () => !!progress?.enabled && !game.player.creative && (progress.reached?.("tank_battle") ?? false) && progress.isDone?.("tank_battle") !== false && game.mods?.enabled !== false;
   // (The bases' tanks: in Creative, or from the tank battle on.)
   war.yardAllowed = () => game.player.creative || !progress?.enabled || !!progress.reached?.("tank_battle");
+  // (Round 14) The site the aliens hold: the base assault's, while it plays
+  // (the director picked it: on a guest, where the host's garrison stands).
+  // Its yard is theirs (the mission's garrison, on its own patrols round
+  // the yard), none of ours set out there.
+  war.enemyHeld = (s) => {
+    if (game.player.creative || !progress?.enabled || progress.mission?.event !== "baseassault") return false;
+    const site = game.missions?.state?.site;
+    if (site) return site.id === s.id;
+    const at = s.base ? war.sites?.baseSpots?.(s)?.yard : s;
+    return !!at && veh.vehicles.some((u) => u.puppet && u.alive && (u.type === "enemytank" || u.type === "aa" || u.type === "enemytel") && Math.hypot(u.pos.x - at.x, u.pos.z - at.z) < 400);
+  };
   const update = veh.update.bind(veh);
   veh.update = (dt) => {
     update(dt);

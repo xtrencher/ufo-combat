@@ -426,15 +426,29 @@ export class SiteGrower {
     // AA vehicles there in a fight; empty, a gun mount stands in each).
     b.aa = [{ u: uc - 28, v: v0 + 22 }, { u: uc + 28, v: v0 + 22 }, { u: u0 + 22, v: v1 - 22 }, { u: u1 - 22, v: v1 - 22 }, { u: R1 - 8, v: cross + 6 }];
     // The yard's parked vehicles: tanks in rows, the missile trucks at the back.
+    // (Round 14: a different mix at every base: four to six in the front row,
+    // tigers and an AA vehicle or two among them; a second row beside the
+    // trucks at some; one or two trucks. Ten at most, for weak PCs. The
+    // random stream's last draws: nothing after them uses it.)
     b.slots = [];
     const [y0, y1, yv0, yv1] = b.yard;
-    let k = 0;
-    for (let u = y0 + 6; u + 6 <= y1; u += 11) {
-      b.slots.push({ u, v: yv0 + 8, face: -1, kind: k % 3 === 2 ? "tiger" : "mbt", paint: rand() < 0.5 ? "olive" : rand() < 0.5 ? "desert" : "grey" });
-      k++;
-      if (b.slots.length >= 6) break;
-    }
-    for (let i = 0; i < 2 && y0 + 10 + i * 18 + 8 <= y1; i++) b.slots.push({ u: y0 + 10 + i * 18, v: yv1 - 10, face: -1, kind: "tel", paint: "olive" });
+    const paint = () => (rand() < 0.5 ? "olive" : rand() < 0.5 ? "desert" : "grey");
+    const kind = () => {
+      const r = rand();
+      return r < 0.22 ? "tiger" : r < 0.34 ? "aa" : "mbt";
+    };
+    const front = 4 + Math.floor(rand() * 3);
+    for (let i = 0, u = y0 + 6; i < front && u + 6 <= y1; i++, u += 11) b.slots.push({ u, v: yv0 + 8, face: -1, kind: i ? kind() : "mbt", paint: paint() });
+    const tels = rand() < 0.65 ? 2 : 1;
+    const second = rand() < 0.6 ? 1 + Math.floor(rand() * 3) : 0;
+    // (The second row: past the trucks (along u), clear of their 13 blocks.)
+    for (let i = 0, u = y0 + 39 + Math.floor(rand() * 2) * 11; i < second && u + 6 <= y1; i++, u += 11) b.slots.push({ u, v: yv0 + 22, face: -1, kind: kind(), paint: paint() });
+    for (let i = 0; i < tels && y0 + 10 + i * 18 + 8 <= y1; i++) b.slots.push({ u: y0 + 10 + i * 18, v: yv1 - 10, face: -1, kind: "tel", paint: "olive" });
+    b.slots.length = Math.min(b.slots.length, 10);
+    // (Round 14) Tanks on patrol: one or two round the loop of the main road,
+    // the cross road, the right-hand ring road and the lane between the
+    // sheds and the yard (all clear of the buildings).
+    b.patrol = { n: rand() < 0.4 ? 2 : 1, loop: [[uc, v0 + 40], [u1 - 9.5, v0 + 40], [u1 - 9.5, cross - 1.5], [uc, cross - 1.5]] };
     // Lamp posts along the main and the cross road.
     b.lamps = [];
     for (let v = v0 + 16; v < v1 - 12; v += 16) b.lamps.push([uc - 6, v], [uc + 6, v]);
@@ -651,19 +665,77 @@ export class SiteGrower {
     }
   }
 
-  // (Round 13) The base's parked vehicles: [{ x, y, z, yaw, kind, paint, key }]
-  // (each player's own copy, like the airports' aircraft, until boarded).
+  // (Round 13) The base's parked vehicles: [{ x, y, z, yaw, kind, paint, key,
+  // patrol? }] (each player's own copy, like the airports' aircraft, until
+  // boarded). kind "tiger" | "mbt" | "aa" | "tel". (Round 14) Every airport
+  // has some too (_airportYard), and some drive a patrol loop: patrol is
+  // the loop's points [[x, z], ...] (world), from point `leg` on.
   yardSpots(site) {
-    if (!site?.base) return [];
+    if (!site || (!site.base && !site.apron)) return [];
     if (site._yardSlots) return site._yardSlots;
     const [vx, vz] = this.dirV(site);
-    site._yardSlots = site.base.slots.map((sl, i) => {
+    const yard = site.base ? { slots: site.base.slots, patrol: site.base.patrol } : this._airportYard(site);
+    // (Facing -v: toward the yard's front and the main gate; at an airport, the runway.)
+    const yaw = Math.atan2(vx, vz);
+    const out = yard.slots.map((sl, i) => {
       const [x, z] = this.toWorld(site, sl.u, sl.v);
-      // (Facing -v: toward the yard's front and the main gate.)
-      const yaw = Math.atan2(vx, vz);
       return { x: x + 0.5, y: site.y + 1, z: z + 0.5, yaw, kind: sl.kind, paint: sl.paint, key: `${site.id}#y${i}` };
     });
-    return site._yardSlots;
+    const P = yard.patrol;
+    if (P?.n) {
+      const loop = P.loop.map(([u, v]) => {
+        const [x, z] = this.toWorld(site, u, v);
+        return [x + 0.5, z + 0.5];
+      });
+      const rand = mulberry32(site.seed ^ 0x9a7e);
+      for (let i = 0; i < P.n; i++) {
+        // (Spread round the loop: each from its own corner, toward the next.)
+        const leg = (Math.floor(rand() * loop.length) + i * 2) % loop.length;
+        const [x, z] = loop[leg];
+        const [nx, nz] = loop[(leg + 1) % loop.length];
+        out.push({ x, y: site.y + 1, z, yaw: Math.atan2(-(nx - x), -(nz - z)), kind: rand() < 0.25 ? "tiger" : "mbt", paint: rand() < 0.5 ? "olive" : "desert", key: `${site.id}#p${i}`, patrol: loop, leg: (leg + 1) % loop.length });
+      }
+    }
+    site._yardSlots = out;
+    return out;
+  }
+
+  // (Round 14) An airport's parked vehicles (an airport's or a city's, not a
+  // base's): two to four tanks and AA vehicles on the level ground past the
+  // apron's end by the tower, in a row or two, noses to the runway; at half
+  // of them one more tank on patrol round them (clear of the runway, its
+  // lights and the B-2's spot; the apron itself is the aircraft's: its
+  // corner behind the tower is the helicopter's pad, helis.js). From the
+  // site's seed alone: the same for every player.
+  _airportYard(site) {
+    const a = site.apron;
+    const t = site.tower;
+    if (!a || !t) return { slots: [], patrol: null };
+    const rand = mulberry32(site.seed ^ 0x7a4c);
+    const rw = site.rw;
+    const side = t.u0 > (a.u0 + a.u1) / 2 ? 1 : -1; // (the tower's end)
+    const e0 = side > 0 ? a.u1 + 10 : a.u0 - 10;
+    const e1 = side > 0 ? a.u1 + 42 : a.u0 - 42;
+    const rows = [];
+    for (const v of [rw + 33, rw + 45]) {
+      if (v > a.v1 - 12) continue;
+      // (Each row in its own order: a Fisher-Yates shuffle, the same everywhere.)
+      const row = [8, 16, 24].map((du) => [e0 + side * du, v]);
+      for (let i = row.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [row[i], row[j]] = [row[j], row[i]];
+      }
+      rows.push(row);
+    }
+    const spots = rows.flat();
+    const n = Math.min(spots.length, 2 + Math.floor(rand() * 3));
+    const slots = [];
+    for (let i = 0; i < n; i++) {
+      const r = rand();
+      slots.push({ u: spots[i][0], v: spots[i][1], face: -1, kind: r < 0.2 ? "aa" : r < 0.32 ? "tiger" : "mbt", paint: rand() < 0.6 ? "olive" : rand() < 0.5 ? "desert" : "grey" });
+    }
+    const patrol = rand() < 0.5 ? { n: 1, loop: [[e0, rw + 16], [e1, rw + 16], [e1, a.v1 - 4], [e0, a.v1 - 4]] } : null;
+    return { slots, patrol };
   }
 
   // (Round 13) The base's AA positions and the middle of its yard (the missions' garrisons):

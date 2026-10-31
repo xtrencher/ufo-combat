@@ -2,16 +2,21 @@
 // in the game's model style (flat-shaded boxes, wedges and cylinders with
 // vertex colours, the entity shader's paint finish):
 //   tiger  a heavy WWII tank (a Tiger I): a boxy hull with the superstructure
-//          over the tracks, a big turret with a rounded mantlet, the long
-//          88 with its double-baffle muzzle brake, interleaved road wheels,
-//          the commander's cupola, hatches, tools, tow cables, exhausts;
+//          over the tracks, a big turret with a rounded mantlet (the
+//          sight's apertures left of the gun, the coaxial MG right of it),
+//          the long 88 with its double-baffle muzzle brake, interleaved
+//          road wheels, the commander's cupola (left rear), the bow MG,
+//          hatches, tools, tow cables, exhausts;
 //   mbt    a modern main battle tank (Leopard 2 style): a low hull with a
 //          steep glacis, side skirts, a wedge-armoured turret, the 120 mm
-//          smoothbore with its thermal sleeve and fume extractor, smoke
-//          launchers, sights, a roof MG, a bustle rack, antennas;
+//          smoothbore with its thermal sleeve and fume extractor, the
+//          coaxial MG left of it, smoke launchers, the gunner's and the
+//          commander's sights (right), the loader's roof MG on its ring
+//          (left: it turns and elevates), a bustle rack, antennas;
 //   aa     an anti-aircraft vehicle (Tunguska style): a tracked chassis, a
-//          turret with twin cannons, SAM tubes above them, a spinning
-//          search radar and a tracking radar dish;
+//          turret with a twin 30 mm cannon each side (four barrels, each
+//          recoiling on its own) and a pack of four SAM containers outboard
+//          of each, a spinning search radar and a tracking radar dish;
 //   tel    the ballistic missile truck (MAZ-543 style TEL): eight wheels,
 //          the split cab with the missile's nose between, an erector arm
 //          that raises the long missile upright, four outrigger jacks.
@@ -19,6 +24,12 @@
 // livery (model space, so every tank of a scheme has the same pattern),
 // vertex-coloured details and markings (a white star and turret numbers
 // for ours, a red triangle for the aliens' hijacked machines).
+//
+// (Round 14) Every weapon has its own muzzle (an Object3D at the tip, on
+// the part that carries it: it follows the turret, the gun's elevation and
+// the recoil): the main gun's, the coax's, the roof MG's, each AA barrel's,
+// each SAM container's mouth; proportions from the real ones (the guns no
+// longer overlong).
 //
 // Moving parts: the turret's traverse, the gun's elevation and recoil, the
 // tracks (every link follows the belt path round the sprocket, road wheels
@@ -50,6 +61,9 @@ const WHITE = 0xe8e6dc;
 const RED = 0xa8241c;
 const WOOD = 0x7a5a36;
 const SOOT = 0x232120;
+// (Round 14) Where the coaxial MG sits in the mantlet, gun frame [x, y]:
+// the Tiger's right of the gun, the modern tank's left (the loader's side).
+const COAX = { tiger: [0.42, 0.04], mbt: [-0.31, 0.02] };
 // The paint's finish (entity shader): a matte, slightly worn surface.
 const FINISH = { spec: 0.18, gloss: 14, env: 0.08, grain: 0.05, panel: 0.12, panelScale: 1.4, livery: 0.3, liveryScale: 0.42 };
 
@@ -380,16 +394,18 @@ function buildTiger(pal, enemy) {
   tur.cyl(-0.98, ty + 0.46, -1.05, 0.2, 0.92, P, "y", 10);
   tur.cyl(0.98, ty + 0.46, -1.05, 0.2, 0.92, P, "y", 10);
   tur.box(0, ty + 0.46, -1.15, 1.95, 0.92, 0.2, P);
-  // The roof, the commander's cupola with its vision slits, the loader's hatch, the vents.
+  // The roof; the commander's cupola with its vision blocks at the left
+  // rear (the commander sat behind the gunner, left of the gun), the
+  // loader's hatch on the right, the ventilator.
   tur.box(0, ty + 0.94, 0.15, 2.24, 0.05, 2.5, L);
-  tur.cyl(0.55, ty + 1.08, 0.75, 0.4, 0.28, P, "y", 16);
+  tur.cyl(-0.55, ty + 1.08, 0.8, 0.4, 0.28, P, "y", 16);
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2;
-    tur.box(0.55 + Math.cos(a) * 0.4, ty + 1.1, 0.75 + Math.sin(a) * 0.4, 0.08, 0.06, 0.08, GLASS);
+    tur.box(-0.55 + Math.cos(a) * 0.4, ty + 1.1, 0.8 + Math.sin(a) * 0.4, 0.08, 0.06, 0.08, GLASS);
   }
-  tur.cyl(0.55, ty + 1.25, 0.75, 0.34, 0.05, L, "y", 16);
-  tur.box(-0.5, ty + 0.98, 0.55, 0.55, 0.05, 0.7, L);
-  tur.cyl(-0.2, ty + 0.98, -0.45, 0.1, 0.08, D, "y", 8);
+  tur.cyl(-0.55, ty + 1.25, 0.8, 0.34, 0.05, L, "y", 16);
+  tur.box(0.5, ty + 0.98, 0.55, 0.55, 0.05, 0.7, L);
+  tur.cyl(0.25, ty + 0.98, -0.45, 0.1, 0.08, D, "y", 8);
   // The stowage bin at the back.
   tur.box(0, ty + 0.52, 1.72, 1.5, 0.5, 0.55, D);
   tur.box(0, ty + 0.78, 1.72, 1.52, 0.04, 0.57, P);
@@ -402,23 +418,29 @@ function buildTiger(pal, enemy) {
     tur.numberX(s * 1.18, ty + 0.55, 0.95, enemy ? "666" : "121", 0.26, enemy ? RED : WHITE, s);
   }
 
-  // The mantlet and the gun (round the trunnion: z -1.25, y ty + 0.48).
+  // The mantlet and the gun (round the trunnion: z -1.28, y ty + 0.48):
+  // the wide plate, the gun's sleeve; left of the gun the binocular
+  // sight's two apertures, right of it the coaxial MG34 in its port.
   const gun = new Kit();
   gun.box(0, 0, -0.08, 1.7, 0.72, 0.18, P);
   gun.cyl(0, 0, -0.22, 0.32, 0.2, P, "x", 14);
-  gun.box(0.62, 0.12, -0.2, 0.18, 0.24, 0.12, D); // (the gunner's sight aperture)
-  gun.cyl(-0.42, 0.05, -0.22, 0.06, 0.12, METAL, "z", 8); // (the coax MG)
+  for (const x of [-0.4, -0.58]) gun.cyl(x, 0.14, -0.18, 0.055, 0.04, SOOT, "z", 8);
+  gun.cyl(COAX.tiger[0], COAX.tiger[1], -0.2, 0.09, 0.1, D, "z", 10);
+  gun.cyl(COAX.tiger[0], COAX.tiger[1], -0.33, 0.034, 0.22, METAL, "z", 8);
+  gun.cyl(COAX.tiger[0], COAX.tiger[1], -0.445, 0.024, 0.02, SOOT, "z", 8);
   const brl = new Kit();
-  // The barrel: thicker at the breech, the long tube, the muzzle brake.
-  brl.cyl(0, 0, -0.75, 0.17, 1.1, P, "z", 14, 0.14);
-  brl.cyl(0, 0, -3.1, 0.12, 3.6, P, "z", 12, 0.1);
-  brl.cyl(0, 0, -4.98, 0.1, 0.32, P, "z", 12);
-  brl.cyl(0, 0, -5.28, 0.19, 0.28, D, "z", 12);
-  brl.box(0, 0, -5.2, 0.42, 0.12, 0.05, D);
-  brl.box(0, 0, -5.36, 0.42, 0.12, 0.05, D);
-  brl.cyl(0, 0, -5.45, 0.13, 0.08, SOOT, "z", 12);
+  // The 88 (L/56): thicker at the breech, the tapering tube, the double-baffle
+  // muzzle brake (two chambers, the gas ports in its sides).
+  brl.cyl(0, 0, -0.55, 0.15, 0.7, P, "z", 14, 0.13);
+  brl.cyl(0, 0, -2.3, 0.115, 2.8, P, "z", 12, 0.095);
+  brl.cyl(0, 0, -3.72, 0.12, 0.08, D, "z", 12);
+  brl.cyl(0, 0, -3.84, 0.165, 0.16, D, "z", 12);
+  brl.cyl(0, 0, -3.94, 0.11, 0.06, SOOT, "z", 12);
+  brl.cyl(0, 0, -4.03, 0.165, 0.14, D, "z", 12);
+  for (const z of [-3.84, -4.03]) brl.box(0, 0, z, 0.345, 0.1, 0.08, SOOT);
+  brl.cyl(0, 0, -4.105, 0.075, 0.012, SOOT, "z", 12);
   // Kill rings painted on the barrel (white).
-  for (let i = 0; i < 4; i++) brl.cyl(0, 0, -3.95 - i * 0.12, 0.114, 0.05, WHITE, "z", 12);
+  for (let i = 0; i < 4; i++) brl.cyl(0, 0, -2.0 - i * 0.12, 0.112, 0.05, WHITE, "z", 12);
   return {
     hull: hull.geometry(),
     turret: tur.geometry(),
@@ -426,7 +448,7 @@ function buildTiger(pal, enemy) {
     barrel: brl.geometry(),
     layout: {
       length: 6.3, width: 3.56, height: 2.9,
-      turretY: 0, gunAt: [0, ty + 0.48, -1.28], muzzle: 5.5,
+      turretY: 0, gunAt: [0, ty + 0.48, -1.28], muzzle: 4.13, coax: [...COAX.tiger, -0.46],
       track: { x: 1.42, w: 0.74, thick: 0.08, pitch: 0.27, circles: [[-2.92, 0.86, 0.36], [-2.15, 0.44, 0.42], [2.15, 0.44, 0.42], [2.85, 0.78, 0.33]] },
       wheels: { r: 0.42, w: 0.18, list: [-2.15, -1.53, -0.92, -0.31, 0.31, 0.92, 1.53, 2.15].map((z, i) => [z, 0.44, i % 2 ? -0.15 : 0.15]), extra: [[-2.92, 0.86, 0, 0.3], [2.85, 0.78, 0, 0.3]] },
     },
@@ -483,16 +505,17 @@ function buildMbt(pal, enemy) {
   tur.box(0, ty + 0.75, 2.3, 2.75, 0.04, 0.04, METAL);
   tur.box(0, ty + 0.35, 2.3, 2.75, 0.04, 0.04, METAL);
   tur.box(0, ty + 0.5, 2.15, 2.4, 0.3, 0.3, 0x5a5440); // (a tarp roll)
-  // Roof: the gunner's sight box, the commander's panoramic sight, hatches, the MG.
+  // Roof: the gunner's sight box (right front), the commander's panoramic
+  // sight before his hatch (right), the loader's hatch (left: its MG is a
+  // part of its own, buildRoofMg).
   tur.box(0.85, ty + 0.92, -0.65, 0.42, 0.3, 0.42, D);
   tur.box(0.85, ty + 0.95, -0.87, 0.34, 0.18, 0.03, GLASS);
-  tur.cyl(-0.75, ty + 1.05, 0.15, 0.12, 0.5, D, "y", 10);
-  tur.box(-0.75, ty + 1.32, 0.15, 0.32, 0.22, 0.32, D);
-  tur.box(-0.75, ty + 1.32, -0.02, 0.26, 0.12, 0.02, GLASS);
+  tur.cyl(0.45, ty + 1.05, 0.08, 0.12, 0.5, D, "y", 10);
+  tur.box(0.45, ty + 1.32, 0.08, 0.32, 0.22, 0.32, D);
+  tur.box(0.45, ty + 1.32, -0.09, 0.26, 0.12, 0.02, GLASS);
   tur.cyl(-0.85, ty + 0.81, 0.85, 0.34, 0.05, L, "y", 14);
+  tur.cyl(-0.85, ty + 0.79, 0.85, 0.42, 0.04, D, "y", 16); // (the MG's ring mount)
   tur.cyl(0.55, ty + 0.81, 0.75, 0.32, 0.05, L, "y", 14);
-  tur.box(0.55, ty + 0.98, 0.75, 0.08, 0.3, 0.08, METAL);
-  tur.box(0.55, ty + 1.13, 0.5, 0.07, 0.07, 0.9, METAL); // (the roof MG)
   // Smoke grenade launchers: four tubes each side, angled out and up.
   for (const s of [-1, 1]) for (let i = 0; i < 4; i++) tur.cyl(s * 1.62, ty + 0.62 + (i % 2) * 0.15, 0.3 + Math.floor(i / 2) * 0.17, 0.065, 0.32, METAL, "y", 8, 0.065, -0.4, 0, s * 0.7);
   // Antennas at the back.
@@ -500,32 +523,80 @@ function buildMbt(pal, enemy) {
   tur.box(1.15, ty + 1.7, 1.4, 0.03, 1.9, 0.03, METAL);
   for (const s of [-1, 1]) tur.numberX(s * 1.69, ty + 0.4, 0.55, enemy ? "13" : "24", 0.24, enemy ? RED : WHITE, s);
 
-  // The mantlet and the gun (the trunnion at z -1.15, y ty + 0.42).
+  // The mantlet and the gun (the trunnion at z -1.15, y ty + 0.42); the
+  // coaxial MG's port and barrel left of the gun.
   const gun = new Kit();
   gun.box(0, 0, -0.15, 0.78, 0.6, 0.45, P);
   gun.box(0, 0, -0.42, 0.62, 0.5, 0.1, D);
-  gun.cyl(0.32, 0.05, -0.45, 0.05, 0.15, METAL, "z", 8);
+  gun.cyl(COAX.mbt[0], COAX.mbt[1], -0.5, 0.07, 0.08, METAL, "z", 8);
+  gun.cyl(COAX.mbt[0], COAX.mbt[1], -0.6, 0.03, 0.16, METAL, "z", 8);
+  gun.cyl(COAX.mbt[0], COAX.mbt[1], -0.685, 0.02, 0.02, SOOT, "z", 8);
   const brl = new Kit();
-  brl.cyl(0, 0, -0.85, 0.14, 0.9, D, "z", 14, 0.13);
-  // The thermal sleeve in sections, the fume extractor, the muzzle reference box.
-  brl.cyl(0, 0, -3.95, 0.112, 4.9, P, "z", 12);
-  for (let i = 0; i < 6; i++) brl.cyl(0, 0, -1.55 - i * 0.98, 0.125, 0.06, D, "z", 12);
-  brl.cyl(0, 0, -2.3, 0.165, 0.7, D, "z", 14);
-  brl.cyl(0, 0, -6.35, 0.1, 0.5, P, "z", 12);
-  brl.box(0, 0.16, -6.45, 0.12, 0.1, 0.18, D);
-  brl.cyl(0, 0, -6.62, 0.08, 0.05, SOOT, "z", 12);
+  // The 120 mm L/44: the thermal sleeve in sections, the fume extractor, the
+  // muzzle reference sensor's box over the muzzle.
+  brl.cyl(0, 0, -0.7, 0.14, 0.9, D, "z", 14, 0.13);
+  brl.cyl(0, 0, -3.08, 0.112, 3.86, P, "z", 12);
+  for (let i = 0; i < 5; i++) brl.cyl(0, 0, -1.4 - i * 0.8, 0.125, 0.06, D, "z", 12);
+  brl.cyl(0, 0, -2.05, 0.165, 0.66, D, "z", 14);
+  brl.cyl(0, 0, -5.2, 0.1, 0.4, P, "z", 12);
+  brl.box(0, 0.15, -5.17, 0.12, 0.1, 0.18, D);
+  brl.cyl(0, 0, -5.39, 0.08, 0.03, SOOT, "z", 12);
   return {
     hull: hull.geometry(),
     turret: tur.geometry(),
     gun: gun.geometry(),
     barrel: brl.geometry(),
+    mg: buildRoofMg(),
     layout: {
       length: 7.7, width: 3.8, height: 2.6,
-      turretZ: 0.2, gunAt: [0, ty + 0.42, -1.15], muzzle: 6.65,
+      turretZ: 0.2, gunAt: [0, ty + 0.42, -1.15], muzzle: 5.42, coax: [...COAX.mbt, -0.7],
+      roofMg: [-0.85, ty + 0.83, 0.85],
       track: { x: 1.5, w: 0.64, thick: 0.08, pitch: 0.26, circles: [[-3.38, 0.82, 0.32], [-2.75, 0.36, 0.36], [2.75, 0.36, 0.36], [3.42, 0.75, 0.3]] },
       wheels: { r: 0.36, w: 0.22, list: [-2.75, -1.84, -0.92, 0, 0.92, 1.84, 2.75].map((z) => [z, 0.36, 0]), extra: [[-3.38, 0.82, 0, 0.27], [3.42, 0.75, 0, 0.27]] },
     },
   };
+}
+
+// (Round 14) The AA vehicle's cradle: the cannons' x, their twin barrels'
+// spread, the SAM packs' x, the tubes in a pack ([out, y]), their mouths' z.
+const AA_GUN_X = 1.27;
+const AA_BARREL_DX = 0.095;
+const AA_SAM_X = 1.8;
+const AA_TUBES = [[-0.14, 0.12], [0.14, 0.12], [-0.14, 0.42], [0.14, 0.42]];
+const AA_TUBE_Z = -1.3;
+const AA_BARREL = 2.3; // (a barrel's length: its muzzle this far ahead of its root)
+
+// One 30 mm cannon barrel (from its root at z 0 forward along -z): the
+// cooling jacket at the root, the long thin tube, the muzzle brake.
+function aaBarrel() {
+  const k = new Kit();
+  k.cyl(0, 0, -0.3, 0.06, 0.6, METAL, "z", 8);
+  k.cyl(0, 0, -1.2, 0.04, 1.85, METAL, "z", 8);
+  k.cyl(0, 0, -2.18, 0.06, 0.24, 0x2f3032, "z", 8);
+  k.cyl(0, 0, -AA_BARREL + 0.01, 0.03, 0.02, SOOT, "z", 8);
+  return k.geometry();
+}
+
+// (Round 14) The modern tank's roof MG (an MG3 on the loader's ring mount):
+// the post (it turns with the ring) and the gun (it elevates on the post's
+// yoke, ROOF_MG.pivot); the muzzle at ROOF_MG.muzzle in the gun's frame.
+const ROOF_MG = { pivot: [0, 0.33, -0.36], muzzle: [0, 0.06, -0.68] };
+function buildRoofMg() {
+  const post = new Kit();
+  post.box(0, 0.06, -0.36, 0.12, 0.12, 0.16, METAL); // (the carriage on the ring)
+  post.box(0, 0.19, -0.36, 0.05, 0.24, 0.05, METAL);
+  post.box(0, 0.31, -0.36, 0.16, 0.05, 0.06, METAL); // (the yoke)
+  const gun = new Kit();
+  const BLK = 0x2a2b2c;
+  gun.box(0, 0.05, 0.05, 0.08, 0.11, 0.44, BLK); // (the receiver)
+  gun.box(0, 0.02, 0.36, 0.05, 0.09, 0.2, BLK); // (the butt)
+  gun.box(0, -0.04, 0.12, 0.03, 0.1, 0.04, BLK); // (the grip)
+  gun.box(-0.1, 0.0, 0.0, 0.1, 0.13, 0.17, 0x4a5032); // (the ammunition box)
+  gun.cyl(0, 0.06, -0.34, 0.034, 0.38, 0x333435, "z", 8); // (the perforated jacket)
+  for (let i = 0; i < 4; i++) gun.cyl(0, 0.06, -0.2 - i * 0.08, 0.036, 0.025, SOOT, "z", 8);
+  gun.cyl(0, 0.06, -0.58, 0.018, 0.12, METAL, "z", 6);
+  gun.cyl(0, 0.06, -0.655, 0.03, 0.05, SOOT, "z", 8, 0.022); // (the flash hider)
+  return { post: post.geometry(), gun: gun.geometry() };
 }
 
 // The AA vehicle: a tracked chassis, a turret with twin cannons, SAM tubes, radars.
@@ -553,20 +624,25 @@ function buildAA(pal, enemy) {
   tur.cyl(0, ty + 1.2, -0.95, 0.12, 0.3, D, "y", 10);
   tur.cyl(0, ty + 1.3, 1.1, 0.12, 0.45, D, "y", 10);
   for (const s of [-1, 1]) tur.numberX(s * 1.1, ty + 0.55, 0.3, enemy ? "7" : "3", 0.26, enemy ? RED : WHITE, s);
-  // The guns' cradle: the cannons on both sides, the SAM tubes above them.
+  // The guns' cradle (it elevates as one): the trunnion's axle through the
+  // turret, on each side a twin 30 mm cannon's housing (its two barrels are
+  // parts of their own: each recoils as it fires) and, outboard, a pack of
+  // four SAM containers (two by two) with their mouths at the front.
   const gun = new Kit();
+  gun.box(0, 0, 0, 2.3, 0.16, 0.36, D);
   for (const s of [-1, 1]) {
-    gun.box(s * 1.3, 0, -0.1, 0.32, 0.38, 1.1, D);
-    gun.cyl(s * 1.3, 0.03, -1.6, 0.06, 2.4, METAL, "z", 10);
-    gun.cyl(s * 1.3, 0.03, -2.9, 0.1, 0.3, SOOT, "z", 10);
-    // Two SAM tubes each side.
-    for (const k of [0, 1]) {
-      gun.cyl(s * (1.25 + k * 0.32), 0.48, -0.2, 0.15, 1.9, L, "z", 12);
-      gun.cyl(s * (1.25 + k * 0.32), 0.48, -1.16, 0.12, 0.04, SOOT, "z", 12);
+    gun.box(s * AA_GUN_X, 0, -0.1, 0.36, 0.4, 1.2, D);
+    gun.box(s * AA_GUN_X, 0.22, -0.2, 0.3, 0.06, 0.9, P);
+    for (const b of [-1, 1]) gun.cyl(s * AA_GUN_X + b * AA_BARREL_DX, 0.02, -0.72, 0.075, 0.06, SOOT, "z", 10);
+    gun.box(s * (AA_GUN_X + 0.22), 0, 0, 0.1, 0.12, 0.3, METAL); // (the arm out to the pack)
+    gun.box(s * AA_SAM_X, 0.27, -0.35, 0.66, 0.66, 0.08, P); // (the pack's frame)
+    gun.box(s * AA_SAM_X, 0.27, 0.45, 0.66, 0.66, 0.08, P);
+    for (const [dx, y] of AA_TUBES) {
+      gun.cyl(s * AA_SAM_X + s * dx, y, AA_TUBE_Z + 0.95, 0.135, 1.9, L, "z", 12);
+      gun.cyl(s * AA_SAM_X + s * dx, y, AA_TUBE_Z + 0.02, 0.11, 0.03, SOOT, "z", 12);
     }
   }
-  gun.box(0, 0, 0, 2.3, 0.16, 0.4, D);
-  // The barrels are the cradle's: no separate recoil part (a quick shake instead).
+  // (The main barrel part is empty: the cannons' barrels are their own, aaBarrel.)
   const brl = new Kit();
   brl.box(0, 0, 0, 0.01, 0.01, 0.01, D);
   // The search radar: a lattice dish (spins), the tracking dish (round, on the front).
@@ -583,13 +659,16 @@ function buildAA(pal, enemy) {
     turret: tur.geometry(),
     gun: gun.geometry(),
     barrel: brl.geometry(),
+    aaBarrel: aaBarrel(),
     radar: radar.geometry(),
     dish: dish.geometry(),
     layout: {
       length: 6.6, width: 3.4, height: 3.2,
       gunAt: [0, ty + 0.55, -0.6], muzzle: 3.0,
-      guns: [[-1.3, 0.03, -3.05], [1.3, 0.03, -3.05]],
-      sams: [[-1.25, 0.48, -1.2], [1.25, 0.48, -1.2], [-1.57, 0.48, -1.2], [1.57, 0.48, -1.2]],
+      // The cannons' barrels (in the order they fire: left, right, by turns)
+      // and the SAM containers' mouths (the order they launch: by turns).
+      guns: [[-1, -1], [1, 1], [-1, 1], [1, -1]].map(([s, b]) => [s * AA_GUN_X + b * AA_BARREL_DX, 0.02, -0.72]),
+      sams: [0, 1, 2, 3].flatMap((i) => [-1, 1].map((s) => [s * AA_SAM_X + s * AA_TUBES[i][0], AA_TUBES[i][1], AA_TUBE_Z - 0.1])),
       radarAt: [0, ty + 1.6, 1.1], dishAt: [0, ty + 1.42, -1.0],
       track: { x: 1.35, w: 0.6, thick: 0.08, pitch: 0.26, circles: [[-3.0, 0.8, 0.3], [-2.35, 0.36, 0.36], [2.35, 0.36, 0.36], [3.0, 0.72, 0.3]] },
       wheels: { r: 0.36, w: 0.2, list: [-2.35, -1.41, -0.47, 0.47, 1.41, 2.35].map((z) => [z, 0.36, 0]), extra: [[-3.0, 0.8, 0, 0.25], [3.0, 0.72, 0, 0.25]] },
@@ -723,8 +802,12 @@ function flashTexture() {
 
 // Creates a ground vehicle model. kind: "tiger" | "mbt" | "aa" | "tel";
 // paint: a TANK_PAINTS key. Returns the model: { root, light, layout,
-// muzzle (Object3D at the gun's muzzle), setTurret(yaw), setGun(pitch),
-// setRecoil(0-1), roll(dist), animate(t, opts), setBurnt(on, t),
+// muzzle (Object3D at the gun's muzzle), coax (at the coaxial MG's
+// muzzle), roofMg ({ ring, cradle, muzzle }: the modern tank's roof MG),
+// guns (the AA's cannon muzzles, in firing order), sams (its SAM
+// containers' mouths), setTurret(yaw), setGun(pitch), setRoofMg(yaw,
+// pitch), setRecoil(0-1), setFlash(k), mgFlash(which, k), kickGun(i),
+// roll(dist), animate(t, opts), setBurnt(on, t),
 // setErector(0-1), setJacks(0-1), setMissile(visible), missileWorld(out
 // matrix), turretOff(Object3D or null), dispose() }.
 export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
@@ -888,19 +971,61 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
     muzzle.add(flash);
     model._flash = flash;
     model._star = star;
-    // Extra muzzles (the AA's cannons), its radars.
-    if (lay.guns) model.guns = lay.guns.map(([x, y, z]) => {
-      const o = new THREE.Object3D();
-      o.position.set(x, y, z);
-      gun.add(o);
-      return o;
-    });
+    // (Round 14) Every weapon's own muzzle. The coaxial MG's: in the
+    // mantlet (it elevates with the gun, doesn't recoil with it).
+    if (lay.coax) {
+      model.coax = new THREE.Object3D();
+      model.coax.position.set(...lay.coax);
+      gun.add(model.coax);
+    }
+    // The roof MG: turns on its ring, elevates on its post (setRoofMg).
+    if (g.mg) {
+      const ring = new THREE.Group();
+      ring.position.set(...lay.roofMg);
+      turret.add(ring);
+      mesh(g.mg.post, mat, ring);
+      const cradle = new THREE.Group();
+      cradle.position.set(...ROOF_MG.pivot);
+      ring.add(cradle);
+      mesh(g.mg.gun, mat, cradle);
+      const m = new THREE.Object3D();
+      m.position.set(...ROOF_MG.muzzle);
+      cradle.add(m);
+      model.roofMg = { ring, cradle, muzzle: m };
+    }
+    // The AA's cannons: a barrel each, recoiling on its own (kickGun), its
+    // muzzle at the tip; the SAM containers' mouths.
+    if (lay.guns) {
+      model._barrels = [];
+      model._kicks = [];
+      model.guns = lay.guns.map(([x, y, z]) => {
+        const b = new THREE.Group();
+        b.position.set(x, y, z);
+        gun.add(b);
+        mesh(g.aaBarrel, mat, b);
+        model._barrels.push(b);
+        model._kicks.push(-9);
+        const o = new THREE.Object3D();
+        o.position.set(0, 0, -AA_BARREL - 0.05);
+        b.add(o);
+        return o;
+      });
+    }
     if (lay.sams) model.sams = lay.sams.map(([x, y, z]) => {
       const o = new THREE.Object3D();
       o.position.set(x, y, z);
       gun.add(o);
       return o;
     });
+    // The machine guns' flashes: a small star at the muzzle that fired (mgFlash).
+    if (model.coax || model.roofMg) {
+      const sm2 = new THREE.SpriteMaterial({ map: flashTexture(), color: new THREE.Color(3, 2.3, 1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true });
+      mats.push(sm2);
+      const st = new THREE.Sprite(sm2);
+      st.layers.set(LAYER_FX);
+      st.visible = false;
+      model._mgStar = st;
+    }
     if (g.radar) {
       const rg = new THREE.Group();
       rg.position.set(...lay.radarAt);
@@ -919,6 +1044,31 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
   };
   model.setGun = (pitch) => {
     if (model.gun) model.gun.rotation.x = pitch;
+  };
+  // (Round 14) The roof MG's bearing (relative to the turret) and elevation.
+  model.setRoofMg = (yaw, pitch) => {
+    const r = model.roofMg;
+    if (!r) return;
+    r.ring.rotation.y = yaw;
+    r.cradle.rotation.x = pitch;
+  };
+  // A machine gun's flash at its muzzle ("coax" or "roof"; k 0 hides it).
+  model.mgFlash = (which, k) => {
+    const st = model._mgStar;
+    if (!st) return;
+    const at = which === "roof" ? model.roofMg?.muzzle : model.coax;
+    if (!(k > 0) || !at) {
+      st.visible = false;
+      return;
+    }
+    if (st.parent !== at) at.add(st);
+    st.visible = true;
+    st.scale.setScalar(0.45 + 0.35 * k * Math.random());
+    st.material.rotation = Math.random() * 6.28;
+  };
+  // The AA's cannon i fires: its barrel kicks back (eased out by animate).
+  model.kickGun = (i) => {
+    if (model._kicks && i >= 0 && i < model._kicks.length) model._kicks[i] = null; // (all the way back on the next frame drawn)
   };
   // Recoil: 1 the moment it fires (the barrel all the way back), easing to 0.
   model.setRecoil = (k) => {
@@ -992,6 +1142,15 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
 
   // ---- Per frame: the radar, the flash, a burning wreck ----
   model.animate = (t, { radar = true } = {}) => {
+    model._t = t;
+    if (model._barrels) {
+      // (A 30 mm round's recoil: 15 cm back at once, home in a tenth of a second.)
+      for (let i = 0; i < model._barrels.length; i++) {
+        if (model._kicks[i] === null) model._kicks[i] = t;
+        const a = t - model._kicks[i];
+        model._barrels[i].position.z = lay.guns[i][2] + (a >= 0 && a < 0.1 ? 0.15 * (1 - a / 0.1) : 0);
+      }
+    }
     if (model._radar && radar) model._radar.rotation.y = t * 2.4;
     if (model._dish) model._dish.rotation.y = Math.sin(t * 0.7) * 0.4;
   };

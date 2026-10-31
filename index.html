@@ -934,6 +934,10 @@
   /* (Round 13: air) The fighter HUD's canvas: the seeker, the target box, the warnings. */
   #fighter-hud { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 10; }
   /* (end Round 13: air) */
+  /* (Round 14) The missile truck's target readout, beside its ring on the ground (js/ballistic.js). */
+  .tel-aim { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 10; white-space: nowrap; font: 700 12px ui-monospace, Consolas, monospace; letter-spacing: 1px; text-shadow: 0 0 3px #000, 0 0 1px #000; }
+  .tel-aim i { position: absolute; left: -8px; top: -8px; width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(0,0,0,0.45); }
+  .tel-aim span { position: absolute; left: 14px; top: -8px; line-height: 16px; }
   #jet-nose {
     position: fixed;
     width: 26px;
@@ -1711,6 +1715,7 @@
           <button class="btn" data-callin="tiger" title="Tiger tank">Tiger tank</button>
           <button class="btn" data-callin="mbt" title="Modern battle tank">Battle tank</button>
           <button class="btn" data-callin="tel" title="Ballistic missile truck">Missile truck</button>
+          <button class="btn" data-callin="heli" title="AH-64 Apache attack helicopter">Helicopter</button>
         </div>
       </div>
       <div class="row">

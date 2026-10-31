@@ -8,7 +8,9 @@
 // with fire's frames after the named tiles; a layer on the second page is
 // drawn (not the first page's); fire's flames and lava move with time; a
 // closed cave room is as dark by day as by night (no sun, moon or sky haze
-// on its rock), and a torch lights it.
+// on its rock), and a torch lights it. (Round 14) Lava's mesh (vanilla's
+// sloped surface, the shore edges, the haze's sheet); lava glowing and
+// moving on every preset, its shaders (and the haze's) compiling.
 //
 //   node r12-render-tests.mjs [--only=substring] [--node]
 // (GAME_ROOT=dir runs another copy of the game; SHOTS=dir saves screenshots.)
@@ -110,7 +112,8 @@ await check("mesher: fire's faces are its flipbook, lava's are flowing (still in
   assert(lava.length > 0, "lava vertices");
   for (const v of lava) assert(v.flags & FLAG.FLOW && !(v.flags & FLAG.ANIM), `a lava vertex's flags ${v.flags}`);
   // The top of the pool's middle cell (5, 5): still (0); the flow's tops
-  // (cells 8, 9 at z 5): east, direction 0 (code 1). (A quad is 4 vertices in a row.)
+  // (cells 8, 9 at z 5): east, direction 0 (Round 14: per vertex, a byte of
+  // 1 + direction + 16 x speed). (A quad is 4 vertices in a row.)
   const topOf = (cx, cz) => {
     const all = vertices(m.opaque);
     const codes = [];
@@ -127,10 +130,64 @@ await check("mesher: fire's faces are its flipbook, lava's are flowing (still in
   assert(mid.length === 4 && mid.every((c) => c === 0), `the pool's middle: ${JSON.stringify(mid)}`);
   for (const x of [8, 9]) {
     const q = topOf(x, 5);
-    assert(q.length === 4 && q.every((c) => c === 1), `the flow at x ${x}: ${JSON.stringify(q)}`);
+    assert(q.length === 4 && q.every((c) => c > 0 && (c - 1) % 16 === 0 && c >= 17), `the flow at x ${x}: ${JSON.stringify(q)}`);
   }
   const stone = op.filter((v) => v.layer === TILE.stone);
   assert(stone.length > 0 && stone.every((v) => !(v.flags & (FLAG.ANIM | FLAG.FLOW))), "stone is not animated");
+});
+
+await check("(Round 14) lava's mesh: vanilla's sloped surface, no steps between lava cells, the shore edges on the top, the haze's sheet only meshing for High/Ultra", async () => {
+  // A pool of sources at y 9 (x 4-7, z 4-7) against stone, a flow east from it (x 8-10, z 5).
+  const cells = [];
+  for (let x = 4; x <= 7; x++) for (let z = 4; z <= 7; z++) cells.push([x, 9, z, ID.LAVA]);
+  for (let l = 1; l <= 3; l++) cells.push([7 + l, 9, 5, N.lavaFlowId(l)]);
+  const meshWith = (fancy) => {
+    const S = CHUNK_SIZE;
+    const blocks = new Uint16Array(S * WORLD_HEIGHT * S);
+    const light = new Uint8Array(S * WORLD_HEIGHT * S).fill(0xf0);
+    const idx = (x, y, z) => (y * S + z) * S + x;
+    for (let x = 0; x < S; x++) for (let z = 0; z < S; z++) for (let y = 0; y < 10; y++) blocks[idx(x, y, z)] = BLOCK.STONE;
+    for (const [x, y, z, id] of cells) blocks[idx(x, y, z)] = id;
+    const nb = new Array(9).fill(null);
+    nb[4] = { cx: 0, cz: 0, blocks, light };
+    return meshChunk(nb, { fancyLeaves: fancy });
+  };
+  const m = meshWith(false);
+  const all = vertices(m.opaque);
+  const quads = [];
+  for (let q = 0; q + 3 < all.length; q += 4) if (all[q].layer === TILE.lava) quads.push(all.slice(q, q + 4));
+  // (the tint byte of a vertex)
+  const tintOf = (buf, i) => buf.extra[i * 4 + 2];
+  const tops = quads.filter((q) => q[0].face === 2);
+  assert(tops.length === 19, `${tops.length} lava tops`);
+  // The pool's corners against the stone stay at a source's 8/9; the flow's sink toward its end.
+  const heightAt = (x, z) => [...new Set(tops.flatMap((q) => q.filter((v) => v.x === x && v.z === z).map((v) => +(v.y - 9).toFixed(4))))];
+  const h44 = heightAt(4, 4);
+  assert(h44.length === 1 && Math.abs(h44[0] - 8 / 9) < 1e-3, `the pool's corner ${h44}`);
+  for (let x = 8; x <= 11; x++) assert(heightAt(x, 5).length === 1 && heightAt(x, 6).length === 1, `the flow's corners at x ${x} are shared: ${heightAt(x, 5)} ${heightAt(x, 6)}`);
+  const hs = [8, 9, 10, 11].map((x) => heightAt(x, 5)[0]);
+  assert(hs.every((h, i) => i === 0 || h < hs[i - 1]), `the flow runs downhill: ${hs}`);
+  // No side faces between lava cells (the slopes meet); one at the open end (x 11, facing +X, over the stone floor... stone: none).
+  const sides = quads.filter((q) => q[0].face !== 2 && q[0].face !== 3);
+  assert(sides.length === 0, `${sides.length} side faces (all neighbours are lava or stone)`);
+  // Shore bits: the pool's corner cell (4, 4) meets stone on -X and -Z (2 | 8); the middle (5, 5) none.
+  const tintAt = (cx, cz) => {
+    const out = [];
+    for (let q = 0; q + 3 < all.length; q += 4) {
+      if (all[q].layer !== TILE.lava || all[q].face !== 2) continue;
+      if (Math.floor((all[q].x + all[q + 2].x) / 2) === cx && Math.floor((all[q].z + all[q + 2].z) / 2) === cz) out.push(tintOf(m.opaque, q));
+    }
+    return out;
+  };
+  assert(tintAt(4, 4)[0] === (2 | 8), `the corner cell's shore ${tintAt(4, 4)}`);
+  assert(tintAt(5, 5)[0] === 0, `the middle's shore ${tintAt(5, 5)}`);
+  assert(tintAt(9, 5)[0] === (4 | 8), `the flow's shore ${tintAt(9, 5)}`);
+  // The haze: none without High/Ultra's meshing; with it, one sheet per open lava top, above it, strongest inside the pool.
+  assert(!m.water, "a water mesh without the haze");
+  const hz = vertices(meshWith(true).water);
+  assert(hz.length === 19 * 4 && hz.every((v) => v.flags & FLAG.HAZE && Math.abs(v.y - 10.3) < 1e-4), `haze vertices ${hz.length}`);
+  const at = (x, z) => Math.max(...hz.filter((v) => v.x === x && v.z === z).map((v) => v.byte));
+  assert(at(6, 6) === 16 && at(4, 4) < 4, `the haze's strength: inside ${at(6, 6)}, the pool's corner ${at(4, 4)}`);
 });
 
 // ---------- Browser ----------
@@ -343,6 +400,55 @@ async function browserChecks() {
     assert(day.mean < 0.045, `the room by day: ${day.mean}`); // (dark, but faintly visible: vanilla's light level 0)
     assert(Math.abs(day.mean - night.mean) < 0.006, `day ${day.mean} vs night ${night.mean}`);
     assert(torch.mean > day.mean + 0.02, `a torch: ${torch.mean}`);
+  });
+
+  await browserCheck("(Round 14) lava glows, moves and its shaders compile on every preset (the haze's too)", async () => {
+    // A pool in the room's floor, the camera looking down at it.
+    await v(async (g, a) => {
+      const ID = await import("/js/content/ids.js");
+      const e = [];
+      for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, ID.LAVA);
+      g.world.setBlocks(e);
+      g.player.position.set(a.x0 + 0.5, a.y + 1.2, a.z0 + 3.5);
+      g.player.pitch = -0.55;
+      g.sky.setHours(0);
+    }, room);
+    try {
+      for (const preset of ["low", "medium", "high", "ultra"]) {
+        await v((g, p) => g.setGraphics(p), preset);
+        await page.waitForFunction(() => window.__ufo.graphicsReady, null, { timeout: 180000 });
+        await frames(6);
+        const pts = await v((g, a) => {
+          g.renderer.render(g.scene, g.camera);
+          return [[-2, -2.5], [0, -1.5], [2, -0.5], [-1, -0.5], [1, -2.5]].map(([dx, dz]) => {
+            const p = new g.THREE.Vector3(a.x0 + 0.5 + dx, a.y - 0.12, a.z0 + 0.5 + dz).project(g.camera);
+            return [(p.x + 1) / 2, (1 - p.y) / 2];
+          });
+        }, room);
+        const [a, b] = await v((g, p) => {
+          const a = g.samplePixels(p);
+          g.uniforms.uTime.value += 3.7;
+          return [a, g.samplePixels(p)];
+        }, pts);
+        await shot(`lava-${preset}`);
+        const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        const diff = a.map((c, i) => Math.abs(c[0] - b[i][0]) + Math.abs(c[1] - b[i][1]) + Math.abs(c[2] - b[i][2]));
+        console.log(`        ${preset}: ${JSON.stringify(a)}, moved ${diff}`);
+        // (in a dark room: the lava's own glow, red over green over blue, some of it bright)
+        assert(a.every((c) => c[0] >= c[1] && c[1] >= c[2]), `${preset}: not lava's colours ${JSON.stringify(a)}`);
+        assert(a.some((c) => c[0] > 180 && lum(c) > 90), `${preset}: no bright glow ${JSON.stringify(a)}`);
+        assert(diff.some((d) => d > 12), `${preset}: the lava didn't move`);
+        const mats = await v((g) => ({ water: g.world.materials.water.defines.WATER_SCREEN !== undefined, programs: g.renderer.info.programs.length }));
+        assert(mats.programs > 0, "programs");
+        if (preset === "ultra") assert(mats.water, "Ultra draws water (and the haze) over the image");
+      }
+    } finally {
+      await v((g, a) => {
+        const e = [];
+        for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 0; dz++) e.push(a.x0 + dx, a.y - 1, a.z0 + dz, 3);
+        g.world.setBlocks(e);
+      }, room);
+    }
   });
 
   await browser.close();

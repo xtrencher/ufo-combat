@@ -55,7 +55,7 @@ export const MAX_TIER = 5;
 
 // ---------- Missions ----------
 //
-// The missions (thirty-nine so far). They start on foot with a sword: a
+// The missions (forty-two so far). They start on foot with a sword: a
 // skeleton (its bow), a UFO that lands and lets its crew out (they give you
 // a moment before they attack), the first supply crate (a pistol), a first
 // scout to shoot down and its crew, a run for cover under a bombardment;
@@ -549,6 +549,42 @@ export const MISSIONS = [
     tier: 5,
     rules: R(LATE, 1.12, 1.12, 1.25, 4, 0.04, ALL_CREWS),
   },
+  // ---------- (Round 14) The helicopters ----------
+  {
+    id: "air_cav",
+    title: "Air cavalry",
+    text: "A column of hijacked tanks is rolling toward us. An attack helicopter of ours waits for you (marked): get in (F), let the rotor spin up, lift off (Space) and knock the column out from the air. W/S tilt the nose to fly, A/D turn, Space/Shift climb and sink (let go: it holds its height); the mouse aims the chin gun (left click), right click fires a salvo of rockets, X switches to the Hellfires (keep a target round the crosshair to lock it). Stay out of their guns' reach and keep moving.",
+    objectives: [{ stat: "groundDown", goal: 4, goals: [4, 4, 5, 3], label: "Enemy vehicles destroyed", scale: "group" }],
+    event: "aircav",
+    act: 3, after: ["wings", "tank_battle"], // (always in a run: the helicopters' own mission; it unlocks them)
+    twists: { 1: "An AA vehicle rolls with them: flares (C) for its SAMs.", 2: "An enemy gunship flies top cover.", 3: "Heavy Tigers lead them." },
+    tier: 4,
+    rules: R({ small: 3, medium: 3 }, 0.85, 0.8, 0.8, 1, 0.012, GREEN_GRAY),
+    sky: { max: 1, rate: 0.01 }, // (a quiet sky: the fight is the helicopter's)
+  },
+  {
+    id: "medevac",
+    title: "Search and rescue",
+    text: "One of our crews went down behind the lines (marked: their smoke is up). Fly a helicopter out there (a transport waits for you), land beside them (they climb in) and bring them home to the landing zone (the green ring). Aliens are closing in on the crash site: be quick, and don't get shot down with them aboard.",
+    objectives: [{ stat: "crewsRescued", goal: 1, goals: [1, 1, 2, 1], label: "Downed crews brought home" }],
+    event: "medevac",
+    act: [3, 4], after: ["air_cav"], optional: true,
+    twists: { 1: "An enemy gunship is hunting for them too.", 2: "Two crews are down, far apart.", 3: "An AA vehicle guards the crash site." },
+    tier: 4,
+    rules: R({ small: 2.5, medium: 3, large: 1 }, 0.9, 0.85, 0.85, 2, 0.02, GREEN_GRAY_BLUE),
+    sky: { max: 1, rate: 0.01 },
+  },
+  {
+    id: "gunship_hunt",
+    title: "Gunship hunt",
+    text: "The aliens fly hijacked attack helicopters now: gunships are hunting our patrols round here (marked). Shoot them down: a jet's missiles, a helicopter's Hellfires (one of ours waits for you), a tank's gun at one that comes low. They fight back with guns, rockets and missiles: flares (C), cover, and keep moving.",
+    objectives: [{ stat: "gunshipsDown", goal: 3, goals: [3, 3, 4, 2], label: "Enemy gunships shot down", scale: "group" }],
+    event: "gunships",
+    act: [3, 4], after: ["air_cav"], optional: true,
+    twists: { 1: "They hunt in pairs.", 2: "An AA vehicle covers them from the ground.", 3: "Only two of them, but they're tougher." },
+    tier: 4,
+    rules: R({ small: 3, medium: 3, large: 1 }, 0.9, 0.9, 0.9, 2, 0.025, GREEN_GRAY_BLUE),
+  },
 ];
 
 // After the last mission (free play): a busy sky, a little calmer than the finale's.
@@ -565,6 +601,8 @@ const GROUND_STATS = [
   ["convoyDown", "Convoy vehicles destroyed (mission)"],
   ["baseDefensesDown", "Base defenders destroyed (mission)"],
 ];
+// (Round 14) The helicopters' (helis.js, missions.js).
+GROUND_STATS.push(["gunshipsDown", "Enemy gunships shot down"], ["crewsRescued", "Downed crews brought home (mission)"]);
 for (const e of GROUND_STATS) if (!STAT_LABELS.some(([k]) => k === e[0])) STAT_LABELS.push(e);
 export const missionById = (id) => BY_ID.get(id) || null;
 
@@ -573,9 +611,11 @@ export const missionById = (id) => BY_ID.get(id) || null;
 // `tier` are the difficulty curve by place.
 export const CLASSIC_IDS = ["skeleton", "landing", "supply", "first_contact", "crew", "long_night", "patrol", "scout_hunter", "grays", "wings", "touchdown", "dogfight", "air_superiority", "village", "reds", "meteors", "salvage", "big_game", "sunburn", "steal", "overlord", "slayer", "scramble", "abductors", "titan", "swarm", "fortress", "armada"];
 
-// A run's length: what the optional missions sitting out leave.
-export const CHAIN_MIN = 26;
-export const CHAIN_MAX = 30;
+// A run's length: what the optional missions sitting out leave. (Round 14:
+// one longer, 27-31, with the helicopters' three: the optional missions
+// still play about half the runs each.)
+export const CHAIN_MIN = 27;
+export const CHAIN_MAX = 31;
 export const ACT_NAMES = ["", "Act I: On foot", "Act II: The ground war", "Act III: The air war", "Act IV: The counter-offensive"];
 
 // Rewards by classic place (apples, then golden apples; a mission's bonus comes on top).

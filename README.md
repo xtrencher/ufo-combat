@@ -41,7 +41,12 @@ for a moment out of play (the pause menu, the inventory), since the picture
 stops while a new level is prepared. Pick any preset or change any graphics
 or performance setting and Auto is off for good: your choice is saved and
 always wins (**Auto (best for this PC)** in Settings turns it back on).
-Master volume starts at 15%.
+Master volume starts at 15%. (Round 14) Creatures are quieter: their calls
+(a cow's moo, a zombie's groan) come rarer (every 10-20 seconds or so per
+creature, heard within 16 blocks, fading with distance), and a herd or a
+horde takes turns instead of calling all at once; hurt, death and attack
+sounds stay clear. The **Creatures** volume slider works as before (its full
+level is now a little quieter than it was).
 
 Every screen (main menu, pause menu, settings, inventory, mods, missions,
 stats) shares one clean, dark glass style.
@@ -89,8 +94,8 @@ Settings, Fullscreen, Missions (in a Missions world), Stats, Multiplayer, Copy
 world link, Save & main menu, and the **Game mode**; in Creative (either
 world type) also the **call-ins**: F-22, F-16, B-2 or a random UFO, and
 you are straight in the air at the controls of it; or the Tiger tank, the
-battle tank or the missile truck, parked on open ground just ahead with you
-straight in it).
+battle tank, the missile truck or the **Helicopter** (an Apache), parked on
+open ground just ahead with you straight in it).
 
 **Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
 fullscreen: with it on, the game goes fullscreen as you enter it (Play,
@@ -125,10 +130,12 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   Missions button in the pause menu, and its land has **no airports or
   cities** (villages stay). Difficulty and Peaceful work as everywhere.
 - **Creative:** every block and item in the tabbed **E** palette, instant
-  mining, flight, and no damage, and (Round 13) the aircraft: the palette's
+  mining, flight, and no damage, and (Round 13) the vehicles: the palette's
   **Vehicles** tab has the **F-22 Raptor**, the **F-16 Fighting Falcon**, the
-  **B-2 Spirit** and a **UFO**, in either world type (see **Vehicles in
-  Creative** below). The main menu's Creative card plays a Survival world
+  **B-2 Spirit**, a **UFO**, the **Tiger Tank**, the **Battle Tank**, the
+  **Missile Launcher** (the missile truck) and (Round 14) the **Helicopter**,
+  in either world type (see **Vehicles in Creative** below). The main
+  menu's Creative card plays a Survival world
   (plain Minecraft: its land stays as it is, with no airports or cities, no
   UFO fleets and no missions); a Missions world has its own Creative in its
   pause menu, with every weapon in your hotbar and the call-ins too.
@@ -139,8 +146,8 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   block and item) plus its airports, cities and military bases, the UFOs and
   aliens, the missions, supply crates, the mod weapons and the vehicles.
   You start with basic gear (a stone sword, a stone pickaxe and five apples)
-  at 17:50 (the golden hour before sunset), fed, and a **campaign** of 26 to
-  30 **missions** drawn afresh for every new Missions game from a pool of 34
+  at 17:50 (the golden hour before sunset), fed, and a **campaign** of 27 to
+  31 **missions** drawn afresh for every new Missions game from a pool of 42
   (see **Missions** below): it starts with a skeleton and its bow, goes
   through jets, a meteor storm and a mothership boss, abductor ships hunting
   you, crash sites and radio beacons to hold, then the aliens'
@@ -268,8 +275,9 @@ the output gives the experience of what was smelted.
 ## Missions
 
 The UFO war (a **Missions** world): everything in this section, and the
-**UFOs**, **Vehicles** and **The ground war** sections further down, belongs
-to it (except Creative's aircraft: see **Vehicles in Creative**). A Survival
+**UFOs**, **Vehicles**, **The ground war** and **Helicopters** sections
+further down, belongs to it (except Creative's vehicles: see **Vehicles in
+Creative**). A Survival
 world has none of it (see **Survival (vanilla Minecraft)**); everything else
 in a Missions world is a Survival world's.
 
@@ -314,17 +322,19 @@ in a Missions world is a Survival world's.
 
 ### Missions, loot and supply crates
 
-- **Missions:** a campaign of 26 to 30, one after another, shown top right
+- **Missions:** a campaign of 27 to 31, one after another, shown top right
   with a progress bar per objective, the target's distance and direction,
   and a yellow **marker** over the target (an arrow at the screen's edge
   when it is behind you).
 - **A different campaign every game** (Round 10): each new Missions world
   draws its own. It always runs in four acts, from small to big, and the
   missions are shuffled within them, with a few optional ones sitting a game
-  out, so you never know what comes next. The pool has 34 missions (the 28
-  of the classic order and six more: Run for cover, Don't look up, Crash
-  site, Hold the line, Rescue and Sabotage), so every campaign leaves a few
-  out. It is always fair: the bow comes first or second, nothing needs a jet
+  out, so you never know what comes next. The pool has 42 missions (the 28
+  of the classic order; six more: Run for cover, Don't look up, Crash
+  site, Hold the line, Rescue and Sabotage; the ground war's five, see **The
+  ground war**; and the helicopters' three, see **Helicopters**), so every
+  campaign leaves a few out. It is always fair: the bow comes first or
+  second, nothing needs a jet
   before "Take to the air" (and "Touchdown" always comes right after it),
   nothing needs an alien ship before "Salvage" or the B-2 before "Operation
   Sunburn", the alien leaders come weakest first (blaster, minigun,
@@ -858,9 +868,17 @@ died; the rest is lost.
 
 - **Lava** fills the bottom of the caves (y 10 and below), and now and then a
   lava pool lies in the open. Lava glows (it lights itself, day or night, and
-  everything near it), and its surface moves like water's: a pool churns
-  slowly, flowing lava slides downhill along its flow and pours down its
-  sides. It burns and sets fire to wood, leaves and grass near it. It flows 3
+  everything near it) and (Round 14) looks molten: a dark crust drifting on
+  it breaks into plates whose cracks glow red, orange and yellow-white,
+  wider and brighter in slow hot swells; a rim glows where it meets the
+  rock, a few embers twinkle in the crust, and the thin end of a flow crusts
+  over. Like vanilla's it is opaque (you can't see into it). Its surface
+  slopes as vanilla's does (a source 8/9 of a block high, a flow running
+  down in one smooth sheet), the crust rides along the flow, and a fall
+  pours down in bright molten streaks. On the High and Ultra presets the air
+  over a lava lake shimmers with heat (the far shore wavers), and the
+  crust's plates catch the sun. It burns and sets fire to wood, leaves and
+  grass near it. It flows 3
   blocks over flat ground, slowly (a block every 1.5 s; three times faster in
   the Nether), and falls into holes. Water on a lava source makes
   **obsidian**, on flowing lava **cobblestone**; lava pouring onto water
@@ -1799,7 +1817,9 @@ keeps running there (it just isn't drawn).
   Creative settings (UFO activity and the rest) apply. A guest's "summon a
   UFO" (Missions mods screen) asks the host's game for it. Everyone can use the
   pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
-  air; a tank or the missile truck on the ground): the others see the aircraft and who flies it. The palette's vehicle
+  air; the Tiger tank, the battle tank, the missile truck or the helicopter
+  on the ground): the others see the vehicle and who drives or flies it.
+  The palette's vehicle
   items work the same online, in a Survival world's Creative too: everyone
   sees the aircraft anyone puts down or flies. Switching between
   Creative and Missions (or Survival) never changes anyone's inventory.
@@ -2009,9 +2029,20 @@ back.
 
 The Vehicles tab also has the **Tiger Tank**, the **Battle Tank** and the
 **Missile Launcher (TEL)** (see **The ground war**): put one down on the
-ground (right click) and get in with F. In the launcher, aim at the ground
-and left click: it raises the missile and launches at that point (at least
-120 blocks off); right click calls it off before ignition.
+ground (right click) and get in with F. In the launcher, aim with the mouse:
+a **ring on the ground** (the warhead's blast) and the **range** beside it
+mark the target: whatever the crosshair is on (the ground, a hill, a
+building, a tree, the surface of water or lava) up to **2 km** away, or,
+aimed over the horizon or into the sky, the ground at the full 2 km on that
+bearing. Green is a target; red says why not (**out of range**, with the
+range, or **too close**: under 120 blocks). Left click raises the missile
+and launches at it (the ring turns amber and stays on the target while it
+flies); right click calls it off before ignition.
+
+The Vehicles tab also has the **Helicopter** (an AH-64 Apache; sneak while
+you place it for a UH-60 Black Hawk): put it down on the ground and get in
+(the rotor spins up, then Space lifts off), or aim at the sky to start in
+the air, hovering. See **Helicopters**.
 
 In a Survival world this is Creative's only: in Survival mode the vehicle
 items do nothing, you can't board a vehicle (`F` swaps your hands as usual),
@@ -2168,7 +2199,7 @@ counted once.
 | **Air brakes** (hold): panels / control surfaces open with a hydraulic whine, the jet sheds speed very fast and turns much tighter (HUD: "Air brakes OPEN"); too slow with them open and it **stalls**. On the ground: the wheel brakes (reverse: `S` at 0%) | `Space` |
 | Autocannon (tracers) | Left click (aims a little for you; **overheats** after about two seconds: watch the heat bar) |
 | **Missile** | A **click** of right click fires a missile: a **homing** one at the target the auto aim has locked (see below), else one **unguided**, straight ahead |
-| **Auto aim** (Round 13, Settings > Vehicles, on by default) | A **seeker circle** sits round the crosshair. Keep a UFO or an enemy aircraft in it and the seeker **slides onto it and closes round it** while the lock builds (a low **growl** that rises and quickens); after about **2 s** it is **LOCKED** (a solid box with a diamond, a **LOCK** tag, a solid high tone, like a real AIM-9's). A slip out of the circle costs time, not the whole lock; once locked it holds while the target stays within about 55 degrees of your view and 2200 blocks. A right **click** then sends a missile after it (your view stays with you, and so does the lock, for the next one); **holding** right click goes on from the lock as before (the salvo, the view on the target). Only a lock made tells a UFO it is locked (it gets angry): just looking at one doesn't |
+| **Auto aim** (Round 13, Settings > Vehicles, on by default) | A small **seeker ring** sits round the crosshair. Keep a UFO or an enemy aircraft in or near it and a **box closes in on it** while the lock builds (a low **growl** that rises and quickens); after about **2 s** it is **LOCKED** (a red box, **LOCK** over it, a solid high tone, like a real AIM-9's). A slip away from the ring costs time, not the whole lock; once locked it holds while the target stays within about 55 degrees of your view and 2200 blocks. A right **click** then sends a missile after it (your view stays with you, and so does the lock, for the next one); **holding** right click goes on from the lock as before (the salvo, the view on the target). Only a lock made tells a UFO it is locked (it gets angry): just looking at one doesn't |
 | **Missile lock** | (Round 8: a lock never switches targets: if it loses its target it is gone until you press again; a salvo goes entirely at the locked target; a **left click cancels** the lock, nothing fires.) **Hold** right click: the UFO or aircraft nearest the middle of your view (even behind you; ones **attacking you** first; never creatures) is locked, the camera turns to look at it **while you keep full control of the jet** (the mouse still steers, a ring on the HUD shows where; every key works). Release after **1 s** (at once if the auto aim already has it locked) for one missile, after **3 s** (F-22) or **2 s** (F-16) for a **salvo** (four or two). A missile at a target behind you turns around. The lock is **stable**: once locked, it stays on that target until you let go, it dies or it is more than 2200 blocks away. Locking does not anger other UFOs. After launch the **camera follows the target until the hit** and **you keep full control** of the jet; right click brings the normal view back at once. Let go before LOCKED and nothing fires |
 | **Salvo charge** | From the solid lock to the salvo time the salvo's **pips fill one by one under the target box** (Round 13; it was a spiral), with a rising click per missile (4 on the F-22, 2 on the F-16); when they are all lit (**SALVO x4**) a release fires the salvo (before that, one missile) |
 | **Roll out of a missile** | A hostile missile that gets close when you have **rolled more than about 90 degrees** (either way) loses you and **passes narrowly by** ("MISSILE EVADED!"); it needs a few seconds before it works again, so rolling all the time does not make you immune. Flares still work as always |
@@ -2181,17 +2212,19 @@ counted once.
 The HUD shows speed (with the **Mach number**), altitude, throttle, heading,
 the missile lock, flares, the nuke, the cannon **heat bar**, the jet's
 health, takeoff hints, and warnings: **STALL**, **PULL UP**, **CANNON
-OVERHEATED**. (Round 13) **The targeting symbols** are a fighter's HUD: the
-seeker circle, corner brackets that track the target (sized to it) with its
-**name** (UFO, BALL UFO, MOTHERSHIP, the boss's name, BANDIT), its **range**
-and **closure speed** (VC, km/h) beside them, the lock's progress, then the
-solid box, diamond and LOCK tag; an **arrow on the screen's edge** when the
-target is off the screen; a small **diamond on each of your guided missiles**
-on its way, with its **time to go** (TTG) by the target. **MISSILE** flashes
-low in the middle of the screen (faster when it is close, with its range)
-with a red triangle on a ring round the crosshair pointing where it comes
-from, and a beeping that speeds up as it closes in; an amber **LOCK** (and a
-thin warble) means an aircraft out to get you has its nose on you. Your
+OVERHEATED**. (Round 14) **The targeting symbols** are small
+and thin, Round 12's lock box back with the best of Round 13: a **small
+square box** sits on the target and **closes in** on it while the lock
+builds (yellow), then turns **red** and small with **LOCK** over it, the
+**range** beside it (the salvo's pips under it while you hold, **SALVO**
+and a double box once it's charged). With auto aim a **small, faint
+broken ring** round the crosshair is the seeker. An **arrow on the
+screen's edge** points to a target off the screen, with its range.
+Warnings are small, on the **screen's edge**: a chevron on the side they
+come from and the word at the top: **MISSILE** (red, flashing faster when
+it is close, with its range) and a
+beeping that speeds up as it closes in; an amber **LOCK** (and a thin
+warble) means an aircraft out to get you has its nose on you. Your
 guided missiles fly **proportional navigation**, as real ones do (they lead a
 crossing target onto a collision course); missiles still have a limited
 turn rate: **sharp turns (and flares) make them miss**, and an enemy fighter
@@ -2274,7 +2307,7 @@ turret). Walk up and press **F**.
 | Space | brake |
 | Mouse | aim: the turret and the gun follow at their own speed |
 | Left click | the main gun (an HE shell on a real arc; reload 4-5 s) |
-| Right click | the coaxial machine gun |
+| Right click | the machine gun: the coaxial MG beside the main gun while the gun is on your aim; the battle tank's roof MG (it swings round to the crosshair on its own ring, up at aircraft too) at anything the gun isn't on |
 | V (or F5) | the gunner's sight: zoomed, with stadia, range marks and the rangefinder |
 | C | smoke launchers: a white screen the enemy can't see through (25 s) |
 | F | get out |
@@ -2286,6 +2319,13 @@ cross fills as the gun reloads. A tank climbs one-block steps, crushes
 leaves and plants, is slowed by water and won't go into deep water; walls
 and tree trunks stop it. Below half its armour it smokes, below a quarter
 it burns; at nothing it cooks off and throws its turret.
+
+Every weapon fires from its own muzzle: the shell and the flash from the
+muzzle brake (the barrel recoils), the coaxial MG's tracers from its small
+barrel in the mantlet (right of the Tiger's 88, left of the battle tank's
+gun), the roof MG's from its barrel on the loader's hatch; an AA vehicle's
+four cannon barrels fire by turns (each kicks back) and its SAMs leave
+their containers one by one, left and right.
 
 **Enemy tanks, AA and launchers (Missions).** The aliens have hijacked
 tanks, AA vehicles and ballistic missile launchers. Their tanks swing their
@@ -2301,13 +2341,22 @@ then climbs faster and faster high into the sky on a long flame and a thick
 white trail, arcs over and comes down far away in a huge blast. A red ring
 on the ground marks where an incoming one will land.
 
-**Military bases.** New Missions worlds have airbases: an airfield with a
-big walled base behind it (fences, walls and watchtowers with floodlights,
-a gate with guardhouses, barracks, a command building, vehicle sheds, a
-yard of parked tanks and missile trucks, radar dishes, a helipad, fuel
-tanks, ammo bunkers, AA positions). The yard's tanks are yours to take from
-the tank battle mission on (in Creative at once). Worlds saved before
-Round 13 keep their land and sites as they were.
+**Military bases and airports.** New Missions worlds have airbases: an
+airfield with a big walled base behind it (fences, walls and watchtowers
+with floodlights, a gate with guardhouses, barracks, a command building,
+vehicle sheds, a yard of parked tanks and missile trucks, radar dishes, a
+helipad, fuel tanks, ammo bunkers, AA positions). Every base's yard has
+its own mix (four to ten vehicles: battle tanks, Tigers, an AA vehicle or
+two, one or two missile trucks), and one or two tanks drive a patrol loop
+round the base's roads. The airports have a few vehicles too: two to four
+tanks and AA vehicles parked on the open ground past the end of the apron
+by the tower, and at some a tank on patrol round them. Patrols stop for
+anyone in their way. The tanks are yours to take from the tank battle
+mission on (in Creative at once; get in and it's yours: a patrol stops
+patrolling); the AA vehicles and the trucks stay parked. A base the aliens
+hold (the base assault's) has none of ours: their garrison patrols it.
+Worlds saved before Round 13 keep their land and sites as they were (their
+airports get the parked tanks too).
 
 **New missions:** *Tank battle* (always in a run: a tank of ours, a platoon
 of theirs), *Stop the launch* (destroy the launchers before they fire at
@@ -2316,6 +2365,67 @@ the airport), *Convoy* (destroy a column from the air), *Air defense*
 
 Online: the host runs the enemy; everyone sees the tanks, their shots, the
 SAMs and the missiles; anyone's hits count.
+
+## Helicopters
+
+Two to fly: the **AH-64 Apache** (attack: the chin gun, 38 rockets in two
+pods, 8 Hellfire missiles) and the **UH-60 Black Hawk** (transport: a door
+gun each side). Walk up and press **F**: the engine starts and the rotor
+spins up for a few seconds (no lift until it's up to speed), then lift off.
+
+| Key | |
+|---|---|
+| Space / Shift | climb / sink (let go: it holds its height; the last few blocks down are eased for the touchdown) |
+| W / S | tilt the nose down / up: fly forward / back (the more it tilts, the faster: about 290 km/h flat out) |
+| A / D | turn (the pedals); at speed it banks into the turn |
+| Q / E | roll: sidestep |
+| Mouse | aim the gun and the view; flying forward (W), the nose comes round to where you look |
+| Left click | the gun (its turret follows the aim; it overheats) |
+| Right click | a salvo of 4 rockets (toward the crosshair when it's near the nose), or a Hellfire |
+| X (or the wheel, 2 / 3) | rockets or Hellfires on the right button |
+| C | flares (they fool SAMs and the gunships' missiles) |
+| V (or F5) | the gunner's sight through the nose (zoomed) |
+| F | get out (on the ground the engine stops; in the air you drop out on a parachute, and the helicopter goes down) |
+
+It leans into every move and coasts, takes off and lands anywhere: on its
+wheels, gently and level (a hard, fast or tilted landing hurts it, a crash
+destroys it; set down in water and it floods). The rotor wash throws up dust
+(spray over water); the rotor chops through leaves, but a rotor strike on
+anything harder hurts. The green circle is where the gun's rounds go (it
+slides onto the cross as the turret comes round), the yellow diamond where a
+rocket salvo would go. With the Hellfires selected, keep a target (a tank,
+an AA vehicle, a launcher, a gunship, an enemy fighter or a UFO) round the
+crosshair for 1.5 s: it locks (the box turns red), and a right click sends
+a missile that homes on it. Spent rockets and missiles rearm on the ground
+(or 30 s after a store runs out). Below half its armour it smokes, below a
+quarter its engines burn (less lift); destroyed in the air it spins down
+trailing fire and blows up where it hits.
+
+**Where to find one.** Creative: the Vehicles tab or the pause menu's
+**Helicopter** call-in, in either world type. Missions worlds: every
+airport has one parked at the end of its apron by the tower (an Apache or a
+Black Hawk), every airbase an Apache on its helipad; they are locked until
+the *Air cavalry* mission (in a run drawn before Round 14: until the jets'
+mission). The missions give you one too.
+
+**Enemy gunships (Missions).** The aliens fly hijacked Apaches now. A
+gunship hunts a player it sees (listen for its rotor): it circles at a
+stand-off range, nose on, with bursts from its gun and salvos of rockets,
+and a guided missile at a player in a vehicle (flares, C). Bring it down
+with a jet's missiles (their lock sees it), a helicopter's Hellfires, the
+gun, a tank's shell or the bazooka: "Helicopter down!". After *Air cavalry*
+one turns up now and then on its own.
+
+**New missions:** *Air cavalry* (always in a run, after the jets and the
+tank battle: an Apache of ours, a column of hijacked tanks to destroy from
+the air; it unlocks the helicopters), *Search and rescue* (fly out to a
+downed crew, land beside them, bring them home to the green ring before
+the aliens get to them), *Gunship hunt* (shoot down the enemy gunships). A
+run is now 27-31 missions long.
+
+Online: everyone sees everyone's helicopters (the rotor, the attitude, the
+gun, the stores), their tracers, rockets, missiles, flares and blasts; the
+host runs the gunships and anyone's hits count.
 
 ## Stats
 
@@ -2908,6 +3018,22 @@ others, fail on any console or page error.
   missile's blast is the bigger one (6.5) with its shock rings; kills queue
   the callouts ("UFO destroyed", "Ball UFO down", "Splash one"; speech is
   stubbed). `SHOTS=dir` saves screenshots, `SIZE=1600x900` a bigger page.
+- `r14-aim-tests.mjs` (Round 14, part aim): the missile truck's targeting
+  (a hill, the water's surface, over the horizon at full reach, too close
+  and out of range refused with the reason, a launch at what the crosshair
+  is on, the ring and readout) and the fighter HUD's compact lock box
+  (its sizes at 1920x1080, 1280x720 and a small window).
+- `r14-heli-tests.mjs` (Round 14, part heli): the helicopters' missions in
+  the pool (Air cavalry in every run, after the jets and the tank battle),
+  the item; in the browser: the call-in (an Apache on the ground, the
+  player in it), the rotor's spin-up (no lift before it), lift-off, hover,
+  forward flight, a gentle landing, a hard one that hurts, out and in; the
+  gun, a rocket salvo, a Hellfire locked on a tank; an enemy gunship
+  engages a player on foot and is shot down (the kill counted); the jets'
+  lock sees it; a helicopter parked at an airport, locked until its
+  mission; the three missions start and complete (the rescue's crew picked
+  up and brought home). `--online`: a guest sees the host's helicopter
+  climb and hurts the host's gunship.
 - `mp-tests.mjs`: multiplayer, with a host and a client in two headless
   pages (two separate browser profiles) connected by the real PeerJS client
   and real WebRTC data channels, through a local PeerJS signaling server
