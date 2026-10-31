@@ -65,6 +65,7 @@ import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
 import { installGround } from "./tanks.js"; // (Round 13: tanks, AA vehicles, missile launchers)
+import { installHelis } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
@@ -93,6 +94,7 @@ import { EndGame } from "./dragon.js";
 import { Transport } from "./boats.js"; // (Round 12: boats and minecarts)
 import { TransportSync } from "./net/transport.js";
 import { GroundSync } from "./net/ground.js"; // (Round 13)
+import { HeliSync } from "./net/heli.js"; // (Round 14)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -1202,7 +1204,7 @@ function callIn(kind) {
   // (Round 13) A ground vehicle (the tanks, the missile truck): parked on the
   // ground a few blocks ahead, the player straight in it.
   const groundDef = VehicleManager.summons[kind];
-  if (groundDef && !groundDef.alt) {
+  if (groundDef && (!groundDef.alt || groundDef.ground)) {
     // (The first open spot ahead, then round about: trees and houses are in the way now and then.)
     const p0 = player.position;
     const say = vehicles.onMessage;
@@ -1528,6 +1530,8 @@ missionDirector.entities = entities;
 // bases' parked tanks, the shells and ballistic missiles. It runs right after the vehicles each frame.
 const ground = installGround({ scene, camera, world, player, vehicles, effects, audio, lasers, ufos, mobs, crates, stats, progress, missions: missionDirector, airports, toast, hud, mods });
 ground.voice = voice; // (Round 13: the pilot's callouts, js/voice.js)
+// (Round 14) The helicopters (js/helis.js): the aliens' gunships, ours parked at the airports and bases, locked until their mission.
+const helis = installHelis({ world, player, vehicles, crates, stats, progress, missions: missionDirector, airports, toast, mods });
 // (Round 10) A mission's loot (the crash site's wreck): what a wreck of that
 // size gives, at the spot, for whoever gets there (online the host's items are everyone's).
 missionDirector.dropLoot = (kind, detail, at) => {
@@ -3688,6 +3692,7 @@ transport.load(savedPlayer?.transport);
 game.transport = transport;
 mp.addModule(new TransportSync(mp, transport));
 mp.addModule(new GroundSync(mp, ground)); // (Round 13: the ground war's shots, missiles and kills)
+mp.addModule(new HeliSync(mp, helis)); // (Round 14: the gunships' kills, a helicopter's flares)
 interaction.combat = transport.combat(mobs); // (hitting them, aiming at them)
 // (Round 12) The Nether: its portals (lit, broken, the way through and back), the respawn anchor, its biomes' fog and air.
 const netherPortals = new NetherPortals(game, dims);
@@ -3784,6 +3789,7 @@ window.__ufo = window.__voxelands = {
   airports,
   sites: world.terrain.sites,
   ground, // (Round 13)
+  helis, // (Round 14)
   progress,
   crates,
   missions: missionDirector,
@@ -3930,7 +3936,7 @@ const _lockV = new THREE.Vector3();
 const fighterHud = new FighterHud(document.getElementById("fighter-hud"));
 function updateJetOverlay() {
   const v = vehicles.active;
-  const o = (v?.type === "jet" || v?.type === "ufo") && v.overlay && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
+  const o = (v?.type === "jet" || v?.type === "ufo" || v?.type === "heli") && v.overlay && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
   const place = (el, p) => {
     el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
     el.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
@@ -3958,7 +3964,7 @@ let radarT = 0;
 let radarDt = 0;
 function updateRadar(dt) {
   const v = vehicles.active;
-  const on = !!v && (v.type === "jet" || v.type === "ufo") && gameState === "playing" && !hudHidden;
+  const on = !!v && (v.type === "jet" || v.type === "ufo" || v.type === "heli") && gameState === "playing" && !hudHidden;
   radar.show(on);
   if (!on) return;
   radarT -= dt;
@@ -3984,7 +3990,7 @@ function updateRadar(dt) {
   for (const o of vehicles.vehicles) {
     if (o === v || !o.alive) continue;
     if (Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) > R) continue;
-    if (o.isEnemyJet) contacts.push({ kind: "jet", x: o.pos.x, z: o.pos.z, heading: headingOf(o) });
+    if (o.isEnemyJet || o.isGunship) contacts.push({ kind: "jet", x: o.pos.x, z: o.pos.z, heading: headingOf(o) });
     // Enemy missiles coming at us.
     for (const m of o.missiles || []) if ((m.target?.ref === v || m.target?.ref === player) && m.pos) contacts.push({ kind: "missile", x: m.pos.x, z: m.pos.z });
   }
@@ -4152,6 +4158,7 @@ function updateHints(dt) {
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Tap right click: a missile straight ahead; hold it to lock on.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
+  else if (v?.type === "heli") hint("heli", "Wait for the rotor, then Space lifts off. W/S tilt, A/D turn, Q/E sidestep; the mouse aims. LMB gun, RMB rockets, X: Hellfires, C flares.", 7);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
   if (!v && mobs.countKind("alien") > 0) hint("aliens", "Aliens! Their lasers hurt: keep moving, and hit back (bow, sword, or better).", 5);
   if (!v && itemInfo(inventory.selectedStack?.id)?.weapon?.kind === "bow") hint("bow", "The bow: hold right click to draw (a full draw in a second), let go to shoot. Arrows drop with distance.", 5);
@@ -4222,7 +4229,7 @@ function updateAltitudeView(dt) {
   altViewT = 0.5;
   let target = renderDistance;
   const v = vehicles.active;
-  if (v && (v.type === "jet" || v.type === "ufo")) {
+  if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli")) {
     const ground = Math.max(world.heightAt(Math.floor(v.pos.x), Math.floor(v.pos.z)), SEA_LEVEL);
     const t = THREE.MathUtils.clamp((v.pos.y - ground - 20) / 140, 0, 1);
     const boost = 1 + ((ALT_VIEW_MAX[graphicsPreset] ?? 2.2) - 1) * t;

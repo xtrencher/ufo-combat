@@ -168,6 +168,7 @@ function missileMaterial() {
 
 // (Round 13) A ground vehicle's name on the HUD (null: not one).
 function groundName(r) {
+  if (r?.isGunship) return "GUNSHIP"; // (Round 14: the aliens' helicopters)
   const t = r?.isGround ? r.type : null;
   return t === "aa" ? "AA" : t === "enemytel" || t === "tel" ? "LAUNCHER" : t ? "TANK" : null;
 }

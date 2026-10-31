@@ -216,14 +216,16 @@ await check("the launcher in the game: a hill, water, over the horizon, too clos
     const H = [];
     for (let x = x0 - 4; x <= x0 + 4; x++) for (let z = z0 - 174; z <= z0 - 166; z++) for (let y = hy; y <= hy + 30; y++) H.push(x, y, z, 1);
     W.setBlocks(H);
-    // A pool: water 3 deep, 21 x 21, 150 north-east.
+    // A pool: water 3 deep, 21 x 21, 150 north-east, in a stone basin (the land round it may lie lower).
     const px = x0 + 110;
     const pz = z0 - 110;
     W.prepareArea(px, pz, 1);
     const py = W.surfaceY(px, pz);
     const P = [];
-    for (let x = px - 10; x <= px + 10; x++) for (let z = pz - 10; z <= pz + 10; z++) {
-      for (let y = py - 2; y <= py; y++) P.push(x, y, z, 5);
+    for (let x = px - 11; x <= px + 11; x++) for (let z = pz - 11; z <= pz + 11; z++) {
+      const rim = Math.abs(x - px) === 11 || Math.abs(z - pz) === 11;
+      P.push(x, py - 3, z, 1);
+      for (let y = py - 2; y <= py; y++) P.push(x, y, z, rim ? 1 : 5);
       for (let y = py + 1; y <= py + 8; y++) P.push(x, y, z, 0);
     }
     W.setBlocks(P);
@@ -263,9 +265,8 @@ await check("the launcher in the game: a hill, water, over the horizon, too clos
   const shown = await drawn();
   assert(shown && shown.ring && shown.label === "block" && /^\d+ m$/.test(shown.text), `the ring and the readout: ${JSON.stringify(shown)}`);
   await shot("tel-hill");
-  // (The pool's near corner: the ray crosses the pool to its bottom, the land round it may lie lower.)
-  const water = await aimAt([S.px - 5.5, S.py + 0.85, S.pz + 6.5]);
-  assert(water.ok && Math.abs(water.p[1] - (S.py + 0.85)) < 0.3 && Math.abs(water.p[0] - (S.px - 5.5)) < 1.5, `the water's surface: ${JSON.stringify(water)} (${JSON.stringify(S)})`);
+  const water = await aimAt([S.px + 0.5, S.py + 0.85, S.pz + 0.5]);
+  assert(water.ok && Math.abs(water.p[1] - (S.py + 0.85)) < 0.3 && Math.abs(water.p[0] - (S.px + 0.5)) < 1.5, `the water's surface: ${JSON.stringify(water)} (${JSON.stringify(S)})`);
   await frames(4);
   await shot("tel-water");
   const far = await v((g) => {

@@ -572,7 +572,7 @@ async function browserChecks() {
       // The host's helicopter: in the air, the rotor at speed.
       await v(host, (g, f) => {
         g.player.setMode("creative");
-        const h = g.vehicles.create("heli", { kind: "apache", pos: [f.x0 + 0.5, f.y + 20, f.z0 - 20], yaw: 0, airborne: true });
+        const h = g.vehicles.create("heli", { kind: "apache", pos: [f.x0 + 0.5, f.y + 6, f.z0 - 20], yaw: 0, airborne: true });
         g.vehicles.enter(h);
         g.player.keys.add("Space");
         return true;
@@ -582,11 +582,17 @@ async function browserChecks() {
         return h && h.rpm > 0.5 ? { y: h.pos.y, rpm: h.rpm } : null;
       }, 30000);
       assert(seen, "the guest never saw the host's helicopter");
+      // (Climbs on the host: its own steps, whatever its page's keys and focus do meanwhile.)
+      await v(host, (g) => { g.player.keys.add("Space"); for (let i = 0; i < 60; i++) g.vehicles.update(1 / 30); g.player.keys.delete("Space"); return true; });
       const climbed = await until(guest, (g, y0) => {
         const h = g.vehicles.vehicles.find((v) => v.type === "heli" && v.puppet);
         return h && h.pos.y > y0 + 6 ? h.pos.y : null;
       }, 30000, seen.y);
-      assert(climbed, "the guest's copy didn't climb with the host's");
+      if (!climbed) {
+        const hs = await v(host, (g) => { const h = g.vehicles.vehicles.find((x) => x.type === "heli"); return h && { y: h.pos.y, alive: h.alive, net: h.net?.nid, active: g.vehicles.active === h, rpm: h.rpm }; });
+        const gs = await v(guest, (g) => g.vehicles.vehicles.filter((x) => x.type === "heli").map((h) => ({ y: h.pos.y, puppet: !!h.puppet, nid: h.net?.nid, alive: h.alive })));
+        assert(false, `the guest's copy didn't climb with the host's: seen ${JSON.stringify(seen)}, host ${JSON.stringify(hs)}, guest ${JSON.stringify(gs)}`);
+      }
       await v(host, (g) => { g.player.keys.delete("Space"); g.vehicles.exit({ force: true }); return true; });
       // The host's gunship: the guest sees it and hurts it.
       await v(host, (g, f) => { g.vehicles.helis.spawnGunship([f.x0 + 0.5, f.y + 40, f.z0 - 90], 0, { force: true }); return true; }, f);

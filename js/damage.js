@@ -194,6 +194,14 @@ export const DEATH_MESSAGES = {
   enemymissile_fall: "Blown out of the sky by an enemy missile",
   roguemissile: "Caught in a dogfight between a fighter and a UFO",
   roguemissile_fall: "Thrown by a missile in a dogfight between a fighter and a UFO",
+  // (Round 14) Helicopters.
+  heli_crash: "Crashed your helicopter",
+  heli_down: "Shot down in your helicopter",
+  heli_boom: "Caught in an exploding helicopter",
+  heli_boom_fall: "Thrown by an exploding helicopter",
+  enemyheli_gun: "Gunned down by an enemy gunship",
+  enemyrocket: "Hit by an enemy gunship's rockets",
+  enemyrocket_fall: "Blown off your feet by an enemy gunship's rockets",
   // The missions' world.
   meteor: "Hit by a falling meteor",
   meteor_fall: "Thrown by a falling meteor",
@@ -209,6 +217,7 @@ export function pilotCause(vehicleType, cause) {
     if (c === "alien" || c === "soldier" || /^alien_/.test(c)) return "jet_down_ground";
     return "jet_down";
   }
+  if (vehicleType === "heli") return c === "crash" ? "heli_crash" : c === "enemyheli_gun" || c === "enemyrocket" || c === "enemyshell" || c === "sam" ? c : "heli_down"; // (Round 14)
   if (vehicleType === "tank" || vehicleType === "tel") return c === "enemyshell" || c === "sam" || c === "enemyballistic" ? c : "tank_down"; // (Round 13)
   if (c === "ufo_laser" || c === "ufo_blast") return "ufo_down_ufo";
   return "ufo_down";
