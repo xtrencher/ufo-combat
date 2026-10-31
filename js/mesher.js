@@ -722,14 +722,15 @@ function emitLava(b, wb, x, y, z, id, pi, haze) {
   const sky = (l >> 4) * 17;
   const blk = (l & 15) * 17;
   const full = isLava(padBlocks[pi + OY]); // (falling, or under more lava: no top)
-  for (let c = 0; c < 4; c++) {
-    const [cx, cz] = LAVA_TOP[c];
-    const p0 = cornerBase(pi, cx, cz);
-    lavaH[c] = full ? 1 : lavaCornerHeight(p0);
-    lavaF[c] = lavaCornerFlow(p0);
-  }
   const up = 2 * 4 + 3;
-  if (!full) {
+  if (full) lavaH.fill(1);
+  else {
+    for (let c = 0; c < 4; c++) {
+      const [cx, cz] = LAVA_TOP[c];
+      const p0 = cornerBase(pi, cx, cz);
+      lavaH[c] = lavaCornerHeight(p0);
+      lavaF[c] = lavaCornerFlow(p0);
+    }
     let shore = 0;
     for (let s = 0; s < 4; s++) if (!isLava(padBlocks[pi + LAVA_SIDES[s][1]])) shore |= 1 << s;
     for (const [bit, step, a, c] of SHORE_CORNERS) if (!(shore & (a | c)) && !isLava(padBlocks[pi + step])) shore |= bit;

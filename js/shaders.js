@@ -616,7 +616,7 @@ vec2 lavaPlates(vec2 p, float t) {
 // crown), for the relief.
 float lavaHeat(vec2 p, float t, float width, out float dome) {
   // (warped, so the cracks wander instead of running straight)
-  p += vec2(lavaNoise(p * 0.9 + t * 0.03), lavaNoise(p.yx * 0.9 - t * 0.025)) * 0.7;
+  p += vec2(lavaNoise(p * 0.6 + t * 0.03), lavaNoise(p.yx * 0.6 - t * 0.025)) * 1.1;
   vec2 c = lavaPlates(p, t);
   float w = width * (0.6 + 0.8 * c.y);
   dome = smoothstep(0.0, w * 1.5 + 0.12, c.x);
@@ -625,9 +625,9 @@ float lavaHeat(vec2 p, float t, float width, out float dome) {
 }
 // Glowing rock and molten lava by heat: dull red, orange, yellow-white (HDR).
 vec3 lavaGlow(float T) {
-  vec3 c = vec3(0.42, 0.045, 0.008) * smoothstep(0.04, 0.3, T);
-  c = mix(c, vec3(1.9, 0.42, 0.04), smoothstep(0.25, 0.65, T));
-  return mix(c, vec3(4.6, 2.5, 0.75), smoothstep(0.7, 1.0, T));
+  vec3 c = vec3(0.4, 0.042, 0.006) * smoothstep(0.04, 0.3, T);
+  c = mix(c, vec3(1.6, 0.33, 0.03), smoothstep(0.25, 0.65, T));
+  return mix(c, vec3(3.4, 1.55, 0.36), smoothstep(0.72, 1.0, T));
 }
 vec3 lavaColor(float dist) {
   int face = int(vFace + 0.5);
@@ -717,7 +717,7 @@ vec3 lavaColor(float dist) {
   vec3 light = worldLighting(N, vLight.x, vLight.y * 0.4, 1.0, shadow);
   // Basalt: near black, rough, a little red.
   float grain = lavaHash(floor(p0 * 16.0));
-  vec3 crust = vec3(0.05, 0.038, 0.034) * (0.6 + 0.35 * dome + 0.3 * grain);
+  vec3 crust = vec3(0.04, 0.032, 0.03) * (0.5 + 0.35 * dome + 0.45 * grain);
   vec3 color = crust * light * (1.0 - smoothstep(0.2, 0.55, heat));
   return color + lavaGlow(heat) * uEmissiveBoost * 0.25;
 }

@@ -229,10 +229,10 @@ async function browserChecks() {
       keys.add("Space");
       step(g, 30);
       out.rpmEarly = h.rpm;
-      out.liftEarly = h.pos.y - h.bottom - a.f.y;
+      out.liftEarly = h.pos.y - h.bottom - (a.f.y + 1); // (the field's top is a block over y)
       step(g, 200);
       out.rpm = h.rpm;
-      out.climbed = h.pos.y - h.bottom - a.f.y;
+      out.climbed = h.pos.y - h.bottom - (a.f.y + 1);
       keys.delete("Space");
       step(g, 45);
       const y1 = h.pos.y;
@@ -267,9 +267,9 @@ async function browserChecks() {
       out.spinDown = h.rpm < 1;
       g.vehicles.toggle();
       out.back = g.vehicles.active === h;
-      // A hard landing hurts: dropped from 20 blocks with the rotor stopped.
+      // A hard landing hurts (it survives): dropped from 8 blocks with the rotor stopped.
       g.vehicles.exit({ force: true });
-      h.pos.y += 20;
+      h.pos.y += 8;
       h.onGround = false;
       h._settled = false;
       h.rpm = 0;
@@ -281,13 +281,13 @@ async function browserChecks() {
       return out;
     }, { f, STEP });
     assert(r.type === "heli" && r.kind === "apache" && r.ground0, `called in: ${JSON.stringify(r)}`);
-    assert(r.rpmEarly < 0.5 && r.liftEarly < 1, `no lift before the rotor is up: ${JSON.stringify(r)}`);
+    assert(r.rpmEarly < 0.5 && r.liftEarly < 0.5, `no lift before the rotor is up: ${JSON.stringify(r)}`);
     assert(r.rpm === 1 && r.climbed > 12, `lift-off: ${JSON.stringify(r)}`);
     assert(r.drift < 1, `holds its height: ${JSON.stringify(r)}`);
     assert(r.speed > 20 && r.moved > 30 && r.tilt < -0.3, `forward flight: ${JSON.stringify(r)}`);
     assert(r.landed && r.landHurt === 0, `a gentle landing: ${JSON.stringify(r)}`);
     assert(r.out && r.spinDown && r.back, `out and in: ${JSON.stringify(r)}`);
-    assert(r.hardHurt > 20, `a hard landing hurts: ${JSON.stringify(r)}`);
+    assert(r.hardHurt > 20 && r.alive, `a hard landing hurts: ${JSON.stringify(r)}`);
   });
 
   if (!soloOnly) await browserCheck("weapons: the gun's tracers, a rocket salvo's blasts, a Hellfire locks on a tank and hits it", async () => {
@@ -309,7 +309,7 @@ async function browserChecks() {
       const x0 = g.effects.explosionCount;
       g.vehicles.input.pressed.add("mouse2");
       step(g, 4);
-      out.salvoAway = h.missiles.filter((m) => m.kind === "rocket").length + (38 - h.rockets);
+      out.salvoAway = 38 - h.rockets;
       step(g, 60);
       out.blasts = g.effects.explosionCount - x0;
       out.rockets = h.rockets;
