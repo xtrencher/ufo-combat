@@ -2288,7 +2288,7 @@ ui.pauseModeSelect.addEventListener("change", () => {
 });
 
 // ---------- Graphics ----------
-const allWorldMaterials = [world.materials.opaque, world.materials.cutout, world.materials.water, world.materials.cutoutDepth, lod.material, grass.material];
+const allWorldMaterials = [world.materials.opaque, world.materials.cutout, world.materials.water, world.materials.cutoutDepth, world.materials.lava, lod.material, grass.material];
 
 // userPick: the player chose this in a menu (so it is remembered, ending any
 // session-only step-down). Internal re-applies (resolution changes, the
@@ -2359,7 +2359,7 @@ const shaderStandIns = new THREE.Group();
 {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(9), 3));
-  for (const m of [world.materials.opaque, world.materials.cutout, world.materials.water, lod.material, grass.material]) {
+  for (const m of [world.materials.opaque, world.materials.cutout, world.materials.water, world.materials.lava, lod.material, grass.material]) {
     shaderStandIns.add(new THREE.Mesh(g, m));
   }
 }

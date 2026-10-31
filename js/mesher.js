@@ -117,6 +117,7 @@ class GeoBuilder {
     this._alloc(capacity);
     this.vc = 0;
     this.ic = 0;
+    this.lc = 0; // (Round 14) the lava's indices, kept apart (see quad)
     this.tint = 128; // color tint written with every vertex (128 = none)
     this.flow = 0; // (Round 12) the flow written on a flowing tile's vertices (Round 14: per vertex, see lavaCornerFlow)
   }
@@ -128,22 +129,26 @@ class GeoBuilder {
     const data = new Uint8Array(cap * 4);
     const extra = new Uint8Array(cap * 4);
     const index = new Uint32Array(cap * 1.5);
+    const lavaIndex = new Uint32Array(cap * 1.5);
     if (old) {
       pos.set(old.pos.subarray(0, this.vc * 3));
       uv.set(old.uv.subarray(0, this.vc * 2));
       data.set(old.data.subarray(0, this.vc * 4));
       extra.set(old.extra.subarray(0, this.vc * 4));
       index.set(old.index.subarray(0, this.ic));
+      lavaIndex.set(old.lavaIndex.subarray(0, this.lc));
     }
     this.pos = pos;
     this.uv = uv;
     this.data = data;
     this.extra = extra;
     this.index = index;
+    this.lavaIndex = lavaIndex;
   }
   reset() {
     this.vc = 0;
     this.ic = 0;
+    this.lc = 0;
   }
   vertex(x, y, z, u, v, d0, sky, blk, flags, layer, depth) {
     if (this.vc >= this.cap) this._alloc(this.cap * 2);
@@ -173,10 +178,14 @@ class GeoBuilder {
     this.extra[i * 4 + 3] = layer >> 8;
   }
   // Indices for the last 4 vertices; `flip` picks the other diagonal.
+  // (Round 14) A flowing tile's quad (lava) goes after all the others: the
+  // chunk draws that range with lava's own material (result's lavaStart,
+  // chunk.js), so the rest of the terrain's shader doesn't carry lava's.
   quad(flip) {
     const b = this.vc - 4;
-    const idx = this.index;
-    const i = this.ic;
+    const lava = (this.data[b * 4 + 3] & FLAG.FLOW) !== 0;
+    const idx = lava ? this.lavaIndex : this.index;
+    const i = lava ? this.lc : this.ic;
     if (flip) {
       idx[i] = b + 1; idx[i + 1] = b + 2; idx[i + 2] = b + 3;
       idx[i + 3] = b + 1; idx[i + 4] = b + 3; idx[i + 5] = b;
@@ -184,19 +193,26 @@ class GeoBuilder {
       idx[i] = b; idx[i + 1] = b + 1; idx[i + 2] = b + 2;
       idx[i + 3] = b; idx[i + 4] = b + 2; idx[i + 5] = b + 3;
     }
-    this.ic += 6;
+    if (lava) this.lc += 6;
+    else this.ic += 6;
   }
   result() {
     if (this.vc === 0) return null;
     const vc = this.vc;
-    return {
+    const n = this.ic + this.lc;
+    const index = vc > 65535 ? new Uint32Array(n) : new Uint16Array(n);
+    index.set(this.index.subarray(0, this.ic));
+    if (this.lc) index.set(this.lavaIndex.subarray(0, this.lc), this.ic);
+    const out = {
       vertexCount: vc,
       position: this.pos.slice(0, vc * 3),
       uv: this.uv.slice(0, vc * 2),
       data: this.data.slice(0, vc * 4),
       extra: this.extra.slice(0, vc * 4),
-      index: vc > 65535 ? this.index.slice(0, this.ic) : Uint16Array.from(this.index.subarray(0, this.ic)),
+      index,
     };
+    if (this.lc) out.lavaStart = this.ic; // (the lava's quads from here on)
+    return out;
   }
 }
 

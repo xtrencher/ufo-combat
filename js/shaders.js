@@ -493,7 +493,9 @@ flat varying float vFlags;
 flat varying float vFace;
 flat varying float vTint;
 varying vec3 vViewPosition;
-varying vec2 vLavaFlow;
+#ifdef LAVA
+  varying vec2 vLavaFlow;
+#endif
 uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
@@ -532,11 +534,11 @@ void main() {
     #include <shadowmap_vertex>
   }
   vTexCoord = vec3(uv, flipbookLayer(aExtra.x + aExtra.w * 256.0, flags, aExtra.y)); // (the layer in two bytes)
-  // (Round 14) Lava's flow (mesher.js lavaCornerFlow), per vertex so it
-  // varies smoothly across cells: a byte of 1 + direction (16, from +X
-  // toward +Z) + 16 x speed (1-14), 0 still; down the sides (a fall).
-  vLavaFlow = vec2(0.0);
-  if ((flags & 64) != 0) {
+  #ifdef LAVA
+    // (Round 14) Lava's flow (mesher.js lavaCornerFlow), per vertex so it
+    // varies smoothly across cells: a byte of 1 + direction (16, from +X
+    // toward +Z) + 16 x speed (1-14), 0 still; down the sides (a fall).
+    vLavaFlow = vec2(0.0);
     if (ni == 2) {
       float k = aExtra.y - 1.0;
       if (k > -0.5) {
@@ -544,7 +546,7 @@ void main() {
         vLavaFlow = vec2(cos(a), sin(a)) * floor(k / 16.0 + 0.01) / 14.0;
       }
     } else if (ni != 3) vLavaFlow = vec2(0.0, -1.0);
-  }
+  #endif
   vWorldPos = worldPosition.xyz;
   vNormal = objectNormal;
   vLight = aData.yz / 255.0;
@@ -746,7 +748,9 @@ flat varying float vFlags;
 flat varying float vFace;
 flat varying float vTint;
 varying vec3 vViewPosition;
-varying vec2 vLavaFlow;
+#ifdef LAVA
+  varying vec2 vLavaFlow;
+#endif
 ${FRAGMENT_LIGHT_INCLUDES}
 ${WORLD_COMMON}
 ${POINT_LIGHTS}
@@ -800,22 +804,23 @@ float caustics(vec2 p, float t) {
   return pow(1.0 - abs(v), 12.0);
 }
 
+#ifdef LAVA
 ${LAVA_GLSL}
+#endif
 
 void main() {
+  float dist = length(vViewPosition);
+  #ifdef LAVA
+    // (Round 14) Lava (the flowing tile, FLAG.FLOW): its own look
+    // (LAVA_GLSL), in its own material (the chunk's lava group, see
+    // mesher.js GeoBuilder.quad): the rest of the terrain doesn't carry it.
+    gl_FragColor = vec4(applyFogLit(lavaColor(dist), vWorldPos, vLight.x), 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  #else
   vec3 uvw = vTexCoord;
   vec3 N = vNormal;
-  float dist = length(vViewPosition);
   int flags = int(vFlags + 0.5);
-  #ifndef CUTOUT
-    // (Round 14) Lava (the flowing tile, FLAG.FLOW): its own look (LAVA_GLSL).
-    if ((flags & 64) != 0) {
-      gl_FragColor = vec4(applyFogLit(lavaColor(dist), vWorldPos, vLight.x), 1.0);
-      #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-      return;
-    }
-  #endif
   #ifdef USE_NORMALMAP
     int fi = int(vFace + 0.5);
     vec3 T = FACE_T[fi];
@@ -906,6 +911,7 @@ void main() {
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
+  #endif
 }
 `;
 
@@ -1649,9 +1655,20 @@ export function createChunkMaterials(atlas, waterLayer, relief) {
     defines: dt.defines,
     side: THREE.DoubleSide,
   });
+  // (Round 14) Lava: the opaque terrain's shader with only lava's look in it
+  // (a chunk's lava faces are their own group of its opaque mesh, see
+  // chunk.js), so the rest of the terrain doesn't pay for lava's code.
+  const lt = terrainTextures(atlas, relief);
+  const lava = new THREE.ShaderMaterial({
+    uniforms: litUniforms({ ...lt.uniforms, uEmissiveBoost: opaque.uniforms.uEmissiveBoost }),
+    vertexShader: chunkVertex,
+    fragmentShader: chunkFragment,
+    lights: true,
+    defines: { ...lt.defines, LAVA: "" },
+  });
   // Emissive blocks share the materials above; `uEmissiveBoost` is kept in
   // sync across both terrain materials by sky/graphics code.
-  return { opaque, cutout, water, cutoutDepth };
+  return { opaque, cutout, water, cutoutDepth, lava };
 }
 
 export function createSkyMaterial() {

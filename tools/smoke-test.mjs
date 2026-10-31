@@ -1266,7 +1266,9 @@ try {
     const prev = await page.evaluate(() => window.__voxelands.effects.explosionCount);
     await page.mouse.down({ button: "right" });
     await page.mouse.up({ button: "right" });
-    const boom = await waitForExplosion(prev);
+    // (The 5 s fuse is game time: at the software renderer's 2 frames a second,
+    // each at most 50 ms of game time, that is 50 s or more.)
+    const boom = await waitForExplosion(prev, 120000);
     console.log(`        removed ${boom.removed} blocks, farthest ${boom.maxDist.toFixed(2)} from center, carve ${boom.carveMs.toFixed(1)} ms`);
     console.log(`        particles: ${boom.debris} debris, ${boom.smoke} smoke, ${boom.glow} fire/sparks; shake trauma ${boom.trauma.toFixed(2)}; player vy ${boom.playerVy.toFixed(1)}`);
     // Craters are now flattened ellipsoids (~half the vertical reach of a

@@ -484,12 +484,17 @@ await check("on foot: a UFO that spots you flies over, beams you up, and reachin
     u.timer = 40;
     u.lastSeen = g.ufos.time;
     window.__u = u;
+    window.__t0 = g.ufos.time;
   });
-  const beamed = await until((g) => g.ufos.beamingPlayer === window.__u, 120000);
-  assert(beamed, "beamed");
-  const lifted = await until((g) => g.player.position.y > window.__arena.y + 4, 60000);
+  // (In game time: the beam creeps over at 2.6 blocks a second, some 16 s
+  // for the 40 blocks, which at the software renderer's 2 or 3 frames a
+  // second (each at most 50 ms of game time) is two minutes or more; its
+  // timer gives it 40 s.)
+  const beamed = await until((g) => g.ufos.beamingPlayer === window.__u || (g.ufos.time - window.__t0 > 40 ? "too late" : false), 480000);
+  assert(beamed === true, `beamed: ${beamed}`);
+  const lifted = await until((g) => g.player.position.y > window.__arena.y + 4, 120000);
   assert(lifted, "the beam lifts the player");
-  const dead = await until((g) => g.gameState === "dead" && g.deathCause, 120000);
+  const dead = await until((g) => g.gameState === "dead" && g.deathCause, 240000);
   const msg = await v(() => document.getElementById("death-cause").textContent);
   assert(dead === "abducted" && msg === "Abducted by a UFO", `death: ${dead} / ${msg}`);
   await respawnIfDead();

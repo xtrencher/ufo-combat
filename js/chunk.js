@@ -42,12 +42,12 @@ export class Chunk {
 
   // Replaces the render meshes with freshly built buffers (see mesher.js).
   applyMesh(buffers, materials) {
-    this._setMesh("opaque", buffers.opaque, materials.opaque, true, null);
+    this._setMesh("opaque", buffers.opaque, materials.opaque, true, null, materials);
     this._setMesh("cutout", buffers.cutout, materials.cutout, true, materials.cutoutDepth);
     this._setMesh("water", buffers.water, materials.water, false, null);
   }
 
-  _setMesh(kind, buf, material, castShadow, depthMaterial) {
+  _setMesh(kind, buf, material, castShadow, depthMaterial, materials = null) {
     const existing = this.meshes[kind];
     if (!buf) {
       if (existing) {
@@ -64,9 +64,18 @@ export class Chunk {
     geometry.setAttribute("aExtra", new THREE.BufferAttribute(buf.extra, 4));
     geometry.setIndex(new THREE.BufferAttribute(buf.index, 1));
     geometry.computeBoundingSphere();
+    // (Round 14) Lava's quads, at the end of the opaque buffers (mesher.js
+    // lavaStart), drawn with lava's own material.
+    const lava = buf.lavaStart !== undefined && materials?.lava;
+    if (lava) {
+      geometry.addGroup(0, buf.lavaStart, 0);
+      geometry.addGroup(buf.lavaStart, buf.index.length - buf.lavaStart, 1);
+      material = [material, materials.lava];
+    }
     if (existing) {
       existing.geometry.dispose();
       existing.geometry = geometry;
+      existing.material = material;
       return;
     }
     const mesh = new THREE.Mesh(geometry, material);

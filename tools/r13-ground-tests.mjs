@@ -523,6 +523,9 @@ async function browserChecks() {
     const f = await field(page);
     const r = await v(page, async (g, f) => {
       g.player.setMode("creative");
+      // (The field is cleared 11 blocks up: the spawn's hill above that would
+      // put the chase camera inside it and the rangefinder on its face.)
+      g.world.setBlocks((() => { const l = []; for (let x = f.x0 - 16; x <= f.x0 + 20; x++) for (let z = f.z0 - 30; z <= f.z0 + 16; z++) for (let y = f.y + 12; y < f.y + 60; y++) l.push(x, y, z, 0); return l; })());
       const { summonTank } = await import("./js/vehicle-tank.js");
       const out = {};
       const fire = (t) => {
