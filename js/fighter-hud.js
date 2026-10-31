@@ -101,8 +101,11 @@ export class FighterHud {
 
   // Screen position of a world point: { x, y, behind, on }.
   _proj(world, camera, out = {}) {
-    _p.copy(world).project(camera);
-    out.behind = _p.z > 1;
+    // (Round 14: behind is behind the camera, not past its far plane: a lock
+    // reaches 2200 blocks, the view about 1000.)
+    _p.copy(world).applyMatrix4(camera.matrixWorldInverse);
+    out.behind = _p.z >= 0;
+    _p.applyMatrix4(camera.projectionMatrix);
     out.x = ((_p.x + 1) / 2) * this.w;
     out.y = ((1 - _p.y) / 2) * this.h;
     out.on = !out.behind && out.x > 0 && out.x < this.w && out.y > 0 && out.y < this.h;

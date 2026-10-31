@@ -662,9 +662,11 @@ export class Tel extends GroundVehicle {
     M.scale.setScalar(Math.max(WARHEAD_RADIUS, at.distanceTo(camera.position) * 0.022));
     for (const ch of M.children) ch.material.color.setHex(color);
     camera.updateMatrixWorld(); // (just moved: this frame's view, not the last one's)
-    const p = _v.copy(at).project(camera);
+    // (Behind the camera, not past its far plane: the full reach is twice the view.)
+    const behind = _v.copy(at).applyMatrix4(camera.matrixWorldInverse).z >= 0;
+    const p = _v.applyMatrix4(camera.projectionMatrix);
     const L = this._label;
-    if (p.z > 1 || Math.abs(p.x) > 1.2 || Math.abs(p.y) > 1.2) {
+    if (behind || Math.abs(p.x) > 1.2 || Math.abs(p.y) > 1.2) {
       L.style.display = "none";
       return;
     }
