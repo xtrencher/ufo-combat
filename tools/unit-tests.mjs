@@ -1561,7 +1561,7 @@ console.log("\nProgression (progression.js)");
     assert.deepEqual(MISSIONS.slice(0, 28).map((m) => m.id), CLASSIC_IDS, "the classic missions keep their places in the list");
     let done = [];
     p.onComplete = (m) => done.push(m.id);
-    assert.equal(MISSIONS.length, 39, "the classic 28, Round 10's six and Round 13's five (the ground war)");
+    assert.equal(MISSIONS.length, 42, "the classic 28, Round 10's six, Round 13's five (the ground war) and Round 14's three (the helicopters)");
     assert.equal(p.mission.id, "skeleton");
     stats.aliensKilled = 2;
     p.update(stats);
@@ -1782,7 +1782,7 @@ console.log("\nProgression (progression.js)");
     const known = new Set(STAT_LABELS.map(([k]) => k));
     const NEW = ["evac", "hunted", "crash_site", "hold_line", "rescue", "sabotage"];
     const byId = new Map(MISSIONS.map((m) => [m.id, m]));
-    const EVENTS = new Set(["skeleton", "landing", "scout", "crew", "crate", "night", "intact", "hunt", "squad", "takeoff", "landjet", "dogfight", "fighter", "airraid", "abduct", "giant", "swarm", "fortress", "village", "large", "meteors", "boss", "airport", "steal", "hunters", "hold", "crashsite", "evac", "rescue", "beacons", "tanks", "launch", "convoy", "aasites", "baseassault"]); // (Round 13: the ground war's)
+    const EVENTS = new Set(["skeleton", "landing", "scout", "crew", "crate", "night", "intact", "hunt", "squad", "takeoff", "landjet", "dogfight", "fighter", "airraid", "abduct", "giant", "swarm", "fortress", "village", "large", "meteors", "boss", "airport", "steal", "hunters", "hold", "crashsite", "evac", "rescue", "beacons", "tanks", "launch", "convoy", "aasites", "baseassault", "aircav", "medevac", "gunships"]); // (Round 13: the ground war's; Round 14: the helicopters')
     for (const m of MISSIONS) {
       assert.ok(m.objectives.length >= 1, `${m.id} has objectives`);
       for (const o of m.objectives) {

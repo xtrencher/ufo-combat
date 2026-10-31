@@ -15,8 +15,10 @@
 // is on) and the elevation the shell's arc needs; a circle shows where the
 // shell will land right now, and slides onto the crosshair as the gun
 // comes round. Left click fires the main gun (an HE shell on a ballistic
-// arc: a tracer you can follow; reload 4-5 s), right click the coaxial
-// machine gun, C pops the smoke launchers (a screen the enemy can't see
+// arc: a tracer you can follow; reload 4-5 s), right click the machine gun
+// (Round 14: the coax from its own barrel in the mantlet while the gun is
+// on the aim; the modern tank's roof MG, swung round to the crosshair, at
+// anything else), C pops the smoke launchers (a screen the enemy can't see
 // through), V (or F5) the gunner's sight: a zoomed view along the gun with
 // stadia and range marks and the rangefinder's reading. Firing: the barrel
 // recoils, the hull rocks back, the muzzle flash, the dust ring off the
@@ -73,6 +75,18 @@ const _ip = new THREE.Vector3(); // (impactPoint's own)
 const _iv = new THREE.Vector3();
 const _id = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _mgA = new THREE.Vector3(); // (the machine guns' own)
+const _mgB = new THREE.Vector3();
+const _mgC = new THREE.Vector3();
+const _mgQ = new THREE.Quaternion();
+// (Round 14) The coax fires at the crosshair while the gun is within this of
+// it (radians: the shell's superelevation at a kilometre and a little more);
+// the roof MG's elevation limits.
+const MG_CONE = 0.14;
+const MG_PITCH = [-0.2, 1.1];
+// (Round 14) A patrol's pace (of its top speed) and how near a player must be for it to drive.
+const PATROL_THROTTLE = 0.3;
+const PATROL_NEAR = 260;
 
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v;
@@ -419,6 +433,10 @@ export class GroundVehicle extends Vehicle {
     this.kick = { x: 0, z: 0, vx: 0, vz: 0 }; // (the hull rocking: pitch, roll)
     this.reloadT = 0;
     this.coaxT = 0;
+    this.mgYaw = 0; // (Round 14: the roof MG's bearing on its ring (turret frame) and elevation)
+    this.mgPitch = 0;
+    this.mgFlashT = 9;
+    this.mgWhich = "coax";
     this.smokeT = 0;
     this.time = Math.random() * 10;
     this.fxT = 0;
@@ -641,6 +659,7 @@ export class GroundVehicle extends Vehicle {
     m.setTurret?.(this.turretYaw);
     m.setGun?.(this.gunPitch);
     m.setRecoil?.(this.recoil);
+    m.setRoofMg?.(this.mgYaw, this.mgPitch);
     const l = this.manager.world.lightAt(this.pos.x, this.pos.y + 2, this.pos.z);
     m.light.sky = l.sky;
     m.light.block = l.block;
@@ -673,9 +692,10 @@ export class GroundVehicle extends Vehicle {
     const fwd = this.forward(_w);
     const back = this.half.z;
     const hp = this.health / this.maxHealth;
-    // Exhaust at the back (more when pulling hard).
+    // Exhaust at the back (more when pulling hard). (Round 14: none from a
+    // parked one, its engine off: a base's yard of them would smoke away.)
     const load = Math.min(1, Math.abs(this.speed) / this.spec.speed + Math.abs(this.yawRate));
-    if (Math.random() < 0.35 + load * 0.5) fx.smoke.spawn({ x: this.pos.x - fwd.x * back, y: this.pos.y + 1.9, z: this.pos.z - fwd.z * back, vx: -fwd.x * 0.8 + (Math.random() - 0.5) * 0.4, vy: 1.4, vz: -fwd.z * 0.8 + (Math.random() - 0.5) * 0.4, life: 1.6 + load, size0: 0.35, size1: 1.6 + load, color0: c.ex0, color1: c.ex1, alpha: 0.25 + load * 0.25, drag: 1 });
+    if ((!this.parkedAt || this.patrol) && Math.random() < 0.35 + load * 0.5) fx.smoke.spawn({ x: this.pos.x - fwd.x * back, y: this.pos.y + 1.9, z: this.pos.z - fwd.z * back, vx: -fwd.x * 0.8 + (Math.random() - 0.5) * 0.4, vy: 1.4, vz: -fwd.z * 0.8 + (Math.random() - 0.5) * 0.4, life: 1.6 + load, size0: 0.35, size1: 1.6 + load, color0: c.ex0, color1: c.ex1, alpha: 0.25 + load * 0.25, drag: 1 });
     // Dust thrown up by the tracks.
     if (Math.abs(this.speed) > 2 && !this.inWater && this.onGround) {
       for (const s of [-1, 1]) {
@@ -695,6 +715,15 @@ export class GroundVehicle extends Vehicle {
   muzzleWorld(out = new THREE.Vector3()) {
     const m = this.model.muzzle;
     if (!m) return out.copy(this.pos).setY(this.pos.y + 2);
+    this.root.updateMatrixWorld(true);
+    return m.getWorldPosition(out);
+  }
+
+  // (Round 14) A machine gun's muzzle in the world: "coax" (in the mantlet,
+  // beside the main gun) or "roof" (the modern tank's roof MG).
+  mgWorld(which, out = new THREE.Vector3()) {
+    const m = which === "roof" ? this.model.roofMg?.muzzle : this.model.coax;
+    if (!m) return this.muzzleWorld(out);
     this.root.updateMatrixWorld(true);
     return m.getWorldPosition(out);
   }
@@ -936,6 +965,7 @@ export class GroundVehicle extends Vehicle {
     this.recoil = Math.max(0, this.recoil - dt * 1.6);
     this.flashT += dt;
     this.model.setFlash?.(this.flashT < 0.07 ? 1 - this.flashT / 0.07 : 0, this.kind === "tiger" ? 1.5 : 1.3);
+    this._mgFlash(dt);
     this.reloadT = Math.max(0, this.reloadT - dt);
     this.smokeT = Math.max(0, this.smokeT - dt);
     this._place();
@@ -943,6 +973,13 @@ export class GroundVehicle extends Vehicle {
     this.model.animate?.(this.time);
     this.model.setNight?.(this.manager.night ?? 0);
     this._effects(dt);
+  }
+
+  // A machine gun's flash, the moment it fired (a frame at least).
+  _mgFlash(dt) {
+    if (this.mgFlashT > 0.2) return;
+    this.model.mgFlash?.(this.mgWhich, this.mgFlashT < 0.05 ? 1 : 0);
+    this.mgFlashT += Math.min(dt, 0.04);
   }
 
   // What drives it (the player's input, or the AI in tanks.js).
@@ -958,6 +995,10 @@ export class GroundVehicle extends Vehicle {
     s.tu = [Math.round(Math.cos(this.turretYaw) * 1000) / 1000, Math.round(Math.sin(this.turretYaw) * 1000) / 1000];
     s.gp = Math.round(this.gunPitch * 1000) / 1000;
     s.k = this.kind;
+    // (Round 14) The roof MG's bearing and elevation (an older peer ignores it).
+    if (this.model.roofMg && this.occupied) s.mg = [Math.round(this.mgYaw * 100) / 100, Math.round(this.mgPitch * 100) / 100];
+    // (and the machine gun's rounds so far, which one: its flash on the others' screens)
+    if (this._coaxN) s.mf = (this._coaxN % 1000) * 2 + (this.mgWhich === "roof" ? 1 : 0);
   }
 
   netPuppet(st, dt) {
@@ -973,6 +1014,17 @@ export class GroundVehicle extends Vehicle {
       }
       if (Array.isArray(st.tu)) this.turretYaw = Math.atan2(st.tu[1], st.tu[0]);
       if (Number.isFinite(st.gp)) this.gunPitch = st.gp;
+      if (Array.isArray(st.mg) && Number.isFinite(st.mg[0]) && Number.isFinite(st.mg[1])) {
+        this.mgYaw = st.mg[0];
+        this.mgPitch = clamp(st.mg[1], MG_PITCH[0], MG_PITCH[1]);
+      }
+      if (Number.isFinite(st.mf) && st.mf !== this._netMf) {
+        if (this._netMf !== undefined) {
+          this.mgWhich = st.mf & 1 ? "roof" : "coax";
+          this.mgFlashT = 0;
+        }
+        this._netMf = st.mf;
+      }
       // The tracks run by how far it moved.
       const fwd = this.forward(_w);
       const step = (this.pos.x - (this._netX ?? this.pos.x)) * fwd.x + (this.pos.z - (this._netZ ?? this.pos.z)) * fwd.z;
@@ -996,6 +1048,7 @@ export class GroundVehicle extends Vehicle {
     this.recoil = Math.max(0, this.recoil - dt * 1.6);
     this.flashT += dt;
     this.model.setFlash?.(this.flashT < 0.07 ? 1 - this.flashT / 0.07 : 0, 1.3);
+    this._mgFlash(dt);
     this._place();
     this._animateTracks();
     this.model.animate?.(this.time);
@@ -1053,6 +1106,7 @@ export class Tank extends GroundVehicle {
   }
 
   onEnter() {
+    this.patrol = null; // (Round 14: a patrol's tank is the player's now)
     this.lookYaw = this.yaw + this.turretYaw;
     this.lookPitch = -0.05;
     this.camYaw = this.lookYaw;
@@ -1081,7 +1135,9 @@ export class Tank extends GroundVehicle {
   _control(dt, input) {
     const mgr = this.manager;
     if (!input) {
-      this._drive(dt, 0, 0, true);
+      // (Round 14: a base's or an airport's tank on its patrol, still the base's.)
+      if (this.patrol && this.parkedAt) this._patrolDrive(dt);
+      else this._drive(dt, 0, 0, true);
       return;
     }
     const k = input.keys;
@@ -1115,18 +1171,12 @@ export class Tank extends GroundVehicle {
       this._reloadSound = false;
       mgr.audio?._hit?.({ type: "bandpass", f: 1300, q: 3, d: 0.07, v: 0.28, n: 2, spread: 0.12 });
     }
-    // The coaxial MG.
+    // The machine gun (the coax; the roof MG, which follows the crosshair).
+    if (this.model.roofMg) this._aimRoofMg(dt, this.aimPoint);
     this.coaxT -= dt;
     if (input.buttons[2] && this.coaxT <= 0 && mgr.lasers) {
       this.coaxT = this.spec.coax;
-      const d = this.gunDir(new THREE.Vector3());
-      d.x += (Math.random() - 0.5) * 0.012;
-      d.y += (Math.random() - 0.5) * 0.012;
-      d.z += (Math.random() - 0.5) * 0.012;
-      const from = this.muzzleWorld(new THREE.Vector3()).addScaledVector(d, -(this.spec.coaxBack ?? 2.5));
-      this._coaxN = (this._coaxN || 0) + 1;
-      mgr.lasers.fire({ from, dir: d.normalize(), color: _coaxC, speed: 400, damage: 4, owner: "player", source: this, range: 380, radius: 0.05, length: 2.2, sound: false, tracer: this._coaxN % 3 !== 0, gun: "machinegun", scorch: false, hole: true });
-      mgr.audio?.playMachineGun?.();
+      this._fireMg();
     }
     // Smoke screen.
     if (input.pressed.has("KeyC")) this.popSmoke();
@@ -1135,12 +1185,124 @@ export class Tank extends GroundVehicle {
     this.engine?.set(true, rpm, Math.abs(this.speed), this.traverseRate || 0);
   }
 
+  // (Round 14) A base's (or an airport's) tank on patrol (sites.js
+  // yardSpots; tanks.js sets it out): round its loop at a walking pace,
+  // turning on the spot at the corners, stopping for anyone (a player, a
+  // vehicle) in its way. It stands while nobody is near (it costs nothing
+  // then, and the ground under it may not be loaded). Every player has
+  // their own copy of it (they wander apart a little) until one boards it.
+  _patrolDrive(dt) {
+    const P = this.patrol;
+    P.checkT = (P.checkT ?? 0) - dt;
+    if (P.checkT <= 0) {
+      P.checkT = 0.3;
+      P.go = this._patrolClear();
+    }
+    const wp = P.pts[P.i];
+    if (!P.go || !wp) {
+      this._drive(dt, 0, 0, true);
+      return;
+    }
+    const dx = wp[0] - this.pos.x;
+    const dz = wp[1] - this.pos.z;
+    if (dx * dx + dz * dz < 9) P.i = (P.i + 1) % P.pts.length;
+    const d = wrapAngle(Math.atan2(-dx, -dz) - this.yaw);
+    const throttle = Math.abs(d) > 0.45 ? 0 : PATROL_THROTTLE;
+    this._drive(dt, throttle, clamp(d * 2.2, -1, 1));
+    // (Stuck on something: on to the next corner.)
+    P.stuckT = throttle && Math.abs(this.speed) < 0.3 ? (P.stuckT || 0) + dt : 0;
+    if (P.stuckT > 5) {
+      P.stuckT = 0;
+      P.i = (P.i + 1) % P.pts.length;
+    }
+    if (this.turretYaw || this.gunPitch) this._traverse(dt, this.forward(_v).setY(0.02).normalize());
+  }
+
+  // Is the way ahead clear, and someone near enough to see it drive?
+  _patrolClear() {
+    const mgr = this.manager;
+    const fwd = this.forward(_mgA);
+    const fx = fwd.x;
+    const fz = fwd.z;
+    // (The ground under it and ahead of it loaded: it drives on real blocks only.)
+    const ahead = this.half.z + 8;
+    if (!mgr.world.getChunk(Math.floor(this.pos.x) >> 4, Math.floor(this.pos.z) >> 4) || !mgr.world.getChunk(Math.floor(this.pos.x + fx * ahead) >> 4, Math.floor(this.pos.z + fz * ahead) >> 4)) return false;
+    const inWay = (p, r) => {
+      const dx = p.x - this.pos.x;
+      const dz = p.z - this.pos.z;
+      const ahead = dx * fx + dz * fz;
+      return ahead > 0 && ahead < this.half.z + 5 + r && Math.abs(dx * fz - dz * fx) < this.half.x + 1 + r;
+    };
+    let near = false;
+    const people = mgr.ground?.targets ? mgr.ground.targets() : [mgr.player];
+    if (mgr.player && !people.includes(mgr.player)) people.push(mgr.player);
+    for (const f of people) {
+      const p = f?.vehicle ? f.vehicle.pos : f?.position;
+      if (!p) continue;
+      if (Math.hypot(p.x - this.pos.x, p.z - this.pos.z) < PATROL_NEAR) near = true;
+      if (!f.vehicle && inWay(p, 1.5)) return false;
+    }
+    if (!near) return false;
+    // (A ground vehicle by its width: the parked ones beside the loop aren't in the way.)
+    for (const v of mgr.vehicles) if (v !== this && v.alive && Math.abs(v.pos.y - this.pos.y) < 8 && inWay(v.pos, v.isGround ? v.half.x + 1 : Math.min(6, v.radius || 3))) return false;
+    return true;
+  }
+
+  // (Round 14) Swings the roof MG round on its ring toward point p (an MG
+  // gunner's quick hands: far faster than the turret).
+  _aimRoofMg(dt, p) {
+    const r = this.model.roofMg;
+    this.root.updateMatrixWorld(true);
+    const at = r.ring.getWorldPosition(_mgA);
+    const d = _mgB.copy(p).sub(at);
+    if (d.lengthSq() < 1) return;
+    // (Into the turret's frame: the ring's bearing is the turret's.)
+    this.model.turret.getWorldQuaternion(_mgQ).invert();
+    d.applyQuaternion(_mgQ);
+    const yaw = Math.atan2(-d.x, -d.z);
+    const pitch = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), MG_PITCH[0], MG_PITCH[1]);
+    this.mgYaw = wrapAngle(slew(this.mgYaw, yaw, 3.2 * dt));
+    this.mgPitch = clamp(slew(this.mgPitch, pitch, 2.2 * dt), MG_PITCH[0], MG_PITCH[1]);
+    this.model.setRoofMg?.(this.mgYaw, this.mgPitch);
+  }
+
+  // (Round 14) One round of the machine gun, from its own muzzle: the coax
+  // (in the mantlet beside the gun) while the gun is laid on the aim (it
+  // fires at the crosshair, a little off the bore: its own sight setting);
+  // the roof MG at anything the gun isn't on (the modern tank's); the
+  // Tiger's coax along the gun when it isn't on.
+  _fireMg() {
+    const mgr = this.manager;
+    const gd = this.gunDir(_mgA);
+    let which = "coax";
+    let from = this.mgWorld("coax", _mgC);
+    const d = _mgB.copy(this.aimPoint).sub(from).normalize();
+    if (d.angleTo(gd) > MG_CONE) {
+      if (this.model.roofMg) {
+        which = "roof";
+        from = this.mgWorld("roof", _mgC);
+        this.model.roofMg.cradle.getWorldQuaternion(_mgQ);
+        d.set(0, 0, -1).applyQuaternion(_mgQ);
+      } else d.copy(gd);
+    }
+    d.x += (Math.random() - 0.5) * 0.012;
+    d.y += (Math.random() - 0.5) * 0.012;
+    d.z += (Math.random() - 0.5) * 0.012;
+    this._coaxN = (this._coaxN || 0) + 1;
+    mgr.lasers.fire({ from: from.clone(), dir: d.clone().normalize(), color: _coaxC, speed: 400, damage: 4, owner: "player", source: this, range: 380, radius: 0.05, length: 2.2, sound: false, tracer: this._coaxN % 3 !== 0, gun: "machinegun", scorch: false, hole: true });
+    mgr.audio?.playMachineGun?.();
+    this.mgWhich = which;
+    this.mgFlashT = 0;
+    this.lastMg = which;
+  }
+
   // From where the aim is taken: the camera's spot (chase) or the sight.
   _viewOrigin(out) {
     if (this.sighted) {
       this.root.updateMatrixWorld(true);
-      // (The gunner's sight: beside the gun, a little above it.)
-      return this.model.gun ? this.model.gun.localToWorld(out.set(0.75, 0.42, -0.6)) : out.copy(this.pos).setY(this.pos.y + 2.4);
+      // (The gunner's sight: beside the gun, a little above it; Round 14: the
+      // Tiger's binocular sight looks out of the mantlet left of the 88.)
+      return this.model.gun ? this.model.gun.localToWorld(this.kind === "tiger" ? out.set(-0.5, 0.2, -0.4) : out.set(0.75, 0.42, -0.6)) : out.copy(this.pos).setY(this.pos.y + 2.4);
     }
     return this._camPos.lengthSq() ? out.copy(this._camPos) : out.copy(this.pos).setY(this.pos.y + 4);
   }
@@ -1296,7 +1458,7 @@ export class Tank extends GroundVehicle {
         ["Space", "Brake"],
         ["Mouse", "Aim (the turret follows at its own speed)"],
         ["Left click", "Main gun"],
-        ["Right click", "Coaxial machine gun"],
+        ["Right click", this.model.roofMg ? "Machine gun (the coax beside the gun; the roof MG at what the gun isn't on)" : "Coaxial machine gun"],
         ["V / F5", "Gunner's sight"],
         ["C", "Smoke screen"],
         ["F", "Get out"],

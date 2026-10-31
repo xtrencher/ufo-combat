@@ -9,7 +9,9 @@
 //   aData     Uint8   x4  [normalIndex * 4 + ao (0-3), sky light * 17, block light * 17, flags]
 //   aExtra    Uint8   x4  [texture layer (low byte), water depth * 16, color tint (128 = none), texture layer (high byte)]
 //             (Round 12: on an animated face, not water, the second byte is
-//             its flipbook (FLAG.ANIM) or its flow direction (FLAG.FLOW))
+//             its flipbook (FLAG.ANIM) or its flow direction (FLAG.FLOW);
+//             Round 14: on lava's top the tint byte holds its shore edges,
+//             and on the haze's sheet the second byte its strength * 16)
 //
 // (Round 11) Block ids are 16-bit (the padded volume is a Uint16Array) and
 // the texture layer takes two bytes (Round 12: TILE_CAPACITY layers, see
@@ -20,6 +22,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
 import {
   BLOCK,
   IS_OPAQUE,
+  IS_SOLID,
   RENDER_TYPE,
   RENDER,
   SHAPE_OF,
@@ -42,8 +45,9 @@ import { isLava, lavaLevel } from "./content/nature.js";
 
 // FOLIAGE: leaves and plants (sunlight shines through them). (Round 12)
 // ANIM: a flipbook tile (the shader plays its frames); FLOW: a flowing
-// liquid's tile (lava: drawn moving, along its flow direction).
-export const FLAG = Object.freeze({ WAVE: 1, EMISSIVE: 2, SURFACE: 4, UNDERWATER: 8, FOLIAGE: 16, ANIM: 32, FLOW: 64 });
+// liquid's tile (lava: drawn moving, along its flow direction). (Round 14)
+// HAZE: the heat haze's sheet above lava (in the water's bucket, see emitLava).
+export const FLAG = Object.freeze({ WAVE: 1, EMISSIVE: 2, SURFACE: 4, UNDERWATER: 8, FOLIAGE: 16, ANIM: 32, FLOW: 64, HAZE: 128 });
 
 // (Round 12) Per texture layer: 0, a flipbook's index + 1, or ANIM_FLOW.
 const ANIM_FLOW = 255;
@@ -52,11 +56,6 @@ TILE_FLIPBOOKS.forEach((f, k) => {
   if (TILE[f.tile] !== undefined) TILE_ANIM[TILE[f.tile]] = k + 1;
 });
 for (const name of TILE_FLOWING) if (TILE[name] !== undefined) TILE_ANIM[TILE[name]] = ANIM_FLOW;
-// Blocks with a flowing tile on a face (their flow direction is worked out when meshed).
-const FLOWS = new Uint8Array(BLOCK_LIMIT);
-for (let id = 0; id < BLOCK_LIMIT; id++) {
-  for (let f = 0; f < 6; f++) if (TILE_ANIM[FACE_TILES[id * 6 + f]] === ANIM_FLOW) FLOWS[id] = 1;
-}
 export const WATER_SURFACE_HEIGHT = 0.875;
 
 const S = CHUNK_SIZE;
@@ -119,7 +118,7 @@ class GeoBuilder {
     this.vc = 0;
     this.ic = 0;
     this.tint = 128; // color tint written with every vertex (128 = none)
-    this.flow = 0; // (Round 12) the flow direction written on a flowing tile's vertices (see flowCode)
+    this.flow = 0; // (Round 12) the flow written on a flowing tile's vertices (Round 14: per vertex, see lavaCornerFlow)
   }
   _alloc(cap) {
     const old = this.cap ? this : null;
@@ -631,39 +630,160 @@ function lavaSurface(pi) {
   if (!isLava(id)) return -1;
   return isLava(padBlocks[pi + OY]) ? 1 : (8 - 2 * lavaLevel(id)) / 9;
 }
-const SIDE_STEPS = [
-  [1, 0, OX],
-  [-1, 0, -OX],
-  [0, 1, OZ],
-  [0, -1, -OZ],
-];
-// The flow direction of the lava in cell pi, for its vertices: 0 still (no
-// lower lava beside it), else 1 + one of 16 directions (around from +X
-// toward +Z). Downhill toward lower lava beside it, as vanilla's, and toward
-// an edge where it falls (lava below the open cell beside it).
-function flowCode(pi) {
-  const h = lavaSurface(pi);
-  if (h < 0) return 0;
-  let fx = 0;
-  let fz = 0;
-  for (const [dx, dz, step] of SIDE_STEPS) {
-    let nh = lavaSurface(pi + step);
-    if (nh < 0) {
-      if (IS_OPAQUE[padBlocks[pi + step]]) continue;
-      nh = lavaSurface(pi + step - OY);
-      if (nh < 0) continue;
-      nh -= 1;
-    }
-    fx += dx * (h - nh);
-    fz += dz * (h - nh);
+
+// (Round 14) Lava, meshed here rather than by its content shape: vanilla's
+// sloped surface (each corner of the top the weighted average of the lava
+// around it, as vanilla's LiquidBlockRenderer: a cell 0.8 high or more
+// counts ten times, an open cell beside it pulls the corner down, a solid
+// one doesn't count, lava above any of them lifts it to the top), so a flow
+// runs down in one smooth sheet instead of stairs, and between two lava
+// cells no step is drawn. Every vertex carries the flow there (the downhill
+// slope of the four cells around its corner), so the shader moves the
+// crust along a smooth flow field across cells and chunks; the top's tint
+// byte holds which of its edges meet something else (the glowing rim, see
+// shaders.js lavaColor). With `haze` (the High/Ultra meshing) a sheet above
+// a lava surface out in the open, in the water's pass, shimmers what is
+// seen through it (shaders.js, the water's haze).
+const CORNER_CELLS = [0, OX, OZ, OX + OZ]; // the 2x2 cells around a corner, from its (-x, -z) cell
+// Corner (cx, cz) of the cell at pi: the padded index of the (-x, -z) cell of the four around it.
+const cornerBase = (pi, cx, cz) => pi + (cx - 1) * OX + (cz - 1) * OZ;
+function lavaCornerHeight(p0) {
+  let sum = 0;
+  let w = 0;
+  for (const o of CORNER_CELLS) {
+    const c = p0 + o;
+    const id = padBlocks[c];
+    if (isLava(id)) {
+      if (isLava(padBlocks[c + OY])) return 1;
+      const h = (8 - 2 * lavaLevel(id)) / 9;
+      const k = h >= 0.8 ? 10 : 1;
+      sum += h * k;
+      w += k;
+    } else if (!IS_SOLID[id]) w += 1;
   }
-  if (fx * fx + fz * fz < 1e-6) return 0;
-  return 1 + (Math.round(Math.atan2(fz, fx) / (Math.PI / 8)) & 15);
+  return w > 0 ? sum / w : 1;
+}
+// The height the flow sees in cell c: its surface, or for an open cell the
+// surface of lava under it less a block (it falls there); NaN for neither.
+function lavaFlowHeight(c) {
+  const h = lavaSurface(c);
+  if (h >= 0) return h;
+  if (IS_OPAQUE[padBlocks[c]]) return NaN;
+  const below = lavaSurface(c - OY);
+  return below >= 0 ? below - 1 : NaN;
+}
+// The flow at a corner as a byte: 0 still, else 1 + one of 16 directions
+// (around from +X toward +Z) + 16 x speed (1-14).
+function lavaCornerFlow(p0) {
+  const h00 = lavaFlowHeight(p0);
+  const h10 = lavaFlowHeight(p0 + OX);
+  const h01 = lavaFlowHeight(p0 + OZ);
+  const h11 = lavaFlowHeight(p0 + OX + OZ);
+  let gx = 0;
+  let gz = 0;
+  let nx = 0;
+  let nz = 0;
+  if (h00 === h00 && h10 === h10) (gx += h10 - h00), nx++;
+  if (h01 === h01 && h11 === h11) (gx += h11 - h01), nx++;
+  if (h00 === h00 && h01 === h01) (gz += h01 - h00), nz++;
+  if (h10 === h10 && h11 === h11) (gz += h11 - h10), nz++;
+  const fx = nx ? -gx / nx : 0;
+  const fz = nz ? -gz / nz : 0;
+  const m = Math.hypot(fx, fz);
+  if (m < 0.02) return 0;
+  const speed = Math.max(1, Math.min(14, Math.round((m / 0.9) * 14)));
+  return 1 + (Math.round(Math.atan2(fz, fx) / (Math.PI / 8)) & 15) + 16 * speed;
+}
+// A lava cell with open air above (a surface the haze rises from).
+const lavaOpen = (c) => isLava(padBlocks[c]) && padBlocks[c + OY] === BLOCK.AIR;
+// The top's corners in FACES[2] order ([0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]), and the sides'.
+const LAVA_TOP = [[0, 1], [1, 1], [1, 0], [0, 0]];
+const CORNER_OF = [3, 0, 2, 1]; // LAVA_TOP's index of corner (x, z), by x * 2 + z
+const LAVA_SIDES = [
+  [0, OX],
+  [1, -OX],
+  [4, OZ],
+  [5, -OZ],
+];
+// Shore bits on the top's tint: +X 1, -X 2, +Z 4, -Z 8, then the corners
+// (+X+Z 16, -X+Z 32, -X-Z 64, +X-Z 128) where both sides beside it are lava.
+const SHORE_CORNERS = [
+  [16, OX + OZ, 1, 4],
+  [32, -OX + OZ, 2, 4],
+  [64, -OX - OZ, 2, 8],
+  [128, OX - OZ, 1, 8],
+];
+const lavaH = [0, 0, 0, 0];
+const lavaF = [0, 0, 0, 0];
+function emitLava(b, wb, x, y, z, id, pi, haze) {
+  const layer = FACE_TILES[id * 6 + 2];
+  const flags = FLAG.EMISSIVE;
+  const l = padLight[pi];
+  const sky = (l >> 4) * 17;
+  const blk = (l & 15) * 17;
+  const full = isLava(padBlocks[pi + OY]); // (falling, or under more lava: no top)
+  for (let c = 0; c < 4; c++) {
+    const [cx, cz] = LAVA_TOP[c];
+    const p0 = cornerBase(pi, cx, cz);
+    lavaH[c] = full ? 1 : lavaCornerHeight(p0);
+    lavaF[c] = lavaCornerFlow(p0);
+  }
+  const up = 2 * 4 + 3;
+  if (!full) {
+    let shore = 0;
+    for (let s = 0; s < 4; s++) if (!isLava(padBlocks[pi + LAVA_SIDES[s][1]])) shore |= 1 << s;
+    for (const [bit, step, a, c] of SHORE_CORNERS) if (!(shore & (a | c)) && !isLava(padBlocks[pi + step])) shore |= bit;
+    const la = padLight[pi + OY];
+    const topSky = IS_OPAQUE[padBlocks[pi + OY]] ? sky : Math.max(l >> 4, la >> 4) * 17;
+    b.tint = shore;
+    for (let c = 0; c < 4; c++) {
+      const [cx, cz] = LAVA_TOP[c];
+      b.flow = lavaF[c];
+      b.vertex(x + cx, y + lavaH[c], z + cz, cx, 1 - cz, up, topSky, blk, flags, layer, 0);
+    }
+    b.quad(lavaH[0] + lavaH[2] > lavaH[1] + lavaH[3]);
+    b.tint = 128;
+    if (haze && padBlocks[pi + OY] === BLOCK.AIR) {
+      // (faded out toward the edge of the open lava, so the sheet has no rim)
+      for (let c = 0; c < 4; c++) {
+        const [cx, cz] = LAVA_TOP[c];
+        const p0 = cornerBase(pi, cx, cz);
+        let n = 0;
+        for (const o of CORNER_CELLS) n += lavaOpen(p0 + o) ? 1 : 0;
+        wb.vertex(x + cx, y + 1.3, z + cz, cx, 1 - cz, up, topSky, blk, FLAG.HAZE, 0, Math.round((n / 4) * (n / 4) * 16));
+      }
+      wb.quad(false);
+    }
+  }
+  // The sides: none against lava (the slopes meet) or a solid face; down
+  // from the corners' heights to the cell's bottom.
+  b.flow = 0;
+  for (let s = 0; s < 4; s++) {
+    const [f, step] = LAVA_SIDES[s];
+    const nid = padBlocks[pi + step];
+    if (isLava(nid) || IS_OPAQUE[nid]) continue;
+    const face = FACES[f];
+    const nl = padLight[pi + step];
+    const ssky = Math.max(l >> 4, nl >> 4) * 17;
+    for (let c = 0; c < 4; c++) {
+      const p = face.corners[c].pos;
+      b.vertex(x + p[0], y + (p[1] ? lavaH[CORNER_OF[p[0] * 2 + p[2]]] : 0), z + p[2], face.corners[c].uv[0], face.corners[c].uv[1], f * 4 + 3, ssky, blk, flags, layer, 0);
+    }
+    b.quad(false);
+  }
+  const below = padBlocks[pi - OY];
+  if (!isLava(below) && !IS_OPAQUE[below]) {
+    const face = FACES[3];
+    for (let c = 0; c < 4; c++) {
+      const p = face.corners[c].pos;
+      b.vertex(x + p[0], y, z + p[2], face.corners[c].uv[0], face.corners[c].uv[1], 3 * 4 + 3, sky, blk, flags, layer, 0);
+    }
+    b.quad(false);
+  }
 }
 
 function emitShape(b, x, y, z, wx, wz, id, pi, shape) {
   const m = shapeApi;
-  b.flow = FLOWS[id] ? flowCode(pi) : 0;
   m.id = id;
   m.x = x;
   m.y = y;
@@ -674,7 +794,6 @@ function emitShape(b, x, y, z, wx, wz, id, pi, shape) {
   m._b = b;
   SHAPE_MESH[shape](m);
   b.tint = 128;
-  b.flow = 0;
 }
 
 // neighbors: 9 chunks as described in fillPadded (center at index 4).
@@ -726,6 +845,7 @@ function meshBody(cx, cz, maxY, options) {
           } else if (shape === SHAPE.TORCH) emitTorch(b, x, y, z, id, pi);
           else if (shape === SHAPE.WALL_TORCH) emitWallTorch(b, x, y, z, id, pi);
           else if (shape === SHAPE.CHEST) emitChest(b, x, y, z, id, pi);
+          else if (isLava(id)) emitLava(b, builders[RENDER.WATER], x, y, z, id, pi, fancyLeaves);
           else if (shape >= SHAPE_CUSTOM) {
             emitShape(b, x, y, z, baseX + x, baseZ + z, id, pi, shape);
             if (IS_WATERLOGGED[id]) emitCube(builders[RENDER.WATER], BLOCK.WATER, RENDER.WATER, x, y, z, baseX, baseZ, pi, depths, fancyLeaves);

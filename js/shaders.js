@@ -493,7 +493,7 @@ flat varying float vFlags;
 flat varying float vFace;
 flat varying float vTint;
 varying vec3 vViewPosition;
-flat varying float vFlow;
+varying vec2 vLavaFlow;
 uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
@@ -532,7 +532,19 @@ void main() {
     #include <shadowmap_vertex>
   }
   vTexCoord = vec3(uv, flipbookLayer(aExtra.x + aExtra.w * 256.0, flags, aExtra.y)); // (the layer in two bytes)
-  vFlow = (flags & 64) != 0 ? aExtra.y : 0.0;
+  // (Round 14) Lava's flow (mesher.js lavaCornerFlow), per vertex so it
+  // varies smoothly across cells: a byte of 1 + direction (16, from +X
+  // toward +Z) + 16 x speed (1-14), 0 still; down the sides (a fall).
+  vLavaFlow = vec2(0.0);
+  if ((flags & 64) != 0) {
+    if (ni == 2) {
+      float k = aExtra.y - 1.0;
+      if (k > -0.5) {
+        float a = mod(k, 16.0) * 0.39269908;
+        vLavaFlow = vec2(cos(a), sin(a)) * floor(k / 16.0 + 0.01) / 14.0;
+      }
+    } else if (ni != 3) vLavaFlow = vec2(0.0, -1.0);
+  }
   vWorldPos = worldPosition.xyz;
   vNormal = objectNormal;
   vLight = aData.yz / 255.0;
@@ -541,6 +553,173 @@ void main() {
   vFace = float(ni);
   vTint = aExtra.z / 255.0;
   vViewPosition = -mvPosition.xyz;
+}
+`;
+
+// (Round 14) Lava: a molten surface under a dark crust that drifts with the
+// flow and breaks into plates, their cracks glowing from dull red through
+// orange to yellow-white (HDR: the hot parts bloom), wider and brighter in
+// slow hot swells; thin lava at a flow's end crusts over more, a fall runs
+// with bright molten streaks, a rim glows where the lava meets a block, and
+// a few embers twinkle in the crust. Opaque, like vanilla's (you can't see
+// into it): the depth is in the glow. Procedural in world space, so it runs
+// on from cell to cell and chunk to chunk; on a flowing surface the crust
+// rides the flow field (mesher.js lavaCornerFlow) as a flow map: two layers
+// sliding along it, each starting over while the other shows, so it never
+// stretches with time. The crust takes the world's light (its plates' domes
+// catch the sun on High and Ultra). Low: no embers, one octave of swell.
+const LAVA_GLSL = /* glsl */ `
+// Hash without sine (stays stable at large world coordinates).
+vec2 lavaHash2(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.xx + q.yz) * q.zy);
+}
+float lavaHash(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+float lavaNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(lavaHash(i), lavaHash(i + vec2(1.0, 0.0)), f.x), mix(lavaHash(i + vec2(0.0, 1.0)), lavaHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// The crust's plates: cells around points that wander slowly. x: the
+// distance to the nearest crack between two plates (F2 - F1); y: the
+// plate's own random value.
+vec2 lavaPlates(vec2 p, float t) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  float d1 = 8.0;
+  float d2 = 8.0;
+  float id = 0.0;
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 g = vec2(float(x), float(y));
+      vec2 h = lavaHash2(i + g);
+      vec2 r = g + 0.12 + 0.76 * h + 0.12 * sin(t * (0.21 + 0.17 * h.yx) + 6.2831 * h) - f;
+      float d = dot(r, r);
+      if (d < d1) {
+        d2 = d1;
+        d1 = d;
+        id = h.x;
+      } else if (d < d2) d2 = d;
+    }
+  }
+  return vec2(sqrt(d2) - sqrt(d1), id);
+}
+// Heat (0-1) of one layer of plates at p: the cracks between them, their
+// glow reaching into the plates (width; each plate a little hotter or
+// cooler than the next). dome: the plate's surface (0 in a crack, 1 on its
+// crown), for the relief.
+float lavaHeat(vec2 p, float t, float width, out float dome) {
+  // (warped, so the cracks wander instead of running straight)
+  p += vec2(lavaNoise(p * 0.9 + t * 0.03), lavaNoise(p.yx * 0.9 - t * 0.025)) * 0.7;
+  vec2 c = lavaPlates(p, t);
+  float w = width * (0.6 + 0.8 * c.y);
+  dome = smoothstep(0.0, w * 1.5 + 0.12, c.x);
+  float crack = 1.0 - smoothstep(0.0, w, c.x);
+  return crack * crack * (3.0 - 2.0 * crack);
+}
+// Glowing rock and molten lava by heat: dull red, orange, yellow-white (HDR).
+vec3 lavaGlow(float T) {
+  vec3 c = vec3(0.42, 0.045, 0.008) * smoothstep(0.04, 0.3, T);
+  c = mix(c, vec3(1.9, 0.42, 0.04), smoothstep(0.25, 0.65, T));
+  return mix(c, vec3(4.6, 2.5, 0.75), smoothstep(0.7, 1.0, T));
+}
+vec3 lavaColor(float dist) {
+  int face = int(vFace + 0.5);
+  float t = uTime;
+  bool top = face == 2;
+  bool side = face != 2 && face != 3;
+  bool fine = uWaveStrength > 0.5;
+  vec2 p0 = side ? vec2(face < 2 ? vWorldPos.z : vWorldPos.x, vWorldPos.y) : vWorldPos.xz;
+  // (on a grid of sixteenths of a block up close: pixels, like the blocks around it)
+  float px = length(fwidth(p0));
+  vec2 p = px < 0.03 ? (floor(p0 * 16.0) + 0.5) / 16.0 : p0;
+  // Slow swells of hotter lava drifting across it.
+  float swell = lavaNoise(p * 0.23 + vec2(t * 0.031, -t * 0.023));
+  if (fine) swell = swell * 0.65 + lavaNoise(p * 0.71 - vec2(t * 0.047, t * 0.036)) * 0.35;
+  float hot = smoothstep(0.3, 0.75, swell);
+  // (the surface's height in its cell: a flow's thin end crusts over)
+  float level = vWorldPos.y - floor(vWorldPos.y - 0.01);
+  float thin = top ? 1.0 - smoothstep(0.3, 0.75, level) : 0.0;
+  float fl = length(vLavaFlow);
+  float width = mix(0.2, 0.62, hot) * (1.0 - 0.45 * thin) + fl * 0.15;
+  float heat;
+  float dome;
+  if (side) {
+    // A fall: mostly molten, the crust torn into streaks pouring down it at
+    // a block and a half a second.
+    heat = lavaHeat(vec2(p.x * 1.4, (p.y + t * 1.5) * 0.35), t, width + 0.4, dome);
+  } else if (fl < 0.02) {
+    heat = lavaHeat(p * 1.5, t, width, dome);
+  } else {
+    // (the phase offset by a smooth noise, so the layers don't all restart at once)
+    float ph = t * 0.2 + lavaNoise(p * 0.45) * 0.7;
+    float f0 = fract(ph);
+    vec2 move = vLavaFlow * 1.5 * 0.9 / 0.2; // (0.9 blocks a second at full flow)
+    float d0;
+    float d1;
+    float h0 = lavaHeat(p * 1.5 - move * f0, t, width, d0);
+    float h1 = lavaHeat(p * 1.5 - move * fract(ph + 0.5) + vec2(0.37, 0.61), t, width, d1);
+    float w = abs(2.0 * f0 - 1.0);
+    heat = mix(h0, h1, w);
+    dome = mix(d0, d1, w);
+  }
+  // The molten lava churns (brighter and darker currents in it); the
+  // hottest only in the swells.
+  heat *= 0.72 + 0.2 * hot + 0.16 * lavaNoise(p * 3.1 + vec2(t * 0.4, -t * 0.3));
+  heat = max(heat, 0.1 * (1.0 - thin)); // (the crust's dull red undertone)
+  // Far off, the cracks are finer than a pixel: the swells' glow.
+  float far = smoothstep(0.2, 0.6, px * 1.5);
+  heat = mix(heat, mix(0.36, 0.66, hot), far);
+  dome = mix(dome, 0.6, far);
+  if (fine) {
+    // Embers twinkling in the crust.
+    float e = lavaHash(floor(p0 * 16.0) + 17.0);
+    float tw = pow(max(sin(t * (1.1 + e * 2.3) + e * 71.0), 0.0), 8.0);
+    heat = max(heat, step(0.985, e) * tw * 0.75 * (1.0 - far) * dome);
+  }
+  if (top) {
+    // The rim: brighter where the lava meets a block (its shore edges, mesher.js).
+    int m = int(vTint * 255.0 + 0.5);
+    vec2 f = fract(vWorldPos.xz);
+    vec2 g = 1.0 - f;
+    float d = 1.0;
+    if ((m & 1) != 0) d = min(d, g.x);
+    if ((m & 2) != 0) d = min(d, f.x);
+    if ((m & 4) != 0) d = min(d, g.y);
+    if ((m & 8) != 0) d = min(d, f.y);
+    if ((m & 16) != 0) d = min(d, length(g));
+    if ((m & 32) != 0) d = min(d, length(vec2(f.x, g.y)));
+    if ((m & 64) != 0) d = min(d, length(f));
+    if ((m & 128) != 0) d = min(d, length(vec2(g.x, f.y)));
+    float lick = 0.05 * sin(p.x * 5.3 + p.y * 4.1 + t * 1.7);
+    heat = max(heat, (1.0 - smoothstep(0.0, 0.18, d + lick)) * 0.8);
+  }
+  vec3 N = vNormal;
+  #ifdef USE_NORMALMAP
+    // The plates' domes catch the light (a bump from the screen-space slope
+    // of their height), fading out with distance.
+    vec3 dpx = dFdx(vWorldPos);
+    vec3 dpy = dFdy(vWorldPos);
+    vec3 r1 = cross(dpy, N);
+    vec3 r2 = cross(N, dpx);
+    float det = dot(dpx, r1);
+    vec3 grad = sign(det) * (dFdx(dome) * r1 + dFdy(dome) * r2);
+    N = normalize(abs(det) * N - grad * 0.07 * (1.0 - far));
+  #endif
+  float shadow = sunShadow();
+  // (its own glow lights the crust only a little: the cracks are the light)
+  vec3 light = worldLighting(N, vLight.x, vLight.y * 0.4, 1.0, shadow);
+  // Basalt: near black, rough, a little red.
+  float grain = lavaHash(floor(p0 * 16.0));
+  vec3 crust = vec3(0.05, 0.038, 0.034) * (0.6 + 0.35 * dome + 0.3 * grain);
+  vec3 color = crust * light * (1.0 - smoothstep(0.2, 0.55, heat));
+  return color + lavaGlow(heat) * uEmissiveBoost * 0.25;
 }
 `;
 
@@ -567,7 +746,7 @@ flat varying float vFlags;
 flat varying float vFace;
 flat varying float vTint;
 varying vec3 vViewPosition;
-flat varying float vFlow;
+varying vec2 vLavaFlow;
 ${FRAGMENT_LIGHT_INCLUDES}
 ${WORLD_COMMON}
 ${POINT_LIGHTS}
@@ -621,39 +800,22 @@ float caustics(vec2 p, float t) {
   return pow(1.0 - abs(v), 12.0);
 }
 
-// (Round 12) A flowing tile (lava, FLAG.FLOW) drawn moving, in world space
-// so it runs on from cell to cell: a slow churn of travelling waves bending
-// it (as the water's ripples), sliding along the flow on a flowing surface
-// (code: 0 still, else 1 + one of 16 directions from +X toward +Z, see
-// mesher.js flowCode) and down the sides; glow: a slow swell of brightness
-// drifting across it.
-vec2 flowUv(int face, float code, out float glow) {
-  float t = uTime;
-  vec2 p;
-  vec2 drift = vec2(0.0);
-  if (face == 2 || face == 3) {
-    p = vWorldPos.xz;
-    if (code > 0.5) {
-      float a = (code - 1.0) * 0.39269908;
-      drift = vec2(cos(a), sin(a)) * 0.3;
-    }
-  } else {
-    p = vec2(face < 2 ? vWorldPos.z : vWorldPos.x, vWorldPos.y);
-    drift = vec2(0.0, -0.35);
-  }
-  vec2 warp = vec2(sin(p.y * 1.7 + t * 0.45) + 0.5 * sin(p.y * 3.9 + p.x * 1.3 - t * 0.7),
-                   sin(p.x * 1.9 - t * 0.4) + 0.5 * sin(p.x * 3.3 - p.y * 1.1 + t * 0.6)) * 0.045;
-  glow = 0.92 + 0.1 * sin(p.x * 0.9 + p.y * 0.7 + t * 0.8) * sin(p.x * 0.5 - p.y * 1.1 - t * 0.55);
-  return p - drift * t + warp;
-}
+${LAVA_GLSL}
 
 void main() {
   vec3 uvw = vTexCoord;
   vec3 N = vNormal;
   float dist = length(vViewPosition);
   int flags = int(vFlags + 0.5);
-  float glow = 1.0;
-  if ((flags & 64) != 0) uvw.xy = flowUv(int(vFace + 0.5), vFlow, glow);
+  #ifndef CUTOUT
+    // (Round 14) Lava (the flowing tile, FLAG.FLOW): its own look (LAVA_GLSL).
+    if ((flags & 64) != 0) {
+      gl_FragColor = vec4(applyFogLit(lavaColor(dist), vWorldPos, vLight.x), 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+      return;
+    }
+  #endif
   #ifdef USE_NORMALMAP
     int fi = int(vFace + 0.5);
     vec3 T = FACE_T[fi];
@@ -682,7 +844,7 @@ void main() {
     tex.a *= 1.0 + max(lod, 0.0) * 0.3;
     if (tex.a < 0.5) discard;
   #endif
-  vec3 albedo = tex.rgb * glow;
+  vec3 albedo = tex.rgb;
   // Natural color variation of leaves and grass (see mesher.js; 0.5 = none):
   // warmer, yellower one way, cooler and darker the other.
   albedo *= 1.0 + (vTint - 0.502) * vec3(0.34, 0.16, -0.3);
@@ -794,6 +956,7 @@ centroid varying vec2 vLight;
 centroid varying float vDepth;
 varying vec3 vViewPosition;
 varying vec2 vUv;
+flat varying float vHaze;
 uniform float uTime;
 uniform float uWaveStrength;
 #include <common>
@@ -826,6 +989,7 @@ void main() {
   vDepth = aExtra.y / 16.0;
   vViewPosition = -mvPosition.xyz;
   vUv = uv;
+  vHaze = (flags & 128) != 0 ? 1.0 : 0.0; // (Round 14: the heat haze's sheet above lava, mesher.js)
 }
 `;
 
@@ -838,6 +1002,7 @@ centroid varying vec2 vLight;
 centroid varying float vDepth;
 varying vec3 vViewPosition;
 varying vec2 vUv;
+flat varying float vHaze;
 #ifdef WATER_SCREEN
   // The finished world image and depth behind the water (see postfx.js).
   uniform sampler2D tSceneColor;
@@ -861,6 +1026,29 @@ float linearDepth(float d) {
 vec2 toScreen(vec3 viewPos) {
   vec4 c = uProjection * vec4(viewPos, 1.0);
   return c.xy / c.w * 0.5 + 0.5;
+}
+
+// (Round 14) Heat haze: a sheet a little above open lava (mesher.js
+// emitLava) bends what is seen through it with rising, rippling heat, more
+// the farther behind it the scene is (the far shore across a lava lake
+// wavers; the lava right under it hardly moves), faded out toward the edge
+// of the lava (vDepth) and with distance. Where it would hardly show, it is
+// not drawn at all (nor written to the depth).
+vec3 heatHaze() {
+  vec2 suv = gl_FragCoord.xy / uScreenSize;
+  float surfZ = vViewPosition.z;
+  float behind = linearDepth(texture2D(tSceneDepth, suv).r) - surfZ;
+  float k = clamp(vDepth, 0.0, 1.0) * (1.0 - smoothstep(24.0, 56.0, length(vViewPosition))) * smoothstep(0.4, 7.0, behind);
+  if (k < 0.02) discard;
+  vec2 w = vWorldPos.xz;
+  float t = uTime;
+  vec2 off = vec2(sin(w.y * 2.9 + t * 4.1 + sin(w.x * 1.7 + t * 1.3) * 1.5),
+                  sin(w.x * 2.6 - t * 3.7 + sin(w.y * 2.1 - t * 1.1) * 1.5) + 0.6 * sin(w.x * 6.3 + w.y * 5.1 - t * 6.0));
+  vec2 ruv = clamp(suv + off * k * 0.06 / max(surfZ, 1.0), 0.001, 0.999);
+  if (linearDepth(texture2D(tSceneDepth, ruv).r) < surfZ) ruv = suv; // (not the pixels of something in front)
+  vec3 c = texture2D(tSceneColor, ruv).rgb;
+  if (any(isnan(c)) || any(isinf(c))) c = texture2D(tSceneColor, suv).rgb;
+  return c;
 }
 
 #ifdef WATER_SSR
@@ -925,6 +1113,16 @@ vec3 waterNormal(vec2 p, float t) {
 }
 
 void main() {
+  if (vHaze > 0.5) {
+    #ifdef WATER_SCREEN
+      gl_FragColor = vec4(heatHaze(), 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+      return;
+    #else
+      discard; // (only over the finished image: High and Ultra)
+    #endif
+  }
   bool top = vNormal.y > 0.5;
   vec3 N = top ? waterNormal(vWorldPos.xz, uTime) : vNormal;
   vec3 V = normalize(cameraPosition - vWorldPos);

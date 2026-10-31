@@ -21,7 +21,12 @@
 //
 // In Creative a TEL can be put down and driven (W/S, A/D); the mouse aims,
 // left click marks the target under the crosshair and launches at it,
-// right click calls a launch off (before ignition). In a Missions world the
+// right click calls a launch off (before ignition). (Round 14) Any point
+// is a target: whatever the crosshair is on (a hill, the water, a roof, a
+// tree) out to the launcher's reach, or, aimed farther (a far hill, over
+// the horizon, the sky), the ground at its full reach on that bearing; a
+// ring on the ground (the warhead's blast) and the range show where it
+// will go before the launch. In a Missions world the
 // aliens' launchers (tanks.js) fire at the players' airport or at them,
 // with a warning: destroy them first.
 import * as THREE from "three";
@@ -30,6 +35,8 @@ import { GroundVehicle } from "./vehicle-tank.js";
 import { createMissileMesh, MISSILE_LENGTH } from "./tank-model.js";
 import { effectsQuality } from "./effects.js";
 import { LAYER_FX } from "./layers.js";
+import { IS_LIQUID } from "./blocks.js";
+import { SEA_LEVEL } from "./constants.js";
 
 export const TEL_SPEC = { id: "tel", name: "Missile launcher (TEL)", short: "a truck with a ballistic missile", paint: "olive", maxHealth: 320, speed: 11, reverse: 4, accel: 2.4, brake: 8, turn: 0.42, traverse: 0, elev: 0, minPitch: 0, maxPitch: 0, reload: 0, shellSpeed: 1, mass: 5 };
 // The launch's steps (seconds).
@@ -40,6 +47,10 @@ const VMAX = 270;
 const WARHEAD_RADIUS = 11; // what it digs and hurts
 const WARHEAD_LOOK = 32; // how big it looks
 const TRAIL_LIFE = 32; // seconds the smoke trail hangs
+// (Round 14) The launcher's reach: on the map, from the truck to the target (blocks).
+export const TEL_RANGE = { min: 120, max: 2000 };
+const CAM_TILT = 0.1; // (the chase view looks this far below the mouse's line: the crosshair is the view's centre)
+const WATER_TOP = SEA_LEVEL + 0.85; // (the sea's surface where the map has no blocks, as the far terrain draws it)
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -115,6 +126,74 @@ export function flightPath(S, T, H) {
 // missile's (it leaves the view straight up before it comes over).
 export function arcHeight(flat) {
   return clamp(220 + flat * 0.32, 260, 900);
+}
+
+// (Round 14) The top of the water (or lava) a ray came through to (x, y, z),
+// as a height, or null when that block isn't a liquid.
+function liquidTop(world, x, y, z) {
+  if (!IS_LIQUID[world.getBlock(x, y, z)]) return null;
+  let top = y;
+  while (top - y < 64 && IS_LIQUID[world.getBlock(x, top + 1, z)]) top++;
+  return top + 0.85;
+}
+
+// (Round 14) The ground's top at (x, z): the highest solid block (or the
+// water over it); the height map beyond the loaded land (the sea's level
+// over the sea); `fallback` with neither (the Nether's, the End's void).
+function groundTop(world, x, z, fallback) {
+  const y = world.surfaceY(x, z);
+  if (y >= 0) return liquidTop(world, Math.floor(x), y + 1, Math.floor(z)) ?? y + 1;
+  if (world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4) || !world.dimInfo?.heightfield) return fallback;
+  return Math.max(world.heightAt(Math.floor(x), Math.floor(z)) + 1, WATER_TOP);
+}
+
+// (Round 14) Where a launch from `origin` (the truck) goes for the
+// crosshair's ray (from, dir): the first thing the ray meets (the ground, a
+// hill, a building, a tree, the surface of water or lava) within the
+// launcher's reach; a ray that meets nothing in reach (a far mountain, over
+// the horizon, the sky) marks the ground at the full reach on its bearing
+// ("capped"). Fills `out`: { point, dist (on the map, from the truck), ok,
+// why ("" | "near" | "up"), capped }. Only too close is refused (and a ray
+// straight up, which has no bearing).
+export function telAim(world, origin, from, dir, out = {}) {
+  const p = (out.point ||= new THREE.Vector3());
+  const max = TEL_RANGE.max;
+  const h = world.raycast(from, dir, max + Math.max(0, from.distanceTo(origin)) + 40, { solidOnly: true });
+  out.capped = false;
+  if (h) {
+    p.copy(from).addScaledVector(dir, h.distance);
+    // (Through water or lava to the bottom: the target is their surface.)
+    const top = liquidTop(world, h.place[0], h.place[1], h.place[2]) ?? (!world.getChunk(h.block[0] >> 4, h.block[2] >> 4) && world.dimInfo?.heightfield && p.y < WATER_TOP ? WATER_TOP : null);
+    if (top !== null && top > p.y) {
+      const t = dir.y < -1e-4 ? (top - from.y) / dir.y : -1;
+      if (t > 0 && t < h.distance) p.copy(from).addScaledVector(dir, t);
+      else p.y = top;
+    }
+  }
+  if (!h || Math.hypot(p.x - origin.x, p.z - origin.z) > max) {
+    // (Out of reach: the ground at the full reach, on the ray's bearing from the truck.)
+    const bx = h ? p.x - origin.x : dir.x;
+    const bz = h ? p.z - origin.z : dir.z;
+    const hl = Math.hypot(bx, bz);
+    if (hl < 0.05) {
+      out.dist = 0;
+      out.why = "up";
+      out.ok = false;
+      return out;
+    }
+    p.set(origin.x + (bx / hl) * max, 0, origin.z + (bz / hl) * max);
+    p.y = groundTop(world, p.x, p.z, origin.y);
+    out.capped = true;
+  }
+  out.dist = Math.hypot(p.x - origin.x, p.z - origin.z);
+  out.why = out.dist < TEL_RANGE.min ? "near" : "";
+  out.ok = !out.why;
+  return out;
+}
+
+// A range as the HUD writes it: metres, kilometres from 1 km.
+export function fmtRange(d) {
+  return d >= 1000 ? `${(d / 1000).toFixed(d >= 10000 ? 1 : 2)} km` : `${Math.round(d)} m`;
 }
 
 let _flameTex = null;
@@ -391,6 +470,11 @@ export class Tel extends GroundVehicle {
     this.lookYaw = this.yaw;
     this.lookPitch = -0.1;
     this.aimPoint = new THREE.Vector3();
+    this.aim = { point: this.aimPoint, dist: 0, ok: false, why: "", capped: false }; // (Round 14: telAim's)
+    this._aimFrom = new THREE.Vector3(NaN, 0, 0);
+    this._aimDir = new THREE.Vector3();
+    this._aimAge = 0;
+    this._hudSeen = 0;
     this.enemy = !!data.enemy;
     this._unusable = false;
     this.model.setMissile(this.loaded);
@@ -526,23 +610,121 @@ export class Tel extends GroundVehicle {
       this.lookPitch = clamp(this.lookPitch - input.dy * sens * (mgr.invertY ? -1 : 1), -0.9, 0.4);
       this.camYaw = this.lookYaw;
       this.camPitch = this.lookPitch;
-      // The aim: where the view's centre is on the ground (far).
-      const from = this._cam || this.pos;
-      const dir = _w.set(-Math.sin(this.lookYaw) * Math.cos(this.lookPitch), Math.sin(this.lookPitch), -Math.cos(this.lookYaw) * Math.cos(this.lookPitch));
-      const h = mgr.world.raycast(from, dir, 3000, { solidOnly: true });
-      this.aimValid = !!h;
-      if (h) this.aimPoint.copy(from).addScaledVector(dir, h.distance);
+      // (Round 14) The aim: what the crosshair is on (the view's centre: the
+      // camera's tilt included, as the old aim's wasn't), at any range.
+      const from = this._cam || _v.copy(this.pos).setY(this.pos.y + 3);
+      const vp = this.lookPitch - CAM_TILT;
+      this._aimAt(from, _w.set(-Math.sin(this.lookYaw) * Math.cos(vp), Math.sin(vp), -Math.cos(this.lookYaw) * Math.cos(vp)), dt);
       if (input.pressed.has("mouse0")) {
-        if (!this.aimValid) mgr.onMessage?.("Aim at the ground to mark a target");
-        else if (!this.loaded) mgr.onMessage?.("Reloading the launcher...");
+        const a = this.aim;
+        if (!this.loaded) mgr.onMessage?.("Reloading the launcher...");
         else if (this.busy) mgr.onMessage?.("Already launching");
-        else if (this.aimPoint.distanceTo(this.pos) < 120) mgr.onMessage?.("Too close: a target at least 120 blocks away");
-        else if (this.startLaunch(this.aimPoint)) mgr.onMessage?.(`LAUNCH SEQUENCE: target ${Math.round(this.aimPoint.distanceTo(this.pos))} m out`);
+        else if (a.why === "near") mgr.onMessage?.(`Too close: ${fmtRange(a.dist)} away, the target must be at least ${fmtRange(TEL_RANGE.min)} out`);
+        else if (!a.ok) mgr.onMessage?.("Aim lower: at the ground or the horizon");
+        else if (this.startLaunch(this.aimPoint)) mgr.onMessage?.(`LAUNCH SEQUENCE: target ${fmtRange(a.dist)} out`);
       }
       if (input.pressed.has("mouse2")) this.abort();
-    }
+    } else this._showAim(false); // (not driven by us: no marker)
     this.model.setErector(this.erect);
     this.model.setJacks(this.jacks);
+  }
+
+  // (Round 14) Updates the aim for the crosshair's ray: cast again when the
+  // view turns, ten times a second while driving, now and then otherwise
+  // (the land changing), the long cast being the costly part.
+  _aimAt(from, dir, dt) {
+    this._aimAge += dt;
+    if (this._aimAge < 0.4 && dir.dot(this._aimDir) > 0.9999985 && (this._aimAge < 0.1 || from.distanceToSquared(this._aimFrom) < 0.04)) return;
+    this._aimAge = 0;
+    this._aimFrom.copy(from);
+    this._aimDir.copy(dir);
+    telAim(this.manager.world, this.pos, from, dir, this.aim);
+    this.aimValid = this.aim.ok;
+  }
+
+  // (Round 14) The target marker while we drive it: a ring on the ground
+  // round the aim (the warhead's blast, never smaller than a few pixels
+  // far away), and over it a small ring on the screen (a flat ring far off
+  // is seen edge on) with the range (MAX at the full reach); green for a
+  // target, red too close, amber on the launch's own target while it goes.
+  _drawAim(camera) {
+    const fresh = performance.now() - this._hudSeen < 2500; // (the HUD asks every frame it shows: not behind a menu)
+    const show = this.occupied && this.alive && fresh && typeof document !== "undefined" && !document.body.classList.contains("hud-off");
+    this._showAim(show);
+    if (!show) return;
+    const launching = this.busy && this.target;
+    const at = launching ? this.target : this.aimPoint;
+    const a = this.aim;
+    const why = launching ? "" : a.why;
+    const color = launching ? 0xffc35a : why ? 0xff4a3a : 0x8dffb8;
+    const M = this._mark;
+    M.position.set(at.x, at.y + 0.25, at.z);
+    M.scale.setScalar(Math.max(WARHEAD_RADIUS, at.distanceTo(camera.position) * 0.022));
+    for (const ch of M.children) ch.material.color.setHex(color);
+    const p = _v.copy(at).project(camera);
+    const L = this._label;
+    if (p.z > 1 || Math.abs(p.x) > 1.2 || Math.abs(p.y) > 1.2) {
+      L.style.display = "none";
+      return;
+    }
+    L.style.display = "block";
+    const d = launching ? Math.hypot(at.x - this.pos.x, at.z - this.pos.z) : a.dist;
+    const txt = launching ? `TARGET ${fmtRange(d)}` : why === "near" ? `TOO CLOSE ${fmtRange(d)} (MIN ${fmtRange(TEL_RANGE.min)})` : why ? "AIM LOWER" : `${a.capped ? "MAX RANGE " : ""}${fmtRange(d)}`;
+    if (L._t !== txt) {
+      L._t = txt;
+      L._text.textContent = txt;
+    }
+    if (L._c !== color) {
+      L._c = color;
+      L.style.color = `#${color.toString(16).padStart(6, "0")}`;
+    }
+    const x = clamp(((p.x + 1) / 2) * window.innerWidth, 8, window.innerWidth - 8);
+    const y = clamp(((1 - p.y) / 2) * window.innerHeight, 8, window.innerHeight - 8);
+    L.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }
+
+  _showAim(on) {
+    if (on && !this._mark) {
+      // (The ring drawn over the land: on a hill or a roof it would sink in.)
+      const mat = () => new THREE.MeshBasicMaterial({ color: 0x8dffb8, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, fog: false, side: THREE.DoubleSide });
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 64).rotateX(-Math.PI / 2), mat()));
+      g.add(new THREE.Mesh(new THREE.RingGeometry(0.05, 0.11, 16).rotateX(-Math.PI / 2), mat()));
+      for (const ch of g.children) {
+        ch.renderOrder = 30;
+        ch.frustumCulled = false;
+      }
+      this._mark = g;
+      const L = document.createElement("div");
+      L.className = "tel-aim";
+      L.innerHTML = "<i></i><span></span>";
+      L._text = L.lastChild;
+      (document.getElementById("hud") || document.body).appendChild(L);
+      this._label = L;
+    }
+    if (!this._mark || on === this._aimShown) return;
+    this._aimShown = on;
+    if (on) this.manager.scene.add(this._mark);
+    else this.manager.scene.remove(this._mark);
+    this._label.style.display = on ? "block" : "none";
+  }
+
+  onExit() {
+    super.onExit?.();
+    this._showAim(false);
+  }
+
+  dispose() {
+    super.dispose();
+    this._showAim(false);
+    if (this._mark) {
+      for (const ch of this._mark.children) {
+        ch.geometry.dispose();
+        ch.material.dispose();
+      }
+      this._label.remove();
+      this._mark = null;
+    }
   }
 
   netState(s) {
@@ -579,36 +761,39 @@ export class Tel extends GroundVehicle {
     camera.position.copy(pivot).addScaledVector(back, 22).setY(pivot.y + 7 + back.y * 12);
     const g = this.manager.groundBelow(camera.position.x, camera.position.y + 2, camera.position.z);
     if (camera.position.y < g + 1.2) camera.position.y = g + 1.2;
-    camera.quaternion.setFromEuler(_e.set(this.lookPitch - 0.1, this.lookYaw, 0, "YXZ"));
+    camera.quaternion.setFromEuler(_e.set(this.lookPitch - CAM_TILT, this.lookYaw, 0, "YXZ"));
     (this._cam || (this._cam = new THREE.Vector3())).copy(camera.position);
     const cam = this.manager.camera;
     if (cam && Math.abs(cam.fov - (this.manager.player?.fov || cam.fov)) > 0.1) {
       cam.fov = this.manager.player.fov;
       cam.updateProjectionMatrix();
     }
+    this._drawAim(camera);
   }
 
   hud() {
+    this._hudSeen = performance.now();
     const st = { travel: this.loaded ? "ready to launch" : "empty", jacks: "lowering the jacks", raise: `raising the missile ${Math.round(this.erect * 100)}%`, ready: "fuelled: ignition in a moment", ignite: "IGNITION", lower: "lowering the arm", empty: `reloading ${Math.max(0, Math.ceil(this.telReloadT))} s` }[this.state];
     return {
       title: TEL_SPEC.name,
       rows: [
         ["Speed", `${Math.round(Math.abs(this.speed) * 3.6)} km/h`],
         ["Launcher", st],
-        ["Target", this.aimValid ? `${Math.round(this.aimPoint.distanceTo(this.pos))} m` : "aim at the ground"],
+        ["Target", this.aim.why === "near" ? `${fmtRange(this.aim.dist)}: too close` : this.aim.ok ? `${fmtRange(this.aim.dist)}${this.aim.capped ? " (max range)" : ""}` : "aim lower"],
+        ["Reach", `${fmtRange(TEL_RANGE.min)} to ${fmtRange(TEL_RANGE.max)}`],
       ],
       weapon: "Ballistic missile",
       warning: this.state === "ignite" ? "LAUNCH!" : "",
       health: this.health / this.maxHealth,
-      help: "W/S drive, A/D turn, mouse aim, LMB launch at the target, RMB call it off, F get out",
+      help: "W/S drive, A/D turn, mouse aim (the ring marks the target), LMB launch at it, RMB call it off, F get out",
     };
   }
 
   infoPanel() {
     return {
       title: TEL_SPEC.name,
-      stats: [["Armour", `${Math.round(this.health)} / ${this.maxHealth}`], ["Missile", "one ballistic missile, a huge blast"], ["Launch", "jacks, erector, ignition: about 16 s"]],
-      controls: [["W / S", "Drive"], ["A / D", "Turn"], ["Mouse", "Aim"], ["Left click", "Launch at the ground under the crosshair"], ["Right click", "Call the launch off"], ["F", "Get out"]],
+      stats: [["Armour", `${Math.round(this.health)} / ${this.maxHealth}`], ["Missile", "one ballistic missile, a huge blast"], ["Launch", "jacks, erector, ignition: about 16 s"], ["Reach", `${fmtRange(TEL_RANGE.min)} to ${fmtRange(TEL_RANGE.max)}`]],
+      controls: [["W / S", "Drive"], ["A / D", "Turn"], ["Mouse", "Aim"], ["Left click", "Launch at what the crosshair is on (or, over the horizon, at full reach)"], ["Right click", "Call the launch off"], ["F", "Get out"]],
     };
   }
 

@@ -12,6 +12,7 @@ import { itemInfo } from "./items.js";
 import { BLOCK, IS_LEAVES, IS_LOG, IS_WET } from "./blocks.js";
 import { dayLength } from "./sky.js";
 import { summonTank } from "./vehicle-tank.js";
+import { placeHeli } from "./vehicle-heli.js"; // (Round 14)
 
 
 const _v = new THREE.Vector3();
@@ -54,7 +55,7 @@ const FORTRESS_KINDS = [
 ];
 // (Round 10) The missions with a place drawn on the ground every frame (a
 // zone to hold, a shelter, the bombardment's rings, the signal beacons).
-const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons", "launch", "baseassault"]); // (Round 13: an incoming ballistic missile's ring)
+const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons", "launch", "baseassault", "medevac"]); // (Round 13: an incoming ballistic missile's ring; Round 14: the rescue's landing zone and crash sites)
 const ZONE_KINDS = ["beacon", "site", "shelter"]; // (by index, online: netObjects)
 const TAKEN_SETBACK = 60; // seconds a player taken by the hunters costs the clock ("Don't look up")
 
@@ -331,6 +332,16 @@ export class MissionDirector {
       case "baseassault":
         this._baseAssault();
         break;
+      // (Round 14) The helicopters.
+      case "aircav":
+        this._airCav();
+        break;
+      case "medevac":
+        this._medevac();
+        break;
+      case "gunships":
+        this._gunshipHunt();
+        break;
       default:
         this.target = null;
     }
@@ -368,6 +379,8 @@ export class MissionDirector {
     }
     // (The steal mission's posted guards: they despawn like other creatures again.)
     for (const g of this.state.guards || []) if (g.sentry && !g.dead) g.persist = false;
+    // (Round 14) The rescue's downed crews left on the ground: theirs again.
+    for (const c of this.state.crews || []) for (const m of c.people || []) if (!m.dead) m.persist = false;
     // (Round 13) A mission's ground units left over: they go once nobody is near.
     for (const v of this.vehicles.vehicles) {
       if (!v.isEnemyGround || !v.mission) continue;
@@ -2514,6 +2527,304 @@ export class MissionDirector {
     st.note = st.garrisoned ? `${units.length} defender${units.length === 1 ? "" : "s"} left in the base.` : "";
   }
 
+  // ---------- (Round 14) The helicopters ----------
+
+  attachHelis(war) {
+    this.helis = war;
+    war.onDown.push((u) => {
+      const st = this.state;
+      if (u.mission && st) st.lost = (st.lost || 0) + 1;
+    });
+  }
+
+  get _heliWar() {
+    return this.helis || this.vehicles.helis || null;
+  }
+
+  // Is anyone flying a helicopter (online: any player)?
+  _inHeli() {
+    return this.vehicles.vehicles.some((v) => v.type === "heli" && v.alive && (v.occupied || (v.puppet && v.netOcc)));
+  }
+
+  // Helicopters of ours for the group (one each, two at most), set down near
+  // `c` facing `face` (kept with the world, like the missions' tanks).
+  _giveHelis(c, face, kind = "apache", key = "helis") {
+    const st = this.state;
+    const war = this._war;
+    const mine = this._units(key);
+    const want = Math.min(2, this.groupN);
+    if (st[`${key}Given`] >= want && mine.length) return mine;
+    // (All of them lost: one more, after a while.)
+    if (!mine.length && st[`${key}Given`] && (st[`${key}T`] = (st[`${key}T`] ?? 30) - 0.5) > 0) return mine;
+    st[`${key}T`] = 30;
+    // (The ones given before a reload are saved with the world: those first.)
+    for (const v of this.vehicles.vehicles) {
+      if (mine.length >= want) break;
+      if (v.missionHeli && v.alive && !v.puppet && !mine.includes(v)) {
+        mine.push(v);
+        st[`${key}Given`] = (st[`${key}Given`] || 0) + 1;
+      }
+    }
+    const yaw = Math.atan2(-(face.x - c.x), -(face.z - c.z));
+    for (let i = mine.length; i < want; i++) {
+      const side = (i - 0.5) * 22;
+      const at = war ? war.landAt(c.x + Math.cos(yaw) * side, c.z - Math.sin(yaw) * side, 16) : [c.x + side, c.y, c.z];
+      if (!at) continue;
+      const h = placeHeli(this.vehicles, kind, new THREE.Vector3(at[0], at[1], at[2]), yaw, { missionHeli: true });
+      if (!h) continue;
+      h.missionHeli = true;
+      h.keep = true;
+      mine.push(h);
+      st[`${key}Given`] = (st[`${key}Given`] || 0) + 1;
+    }
+    return mine;
+  }
+
+  // The marker on a helicopter of ours while nobody flies one.
+  _heliTarget(mine, label = "Your helicopter: get in (F)") {
+    const h = this._nearestOf(mine);
+    if (h) this._setTarget(h, label);
+    return !!h;
+  }
+
+  // Air cavalry: an Apache of ours for each player; a column of hijacked
+  // tanks rolling in from a long way off, toward the group (more while the
+  // goal isn't met), to be knocked out from the air.
+  _airCav() {
+    const st = this.state;
+    const war = this._war;
+    if (!war) {
+      this.target = null;
+      return;
+    }
+    const v = this.mission.variant ?? 0;
+    if (!st.center) {
+      st.center = this._groupMiddle();
+      st.dir = Math.random() * Math.PI * 2;
+    }
+    const c = st.center;
+    const from = new THREE.Vector3(c.x + Math.cos(st.dir) * 620, c.y, c.z + Math.sin(st.dir) * 620);
+    const mine = this._giveHelis(_v.copy(c).add(new THREE.Vector3(-Math.cos(st.dir) * 18, 0, -Math.sin(st.dir) * 18)), from, "apache");
+    const flying = this._inHeli();
+    const units = this._units();
+    const left = this._remaining();
+    st.waitT = (st.waitT ?? 4) - 0.5;
+    if (!units.length && left > 0 && (flying || st.t > 60) && st.waitT <= 0) {
+      st.waitT = 25;
+      const n = Math.min(left + 1, 4);
+      const at = war.landAt(from.x, from.z, 60) || [from.x, from.y, from.z];
+      const list = war.spawnPlatoon(new THREE.Vector3(at[0], at[1], at[2]), n, { aa: v === 1 && !st.aaSent, face: c, tiger: v === 3 ? 0.7 : 0.25, first: v === 3 ? "tiger" : null });
+      if (v === 1) st.aaSent = true;
+      for (const u of list) {
+        u.mission = true;
+        u.home = c.clone();
+        units.push(u);
+      }
+      // (Top cover: an enemy gunship over the column.)
+      if (v === 2 && !st.coverSent && this._heliWar) {
+        st.coverSent = true;
+        const g = this._heliWar.spawnNear(new THREE.Vector3(at[0], at[1], at[2]), 80, { force: true });
+        if (g) {
+          g.mission = true;
+          units.push(g);
+        }
+      }
+      if (list.length) this.toast?.(`ENEMY COLUMN: ${list.length} vehicles rolling in (marked). Hit them from the air!`, 4);
+      else st.waitT = 1;
+      st.dir += rand(0.8, 2);
+    }
+    // They come for the players: their patrol's home follows the group, slowly.
+    const mid = this._groupMiddle();
+    for (const u of units) if (u.home && !u.isGunship) u.home.lerp(mid, 0.05);
+    if (!flying && mine.length && !units.some((u) => u.ai?.foe)) this._heliTarget(mine);
+    else {
+      const t = this._nearestOf(units);
+      if (t) this._setTarget(t, units.length > 1 ? `Enemy column (${units.length})` : "Enemy vehicle");
+      else this.target = null;
+    }
+    st.note = units.length ? `${units.length} enemy vehicle${units.length === 1 ? "" : "s"} in the column.` : flying ? "The column is on its way." : "";
+  }
+
+  // Search and rescue: a downed crew (people by the smoke of their wreck)
+  // far off; a helicopter lands beside them (they climb in) and brings them
+  // home to the landing zone. A squad closes in on them, and the variants'
+  // gunship or AA; a helicopter lost with them aboard loses them (another
+  // crew is down somewhere, a while later).
+  _medevac() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.home) {
+      const c = this._groupMiddle();
+      const at = this._groundSpot(25, 0.3, c) || c;
+      st.home = new THREE.Vector3(at.x, at.y, at.z);
+      st.zone = { x: st.home.x, y: st.home.y, z: st.home.z, r: 14, kind: "shelter" };
+      st.crews = [];
+      st.zones = [];
+    }
+    const home = st.home;
+    const mine = this._giveHelis(_v.copy(home).add(new THREE.Vector3(10, 0, -12)), new THREE.Vector3(home.x + 100, home.y, home.z), "blackhawk", "helis");
+    const left = this._remaining();
+    // The crash sites: as many as are still to bring home (two at once in the variant).
+    const active = st.crews.filter((cr) => cr.state === "down" || cr.state === "aboard");
+    st.waitT = (st.waitT ?? 0) - 0.5;
+    if (active.length < Math.min(left, v === 2 ? 2 : 1) && st.waitT <= 0) {
+      const spot = this._farSpot(home, v === 2 ? rand(700, 950) : rand(550, 800));
+      if (spot) {
+        const cr = { pos: new THREE.Vector3(spot.x, spot.y, spot.z), state: "down", people: [], squad: false, extra: false, n: (st.n = (st.n || 0) + 1) };
+        st.crews.push(cr);
+        this.toast?.(st.n > 1 ? "Another crew is down (marked): go and get them!" : "A crew is down behind the lines (marked): fly out and bring them home!", 5);
+      } else st.waitT = 2;
+    }
+    st.zones = st.crews.filter((cr) => cr.state === "down").map((cr) => ({ x: cr.pos.x, y: cr.pos.y, z: cr.pos.z, r: 9, kind: "site" }));
+    const people = this._people();
+    const dTo = (p) => {
+      let d = Infinity;
+      for (const q of people) d = Math.min(d, Math.hypot(q.position.x - p.x, q.position.z - p.z));
+      return d;
+    };
+    const helis = this.vehicles.vehicles.filter((h) => h.type === "heli" && h.alive && (h.occupied || (h.puppet && h.netOcc)));
+    let lastTold = null;
+    for (const cr of st.crews) {
+      if (cr.state === "down") {
+        const d = dTo(cr.pos);
+        // The crew: on the ground by their smoke once someone is near (the ground loaded).
+        if (!cr.people.length && d < 260 && this.world.getChunk(Math.floor(cr.pos.x) >> 4, Math.floor(cr.pos.z) >> 4)) {
+          for (let i = 0; i < 2; i++) {
+            const x = Math.floor(cr.pos.x + rand(-3, 3));
+            const z = Math.floor(cr.pos.z + rand(-3, 3));
+            const m = this.mobs.spawn("villager", x + 0.5, this.world.surfaceY(x, z) + 1, z + 0.5);
+            if (m) {
+              m.persist = true;
+              m.crew = true;
+              cr.people.push(m);
+            }
+          }
+          cr.spawned = true;
+        }
+        // The aliens closing in; the variants' gunship and AA.
+        if (!cr.squad && d < 420) {
+          cr.squad = true;
+          this._wave(cr.pos, rand(55, 70), "Aliens are closing in on the crash site!");
+        }
+        if (!cr.extra && d < 750) {
+          cr.extra = true;
+          if (v === 1 && this._heliWar) {
+            const g = this._heliWar.spawnNear(cr.pos, 260, { force: true });
+            if (g) g.mission = true;
+          } else if (v === 3 && this._war) {
+            const at = this._war.landAt(cr.pos.x + rand(-60, 60), cr.pos.z + rand(-60, 60), 20);
+            const aa = at && this._war.spawnAA(at, 0, { force: true });
+            if (aa) aa.mission = true;
+          }
+        }
+        const alive = cr.people.filter((m) => !m.dead && this.mobs.mobs.includes(m));
+        if (cr.spawned && !alive.length) {
+          // (Killed before anyone got there.)
+          cr.state = "lost";
+          st.waitT = 15;
+          this.toast?.("The crew didn't make it. Another one is down: hurry this time!", 4);
+          continue;
+        }
+        // Picked up: a helicopter of ours on its wheels right by them.
+        const h = helis.find((x) => x.onGround && Math.hypot(x.pos.x - cr.pos.x, x.pos.z - cr.pos.z) < 18);
+        if (h && cr.spawned) {
+          for (const m of alive) {
+            const i = this.mobs.mobs.indexOf(m);
+            if (i >= 0) this.mobs._remove(i);
+          }
+          cr.people = [];
+          cr.state = "aboard";
+          cr.heli = h;
+          lastTold = "The crew is aboard: fly them home to the landing zone (the green ring)!";
+        }
+      } else if (cr.state === "aboard") {
+        const h = cr.heli;
+        if (!h || !h.alive || !this.vehicles.vehicles.includes(h)) {
+          cr.state = "lost";
+          st.waitT = 20;
+          this.toast?.("The helicopter went down with the crew aboard! Another crew needs you.", 5);
+          continue;
+        }
+        if (h.onGround && Math.hypot(h.pos.x - home.x, h.pos.z - home.z) < st.zone.r + 6) {
+          cr.state = "home";
+          const ours = h === this.vehicles.active || (!h.puppet && h.occupied);
+          if (ours) this.stats.add("crewsRescued");
+          else this.stats.addWorld("crewsRescued");
+          this.toast?.("CREW RESCUED: they're home safe!", 4);
+        }
+      }
+    }
+    if (lastTold) this.toast?.(lastTold, 5);
+    // The marker: a crew aboard: home; else the nearest crash site; a helicopter to fly first.
+    const aboard = st.crews.find((cr) => cr.state === "aboard");
+    const down = st.crews.filter((cr) => cr.state === "down");
+    if (aboard) this.target = { pos: home, label: "Landing zone: set down in the green ring", follow: null };
+    else if (!this._inHeli() && mine.length && down.length && dTo(down[0].pos) > 200) this._heliTarget(mine, "Your helicopter: get in (F)");
+    else if (down.length) {
+      let best = down[0];
+      for (const cr of down) if (dTo(cr.pos) < dTo(best.pos)) best = cr;
+      this.target = { pos: best.pos, label: "Downed crew: land beside them", follow: null };
+    } else this.target = null;
+    st.note = aboard ? "Crew aboard: don't get shot down!" : down.length ? `Downed crew${down.length > 1 ? "s" : ""} waiting: ${Math.round(dTo(down[0].pos))} m away.` : "";
+  }
+
+  // Gunship hunt: enemy gunships (one or two at a time, by the variant)
+  // coming in over the group, to be shot down; an Apache of ours for it.
+  _gunshipHunt() {
+    const st = this.state;
+    const hw = this._heliWar;
+    if (!hw) {
+      this.target = null;
+      return;
+    }
+    const v = this.mission.variant ?? 0;
+    if (!st.center) {
+      st.center = this._groupMiddle();
+      st.dir = Math.random() * Math.PI * 2;
+    }
+    const c = st.center;
+    const mine = this._giveHelis(c, new THREE.Vector3(c.x + Math.cos(st.dir) * 100, c.y, c.z + Math.sin(st.dir) * 100), "apache");
+    const ships = this._units("ships");
+    const left = this._remaining();
+    const atOnce = Math.min(left, v === 1 ? 2 : 1 + (this.groupN > 1 ? 1 : 0));
+    st.waitT = (st.waitT ?? 8) - 0.5;
+    if (ships.length < atOnce && st.waitT <= 0) {
+      st.waitT = 20;
+      const mid = this._groupMiddle();
+      for (let i = ships.length; i < atOnce; i++) {
+        const g = hw.spawnNear(mid, rand(650, 800), { force: true, angle: st.dir + i * 0.5 });
+        if (!g) continue;
+        g.mission = true;
+        if (v === 3) {
+          g.maxHealth = 330;
+          g.health = 330;
+        }
+        ships.push(g);
+      }
+      st.dir += rand(1, 2.5);
+      if (ships.length) this.toast?.(ships.length > 1 ? "ENEMY GUNSHIPS inbound (marked)!" : "An ENEMY GUNSHIP is inbound (marked)!", 4);
+    }
+    // (The variant's AA cover, once.)
+    if (v === 2 && !st.aaSent && this._war && ships.length) {
+      st.aaSent = true;
+      const s = ships[0];
+      const at = this._war.landAt(s.pos.x + rand(-80, 80), s.pos.z + rand(-80, 80), 40);
+      const aa = at && this._war.spawnAA(at, 0, { force: true });
+      if (aa) {
+        aa.mission = true;
+        this._units().push(aa);
+      }
+    }
+    const flying = this.vehicles.active && !this.vehicles.active.isGround;
+    if (!flying && !this._inHeli() && mine.length && ships.every((g) => g.pos.distanceTo(this.player.position) > 500)) this._heliTarget(mine);
+    else {
+      const t = this._nearestOf(ships);
+      if (t) this._setTarget(t, ships.length > 1 ? `Enemy gunship (${ships.length})` : "Enemy gunship");
+      else this.target = null;
+    }
+    st.note = ships.length ? "They fight back: flares (C) for their missiles, and keep moving." : "";
+  }
+
   // ---------- (Round 10) What these missions draw on the ground ----------
 
   // Every frame: the bombardment's rings, the zone's ring (and its beacon's
@@ -2527,6 +2838,7 @@ export class MissionDirector {
       if (r.t <= -1) st.rings.splice(i, 1);
     }
     if (st.zone) this._drawZone(st.zone, dt);
+    for (const z of st.zones || []) this._drawZone(z, dt); // (Round 14: the rescue's crash sites)
     for (const u of st.pods || []) if (u.podDown && this._alive(u)) this._drawPod(u.pos, u.radius);
   }
 
@@ -2832,6 +3144,7 @@ export class MissionDirector {
     const out = {};
     if (st.rings?.length) out.r = st.rings.map((r) => [r1(r.pos.x), r1(r.pos.y), r1(r.pos.z), r.r, Math.round(r.t * 2) / 2]);
     if (st.zone) out.z = [[r1(st.zone.x), r1(st.zone.y), r1(st.zone.z), st.zone.r, Math.max(0, ZONE_KINDS.indexOf(st.zone.kind))]];
+    if (st.zones?.length) out.z = [...(out.z || []), ...st.zones.slice(0, 4).map((z) => [r1(z.x), r1(z.y), r1(z.z), z.r, Math.max(0, ZONE_KINDS.indexOf(z.kind))])];
     const pods = (st.pods || []).filter((u) => u.podDown && this._alive(u));
     if (pods.length) out.b = pods.map((u) => [r1(u.pos.x), r1(u.pos.y), r1(u.pos.z), r1(u.radius)]);
     return Object.keys(out).length ? out : null;
@@ -3496,6 +3809,14 @@ export class MissionDirector {
         return airport(mid) || (st.center ? { x: st.center.x, z: st.center.z, r: 45 } : null);
       case "baseassault":
         if (st.ours) return { x: st.ours.x, z: st.ours.z, r: 30 };
+        break;
+      // (Round 14) Back by the helicopters we gave out (the rescue: its landing zone).
+      case "aircav":
+      case "gunships":
+        if (st.center) return { x: st.center.x, z: st.center.z, r: 40 };
+        break;
+      case "medevac":
+        if (st.home) return { x: st.home.x, z: st.home.z, r: 35 };
         break;
     }
     if (t) return { x: t.pos.x, z: t.pos.z, r: t.follow?.S ? 55 + (t.follow.radius || 10) : 45 };

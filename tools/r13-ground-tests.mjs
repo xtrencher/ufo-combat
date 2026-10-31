@@ -12,7 +12,9 @@
 // sees it); a launcher raises its missile and launches (slow at first)
 // and the warhead lands; Creative puts a tank down; the new missions start
 // and set out their units. With --online: a guest sees the host's enemy
-// tank, its shots, and hurts it.
+// tank, its shots, and hurts it. (Round 14) Every weapon from its own
+// muzzle (the coax, the roof MG, the AA's barrels by turns); the airports'
+// and bases' vehicles (parked, an AA vehicle, a patrol on its loop).
 //
 //   node r13-ground-tests.mjs [--only=substring] [--node] [--online]
 // (GAME_ROOT=dir runs another copy of the game; SHOTS=dir saves screenshots.)
@@ -76,6 +78,85 @@ await check("airbases: only with the Round 13 terrain, the same for every peer, 
   const I = await imp("js/content/ids.js");
   const n = (id) => blocks.reduce((c, x) => c + (x === id ? 1 : 0), 0);
   assert(n(I.STONE_BRICKS) > 20 && n(I.IRON_BARS) > 10 && n(I.GRAY_CONCRETE) > 10, `the gate's chunk: bricks ${n(I.STONE_BRICKS)}, bars ${n(I.IRON_BARS)}, concrete ${n(I.GRAY_CONCRETE)}`);
+});
+
+// (Round 14) Tanks at the airports and a varied yard at every base.
+await check("airports and bases: parked tanks and AA vehicles, patrols, from the site's seed (the same for every peer)", async () => {
+  const { TerrainGenerator } = await imp("js/terrain.js");
+  const a = new TerrainGenerator(1234, { sites: true, vanilla: true });
+  const b = new TerrainGenerator(1234, { sites: true, vanilla: true });
+  const sa = a.sites.within(0, 0, 12000);
+  const sb = b.sites.within(0, 0, 12000);
+  const key = (y) => `${y.key}:${y.kind}:${y.x.toFixed(1)},${y.z.toFixed(1)}:${y.patrol ? y.patrol.length : 0}`;
+  assert(sa.map((s) => a.sites.yardSpots(s).map(key).join()).join("|") === sb.map((s) => b.sites.yardSpots(s).map(key).join()).join("|"), "the same vehicles for the same seed");
+  const ports = sa.filter((s) => !s.base);
+  const bases = sa.filter((s) => s.base);
+  assert(ports.length >= 3 && bases.length >= 3, `sites: ${ports.length} airports, ${bases.length} bases`);
+  let patrols = 0;
+  const kinds = new Set();
+  for (const s of ports) {
+    const y = a.sites.yardSpots(s);
+    const parked = y.filter((q) => !q.patrol);
+    assert(parked.length >= 2 && parked.length <= 4, `${s.id}: ${parked.length} parked`);
+    patrols += y.length - parked.length;
+    for (const q of y) kinds.add(q.kind);
+    // On the site's pad, clear of the runway (and its B-2 spot), the apron's buildings and the parked aircraft.
+    for (const q of y) {
+      const [u, v] = a.sites.toLocal(s, q.x, q.z);
+      assert(v > s.rw + (q.patrol ? 12 : 26), `${q.key} clear of the runway: v ${v}`);
+      assert(u < s.apron.u0 - 6 || u > s.apron.u1 + 6, `${q.key} off the apron (the aircraft's)`);
+      assert(a.sites._outside(s, u, v) <= 0, `${q.key} on the pad`);
+      for (const h of s.hangars) assert(!(u > h.u0 - 4 && u < h.u1 + 4 && v > h.v0 - 5 && v < h.v1 + 5), `${q.key} clear of hangar ${h.id}`);
+      const t = s.tower;
+      assert(!(u > t.u0 - 4 && u < t.u1 + 4 && v > t.v0 - 5 && v < t.v1 + 5), `${q.key} clear of the tower`);
+      const slots = a.sites.parkingSlots(s);
+      for (const f of slots.fighters) assert(Math.hypot(f.x - q.x, f.z - q.z) > 11, `${q.key} clear of the fighter at ${f.key}`);
+      if (slots.bomber) assert(Math.abs(u - slots.bomber.u) > 26.5 || Math.abs(v - slots.bomber.v) > 15.5, `${q.key} clear of the B-2`);
+    }
+  }
+  assert(patrols >= 1 && kinds.has("mbt") && kinds.has("aa"), `airports: ${patrols} patrols, kinds ${[...kinds]}`);
+  const sizes = new Set();
+  for (const s of bases) {
+    const y = a.sites.yardSpots(s);
+    sizes.add(y.map((q) => q.kind).join());
+    assert(y.filter((q) => !q.patrol).length <= 10 && y.some((q) => q.patrol), `${s.id}: ${y.length}`);
+  }
+  assert(sizes.size >= 2, "every base its own mix");
+  // Nothing stands where they park or drive (the generated blocks): each
+  // vehicle's footprint, each patrol's road (its width) all round the loop.
+  const { IS_SOLID } = await imp("js/blocks.js");
+  const chunks = new Map();
+  const solid = (x, y, z) => {
+    const cx = Math.floor(x / 16), cz = Math.floor(z / 16);
+    let c = chunks.get(`${cx},${cz}`);
+    if (!c) {
+      c = new Uint16Array(16 * 16 * 256);
+      a.sites.placeInChunk(c, cx, cz);
+      chunks.set(`${cx},${cz}`, c);
+    }
+    return IS_SOLID[c[(y * 16 + (Math.floor(z) - cz * 16)) * 16 + (Math.floor(x) - cx * 16)]];
+  };
+  const clearAt = (s, x, z, fx, fz, half, w) => {
+    for (let a1 = -half; a1 <= half; a1 += 1) for (let b1 = -w; b1 <= w; b1 += 1) for (let y = s.y + 1; y <= s.y + 3; y++) if (solid(x + fx * a1 - fz * b1, y, z + fz * a1 + fx * b1)) return false;
+    return true;
+  };
+  for (const s of [...ports.slice(0, 4), ...bases.slice(0, 3)]) {
+    for (const q of a.sites.yardSpots(s)) {
+      const fx = -Math.sin(q.yaw), fz = -Math.cos(q.yaw);
+      assert(clearAt(s, q.x, q.z, fx, fz, q.kind === "tel" ? 6.5 : 3.8, q.kind === "tel" ? 1.4 : 1.9), `${q.key} (${q.kind}) stands clear`);
+      if (!q.patrol) continue;
+      const L = q.patrol;
+      for (let i = 0; i < L.length; i++) {
+        const [x0, z0] = L[i];
+        const [x1, z1] = L[(i + 1) % L.length];
+        const len = Math.hypot(x1 - x0, z1 - z0);
+        for (let t = 0; t <= len; t += 2) assert(clearAt(s, x0 + ((x1 - x0) * t) / len, z0 + ((z1 - z0) * t) / len, (x1 - x0) / len, (z1 - z0) / len, 0, 2.2), `${q.key}'s loop is clear: leg ${i} at ${t.toFixed(0)}`);
+      }
+    }
+  }
+  const old = new TerrainGenerator(1234, { sites: true, vanilla: false });
+  const os = old.sites.within(0, 0, 12000)[0];
+  assert(old.sites.yardSpots(os).length >= 2, "an older Missions world's airports have them too");
 });
 
 await check("the new missions: in the pool, the tank battle in every run, real stats, known events", async () => {
@@ -435,6 +516,111 @@ async function browserChecks() {
     assert(r.telMoved > 10, `the convoy launcher moved ${r.telMoved}`);
     assert(r.aaIdle === false, "an AA vehicle with a SAM up doesn't idle");
     assert(r.overlay[0] === "block" && r.overlay[1] === "none" && r.overlay[2], `the overlay: ${JSON.stringify(r.overlay)}`);
+  });
+
+  // (Round 14) Every weapon from its own muzzle; the bases' and airports' vehicles.
+  await browserCheck("the MGs fire from their own muzzles (the coax beside the gun; the roof MG at what the gun isn't on); the AA's barrels fire by turns", async () => {
+    const f = await field(page);
+    const r = await v(page, async (g, f) => {
+      g.player.setMode("creative");
+      const { summonTank } = await import("./js/vehicle-tank.js");
+      const out = {};
+      const fire = (t) => {
+        const n0 = g.lasers.fired;
+        g.vehicles.input.buttons[2] = true;
+        t.coaxT = 0;
+        g.vehicles.update(1 / 30);
+        g.vehicles.input.buttons[2] = false;
+        return g.lasers.fired > n0 ? g.lasers.bolts[g.lasers.bolts.length - 1].origin.clone() : null;
+      };
+      for (const kind of ["mbt", "tiger"]) {
+        const t = summonTank(g.vehicles, kind, new g.THREE.Vector3(f.x0 + 0.5, f.y + 1, f.z0 - 8), 0);
+        t.pos.y = f.y + 1;
+        g.vehicles.enter(t);
+        t.lookYaw = 0.3;
+        t.lookPitch = -0.1;
+        for (let i = 0; i < 120; i++) { t.updateCamera(g.camera, 1 / 30); g.vehicles.update(1 / 30); }
+        const o = fire(t);
+        const o1 = { which: t.lastMg, coax: o?.distanceTo(t.mgWorld("coax")), main: o?.distanceTo(t.muzzleWorld()) };
+        // (Round behind, up at the sky: the turret takes its time, the roof MG is there in a second.)
+        t.lookYaw += 2.6;
+        t.lookPitch = 0.45;
+        for (let i = 0; i < 30; i++) { t.updateCamera(g.camera, 1 / 30); g.vehicles.update(1 / 30); }
+        const o2 = fire(t);
+        out[kind] = { low: o1, high: { which: t.lastMg, roof: t.model.roofMg ? o2?.distanceTo(t.mgWorld("roof")) : null, coax: o2?.distanceTo(t.mgWorld("coax")) } };
+        g.vehicles.exit({ force: true });
+        g.vehicles.remove(t);
+      }
+      // The AA: its cannons' four barrels by turns, each round from the barrel that kicked.
+      const aa = g.vehicles.ground.spawnAA([f.x0 + 0.5, f.y + 1, f.z0 - 40], 0, { force: true });
+      aa.pos.y = f.y + 1;
+      aa.root.updateMatrixWorld(true);
+      const seen = [];
+      for (let i = 0; i < 6; i++) {
+        const n0 = g.lasers.fired;
+        aa._flak(new g.THREE.Vector3(0, 0.7, -0.7).normalize());
+        const b = g.lasers.bolts[g.lasers.bolts.length - 1];
+        const d = aa.model.guns.map((m) => m.getWorldPosition(new g.THREE.Vector3()).distanceTo(b.origin));
+        seen.push([d.indexOf(Math.min(...d)), Math.min(...d), g.lasers.fired - n0]);
+      }
+      g.vehicles.remove(aa);
+      out.aa = seen;
+      return out;
+    }, f);
+    for (const k of ["mbt", "tiger"]) {
+      const o = r[k];
+      assert(o.low.which === "coax" && o.low.coax < 0.3 && o.low.main > 3, `${k}'s coax from its own muzzle: ${JSON.stringify(o)}`);
+    }
+    assert(r.mbt.high.which === "roof" && r.mbt.high.roof < 0.3, `the roof MG at the sky: ${JSON.stringify(r.mbt.high)}`);
+    assert(r.tiger.high.which === "coax" && r.tiger.high.coax < 0.3, `the Tiger's coax (no roof MG): ${JSON.stringify(r.tiger.high)}`);
+    assert(r.aa.every(([i, d, n], j) => n === 1 && d < 0.2 && i === j % 4), `the AA's barrels by turns: ${JSON.stringify(r.aa)}`);
+  });
+
+  await browserCheck("a base's or an airport's vehicles: parked tanks and an AA vehicle (ours, not crewed), a patrol drives its loop and stops for a player in its way", async () => {
+    const f = await field(page);
+    const r = await v(page, async (g, f) => {
+      g.player.setMode("creative");
+      const war = g.vehicles.ground;
+      const loop = [[f.x0 + 0.5, f.z0 - 20], [f.x0 + 0.5, f.z0 - 80], [f.x0 + 20.5, f.z0 - 80], [f.x0 + 20.5, f.z0 - 20]];
+      const spots = [
+        { key: "t2#y0", x: f.x0 - 15.5, y: f.y + 1, z: f.z0 - 12, yaw: 0, kind: "mbt", paint: "olive" },
+        { key: "t2#y1", x: f.x0 - 23.5, y: f.y + 1, z: f.z0 - 12, yaw: 0, kind: "aa", paint: "desert" },
+        { key: "t2#p0", x: loop[0][0], y: f.y + 1, z: loop[0][1], yaw: 0, kind: "mbt", paint: "olive", patrol: loop, leg: 1 },
+      ];
+      const sites = war.sites;
+      war.sites = { yardSpots: () => spots, within: () => [{ id: "t2" }] };
+      war._yardUpkeep();
+      const vs = spots.map((s) => war.yard.get(s.key));
+      const out = { types: vs.map((q) => q && `${q.type}:${q.kind}`), aaBoard: !!vs[1]?.unusable, aaFriendly: !vs[1]?.enemy };
+      const p = vs[2];
+      p.pos.y = f.y + 1;
+      g.player.position.set(f.x0 - 20, f.y + 1, f.z0 + 10);
+      const z0 = p.pos.z;
+      for (let i = 0; i < 30 * 8; i++) g.vehicles.update(1 / 30);
+      out.moved = z0 - p.pos.z;
+      // A player steps in front of it: it stops.
+      const fw = p.forward(new g.THREE.Vector3());
+      g.player.position.set(p.pos.x + fw.x * 8, f.y + 1, p.pos.z + fw.z * 8);
+      for (let i = 0; i < 30 * 3; i++) g.vehicles.update(1 / 30);
+      const zs = p.pos.z;
+      for (let i = 0; i < 30 * 3; i++) g.vehicles.update(1 / 30);
+      out.stopped = Math.abs(p.pos.z - zs);
+      // Out of the way: on round the loop (to the far corner and across).
+      g.player.position.set(f.x0 - 20, f.y + 1, f.z0 + 10);
+      for (let i = 0; i < 30 * 30 && p.patrol.i < 3; i++) g.vehicles.update(1 / 30);
+      out.leg = p.patrol.i;
+      // Boarded: it's the player's, no patrol.
+      g.vehicles.enter(p);
+      g.vehicles.exit({ force: true });
+      out.after = { patrol: !!p.patrol, parked: !!p.parkedAt };
+      war.sites = sites;
+      for (const q of vs) if (q) g.vehicles.remove(q);
+      war.yard.clear();
+      return out;
+    }, f);
+    assert(r.types.join() === "tank:mbt,aapark:aa,tank:mbt" && r.aaBoard && r.aaFriendly, `set out: ${JSON.stringify(r)}`);
+    assert(r.moved > 8 && r.stopped < 0.3 && r.leg >= 3, `the patrol: ${JSON.stringify(r)}`);
+    assert(!r.after.patrol && !r.after.parked, `boarded: ${JSON.stringify(r.after)}`);
   });
 
   await browserCheck("the new missions start, set out their units and complete", async () => {
