@@ -18,6 +18,7 @@ import { SEA_LEVEL, WORLD_HEIGHT } from "./constants.js";
 import { DebrisPool, BillboardPool } from "./particles.js";
 import { shakeFalloff } from "./falloff.js";
 import { COARSE_DIRT } from "./content/ids.js";
+import { H } from "./hacks.js";
 
 export const GRENADE_RADIUS = 7;
 // Was 5x a grenade's radius; reduced to a third of that size.
@@ -41,6 +42,16 @@ export const effectsQuality = { scale: 1 };
 // a ballistic missile's warhead) instead of the plain explosion.
 export const SHELL_FX = { tankshell: 1, enemyshell: 1, ballistic: 2, enemyballistic: 2 };
 const SCORCHED = new Set([BLOCK.GRASS, BLOCK.DIRT]);
+// (Round 15) The Creative hacks' explosion size (H.blastMul, 1 outside
+// Creative): this player's own blasts only (grenades, rockets, the
+// airstrike's meteors, missiles, shells, the ballistic missile, the UFO
+// cannon, and TNT where this machine runs it: the host's). They look,
+// shake, sound and hurt at the full size; the crater is carved up to
+// HACK_CARVE_MAX (a bigger one in one frame would stall the game). Another
+// player's blast arrives here at the size it had there (opts.radius is
+// written back, so net/fx.js sends that).
+const HACK_BLASTS = new Set(["grenade", "bazooka", "airstrike", "missile", "ballistic", "tankshell", "ufocannon", "tnt"]);
+const HACK_CARVE_MAX = 22;
 
 // A shock sphere's look: bright only at its edge (a shimmering shell of air).
 const shockVertex = /* glsl */ `
@@ -323,11 +334,21 @@ export class EffectsSystem {
   //   smoke, flash and sound, and what it does to this player, but no crater
   //   (the blocks it blew away arrive as block edits). by: that player's id.
   //   carve: false for a blast that breaks no blocks (TNT going off in water).
-  explode(position, { radius = GRENADE_RADIUS, source = "grenade", visual = null, mirror = false, by = 0, carve = true } = {}) {
+  explode(position, opts = {}) {
+    let { radius = GRENADE_RADIUS, source = "grenade", visual = null } = opts;
+    const { mirror = false, by = 0, carve = true } = opts;
     const scale = explosionScale[source] ?? 1;
-    radius *= scale;
+    let carveR = (radius *= scale);
+    const hm = !mirror && H.blastMul > 1 && HACK_BLASTS.has(source) ? H.blastMul : 1;
+    if (hm > 1) {
+      carveR = Math.min(radius * hm, Math.max(radius, HACK_CARVE_MAX));
+      radius *= hm;
+      if (visual) visual *= hm;
+      opts.radius = radius / scale;
+      if (visual) opts.visual = visual;
+    }
     const t0 = performance.now();
-    const removed = mirror || !carve ? [] : this._carve(position, radius);
+    const removed = mirror || !carve ? [] : this._carve(position, carveR);
     if (removed.length) this.floodInto(removed);
     const carveMs = performance.now() - t0;
     const look = visual ? Math.max(radius, visual * scale) : radius; // the size it looks
@@ -355,7 +376,9 @@ export class EffectsSystem {
     this.flashLight.distance = 40 + look * 3;
     this._flashPower = 900 * Math.sqrt(size);
     this._flashTime = shell ? -0.07 : 0;
-    this.lastExplosion = { x: position.x, y: position.y, z: position.z, radius, look, source, removed: removed.length / 4, maxDist, carveMs, distance, shake };
+    this.lastExplosion = { x: position.x, y: position.y, z: position.z, radius, look, source, removed: removed.length / 4, maxDist, carveMs, distance, shake, hacked: hm };
+    // (Round 15) A hacked blast's shock sphere, for the size of it.
+    if (hm > 1) this.shockSphere(position, look * 0.2, look * 1.1, 0.5, 0.8);
     this.explosionCount++;
     // (What it hurts: the crater's size, a little more for a blast that looks bigger.)
     if (this.onExplosion) this.onExplosion(position, look > radius ? Math.min(look, radius * 1.5) : radius, source, { mirror, by });

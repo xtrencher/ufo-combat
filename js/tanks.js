@@ -622,25 +622,413 @@ VehicleManager.register("enemytank", EnemyTank);
 VehicleManager.register("aa", AAVehicle);
 
 // (Round 14) Our AA vehicle, parked at an airport or a base (sites.js
-// yardSpots): the same machine as the aliens' in our paint, standing by
-// (no crew: it can't be boarded, it fires at nothing), its guns up, its
-// search radar turning. Each player's own copy, like the parked tanks.
-export class ParkedAA extends GroundVehicle {
+// yardSpots): the same machine as the aliens' in our paint, standing by,
+// its guns up, its search radar turning. Each player's own copy, like the
+// parked tanks. (Round 15) And ours to drive, as a tank (F boards it; the
+// Creative palette's Battle Tank, placed sneaking, sets one down): W/S/A/D
+// drive, the mouse aims the turret (up to the sky), left click the twin
+// cannons (tracer flak, by turns from the four barrels; a few seconds of
+// fire, then they must cool), right click a SAM at what the crosshair is on
+// (the radar locks a UFO, an aircraft, an enemy machine or a flying
+// creature near the crosshair: the guns lead it, the SAM homes on it;
+// nothing locked: the SAM flies straight along the aim), C smoke, V the
+// sight. Online it is a shared vehicle like a tank (net/vehicles.js): its
+// tracers, flak bursts and SAMs are seen by everyone (net/fx.js,
+// net/ground.js), the hits are the shooter's.
+const AA_FLAK_RATE = 0.09; // seconds between rounds (the four barrels by turns)
+const AA_FLAK_DAMAGE = 4; // a round's (a fighter's cannon: 4-5)
+const AA_HEAT_SHOT = 0.03; // heat a round adds; it cools AA_COOL a second (~7 s of fire)
+const AA_COOL = 0.2;
+const AA_HOT_RESUME = 0.35; // overheated: the guns fire again below this
+const AA_SAMS = 4; // ready to launch; then a reload
+const AA_SAM_RELOAD = 20;
+const AA_SAM_GAP = 1.1; // seconds between two launches
+const AA_SAM_DAMAGE = 120; // a direct hit on a vehicle (a jet's missile: 190 on a UFO)
+const AA_SAM_UFO = 150;
+const AA_LOCK_CONE = 0.08; // radians off the crosshair the radar locks within
+const AA_LOCK_KEEP = 0.16; // and keeps a lock within
+const AA_DRIVE = { ...AA_SPEC, name: "AA vehicle", paint: "olive", reload: AA_FLAK_RATE, damage: 0, ufoDamage: 0, blast: 0, look: 0, zoom: 22, camBack: 15, camUp: 6, coax: 0.2 };
+const _lk = new THREE.Vector3();
+const _zero = new THREE.Vector3();
+
+export class ParkedAA extends Tank {
   constructor(manager, data = {}) {
-    super(manager, { ...data, paint: data.paint || "olive" }, { type: "aapark", name: "AA vehicle", spec: AA_SPEC, kind: "aa", model: "aa", maxHealth: AA_SPEC.maxHealth });
-    this.unusable = true;
+    super(manager, { ...data, paint: data.paint || "olive" }, { type: "aapark", name: "AA vehicle", spec: AA_DRIVE, kind: "aa", model: "aa", maxHealth: AA_SPEC.maxHealth });
     this.gunPitch = 0.6;
+    this.missiles = []; // (its SAMs in flight; net/fx.js shares them)
+    this.sams = Number.isFinite(data.sams) ? clamp(Math.floor(data.sams), 0, AA_SAMS) : AA_SAMS;
+    this.samT = 0; // until the next launch
+    this.samReloadT = 0;
+    this.heat = 0;
+    this.hot = false;
+    this.lock = null; // { kind: "ufo" | "vehicle" | "mob", ref }
+    this._lockT = 0;
+    this._gunI = 0;
+    this._flakN = 0;
   }
 
-  _control(dt) {
-    this._drive(dt, 0, 0, true);
+  onEnter() {
+    super.onEnter();
+    this.lookPitch = 0.25;
+    this.camPitch = this.lookPitch;
+    this.manager.onMessage?.("AA vehicle: W/S drive, A/D turn, the mouse aims, left click the cannons, right click a SAM at what you lock, V the sight, C smoke");
+  }
+
+  onExit() {
+    super.onExit();
+    this.lock = null;
+  }
+
+  // The guns fire straight at what they aim at (fast rounds: no arc).
+  _aimAt(p, out) {
+    this.superElev = 0;
+    return out.copy(p).sub(this.muzzleWorld(_w)).normalize();
+  }
+
+  // Where the guns point now, out to the range (the gun reticle).
+  impactPoint(out = new THREE.Vector3()) {
+    const from = this.muzzleWorld(_u);
+    return out.copy(from).addScaledVector(this.gunDir(_v), clamp(this.range || 400, 20, FLAK_RANGE));
+  }
+
+  _control(dt, input) {
+    const mgr = this.manager;
+    this.heat = Math.max(0, this.heat - AA_COOL * dt);
+    if (this.hot && this.heat < AA_HOT_RESUME) this.hot = false;
+    this.samT = Math.max(0, this.samT - dt);
+    if (this.samReloadT > 0) {
+      this.samReloadT -= dt;
+      if (this.samReloadT <= 0) this.sams = AA_SAMS;
+    }
+    if (!input) {
+      // (A base's on its patrol, else still; its SAMs in the air fly on.)
+      if (this.patrol && this.parkedAt) this._patrolDrive(dt);
+      else this._drive(dt, 0, 0, true);
+      this.lock = null;
+      this._updateSams(dt);
+      return;
+    }
+    const k = input.keys;
+    const zoomK = this.sight > 0.5 ? this.spec.zoom / 70 : 1;
+    const sens = 0.0022 * (mgr.mouseSensitivity ?? 0.6) * zoomK;
+    this.lookYaw -= input.dx * sens;
+    this.lookPitch = clamp(this.lookPitch - input.dy * sens * (mgr.invertY ? -1 : 1), -0.5, 1.3);
+    if (input.pressed.has("KeyV")) this.cameraMode = this.cameraMode ? 0 : 1;
+    const throttle = (k.has("KeyW") ? 1 : 0) - (k.has("KeyS") ? 1 : 0);
+    const steer = (k.has("KeyA") ? 1 : 0) - (k.has("KeyD") ? 1 : 0);
+    this._drive(dt, throttle, steer, k.has("Space"));
+    // The aim: what the crosshair is on; the radar's lock near it.
+    const cam = this._viewOrigin(_p);
+    const vp = this.sighted ? this.lookPitch : this.lookPitch - 0.12;
+    const look = _lk.set(-Math.sin(this.lookYaw) * Math.cos(vp), Math.sin(vp), -Math.cos(this.lookYaw) * Math.cos(vp));
+    this.range = this._rangefind(cam, look, SAM_RANGE[1]);
+    this.aimPoint.copy(cam).addScaledVector(look, this.range);
+    this._lockT -= dt;
+    if (this._lockT <= 0 || (this.lock && !this._lockAlive(this.lock))) {
+      this._lockT = 0.2;
+      this.lock = this._findLock(cam, look);
+    }
+    // (Locked: the fire control leads it, as the aliens' AA does.)
+    let at = this.aimPoint;
+    if (this.lock) {
+      const tp = this._lockPos(this.lock, _w);
+      const tof = tp.distanceTo(this.pos) / AA_SPEC.shellSpeed;
+      at = _v.copy(tp).addScaledVector(this._lockVel(this.lock), tof);
+    }
+    const want = this._aimAt(at, this._want || (this._want = new THREE.Vector3()));
+    this.aimError = this._traverse(dt, want);
+    this.camYaw = this.lookYaw;
+    this.camPitch = this.lookPitch;
+    // The cannons (held: by turns); they overheat.
+    if (input.buttons[0] && !this.hot && this.reloadT <= 0) this.fireGun();
+    // A SAM.
+    if ((input.pressed.has("mouse2") || input.buttons[2]) && this.samT <= 0) this._fireSam();
+    if (input.pressed.has("KeyC")) this.popSmoke();
+    const rpm = clamp(Math.abs(throttle) * 0.6 + (Math.abs(this.speed) / this.spec.speed) * 0.5 + Math.abs(steer) * 0.3, 0, 1);
+    this.engine?.set(true, rpm, Math.abs(this.speed), this.traverseRate || 0);
+    this._updateSams(dt);
+  }
+
+  // One round of the twin cannons (the player's; Tank's left click).
+  fireGun() {
+    const mgr = this.manager;
+    const guns = this.model.guns || [];
+    const i = this._gunI++ % Math.max(1, guns.length);
+    this.root.updateMatrixWorld(true);
+    const from = guns[i] ? guns[i].getWorldPosition(new THREE.Vector3()) : this.muzzleWorld(new THREE.Vector3());
+    const d = this.gunDir(new THREE.Vector3());
+    d.x += rand(-0.006, 0.006);
+    d.y += rand(-0.006, 0.006);
+    d.z += rand(-0.006, 0.006);
+    d.normalize();
+    this.model.kickGun?.(i);
+    this.reloadT = AA_FLAK_RATE;
+    this.heat = Math.min(1, this.heat + AA_HEAT_SHOT);
+    if (this.heat >= 1) {
+      this.hot = true;
+      mgr.onMessage?.("GUNS OVERHEATED: let them cool");
+    }
+    this._flakN++;
+    mgr.lasers?.fire({ from, dir: d, color: _flakC, speed: AA_SPEC.shellSpeed, damage: AA_FLAK_DAMAGE, owner: "jet", source: this, range: FLAK_RANGE + 60, radius: 0.08, length: 4, sound: false, tracer: true, scorch: false });
+    const fx = mgr.effects;
+    fx?.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.06, size0: 1.4, size1: 0.4, color0: _hotC, alpha: 0.9 });
+    if (this._flakN % 3 === 0) fx?.smoke.spawn({ x: from.x, y: from.y, z: from.z, vx: d.x * 3, vy: d.y * 3 + 0.5, vz: d.z * 3, life: 1.5, size0: 0.5, size1: 2, color0: _greyC, alpha: 0.35, drag: 1.5 });
+    if (this._flakN % 2 === 0) mgr.audio?.playMachineGun?.();
+    // (Locked and in reach: the bursts round the target, here and on every screen.)
+    if (this.lock && this._flakN % 8 === 0) {
+      const tp = this._lockPos(this.lock, new THREE.Vector3());
+      const dist = tp.distanceTo(from);
+      if (dist < FLAK_RANGE) {
+        const vel = this._lockVel(this.lock);
+        const pts = [];
+        for (let k = 0; k < 3; k++) pts.push(tp.clone().addScaledVector(vel, (k + 1) * 0.2).add(_u.set(rand(-1, 1), rand(-0.6, 1), rand(-1, 1)).multiplyScalar(rand(5, 14))));
+        flakBursts(mgr, pts, dist / AA_SPEC.shellSpeed);
+        mgr.onGroundFire?.(this, "flak", from, null, pts);
+      }
+    }
+    return null;
+  }
+
+  // ---------- The radar's lock ----------
+
+  _findLock(from, look) {
+    const mgr = this.manager;
+    let best = null;
+    let bestA = this.lock && this._lockAlive(this.lock) ? Math.min(AA_LOCK_KEEP, this._angleTo(this.lock, from, look) + 0.02) : AA_LOCK_CONE;
+    if (bestA < AA_LOCK_KEEP && this.lock) best = this.lock;
+    const consider = (kind, ref) => {
+      const t = { kind, ref };
+      const a = this._angleTo(t, from, look);
+      if (a < bestA) {
+        bestA = a;
+        best = t;
+      }
+    };
+    for (const u of mgr.ufos?.ufos || []) if (u.state !== "gone" && !u.falling) consider("ufo", u);
+    for (const v of mgr.vehicles) if (v !== this && v.alive && (v.isEnemyJet || v.enemy || v.isEnemyHeli)) consider("vehicle", v);
+    for (const m of mgr.mobs?.mobs || []) if (!m.dead && m.spec?.flies && !m.spec?.projectile) consider("mob", m);
+    if (best && best !== this.lock && best.ref !== this.lock?.ref) mgr.audio?._hit?.({ type: "bandpass", f: 2200, q: 6, d: 0.05, v: 0.2, n: 1, spread: 0 });
+    return best && best.ref === this.lock?.ref ? this.lock : best;
+  }
+
+  _angleTo(t, from, look) {
+    const p = this._lockPos(t, _u);
+    const d = p.distanceTo(from);
+    if (d > SAM_RANGE[1] || d < 6) return Infinity;
+    return look.angleTo(p.sub(from).divideScalar(d));
+  }
+
+  _lockPos(t, out) {
+    const r = t.ref;
+    if (t.kind === "mob") return out.set(r.pos.x, r.pos.y + (r.spec?.h ?? 1) * 0.5, r.pos.z);
+    return out.copy(r.pos);
+  }
+
+  _lockVel(t) {
+    return t.ref.vel || t.ref.velocity || _zero;
+  }
+
+  _lockAlive(t) {
+    const r = t?.ref;
+    if (!r) return false;
+    if (t.kind === "ufo") return r.state !== "gone" && !r.falling;
+    if (t.kind === "vehicle") return r.alive && this.manager.vehicles.includes(r);
+    return !r.dead && !!this.manager.mobs?.mobs?.includes(r);
+  }
+
+  // ---------- SAMs ----------
+
+  _fireSam() {
+    const mgr = this.manager;
+    if (this.sams <= 0) {
+      if (this.samT <= 0) mgr.onMessage?.(`SAMs reloading (${Math.ceil(this.samReloadT)} s)`);
+      this.samT = 1;
+      return null;
+    }
+    this.samT = AA_SAM_GAP;
+    this.sams--;
+    if (this.sams <= 0) this.samReloadT = AA_SAM_RELOAD;
+    const tubes = this.model.sams || [];
+    this.root.updateMatrixWorld(true);
+    const t = tubes[(AA_SAMS - 1 - this.sams) % Math.max(1, tubes.length)];
+    const from = t ? t.getWorldPosition(new THREE.Vector3()) : this.pos.clone().setY(this.pos.y + 3);
+    const dir = this.gunDir(new THREE.Vector3());
+    if (!this.lock) dir.copy(this.aimPoint).sub(from).normalize();
+    const mesh = new THREE.Mesh(_samGeo || (_samGeo = missileGeometry()), _samMat || (_samMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
+    mesh.position.copy(from);
+    mgr.scene.add(mesh);
+    const m = { pos: from, vel: dir.clone().multiplyScalar(40), dir: dir.clone(), speed: 40, target: this.lock && this._lockAlive(this.lock) ? this.lock : null, age: 0, mesh, trail: 0, hostile: false, launcher: this, sam: true, dead: false };
+    this.missiles.push(m);
+    const fx = mgr.effects;
+    for (let i = 0; i < Math.round(10 * Math.max(0.4, effectsQuality.scale)); i++) fx.trail.spawn({ x: from.x, y: from.y, z: from.z, vx: rand(-3, 3) - dir.x * 4, vy: rand(-1, 2), vz: rand(-3, 3) - dir.z * 4, life: rand(5, 8), size0: 1.2, size1: 5, color0: _whiteC, alpha: 0.7, drag: 1.5 });
+    mgr.audio?.playRocketLaunch?.();
+    if (m.target?.kind === "ufo") m.target.ref.lockedOn = mgr.ufos?.time ?? 0;
+    return m;
+  }
+
+  _updateSams(dt) {
+    if (!this.missiles.length) return;
+    const mgr = this.manager;
+    const fx = mgr.effects;
+    for (let i = this.missiles.length - 1; i >= 0; i--) {
+      const m = this.missiles[i];
+      m.age += dt;
+      m.speed = Math.min(SAM_SPEED, m.speed + 220 * dt);
+      const t = m.target && this._lockAlive(m.target) ? m.target : null;
+      let tp = null;
+      if (t && m.age > 0.35) {
+        tp = this._lockPos(t, _p);
+        const tgo = tp.distanceTo(m.pos) / Math.max(60, m.speed);
+        const aim = _w.copy(tp).addScaledVector(this._lockVel(t), tgo).sub(m.pos).normalize();
+        const ang = m.dir.angleTo(aim);
+        const max = SAM_TURN * 1.2 * dt;
+        if (ang > 1e-4) m.dir.lerp(aim, Math.min(1, max / ang)).normalize();
+      }
+      m.vel.copy(m.dir).multiplyScalar(m.speed);
+      const step = m.speed * dt;
+      let boom = null;
+      if (t && tp) {
+        const r = t.ref;
+        const fuse = t.kind === "ufo" ? r.radius * 0.8 + 2 : t.kind === "vehicle" ? 3 : 2.5;
+        const dd = t.kind === "vehicle" ? r.hullDistance(m.pos, 60) : tp.distanceTo(m.pos) - (t.kind === "ufo" ? fuse - 3 : 0);
+        if (dd < (t.kind === "ufo" ? 3 : fuse) + step * 0.5) boom = m.pos.clone();
+      }
+      if (!boom) {
+        const h = mgr.world.raycast(m.pos, m.dir, step, { solidOnly: true });
+        if (h && m.age > 0.3) boom = m.pos.clone().addScaledVector(m.dir, Math.max(0, h.distance - 0.4));
+      }
+      if (boom || m.age > 12 || m.pos.y < -10) {
+        mgr.scene.remove(m.mesh);
+        m.dead = true;
+        this.missiles.splice(i, 1);
+        if (boom) {
+          if (t?.kind === "ufo" && tp && boom.distanceTo(tp) < t.ref.radius + 6) {
+            mgr.ufos?.damage?.(t.ref, AA_SAM_UFO, true, boom);
+            mgr.onMissileHit?.(t.ref);
+          } else if (t?.kind === "vehicle" && t.ref.hullDistance(boom, 12) < 8) {
+            t.ref.damage(AA_SAM_DAMAGE, "missile", true);
+            mgr.onMissileHit?.(t.ref);
+          }
+          fx.explode(boom, { radius: 4.5, source: "missile" });
+        }
+        continue;
+      }
+      m.pos.addScaledVector(m.dir, step);
+      m.mesh.position.copy(m.pos);
+      m.mesh.quaternion.setFromUnitVectors(_w.set(0, 0, -1), m.dir);
+      m.trail += step;
+      const spacing = 2.4 / Math.max(0.35, effectsQuality.scale);
+      while (m.trail > spacing) {
+        m.trail -= spacing;
+        const b = _u.copy(m.pos).addScaledVector(m.dir, -m.trail - 1);
+        fx.trail.spawn({ x: b.x, y: b.y, z: b.z, vx: rand(-0.3, 0.3), vy: 0.2, vz: rand(-0.3, 0.3), life: rand(5, 8), size0: 0.7, size1: 3.2, color0: _whiteC, color1: _white2C, alpha: 0.7, drag: 0.6, hold: 0.3 });
+      }
+      fx.glow.spawn({ x: m.pos.x - m.dir.x * 1.6, y: m.pos.y - m.dir.y * 1.6, z: m.pos.z - m.dir.z * 1.6, life: 0.06, size0: 1.6, size1: 0.5, color0: _hotC, alpha: 0.9 });
+    }
+  }
+
+  _clearSams() {
+    for (const m of this.missiles) this.manager.scene.remove(m.mesh);
+    this.missiles.length = 0;
+  }
+
+  onDestroyed(cause) {
+    this._clearSams();
+    super.onDestroyed(cause);
+  }
+
+  // (Mods off, or left behind in another dimension: nothing frozen in the air.)
+  onDisabled() {
+    this._clearSams();
+  }
+
+  dispose() {
+    this._clearSams();
+    super.dispose();
+  }
+
+  // ---------- Online ----------
+
+  // Another machine's AA opened fire (net/ground.js "flak"): the barrels kick by turns.
+  netFire(kind, from, vel) {
+    if (kind === "flak") {
+      this._netBurst = 8;
+      this._netBurstT = 0;
+    } else super.netFire(kind, from, vel);
+  }
+
+  netPuppet(st, dt) {
+    super.netPuppet(st, dt);
+    if (!(this._netBurst > 0) || !this.alive) return;
+    const guns = this.model.guns || [];
+    this._netBurstT -= dt;
+    while (this._netBurstT <= 0 && this._netBurst > 0 && guns.length) {
+      this._netBurstT += AA_FLAK_RATE;
+      this._netBurst--;
+      this.model.kickGun?.(this._gunI++ % guns.length);
+    }
+  }
+
+  // ---------- HUD ----------
+
+  overlayText(sight) {
+    const L = this.lock ? `LOCK ${Math.round(this._lockPos(this.lock, _u).distanceTo(this.pos))} m  ` : "";
+    return `${sight ? `RANGE ${Math.round(this.range)} m  ` : ""}${L}${this.hot ? "GUNS HOT" : "GUNS"}  SAM ${this.sams}`;
+  }
+
+  hud() {
+    this._hudSeen = performance.now();
+    const kmh = Math.round(Math.abs(this.speed) * 3.6);
+    const bearing = Math.round(((((-(this.yaw + this.turretYaw) * 180) / Math.PI) % 360) + 360) % 360);
+    const name = (t) => (t.kind === "ufo" ? "UFO" : t.kind === "mob" ? t.ref.spec?.name || "creature" : t.ref.name || "aircraft");
+    return {
+      title: "AA vehicle",
+      rows: [
+        ["Speed", `${kmh} km/h${this.speed < -0.2 ? " (R)" : ""}`],
+        ["Turret", `${bearing}°, ${Math.round((this.gunPitch * 180) / Math.PI)}° up`],
+        ["Lock", this.lock ? `${name(this.lock)} ${Math.round(this._lockPos(this.lock, _u).distanceTo(this.pos))} m` : "none"],
+        ["SAMs", this.sams > 0 ? `${this.sams} ready` : `reloading ${Math.ceil(this.samReloadT)} s`],
+        ["Smoke", this.smokeT > 0 ? `${Math.ceil(this.smokeT)} s` : "ready"],
+      ],
+      bars: [{ label: "Gun heat", value: this.heat, hot: this.hot }],
+      weapon: this.lock ? "Cannons + SAM (locked)" : "Cannons + SAM",
+      warning: this.hot ? "GUNS OVERHEATED" : this.health / this.maxHealth < 0.25 ? "ON FIRE: get out (F)!" : "",
+      health: this.health / this.maxHealth,
+      help: "W/S drive, A/D turn, mouse aim, LMB cannons, RMB SAM, V sight, C smoke, F get out",
+    };
+  }
+
+  infoPanel() {
+    return {
+      title: "AA vehicle",
+      stats: [
+        ["Armour", `${Math.round(this.health)} / ${this.maxHealth}`],
+        ["Top speed", `${Math.round(AA_SPEC.speed * 3.6)} km/h`],
+        ["Cannons", `4 barrels, ${Math.round(1 / AA_FLAK_RATE)} rounds/s, ${AA_FLAK_DAMAGE} damage each, out to ${FLAK_RANGE} m; overheat after ~${Math.round(1 / (AA_HEAT_SHOT / AA_FLAK_RATE - AA_COOL))} s`],
+        ["SAMs", `${AA_SAMS} ready, homing on the lock, reload ${AA_SAM_RELOAD} s`],
+        ["Gun elevation", `${Math.round((AA_SPEC.minPitch * 180) / Math.PI)}° to +${Math.round((AA_SPEC.maxPitch * 180) / Math.PI)}°`],
+      ],
+      controls: [
+        ["W / S", "Forward / brake, reverse"],
+        ["A / D", "Turn the hull"],
+        ["Space", "Brake"],
+        ["Mouse", "Aim (the radar locks what is near the crosshair: the guns lead it)"],
+        ["Left click", "Cannons (hold)"],
+        ["Right click", "SAM (homes on the lock; none: straight along the aim)"],
+        ["V / F5", "Gunner's sight"],
+        ["C", "Smoke screen"],
+        ["F", "Get out"],
+      ],
+    };
   }
 
   serialize() {
-    return { ...super.serialize(), type: "aapark" };
+    return { ...super.serialize(), type: "aapark", sams: this.sams };
   }
 }
 VehicleManager.register("aapark", ParkedAA);
+// (Round 15) Creative's: the Battle Tank item placed while sneaking (js/content/vehicles.js); on the ground only.
+VehicleManager.registerSummon("aa", { type: "aapark", alt: 0, data: () => ({}) });
 VehicleManager.register("enemytel", EnemyTel);
 
 // ---------- The manager ----------
@@ -856,7 +1244,7 @@ export class GroundWar {
             v.transient = true;
             v.keep = true;
             v.npc = true;
-            if (type === "tel") v.unusable = true; // (in Creative a TEL is the palette's)
+            // (Round 15: a TEL is boarded in Creative only, ballistic.js; a parked AA by anyone, as a tank.)
             // (Round 14) A patrol: round its loop from the next corner (vehicle-tank.js _patrolDrive).
             if (y.patrol) v.patrol = { pts: y.patrol, i: y.leg ?? 0 };
             v.settle(true);
@@ -914,7 +1302,8 @@ export class GroundWar {
 
   update(dt) {
     const veh = this.vehicles;
-    const off = !veh.enabled || !this.enabled;
+    // (Round 15: out of the Overworld too: the ground war is the Missions layer's.)
+    const off = !veh.enabled || !this.enabled || veh.away;
     if (off) {
       for (const u of this.units) veh.remove(u);
       for (const [, v] of this.yard) if (!v.occupied) veh.remove(v);

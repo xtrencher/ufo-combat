@@ -5,6 +5,7 @@ import { vanillaRules } from "./worldtype.js";
 import { enchantSeed, setEnchantSeed } from "./enchant.js";
 import { BYPASSES_ARMOR } from "./damage.js";
 import { BODY, BODY_FLAGS, SUFFOCATES, FALL_FACTOR, MAX_FOOD, START_SATURATION, EAT_TIME, EFFECTS, foodOf, missionsHeal, effectsOf, normalizeEffect } from "./survival.js";
+import { H } from "./hacks.js";
 
 const EYE_HEIGHT = 1.62;
 const SNEAK_EYE_DROP = 0.35; // (Round 12: vanilla's crouching eyes, 1.27)
@@ -162,6 +163,11 @@ export class Player {
     this._hurtFront = 0;
     this._boost = new THREE.Vector2(); // a sprint-jump's push (x, z), fading in the air
 
+    // (Round 15) The Creative hacks' body size (js/hacks.js: tiny 0.3 ... giant
+    // 3): the box, the eyes, the step and the third-person camera scale with it.
+    this.size = 1;
+    this.jetting = false; // (Round 15) the hacks' jetpack is firing (hacks.js draws its flame)
+
     this.vehicle = null; // the vehicle the player is in (vehicles.js)
     this.mount = null; // (Round 12) the boat or minecart the player sits in: its ride(player, dt) places them (js/boats.js)
     this.parachute = false; // descending under a parachute (no fall damage)
@@ -185,6 +191,19 @@ export class Player {
 
   get creative() {
     return this.mode === "creative";
+  }
+
+  // (Round 15) The body's box and eyes (scaled by the hacks' size).
+  get bodyHeight() {
+    return PLAYER_HEIGHT * this.size;
+  }
+
+  get bodyRadius() {
+    return PLAYER_RADIUS * this.size;
+  }
+
+  get eyeHeight() {
+    return EYE_HEIGHT * this.size;
   }
 
   // (Round 11) Hunger and the other vanilla vitals run: survival mode (Round 13: in both world types).
@@ -303,6 +322,7 @@ export class Player {
   // Pushes the player: the horizontal part becomes decaying knockback, the
   // vertical part is added straight to the velocity (ignored while flying).
   applyImpulse(impulse) {
+    if (H.godMode) return; // (Round 15: the hacks' god mode stands firm)
     this.knockback.x += impulse.x;
     this.knockback.z += impulse.z;
     if (!this.flying) this.velocity.y = Math.max(this.velocity.y, 0) + impulse.y;
@@ -653,7 +673,7 @@ export class Player {
     // (In bed the eyes are on the pillow, at the head's end.)
     const s = this.sleeping;
     if (s) return new THREE.Vector3(this.position.x + s.dx * 1.55, this.position.y + 0.2, this.position.z + s.dz * 1.55);
-    return new THREE.Vector3(this.position.x, this.position.y + EYE_HEIGHT - this._eyeOffset, this.position.z);
+    return new THREE.Vector3(this.position.x, this.position.y + this.eyeHeight - this._eyeOffset, this.position.z);
   }
 
   // Computed directly from yaw/pitch rather than camera.getWorldDirection(),
@@ -714,7 +734,7 @@ export class Player {
     // looking back at the player), stopping short of any solid block.
     const f = this.getForwardVector();
     const sign = mode === "behind" ? -1 : 1;
-    const dist = this._clearDistance(eye, f.x * sign, f.y * sign, f.z * sign, THIRD_PERSON_DISTANCE);
+    const dist = this._clearDistance(eye, f.x * sign, f.y * sign, f.z * sign, THIRD_PERSON_DISTANCE * Math.max(0.5, this.size));
     // Snap in at once when something is in the way, ease back out otherwise.
     this._camDist = dist < this._camDist ? dist : this._camDist + (dist - this._camDist) * Math.min(1, (this._dt || 1 / 60) * 9);
     this.camera.position.set(eye.x + f.x * sign * this._camDist, eye.y + f.y * sign * this._camDist, eye.z + f.z * sign * this._camDist);
@@ -758,17 +778,37 @@ export class Player {
     return max;
   }
 
+  // (Round 15) The hacks' size: shrinking is always possible, growing only
+  // where the bigger box is clear of solid blocks (else it waits, and grows
+  // once there is room; ghost flight grows anywhere).
+  _resize(want) {
+    if (want > this.size && !(this.flying && H.noclip)) {
+      const p = this.position;
+      const r = PLAYER_RADIUS * want;
+      const h = PLAYER_HEIGHT * want;
+      for (let x = Math.floor(p.x - r); x <= Math.floor(p.x + r - 1e-3); x++)
+        for (let z = Math.floor(p.z - r); z <= Math.floor(p.z + r - 1e-3); z++)
+          for (let y = Math.floor(p.y + 0.01); y <= Math.floor(p.y + h - 1e-3); y++) if (this.world.isSolidAt(x, y, z)) return false;
+    }
+    this.size = want;
+    this._eyeOffset = 0;
+    this._camDist = 0;
+    return true;
+  }
+
   // Maximum movement along one axis before the player's box would overlap a
   // solid voxel (see physics.js); also detects landing on the ground.
   _sweepAxis(axis, delta) {
-    const allowed = sweepAxis(this.world, this.position, PLAYER_RADIUS, PLAYER_HEIGHT, axis, delta);
+    // (Round 15) The hacks' ghost flight: through everything while flying.
+    if (this.flying && H.noclip) return delta;
+    const allowed = sweepAxis(this.world, this.position, this.bodyRadius, this.bodyHeight, axis, delta);
     if (axis === "y" && delta < 0 && allowed > delta) this.onGround = true;
     return allowed;
   }
 
   // Whether a solid block lies under the player's footprint if it were at (x, z).
   _hasSupportAt(x, z) {
-    const r = PLAYER_RADIUS - 0.02;
+    const r = this.bodyRadius - 0.02;
     const y = Math.floor(this.position.y - 0.4);
     for (let bx = Math.floor(x - r); bx <= Math.floor(x + r); bx++) {
       for (let bz = Math.floor(z - r); bz <= Math.floor(z + r); bz++) {
@@ -798,7 +838,8 @@ export class Player {
   _scanBody() {
     const p = this.position;
     const w = this.world;
-    const r = PLAYER_RADIUS;
+    const r = this.bodyRadius;
+    const ph = this.bodyHeight;
     const e = 0.05;
     const feetY = Math.floor(p.y + 0.01);
     let flags = 0;
@@ -806,24 +847,24 @@ export class Player {
     for (let bx = Math.floor(p.x - r - e); bx <= Math.floor(p.x + r + e); bx++) {
       for (let bz = Math.floor(p.z - r - e); bz <= Math.floor(p.z + r + e); bz++) {
         const inXZ = bx + 1 > p.x - r && bx < p.x + r && bz + 1 > p.z - r && bz < p.z + r;
-        for (let by = Math.floor(p.y - e); by <= Math.floor(p.y + PLAYER_HEIGHT + e); by++) {
+        for (let by = Math.floor(p.y - e); by <= Math.floor(p.y + ph + e); by++) {
           const id = w.getBlock(bx, by, bz);
           const f = BODY_FLAGS[id];
           if (!f) continue;
-          const inside = inXZ && by + 1 > p.y && by < p.y + PLAYER_HEIGHT;
+          const inside = inXZ && by + 1 > p.y && by < p.y + ph;
           if (inside) flags |= f & (BODY.LAVA | BODY.FIRE | BODY.WEB);
           // (A cactus: its cell touched from a side, stood on or bumped from
           // below: the box grown by `e` reaches it, across a face, not just
           // at an edge. Vanilla's cactus is 1/16 thinner than its cell, so a
           // body against it is inside its cell.)
-          if (f & BODY.CACTUS && (inXZ || (by + 1 > p.y && by < p.y + PLAYER_HEIGHT))) flags |= BODY.CACTUS;
+          if (f & BODY.CACTUS && (inXZ || (by + 1 > p.y && by < p.y + ph))) flags |= BODY.CACTUS;
           if (f & BODY.CLIMB && by === feetY && (inXZ || IS_SOLID[id])) climb = true;
         }
       }
     }
     this._body = flags;
     this.onClimbable = climb && !this.flying;
-    this._eyeInWall = SUFFOCATES[w.getBlock(Math.floor(p.x), Math.floor(p.y + EYE_HEIGHT - this._eyeOffset), Math.floor(p.z))] === 1;
+    this._eyeInWall = SUFFOCATES[w.getBlock(Math.floor(p.x), Math.floor(p.y + this.eyeHeight - this._eyeOffset), Math.floor(p.z))] === 1;
   }
 
   update(dt) {
@@ -832,6 +873,7 @@ export class Player {
     this.jumpEvent = false;
     this.splashEvent = false;
     this.stepEvent = false;
+    this.jetting = false;
     this._invulnerable = Math.max(0, this._invulnerable - dt);
     if (this._invulnerable < TICK_EPS) this._invulnerable = 0;
     this.hurtTime += dt;
@@ -865,7 +907,7 @@ export class Player {
       this._airborneMaxY = null;
       this._bob = 0;
       this._eyeOffset = 0;
-      this.headInWater = this._waterAt(EYE_HEIGHT);
+      this.headInWater = this._waterAt(this.eyeHeight);
       this._scanBody();
       this._updateVitals(dt);
       this.syncCamera();
@@ -918,7 +960,7 @@ export class Player {
     const hi = this._fluidAt(1.0);
     this.inWater = lo === 1 || hi === 1;
     this.inLava = !this.inWater && (lo === 2 || hi === 2);
-    this.headInWater = this._waterAt(EYE_HEIGHT - this._eyeOffset);
+    this.headInWater = this._waterAt(this.eyeHeight - this._eyeOffset);
     if (this.inWater && !wasInWater && this.velocity.y < -4) this.splashEvent = true;
     this._scanBody();
     const web = (this._body & BODY.WEB) !== 0;
@@ -932,13 +974,15 @@ export class Player {
     const worldX = moveX * cosY + moveZ * sinY;
     const worldZ = -moveX * sinY + moveZ * cosY;
 
+    // (Round 15) The hacks: a size that grows only where there is room for it.
+    if (this.size !== H.size) this._resize(H.size);
     let speed;
-    if (this.flying) speed = this.sprinting ? FLY_SPRINT_SPEED : FLY_SPEED;
+    if (this.flying) speed = (this.sprinting ? FLY_SPRINT_SPEED : FLY_SPEED) * H.flyMul;
     else if (this.inWater) speed = this.sprinting ? SWIM_SPEED * 1.4 : SWIM_SPEED;
     else if (this.inLava) speed = LAVA_SPEED;
     else if (this.sneaking) speed = SNEAK_SPEED;
     else speed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
-    if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1) * this._floorSpeed;
+    if (!this.flying) speed *= this._speedMul * (web ? 0.25 : 1) * this._floorSpeed * H.speedMul * (this.size === 1 ? 1 : Math.sqrt(this.size));
     if (using) speed *= 0.2;
     let walkX = worldX * speed;
     let walkZ = worldZ * speed;
@@ -998,10 +1042,14 @@ export class Player {
       this.velocity.y = Math.max(this.velocity.y + GRAVITY * dt, -3.2);
       if (this.velocity.y > 0) this.velocity.y *= Math.exp(-2 * dt);
     } else {
-      this.velocity.y += GRAVITY * dt;
+      // (Round 15) The hacks: low gravity, a super jump (H.jumpMul times as
+      // high), a jetpack on Space in the air.
+      this.velocity.y += GRAVITY * H.gravity * dt;
       if (this.velocity.y < MAX_FALL_SPEED) this.velocity.y = MAX_FALL_SPEED;
+      this.jetting = H.jetpack && space && !this.onGround && !this.onClimbable;
+      if (this.jetting) this.velocity.y = Math.min(Math.max(this.velocity.y, -4) + 46 * dt, 11);
       if (this.onGround && space && !this.onClimbable) {
-        this.velocity.y = JUMP_SPEED;
+        this.velocity.y = JUMP_SPEED * (H.jumpMul === 1 ? 1 : Math.sqrt(H.jumpMul)) * (this.size > 1 ? Math.sqrt(this.size) : 1);
         this.jumpEvent = true;
         // (Round 12) Sprint-jumping: a push the way you face (vanilla's).
         if (this.sprinting) {
@@ -1060,7 +1108,7 @@ export class Player {
         blockedX = Math.abs(dx) < Math.abs(wantX) - 1e-6;
         blockedZ = Math.abs(dz) < Math.abs(wantZ) - 1e-6;
         // (The eyes rise smoothly instead of jumping up.)
-        this._eyeOffset = Math.min(0.9, this._eyeOffset + step);
+        this._eyeOffset = Math.min(0.9 * Math.max(1, this.size), this._eyeOffset + step);
       }
     }
     if (dx === 0) {
@@ -1134,13 +1182,15 @@ export class Player {
     const z1 = p.z;
     const w = this.world;
     p.set(x0, y0, z0);
-    const up = sweepAxis(w, p, PLAYER_RADIUS, PLAYER_HEIGHT, "y", STEP_HEIGHT);
+    const r = this.bodyRadius;
+    const h = this.bodyHeight;
+    const up = sweepAxis(w, p, r, h, "y", STEP_HEIGHT * Math.max(1, this.size)); // (Round 15: a giant's stride)
     p.y += up;
-    const sx = sweepAxis(w, p, PLAYER_RADIUS, PLAYER_HEIGHT, "x", wantX);
+    const sx = sweepAxis(w, p, r, h, "x", wantX);
     p.x += sx;
-    const sz = sweepAxis(w, p, PLAYER_RADIUS, PLAYER_HEIGHT, "z", wantZ);
+    const sz = sweepAxis(w, p, r, h, "z", wantZ);
     p.z += sz;
-    const down = sweepAxis(w, p, PLAYER_RADIUS, PLAYER_HEIGHT, "y", -(up + 0.01));
+    const down = sweepAxis(w, p, r, h, "y", -(up + 0.01));
     p.y += down;
     const gained = sx * sx + sz * sz - (dx * dx + dz * dz);
     if (gained > 1e-6 && p.y > y0 + 1e-4 && down > -(up + 0.01) && (!this.sneaking || this._hasSupportAt(p.x, p.z))) {

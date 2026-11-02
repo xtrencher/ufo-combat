@@ -65,7 +65,7 @@ import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
 import { installGround } from "./tanks.js"; // (Round 13: tanks, AA vehicles, missile launchers)
-import { installHelis } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
+import { installHelis, heliMissionId } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
 import { UfoManager } from "./ufos.js";
@@ -1104,7 +1104,7 @@ function findRunway() {
 // (a jet on day one would skip the whole curve). Creative: always.
 // (Round 10: by mission id: each run has its own order, see progression.js.)
 function jetLocked() {
-  return !player.creative && progress.enabled && !progress.reached("wings");
+  return !player.creative && chainLocks() && !progress.reached("wings");
 }
 // "...mission 12 ("Take to the air")": where it is in this run.
 const missionRef = (id) => {
@@ -1115,13 +1115,13 @@ const jetLockedText = () => `Fighter jets join the fight with ${missionRef("wing
 // UFOs (wrecks and the ones in airport hangars) can be boarded from the
 // "Salvage" mission on; before that the player fights on foot.
 function ufoLocked() {
-  return !player.creative && progress.enabled && !progress.reached("salvage");
+  return !player.creative && chainLocks() && !progress.reached("salvage");
 }
 const ufoLockedText = () => `You can't fly alien ships yet: that comes with ${missionRef("salvage")}.`;
 // The B-2 (and so the nuke) is Operation Sunburn's: before it the bomber
 // stays parked (a nuke on any squad would skip the missions in between).
 function b2Locked() {
-  return !player.creative && progress.enabled && !progress.reached("sunburn");
+  return !player.creative && chainLocks() && !progress.reached("sunburn");
 }
 const b2LockedText = () => `The B-2 bomber and its nuke come with ${missionRef("sunburn")}.`;
 vehicles.canBoard = (v) =>
@@ -1216,7 +1216,8 @@ function callIn(kind) {
         const yaw = player.yaw + a;
         const gx = p0.x - Math.sin(yaw) * d;
         const gz = p0.z - Math.cos(yaw) * d;
-        const gy = Math.max(world.heightAt(Math.floor(gx), Math.floor(gz)), SEA_LEVEL) + 1;
+        // (Round 15: under a roof, the Nether's, the height map is the highest ledge: from the player's level.)
+        const gy = world.dimInfo?.ceiling ? p0.y : Math.max(world.heightAt(Math.floor(gx), Math.floor(gz)), SEA_LEVEL) + 1;
         gv = vehicles.summonOnGround(kind, { x: gx, y: gy, z: gz });
         if (gv) break;
       }
@@ -1232,19 +1233,25 @@ function callIn(kind) {
     toast(`${gv.name}: you're in!`, 3);
     return true;
   }
-  removePlayerJets();
   const p = player.position;
   const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), SEA_LEVEL);
+  // (Round 15) Under the Nether's roof: the open air above the player (vehicles.skyY), or no room.
+  const skyY = (want) => vehicles.skyY(p, want, 8);
+  if (skyY(kind === "ufo" ? 200 : 215) === null) {
+    toast("No room to fly here: find a bigger cavern.", 3);
+    return false;
+  }
+  removePlayerJets();
   let v;
   if (kind === "ufo") {
     const design = UFO_DESIGNS[Math.floor(Math.random() * UFO_DESIGNS.length)];
     const radius = [4, 5.5, 7, 9, 12][Math.floor(Math.random() * 5)];
-    v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, Math.min(200, Math.max(ground + 40 + radius, p.y + 30)), p.z], yaw: player.yaw });
+    v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, skyY(Math.min(200, Math.max(ground + 40 + radius, p.y + 30))), p.z], yaw: player.yaw });
   } else {
     if (!JET_TYPES[kind]) return false;
     const cfg = vehicles.config.jet;
     const alt = kind === "b2" ? 100 : 75;
-    v = vehicles.create("jet", { jetType: kind, pos: [p.x, Math.min(215, Math.max(ground + alt, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62 * (JET_TYPES[kind].speed ?? 1), throttle: 0.75 });
+    v = vehicles.create("jet", { jetType: kind, pos: [p.x, skyY(Math.min(215, Math.max(ground + alt, p.y + 45))), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62 * (JET_TYPES[kind].speed ?? 1), throttle: 0.75 });
     if (v) v.isPlayerJet = true;
   }
   if (!v) return false;
@@ -1408,7 +1415,7 @@ let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
 mods.onChange((on) => {
   ufos.setEnabled(on && missionsHere());
-  vehicles.setEnabled(on && missionsHere());
+  vehicles.setEnabled(on); // (Round 15: in every dimension; the Missions layer's rest out of the Overworld, vehicles.away)
   if (!on) mobs.removeKind("alien");
 });
 // (A Survival world: Mods off for that world, whatever the setting, which is
@@ -1563,6 +1570,13 @@ let progressOffAt = null; // (the mission stats when the chain went off)
 function missionsHere() {
   return (world.dim ?? "overworld") === "overworld";
 }
+// (Round 15) The mission chain's locks on the vehicles (jets, the B-2, UFOs,
+// helicopters): while the chain runs, and in the Nether and the End too,
+// where it only pauses (vehicles are in every dimension now). Never in Creative.
+function chainLocks() {
+  return progress.enabled || (!missionsHere() && mods.enabled && !player.creative && !survivalPaused && !isVanilla() && !testFlags.noMissions);
+}
+helis.locked = () => !player.creative && chainLocks() && !progress.reached(heliMissionId(progress));
 function refreshSurvivalSystems() {
   // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
   const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla() && missionsHere();
@@ -3682,7 +3696,6 @@ game.dims = dims;
 // (Round 13) The Missions layer stays in the Overworld (missionsHere).
 dims.onChange.push(() => {
   ufos.setEnabled(mods.enabled && missionsHere());
-  vehicles.setEnabled(mods.enabled && missionsHere());
   refreshSurvivalSystems();
 });
 if (dims.sync) mp.addModule(dims.sync);

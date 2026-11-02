@@ -27,6 +27,7 @@ import { ARROW } from "./content/ids.js";
 import { enchLevel } from "./enchant.js";
 import { Fishing } from "./fishing.js";
 import { Throwables } from "./entities.js";
+import { H } from "./hacks.js";
 export { WEAPON_STATS };
 
 export const THROW_CHARGE_TIME = 1.5; // seconds to a full-strength throw
@@ -54,6 +55,13 @@ const ROCKET_DIRECT = 90; // extra damage of a rocket that hits a UFO or vehicle
 const ROCKET_GRAVITY = -2.5;
 const ROCKET_LIFE = 12;
 const MIN_INTERVAL = { grenade: 0.12, pistol: 0.2, bazooka: 0.2, airstrike: 0.8, blaster: 0.22, railgun: 0.5 };
+// (Round 15) The Creative hacks (js/hacks.js H, all neutral outside Creative):
+// rapid fire divides these waits, no reload skips the magazines, explosive
+// ammo blows up where a bullet, bolt or arrow lands (a small blast, at most
+// HACK_BLAST_RATE a second so a minigun can't flood the frame).
+const gap = (kind) => (MIN_INTERVAL[kind] || 0.1) / H.fireRate;
+const HACK_BLAST_R = 2.2;
+const HACK_BLAST_GAP = 0.07;
 
 // The bow: hold right click to draw (a full draw in a second), let go to shoot.
 export const BOW_DRAW = 1.0;
@@ -240,6 +248,9 @@ export class WeaponSystem {
     this._muzzle = new THREE.Vector3();
     this._aim = new THREE.Vector3();
     this._shot = { type: "miss", point: new THREE.Vector3(), distance: 0, mob: null };
+    // (Round 15) The hacks' explosive ammo: blasts on their way ({ at, t }).
+    this._hackBooms = [];
+    this._hackBoomT = 0;
 
     // A small pool of fading tracer lines, reused round-robin (an older
     // version's machine gun or sniper, seen online: net/fx.js).
@@ -292,12 +303,13 @@ export class WeaponSystem {
     const st = WEAPON_STATS[kind];
     if (!st) return true;
     if (st.heat) {
-      if (this.minigun.overheated) {
+      if (this.minigun.overheated && !H.noOverheat) {
         if (!quiet) this._notice(`${st.label}: let it cool`);
         return false;
       }
       return true;
     }
+    if (H.noReload) return true; // (Round 15: the hacks)
     if (this.reloadT[kind] > 0) {
       if (!quiet) this._notice(`${st.label}...`);
       return false;
@@ -312,7 +324,7 @@ export class WeaponSystem {
   // One shot of `kind` spent; an empty magazine reloads by itself.
   _spend(kind) {
     const st = WEAPON_STATS[kind];
-    if (!st?.mag) return;
+    if (!st?.mag || H.noReload) return;
     this.ammo[kind] = Math.max(0, (this.ammo[kind] ?? st.mag) - 1);
     if (this.ammo[kind] <= 0) this.startReload(kind);
   }
@@ -332,7 +344,8 @@ export class WeaponSystem {
   startReload(kind) {
     const st = WEAPON_STATS[kind];
     if (!st?.mag || this.reloadT[kind] > 0 || (this.ammo[kind] ?? st.mag) >= st.mag) return false;
-    this.reloadT[kind] = st.reload;
+    if (H.noReload) return false;
+    this.reloadT[kind] = st.reload / H.fireRate;
     if (kind !== "bow" && kind !== "grenade") this.audio.playReload?.(kind);
     return true;
   }
@@ -344,7 +357,7 @@ export class WeaponSystem {
     if (!st) return null;
     if (st.heat) return { kind, heat: this.minigun.heat, overheated: this.minigun.overheated, label: st.label, reload: this.minigun.overheated ? 1 - this.minigun.heat : 1 };
     const t = this.reloadT[kind] || 0;
-    return { kind, ammo: this.ammo[kind] ?? st.mag, mag: st.mag, reload: t > 0 ? 1 - t / st.reload : 1, reloading: t > 0, label: st.label };
+    return { kind, ammo: this.ammo[kind] ?? st.mag, mag: st.mag, reload: t > 0 ? Math.max(0, 1 - (t * H.fireRate) / st.reload) : 1, reloading: t > 0, label: st.label };
   }
 
   _notice(text) {
@@ -385,8 +398,8 @@ export class WeaponSystem {
         if ((cd.machinegun ?? 0) <= 0) {
           this._spend("machinegun");
           this.fireMachineGun();
-          cd.machinegun = 1 / MACHINEGUN_RATE;
-          this._mgTimer = 1 / MACHINEGUN_RATE;
+          cd.machinegun = 1 / (MACHINEGUN_RATE * H.fireRate);
+          this._mgTimer = 1 / (MACHINEGUN_RATE * H.fireRate);
         } else this._mgTimer = cd.machinegun;
         return;
       case "sniper":
@@ -397,7 +410,7 @@ export class WeaponSystem {
         if (!this._ready("blaster")) return;
         this._blasterFiring = true;
         if (cd.blaster <= 0) {
-          cd.blaster = MIN_INTERVAL.blaster;
+          cd.blaster = gap("blaster");
           this._spend("blaster");
           this.fireBlaster();
         }
@@ -406,7 +419,7 @@ export class WeaponSystem {
         if (cd.railgun > 0 || this.rail.charging || !this._ready("railgun")) return;
         this.rail.charging = true;
         this.rail.t = 0;
-        this.audio.playRailCharge?.(RAIL_CHARGE);
+        this.audio.playRailCharge?.(RAIL_CHARGE / H.fireRate);
         return;
       case "minigun":
         if (!this._ready("minigun")) return;
@@ -423,7 +436,7 @@ export class WeaponSystem {
         return;
       case "airstrike":
         if (cd.airstrike > 0 || !this._ready("airstrike")) return;
-        cd.airstrike = MIN_INTERVAL.airstrike;
+        cd.airstrike = gap("airstrike");
         this._spend("airstrike");
         this.fireAirstrike();
         return;
@@ -436,7 +449,7 @@ export class WeaponSystem {
           this._queued = kind;
           return;
         }
-        cd[kind] = MIN_INTERVAL[kind] || 0.1;
+        cd[kind] = gap(kind);
         this._spend(kind);
         if (kind === "pistol") this.firePistol();
         else if (kind === "bazooka") this.fireBazooka();
@@ -452,7 +465,7 @@ export class WeaponSystem {
     this.minigun.held = false;
     if (this.bow.drawing) {
       this.bow.drawing = false;
-      const power = Math.min(1, this.bow.t / BOW_DRAW);
+      const power = Math.min(1, (this.bow.t * H.fireRate) / BOW_DRAW);
       this.bow.t = 0;
       // (A click too short to even nock the arrow shoots nothing.)
       // (Round 11) The bow's enchantments: Infinity needs an arrow but keeps
@@ -475,7 +488,7 @@ export class WeaponSystem {
       this.lock.held = false;
       const cd = this._cooldowns;
       if (cd.bazooka <= 0 && this._ready("bazooka", true)) {
-        cd.bazooka = MIN_INTERVAL.bazooka;
+        cd.bazooka = gap("bazooka");
         this._spend("bazooka");
         this.fireBazooka(this.lock.locked ? this.lock.target : null);
       }
@@ -488,7 +501,7 @@ export class WeaponSystem {
     const power = this.charge;
     this.charging = false;
     this.chargeTime = 0;
-    this._cooldowns.grenade = MIN_INTERVAL.grenade;
+    this._cooldowns.grenade = gap("grenade");
     this._spend("grenade");
     this.throwGrenade(power);
   }
@@ -588,6 +601,7 @@ export class WeaponSystem {
     this.held.fire(0.6);
     p.kick(0.02);
     this.effects.muzzleFlash(muzzle, 0.8);
+    if (H.explosiveAmmo) this._hackImpact(this._range(BLASTER_RANGE, 0.9), BLASTER_SPEED);
     return this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: BLASTER_SPEED, damage: BLASTER_DAMAGE, owner: "player", source: p, range: this._range(BLASTER_RANGE, 0.9), length: BLASTER_LENGTH });
   }
 
@@ -815,7 +829,43 @@ export class WeaponSystem {
     if (aim.lengthSq() < 0.25) aim.copy(dir);
     aim.normalize();
     this.lasers.fire({ from: muzzle, dir: aim, color: BULLET_COLOR, speed, damage, owner: "player", source: p, range: range + 8, radius, length, sound: false, scorch: true, hole: true, tracer: true, gun, kb });
+    if (H.explosiveAmmo && shot.type !== "miss") this._hackBoom(this._v.copy(shot.point).addScaledVector(dir, -0.2), near / speed);
     return shot;
+  }
+
+  // ---------- (Round 15) The hacks' explosive ammo ----------
+
+  // A small blast at `at` in `delay` seconds (when the bullet gets there).
+  _hackBoom(at, delay = 0) {
+    if (this._hackBooms.length >= 24) return;
+    this._hackBooms.push({ at: at.clone(), t: delay });
+  }
+
+  _updateHackBooms(dt) {
+    this._hackBoomT -= dt;
+    for (let i = this._hackBooms.length - 1; i >= 0; i--) {
+      const b = this._hackBooms[i];
+      b.t -= dt;
+      if (b.t > 0) continue;
+      this._hackBooms.splice(i, 1);
+      // (At most one every HACK_BLAST_GAP: the rest of a stream just hit.)
+      if (this._hackBoomT > 0) continue;
+      this._hackBoomT = HACK_BLAST_GAP;
+      this.effects.explode(b.at, { radius: HACK_BLAST_R, source: "hackammo" });
+    }
+  }
+
+  // Where a straight shot from the eyes lands (a block or a creature), and
+  // when, for a laser's explosive ammo; null for a miss.
+  _hackImpact(range, speed) {
+    const eye = this.player.getEyePosition();
+    const dir = this.player.getForwardVector();
+    const hit = this.world.raycast(eye, dir, range, { solidOnly: true });
+    const mob = this.mobs.raycast(eye, dir, hit ? hit.distance : range);
+    const th = this._targetHit(eye, dir, mob ? mob.distance : hit ? hit.distance : range);
+    const d = th ? th.distance : mob ? mob.distance : hit ? hit.distance : -1;
+    if (d < 0) return;
+    this._hackBoom(eye.addScaledVector(dir, Math.max(0, d - 0.2)), d / speed);
   }
 
   _burst(point, normal, color, count, speed) {
@@ -959,15 +1009,15 @@ export class WeaponSystem {
     if (rail.charging && activeKind !== "railgun") rail.charging = false;
     if (rail.charging) {
       rail.t += dt;
-      if (rail.t >= RAIL_CHARGE) {
+      if (rail.t >= RAIL_CHARGE / H.fireRate) {
         rail.charging = false;
         rail.t = 0;
-        this._cooldowns.railgun = MIN_INTERVAL.railgun;
+        this._cooldowns.railgun = gap("railgun");
         this._spend("railgun");
         this.fireRailgun();
       }
     }
-    this.held.charge = rail.charging ? Math.min(1, rail.t / RAIL_CHARGE) : 0;
+    this.held.charge = rail.charging ? Math.min(1, (rail.t * H.fireRate) / RAIL_CHARGE) : 0;
     for (const b of rail.beams) {
       if (!b.mesh.visible) continue;
       b.age += dt;
@@ -1134,6 +1184,7 @@ export class WeaponSystem {
     const m = this.minigun;
     const st = WEAPON_STATS.minigun;
     if (m.held && activeKind !== "minigun") m.held = false;
+    if (H.noOverheat && m.overheated) m.overheated = false; // (Round 15: the hacks)
     if (m.held && m.overheated) m.held = false;
     if (m.held) m.spin = Math.min(1, m.spin + dt / MINIGUN_SPINUP);
     else m.spin = Math.max(0, m.spin - dt / 1.6);
@@ -1141,7 +1192,8 @@ export class WeaponSystem {
     this.held.spin = m.angle;
     m.firing = m.held && m.spin >= 0.92;
     // Heat: it overheats after a few seconds of fire and must cool down.
-    if (m.firing) {
+    if (m.firing && H.noOverheat) m.heat = Math.max(0, m.heat - dt / st.cool);
+    else if (m.firing) {
       m.heat = Math.min(1, m.heat + dt / st.heat);
       if (m.heat >= 1) {
         m.overheated = true;
@@ -1161,8 +1213,8 @@ export class WeaponSystem {
     }
     m.timer -= dt;
     let guard = 0;
-    while (m.timer <= 0 && guard++ < 6) {
-      m.timer += 1 / MINIGUN_RATE;
+    while (m.timer <= 0 && guard++ < 6 * Math.ceil(H.fireRate)) {
+      m.timer += 1 / (MINIGUN_RATE * H.fireRate);
       this.fireMinigunBolt();
     }
   }
@@ -1187,6 +1239,7 @@ export class WeaponSystem {
     p.kick(0.012);
     if (this.shots % 3 === 0) this.effects.muzzleFlash(muzzle, 0.9);
     this.audio.playMinigunShot?.();
+    if (H.explosiveAmmo && this.shots % 2 === 0) this._hackImpact(range, MINIGUN_SPEED);
     this.lasers.fire({ from: muzzle, dir, color: LASER_COLORS[this.blasterColor] || LASER_COLORS.red, speed: MINIGUN_SPEED, damage: MINIGUN_DAMAGE, owner: "player", source: p, range, radius: 0.09, length: 9, sound: false });
   }
 
@@ -1268,6 +1321,7 @@ export class WeaponSystem {
       // (Power: +25% a level and 25% more, as vanilla.)
       const pw = a.ench?.power || 0;
       const dmg = Math.round((ARROW_DAMAGE[0] + (ARROW_DAMAGE[1] - ARROW_DAMAGE[0]) * a.power * a.power) * (pw ? 1 + 0.25 * (pw + 1) : 1));
+      if (H.explosiveAmmo && (tHit || mobHit || blockHit)) this._hackBoom(a.pos.clone().addScaledVector(dir, Math.max(0, (tHit || mobHit || blockHit).distance - 0.1)));
       if (tHit) {
         const point = a.pos.clone().addScaledVector(dir, tHit.distance);
         tHit.hit(dmg, dir, point);
@@ -1402,11 +1456,12 @@ export class WeaponSystem {
     for (const k in this._cooldowns) this._cooldowns[k] = Math.max(0, this._cooldowns[k] - dt);
     this._cooldowns.railgun ??= 0;
     this._noticeT = Math.max(0, (this._noticeT ?? 0) - dt);
+    if (this._hackBooms.length) this._updateHackBooms(dt);
     // Reloads (they carry on while another item is in hand).
     for (const k in this.reloadT) {
       if (this.reloadT[k] <= 0) continue;
       this.reloadT[k] -= dt;
-      if (this.reloadT[k] <= 0) {
+      if (this.reloadT[k] <= 0 || H.noReload) {
         this.reloadT[k] = 0;
         this.ammo[k] = WEAPON_STATS[k].mag;
       }
@@ -1416,7 +1471,7 @@ export class WeaponSystem {
       this._queued = null;
       if (kind === "bazooka") {
         if (this._ready("bazooka", true)) {
-          this._cooldowns.bazooka = MIN_INTERVAL.bazooka;
+          this._cooldowns.bazooka = gap("bazooka");
           this._spend("bazooka");
           this.fireBazooka(null);
         }
@@ -1425,7 +1480,7 @@ export class WeaponSystem {
     if (this.charging) this.chargeTime += dt;
     // The bow being drawn.
     if (this.bow.drawing) this.bow.t += dt;
-    this.held.bowDraw = this.bow.drawing ? Math.min(1, this.bow.t / BOW_DRAW) : 0;
+    this.held.bowDraw = this.bow.drawing ? Math.min(1, (this.bow.t * H.fireRate) / BOW_DRAW) : 0;
     this.held.windUp = this.charge;
     this._updateArrows(dt);
     this.fishing.update(dt);
@@ -1481,8 +1536,8 @@ export class WeaponSystem {
       this._mgTimer -= dt;
       this._mgHeat = Math.min(1, this._mgHeat + dt * 1.5);
       let guard = 0;
-      while (this._mgTimer <= 0 && guard++ < 4) {
-        this._mgTimer += 1 / MACHINEGUN_RATE;
+      while (this._mgTimer <= 0 && guard++ < 4 * Math.ceil(H.fireRate)) {
+        this._mgTimer += 1 / (MACHINEGUN_RATE * H.fireRate);
         if (!this._ready("machinegun", true)) {
           this._mgFiring = false; // the magazine is empty: it reloads
           break;
@@ -1502,7 +1557,7 @@ export class WeaponSystem {
     if (this._blasterFiring && this._cooldowns.blaster <= 0) {
       if (!this._ready("blaster", true)) this._blasterFiring = false;
       else {
-        this._cooldowns.blaster = MIN_INTERVAL.blaster;
+        this._cooldowns.blaster = gap("blaster");
         this._spend("blaster");
         this.fireBlaster();
       }

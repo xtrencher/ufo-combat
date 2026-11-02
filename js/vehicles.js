@@ -17,7 +17,18 @@
 //     or, aimed at the sky, the player straight into it in the air. In a
 //     Survival world (no Mods there) the vehicles are on all the same, but
 //     only a player in Creative summons or boards one (F swaps the hands
-//     otherwise); vehicles are the Overworld's (hidden and still elsewhere).
+//     otherwise);
+//   - (Round 15) vehicles of every dimension: each belongs to the dimension
+//     it was made in (`dim`) and stays there (no vehicle goes through a
+//     portal: nobody travels seated, js/dimensions.js). The list holds the
+//     ones of the dimension the world is in; the others wait aside
+//     (`elsewhere`: out of the scene, still, as they were) until the player
+//     is back there (switchDim, called by the dimensions engine on every
+//     change). Saved together, each with its dimension; online each peer
+//     keeps every shared vehicle and draws the ones of its own dimension
+//     (js/net/vehicles.js). The Missions layer's (the airports' parked
+//     aircraft, the ground war, the helicopters' war, the fighters) stays
+//     the Overworld's: `away` (out of the Overworld) puts it to rest.
 // Vehicle types register themselves with VehicleManager.register(), and
 // what Creative can summon with VehicleManager.registerSummon().
 import * as THREE from "three";
@@ -28,6 +39,7 @@ import { hullRay, hullDistance, hullContact, discShape, CONTACT } from "./hitbox
 import { LIB } from "./content/base.js";
 import { isMissionsWorld } from "./worldtype.js";
 import { UFO_DESIGNS } from "./ufo-models.js";
+import { OVERWORLD, PORTAL_BLOCKS, dimId } from "./dim-registry.js";
 
 const ENTER_REACH = 4.5; // blocks from a vehicle's hull
 const MAX_VEHICLES = 12; // parked / wrecked vehicles kept in a world
@@ -200,6 +212,8 @@ export class Vehicle {
     if (this.calledIn) data.calledIn = true;
     // (Round 13: and a Creative summon one, kept like a boat until taken away.)
     if (this.summoned) data.summoned = true;
+    // (Round 15: the dimension it is in; none: the Overworld, as every save from before.)
+    if (this.dim && this.dim !== OVERWORLD) data.dim = this.dim;
     return data;
   }
 
@@ -318,7 +332,10 @@ export class VehicleManager {
     this.active = null;
     this.nextId = 1;
     this._on = true; // (the Mods' switch, setEnabled; see `enabled`)
-    this.away = false; // (Round 13) the player is in the Nether or the End: the vehicles stay behind
+    this.away = false; // (Round 13) the player is out of the Overworld: the Missions layer's vehicles rest (Round 15: the others go on)
+    this.elsewhere = []; // (Round 15) the vehicles of the dimensions the world is not in (switchDim)
+    this._dim = world.dim || OVERWORLD; // (the dimension `vehicles` is of)
+    this._portalT = 0; // (the last "no portals in a vehicle" notice)
     this._summonT = -99; // (the last summon's time, for the held button)
     this._ufoNext = Math.floor(Math.random() * UFO_DESIGNS.length); // (the UFO item's next design)
     this.restoring = false; // true while load() puts the player back in a saved seat
@@ -350,9 +367,24 @@ export class VehicleManager {
 
   // Whether vehicles exist and work here: with the Mods on, or in any world
   // that is not a Missions world (a Survival world has no Mods but has
-  // Creative's vehicles), and only in the Overworld.
+  // Creative's vehicles). (Round 15: in every dimension.)
   get enabled() {
-    return (this._on || !isMissionsWorld()) && !this.away;
+    return this._on || !isMissionsWorld();
+  }
+
+  // (Round 15) The dimension the world is in.
+  get here() {
+    return this.world.dim || OVERWORLD;
+  }
+
+  // (Round 15) Is v one of the vehicles kept (this dimension's or aside)?
+  has(v) {
+    return this.vehicles.includes(v) || this.elsewhere.includes(v);
+  }
+
+  // (Round 15) Every vehicle kept, this dimension's and the others'.
+  all() {
+    return this.elsewhere.length ? [...this.vehicles, ...this.elsewhere] : this.vehicles.slice();
   }
 
   set enabled(on) {
@@ -383,7 +415,9 @@ export class VehicleManager {
   groundBelow(x, y, z) {
     const bx = Math.floor(x);
     const bz = Math.floor(z);
-    if (!this.world.getChunk(bx >> 4, bz >> 4)) return this.world.heightAt(bx, bz) + 1;
+    // (Round 15: under a roof, the Nether's, the height map is the highest
+    // ledge, not the ground under an aircraft: nothing known there.)
+    if (!this.world.getChunk(bx >> 4, bz >> 4)) return this.world.dimInfo?.ceiling ? 0 : this.world.heightAt(bx, bz) + 1;
     for (let by = Math.min(WORLD_HEIGHT - 1, Math.floor(y)); by >= 0; by--) {
       const id = this.world.getBlock(bx, by, bz);
       if (IS_SOLID[id] || IS_WET[id]) return by + 1;
@@ -435,6 +469,14 @@ export class VehicleManager {
   // ---------- Vehicles ----------
 
   add(vehicle) {
+    // (Round 15) Of this dimension, unless it says otherwise (a save, another
+    // player's): one of another dimension waits aside until we are there.
+    if (!vehicle.dim) vehicle.dim = this.here;
+    if (vehicle.dim !== this._dim) {
+      this.elsewhere.push(vehicle);
+      this.onAdded?.(vehicle);
+      return vehicle;
+    }
     this.vehicles.push(vehicle);
     this.scene.add(vehicle.root);
     vehicle.root.visible = this.enabled;
@@ -454,6 +496,8 @@ export class VehicleManager {
     if (vehicle === this.active) this.exit({ force: true });
     const i = this.vehicles.indexOf(vehicle);
     if (i >= 0) this.vehicles.splice(i, 1);
+    const j = this.elsewhere.indexOf(vehicle);
+    if (j >= 0) this.elsewhere.splice(j, 1);
     vehicle.dispose();
     this.onRemoved?.(vehicle);
   }
@@ -462,6 +506,9 @@ export class VehicleManager {
     const cls = VehicleManager.types[type];
     if (!cls) return null;
     const v = new cls(this, data);
+    // (Round 15) The dimension it is of: the data's (a save, another player's),
+    // else the one the world is in (made here and now).
+    v.dim = typeof data?.dim === "string" ? dimId(data.dim) : this.here;
     // (Round 13) A Creative summon stays one (a reload, another player's copy).
     if (data?.summoned) {
       v.summoned = true;
@@ -656,7 +703,6 @@ export class VehicleManager {
   // the caller takes the player out of a vehicle first (the call-ins).
   summonRefusal({ seatedOk = false } = {}) {
     if (!this.player.creative) return "Vehicles are summoned in Creative only";
-    if (this.away) return "Vehicles fly in the Overworld only";
     if (!this.enabled) return "Switch the mods on first (Settings > Missions mods)";
     if (this.player.dead) return "Not now";
     if (this.active && !seatedOk) return "Get out of your vehicle first (F)";
@@ -725,7 +771,11 @@ export class VehicleManager {
       cx += fx * (back - along);
       cz += fz * (back - along);
     }
-    const g = this.groundBelow(cx, Math.max(at.y, p.y) + 4, cz);
+    // (Round 15: not from inside the rock over the spot: under the Nether's
+    // roof, in a cave, the first open cell above the aimed ground.)
+    let sy = Math.max(at.y, p.y) + 4;
+    for (let k = 0; k < 16 && sy > at.y + 0.5 && IS_SOLID[this.world.getBlock(Math.floor(cx), Math.floor(sy), Math.floor(cz))]; k++) sy -= 1;
+    const g = this.groundBelow(cx, sy, cz);
     const wet = !!IS_WET[this.world.getBlock(Math.floor(cx), Math.floor(g - 1), Math.floor(cz))];
     const fail = (text) => {
       v.dispose();
@@ -785,11 +835,22 @@ export class VehicleManager {
       this.onMessage?.("Aim at the ground to place it");
       return null;
     }
-    if (this.active) this.exit({ force: true });
     const p = this.player.position;
     const ground = Math.max(this.world.heightAt(Math.floor(p.x), Math.floor(p.z)), 0);
-    const y = Math.min(210, Math.max(ground + def.alt, p.y + 30));
-    const v = new cls(this, { ...(def.data?.(this, ctx) || {}), pos: [p.x, y, p.z], yaw: this.player.yaw, airborne: true });
+    const want = Math.min(210, Math.max(ground + def.alt, p.y + 30));
+    const v = new cls(this, { ...(def.data?.(this, ctx) || {}), pos: [p.x, want, p.z], yaw: this.player.yaw, airborne: true });
+    // (Round 15) Under a roof (the Nether's): the open air above the player,
+    // where its airframe has room (best with a clear way ahead).
+    if (this.world.dimInfo?.ceiling) {
+      const y = this._roomAbove(v, want);
+      if (y === null) {
+        v.dispose();
+        this.onMessage?.(`No room to fly the ${v.name} here: find a bigger cavern (or aim at the ground to place it)`);
+        return null;
+      }
+      v.pos.y = y;
+    }
+    if (this.active) this.exit({ force: true });
     def.launch?.(v);
     v._place?.();
     this._addSummoned(v);
@@ -797,6 +858,44 @@ export class VehicleManager {
     this.audio?.playNotice?.();
     this.onMessage?.(`${v.name}: you're in the air!`);
     return v;
+  }
+
+  // (Round 15) How high an aircraft can start in the air over (p.x, p.z):
+  // `want`, or under a roof (the Nether's) a few blocks under the first
+  // solid block over the player's head, at least 3 above them; null: no room.
+  skyY(p, want, room = 6) {
+    if (!this.world.dimInfo?.ceiling) return want;
+    const x = Math.floor(p.x);
+    const z = Math.floor(p.z);
+    let top = Math.floor(p.y) + 2;
+    const lim = Math.min(WORLD_HEIGHT - 1, Math.floor(want) + room);
+    while (top < lim && !IS_SOLID[this.world.getBlock(x, top, z)]) top++;
+    const y = Math.min(want, top - room);
+    return y >= p.y + 3 ? y : null;
+  }
+
+  // (Round 15) Where under a roof vehicle v (made at the player, aimed their
+  // way) can start in the air: the highest spot up to `want` its airframe
+  // fits, one with 40 blocks clear ahead first; null if none.
+  _roomAbove(v, want) {
+    const p = this.player.position;
+    const yaw = this.player.yaw;
+    const top = this.skyY(p, want, 4);
+    if (top === null) return null;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const clear = (y) => {
+      for (let d = 8; d <= 40; d += 4) if (IS_SOLID[this.world.getBlock(Math.floor(p.x + fx * d), Math.floor(y), Math.floor(p.z + fz * d))]) return false;
+      return true;
+    };
+    let fit = null;
+    for (let y = Math.floor(top); y >= p.y + 3; y--) {
+      v.pos.y = y;
+      if (!this._roomFor(v, yaw)) continue;
+      if (clear(y)) return y;
+      if (fit === null) fit = y;
+    }
+    return fit;
   }
 
   // Kept with the world like a boat (and never the vehicle cap's); past
@@ -950,6 +1049,58 @@ export class VehicleManager {
     }
   }
 
+  // ---------- Dimensions (Round 15) ----------
+
+  // The world went to another dimension (js/dimensions.js _switch): the
+  // vehicles of the one left go aside (out of the scene, as they are), the
+  // new one's come back. The Missions layer's vehicles (the ground war's,
+  // the helicopters' war's) are put away by their managers first, as
+  // switching the mods off does, while they are still in the list.
+  switchDim(dim = this.here) {
+    dim = dimId(dim);
+    if (dim === this._dim) return;
+    this._dim = dim;
+    const was = this.away;
+    this.away = dim !== OVERWORLD;
+    if (this.active && this.active.dim !== dim) this.exit({ force: true });
+    this.parachute.close(this.player);
+    if (this.away && !was) {
+      for (const war of [this.ground, this.helis]) {
+        try {
+          war?.update?.(0);
+        } catch (err) {
+          console.error("MINECLAUDE: a war's vehicles weren't put away", err);
+        }
+      }
+    }
+    for (let i = this.vehicles.length - 1; i >= 0; i--) {
+      const v = this.vehicles[i];
+      if (v.dim === dim) continue;
+      // (The host's fighters on a guest: the host's "eadd" draws them afresh, js/net/entities.js.)
+      if (v.isEnemyJet && v.puppet) {
+        this.remove(v);
+        continue;
+      }
+      this.vehicles.splice(i, 1);
+      this.scene.remove(v.root);
+      // (Nothing left on outside the model: a ship's beam, a rotor's or an engine's sound.)
+      v.onDisabled?.();
+      v.sound?.set?.(false);
+      v.engine?.set?.(false);
+      this.elsewhere.push(v);
+    }
+    for (let i = this.elsewhere.length - 1; i >= 0; i--) {
+      const v = this.elsewhere[i];
+      if (v.dim !== dim) continue;
+      this.elsewhere.splice(i, 1);
+      this.vehicles.push(v);
+      this.scene.add(v.root);
+      v.root.visible = this.enabled;
+    }
+    this._pairs = null;
+    this.releaseAll();
+  }
+
   // ---------- Input ----------
 
   mouseMove(dx, dy) {
@@ -986,22 +1137,31 @@ export class VehicleManager {
 
   update(dt) {
     const p = this.player;
-    // (Round 13) In the Nether or the End the vehicles stay in the Overworld:
-    // hidden and still until the player is back. (Nobody travels seated: dimensions.js.)
-    const away = !!this.world.dim && this.world.dim !== "overworld";
-    if (away !== this.away) {
-      this.away = away;
-      for (const v of this.vehicles) v.root.visible = this.enabled;
-      if (away && this.active) this.exit({ force: true });
+    // (Round 15) Each dimension's vehicles (the engine calls switchDim on the
+    // change itself; this catches a world put elsewhere without it).
+    if (this.here !== this._dim) this.switchDim();
+    if (this.active && this.active.dim !== this._dim) this.exit({ force: true });
+    // (No vehicle goes through a portal: the player gets out first.)
+    if (this.active && PORTAL_BLOCKS.size) {
+      const s = this.active.seatPosition(this._seat);
+      if (PORTAL_BLOCKS.has(this.world.getBlock(Math.floor(s.x), Math.floor(s.y), Math.floor(s.z))) && performance.now() - this._portalT > 4000) {
+        this._portalT = performance.now();
+        this.onMessage?.("Vehicles stay on their side of a portal: get out (F) and step in");
+      }
     }
     // (Round 13) Switched to Survival while flying in a Survival world: out (a parachute up high).
     if (this.active && this.creativeOnly && !p.dead) {
       this.onMessage?.("Vehicles are Creative's in a Survival world");
       this.exit();
     }
+    const noMap = this.world.dimInfo?.heightfield === false;
     for (let i = this.vehicles.length - 1; i >= 0; i--) {
       const v = this.vehicles[i];
       if (!this.enabled) continue;
+      // (Round 15) Out of the Overworld (no height map to stand on) an empty
+      // vehicle over ground not loaded yet waits, as vanilla's things do:
+      // a parked jet doesn't sink while the Nether's chunks come back in.
+      if (v !== this.active && !v.puppet && noMap && !this.world.getChunk(Math.floor(v.pos.x) >> 4, Math.floor(v.pos.z) >> 4)) continue;
       v.update(dt, v === this.active ? this.input : null);
       if (!v.alive && v.removeAt !== undefined) {
         v.removeAt -= dt;
@@ -1137,7 +1297,8 @@ export class VehicleManager {
   serialize() {
     const list = [];
     let active = -1;
-    for (const v of this.vehicles) {
+    // (Round 15: every dimension's, each with its `dim`.)
+    for (const v of this.all()) {
       if (!v.alive || v.transient) continue;
       if (v === this.active) active = list.length;
       list.push(v.serialize());
@@ -1149,7 +1310,8 @@ export class VehicleManager {
     if (!data || !Array.isArray(data.list)) return;
     data.list.forEach((d, i) => {
       if (!d || typeof d.type !== "string" || !Array.isArray(d.pos) || !d.pos.every(Number.isFinite)) return;
-      const v = this.create(d.type, d);
+      // (Round 15: no dimension saved: the Overworld's, as every save from before.)
+      const v = this.create(d.type, typeof d.dim === "string" ? d : { ...d, dim: OVERWORLD });
       if (v && d.calledIn) {
         v.calledIn = true;
         v.keep = true;
