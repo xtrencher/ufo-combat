@@ -505,6 +505,30 @@ export class GroundVehicle extends Vehicle {
     return out;
   }
 
+  // (Round 16) Whether the ground under the hull's outline at (x, z, yaw),
+  // its leading edge (dir 1: the front, -1: the back) and both sides,
+  // sampled less than a block apart, rises higher than it can climb.
+  _outlineHit(x, z, yaw, from, dir) {
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const rx = -fz;
+    const rz = fx;
+    const L = this.half.z * 0.86;
+    const W = this.half.x * 0.8;
+    const y = this.pos.y;
+    const nw = Math.max(2, Math.ceil((2 * W) / 0.8));
+    for (let i = 0; i <= nw; i++) {
+      const b = -W + (2 * W * i) / nw;
+      if (this._ground(x + fx * L * dir + rx * b, z + fz * L * dir + rz * b, from) - y > STEP_UP) return true;
+    }
+    const nl = Math.max(2, Math.ceil((2 * L) / 0.8));
+    for (let i = 1; i < nl; i++) {
+      const a = -L + (2 * L * i) / nl;
+      for (const s of [-1, 1]) if (this._ground(x + fx * a + rx * W * s, z + fz * a + rz * W * s, from) - y > STEP_UP + 0.3) return true;
+    }
+    return false;
+  }
+
   // Sets it down on the ground where it is (a new or loaded vehicle).
   settle(force = false) {
     const w = this.manager.world;
@@ -606,7 +630,15 @@ export class GroundVehicle extends Vehicle {
       const lead = this.speed >= 0 ? Math.max(fp.fl, fp.fr, fp.ff) : Math.max(fp.bl, fp.br, fp.bb);
       const all = Math.max(fp.fl, fp.fr, fp.bl, fp.br, fp.c);
       const deep = this._water(nx, nz, fp.c) > DEEP_WATER;
-      const blocked = lead - this.pos.y > STEP_UP || all - this.pos.y > STEP_UP + 0.3 || (deep && !this.inWater) || (deep && this._water(this.pos.x, this.pos.z, fp.c) <= DEEP_WATER && throttle !== 0);
+      let blocked = lead - this.pos.y > STEP_UP || all - this.pos.y > STEP_UP + 0.3 || (deep && !this.inWater) || (deep && this._water(this.pos.x, this.pos.z, fp.c) <= DEEP_WATER && throttle !== 0);
+      // (Round 16) The corners alone let a tree trunk or a post between them
+      // through the hull: the whole leading edge and the sides too (unless
+      // it is already stuck in something: then it may drive out).
+      if (!blocked) {
+        const from = this.pos.y + STEP_UP + 0.9;
+        const dir = this.speed >= 0 ? 1 : -1;
+        if (this._outlineHit(nx, nz, yaw, from, dir) && !this._outlineHit(this.pos.x, this.pos.z, this.yaw, from, dir)) blocked = true;
+      }
       if (blocked) {
         // (Stopped by a wall: a jolt felt by the driver, no going through.)
         if (Math.abs(this.speed) > 3 && this === mgr.active) mgr.effects?.shake?.add?.(Math.min(0.25, Math.abs(this.speed) * 0.02));
