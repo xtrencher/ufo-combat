@@ -783,6 +783,8 @@ export class VehicleManager {
       return null;
     };
     if (!this.world.getChunk(Math.floor(cx) >> 4, Math.floor(cz) >> 4)) return fail("Too far: that ground isn't loaded");
+    // (Round 16) Over the End's void (nothing under the spot at all): it would fall out of the world.
+    if (g <= 0) return fail(`No ground there for the ${v.name}`);
     v.pos.set(cx, g + v.bottom + (v.type === "jet" ? 0 : 0.3), cz);
     if (v.type === "jet") {
       // (On its three wheels, on dry ground: water under them would wreck it.)
@@ -790,6 +792,9 @@ export class VehicleManager {
       if (wet || c?.wet) return fail(`Not on the water: the ${v.name} needs dry ground (or aim at the sky to start in the air)`);
       if (c) v.pos.y = Math.max(v.pos.y, c.centerY);
     }
+    // (Round 16) A ground vehicle sinks to the bed now: not into deep water
+    // (its engine would drown at once), shallow water is fine.
+    if (v.isGround && wet && typeof v._water === "function" && v._water(cx, cz, v._ground(cx, cz, g)) > 2) return fail(`Not in deep water: the ${v.name} needs ground (or shallow water)`);
     if (!this._roomFor(v, yaw)) return fail(`No room for the ${v.name} there: aim at open, flat ground (or at the sky to start in the air)`);
     v._place?.();
     this._addSummoned(v);

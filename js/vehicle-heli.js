@@ -46,6 +46,7 @@ import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { discShape } from "./hitboxes.js";
 import { voice } from "./voice.js";
+import { isLava } from "./content/nature.js";
 
 const G = 14; // gravity on the helicopter (blocks/s^2: the jets' too)
 const CENTER_Y = 1.7; // the fuselage's middle above the wheels (pos is the middle)
@@ -423,7 +424,8 @@ export class Heli extends Vehicle {
     }
     // (Parked with the engine off and nobody at the controls: asleep, but
     // for a look at the ground under it now and then.)
-    if (!input && this.onGround && this._settled && this.rpm <= 0 && !this.isEnemyHeli && this.vel.lengthSq() < 0.01) {
+    // (Round 16: not while it sits in water or lava, which hurt it by the frame.)
+    if (!input && this.onGround && this._settled && this.rpm <= 0 && !this.isEnemyHeli && this.vel.lengthSq() < 0.01 && !this._wetT) {
       this._sleepT = (this._sleepT ?? 0) - dt;
       if (this._sleepT > 0) return;
       this._sleepT = 0.5;
@@ -609,15 +611,18 @@ export class Heli extends Vehicle {
       const len = Math.abs(L.gear[2][1] - L.gear[0][1]);
       this._groundPitch = clamp(Math.atan2(front - back, len), -0.35, 0.35);
       this._groundRoll = clamp(Math.atan2(hs[0] - hs[1], Math.abs(L.gear[1][0] - L.gear[0][0])), -0.3, 0.3);
-      // (Sitting in the water: it floods.)
-      if (this.onGround && IS_WET[mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(ground - 0.5), Math.floor(this.pos.z))]) {
+      // (Sitting in the water: it floods. Round 16: in lava it burns, at once.)
+      // (Lava is no `liquid`: the ground is its bed, the lava round the airframe.)
+      const under = mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(ground - 0.5), Math.floor(this.pos.z));
+      const lava = isLava(mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(ground + 0.3), Math.floor(this.pos.z)));
+      if (this.onGround && (IS_WET[under] || lava)) {
         this._wetT = (this._wetT || 0) + dt;
-        if (this._wetT > 1.5) {
+        if (this._wetT > (lava ? 0.2 : 1.5)) {
           if (this === mgr.active && !this._toldWet) {
             this._toldWet = true;
-            mgr.onMessage?.("You've ditched in the water: take off or it sinks!");
+            mgr.onMessage?.(lava ? "You've set down in lava: take off, it's burning!" : "You've ditched in the water: take off or it sinks!");
           }
-          this.damage(28 * dt, "crash");
+          this.damage((lava ? 60 : 28) * dt, lava ? "lava" : "crash");
         }
       } else {
         this._wetT = 0;

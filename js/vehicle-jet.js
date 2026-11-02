@@ -1972,7 +1972,9 @@ export class Jet extends Vehicle {
     this.model.canopy.visible = mode !== "cockpit";
     if (mode === "cockpit") {
       const st = this.spec.seat;
-      camera.position.set(st[0], st[1] + 0.15, st[2] + 0.2).applyQuaternion(this.q).add(this.pos);
+      // (Round 16) At the pilot's eyes, just ahead of the visor: from behind
+      // the helmet (the model's pilot) the view was half blacked out by it.
+      camera.position.set(st[0], st[1] + 0.08, st[2] - 0.3).applyQuaternion(this.q).add(this.pos);
       // The cockpit looks along the nose; free look and a locked target turn the view.
       camera.quaternion.copy(this.q);
       if (this.freeLook || Math.abs(this.lookYaw) + Math.abs(this.lookPitch) > 0.01) camera.quaternion.multiply(_q.setFromEuler(_e.set(this.lookPitch, this.lookYaw, this.lookRoll || 0, "YXZ")));
