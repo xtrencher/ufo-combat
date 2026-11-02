@@ -55,7 +55,7 @@ const FORTRESS_KINDS = [
 ];
 // (Round 10) The missions with a place drawn on the ground every frame (a
 // zone to hold, a shelter, the bombardment's rings, the signal beacons).
-const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons", "launch", "baseassault", "medevac"]); // (Round 13: an incoming ballistic missile's ring; Round 14: the rescue's landing zone and crash sites)
+const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons", "launch", "baseassault", "medevac", "aaraid", "apdefense"]); // (Round 16: the defended position's ring) // (Round 13: an incoming ballistic missile's ring; Round 14: the rescue's landing zone and crash sites)
 const ZONE_KINDS = ["beacon", "site", "shelter"]; // (by index, online: netObjects)
 const TAKEN_SETBACK = 60; // seconds a player taken by the hunters costs the clock ("Don't look up")
 
@@ -196,14 +196,23 @@ export class MissionDirector {
     }
     this._wasOn = true;
     if (m.event !== "boss") this.bossInfo = null;
-    if (m.id !== this.missionId) {
+    // (Round 16: the same mission started again on the board is a fresh set-up too.)
+    const runKey = `${m.id}/${this.progress.runId ?? 0}`;
+    if (m.id !== this.missionId || runKey !== this._runKey) {
+      this._runKey = runKey;
       this.missionId = m.id;
       this._cleanup();
       this.state = { t: 0 };
     }
     const st = this.state;
     st.t += dt;
+    // (Round 16) A board mission's clock (it fails when it runs out).
+    if (this.progress.board) {
+      this.progress.tickTimer(dt);
+      if (this.mission !== m) return;
+    }
     this._warpStep(dt);
+    if (m.event === "escort") this._fxEscort(dt);
     if (m.event === "night" || m.event === "swarm") this._nightClock(dt);
     // (Effects that must run every frame.)
     if (m.event === "meteors") this._fxMeteors(dt);
@@ -217,6 +226,7 @@ export class MissionDirector {
     if (this.target) this._lastPlace = { x: this.target.pos.x, z: this.target.pos.z, id: m.id };
     this.checkT = 0.5;
     if (!this.anyAlive) return;
+    this._provide(m);
     // (In Survival the mission chain decides how many UFOs there are: the UFO
     // activity setting is Creative's, so there is no "Off" to check here.)
     switch (m.event) {
@@ -342,6 +352,16 @@ export class MissionDirector {
       case "gunships":
         this._gunshipHunt();
         break;
+      // (Round 16) The mission board's own.
+      case "escort":
+        this._escort();
+        break;
+      case "aaraid":
+        this._aaRaid();
+        break;
+      case "apdefense":
+        this._apDefense();
+        break;
       default:
         this.target = null;
     }
@@ -382,8 +402,13 @@ export class MissionDirector {
     // (Round 14) The rescue's downed crews left on the ground: theirs again.
     for (const c of this.state.crews || []) for (const m of c.people || []) if (!m.dead) m.persist = false;
     // (Round 13) A mission's ground units left over: they go once nobody is near.
+    // (Round 16) The board's escort trucks and spare AA vehicles go with their mission.
+    for (const v of [...this.vehicles.vehicles]) {
+      if (v.missionTruck || (v.missionAA && !v.occupied && !v.netOcc)) this.vehicles.remove(v);
+    }
     for (const v of this.vehicles.vehicles) {
       if (!v.isEnemyGround || !v.mission) continue;
+      delete v._foes; // (Round 16: an escort's ambush went for the trucks too)
       v.mission = false;
       v.ambient = true;
       v.convoy = false;
@@ -1188,13 +1213,16 @@ export class MissionDirector {
     const st = this.state;
     const p = this.player.position;
     if (!st.place) {
-      const v = this.terrain.villages.nearestVillage(p.x, p.z, 2500);
+      // (Round 16: a near one, on foot; it used to pick villages up to 2,500 blocks off.)
+      const v = this.terrain.villages.nearestVillage(p.x, p.z, 600);
       if (v) st.place = { x: v.x, y: v.groundY, z: v.z, name: "Village" };
       else {
         // No village near: an outpost (the airport, or a spot out there).
-        const a = this.airports.nearest(2500);
+        const a = this.airports.nearest(600);
+        const o = this._groundSpot(220, 0.3, p);
         if (a) st.place = { x: a.site.x, y: a.site.y, z: a.site.z, name: "Airport" };
-        else st.place = { x: p.x + 400, y: this.terrain.heightAt(Math.floor(p.x + 400), Math.floor(p.z)), z: p.z, name: "Outpost" };
+        else if (o) st.place = { x: o.x, y: o.y, z: o.z, name: "Outpost" };
+        else st.place = { x: p.x + 250, y: this.terrain.heightAt(Math.floor(p.x + 250), Math.floor(p.z)), z: p.z, name: "Outpost" };
       }
     }
     const place = st.place;
@@ -1360,12 +1388,13 @@ export class MissionDirector {
   }
 
   // The raid missions' place: the nearest village, else the airport, else a spot out there.
+  // (Round 16: within 700 blocks, else an outpost 300 off; it used to look 2,500 blocks out, a long way on foot.)
   _raidPlace(p) {
-    const v = this.terrain.villages.nearestVillage(p.x, p.z, 2500);
+    const v = this.terrain.villages.nearestVillage(p.x, p.z, 700);
     if (v) return { x: v.x, y: v.groundY, z: v.z, name: "Village" };
-    const a = this.airports.nearest(2500);
+    const a = this.airports.nearest(700);
     if (a) return { x: a.site.x, y: a.site.y, z: a.site.z, name: "Airport" };
-    return { x: p.x + 400, y: this.terrain.heightAt(Math.floor(p.x + 400), Math.floor(p.z)), z: p.z, name: "Outpost" };
+    return { x: p.x + 300, y: this.terrain.heightAt(Math.floor(p.x + 300), Math.floor(p.z)), z: p.z, name: "Outpost" };
   }
 
   // ---------- (Round 9) 26. Night of the swarm ----------
@@ -1908,6 +1937,12 @@ export class MissionDirector {
       u.carrier = false;
       this._releaseShip(u);
       this.toast?.("A carrier got away with its captives!", 3);
+      // (Round 16: on the board, two away loses the mission.)
+      st.gotAway = (st.gotAway || 0) + 1;
+      if (st.gotAway >= 2 && this.progress.board) {
+        this._fail("Two carriers got away with their captives.");
+        return;
+      }
     }
     const left = this._remaining();
     if (st.carriers.length === 0 && left > 0) {
@@ -2104,10 +2139,18 @@ export class MissionDirector {
   // destruction counts (the stats, there) and the director's own tallies.
   attachGround(war) {
     this.ground = war;
-    war.onDown.push((u) => {
+    war.onDown.push((u, how) => {
       const st = this.state;
       if (u.mission && st) st.lost = (st.lost || 0) + 1;
+      this._attackerDown(u, how);
     });
+  }
+
+  // (Round 16) An airport attacker destroyed by a player (Airport defense).
+  _attackerDown(u, how) {
+    if (!u.apMission || !how?.pid) return;
+    if (how.mine) this.stats.add("attackersDown");
+    else this.stats.addWorld("attackersDown");
   }
 
   get _war() {
@@ -2148,7 +2191,8 @@ export class MissionDirector {
     // so they don't pile up.)
     for (const v of this.vehicles.vehicles) {
       if (mine.length >= Math.min(3, this.groupN)) break;
-      if (v.missionTank && v.alive && !v.puppet && !mine.includes(v)) {
+      // (Round 16: only one near here; a tank left by a mission far away is no use.)
+      if (v.missionTank && v.alive && !v.puppet && !mine.includes(v) && Math.hypot(v.pos.x - c.x, v.pos.z - c.z) < 300) {
         mine.push(v);
         st[`${key}Given`] = (st[`${key}Given`] || 0) + 1;
       }
@@ -2238,6 +2282,10 @@ export class MissionDirector {
       const spot = this._farSpot(st.aim, v === 2 ? rand(950, 1150) : rand(700, 880));
       st.battery = spot ? new THREE.Vector3(spot.x, spot.y, spot.z) : st.aim.clone().add(new THREE.Vector3(800, 0, 0));
     }
+    if (st.failAt && st.t >= st.failAt && this.progress.board) {
+      this._fail(`Two missiles hit ${st.aimName}.`);
+      return;
+    }
     const tels = this._units("tels");
     const left = this._remaining();
     st.spawnT = (st.spawnT ?? 0) - 0.5;
@@ -2287,6 +2335,9 @@ export class MissionDirector {
         const m = t.lastMissile;
         const flight = 9 + Math.max(0, m.path.length - 780) / 270;
         st.rings.push({ pos: m.T.clone(), r: 26, t: flight });
+        // (Round 16: on the board, the second missile that gets away loses the mission when it lands.)
+        st.launches = (st.launches || 0) + 1;
+        if (st.launches >= 2 && !st.failAt) st.failAt = st.t + flight;
         this.toast?.(`BALLISTIC MISSILE INBOUND at ${st.aimName}: impact in about ${Math.round(flight)} s! Keep clear of the red ring.`, 6);
       }
     }
@@ -2314,6 +2365,11 @@ export class MissionDirector {
       if (u.routeDone) {
         this.vehicles.remove(u);
         st.escaped = (st.escaped || 0) + 1;
+        // (Round 16: on the board, three vehicles through and the convoy has won.)
+        if (st.escaped >= 3 && this.progress.board) {
+          this._fail("Too much of the convoy got away.");
+          return;
+        }
         if (!st.toldEscape) {
           st.toldEscape = true;
           this.toast?.("Part of the convoy got away! Another one is on the move.", 4);
@@ -2432,7 +2488,8 @@ export class MissionDirector {
       if (!site) {
         let bd = Infinity;
         for (const s of sites.within(c.x, c.z, 6000)) {
-          const d = Math.hypot(s.x - c.x, s.z - c.z) + (s.base ? 0 : 2500);
+          // (Round 16: a base first, but not one three times as far as an airport; the audit found it picking one 2,500 blocks off.)
+          const d = Math.hypot(s.x - c.x, s.z - c.z) + (s.base ? 0 : 500);
           if (s.kind === "airport" && d < bd && Math.hypot(s.x - c.x, s.z - c.z) > 500) {
             bd = d;
             site = s;
@@ -2456,6 +2513,12 @@ export class MissionDirector {
     for (const q of this._people()) d = Math.min(d, q.position.distanceTo(at));
     // Our tanks outside the gate, once someone is on the way.
     if (d < 1300) this._giveTanks(st.ours, at, "mbt", "mine");
+    // (Round 16: a far base: the tanks wait by the players instead, to drive there.)
+    else if (this.progress.board) {
+      const c = this._groupMiddle();
+      const dir = new THREE.Vector3(at.x - c.x, 0, at.z - c.z).normalize();
+      this._giveTanks(c.clone().addScaledVector(dir, 15), at, "mbt", "mine");
+    }
     const units = this._units();
     // The garrison, when someone is near (the ground there is loaded).
     if (!st.garrisoned && d < 900) {
@@ -2519,7 +2582,10 @@ export class MissionDirector {
         this.toast?.("BALLISTIC MISSILE INBOUND: get out of the red ring!", 5);
       }
     }
-    if (d > 420 || !units.length) this._setTarget(at, "Enemy-held base");
+    // (Round 16: the tank given to you first, while it waits for you nearby.)
+    const tank = this._nearestOf(this._units("mine"));
+    if (!this._crewed() && tank && d > 300 && tank.pos.distanceTo(this.player.position) < 250) this._setTarget(tank, "Your tank: get in (F)");
+    else if (d > 420 || !units.length) this._setTarget(at, "Enemy-held base");
     else {
       const t = this._nearestOf(units);
       this._setTarget(t, `Base defender (${units.length} in sight)`);
@@ -2531,9 +2597,10 @@ export class MissionDirector {
 
   attachHelis(war) {
     this.helis = war;
-    war.onDown.push((u) => {
+    war.onDown.push((u, how) => {
       const st = this.state;
       if (u.mission && st) st.lost = (st.lost || 0) + 1;
+      this._attackerDown(u, how);
     });
   }
 
@@ -2560,7 +2627,7 @@ export class MissionDirector {
     // (The ones given before a reload are saved with the world: those first.)
     for (const v of this.vehicles.vehicles) {
       if (mine.length >= want) break;
-      if (v.missionHeli && v.alive && !v.puppet && !mine.includes(v)) {
+      if (v.missionHeli && v.alive && !v.puppet && !mine.includes(v) && Math.hypot(v.pos.x - c.x, v.pos.z - c.z) < 300) {
         mine.push(v);
         st[`${key}Given`] = (st[`${key}Given`] || 0) + 1;
       }
@@ -2741,6 +2808,11 @@ export class MissionDirector {
         const h = cr.heli;
         if (!h || !h.alive || !this.vehicles.vehicles.includes(h)) {
           cr.state = "lost";
+          // (Round 16: on the board, the mission is lost with them.)
+          if (this.progress.board) {
+            this._fail("The helicopter went down with the crew aboard.");
+            return;
+          }
           st.waitT = 20;
           this.toast?.("The helicopter went down with the crew aboard! Another crew needs you.", 5);
           continue;
@@ -2823,6 +2895,387 @@ export class MissionDirector {
       else this.target = null;
     }
     st.note = ships.length ? "They fight back: flares (C) for their missiles, and keep moving." : "";
+  }
+
+  // ---------- (Round 16) The mission board ----------
+
+  // A mission is lost: on the board, it fails (retry from the board); in an
+  // old run (no failing there), it starts over.
+  _fail(reason) {
+    if (this.progress.board) {
+      this.progress.fail(reason);
+      return;
+    }
+    this.toast?.(`${reason} Starting over.`, 5);
+    this._cleanup();
+    this.state = { t: 0 };
+  }
+
+  // The vehicle a board mission gives you: a jet (or the B-2) called in near
+  // the host (a runway if one is close, else in the air); the tanks, the
+  // helicopters and the AA vehicles are set out by the missions themselves.
+  _provide(m) {
+    const st = this.state;
+    if (!this.progress.board || st.provided || !(m.vehicle === "jet" || m.vehicle === "b2")) return;
+    const act = this.vehicles.active;
+    if (act?.type === "jet" && (m.vehicle !== "b2" || act.jetType === "b2")) {
+      st.provided = true;
+      return;
+    }
+    st.provideT = (st.provideT ?? 0) - 0.5;
+    if (st.provideT > 0) return;
+    st.provideT = 2;
+    if (this.callJet?.(m.vehicle === "b2" ? "b2" : "f16")) st.provided = true;
+  }
+
+  // A parked AA vehicle of ours for the group (one each, two at most), near `c`.
+  _giveAA(c, key = "aas") {
+    const st = this.state;
+    const mine = this._units(key);
+    const want = Math.min(2, this.groupN);
+    if (st[`${key}Given`] >= want && mine.length) return mine;
+    if (!mine.length && st[`${key}Given`] && (st[`${key}T`] = (st[`${key}T`] ?? 25) - 0.5) > 0) return mine;
+    st[`${key}T`] = 25;
+    const war = this._war;
+    for (let i = mine.length; i < want; i++) {
+      const at = war ? war.landAt(c.x + (i ? 12 : 0), c.z + (i ? 6 : 0), 14) : [c.x, c.y, c.z];
+      if (!at) continue;
+      const v = this.vehicles.create("aapark", { pos: at, yaw: Math.random() * Math.PI * 2 });
+      if (!v) continue;
+      v.settle?.(true);
+      v.missionAA = true;
+      v.transient = true; // (not kept with the world: the mission sets one out again)
+      mine.push(v);
+      st[`${key}Given`] = (st[`${key}Given`] || 0) + 1;
+    }
+    return mine;
+  }
+
+  // Is anyone in one of these vehicles?
+  _manned(list) {
+    return list.some((v) => v.alive && (v.occupied || (v.puppet && v.netOcc)));
+  }
+
+  // A road over land from near `c`, about `len` long: to a site (an airport
+  // or a base) at that distance if there is one, else out into the open.
+  // Points every 20 blocks, all of them on dry land (the height map: it is
+  // known far beyond the loaded ground). null if none was found.
+  _escortRoute(c, len) {
+    const T = this.terrain;
+    const dry = (x, z) => T.heightAt(Math.floor(x), Math.floor(z)) > SEA_LEVEL + 1;
+    const tryTo = (tx, tz) => {
+      const dx = tx - c.x;
+      const dz = tz - c.z;
+      const L = Math.hypot(dx, dz);
+      const ux = dx / L;
+      const uz = dz / L;
+      const pts = [];
+      for (let s = 30; s <= L; s += 20) {
+        // (A gentle sway, as a road would have.)
+        const w = Math.sin(s / 90) * 10;
+        const x = c.x + ux * s - uz * w;
+        const z = c.z + uz * s + ux * w;
+        if (!dry(x, z)) return null;
+        pts.push(new THREE.Vector3(x, 0, z));
+      }
+      return pts.length > 8 ? pts : null;
+    };
+    const sites = T.sites?.within?.(c.x, c.z, len + 400) || [];
+    for (const s of sites) {
+      const d = Math.hypot(s.x - c.x, s.z - c.z);
+      if (d < len * 0.7 || d > len + 400) continue;
+      const pts = tryTo(s.x, s.z);
+      if (pts) return { pts, name: s.kind === "airport" ? "the airport" : "the base" };
+    }
+    for (let k = 0; k < 16; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const pts = tryTo(c.x + Math.cos(a) * len, c.z + Math.sin(a) * len);
+      if (pts) return { pts, name: "the supply depot" };
+    }
+    return null;
+  }
+
+  // Where along the route (distance s from its start): [x, z, yaw].
+  _routeAt(st, s) {
+    const pts = st.route;
+    const i = Math.max(0, Math.min(pts.length - 2, Math.floor(s / 20)));
+    const a = pts[i];
+    const b = pts[i + 1];
+    const k = Math.max(0, Math.min(1, s / 20 - i));
+    return [a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, Math.atan2(-(b.x - a.x), -(b.z - a.z))];
+  }
+
+  // Convoy escort: three of our trucks driving to a site down a road; a tank
+  // for each player; ambushes of hijacked tanks (they go for the trucks)
+  // along the way. The trucks wait while nobody escorts them. Two (the
+  // goal) must get there: fewer left on the road than that, and it fails.
+  _escort() {
+    const st = this.state;
+    const war = this._war;
+    if (!war) {
+      this.target = null;
+      return;
+    }
+    const v = this.mission.variant ?? 0;
+    if (!st.route) {
+      const c = this._groupMiddle();
+      const plan = this._escortRoute(c, v === 2 ? 820 : 600);
+      if (!plan) {
+        st.note = "Our trucks are looking for a way through...";
+        this.target = null;
+        return;
+      }
+      st.route = plan.pts;
+      st.dest = plan.name;
+      st.len = (plan.pts.length - 1) * 20;
+      st.dist = 30; // (the lead truck's place on the road)
+      st.ambush = v === 2 ? [0.25, 0.5, 0.75] : [0.33, 0.66];
+      st.ambushI = 0;
+      st.trucks = [];
+      for (let i = 0; i < 3; i++) {
+        const [x, z, yaw] = this._routeAt(st, st.dist - i * 16);
+        const y = this.vehicles.groundBelow(x, this.terrain.heightAt(Math.floor(x), Math.floor(z)) + 4, z);
+        const t = this.vehicles.create("tel", { pos: [x, y, z], yaw });
+        if (!t) continue;
+        t.settle?.(true);
+        t.missionTruck = true;
+        t.transient = true;
+        t.npc = true;
+        t.unusable = true; // (ours, but driven by their crews: not to be boarded)
+        t.slot = i;
+        st.trucks.push(t);
+      }
+      this.toast?.(`CONVOY: our trucks are rolling for ${plan.name}. Get in the tank and escort them!`, 5);
+    }
+    const p0 = this._routeAt(st, Math.max(0, st.dist - 40));
+    const mine = this._giveTanks(new THREE.Vector3(p0[0] + 12, 0, p0[1] + 12), new THREE.Vector3(st.route[st.route.length - 1].x, 0, st.route[st.route.length - 1].z), v === 3 ? "tiger" : "mbt");
+    // The trucks: on the road, delivered, or lost.
+    const need = this.progress.objectives(this.stats.world)[0]?.goal ?? 2;
+    const onRoad = st.trucks.filter((t) => t.alive && this.vehicles.vehicles.includes(t) && !t.delivered);
+    const delivered = st.trucks.filter((t) => t.delivered).length;
+    if (onRoad.length + delivered < need) {
+      this._fail(`Too many trucks were lost: only ${onRoad.length + delivered} of ${st.trucks.length} left.`);
+      return;
+    }
+    // The ambushes, as the convoy gets to them.
+    const head = st.dist / st.len;
+    if (st.ambushI < st.ambush.length && head >= st.ambush[st.ambushI] - 0.08) {
+      st.ambushI++;
+      const s = Math.min(st.len, st.dist + 150);
+      const [x, z, yaw] = this._routeAt(st, s);
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const at = war.landAt(x + Math.cos(yaw) * 70 * side, z - Math.sin(yaw) * 70 * side, 30);
+      if (at) {
+        const road = new THREE.Vector3(x, at[1], z);
+        const list = war.spawnPlatoon(new THREE.Vector3(at[0], at[1], at[2]), v === 3 ? 2 : 2 + (st.ambushI > 1 ? 1 : 0), { face: road, tiger: v === 3 ? 1 : 0.2 });
+        const trucks = () => st.trucks.filter((t) => t.alive && !t.delivered).map((t) => ({ vehicle: t, position: t.pos, velocity: t.vel, dead: false }));
+        for (const u of list) {
+          u.mission = true;
+          u.home = road.clone();
+          // (Round 16) The ambush goes for the trucks too (EnemyTank picks among its _foes).
+          u._foes = () => [...war.foes(), ...trucks()];
+        }
+        st.units = [...this._units(), ...list];
+        if (v === 1 && st.ambushI === 2 && this._heliWar) {
+          const g = this._heliWar.spawnNear(road, 300, { force: true });
+          if (g) g.mission = true;
+        }
+        if (list.length) this.toast?.(`AMBUSH ahead: ${list.length} enemy tanks by the road!`, 4);
+      }
+    }
+    const units = this._units();
+    // The marker: your tank first; the ambush; the convoy.
+    const lead = onRoad.reduce((a, t) => (!a || t.slot < a.slot ? t : a), null);
+    const p = this.player.position;
+    if (!this._crewed() && mine.length && (!lead || lead.pos.distanceTo(p) > 60)) this._setTarget(this._nearestOf(mine), "Your tank: get in (F)");
+    else if (units.length && lead && this._nearestOf(units).pos.distanceTo(lead.pos) < 350) this._setTarget(this._nearestOf(units), `Ambush: enemy tank (${units.length})`);
+    else if (lead) this._setTarget(lead, `Convoy: ${onRoad.length} truck${onRoad.length === 1 ? "" : "s"}`);
+    else this.target = null;
+    const togo = Math.max(0, Math.round(st.len - st.dist));
+    st.note = `${delivered} delivered, ${onRoad.length} on the road (${need} must make it). ${togo} m to ${st.dest}.${st.waiting ? " The trucks wait for you." : ""}`;
+  }
+
+  // Every frame: the trucks roll along the road (while someone escorts
+  // them, and not into a fight: they slow down near enemy tanks).
+  _fxEscort(dt) {
+    const st = this.state;
+    if (!st.route || !st.trucks) return;
+    const live = st.trucks.filter((t) => t.alive && !t.delivered && this.vehicles.vehicles.includes(t));
+    if (!live.length) return;
+    let near = Infinity;
+    for (const q of this._people()) for (const t of live) near = Math.min(near, Math.hypot(q.position.x - t.pos.x, q.position.z - t.pos.z));
+    st.waiting = near > 140;
+    const speed = st.waiting ? 0 : 6;
+    st.dist = Math.min(st.len + 40, st.dist + speed * dt);
+    for (const t of live) {
+      const s = st.dist - t.slot * 16;
+      if (s >= st.len) {
+        t.delivered = true;
+        t.vel.set(0, 0, 0);
+        this.stats.add("trucksDelivered");
+        this.toast?.("A truck made it through!", 3);
+        continue;
+      }
+      const [x, z, yaw] = this._routeAt(st, Math.max(0, s));
+      const y = this.vehicles.groundBelow(x, this.terrain.heightAt(Math.floor(x), Math.floor(z)) + 4, z);
+      if (speed > 0 && s > 0) t.vel.set(-Math.sin(yaw) * speed, 0, -Math.cos(yaw) * speed);
+      else t.vel.set(0, 0, 0);
+      t.pos.set(x, y, z);
+      t.yaw = yaw;
+    }
+  }
+
+  // Air raid: waves of UFOs coming in on the group's position; an AA
+  // vehicle of ours for each player. Raiders over the position wear it down.
+  _aaRaid() {
+    const st = this.state;
+    const v = this.mission.variant ?? 0;
+    if (!st.center) {
+      const c = this._groupMiddle();
+      const at = this._groundSpot(12, 0.4, c) || c;
+      st.center = new THREE.Vector3(at.x, at.y, at.z);
+      st.hp = 100;
+      st.wave = 0;
+      st.waveT = 20; // (a moment to get into the AA vehicle)
+      st.zone = { x: st.center.x, y: st.center.y, z: st.center.z, r: 60, kind: "beacon" };
+    }
+    const c = st.center;
+    const aas = this._giveAA(c);
+    st.raiders = (st.raiders || []).filter((u) => this._alive(u));
+    const left = this._remaining();
+    st.waveT -= 0.5;
+    if (!st.raiders.length && left > 0 && st.waveT <= 0) {
+      st.wave++;
+      st.waveT = 12;
+      const n = Math.min(left, v === 2 ? 4 : 3);
+      const a0 = Math.random() * Math.PI * 2;
+      for (let i = 0; i < n; i++) {
+        const a = a0 + rand(-0.4, 0.4);
+        const R = rand(380, 460);
+        const x = c.x + Math.cos(a) * R + rand(-30, 30);
+        const z = c.z + Math.sin(a) * R + rand(-30, 30);
+        const u = this.ufos.spawn({ size: i === 0 && st.wave > 1 ? "medium" : "small", style: i % 2 ? "sweep" : "volley", pos: { x, y: Math.max(c.y, SEA_LEVEL) + rand(45, 65), z }, hidden: true });
+        if (!u) continue;
+        u.raidMission = true;
+        this._keepTarget(u);
+        u.home = c.clone();
+        u.tether = 70;
+        u.dodgeMul = 0.5;
+        if (v === 3) u.maxHealth = u.health = Math.round(u.health * 1.6);
+        this.ufos.anger(u, 400);
+        st.raiders.push(u);
+      }
+      if (v === 1 && st.wave === 2) {
+        const j = this.enemyJets?.spawn({ hostile: true, dist: 650, center: c });
+        if (j) j.mission = true;
+      }
+      this.toast?.(`AIR RAID: wave ${st.wave}, ${st.raiders.length} raiders inbound!`, 4);
+    }
+    // The raiders over the position wear it down.
+    let over = 0;
+    for (const u of st.raiders) if (Math.hypot(u.pos.x - c.x, u.pos.z - c.z) < 90) over++;
+    st.hp = Math.max(0, st.hp - over * 0.35);
+    if (st.hp <= 0) {
+      this._fail("The position was overrun by the raid.");
+      return;
+    }
+    const near = this._nearestOf(st.raiders);
+    if (!this._manned(aas) && aas.length && (!near || near.pos.distanceTo(this.player.position) > 160)) this._setTarget(this._nearestOf(aas), "Your AA vehicle: get in (F)");
+    else if (near) this._setTarget(near, `Raider (${st.raiders.length})`);
+    else this.target = { pos: c.clone(), label: "The position: next wave soon", follow: null };
+    st.note = `Position: ${Math.round(st.hp)}%. ${st.raiders.length ? `${over} raider${over === 1 ? "" : "s"} over it.` : `Next wave in ${Math.max(0, Math.round(st.waveT))} s.`}`;
+  }
+
+  // Airport defense: the nearest airport (or a forward airstrip) attacked
+  // in waves: a tank column, gunships, UFOs. An Apache and an AA vehicle of
+  // ours there. Attackers that reach it wear it down.
+  _apDefense() {
+    const st = this.state;
+    const war = this._war;
+    const v = this.mission.variant ?? 0;
+    if (!st.center) {
+      const c = this._groupMiddle();
+      const s = this.terrain.sites?.nearest?.(c.x, c.z, 900, "airport");
+      if (s) {
+        st.center = new THREE.Vector3(s.x, (s.y ?? SEA_LEVEL) + 1, s.z);
+        st.name = "The airport";
+      } else {
+        const at = this._groundSpot(60, 0.4, c) || c;
+        st.center = new THREE.Vector3(at.x, at.y, at.z);
+        st.name = "The airstrip";
+      }
+      st.hp = 100;
+      st.wave = 0;
+      st.waveT = 30; // (time to get there and into the helicopter)
+      st.zone = { x: st.center.x, y: st.center.y, z: st.center.z, r: 110, kind: "beacon" };
+    }
+    const c = st.center;
+    const helis = this._giveHelis(_v.copy(c).add(new THREE.Vector3(25, 0, 18)), new THREE.Vector3(c.x + 200, c.y, c.z), "apache");
+    const aas = this._giveAA(new THREE.Vector3(c.x - 20, c.y, c.z - 15));
+    const units = (this._units("attackers") || []).concat();
+    st.ufoAtk = (st.ufoAtk || []).filter((u) => this._alive(u));
+    const all = [...units, ...st.ufoAtk];
+    const left = this._remaining();
+    st.waveT -= 0.5;
+    if (all.length < 2 && left > 0 && st.waveT <= 0) {
+      st.wave++;
+      st.waveT = 18;
+      const kind = st.wave % 3; // 1: a tank column, 2: gunships, 0: UFOs
+      const a = Math.random() * Math.PI * 2;
+      const from = new THREE.Vector3(c.x + Math.cos(a) * 480, c.y, c.z + Math.sin(a) * 480);
+      let n = 0;
+      if (kind === 1 && war) {
+        const at = war.landAt(from.x, from.z, 60);
+        const list = at ? war.spawnPlatoon(new THREE.Vector3(at[0], at[1], at[2]), Math.min(3, left), { face: c, tiger: v === 2 ? 0.8 : 0.25, first: v === 2 ? "tiger" : null }) : [];
+        for (const u of list) {
+          u.mission = true;
+          u.apMission = true;
+          u.home = c.clone();
+          st.attackers = [...(st.attackers || []), u];
+        }
+        n = list.length;
+        if (n) this.toast?.(`${st.name.toUpperCase()} UNDER ATTACK: a tank column is rolling in!`, 4);
+      } else if (kind === 2 && this._heliWar) {
+        for (let i = 0; i < (v === 1 ? 2 : 1) + (left > 4 ? 1 : 0); i++) {
+          const g = this._heliWar.spawnNear(c, rand(520, 640), { force: true, angle: a + i * 0.4 });
+          if (!g) continue;
+          g.mission = true;
+          g.apMission = true;
+          st.attackers = [...(st.attackers || []), g];
+          n++;
+        }
+        if (n) this.toast?.("ENEMY GUNSHIPS inbound on the airport!", 4);
+      }
+      if (!n) {
+        for (let i = 0; i < Math.min(3, left); i++) {
+          const big = v === 3 && st.wave >= 6 && i === 0;
+          const u = this.ufos.spawn({ size: big ? "large" : i ? "small" : "medium", style: "heavy", pos: { x: from.x + rand(-40, 40), y: Math.max(c.y, SEA_LEVEL) + rand(50, 70), z: from.z + rand(-40, 40) }, hidden: true });
+          if (!u) continue;
+          u.apMission = true;
+          this._keepTarget(u);
+          u.home = c.clone();
+          u.tether = 80;
+          this.ufos.anger(u, 400);
+          st.ufoAtk.push(u);
+        }
+        this.toast?.("UFOs are coming in on the airport!", 4);
+      }
+    }
+    // Attackers at the airport wear it down.
+    let at = 0;
+    for (const u of [...this._units("attackers"), ...st.ufoAtk]) if (Math.hypot(u.pos.x - c.x, u.pos.z - c.z) < 130) at++;
+    st.hp = Math.max(0, st.hp - at * 0.3);
+    if (st.hp <= 0) {
+      this._fail(`${st.name} has fallen.`);
+      return;
+    }
+    const foes = [...this._units("attackers"), ...st.ufoAtk];
+    const p = this.player.position;
+    const busy = this._inHeli() || this._manned(aas) || !!this.vehicles.active;
+    if (!busy && (helis.length || aas.length) && (!foes.length || this._nearestOf(foes).pos.distanceTo(p) > 200)) this._setTarget(this._nearestOf([...helis, ...aas]), "Your helicopter or AA vehicle: get in (F)");
+    else if (foes.length) this._setTarget(this._nearestOf(foes), `Attacker (${foes.length})`);
+    else this.target = { pos: c.clone(), label: `${st.name}: next wave soon`, follow: null };
+    st.note = `${st.name}: ${Math.round(st.hp)}%. ${at ? `${at} attacker${at === 1 ? "" : "s"} at it!` : foes.length ? `${foes.length} inbound.` : `Next wave in ${Math.max(0, Math.round(st.waveT))} s.`}`;
   }
 
   // ---------- (Round 10) What these missions draw on the ground ----------
@@ -3881,6 +4334,9 @@ export class MissionDirector {
       this._freeCaptives(u);
     }
     if (u.beacon) add("beaconsDown");
+    // (Round 16) The board's air raid and airport defense.
+    if (u.raidMission) add("raidDown");
+    if (u.apMission) add("attackersDown");
     if (u.spotter && this.mission?.event === "evac") {
       this.state.spotterDown = true;
       this.toast?.("The spotter is down: the rocks fall wide now!", 4);

@@ -2675,3 +2675,36 @@ Parts (parallel): **anywhere** (boarding, vehicles per dimension), **hacks**, **
 
 ### Release step: build stamp (Round 15 follow-up)
 Players with stale cached JS saw new buttons that did nothing. index.html now fetches `js/build.json` (no-store) and, when the build hash changes, re-fetches every script with `cache: "reload"` before importing main.js. **Run `node tools/stamp-build.mjs` before every release** to regenerate js/build.json.
+
+# Round 16 track C: the missions, rethought (the mission board)
+The owner: "Rethink the whole mission system, because it has to be playable, actually playable, with all those changes we made."
+
+## Audit (played through tools/probe.mjs: every one of the 42 pool missions started by the director in a Missions world, seed 42, a minute of its checks, then completed)
+- **Nothing crashed and every mission could be completed** by its stats; no mission unit spawned in water, lava or inside the ground (the ground war's `landAt` and `_groundSpot` hold up). The problems were in how the missions are reached and played:
+- **No choice, no way out:** a fixed, classified run of 27-31 missions, one after another. A mission you were stuck in (or disliked) blocked everything after it: there was no abandon, no retry, and no way to fail. Online, guests could only watch the host's run.
+- **Long walks:** the jet missions (Take to the air, Touchdown, Dogfight, Operation Sunburn) pointed at the nearest airport, 538 blocks off on seed 42; Air superiority and Scramble's fighters came in ~790 blocks off while you were on foot; Convoy (956 blocks), Stop the launch (700-880) and Air defense (~480) needed a jet from that airport too. Village under attack and Abductions searched 2,500 blocks for a village (505 and 509 blocks on seed 42); Rescue's carriers ~500 off; Big game and Titan high above, 450-650 off.
+- **Base assault** picked a base 2,546 blocks away (a plain airport counted as 2,500 blocks farther than a base) and handed out its tank only within 1,300 blocks of it.
+- **Recycled vehicles:** `_giveTanks`/`_giveHelis` took any mission tank or helicopter in the world first, so after an earlier mission far away the marker sent you to a tank kilometres off.
+- **No stakes:** nothing failed. A convoy that got away came back, a missile that landed was followed by another, a helicopter shot down with the rescued crew aboard just meant another crew, an escaped carrier another carrier; no mission had a time limit.
+- **Rewards with little effect:** apples and golden apples only, the same curve by place; a weapon reward you already had turned into apples.
+- **Weak missions:** The crew (only works straight after First contact), UFO slayer (twenty-five UFOs: a grind), Take to the air (trivial once a jet is handed to you), Falling stars (a time-lapse to night, then a fetch round). The long night's tracker said "Dawn in about 7 min" with no marker most of the time.
+- **Locks:** the helicopters' message named "mission N" of the run; in Survival vs Creative the missions were simply off in Creative (unchanged: Creative is free play).
+
+## What was built
+- **js/mission-catalog.js** (new): the board: 41 missions in six categories (Infantry 10, Ground war 4, Air 7, Helicopter 3, UFO war 11, Defense 6), tiers Recruit/Veteran/Elite (the tier sets the sky rules and loot tier from the classic curve's places 6/14/22, and the reward), time limits (7-25 min), the vehicle each gives, rewards (Recruit: golden apple, bread, iron; Veteran: 3 golden apples, steak, 2 diamonds; Elite: 6 golden apples, steak, 5 diamonds, 4 emeralds; bonuses for the big ones; a repeat pays the golden apples only), ranks, the unlock rules (a category's Veteran missions open with one of its Recruit wins, Elite with a Veteran win; Armada needs the Overlord; three Recruit ones need Supply drop's pistol). Three new missions registered into the pool: **Convoy escort**, **Air raid**, **Airport defense**.
+- **js/mission-board.js** (new): `MissionBoard extends Progress`: the same interface for the director, HUD and net code (a running mission is a one-mission "run"), plus begin/fail/retry/abandon, the clock, the career (wins, rank), vehicle unlocks behind the old lock ids (`reached("wings")` = jets unlocked, etc.), its own save (v8) and the net state. Old saves (v2-v7) load onto the board: the run's place is gone, its wins count. Automation without `?board` keeps the classic run, so the older suites run unchanged.
+- **js/mission-ui.js** (new): the board screen (category tabs, cards with stars, what you get, time, reward, lock reason, Start/Play again, the running mission with Abandon, the last outcome with Retry) and the tracker (category and stars, time left, objectives with bars, target distance and direction, notes; between missions the outcome and "Press M").
+- **js/missions.js:** the clock and `_fail` (board: fails; an old run: starts over), `_provide` (a jet or the B-2 called in for Air missions and the far UFO ones), `_giveAA`, the new `_escort` (+ `_fxEscort`: trucks driven along a dry road, waiting when nobody escorts them; ambushes target the trucks), `_aaRaid`, `_apDefense` (waves, a position/airport strength that raiders and attackers wear down), fail conditions for Search and rescue, Stop the launch, Convoy and Rescue, nearer raid places, Base assault's nearer base and tanks, only nearby mission tanks/helicopters reused, the escort's trucks and spare AA vehicles cleaned up, a retried mission set up afresh (run id).
+
+## Shared files (small, commented "(Round 16)")
+- js/main.js: `new MissionBoard()`; board lock texts (jets, helicopters wrapper); start/fail toasts; `missionDirector.callJet` (a runway within 200 blocks, else airborne); the tracker and the Missions screen call mission-ui.js; `M` opens the board.
+- js/net/coop.js: the board's state in the mission state (`bd`), the guest mirrors it (toasts for a new mission and a failure), a guest's Start/Abandon goes to the host (`misreq`).
+- js/progression.js: `registerMission()` (the board's new missions into the pool). js/menu.js: the M key in the controls list.
+
+## Known limits
+- The jet a mission calls in is the host's; online, guests use the airports' (or the tanks and helicopters, which are set out for the group).
+- The escort's trucks are driven by the director (no pathfinding: they follow a dry, straight-ish road through trees); online the host drives them.
+- Old runs lose their place (as allowed); their wins carry over only for missions still on the board.
+
+## Tests
+- tools/r16-missions-tests.mjs (new): Node (catalog, board rules, saves) and browser (board screen, one mission per category completed, escort, airport defense, failure and retry, locks and a reload, online co-op).
