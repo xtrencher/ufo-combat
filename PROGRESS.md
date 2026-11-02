@@ -2675,3 +2675,12 @@ Parts (parallel): **anywhere** (boarding, vehicles per dimension), **hacks**, **
 
 ### Release step: build stamp (Round 15 follow-up)
 Players with stale cached JS saw new buttons that did nothing. index.html now fetches `js/build.json` (no-store) and, when the build hash changes, re-fetches every script with `cache: "reload"` before importing main.js. **Run `node tools/stamp-build.mjs` before every release** to regenerate js/build.json.
+
+## Round 16 plan
+User asks: real space flight with no cutscenes; UFOs can fly between planets; planet guides; a warp (faster-than-light) UFO; much higher sky and space line; rocket time warp; canyon run changes (no checkpoint speed-up, respawn at the last checkpoint, biomes, difficulty and width, bots, space sections); a rethink of missions; bug hunt (tanks driving on water).
+Four parallel tracks, each in its own worktree, merged by the lead:
+- **16.A Space**: a seamless solar system. Owns js/space.js, rocket.js, space-sky.js, dim-moon.js, dim-mars.js, js/content/space.js, and new js/solar*.js / js/warp*.js. Tests in tools/r16-space-tests.mjs.
+- **16.B Canyon**: owns js/canyon.js, dim-canyon.js, menu-canyon.js, and new js/canyon-*.js. Tests in tools/r16-canyon-tests.mjs.
+- **16.C Missions**: owns js/missions.js (and new js/mission-*.js). Tests in tools/r16-missions-tests.mjs.
+- **16.D Bugs**: owns tanks.js, vehicle-tank.js, helis.js, vehicle-heli.js, physics.js, plus any file the other tracks don't own. Tests in tools/r16-bugs-tests.mjs.
+Shared files (main.js, index.html, vehicles.js, net/*): small, clearly marked edits only; the lead merges them.
