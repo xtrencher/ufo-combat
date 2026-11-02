@@ -555,7 +555,7 @@ const STACKS = ["full", "core", "ship"];
 
 export class Rocket extends Vehicle {
   constructor(manager, data = {}) {
-    super(manager, { type: "rocket", name: "Rocket", radius: 3, maxHealth: 400 });
+    super(manager, { type: "rocket", name: "Rocket", radius: 6, maxHealth: 400 }); // (radius: getting out, a few blocks off its side)
     this.stack = STACKS.includes(data.stack) ? data.stack : "full";
     this.name = this.stack === "ship" ? "Ship" : "Rocket";
     this.phase = data.phase === "landed" || this.stack === "ship" ? "landed" : "pad";
@@ -763,7 +763,7 @@ export class Rocket extends Vehicle {
     this.camYaw = this.yaw + Math.PI * 0.75;
     this._camManual = false;
     this.cameraMode = 0;
-    ROCKET_HOOKS.space?.caption?.(this.phase === "landed" ? "Space: lift off to orbit" : "Space: start the countdown", "hint", 4);
+    if (this.phase === "pad" || this.phase === "landed") ROCKET_HOOKS.space?.caption?.(this.phase === "landed" ? "Space: lift off to orbit" : "Space: start the countdown", "hint", 4);
   }
 
   onExit() {

@@ -1706,6 +1706,7 @@
         </div>
       </div>
       <div id="pause-callins" class="hidden">
+        <button class="btn" id="pause-hacks-btn" type="button" title="Creative cheats: no reload, bigger explosions, super powers...">HACKS</button>
         <div class="subhead">Call in (Creative): straight into the air, at the controls</div>
         <div class="callin-grid">
           <button class="btn" data-callin="f22" title="F-22 Raptor">F-22</button>
@@ -1891,6 +1892,19 @@
       <div id="mods-world-note" class="hint hidden"></div>
       <div id="mods-tools"></div>
       <div class="menu-buttons">
+        <button class="btn back-btn">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- (Round 15) The Creative hacks: js/hacks-ui.js fills it. -->
+  <div id="hacks-screen" class="overlay hidden">
+    <div class="panel wide hacks-panel">
+      <h2 class="hacks-title">HACKS</h2>
+      <div id="hacks-sub" class="hacks-sub"></div>
+      <div id="hacks-body"></div>
+      <div class="menu-buttons">
+        <button class="btn secondary" id="hacks-reset" type="button">Reset all</button>
         <button class="btn back-btn">Back</button>
       </div>
     </div>

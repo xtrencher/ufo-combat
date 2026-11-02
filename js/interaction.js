@@ -196,7 +196,7 @@ export class Interaction {
     this.powers = null;
   }
 
-  // (Round 15: the hacks' super reach, Creative only: H.reach is 0 otherwise.)
+  // (Round 15: the hacks' super reach, Creative only; H.reach is 6 while it is off.)
   get reach() {
     return this.player.creative ? Math.max(REACH_CREATIVE, H.reach) : REACH_SURVIVAL;
   }

@@ -60,15 +60,26 @@ function fbm3(x, y, z, oct, s) {
   return sum;
 }
 
-// An equirectangular texture painted per pixel by fn(x, y, z, lat) -> [r, g, b, a?] (0-255).
+// An equirectangular texture painted per pixel by fn(x, y, z, lat) -> [r, g, b, a?]
+// (0-255), a few rows at a time (pumpPlanetTextures): no hitch while it is made.
+const JOBS = [];
 function paintSphere(w, h, fn) {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   const g = c.getContext("2d");
   const img = g.createImageData(w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  JOBS.push({ w, h, fn, g, img, row: 0, tex: t });
+  return t;
+}
+function paintRows(job, n) {
+  const { w, h, fn, img } = job;
   const d = img.data;
-  for (let j = 0; j < h; j++) {
+  const end = Math.min(h, job.row + n);
+  for (let j = job.row; j < end; j++) {
     const lat = (0.5 - (j + 0.5) / h) * Math.PI;
     const cl = Math.cos(lat);
     const y = Math.sin(lat);
@@ -82,11 +93,22 @@ function paintSphere(w, h, fn) {
       d[o + 3] = col[3] ?? 255;
     }
   }
-  g.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 2;
-  return t;
+  job.row = end;
+  if (end >= h) {
+    job.g.putImageData(img, 0, 0);
+    job.tex.needsUpdate = true;
+  }
+}
+// Paints the planets' textures for about `ms` milliseconds (Infinity: all of them now).
+export function pumpPlanetTextures(ms = 3) {
+  const t0 = performance.now();
+  while (JOBS.length) {
+    const job = JOBS[0];
+    paintRows(job, 4);
+    if (job.row >= job.h) JOBS.shift();
+    if (performance.now() - t0 > ms) break;
+  }
+  return JOBS.length;
 }
 
 const TEX = {};
@@ -95,8 +117,8 @@ const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[
 // The planets' surface textures (and the Earth's clouds and night lights), made once.
 export function planetTexture(name) {
   if (TEX[name]) return TEX[name];
-  const W = 512;
-  const H = 256;
+  const W = name === "earthNight" || name === "earthClouds" ? 512 : 1024;
+  const H = W / 2;
   let t;
   if (name === "earth") {
     t = paintSphere(W, H, (x, y, z, lat) => {
@@ -187,9 +209,9 @@ void main() {
   vec3 tex = texture2D(uMap, vUv).rgb;
   vec3 col = tex * (0.015 + max(d, 0.0) * 1.35) * uBright;
   if (uHasNight > 0.5) col += texture2D(uNight, vUv).rgb * (1.0 - day) * 0.9;
-  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);
-  col += uAtmo * rim * uAtmoK * smoothstep(-0.25, 0.45, d) * 2.5;
-  col += uAtmo * uAtmoK * 0.06 * day;
+  float rim = pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  col += uAtmo * rim * uAtmoK * smoothstep(-0.25, 0.45, d) * 1.6;
+  col += uAtmo * uAtmoK * 0.03 * day;
   gl_FragColor = vec4(col, 1.0);
 }`;
 // The atmosphere's halo: a shell a little bigger than the planet, glowing at its rim, lit by the sun.
@@ -204,8 +226,8 @@ void main() {
   vec3 n = normalize(vN);
   vec3 v = normalize(cameraPosition - vW);
   float f = 1.0 - abs(dot(n, v));
-  float a = pow(f, 4.0) * uAtmoK * smoothstep(-0.35, 0.4, dot(n, normalize(uSun)));
-  gl_FragColor = vec4(uAtmo * a * 2.2, a);
+  float a = pow(f, 3.0) * uAtmoK * smoothstep(-0.35, 0.4, dot(n, normalize(uSun)));
+  gl_FragColor = vec4(uAtmo * a * 1.6, a);
 }`;
 const cloudFragment = `
 uniform sampler2D uMap;
@@ -254,7 +276,7 @@ export function createPlanet(kind, r, sun, { segments = 64 } = {}) {
   if (P.atmoK > 0) {
     const hm = new THREE.ShaderMaterial({ uniforms: { uSun: { value: sun }, uAtmo: { value: new THREE.Color(...P.atmo) }, uAtmoK: { value: P.atmoK } }, vertexShader: planetVertex, fragmentShader: haloFragment, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false });
     mats.push(hm);
-    halo = new THREE.Mesh(new THREE.SphereGeometry(r * 1.06, segments, Math.round(segments / 2)), hm);
+    halo = new THREE.Mesh(new THREE.SphereGeometry(r * 1.025, segments, Math.round(segments / 2)), hm);
     group.add(halo);
   }
   return {

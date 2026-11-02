@@ -1160,7 +1160,7 @@ export class Player {
     }
 
     // Camera: sneaking lowers the eyes; sprinting widens the field of view.
-    const eyeTarget = this.sneaking ? SNEAK_EYE_DROP : 0;
+    const eyeTarget = this.sneaking ? SNEAK_EYE_DROP * Math.min(1, this.size) : 0;
     this._eyeOffset += (eyeTarget - this._eyeOffset) * Math.min(1, dt * 12);
     const fovTarget = this._fovTarget();
     this.fov += (fovTarget - this.fov) * Math.min(1, dt * (this.binocularFov != null ? 16 : 8));

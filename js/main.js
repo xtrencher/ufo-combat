@@ -68,6 +68,8 @@ import { installGround } from "./tanks.js"; // (Round 13: tanks, AA vehicles, mi
 import { installHelis, heliMissionId } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
+import { HackSystem } from "./hacks.js"; // (Round 15)
+import { HacksUI } from "./hacks-ui.js";
 import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
 import { createJetModel } from "./jet-model.js";
@@ -4417,6 +4419,7 @@ function simulate(dt, frameTime) {
   netherPortals.update(dt); // (Round 12: the nether portals, js/portal.js)
   netherAir.update(dt);
   mp.update(dt);
+  hacks.update(dt, running && gameState !== "start"); // (Round 15: js/hacks.js)
 }
 
 let lastFrozenRender = 0;
@@ -4429,7 +4432,7 @@ function animate() {
   requestAnimationFrame(animate);
   const frameStart = performance.now();
   const frameTime = clock.getDelta();
-  const dt = Math.min(frameTime, MAX_DT); // simulation step (clamped after hitches)
+  const dt = Math.min(frameTime, MAX_DT) * hacks.timeWarp; // simulation step (clamped after hitches; Round 15: the hacks' bullet time)
   simulate(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
@@ -4452,6 +4455,11 @@ function animate() {
     if (++framesSinceReady === 3) saveBootRecord({ preset: graphicsPreset, ok: true });
   }
 }
+
+// (Round 15) The Creative hacks (js/hacks.js) and their screen (js/hacks-ui.js).
+const hacks = new HackSystem({ player, world, scene, camera, effects, weapons, interaction, mobs, ufos, vehicles, nuke, sky, audio, avatar, mp, net, seed: SEED, getState: () => gameState, toast, sendTime: () => mp.active && net.isHost && net.broadcast({ t: "time", time: sky.time, scale: sky.timeScale ?? 1, locked: !!sky.locked, ts: net.time }) });
+new HacksUI(hacks, { openScreen, screens, audio });
+window.__voxelands.hacks = hacks;
 
 // Vehicles last: the player may have saved while seated in one.
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);

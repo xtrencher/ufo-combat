@@ -181,6 +181,18 @@ export class CanyonRun {
     this._buildGhost();
     this._buildHud();
     this._hook();
+    // The pause menu: "Fly again", and the way out says what it does.
+    const menuBtn = document.getElementById("main-menu-btn");
+    if (menuBtn) menuBtn.textContent = "Leave the canyon";
+    const resume = document.getElementById("resume-btn");
+    if (resume && !document.getElementById("canyon-again-btn")) {
+      const again = document.createElement("button");
+      again.className = "btn big";
+      again.id = "canyon-again-btn";
+      again.textContent = "Fly again (R)";
+      again.addEventListener("click", () => this.restart());
+      resume.after(again);
+    }
     // The ground around the start, at once (the mouth: wide open, quick).
     const s = this._startPose();
     this.world.prepareArea(s.x, s.z, 2);
@@ -290,7 +302,13 @@ export class CanyonRun {
     v.throttle = 0.72;
     this.jet = v;
     this._start = { pos: v.pos.clone(), q: v.q.clone(), vel: v.vel.clone() };
-    mgr.enter(v);
+    // (Back in the seat, not boarded anew: no "jets flown" for every try.)
+    mgr.restoring = true;
+    try {
+      mgr.enter(v);
+    } finally {
+      mgr.restoring = false;
+    }
     const p = this.game.player;
     p.position.copy(v.pos);
     // The run's own state.

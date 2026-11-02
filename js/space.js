@@ -35,7 +35,7 @@
 // vehicle) and see a ship come down where they are.
 import * as THREE from "three";
 import { ROCKET_HOOKS, createRocketModel, createBoosterMesh } from "./rocket.js";
-import { SpaceSky, createPlanet } from "./space-sky.js";
+import { SpaceSky, createPlanet, planetTexture, pumpPlanetTextures } from "./space-sky.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { voice } from "./voice.js";
@@ -104,7 +104,7 @@ export class SpaceSystem {
 #space-hud .cap.count { top: 22%; font: 800 120px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: 2px; color: #ffe9b0; }
 #space-hud .cap.big { top: 26%; font: 800 52px/1.1 "Segoe UI", system-ui, sans-serif; letter-spacing: 6px; }
 #space-hud .cap.stage { top: 18%; font: 600 26px/1.2 "Segoe UI", system-ui, sans-serif; letter-spacing: 3px; color: #cfe7ff; }
-#space-hud .cap.hint { bottom: 22%; font: 500 18px/1.3 "Segoe UI", system-ui, sans-serif; color: #e8eef6; background: rgba(8,12,20,0.55); padding: 6px 14px; border-radius: 6px; }
+#space-hud .cap.hint { top: 36%; font: 500 18px/1.3 "Segoe UI", system-ui, sans-serif; color: #e8eef6; background: rgba(8,12,20,0.55); padding: 6px 14px; border-radius: 6px; }
 #space-menu { position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%); display: none; gap: 14px; }
 #space-menu .d { width: 150px; padding: 12px 10px 10px; border-radius: 10px; background: rgba(8,14,26,0.72); border: 1px solid rgba(160,200,255,0.35); text-align: center; }
 #space-menu .d.here { border-color: rgba(255,220,140,0.55); }
@@ -141,6 +141,14 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     this.lastCaption = text;
   }
 
+  _clearCaptions() {
+    if (!this.caps) return;
+    for (const c of Object.values(this.caps)) {
+      c.t = 0;
+      c.el.style.opacity = "0";
+    }
+  }
+
   _captions(dt) {
     if (!this.caps) return;
     for (const c of Object.values(this.caps)) {
@@ -153,6 +161,8 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
   // ---------- The rocket's word ----------
 
   onCountdown(r) {
+    // (the planets' looks, painted a little each frame from now: ready by orbit)
+    if (r === this.vehicles.active) for (const n of ["earth", "earthClouds", "earthNight", "moon", "mars"]) planetTexture(n);
     if (r === this.vehicles.active) this.caption(r.stack === "ship" ? "Lift-off in 3" : "Countdown: T-10", "stage", 2);
   }
 
@@ -271,6 +281,7 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     t.t = 0;
     this.menuEl.style.display = "none";
     this.titleEl.style.display = "none";
+    this._clearCaptions();
     const same = dim === t.from;
     this.caption(same ? `Deorbit burn: back to ${NAME_OF[dim]}` : `Transfer burn: to ${NAME_OF[dim]}`, "stage", 3);
     voice.say("rocket_burn", { text: same ? "Deorbit burn" : `Trans ${dim === "overworld" ? "Earth" : dim === "moon" ? "lunar" : "Mars"} injection` });
@@ -331,8 +342,9 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     if (!v) return;
     v.summoned = true;
     v.keep = true;
-    v.camYaw = Math.PI * 0.25;
     this.vehicles.enter(v);
+    v.camYaw = Math.PI * 0.25;
+    v.camPitch = -0.5; // (from above: the ground coming up)
     this._fade(1, 0);
     this.caption(dim === "overworld" ? "Re-entry: home" : `Descent to ${NAME_OF[dim] || "the surface"}`, "big", 3);
     this.caption("The autopilot lands it — or take over: Space/Shift throttle, W A S D tilt", "hint", 6);
@@ -430,6 +442,9 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
   }
 
   _openOrbit() {
+    for (const n of ["earth", "earthClouds", "earthNight", "moon", "mars"]) planetTexture(n);
+    pumpPlanetTextures(Infinity); // (whatever is left of them: now)
+    this._clearCaptions();
     if (!this._orbit) this._buildOrbit();
     const o = this._orbit;
     const t = this.trip;
@@ -443,6 +458,7 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     o.camPitch = 0;
     o.camInit = false;
     o.look = null;
+    o.wasBack = undefined;
     o.core.root.visible = t.stack !== "ship";
     o.ship.setLegs(0);
     this.view = { scene: o.scene, camera: o.camera };
@@ -527,31 +543,47 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
       const k = Math.min(1, t.t / TRANSFER_T);
       o.core.root.visible = false;
       shipPower = t.t < 3.2 ? 1 : 0;
-      // the planet left behind falls away and shrinks; the new one comes up ahead
-      const away = smooth(0.02, 0.85, k);
+      // The planet left behind falls away and shrinks (first: the camera
+      // ahead of the ship, looking back at the burn and the planet); the new
+      // one comes up ahead (then: from behind the ship, looking where it goes).
+      const away = smooth(0.02, 0.8, k);
       const to = this._planet(PLANET_OF[t.to] || "earth");
       to.group.visible = true;
+      const back = k < 0.38;
       if (to !== home) {
-        home.group.position.set(-away * 7000, -(R + ORBIT_ALT) - away * 1800, -away * 2600);
+        home.group.position.set(-away * 6000, -(R + ORBIT_ALT) - away * 900, -away * 1500);
         to.spin(dt);
-        const come = smooth(0.1, 1, k);
-        // (from a dot far ahead to the planet filling the view below)
-        to.group.position.set(THREE.MathUtils.lerp(30000, 520, come), THREE.MathUtils.lerp(3500, -(R + 220), come), THREE.MathUtils.lerp(-4000, -60, come));
+        const come = smooth(0.3, 1, k);
+        // (along the line ahead of the ship, from far off to just below it)
+        const D = THREE.MathUtils.lerp(26000, 0, come);
+        to.group.position.set(520 + D, -(R + 220) + D * 0.08, -60 - D * 0.05);
       } else {
         // (the same planet: the deorbit burn turns the ship down toward it)
         home.group.position.set(0, -(R + ORBIT_ALT) + k * 40, 0);
       }
-      o.streaks.material.opacity = Math.sin(k * Math.PI) * 0.6;
+      o.streaks.material.opacity = back ? 0 : Math.sin(smooth(0.38, 1, k) * Math.PI) * 0.6;
       const sp = o.streaks.geometry.getAttribute("position");
       for (let i = 0; i < sp.count; i++) {
-        let x = sp.getX(i) - dt * 900 * Math.sin(k * Math.PI);
+        let x = sp.getX(i) - dt * 900;
         if (x < -400) x += 800;
         sp.setX(i, x);
       }
       sp.needsUpdate = true;
-      // behind the ship, looking past it at what lies ahead
-      want.set(-34, 10 - 4 * k, 12 + 10 * Math.sin(k * Math.PI));
-      look.set(60, -10 - 40 * k, 0);
+      if (back) {
+        want.set(46, 7, 16);
+        look.set(-30, -60, -10);
+      } else {
+        const kk = smooth(0.38, 1, k);
+        want.set(-36 + 6 * kk, 10 - 2 * kk, 14);
+        // (between the ship and the planet ahead: both in the picture)
+        _v3.copy(to.group.position).sub(want).normalize().multiplyScalar(140).add(want);
+        look.set(30, 0, 0).lerp(_v3, 0.55);
+      }
+      if (back !== o.wasBack) {
+        // (a cut, not a swing: the second shot starts where it is)
+        if (o.wasBack !== undefined) o.camInit = false;
+        o.wasBack = back;
+      }
       if (k >= 1 && (!this.dims?.pending || t.t > TRANSFER_T + 20)) {
         t.phase = "approach";
         t.t = 0;
@@ -593,8 +625,9 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     if (!o.camInit) {
       o.camInit = true;
       cam.position.copy(want);
+      o.look = new THREE.Vector3().copy(look);
     } else cam.position.lerp(want, Math.min(1, dt * 1.8));
-    o.look = (o.look || new THREE.Vector3().copy(look)).lerp(look, Math.min(1, dt * 1.8));
+    o.look = (o.look || new THREE.Vector3().copy(look)).lerp(look, Math.min(1, dt * 2.5));
     cam.lookAt(o.look);
     o.stars.position.copy(cam.position);
     o.sunSprite.position.copy(cam.position).addScaledVector(o.sun, 30000);
@@ -618,6 +651,7 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
 
   update(dt) {
     this._captions(dt);
+    pumpPlanetTextures(3);
     // the climb's sky: by the eye's height over the ground in the Overworld
     const cam = this.game.camera;
     const dim = this.world.dim || "overworld";
