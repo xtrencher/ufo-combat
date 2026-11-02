@@ -6,14 +6,16 @@
 // (deterministic, fast, heights in the world, the landing zones level, the
 // things to find near them). In the browser (a Survival world in Creative):
 // the call-in puts a rocket on a new pad by its tower, the player in it;
-// the countdown, ignition, lift-off, the climb, the boosters falling away,
-// the sky darkening; engine cut-off hands over to the orbit's scene; the
-// choice of the Moon: the world goes there, the ship comes down by itself
-// and lands on its legs; low gravity there (the player, an item, a creature;
-// a fall hurts less); back to orbit from the Moon and home to Earth, landing
-// by the pad; a save made mid-trip puts the player back at the pad with the
-// rocket. With --online: a guest watches the host's launch (the countdown's
-// smoke, the climb, the boosters falling) and the rocket goes at orbit.
+// the countdown, ignition, lift-off, the climb, the boosters falling away;
+// (Round 16: no engine cut-off, no orbit menu: the rocket climbs on to the
+// space line, js/solar.js and tools/r16-space-tests.mjs take it from there)
+// a ship coming down on the Moon (from space) lands by itself on its legs;
+// low gravity there (the player, an item, a creature; a fall hurts less);
+// lift-off from the Moon climbs on to its own space line; a ship coming down
+// over Earth lands; a Round 15 save made mid-trip puts the player back at the
+// pad with the rocket. With --online: a guest watches the host's launch (the
+// countdown's smoke, the climb, the boosters falling) and the rocket goes
+// out of sight into space.
 //
 //   node r15-space-tests.mjs [--only=substring] [--node] [--online]
 // (GAME_ROOT=dir runs another copy of the game; SHOTS=dir saves screenshots.)
@@ -232,15 +234,15 @@ async function browserChecks() {
   const shot = async (p, name) => out && (await p.screenshot({ path: path.join(out, `r15-space-${name}.png`) }));
   // Steps the rocket (and the trip) with a fixed step, whatever the page's frame rate: (g, n).
   const STEP = `(g, n) => { for (let i = 0; i < n; i++) { g.vehicles.update(1 / 30); g.space.update(1 / 30); g.effects.update(1 / 30); } }`;
-  // Waits (real frames) until the trip's travel has its ground and the ship is in the world again.
-  const ARRIVE = `async (g) => {
-    for (let i = 0; i < 600 && g.space.trip; i++) {
-      const t = g.space.trip;
-      if (t.phase === "transfer") t.t = Math.max(t.t, 9);
-      if (t.phase === "approach") t.t = Math.max(t.t, 4.9);
-      await new Promise((r) => requestAnimationFrame(r));
-    }
-    return !g.space.trip;
+  // (Round 16) A ship coming down from space over `dim` at (x, z): the world
+  // goes there (the dimensions engine), the ship high up, coming down.
+  const DESCENT = `async (g, a) => {
+    if (g.vehicles.active) g.vehicles.exit({ force: true });
+    if (g.dims.dim !== a.dim || true) g.dims.travel(a.dim, a.x, 120, a.z, { place: "exact" });
+    for (let i = 0; i < 900 && g.dims.pending; i++) await new Promise((r) => requestAnimationFrame(r));
+    const v = g.vehicles.create("rocket", { stack: "ship", phase: "descent", pos: [a.x + 30, a.y, a.z], vel: [-20, -200, 0], summoned: true });
+    g.vehicles.enter(v);
+    return !g.dims.pending && g.dims.dim === a.dim;
   }`;
   const run = (p, src, arg) => p.evaluate(([s, a]) => new Function("g", "a", `return (${s})(g, a);`)(window.__ufo, a), [src, arg]);
 
@@ -270,7 +272,7 @@ async function browserChecks() {
     await shot(page, "pad");
   });
 
-  if (!soloOnly) await browserCheck("the launch: countdown (Space), the tower's arms, ignition held down, lift-off, the climb speeding up, the boosters falling away, the sky darkening, engine cut-off into orbit", async () => {
+  if (!soloOnly) await browserCheck("the launch: countdown (Space), the tower's arms, ignition held down, lift-off, the climb speeding up, the boosters falling away, no cut-off: on up toward space, the sky darkening only high up", async () => {
     const r = await run(page, `async (g, a) => {
       const step = new Function("return " + a.STEP)();
       const rk = g.vehicles.active;
@@ -295,53 +297,43 @@ async function browserChecks() {
       out.stack = rk.stack;
       out.debris = g.space.debris.length;
       step(g, 30 * 9);
-      // (the sky follows the eye: the camera up with the rocket)
+      out.phase26 = rk.phase;
+      out.alt26 = rk.pos.y - rk.pad[1];
+      // (the sky follows the eye: blue still at 1,000 up)
       rk.updateCamera(g.camera, 1 / 30);
       for (let i = 0; i < 60; i++) g.space.update(1 / 30);
+      out.altK26 = g.space.sky.altK;
+      out.tilt = rk._up(new g.THREE.Vector3()).y;
+      // on up: dark near the space line
+      let n = 0;
+      while (rk.pos.y < 5000 && n < 30 * 40) { step(g, 1); n++; }
+      rk.updateCamera(g.camera, 1 / 30);
+      for (let i = 0; i < 60; i++) { g.space.solar.active || g.space.update(1 / 30); }
       out.alt = rk.pos.y - rk.pad[1];
       out.altK = g.space.sky.altK;
-      out.tilt = rk._up(new g.THREE.Vector3()).y;
-      step(g, 30 * 2);
-      out.trip = g.space.trip?.phase;
-      out.view = !!g.space.view;
-      out.rocketGone = !g.vehicles.vehicles.includes(rk);
-      out.held = g.player.enabled === false && !g.vehicles.active;
+      for (let i = 0; i < 10; i++) await new Promise((r) => requestAnimationFrame(r));
+      out.below = g.space.sky.belowK;
       return out;
     }`, { STEP });
     assert(r.counting && r.arms < -0.5, `the countdown, the arms: ${JSON.stringify(r)}`);
     assert(r.ignition && r.heldDown, `ignition held down: ${JSON.stringify(r)}`);
     assert(r.liftoff && r.climb > 15 && r.faster, `lift-off and the climb: ${JSON.stringify(r)}`);
     assert(r.stack === "core" && r.debris === 4, `the boosters away: ${JSON.stringify(r)}`);
-    assert(r.alt > 500 && r.altK > 0.6 && r.tilt < 0.95, `high, turned over, the sky darkening: ${JSON.stringify(r)}`);
-    assert(r.trip === "insert" && r.view && r.rocketGone && r.held, `into orbit: ${JSON.stringify(r)}`);
+    assert(r.phase26 === "ascent" && r.alt26 > 500 && r.altK26 < 0.05 && r.tilt < 0.95, `no cut-off at 26 s, still blue: ${JSON.stringify(r)}`);
+    assert(r.alt > 4800 && r.altK > 0.6 && r.below > 0.5, `high up: dark, the planet below: ${JSON.stringify(r)}`);
     await frames(page, 20);
-    await shot(page, "insert");
+    await shot(page, "high");
   });
 
-  if (!soloOnly) await browserCheck("orbit: the destinations; a save made now goes back to the pad; to the Moon: the world goes there, the ship comes down by itself and lands on its legs", async () => {
-    const saved = await v(page, (g) => {
-      g.space.trip.t = 99;
-      g.space.update(1 / 30);
-      const s = g.space.serialize();
-      return { phase: g.space.trip.phase, menu: document.querySelector("#space-menu").style.display, s };
-    });
-    assert(saved.phase === "orbit" && saved.menu === "flex", `in orbit: ${JSON.stringify(saved)}`);
-    assert(Array.isArray(saved.s.pos) && saved.s.space?.trip?.stack === "full", `a save mid-trip: back at the pad: ${JSON.stringify(saved.s)}`);
-    await frames(page, 10);
-    await shot(page, "orbit");
-    // (pressing 1: the Moon)
-    await page.keyboard.press("Digit1");
-    const tr = await v(page, (g) => g.space.trip?.phase);
-    assert(tr === "transfer", `the transfer: ${tr}`);
-    const arrived = await run(page, ARRIVE);
-    assert(arrived, "the trip never ended");
+  if (!soloOnly) await browserCheck("on the Moon: a ship coming down from space lands by itself on its legs", async () => {
+    assert(await run(page, DESCENT, { dim: "moon", x: 0.5, y: 2200, z: 0.5 }), "never on the Moon");
     const r = await run(page, `async (g, a) => {
       const step = new Function("return " + a.STEP)();
       const rk = g.vehicles.active;
       const out = { dim: g.dims.dim, type: rk?.type, phase: rk?.phase, y0: rk?.pos.y };
       if (!rk) return out;
       let t = 0;
-      while (rk.phase === "descent" && t < 30 * 90) {
+      while (rk.phase === "descent" && t < 30 * 120) {
         step(g, 10);
         t += 10;
       }
@@ -406,7 +398,7 @@ async function browserChecks() {
     if (r.dvMob !== undefined) assert(r.dvMob > -8 && r.dvMob < -1, `a creature falls slowly: ${JSON.stringify(r)}`);
   });
 
-  if (!soloOnly) await browserCheck("home: back aboard on the Moon, lift-off, orbit, Earth: the ship lands by the pad it left from", async () => {
+  if (!soloOnly) await browserCheck("home: back aboard on the Moon, lift-off climbs on to the Moon's space line (into space); a ship coming down over Earth lands", async () => {
     const r = await run(page, `async (g, a) => {
       const step = new Function("return " + a.STEP)();
       const rk = g.vehicles.vehicles.find((x) => x.type === "rocket" && x.phase === "landed");
@@ -417,39 +409,34 @@ async function browserChecks() {
       step(g, 30 * 4);
       out.climbing = rk.phase === "ascent";
       let t = 0;
-      while (!g.space.trip && t < 30 * 30) {
+      while (!g.space.busy && t < 30 * 60) {
         step(g, 10);
         t += 10;
       }
-      out.trip = g.space.trip?.phase;
-      out.from = g.space.trip?.from;
+      out.space = g.space.busy;
+      out.from = g.space.solar.craft?.ref;
+      out.secs = t / 30;
+      g.space.abort();
       return out;
     }`, { STEP });
-    assert(r.found && r.climbing && r.trip === "insert" && r.from === "moon", `off the Moon: ${JSON.stringify(r)}`);
-    await v(page, (g) => {
-      g.space.trip.t = 99;
-      g.space.update(1 / 30);
-      return g.space.choose("overworld");
-    });
-    assert(await run(page, ARRIVE), "the trip home never ended");
+    assert(r.found && r.climbing && r.space && r.from === "moon", `off the Moon: ${JSON.stringify(r)}`);
+    assert(await run(page, DESCENT, { dim: "overworld", x: 0.5, y: 3000, z: 0.5 }), "never home");
     const h = await run(page, `async (g, a) => {
       const step = new Function("return " + a.STEP)();
       const rk = g.vehicles.active;
       const out = { dim: g.dims.dim, phase: rk?.phase };
       if (!rk) return out;
       let t = 0;
-      while (rk.phase === "descent" && t < 30 * 90) {
+      while (rk.phase === "descent" && t < 30 * 120) {
         step(g, 10);
         t += 10;
       }
       out.phase2 = rk.phase;
-      const pad = g.space.sites.overworld;
-      out.pad = pad;
-      out.dist = pad ? Math.hypot(rk.pos.x - pad[0], rk.pos.z - pad[2]) : -1;
+      out.alive = rk.alive;
       return out;
     }`, { STEP });
     assert(h.dim === "overworld" && h.phase === "descent", `coming home: ${JSON.stringify(h)}`);
-    assert(h.phase2 === "landed" && h.dist >= 0 && h.dist < 12, `landed by the pad: ${JSON.stringify(h)}`);
+    assert(h.phase2 === "landed" && h.alive, `landed: ${JSON.stringify(h)}`);
     await frames(page, 30);
     await shot(page, "home");
   });
@@ -475,7 +462,7 @@ async function browserChecks() {
     await page.close();
     const host = await newPage("host", { width: 640, height: 360 });
     const guest = await newPage("guest", { width: 640, height: 360 });
-    await browserCheck("online: a guest watches the host's launch (the countdown, the climb, the boosters falling); the rocket goes at orbit", async () => {
+    await browserCheck("online: a guest watches the host's launch (the countdown, the climb, the boosters falling); the rocket goes out of sight into space", async () => {
       await host.goto(`http://127.0.0.1:${PORT}/index.html?seed=1516&type=survival&${NET_Q}`, { waitUntil: "load", timeout: 60000 });
       await host.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
       await host.click("#menu-mp-btn");
@@ -509,9 +496,9 @@ async function browserChecks() {
       await v(host, (g) => { for (let i = 0; i < 30 * 16; i++) { g.vehicles.update(1 / 30); g.space.update(1 / 30); } return true; });
       const climb = await until(guest, (g, y0) => { const r = g.vehicles.vehicles.find((x) => x.type === "rocket" && x.puppet); return r && r.pos.y > y0 + 80 && r.stack === "core" && g.space.debris.length ? { y: r.pos.y, debris: g.space.debris.length } : null; }, 30000, pad[1]);
       assert(climb, "the guest didn't see the climb and the boosters");
-      await v(host, (g) => { for (let i = 0; i < 30 * 14; i++) { g.vehicles.update(1 / 30); g.space.update(1 / 30); } return !!g.space.trip; });
-      const gone = await until(guest, (g) => (!g.vehicles.vehicles.some((x) => x.type === "rocket" && x.puppet) ? true : null), 30000);
-      assert(gone, "the host's rocket stayed on the guest's screen after orbit");
+      await v(host, (g) => { for (let i = 0; i < 30 * 45 && !g.space.busy; i++) { g.vehicles.update(1 / 30); g.space.update(1 / 30); } return g.space.busy; });
+      const gone = await until(guest, (g) => (!g.vehicles.vehicles.some((x) => x.type === "rocket" && x.puppet && x.root.visible) ? true : null), 30000);
+      assert(gone, "the host's rocket stayed on the guest's screen after it went to space");
       await guest.close();
       await host.close();
     });

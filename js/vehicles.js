@@ -541,7 +541,7 @@ export class VehicleManager {
     if (!this.enabled) return false;
     if (this.active) {
       // (Online Dogfight: no getting out.)
-      const why = this.exitLocked?.();
+      const why = this.exitLocked?.() || this.spaceLock?.(); // (Round 16: js/solar.js, no getting out in space)
       if (why) {
         this.onMessage?.(why);
         return false;
@@ -1136,6 +1136,15 @@ export class VehicleManager {
   // ---------- Per frame ----------
 
   update(dt) {
+    // (Round 16) In space (js/solar.js sets spaceStep): the solar system flies
+    // the player's craft with this input; the world's vehicles wait.
+    if (this.spaceStep?.(dt, this.input)) {
+      this.input.dx = 0;
+      this.input.dy = 0;
+      this.input.wheel = 0;
+      this.input.pressed.clear();
+      return;
+    }
     const p = this.player;
     // (Round 15) Each dimension's vehicles (the engine calls switchDim on the
     // change itself; this catches a world put elsewhere without it).

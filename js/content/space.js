@@ -18,7 +18,9 @@
 //   Overworld's ground): concrete and its hazard-striped edge.
 // - Items: the Rocket (the Creative palette's Vehicles tab: it places a
 //   rocket on its launch pad, js/rocket.js through LIB.summonVehicle, as the
-//   other vehicle items), the lunar crystal (a gem: nine make a block of it).
+//   other vehicle items), the lunar crystal (a gem: nine make a block of it);
+//   (Round 16) the Warp Saucer (the Vehicles tab too: a UFO with a warp
+//   drive, js/warp-saucer.js; vehicles are Creative's, so it is not crafted).
 // Low gravity, the skies, the travel: js/space.js and js/dim-registry.js.
 import { BLOCK, ITEM, LIB } from "./base.js";
 import * as I from "./ids.js";
@@ -50,7 +52,8 @@ export const MOONSTONE_BRICKS = 3092;
 // ---- Items (920-959) ----
 export const ROCKET_ITEM = 920;
 export const LUNAR_CRYSTAL = 921;
-// (space.js items: next free 922)
+export const WARP_ITEM = 922; // (Round 16)
+// (space.js items: next free 923)
 
 // ---------- Blocks ----------
 
@@ -87,10 +90,13 @@ export const items = {
   // (Round 15) The rocket: placed on its pad as the other vehicle items (Creative's Vehicles tab).
   [ROCKET_ITEM]: { name: "Rocket (to the Moon and Mars)", icon: "vehicle_rocket", stack: 1, vehicle: "rocket" },
   [LUNAR_CRYSTAL]: { name: "Lunar Crystal", icon: "lunar_crystal" },
+  // (Round 16) The Warp Saucer: in the air, aimed at the sky; on the ground aimed at.
+  [WARP_ITEM]: { name: "Warp Saucer (faster than light, in space)", icon: "vehicle_warp", stack: 1, vehicle: "warp" },
 };
 
 export const itemUse = {
   [ROCKET_ITEM]: (ctx) => !!LIB.summonVehicle?.(ctx, "rocket"),
+  [WARP_ITEM]: (ctx) => !!LIB.summonVehicle?.(ctx, "warp"),
 };
 
 // ---------- Drops ----------
@@ -379,6 +385,27 @@ export const icons = {
     const dark = kit.ramp(0x101012, 0x1c1c20, 0x2a2a30, 0x3a3a42, 0x4c4c56);
     const flame = kit.ramp(0xa03008, 0xe06010, 0xf8a020, 0xffd060, 0xfff0b0);
     return c.render([body, dark, flame], [18, 18, 20]);
+  },
+  // (Round 16) The Warp Saucer from the side: the domed hull, its glowing
+  // drive ring, a nacelle under each side, streaks behind.
+  vehicle_warp: (kit) => {
+    const c = new kit.Canvas();
+    const HULL = 0;
+    const GLOW = 1;
+    const DARK = 2;
+    c.line(GLOW, 2, 14, 9, 14, 0.8, () => 0.2);
+    c.line(GLOW, 1, 22, 8, 22, 0.8, () => 0.2);
+    c.disc(DARK, 9.5, 23.5, 4.5, 1.6, () => -0.1);
+    c.disc(DARK, 22.5, 23.5, 4.5, 1.6, () => -0.1);
+    c.disc(GLOW, 5.5, 23.5, 1.4, 1.4, () => 0.6);
+    c.disc(GLOW, 18.5, 23.5, 1.4, 1.4, () => 0.6);
+    c.disc(HULL, 16, 12.5, 6, 5.5, (x, y) => (x < 14 && y < 10 ? 0.6 : 0.1));
+    c.disc(HULL, 16, 18, 14, 4.2, (x, y) => (y < 16.5 ? 0.45 : y > 20 ? -0.45 : 0));
+    c.disc(GLOW, 16, 18.6, 15, 1.1, () => 0.4);
+    const hull = kit.ramp(0x3c4452, 0x5f6a7a, 0x8a96a8, 0xb4bfce, 0xe2e8f0);
+    const glow = kit.ramp(0x1a4ca0, 0x2a74d8, 0x4aa0ff, 0x8cc8ff, 0xdff0ff);
+    const dark = kit.ramp(0x14181f, 0x20262f, 0x2e3540, 0x3e4652, 0x525b68);
+    return c.render([hull, glow, dark], [16, 26, 14]);
   },
   lunar_crystal: (kit) => {
     const c = new kit.Canvas();

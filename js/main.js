@@ -1257,6 +1257,9 @@ function callIn(kind) {
     const design = UFO_DESIGNS[Math.floor(Math.random() * UFO_DESIGNS.length)];
     const radius = [4, 5.5, 7, 9, 12][Math.floor(Math.random() * 5)];
     v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, skyY(Math.min(200, Math.max(ground + 40 + radius, p.y + 30))), p.z], yaw: player.yaw });
+  } else if (kind === "warp") {
+    // (Round 16) The Warp Saucer (js/warp-saucer.js): a UFO with a warp drive, for space.
+    v = vehicles.create("ufo", { ...VehicleManager.summons.warp.data(), pos: [p.x, skyY(Math.min(200, Math.max(ground + 46, p.y + 30))), p.z], yaw: player.yaw });
   } else {
     if (!JET_TYPES[kind]) return false;
     const cfg = vehicles.config.jet;
@@ -1270,7 +1273,7 @@ function callIn(kind) {
   if (v.type === "jet") playerJet = v;
   vehicles.enter(v);
   audio.playNotice();
-  toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3);
+  toast(kind === "warp" ? "Warp Saucer: climb past 6,000 m into space, then J lights the warp drive" : kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3); // (Round 16: the Warp Saucer's)
   return true;
 }
 // The call-ins show in the pause menu in Creative only (Round 13: in a
@@ -4387,13 +4390,15 @@ function simulate(dt, frameTime) {
   } else {
     player.syncCamera(); // keep the view behind the menus sensible
   }
-  streamAround(player.position.x, player.position.z);
+  // (Round 16) Out in space (js/space.js worldIdle) the voxel world isn't drawn: nothing streamed, meshed or planned far off.
+  const worldIdle = space.worldIdle;
+  if (!worldIdle) streamAround(player.position.x, player.position.z);
   // (Perf: with the terrain generated in workers the main thread only lights
   // and meshes, so a smaller share of the frame still streams faster than before.)
   // (The menu's larger share only while the world is frozen or on the main
   // menu: behind the inventory, the death screen or an online pause it goes on.)
-  world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
-  lod.update();
+  if (!worldIdle) world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
+  if (!worldIdle) lod.update();
   // (High over the ground in an aircraft the plants below are specks: not
   // refilled as it races along, not drawn.)
   const gv = vehicles.active;
