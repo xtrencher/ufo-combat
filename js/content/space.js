@@ -227,8 +227,8 @@ function glyphs(t, kit, stone, glow) {
 }
 
 export const tiles = {
-  moon_regolith: (t, kit) => dust(t, kit, [0x5c5c5e, 0x6c6c6e, 0x7a7a7c, 0x88888a, 0x969698, 0xa6a6a8], 16, 2),
-  moon_rock: (t, kit) => rock(t, kit, [0x6e6e70, 0x808082, 0x929294, 0xa2a2a4, 0xb2b2b2, 0xc4c4c2], 16, 0.22),
+  moon_regolith: (t, kit) => dust(t, kit, [0x48484a, 0x555557, 0x616163, 0x6d6d6f, 0x7a7a7b, 0x8a8a8a], 16, 2),
+  moon_rock: (t, kit) => rock(t, kit, [0x5e5e60, 0x6e6e70, 0x7e7e80, 0x8e8e90, 0x9e9e9e, 0xb0b0ae], 16, 0.22),
   mare_basalt: (t, kit) => rock(t, kit, [0x2c2c2e, 0x36363a, 0x404044, 0x4a4a4e, 0x56565a, 0x626266], 22, 0.18),
   lunar_crystal_ore: (t, kit) => crystals(t, kit, (tt, k) => rock(tt, k, [0x6e6e70, 0x808082, 0x929294, 0xa2a2a4, 0xb2b2b2], 16, 0.22), [0x1a8aa8, 0x48d8f0, 0xc8ffff], 6),
   lunar_ice: (t, kit) => {
@@ -241,7 +241,7 @@ export const tiles = {
     });
   },
   mars_sand: (t, kit) => {
-    const ramp = R(kit, [0x8a3c1c, 0x9c4622, 0xae5228, 0xbe5e2e, 0xcc6c38, 0xd88044]);
+    const ramp = R(kit, [0x8a4a2a, 0x9a5430, 0xaa6038, 0xb86c40, 0xc47a4a, 0xd08a56]);
     t.forEach((x, y) => {
       // (ripples)
       const s = Math.sin((y + t.noise(x, y, 3, 4) * 6) * 0.9);
@@ -249,7 +249,7 @@ export const tiles = {
       t.set(x, y, kit.ramp(ramp, f));
     });
   },
-  mars_regolith: (t, kit) => dust(t, kit, [0x5a2614, 0x6c2e18, 0x7e381c, 0x904222, 0xa04e2a, 0xb05c34], 18, 1),
+  mars_regolith: (t, kit) => dust(t, kit, [0x5c3020, 0x6c3a26, 0x7c442c, 0x8c5034, 0x9a5c3e, 0xa86a48], 18, 1),
   mars_rock: (t, kit) => rock(t, kit, [0x3e1c12, 0x4c2216, 0x5a2a1a, 0x68321e, 0x763c24, 0x86482c], 18, 0.2),
   mars_strata: (t, kit) => strata(t, kit, [0x4e2416, 0x62301c, 0x7a4026, 0x925230, 0xa8643c, 0xbc7a4c]),
   mars_ice: (t, kit) => dust(t, kit, [0xb8a49a, 0xc8b6ac, 0xd6c6be, 0xe2d6d0, 0xece4e0, 0xf6f2f0], 6, 1),

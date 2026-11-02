@@ -113,7 +113,7 @@ export class SpaceSystem {
 #space-menu .s { font: 13px/1.3 "Segoe UI", system-ui, sans-serif; opacity: 0.75; }
 #space-title { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); font: 700 22px "Segoe UI", system-ui, sans-serif; letter-spacing: 5px; color: #cfe7ff; display: none; text-shadow: 0 2px 8px #000; }
 #space-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 29; }
-body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-prompt { visibility: hidden; }
+body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-prompt, body.space-trip #hud-toast, body.space-trip #mission-tracker, body.space-trip #mission-marker, body.space-trip #boss-bar, body.space-trip #missile-warn, body.space-trip #lock-box, body.space-trip #stats-overlay { visibility: hidden; }
 `;
     document.head.appendChild(st);
     const el = document.createElement("div");
@@ -555,7 +555,7 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
         to.spin(dt);
         const come = smooth(0.3, 1, k);
         // (along the line ahead of the ship, from far off to just below it)
-        const D = THREE.MathUtils.lerp(26000, 0, come);
+        const D = THREE.MathUtils.lerp(15000, 0, come);
         to.group.position.set(520 + D, -(R + 220) + D * 0.08, -60 - D * 0.05);
       } else {
         // (the same planet: the deorbit burn turns the ship down toward it)

@@ -25,8 +25,8 @@ import { Noise, hash2 } from "./noise.js";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
 
 const S = CHUNK_SIZE;
-const PLAIN = 58;
-const FLOOR = 22; // the canyons' floor
+const PLAIN = 72; // (above the Overworld's sea level: the morning mist stays in the canyons)
+const FLOOR = 34; // the canyons' floor
 export const MARS_LANDING = { x: 0, z: 0, r: 40 };
 const VOLCANO_CELL = 1536;
 const CRATER_CELL = 72;

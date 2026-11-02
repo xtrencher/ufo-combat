@@ -39,10 +39,10 @@ const ROW_CACHE = 1536; // rows of z kept (a chunk column's 16, many times over)
 // The kinds of canyon: their widths (half-widths, blocks), how much they
 // wind, their depth and what they hold. (Per 1000 blocks of course: the features.)
 const KINDS = {
-  grand: { wMin: 24, wMax: 46, wander: [150, 70, 22], waves: [1500, 820, 330], bulge: 0, flare: 26, talus: 13, rim: 106, floor: 6, river: 6, arches: 0.35, pillars: 1.6, fins: 0.18, tunnels: 0.07, narrows: 0.16, falls: 0.35, spacing: 430, ringR: 10.5 },
-  slot: { wMin: 13, wMax: 21, wander: [95, 46, 15], waves: [1100, 560, 240], bulge: 7, flare: 9, talus: 6, rim: 100, floor: 6, river: 2.5, arches: 0.55, pillars: 0, fins: 0, tunnels: 0.2, narrows: 0.3, falls: 0.25, spacing: 320, ringR: 8.5 },
-  night: { wMin: 20, wMax: 38, wander: [140, 60, 20], waves: [1300, 700, 300], bulge: 3, flare: 18, talus: 10, rim: 104, floor: 6, river: 5, arches: 0.4, pillars: 1.1, fins: 0.15, tunnels: 0.16, narrows: 0.2, falls: 0.2, spacing: 400, ringR: 10, glow: true },
-  gauntlet: { wMin: 16, wMax: 40, wander: [160, 72, 24], waves: [1250, 640, 280], bulge: 4, flare: 20, talus: 10, rim: 104, floor: 6, river: 4, arches: 0.45, pillars: 1.3, fins: 0.22, tunnels: 0.12, narrows: 0.28, falls: 0.25, spacing: 400, ringR: 9.5, turrets: 2.2 },
+  grand: { wMin: 24, wMax: 46, wander: [130, 55, 14], waves: [1700, 950, 420], bulge: 0, flare: 26, talus: 13, rim: 106, floor: 6, river: 6, arches: 0.35, pillars: 1.6, fins: 0.18, tunnels: 0.07, narrows: 0.16, falls: 0.35, spacing: 430, ringR: 10.5 },
+  slot: { wMin: 13, wMax: 21, wander: [95, 40, 10], waves: [1100, 560, 240], bulge: 7, flare: 9, talus: 6, rim: 100, floor: 6, river: 2.5, arches: 0.55, pillars: 0, fins: 0, tunnels: 0.2, narrows: 0.3, falls: 0.25, spacing: 320, ringR: 8.5 },
+  night: { wMin: 20, wMax: 38, wander: [120, 50, 14], waves: [1400, 760, 330], bulge: 3, flare: 18, talus: 10, rim: 104, floor: 6, river: 5, arches: 0.4, pillars: 1.1, fins: 0.15, tunnels: 0.16, narrows: 0.2, falls: 0.2, spacing: 400, ringR: 10, glow: true },
+  gauntlet: { wMin: 16, wMax: 40, wander: [140, 60, 14], waves: [1400, 760, 330], bulge: 4, flare: 20, talus: 10, rim: 104, floor: 6, river: 4, arches: 0.45, pillars: 1.3, fins: 0.22, tunnels: 0.12, narrows: 0.28, falls: 0.25, spacing: 400, ringR: 9.5, turrets: 2.2 },
 };
 
 // The courses on the menu (js/menu-canyon.js): fixed seeds, so a best time is
@@ -144,7 +144,7 @@ export class CanyonCourse {
       if (z > f.z0 - 80 && z < f.z1 + 80) w = Math.max(w, this._finHalf(f, z) + f.lane);
     }
     // (the mouth and the run-out: a funnel opening wide)
-    if (z < 0) w += -z * 0.45;
+    if (z < 0) w += -z * 0.3;
     if (z > this.length) w += (z - this.length) * 0.5;
     return w;
   }
@@ -517,7 +517,7 @@ export class CanyonGenerator {
             // (the floor in patches: red sand, pale sand by the water, gravel bars, dry dirt)
             const n = c.noise.perlin2(x / 9, z / 9) + (hash2(seed ^ 0x77, x, z) - 0.5) * 0.25;
             const dr = Math.abs(x + 0.5 - r.riverX) - c.kind.river;
-            id = below ? this._rock(x, y, z, bandOff + tiltX, top, seed) : dr < 2.5 ? (n > 0.15 ? BLOCK.GRAVEL : BLOCK.SAND) : n > 0.32 ? COARSE_DIRT : n < -0.3 ? BLOCK.SAND : RED_SAND;
+            id = below ? this._rock(x, y, z, bandOff + tiltX, top, seed) : dr < 2.5 ? (n > 0.15 ? BLOCK.GRAVEL : BLOCK.SAND) : n > 0.38 ? COARSE_DIRT : n < -0.45 ? BLOCK.SAND : RED_SAND;
           } else {
             id = y === top && s === 1 ? RED_SAND : this._rock(x, y, z, bandOff + tiltX, top, seed);
             // Lumen crystals and glowstone where the rock meets the air: the

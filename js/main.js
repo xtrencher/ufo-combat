@@ -97,6 +97,8 @@ import { Transport } from "./boats.js"; // (Round 12: boats and minecarts)
 import { TransportSync } from "./net/transport.js";
 import { GroundSync } from "./net/ground.js"; // (Round 13)
 import { HeliSync } from "./net/heli.js"; // (Round 14)
+import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: the canyon run)
+import { installCanyonMenu } from "./menu-canyon.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -141,7 +143,10 @@ const net = new NetSession();
 const JOIN_PARAM = new URLSearchParams(window.location.search).get("join");
 const joinWelcome = JOIN_PARAM !== null ? await bootJoin(net, normalizeRoomCode(JOIN_PARAM)) : null;
 const GUEST = !!joinWelcome;
-const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
+// (Round 15) The canyon run's page (?canyon=, js/canyon.js): its course is
+// the seed, and none of the player's worlds is read or written.
+const CANYON = GUEST ? null : canyonParams();
+const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : CANYON ? CANYON.seed : parseSeedFromURL();
 
 // ---------- World type ----------
 // (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
@@ -151,7 +156,7 @@ const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
 // last-world record), else (Round 12) Survival, the default (a ?seed= link
 // without a type: Missions, as before). A guest plays the host's.
 // (A saved player: position, inventory, ...; a guest's session reads none.)
-const savedPlayer = GUEST ? null : loadPlayer(SEED);
+const savedPlayer = GUEST || CANYON ? null : loadPlayer(SEED);
 function newWorldPick() {
   const params = new URLSearchParams(window.location.search);
   const last = loadJSON("last");
@@ -160,7 +165,7 @@ function newWorldPick() {
   const mode = params.get("mode") ?? lastHere?.mode;
   return { type: newWorldType(type, { link: params.has("seed") }), mode: mode === "creative" ? "creative" : "survival" };
 }
-const NEW_PICK = savedPlayer || GUEST ? null : newWorldPick();
+const NEW_PICK = savedPlayer || GUEST ? null : CANYON ? { type: "survival", mode: "creative" } : newWorldPick();
 // (Round 12) Reloaded into a world picked on the main menu: straight into the
 // game (menu-go.js; the end of this file). Read at once: it leaves the address.
 const GO = GUEST ? null : takeGo(SEED);
@@ -169,7 +174,7 @@ const GO = GUEST ? null : takeGo(SEED);
 // the old terrain; a guest's is the host's (an older host's: the old one).
 // (The world's own record, storage.js, when its player save is missing: a
 // world whose player save failed keeps its type and terrain.)
-const WORLD_REC = GUEST ? null : loadWorldRecord(SEED);
+const WORLD_REC = GUEST || CANYON ? null : loadWorldRecord(SEED);
 let worldRecorded = !!WORLD_REC;
 const WORLD_TYPE = GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : WORLD_REC?.type ?? NEW_PICK.type;
 setWorldType(WORLD_TYPE, { gen: terrainGenOf(WORLD_TYPE, GUEST ? joinWelcome.gen : savedPlayer?.gen ?? WORLD_REC?.gen, { old: GUEST || !!savedPlayer || hasSavedEdits(SEED) }) });
@@ -367,7 +372,9 @@ const distant = new DistantStructures({ scene, world, material: lod.material });
 distant.zones = () => nuke.zones;
 
 // Plans chunk streaming and LOD tiles around a position (cheap when nothing changed).
+let canyonRun = null; // (Round 15: the canyon run streams its own course, js/canyon.js)
 function streamAround(x, z) {
+  if (canyonRun?.stream(x, z)) return;
   lod.plan(x, z);
   world.ensureChunksAround(x, z, lod.worldPlan);
 }
@@ -395,7 +402,7 @@ const startZ = savedPos ? savedPos[2] : spawnZ + 0.5;
 const INITIAL_SYNC_RADIUS = 2;
 // (Round 12: a save made in the Nether or the End gets its own ground once
 // the world is there, dims.init below, not the Overworld's at that place.)
-if (savedDimension(savedPlayer) === "overworld") {
+if (!CANYON && savedDimension(savedPlayer) === "overworld") {
   world.prepareArea(startX, startZ, INITIAL_SYNC_RADIUS);
   streamAround(startX, startZ);
 }
@@ -1919,7 +1926,8 @@ let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
 // `force`: try the edits even while backing off (leaving, a menu's save).
 function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
-  if (GUEST) {
+  // (Round 15: nor does the canyon run: the player's worlds stay as they were.)
+  if (GUEST || CANYON) {
     pendingSave = false;
     dims.clearDirty();
     lastSaveTime = lastPlayerSave = performance.now();
@@ -2819,7 +2827,7 @@ function enterGame() {
   setMode(mp.active ? playerModeOf(mp.mode) : ui.modeSelect.value);
   fillStartingWeapons(newWorld);
   markInventoryChanged();
-  if (!GUEST) {
+  if (!GUEST && !CANYON) {
     saveJSON("last", { seed: SEED, type: worldType() });
     rememberWorld();
   }
@@ -2978,6 +2986,12 @@ document.getElementById("new-world-create").addEventListener("click", () => {
 // Back to the main menu: save and reload this world's page (the menu
 // then offers to continue it).
 document.getElementById("main-menu-btn").addEventListener("click", () => {
+  // (Round 15) From the canyon run: back to the menu (nothing to save).
+  if (CANYON) {
+    leavingToMenu = true;
+    window.location.href = menuUrl();
+    return;
+  }
   if (GUEST) {
     mp.leave();
     return;
@@ -3791,6 +3805,9 @@ window.__ufo = window.__voxelands = {
   weatherFx,
   spawners,
   dims, // (Round 12)
+  get canyon() {
+    return canyonRun; // (Round 15)
+  },
   get transport() {
     return transport; // (Round 12)
   },
@@ -4019,7 +4036,7 @@ function updateRadar(dt) {
       contacts.push({ kind: "player", x: at.x, z: at.z, air: !!rv, heading: rv ? headingOf(rv) : 0, color: r.color });
     }
   }
-  for (const s of world.terrain.sites.withinCached(pos.x, pos.z, radar.range * 2.5)) {
+  for (const s of world.terrain.sites?.withinCached(pos.x, pos.z, radar.range * 2.5) ?? []) {
     if (s.kind !== "airport" && s.kind !== "city") continue;
     const [ux, uz] = world.terrain.sites.dirU(s);
     contacts.push({ kind: "airport", x: s.x, z: s.z, heading: Math.atan2(-ux, -uz), size: (s.half ?? 300) * 2 });
@@ -4419,6 +4436,7 @@ function simulate(dt, frameTime) {
   netherPortals.update(dt); // (Round 12: the nether portals, js/portal.js)
   netherAir.update(dt);
   mp.update(dt);
+  canyonRun?.update(dt, running); // (Round 15: the canyon run, js/canyon.js)
   hacks.update(dt, running && gameState !== "start"); // (Round 15: js/hacks.js)
 }
 
@@ -4465,13 +4483,26 @@ window.__voxelands.hacks = hacks;
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 // (Round 12) A save made in the Nether or the End: the world goes there now.
 dims.init(savedPlayer);
+// (Round 15) The canyon run's page: into its course (js/canyon.js); any
+// other page: the main menu's canyon screen (js/menu-canyon.js).
+if (CANYON) {
+  const go = (url) => {
+    leavingToMenu = true;
+    window.location.href = url;
+  };
+  canyonRun = new CanyonRun(game, CANYON, { enter: enterAsGuest, leave: () => go(menuUrl()), go });
+  canyonRun.init();
+} else if (!GUEST) {
+  installCanyonMenu({ screens, audio, toast, beforeLeave: () => entered && flushSave(), refusal: () => (mp.active ? "The canyon run is single player: close the room first (Multiplayer)." : null) });
+}
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
 // (Round 12) Reloaded into a world picked on the main menu (or for a room the
 // Multiplayer screen asked for there): straight into the game, in the mode
 // picked, one click to take the mouse ("Click to play", as a guest's join).
-if (GO) {
+if (CANYON) canyonRun.start();
+else if (GO) {
   if (GO.mode) ui.setModeShown(GO.mode);
   enterAsGuest();
   if (GO.host) mp.ui.hostNow(GO.host);

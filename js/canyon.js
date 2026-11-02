@@ -152,6 +152,7 @@ export class CanyonRun {
     this.stats = { restarts: 0, crashes: 0, finishes: 0, ringsPassed: 0, plans: 0 };
     this._planKey = null;
     this._plan = null;
+    this.waitForGround = true; // (tests that move the jet about turn it off)
   }
 
   // Into the canyon: the dimension, the sky, the rings, the HUD, the hooks,
@@ -249,8 +250,8 @@ export class CanyonRun {
       lo = Math.min(lo, r.xMin) - SIDE_MARGIN;
       hi = Math.max(hi, r.xMax) + SIDE_MARGIN;
       // (the mouth and the run-out are wide open: only so far each side)
-      lo = Math.max(lo, pcx * 16 - 260);
-      hi = Math.min(hi, pcx * 16 + 260);
+      lo = Math.max(lo, pcx * 16 - 200);
+      hi = Math.min(hi, pcx * 16 + 200);
       for (let cx = Math.floor(lo / 16); cx <= Math.floor(hi / 16); cx++) {
         set.add(`${cx},${cz}`);
         reach = Math.max(reach, Math.ceil(Math.hypot(cx - pcx, cz - pcz)));
@@ -412,7 +413,7 @@ export class CanyonRun {
         // (A slow computer: the canyon ahead isn't in yet. The jet waits
         // where it was, the clock stopped, rather than fly into rock not
         // there yet.)
-        if (!this._aheadIn(v)) {
+        if (this.waitForGround && !this._aheadIn(v)) {
           if (!this._wait) this._wait = { pos: this._lastPos.clone(), q: v.q.clone(), vel: v.vel.clone() };
           this._hold(this._wait, true);
           this.stats.waits = (this.stats.waits || 0) + 1;
@@ -436,6 +437,11 @@ export class CanyonRun {
       case "out":
         this.resultT += dt;
         break;
+    }
+    // (No hand or body in view at the wreck: the camera is the run's.)
+    if (!this.vehicles.active && (this.state === "crashed" || this.state === "finished" || this.state === "out") && this.game.held) {
+      this.game.held.visible = false;
+      if (this.game.held.pivot) this.game.held.pivot.visible = false;
     }
     this._updateTurrets(dt);
     this._updateGhost();
@@ -624,6 +630,9 @@ export class CanyonRun {
     this.state = "crashed";
     this.resultT = 0;
     this.crashCause = v.lastHitBy && v.lastHitBy !== "crash" ? "shot" : "crashed";
+    this.crashWhy = v.crashWhy || v.lastHitBy || null;
+    // (tests: the rock it met was drawn, not ground still streaming in)
+    this.crashSeen = !!this.world.getChunk(Math.floor(v.pos.x / 16), Math.floor(v.pos.z / 16))?.meshed;
     this._countRun();
     this._banner(this.crashCause === "shot" ? "SHOT DOWN" : "CRASHED", 2, "bad");
   }
@@ -632,11 +641,17 @@ export class CanyonRun {
     const c = this.crashAt;
     if (!c) return;
     const cam = this.game.camera;
+    const w = this.world;
     c.yaw += dt * 0.35;
-    const back = 26 + this.resultT * 6;
-    const side = new THREE.Vector3(-c.dir.z, 0, c.dir.x).normalize();
-    cam.position.copy(c.pos).addScaledVector(c.dir, -back * Math.cos(c.yaw)).addScaledVector(side, back * Math.sin(c.yaw));
-    cam.position.y += 10 + this.resultT * 2;
+    const side = _w.set(-c.dir.z, 0, c.dir.x).normalize();
+    // (pulled back and up from the wreck, slowly round it, never into the rock)
+    let back = 22 + Math.min(this.resultT, 3) * 4;
+    for (let i = 0; i < 8; i++) {
+      cam.position.copy(c.pos).addScaledVector(c.dir, -back * Math.cos(c.yaw)).addScaledVector(side, back * Math.sin(c.yaw));
+      cam.position.y += 5 + back * 0.15;
+      if (!w.isSolidAt(Math.floor(cam.position.x), Math.floor(cam.position.y), Math.floor(cam.position.z))) break;
+      back *= 0.7;
+    }
     cam.lookAt(c.pos);
     const p = this.game.player;
     p.position.copy(c.pos);
@@ -1267,7 +1282,7 @@ export class CanyonRun {
 
   // (Tests: the run's state.)
   info() {
-    return { state: this.state, clock: this.clock, penalty: this.penalty, passed: this.passed, missed: this.missed, nextCheck: this.nextCheck, checks: this.checks.length, boosts: this.boosts.length, rings: this.rings.length, results: !!this._resultsShown, final: this.final ?? null, record: this.record, length: this.length, turrets: this.turrets.length, turretsAlive: this.turrets.filter((t) => t.alive).length, stats: this.stats };
+    return { state: this.state, clock: this.clock, penalty: this.penalty, passed: this.passed, missed: this.missed, nextCheck: this.nextCheck, checks: this.checks.length, boosts: this.boosts.length, rings: this.rings.length, results: !!this._resultsShown, final: this.final ?? null, record: this.record, length: this.length, crashWhy: this.crashWhy ?? null, crashSeen: this.crashSeen ?? null, turrets: this.turrets.length, turretsAlive: this.turrets.filter((t) => t.alive).length, stats: this.stats };
   }
 }
 

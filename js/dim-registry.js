@@ -32,11 +32,13 @@ import { BLOCK } from "./content/base.js";
 import { TerrainGenerator } from "./terrain.js";
 import { NetherGenerator } from "./dim-nether.js";
 import { EndGenerator } from "./dim-end.js";
+import { CanyonGenerator, CANYON } from "./dim-canyon.js"; // (Round 15: the canyon run's courses)
 
 export const OVERWORLD = "overworld";
 export const NETHER = "nether";
 export const END = "end";
 export const DIM_IDS = [OVERWORLD, NETHER, END];
+export { CANYON };
 
 export const DIMS = {
   [OVERWORLD]: {
@@ -106,6 +108,33 @@ export const DIMS = {
     sky: { zenith: [0.004, 0.003, 0.006], horizon: [0.011, 0.008, 0.013], ambSky: [0.2, 0.19, 0.24], ambGround: [0.1, 0.09, 0.12], stars: true, fog: "clear", exposure: 1.0 },
     spawnMobs: null,
   },
+  // (Round 15) The canyon run's courses (js/dim-canyon.js): only its own
+  // page goes there (js/canyon.js), nothing of it is saved; the Overworld's
+  // sun and clouds at the course's fixed hour, no weather, no creatures;
+  // its chunks are streamed by the run along the canyon (no distant tiles).
+  [CANYON]: {
+    id: CANYON,
+    code: 5,
+    prefix: "c",
+    name: "the canyon",
+    label: "Canyon",
+    scale: 1,
+    ceiling: false,
+    voidBelow: false,
+    dayCycle: false,
+    weather: false,
+    waterEvaporates: false,
+    bedsExplode: false,
+    lod: false,
+    heightfield: false,
+    minView: 8,
+    maxView: 24,
+    lightFloor: 0.12,
+    lavaStep: 1.5,
+    sky: null,
+    spawnMobs: null,
+    course: true,
+  },
 };
 
 const BY_CODE = [DIMS[OVERWORLD], DIMS[NETHER], DIMS[END]];
@@ -170,6 +199,7 @@ const GENERATORS = {
   [OVERWORLD]: (seed, opts) => new TerrainGenerator(seed, opts),
   [NETHER]: (seed, opts) => new NetherGenerator(seed, opts),
   [END]: (seed, opts) => new EndGenerator(seed, opts),
+  [CANYON]: (seed) => new CanyonGenerator(seed),
 };
 export function createGenerator(dim, seed, opts) {
   return (GENERATORS[dim] || GENERATORS[OVERWORLD])(seed, opts);

@@ -24,7 +24,7 @@ const smooth = (a, b, v) => {
   return t * t * (3 - 2 * t);
 };
 const MOON_SUN = new THREE.Vector3(0.62, 0.36, -0.42).normalize(); // (low over the Moon: long shadows)
-const EARTH_DIR = new THREE.Vector3(-0.42, 0.62, -0.66).normalize(); // (where the Earth hangs in the Moon's sky)
+const EARTH_DIR = new THREE.Vector3(-0.62, 0.52, 0.42).normalize(); // (across the sky from the sun: its day side toward the Moon, gibbous) // (where the Earth hangs in the Moon's sky)
 const _c = new THREE.Color();
 
 // ---------- Noise for the planets' textures ----------
@@ -163,7 +163,7 @@ export function planetTexture(name) {
     });
   } else if (name === "mars") {
     t = paintSphere(W, H, (x, y, z, lat) => {
-      if (Math.abs(lat) > 1.3 + (fbm3(x * 5, y * 5, z * 5, 2, 7) - 0.5) * 0.2) return [240, 230, 222];
+      if (Math.abs(lat) > 1.36 + (fbm3(x * 9, y * 9, z * 9, 3, 7) - 0.5) * 0.16) return [236, 222, 210];
       const n = fbm3(x * 2 + 1, y * 2, z * 2, 5, 31);
       const dark = smooth(0.48, 0.6, n);
       let c = mix([196, 104, 58], [104, 52, 34], dark * 0.8);
@@ -209,8 +209,9 @@ void main() {
   vec3 tex = texture2D(uMap, vUv).rgb;
   vec3 col = tex * (0.015 + max(d, 0.0) * 1.35) * uBright;
   if (uHasNight > 0.5) col += texture2D(uNight, vUv).rgb * (1.0 - day) * 0.9;
-  float rim = pow(1.0 - max(dot(n, v), 0.0), 5.0);
-  col += uAtmo * rim * uAtmoK * smoothstep(-0.25, 0.45, d) * 1.6;
+  float rim = pow(1.0 - max(dot(n, v), 0.0), 7.0);
+  col = mix(col, uAtmo * 0.55 * max(d, 0.0), rim * uAtmoK * 0.55);
+  col += uAtmo * rim * uAtmoK * smoothstep(-0.25, 0.45, d) * 0.5;
   col += uAtmo * uAtmoK * 0.03 * day;
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -330,7 +331,7 @@ export class SpaceSky {
     u.uSunDir.value.copy(MOON_SUN);
     u.uMoonDir.value.set(0, -1, 0); // (no moon in the Moon's sky: the Earth is drawn instead)
     u.uLightDir.value.copy(MOON_SUN);
-    u.uLightColor.value.setRGB(1.55, 1.5, 1.42);
+    u.uLightColor.value.setRGB(1.45, 1.41, 1.34);
     u.uSkyZenith.value.setRGB(0, 0, 0.0008);
     u.uSkyHorizon.value.setRGB(0.002, 0.002, 0.003);
     u.uSkyGlow.value.setRGB(0, 0, 0);
@@ -345,6 +346,19 @@ export class SpaceSky {
     sky.hemiLight.groundColor.copy(u.uAmbientGround.value);
     sky.horizonColor.copy(u.uSkyHorizon.value);
     sky.exposure = 1;
+    // (no air: no haze, the ground sharp out to the edge of the view)
+    this._fog(sky, 0.9, 0);
+  }
+
+  // The fog's start (a share of its end) and haze, from the view's (sky.js keeps the base).
+  _fog(sky, start, haze) {
+    const fog = worldUniforms.uFog.value;
+    const b = sky._fogBase;
+    if (!b) return;
+    const cap = Number.isFinite(sky.dimView) ? (sky.dimView - 0.3) * 16 : Infinity;
+    const end = Math.min(b.y, cap);
+    fog.set(end * start, end, haze, b.w);
+    sky._fogSet?.copy(fog);
   }
 
   // Mars by the Overworld's clock: e is the sun's height.
@@ -355,11 +369,11 @@ export class SpaceSky {
     u.uSkyZenith.value.setRGB(0.36 * day + 0.006, 0.22 * day + 0.004, 0.13 * day + 0.01);
     u.uSkyHorizon.value.setRGB(0.72 * k * day + 0.012 + dusk * 0.05, 0.46 * k * day + 0.008 + dusk * 0.06, 0.3 * k * day + 0.012 + dusk * 0.1);
     // (the sunset blue round the sun: Mars' dust scatters blue forward)
-    u.uSkyGlow.value.setRGB(0.12 * dusk, 0.3 * dusk, 0.75 * dusk);
-    u.uSunGlowColor.value.setRGB(1.2 + 0.2 * dusk, 1.15 + 0.4 * dusk, 1.05 + 0.9 * dusk).multiplyScalar(0.8);
-    u.uLightColor.value.multiplyScalar(0.85).multiply(_c.setRGB(1.06, 0.9, 0.78));
-    u.uAmbientSky.value.setRGB(0.3 * k * day + 0.015, 0.19 * k * day + 0.012, 0.13 * k * day + 0.016);
-    u.uAmbientGround.value.setRGB(0.18 * day + 0.008, 0.09 * day + 0.006, 0.05 * day + 0.006);
+    u.uSkyGlow.value.setRGB(0.08 * dusk, 0.2 * dusk, 0.5 * dusk);
+    u.uSunGlowColor.value.setRGB(1.2 - 0.5 * dusk, 1.15 - 0.3 * dusk, 1.05 + 0.2 * dusk).multiplyScalar(0.8);
+    u.uLightColor.value.multiply(_c.setRGB(1.04, 0.92, 0.8));
+    u.uAmbientSky.value.setRGB(0.2 * k * day + 0.015, 0.13 * k * day + 0.012, 0.1 * k * day + 0.016);
+    u.uAmbientGround.value.setRGB(0.12 * day + 0.008, 0.06 * day + 0.006, 0.035 * day + 0.006);
     u.uNight.value = 1 - day;
     m.uCloudCoverage.value = 0;
     sky.sunLight.color.copy(u.uLightColor.value);
@@ -367,6 +381,8 @@ export class SpaceSky {
     sky.hemiLight.groundColor.copy(u.uAmbientGround.value);
     sky.horizonColor.copy(u.uSkyHorizon.value);
     sky.exposure = THREE.MathUtils.lerp(1.15, 0.95, day);
+    // (a dusty haze)
+    this._fog(sky, 0.62, 0.0016);
   }
 
   // The climb: black overhead, stars, a thin blue band low down; the clouds below.
@@ -387,7 +403,7 @@ export class SpaceSky {
     const cam = this.game.camera;
     if (dim === "moon") {
       if (!this._earth) {
-        this._earth = createPlanet("earth", 46, this._sun, { segments: 48 });
+        this._earth = createPlanet("earth", 64, this._sun, { segments: 48 });
         this._earth.group.renderOrder = -1;
         for (const o of [this._earth.globe, this._earth.clouds, this._earth.halo]) if (o) o.renderOrder = -1;
       }

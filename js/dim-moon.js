@@ -25,7 +25,7 @@ import { Noise, hash2 } from "./noise.js";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants.js";
 
 const S = CHUNK_SIZE;
-const BASE = 54; // the highlands' mean height
+const BASE = 72; // the highlands' mean height (above the Overworld's sea level: no water's mist over it)
 // Crater scales: grid cell, chance a cell has one, rim radius range.
 const SCALES = [
   { cell: 176, chance: 0.6, r0: 20, r1: 46, salt: 0x51 },
