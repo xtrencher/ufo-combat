@@ -38,6 +38,7 @@ import { createB2Model, B2_GEAR_HEIGHT } from "./b2-model.js";
 import { IS_SOLID, IS_WET } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { airDensity } from "./solar-data.js"; // (Round 16: the thin air high up)
 import { hullShape } from "./hitboxes.js";
 import { AirFx, MACH1 } from "./air-fx.js";
 import { voice } from "./voice.js";
@@ -405,7 +406,9 @@ export class Jet extends Vehicle {
     // after landing, or braking, dumps its lift.)
     const kL = G / (clMax * vStall * vStall);
     // (Open air brakes spoil some of the lift: the jet sinks faster, as a real one does.)
-    let lift = kL * cl * Math.max(0, vF) * Math.max(0, vF) * (1 - AIRBRAKE_LIFT_LOSS * this.airbrake);
+    // (Round 16) High up the air thins (js/solar-data.js): less lift and thrust, a ceiling about 1,500 up, far below space.
+    const air = Math.max(0.02, airDensity(this.pos.y, this.manager.world.dim || "overworld"));
+    let lift = kL * cl * Math.max(0, vF) * Math.max(0, vF) * (1 - AIRBRAKE_LIFT_LOSS * this.airbrake) * air;
     if (this.onGround && !this._rot) lift = 0;
     const liftDir = _v.copy(up);
     if (speed > 1) {
@@ -418,7 +421,7 @@ export class Jet extends Vehicle {
     // afterburner adds to it. On the wheels only part of the thrust gets the
     // jet rolling: a real ground roll of about a hundred blocks.
     const ab = this.afterburner ? (this.onGround ? 1.55 : AB_THRUST) : 1;
-    const thrust = (this.onGround ? THRUST_GROUND : THRUST_AIR) * cfg.accel * this.throttle * this.throttle * ab;
+    const thrust = (this.onGround ? THRUST_GROUND : THRUST_AIR) * cfg.accel * this.throttle * this.throttle * ab * air;
     acc.addScaledVector(fwd, thrust);
     // Drag: top speed with the afterburner lit is the max speed setting
     // (Round 13: in the air, at least the fighter's own supersonic top; an

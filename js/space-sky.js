@@ -1,6 +1,6 @@
-// Space's skies (Round 15): the Moon's and Mars' skies, the rocket's climb
-// into the black, and the planets' looks (js/space.js's orbit scene uses
-// them too).
+// Space's skies (Round 15; Round 16: the planets below, the solar system's
+// looks): the Moon's and Mars' skies, the climb into the black, and the
+// planets themselves (js/solar-render.js draws them in space).
 //
 // - The sky's hook (sky.js `post`, after the day's colours are worked out):
 //     the Moon: a black sky full of stars, the sun fixed low in it (long,
@@ -8,16 +8,26 @@
 //       Earth hanging in the sky (a lit globe: its night side dark);
 //     Mars: the day's sun (the Overworld's clock) over a butterscotch sky,
 //       the sunset blue round the sun, the night dark and starry, a dusty
-//       haze; its two little moons;
-//     the climb (the Overworld, js/rocket.js altK): the sky darkening to
-//       black and stars overhead, a thin blue band at the horizon, the
-//       clouds left below.
-// - The planets' textures (canvases, made once when first needed, small:
-//   512 x 256), and their material: the sun lights the day side, the night
-//   side is dark (the Earth's has its cities' lights), an atmosphere glows at
-//   the rim.
+//       haze; its two little moons; (Round 16) darkening to black high up;
+//     the climb (the Overworld): (Round 16) the sky only darkens well above
+//       where the planes fly (js/solar-data.js SKY_DARK: from 2,200 blocks
+//       up, black by 5,400), black and stars overhead, a thin blue band at
+//       the horizon, the clouds left below.
+// - (Round 16) The planet below: high over the Overworld, the Moon or Mars
+//   the ground's own chunks are out of sight long before the space line, so
+//   the planet itself is drawn under the view (the same globe the solar
+//   system shows, turned so the spot under the eye is the one in the world:
+//   js/solar-data.js worldToLatLon). It sits at the far plane, behind
+//   everything the world draws, and fades in with the height. At the space
+//   line it is the very picture the solar system's scene opens on.
+// - The planets' textures (canvases, made once when first needed, painted a
+//   few rows a frame), and their material: the sun lights the day side, the
+//   night side is dark (the Earth's has its cities' lights), an atmosphere
+//   glows at the rim; (Round 16) fine detail close up (noise on the globe),
+//   the gas giants' bands, Saturn's rings, the Sun's own glowing surface.
 import * as THREE from "three";
 import { worldUniforms } from "./shaders.js";
+import { BODIES, BODY_OF_DIM, BASE_Y, skyDark, worldToLatLon, surfaceFrame } from "./solar-data.js";
 
 const smooth = (a, b, v) => {
   const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
@@ -26,6 +36,10 @@ const smooth = (a, b, v) => {
 const MOON_SUN = new THREE.Vector3(0.62, 0.36, -0.42).normalize(); // (low over the Moon: long shadows)
 const EARTH_DIR = new THREE.Vector3(-0.62, 0.52, 0.42).normalize(); // (across the sky from the sun: its day side toward the Moon, gibbous) // (where the Earth hangs in the Moon's sky)
 const _c = new THREE.Color();
+const _m = new THREE.Matrix4();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _d = new THREE.Vector3();
 
 // ---------- Noise for the planets' textures ----------
 
@@ -114,10 +128,27 @@ export function pumpPlanetTextures(ms = 3) {
 const TEX = {};
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
+// A gas giant's bands: colours by latitude, stirred by noise; storms.
+function bands(x, y, z, lat, cols, seed, spot = null) {
+  const turb = (fbm3(x * 3 + seed, y * 3, z * 3, 4, seed) - 0.5) * 0.5;
+  const b = Math.sin(lat * 11 + turb * 3 + Math.sin(lat * 3.7) * 0.8);
+  const k = (b + 1) / 2;
+  let c = mix(cols[0], cols[1], smooth(0.2, 0.8, k));
+  c = mix(c, cols[2], smooth(0.75, 1, Math.abs(Math.sin(lat * 23 + turb * 6))) * 0.35);
+  if (spot) {
+    const dl = (lat - spot[0]) / 0.09;
+    const dlon = Math.atan2(z, x) - spot[1];
+    const dd = dl * dl + ((Math.atan2(Math.sin(dlon), Math.cos(dlon)) / 0.2) ** 2);
+    if (dd < 1) c = mix(c, spot[2], (1 - dd) * 0.85);
+  }
+  const f = 0.92 + fbm3(x * 20, y * 40, z * 20, 2, seed + 5) * 0.16;
+  return c.map((v) => v * f);
+}
+
 // The planets' surface textures (and the Earth's clouds and night lights), made once.
 export function planetTexture(name) {
   if (TEX[name]) return TEX[name];
-  const W = name === "earthNight" || name === "earthClouds" ? 512 : 1024;
+  const W = name === "earth" || name === "moon" || name === "mars" ? 1024 : name === "saturnRing" ? 512 : 512;
   const H = W / 2;
   let t;
   if (name === "earth") {
@@ -151,15 +182,17 @@ export function planetTexture(name) {
       const k = smooth(0.62, 0.8, c);
       return [255 * k, 190 * k, 110 * k];
     });
-  } else if (name === "moon") {
+  } else if (name === "moon" || name === "mercury") {
+    const tint = name === "mercury" ? [1.08, 0.98, 0.88] : [1, 1, 1.01];
+    const s = name === "mercury" ? 300 : 0;
     t = paintSphere(W, H, (x, y, z) => {
-      const m = smooth(0.48, 0.56, fbm3(x * 1.6 + 5, y * 1.6, z * 1.6, 4, 21));
-      let v = 150 + (fbm3(x * 9, y * 9, z * 9, 3, 23) - 0.5) * 50 - m * 70;
+      const m = smooth(0.48, 0.56, fbm3(x * 1.6 + 5, y * 1.6, z * 1.6, 4, 21 + s));
+      let v = 150 + (fbm3(x * 9, y * 9, z * 9, 3, 23 + s) - 0.5) * 50 - m * 70;
       // craters: bright rims, dark floors
-      const c = fbm3(x * 14, y * 14, z * 14, 2, 29);
+      const c = fbm3(x * 14, y * 14, z * 14, 2, 29 + s);
       if (c > 0.62) v += (c - 0.62) * 260;
       else if (c < 0.36) v -= (0.36 - c) * 90;
-      return [v, v, v * 1.01];
+      return [v * tint[0], v * tint[1], v * tint[2]];
     });
   } else if (name === "mars") {
     t = paintSphere(W, H, (x, y, z, lat) => {
@@ -172,6 +205,32 @@ export function planetTexture(name) {
       c = mix(c, [80, 38, 26], scar * 0.7);
       return c.map((v) => v * (0.9 + fbm3(x * 12, y * 12, z * 12, 2, 37) * 0.2));
     });
+  } else if (name === "venus") {
+    t = paintSphere(W, H, (x, y, z, lat) => {
+      const sw = fbm3(x * 2 + Math.sin(lat * 4) * 0.6, y * 5, z * 2, 5, 61);
+      return mix([214, 178, 112], [246, 226, 178], smooth(0.3, 0.75, sw));
+    });
+  } else if (name === "jupiter") {
+    t = paintSphere(W, H, (x, y, z, lat) => bands(x, y, z, lat, [[196, 160, 122], [238, 222, 196], [150, 96, 70]], 81, [-0.38, 1.2, [196, 90, 60]]));
+  } else if (name === "saturn") {
+    t = paintSphere(W, H, (x, y, z, lat) => bands(x, y, z, lat * 0.8, [[214, 190, 140], [240, 226, 186], [180, 150, 100]], 93));
+  } else if (name === "saturnRing") {
+    // (a strip: the rings from the inner edge (left) out, their gaps)
+    const c = document.createElement("canvas");
+    c.width = 512;
+    c.height = 4;
+    const g = c.getContext("2d");
+    for (let i = 0; i < 512; i++) {
+      const u = i / 511;
+      let a = 0.25 + 0.6 * smooth(0.0, 0.1, u) * (0.6 + 0.4 * Math.sin(u * 140) * Math.sin(u * 37));
+      if (u > 0.58 && u < 0.64) a *= 0.12; // (the Cassini division)
+      if (u > 0.9) a *= 1 - smooth(0.9, 1, u);
+      const v = 200 + 40 * Math.sin(u * 60);
+      g.fillStyle = `rgba(${v},${v * 0.92},${v * 0.78},${Math.max(0, Math.min(1, a))})`;
+      g.fillRect(i, 0, 1, 4);
+    }
+    t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
   }
   TEX[name] = t;
   return t;
@@ -179,16 +238,30 @@ export function planetTexture(name) {
 
 // ---------- The planets' material ----------
 
+const NOISE_GLSL = `
+float sh3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float sn3(vec3 x) {
+  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(sh3(i), sh3(i + vec3(1,0,0)), f.x), mix(sh3(i + vec3(0,1,0)), sh3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(sh3(i + vec3(0,0,1)), sh3(i + vec3(1,0,1)), f.x), mix(sh3(i + vec3(0,1,1)), sh3(i + vec3(1,1,1)), f.x), f.y), f.z);
+}`;
+
 const planetVertex = `
 varying vec3 vN;
 varying vec3 vW;
+varying vec3 vO;
 varying vec2 vUv;
 void main() {
   vUv = uv;
+  vO = normalize(position);
   vec4 w = modelMatrix * vec4(position, 1.0);
   vW = w.xyz;
   vN = normalize(mat3(modelMatrix) * normal);
   gl_Position = projectionMatrix * viewMatrix * w;
+  #ifdef PIN_FAR
+  // (Round 16: behind everything the world draws; the sky's dome after it is hidden)
+  gl_Position.z = gl_Position.w * 0.99999;
+  #endif
 }`;
 const planetFragment = `
 uniform sampler2D uMap;
@@ -198,28 +271,40 @@ uniform vec3 uSun;
 uniform vec3 uAtmo;
 uniform float uAtmoK;
 uniform float uBright;
+uniform float uDetail;
+uniform float uRadius;
+uniform float uOpacity;
 varying vec3 vN;
 varying vec3 vW;
+varying vec3 vO;
 varying vec2 vUv;
+${NOISE_GLSL}
 void main() {
   vec3 n = normalize(vN);
   vec3 v = normalize(cameraPosition - vW);
   float d = dot(n, normalize(uSun));
   float day = smoothstep(-0.08, 0.25, d);
   vec3 tex = texture2D(uMap, vUv).rgb;
+  if (uDetail > 0.001) {
+    // (close up: mottling at a few scales, a kilometre down to a hundred metres)
+    vec3 p = vO * uRadius;
+    float k = sn3(p / 2400.0) * 0.5 + sn3(p / 700.0) * 0.3 + sn3(p / 190.0) * 0.2;
+    tex *= mix(1.0, 0.72 + 0.56 * k, uDetail);
+  }
   vec3 col = tex * (0.015 + max(d, 0.0) * 1.35) * uBright;
   if (uHasNight > 0.5) col += texture2D(uNight, vUv).rgb * (1.0 - day) * 0.9;
   float rim = pow(1.0 - max(dot(n, v), 0.0), 7.0);
   col = mix(col, uAtmo * 0.55 * max(d, 0.0), rim * uAtmoK * 0.55);
   col += uAtmo * rim * uAtmoK * smoothstep(-0.25, 0.45, d) * 0.5;
   col += uAtmo * uAtmoK * 0.03 * day;
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col, uOpacity);
 }`;
 // The atmosphere's halo: a shell a little bigger than the planet, glowing at its rim, lit by the sun.
 const haloFragment = `
 uniform vec3 uSun;
 uniform vec3 uAtmo;
 uniform float uAtmoK;
+uniform float uOpacity;
 varying vec3 vN;
 varying vec3 vW;
 varying vec2 vUv;
@@ -227,12 +312,13 @@ void main() {
   vec3 n = normalize(vN);
   vec3 v = normalize(cameraPosition - vW);
   float f = 1.0 - abs(dot(n, v));
-  float a = pow(f, 3.0) * uAtmoK * smoothstep(-0.35, 0.4, dot(n, normalize(uSun)));
+  float a = pow(f, 3.0) * uAtmoK * smoothstep(-0.35, 0.4, dot(n, normalize(uSun))) * uOpacity;
   gl_FragColor = vec4(uAtmo * a * 1.6, a);
 }`;
 const cloudFragment = `
 uniform sampler2D uMap;
 uniform vec3 uSun;
+uniform float uOpacity;
 varying vec3 vN;
 varying vec3 vW;
 varying vec2 vUv;
@@ -241,78 +327,175 @@ void main() {
   float d = dot(n, normalize(uSun));
   float a = texture2D(uMap, vUv).a;
   vec3 col = vec3(1.0) * (0.02 + max(d, 0.0) * 1.1);
-  gl_FragColor = vec4(col, a * smoothstep(-0.3, 0.1, d) * 0.95 + a * 0.05);
+  gl_FragColor = vec4(col, (a * smoothstep(-0.3, 0.1, d) * 0.95 + a * 0.05) * uOpacity);
+}`;
+// (Round 16) The Sun: a glowing globe, its surface boiling, darker to the limb.
+const sunFragment = `
+uniform float uTime;
+varying vec3 vN;
+varying vec3 vW;
+varying vec3 vO;
+varying vec2 vUv;
+${NOISE_GLSL}
+void main() {
+  vec3 n = normalize(vN);
+  vec3 v = normalize(cameraPosition - vW);
+  float mu = max(dot(n, v), 0.0);
+  float g = sn3(vO * 60.0 + vec3(uTime * 0.05)) * 0.6 + sn3(vO * 180.0 - vec3(uTime * 0.08)) * 0.4;
+  vec3 hot = vec3(5.2, 4.4, 3.2);
+  vec3 col = hot * (0.55 + 0.45 * pow(mu, 0.45)) * (0.85 + 0.3 * g);
+  col = mix(vec3(4.0, 2.2, 0.9), col, smoothstep(0.0, 0.35, mu));
+  gl_FragColor = vec4(col, 1.0);
+}`;
+// (Round 16) Saturn's rings: a flat annulus, its texture by the distance from the middle.
+const ringVertex = `
+varying vec3 vL;
+varying vec3 vW;
+void main() {
+  vL = position;
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vW = w.xyz;
+  gl_Position = projectionMatrix * viewMatrix * w;
+}`;
+const ringFragment = `
+uniform sampler2D uMap;
+uniform vec2 uRange;
+uniform vec3 uSun;
+uniform vec3 uCenter;
+uniform float uR;
+varying vec3 vL;
+varying vec3 vW;
+void main() {
+  float r = length(vL.xz);
+  float u = (r - uRange.x) / (uRange.y - uRange.x);
+  if (u < 0.0 || u > 1.0) discard;
+  vec4 t = texture2D(uMap, vec2(u, 0.5));
+  // (the planet's shadow across the rings: the far side from the sun)
+  vec3 rel = vW - uCenter;
+  vec3 s = normalize(uSun);
+  float along = dot(rel, s);
+  float off = length(rel - s * along);
+  float shade = (along < 0.0 && off < uR) ? 0.12 : 1.0;
+  gl_FragColor = vec4(t.rgb * (0.25 + 0.85 * shade), t.a * 0.9);
 }`;
 
+// Each body's look: its texture, an atmosphere (colour, strength), clouds and night lights (the Earth).
 export const PLANETS = {
   earth: { tex: "earth", atmo: [0.35, 0.6, 1.2], atmoK: 1, clouds: true, night: true },
   moon: { tex: "moon", atmo: [0, 0, 0], atmoK: 0 },
   mars: { tex: "mars", atmo: [1.0, 0.55, 0.35], atmoK: 0.45 },
+  mercury: { tex: "mercury", atmo: [0, 0, 0], atmoK: 0 },
+  venus: { tex: "venus", atmo: [1.0, 0.85, 0.55], atmoK: 0.7 },
+  jupiter: { tex: "jupiter", atmo: [0.9, 0.8, 0.65], atmoK: 0.35 },
+  saturn: { tex: "saturn", atmo: [0.9, 0.85, 0.6], atmoK: 0.3, rings: true },
 };
+// The textures a trip into space wants ready.
+export const SPACE_TEXTURES = ["earth", "earthClouds", "earthNight", "moon", "mars", "mercury", "venus", "jupiter", "saturn", "saturnRing"];
 
 // A planet: a group with its globe (radius r), clouds and halo. sun: a
 // direction (world) the material reads (shared: change it in place).
-export function createPlanet(kind, r, sun, { segments = 64 } = {}) {
+// opts: segments; pinFar (Round 16: drawn at the far plane, see above);
+// detail (the close-up mottling's strength, a uniform to change later).
+export function createPlanet(kind, r, sun, { segments = 64, pinFar = false, detail = 0 } = {}) {
   const P = PLANETS[kind];
   const group = new THREE.Group();
   const mats = [];
+  const defines = pinFar ? { PIN_FAR: "" } : {};
+  const extra = pinFar ? { transparent: true, depthWrite: false } : {};
   const sphere = new THREE.SphereGeometry(r, segments, Math.round(segments / 2));
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: planetTexture(P.tex) }, uNight: { value: P.night ? planetTexture("earthNight") : null }, uHasNight: { value: P.night ? 1 : 0 }, uSun: { value: sun }, uAtmo: { value: new THREE.Color(...P.atmo) }, uAtmoK: { value: P.atmoK }, uBright: { value: 1 } },
+    uniforms: { uMap: { value: planetTexture(P.tex) }, uNight: { value: P.night ? planetTexture("earthNight") : null }, uHasNight: { value: P.night ? 1 : 0 }, uSun: { value: sun }, uAtmo: { value: new THREE.Color(...P.atmo) }, uAtmoK: { value: P.atmoK }, uBright: { value: 1 }, uDetail: { value: detail }, uRadius: { value: r }, uOpacity: { value: 1 } },
     vertexShader: planetVertex,
     fragmentShader: planetFragment,
+    defines,
     fog: false,
+    ...extra,
   });
   mats.push(mat);
   const globe = new THREE.Mesh(sphere, mat);
   group.add(globe);
   let clouds = null;
   if (P.clouds) {
-    const cm = new THREE.ShaderMaterial({ uniforms: { uMap: { value: planetTexture("earthClouds") }, uSun: { value: sun } }, vertexShader: planetVertex, fragmentShader: cloudFragment, transparent: true, depthWrite: false, fog: false });
+    const cm = new THREE.ShaderMaterial({ uniforms: { uMap: { value: planetTexture("earthClouds") }, uSun: { value: sun }, uOpacity: { value: 1 } }, vertexShader: planetVertex, fragmentShader: cloudFragment, defines, transparent: true, depthWrite: false, fog: false });
     mats.push(cm);
     clouds = new THREE.Mesh(new THREE.SphereGeometry(r * 1.012, segments, Math.round(segments / 2)), cm);
     group.add(clouds);
   }
   let halo = null;
   if (P.atmoK > 0) {
-    const hm = new THREE.ShaderMaterial({ uniforms: { uSun: { value: sun }, uAtmo: { value: new THREE.Color(...P.atmo) }, uAtmoK: { value: P.atmoK } }, vertexShader: planetVertex, fragmentShader: haloFragment, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false });
+    const hm = new THREE.ShaderMaterial({ uniforms: { uSun: { value: sun }, uAtmo: { value: new THREE.Color(...P.atmo) }, uAtmoK: { value: P.atmoK }, uOpacity: { value: 1 } }, vertexShader: planetVertex, fragmentShader: haloFragment, defines, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false });
     mats.push(hm);
     halo = new THREE.Mesh(new THREE.SphereGeometry(r * 1.025, segments, Math.round(segments / 2)), hm);
     group.add(halo);
+  }
+  let rings = null;
+  if (P.rings) {
+    const [r0, r1] = BODIES.saturn.rings;
+    const rm = new THREE.ShaderMaterial({ uniforms: { uMap: { value: planetTexture("saturnRing") }, uRange: { value: new THREE.Vector2(r * r0, r * r1) }, uSun: { value: sun }, uCenter: { value: new THREE.Vector3() }, uR: { value: r } }, vertexShader: ringVertex, fragmentShader: ringFragment, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    mats.push(rm);
+    rings = new THREE.Mesh(new THREE.RingGeometry(r * r0, r * r1, 96, 1).rotateX(-Math.PI / 2), rm);
+    rings.rotation.x = 0.47; // (its tilt)
+    group.add(rings);
   }
   return {
     group,
     globe,
     clouds,
     halo,
+    rings,
     r,
+    mats,
     spin(dt) {
-      globe.rotation.y += dt * 0.01;
-      if (clouds) clouds.rotation.y += dt * 0.013;
+      if (clouds) clouds.rotation.y += dt * 0.003;
+    },
+    // How far it has faded in (the planet below), 0-1.
+    setOpacity(k) {
+      for (const m of mats) if (m.uniforms.uOpacity) m.uniforms.uOpacity.value = k;
+    },
+    setDetail(k) {
+      mat.uniforms.uDetail.value = k;
+    },
+    // (the rings' shadow: where the planet's middle is, in the scene)
+    setCenter(v, scale = 1) {
+      if (rings) {
+        rings.material.uniforms.uCenter.value.copy(v);
+        rings.material.uniforms.uR.value = r * scale;
+      }
     },
     dispose() {
       sphere.dispose();
       clouds?.geometry.dispose();
       halo?.geometry.dispose();
+      rings?.geometry.dispose();
       for (const m of mats) m.dispose();
     },
   };
 }
 
+// (Round 16) The Sun's globe (radius r).
+export function createSunGlobe(r, segments = 64) {
+  const mat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 } }, vertexShader: planetVertex, fragmentShader: sunFragment, fog: false });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, segments, Math.round(segments / 2)), mat);
+  return mesh;
+}
+
 // ---------- The sky's hook ----------
 
-// Installed on the game's sky (sky.post): reads `state` (js/space.js keeps
-// it: altK, the rocket's climb) and the world's dimension.
+// Installed on the game's sky (sky.post): reads `altK` (js/space.js keeps
+// it: how far into the black the eye is) and the world's dimension.
 export class SpaceSky {
   constructor(game) {
     this.game = game;
     this.sky = game.sky;
     this.world = game.world;
-    this.altK = 0; // 0 on the ground .. 1 up in the black (the climb, the Overworld)
+    this.altK = 0; // 0 on the ground .. 1 up in the black (the climb)
     this.sky.post = (sky, e, dt) => this._post(sky, e, dt);
     this._earth = null; // the Earth in the Moon's sky
     this._moons = null; // Mars' Phobos and Deimos
+    this._below = {}; // (Round 16) kind -> the planet under the view, high up
     this._sun = new THREE.Vector3().copy(MOON_SUN);
+    this._belowSun = new THREE.Vector3(0, 1, 0);
+    this.belowK = 0; // (how far the planet below has faded in: tests)
     this.time = 0;
   }
 
@@ -323,8 +506,9 @@ export class SpaceSky {
     const m = sky.material.uniforms;
     if (dim === "moon") this._moon(sky, u, m);
     else if (dim === "mars") this._mars(sky, u, m, e);
-    else if (dim === "overworld" && this.altK > 0.001) this._climb(sky, u, m, this.altK);
+    if ((dim === "overworld" || dim === "mars") && this.altK > 0.001) this._climb(sky, u, m, this.altK);
     this._sky3d(dim);
+    this._planetBelow(dim);
   }
 
   _moon(sky, u, m) {
@@ -390,11 +574,55 @@ export class SpaceSky {
     const z = u.uSkyZenith.value;
     z.multiplyScalar(1 - k * 0.995);
     const h = u.uSkyHorizon.value;
-    h.lerp(_c.setRGB(0.05, 0.12, 0.32), smooth(0, 0.5, k)).multiplyScalar(1 - 0.7 * smooth(0.5, 1, k));
+    h.lerp(this.world.dim === "mars" ? _c.setRGB(0.22, 0.12, 0.08) : _c.setRGB(0.05, 0.12, 0.32), smooth(0, 0.5, k)).multiplyScalar(1 - 0.7 * smooth(0.5, 1, k));
     u.uSkyGlow.value.multiplyScalar(1 - k);
     u.uNight.value = Math.max(u.uNight.value, smooth(0.25, 0.9, k));
     m.uCloudCoverage.value *= 1 - smooth(0.05, 0.3, k);
     sky.horizonColor.copy(h);
+  }
+
+  // (Round 16) The planet under the view, high up: fading in as the world's
+  // own ground falls out of sight (the far plane, the fog), turned so the
+  // spot below the eye is this spot of the world.
+  _planetBelow(dim) {
+    const body = BODY_OF_DIM[dim];
+    const cam = this.game.camera;
+    const alt = cam ? cam.position.y - BASE_Y : 0;
+    const B = body && BODIES[body];
+    const k = B ? smooth(Math.max(500, B.line * 0.25), B.line * 0.6, alt) : 0;
+    this.belowK = k;
+    for (const [kind, p] of Object.entries(this._below)) {
+      if (kind !== body || k <= 0.002) {
+        if (p.group.parent) p.group.parent.remove(p.group);
+      }
+    }
+    if (!B || k <= 0.002) return;
+    let p = this._below[body];
+    if (!p) {
+      p = this._below[body] = createPlanet(body, 1, this._belowSun, { segments: 96, pinFar: true, detail: 0.6 });
+      p.mats[0].uniforms.uRadius.value = B.r;
+      // (first of the see-through things, the globe, its clouds, its glow in turn)
+      [p.globe, p.clouds, p.halo].forEach((o, i) => o && (o.renderOrder = -1e6 + i));
+      p.group.frustumCulled = false;
+      for (const o of [p.globe, p.clouds, p.halo]) if (o) o.frustumCulled = false;
+    }
+    if (!p.group.parent) this.game.scene.add(p.group);
+    // (any size: it is drawn at the far plane; this one keeps it well inside the view's depth)
+    const d = B.r + Math.max(0, alt);
+    const s = Math.min(cam.far * 0.4, 900) / d;
+    p.group.scale.setScalar(B.r * s);
+    p.group.position.set(cam.position.x, cam.position.y - d * s, cam.position.z);
+    // (the globe's own frame turned so the spot under the eye is at its top, its east along +x)
+    const { lat, lon } = worldToLatLon(body, cam.position.x, cam.position.z);
+    const f = surfaceFrame(lat, lon);
+    _a.set(f.east[0], f.up[0], f.south[0]);
+    _b.set(f.east[1], f.up[1], f.south[1]);
+    _d.set(f.east[2], f.up[2], f.south[2]);
+    _m.makeBasis(_a, _b, _d);
+    p.group.quaternion.setFromRotationMatrix(_m);
+    this._belowSun.copy(worldUniforms.uSunDir.value);
+    p.setOpacity(k);
+    p.setDetail(0.6);
   }
 
   // The globes in the sky: the Earth over the Moon, Phobos and Deimos over Mars.
@@ -437,3 +665,6 @@ export class SpaceSky {
     } else if (this._moons) for (const mo of this._moons) if (mo.parent) scene.remove(mo);
   }
 }
+
+// How dark the sky is for an eye at world height y in `dim` (js/space.js).
+export { skyDark };

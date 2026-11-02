@@ -2578,49 +2578,76 @@ Online: everyone sees everyone's helicopters (the rotor, the attitude, the
 gun, the stores), their tracers, rockets, missiles, flares and blasts; the
 host runs the gunships and anyone's hits count.
 
-## Space: rockets, the Moon and Mars
+## Space: rockets, UFOs, the Moon, Mars and the solar system
 
-(Round 15) In Creative (either world type) the pause menu has a **Rocket**
-call-in (and the Creative palette's Vehicles tab has the Rocket item): it
-builds a concrete launch pad a few blocks ahead, stands a 40-block rocket on
-it beside its red gantry tower, and puts you aboard.
+(Round 15, Round 16) In Creative (either world type) the pause menu has a
+**Rocket** call-in and a **Warp Saucer** call-in (the Creative palette's
+Vehicles tab has both items). The Rocket builds a concrete launch pad a few
+blocks ahead, stands a 40-block rocket on it beside its red gantry tower and
+puts you aboard. Any UFO can fly to space too.
 
+- **The sky is higher now:** it only starts to darken 2,200 m up and is black
+  by 5,400 m; the jets' air thins out above 900 m (their ceiling is about
+  1,500 m), so planes never see space. Above about 1,500 m the planet itself
+  (a globe, its oceans, clouds and atmosphere) appears under you.
+- **The space line:** 6,000 m over Earth (3,000 m over the Moon, 4,500 m over
+  Mars). A rocket or a UFO that climbs past it flies straight on into space:
+  no cutscene and no menu, the same craft, camera and speed, now over a round
+  planet in the solar system (the Sun, Mercury, Venus, Earth and the Moon,
+  Mars, Jupiter and Saturn with its rings). The voxel world rests meanwhile.
 - **Launch:** press **Space** for the countdown (Backspace stops it). The
-  voice counts down from ten, the tower's arms swing away, the engines light
-  at T-3 and the smoke rolls out over the ground. At zero the rocket lifts off
-  slowly and climbs faster and faster, turning over the way it faced. Its four
-  boosters drop away and tumble down, and the sky darkens to black and stars.
-  F5 changes the camera: the ground camera, the chase, onboard. F in flight
-  bails out with a parachute.
-- **Orbit:** at engine cut-off the core stage separates over the curve of the
-  Earth and you're in orbit. Pick where to go: **1** the Moon, **2** Mars,
-  **3** back to Earth (or the planet below). The mouse turns the view.
-- **The trip:** the planet behind you shrinks and the one ahead grows until it
-  fills the view. The ship turns engine-first and lights its descent engine.
-- **Landing:** the ship comes down on its engine and its landing legs come
-  out. The autopilot lands it in the landing zone (on Earth, on the pad you
-  left from). Take over whenever you like: Space and Shift for throttle, W A S
-  D to tilt, R to hand back to the autopilot. Touching down faster than 7 m/s,
-  or tilted, is a crash.
+  voice counts down, the tower's arms swing away, the engines light at T-3,
+  the smoke rolls out. The rocket climbs faster and faster, turning over; its
+  boosters drop away; about 50 s later it is in space. Its core stage falls
+  away a few seconds later.
+- **Flying the rocket in space:** real orbital mechanics (the pull of the
+  nearest planet). **Space / Shift** throttle (**Z** full, **X** off),
+  **W A S D** tilt the nose the way the camera sees it, **Q / E** roll, the
+  mouse turns the camera. **R** is the assist: it points the nose and tells
+  you when to **BURN** and when to **CUT ENGINE**: first into orbit (it does
+  that by itself after the climb), then for the transfer to the target (the
+  Moon by default, **T** picks another), then for the landing burn.
+- **Time warp:** **,** and **.** step through 1x, 10x, 100x, 1,000x, 10,000x
+  and 100,000x (**/** back to 1x). It drops by itself on thrust and near a
+  planet. The Moon is a few minutes away in real time, Mars a few more.
+- **UFOs in space:** they fly as ever (W A S D, Space / Shift, the mouse); the
+  mouse wheel's cruising speed goes on up to a fifth of the speed of light
+  out in space (slower near a planet). Time warp works for them too.
+- **The Warp Saucer:** a UFO with a warp drive. In space, away from planets,
+  **J** lights it: the stars stretch into streaks, a tunnel of light, the
+  drive's roar. The mouse wheel sets the warp factor (1c to 10,000c), the
+  mouse steers, and it slows and drops out of warp by itself in front of a
+  planet. Earth to Mars takes tens of seconds.
+- **Guides (N):** a marker on every planet with its name, distance and the time
+  to get there at your speed; arrows at the edge for ones off screen; the
+  target marked (**T** next, **Shift+T** back). **M** opens the map: the
+  orbits, the planets, your path ahead (the wheel zooms out to the whole
+  solar system).
+- **Landing:** fly down into the Moon, Mars or Earth: below its entry
+  altitude the world goes there, with you high over the spot you came down
+  on, still moving. A rocket's autopilot lands it on its legs (take over with
+  Space / Shift and W A S D; R hands back); touching down faster than 7 m/s or
+  tilted is a crash. Jupiter, Saturn, Venus and Mercury have nowhere to land,
+  and the Sun's heat pushes you back.
 - **The Moon:** grey dust and craters, the dark maria, a black sky with the
   Earth hanging in it and a low sun that casts long, hard shadows. Gravity is
   1/6: you jump about six times as high, and a fall hurts as one six times
   shorter (items and creatures fall slowly too). There's no air, so sounds are
   muffled. Look for lunar crystal ore, ice at the bottom of the deepest
   craters, crashed probes (their glowing data cores) and the black monoliths
-  ringed with glyph stones.
+  ringed with glyph stones (near the middle of the Moon's world: x 0, z 0).
 - **Mars:** rusty plains, dunes, mesas and a great canyon with layered walls
   just north of the landing zone, and a huge volcano. The sky is butterscotch
   by day, the sunset is blue and the nights are starry. Dust devils wander
   past and two little moons cross the sky. Gravity is 0.38. Look for hematite
   ore (raw iron), polar ice and the alien ruins: stepped pyramids with lit
   glyph bands and a relic in the middle.
-- **Going home:** board your ship and press Space. It lifts off to orbit, and
-  from there you pick Earth.
-- **Online:** each player flies their own rocket. The others watch the launch
-  (the smoke, the climb, the boosters falling) and see a ship come down where
-  they are. A save made mid-trip puts you back at the pad with the rocket on
-  it.
+- **Going home:** board your ship and press Space (or fly up in a UFO), then
+  fly down into Earth.
+- **Saving and online:** a UFO saved in space comes back in space where it
+  was; a rocket saved in flight is back on its pad (or on the ground below).
+  Online each player flies and travels on their own; the others watch the
+  launch until it is out of sight.
 
 ## Stats
 
