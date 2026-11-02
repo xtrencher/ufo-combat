@@ -2024,6 +2024,12 @@
           "Check that you're online (the 3D engine, three.js, comes from cdn.jsdelivr.net) and that the game is served by its web server (<b>start.bat</b> or <b>./start.sh</b>), then reload. If you just updated the game, reload with <b>Ctrl+Shift+R</b> (<b>Cmd+Shift+R</b> on a Mac)."
         );
       };
+      // (Round 15) The loader's import() failing: mismatched files keep their own advice.
+      boot.importFailed = function (e) {
+        var d = (e && (e.stack || e.message)) || String(e);
+        if (/does not provide an export named/i.test(d)) boot.fail("The game failed to start", MIXED, d);
+        else boot.loadFailed();
+      };
       if (location.protocol === "file:") {
         boot.fail(
           "Open the game through its web server",
@@ -2077,7 +2083,7 @@
       } catch {}
       import("./js/main.js").catch((e) => {
         console.error(e);
-        window.__ufoBoot?.loadFailed();
+        window.__ufoBoot?.importFailed(e);
       });
     })();
   </script>

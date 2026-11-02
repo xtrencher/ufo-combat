@@ -638,7 +638,16 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     const v = this.view;
     if (!v) return false;
     if (postfx) {
-      postfx.render(v.scene, v.camera, { exposure: 1, raysStrength: 0, bloomStrength: 0.22, night: 0, time: this._orbit?.time ?? 0 }, null);
+      // (High and up draw the world's water in a pass that keeps only the
+      // world's layer: the orbit's scene has no water, and its planets and
+      // ship would vanish, leaving a black screen. That pass is off here.)
+      const water = postfx.screenWater;
+      postfx.screenWater = false;
+      try {
+        postfx.render(v.scene, v.camera, { exposure: 1, raysStrength: 0, bloomStrength: 0.22, night: 0, time: this._orbit?.time ?? 0 }, null);
+      } finally {
+        postfx.screenWater = water;
+      }
     } else {
       renderer.toneMappingExposure = 1;
       renderer.setRenderTarget(null);
