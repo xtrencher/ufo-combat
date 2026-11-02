@@ -424,7 +424,8 @@ export class Heli extends Vehicle {
     }
     // (Parked with the engine off and nobody at the controls: asleep, but
     // for a look at the ground under it now and then.)
-    if (!input && this.onGround && this._settled && this.rpm <= 0 && !this.isEnemyHeli && this.vel.lengthSq() < 0.01) {
+    // (Round 16: not while it sits in water or lava, which hurt it by the frame.)
+    if (!input && this.onGround && this._settled && this.rpm <= 0 && !this.isEnemyHeli && this.vel.lengthSq() < 0.01 && !this._wetT) {
       this._sleepT = (this._sleepT ?? 0) - dt;
       if (this._sleepT > 0) return;
       this._sleepT = 0.5;
@@ -611,9 +612,10 @@ export class Heli extends Vehicle {
       this._groundPitch = clamp(Math.atan2(front - back, len), -0.35, 0.35);
       this._groundRoll = clamp(Math.atan2(hs[0] - hs[1], Math.abs(L.gear[1][0] - L.gear[0][0])), -0.3, 0.3);
       // (Sitting in the water: it floods. Round 16: in lava it burns, at once.)
+      // (Lava is no `liquid`: the ground is its bed, the lava round the airframe.)
       const under = mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(ground - 0.5), Math.floor(this.pos.z));
-      if (this.onGround && IS_WET[under]) {
-        const lava = isLava(under);
+      const lava = isLava(mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(ground + 0.3), Math.floor(this.pos.z)));
+      if (this.onGround && (IS_WET[under] || lava)) {
         this._wetT = (this._wetT || 0) + dt;
         if (this._wetT > (lava ? 0.2 : 1.5)) {
           if (this === mgr.active && !this._toldWet) {

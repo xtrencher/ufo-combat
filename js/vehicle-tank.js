@@ -569,7 +569,7 @@ export class GroundVehicle extends Vehicle {
         const bz = Math.floor(z + fz * a + rz * b);
         for (let y = y0; y <= y0 + Math.ceil(this.model.height); y++) {
           const id = w.getBlock(bx, y, bz);
-          if (!id || IS_WET[id]) continue;
+          if (!id || IS_WET[id] || isLava(id)) continue; // (Round 16: lava is no `liquid`: it was crushed away like grass)
           if (IS_LEAVES[id] || ((IS_REPLACEABLE[id] || SHAPE_OF[id] === 1) && !IS_SOLID[id])) {
             if (edits.length < 120) edits.push(bx, y, bz, BLOCK.AIR);
           }
@@ -589,7 +589,8 @@ export class GroundVehicle extends Vehicle {
     const bx = Math.floor(x);
     const bz = Math.floor(z);
     for (let y = Math.floor(groundY); y < groundY + 4; y++) {
-      if (!IS_WET[w.getBlock(bx, y, bz)]) break;
+      const id = w.getBlock(bx, y, bz);
+      if (!IS_WET[id] && !isLava(id)) break; // (Round 16: lava is no `liquid`, deep lava stops it too)
       d++;
     }
     return d;
@@ -699,12 +700,13 @@ export class GroundVehicle extends Vehicle {
     const bz = Math.floor(this.pos.z);
     const by = Math.floor(this.pos.y + 0.4);
     const id = w.getBlock(bx, by, bz);
+    const lava = isLava(id);
     this.depth = this.inWater ? this._water(this.pos.x, this.pos.z, this.pos.y) : 0;
     const was = this.flooded;
-    this.flooded = this.depth > DEEP_WATER && !isLava(id);
+    this.flooded = this.depth > DEEP_WATER && !lava;
     if (this.flooded && !was && this === this.manager.active) this.manager.onMessage?.(`${this.spec.name}: the engine is flooded! Get out (F) and swim.`);
     if (this.flooded) this.speed *= Math.max(0, 1 - dt * 3);
-    if (this.inWater && isLava(id) && this.alive && !this.puppet) {
+    if (lava && this.alive && !this.puppet) {
       this._lavaT = (this._lavaT || 0) - dt;
       if (this._lavaT <= 0) {
         this._lavaT = 0.5;

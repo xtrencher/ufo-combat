@@ -2675,3 +2675,13 @@ Parts (parallel): **anywhere** (boarding, vehicles per dimension), **hacks**, **
 
 ### Release step: build stamp (Round 15 follow-up)
 Players with stale cached JS saw new buttons that did nothing. index.html now fetches `js/build.json` (no-store) and, when the build hash changes, re-fetches every script with `cache: "reload"` before importing main.js. **Run `node tools/stamp-build.mjs` before every release** to regenerate js/build.json.
+
+### Round 16 track D (bugs): what was found and fixed
+- **Tanks on water:** every ground vehicle (tanks, the enemy's, the parked AA, AA vehicles, the missile trucks) found the ground with `groundBelow`, which stops on a liquid's surface (for aircraft), so they drove across lakes and the sea. GroundVehicle `_ground` now searches through water and lava to the bed: slow in shallow water (0.45, 0.28 at two blocks), stopped at the edge of deep water, an engine flooded in water over the deck (dropped or placed there: it won't drive, the HUD says so, the driver gets out and swims), sinking slowly; lava burns it (6% a half second).
+- **Summons:** Creative won't place a ground vehicle in deep water, nor any vehicle where there is no ground at all (the End's void); the call-in tries the next spot.
+- **Tanks through trees:** the hull checked only its corners, middle and two points ahead/behind, so a trunk or a post between them passed through it; the leading edge and the sides are sampled under a block apart (a hull already stuck may drive out).
+- **The void:** a ground vehicle driven off an End island floated at y 1 forever; it falls and is lost.
+- **Jet cockpit view:** the camera sat behind the model's pilot (added in Round 8): the helmet and visor blacked out the middle of the view; now at the pilot's eyes, ahead of the visor.
+- **Lava:** lava is not a `liquid` (IS_WET), so a tank or a helicopter sat on a lava pool's bed and never burned; both now burn in it (deep lava stops a tank like deep water). A tank also crushed lava away like grass (it is `replaceable`); it doesn't now. A parked helicopter slept through water or lava (its ground check every half second, with one frame's damage); it stays awake while wet.
+- Looked at and fine: every preset (Low to Ultra) in the Overworld, under water, the Nether, the End, in a tank, a helicopter, a jet, the pause menu, the main menu; saving and loading vehicles (on a tower, underground); chaos run (300 steps, seed 16): 0 problems.
+- Tests: tools/r16-bugs-tests.mjs.
