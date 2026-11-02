@@ -28,16 +28,26 @@
 //                colours (linear HDR) and fog, see sky.js setDimension
 //   spawnMobs    (mobs, dt) => void: its creatures' spawning (set by the parts
 //                that add them; the Overworld's are mobs.js's own)
+//   gravity      (Round 15) the Overworld's gravity times this (the Moon's
+//                1/6, Mars' 0.38): players, items and creatures (player.js,
+//                entities.js, mobs.js); a fall hurts as from that much less
+//   airless      (Round 15) no air: sounds are muffled (js/space.js)
+//   rocketOnly   (Round 15) reached by rocket only (js/space.js), never by
+//                a portal, F7 or a respawn
 import { BLOCK } from "./content/base.js";
 import { TerrainGenerator } from "./terrain.js";
 import { NetherGenerator } from "./dim-nether.js";
 import { EndGenerator } from "./dim-end.js";
 import { CanyonGenerator, CANYON } from "./dim-canyon.js"; // (Round 15: the canyon run's courses)
+import { MoonGenerator } from "./dim-moon.js"; // (Round 15: space, js/space.js)
+import { MarsGenerator } from "./dim-mars.js";
 
 export const OVERWORLD = "overworld";
 export const NETHER = "nether";
 export const END = "end";
-export const DIM_IDS = [OVERWORLD, NETHER, END];
+export const MOON = "moon"; // (Round 15: reached by rocket, js/space.js)
+export const MARS = "mars";
+export const DIM_IDS = [OVERWORLD, NETHER, END, MOON, MARS];
 export { CANYON };
 
 export const DIMS = {
@@ -135,9 +145,64 @@ export const DIMS = {
     spawnMobs: null,
     course: true,
   },
+  // (Round 15) The Moon and Mars (js/dim-moon.js, js/dim-mars.js): reached by
+  // rocket (js/space.js, js/rocket.js). Their skies have a sun (sky.js `sun`:
+  // js/space-sky.js draws them: the Moon's black with the Earth in it, Mars'
+  // butterscotch by day with blue sunsets); low gravity; no weather; no
+  // creatures of their own; water boils away; beds blow up (no air).
+  [MOON]: {
+    id: MOON,
+    code: 3,
+    prefix: "m",
+    name: "the Moon",
+    label: "Moon",
+    scale: 1,
+    ceiling: false,
+    voidBelow: false,
+    dayCycle: false,
+    weather: false,
+    waterEvaporates: true,
+    bedsExplode: true,
+    lod: false,
+    heightfield: false,
+    minView: 6,
+    maxView: 12,
+    lightFloor: 0.08,
+    lavaStep: 1.5,
+    gravity: 1 / 6,
+    airless: true,
+    rocketOnly: true,
+    sky: { sun: true, zenith: [0.0, 0.0, 0.0], horizon: [0.003, 0.003, 0.004], ambSky: [0.1, 0.1, 0.11], ambGround: [0.05, 0.05, 0.05], stars: true, fog: "clear", exposure: 1.0 },
+    spawnMobs: null,
+  },
+  [MARS]: {
+    id: MARS,
+    code: 4,
+    prefix: "r",
+    name: "Mars",
+    label: "Mars",
+    scale: 1,
+    ceiling: false,
+    voidBelow: false,
+    dayCycle: true,
+    weather: false,
+    waterEvaporates: true,
+    bedsExplode: true,
+    lod: false,
+    heightfield: false,
+    minView: 6,
+    maxView: 12,
+    lightFloor: 0.05,
+    lavaStep: 1.5,
+    gravity: 0.38,
+    rocketOnly: true,
+    sky: { sun: true, zenith: [0.3, 0.17, 0.1], horizon: [0.62, 0.38, 0.24], ambSky: [0.3, 0.2, 0.15], ambGround: [0.15, 0.08, 0.05], stars: false, fog: "clear", exposure: 1.0 },
+    spawnMobs: null,
+  },
 };
 
-const BY_CODE = [DIMS[OVERWORLD], DIMS[NETHER], DIMS[END]];
+const BY_CODE = [];
+for (const d of Object.values(DIMS)) BY_CODE[d.code] = d; // (Round 15: by code, however many there are)
 
 // The portal blocks (the Nether's and the End's parts fill it): block id ->
 // "nether" | "end" | "end_exit". A player whose body is in one is in that
@@ -174,8 +239,8 @@ export function dimKey(dim, x, y, z) {
   return p ? `${p}:${x},${y},${z}` : `${x},${y},${z}`;
 }
 // A saved key of this form (load() checks).
-export const DIM_KEY_RE = /^(?:[ne]:)?-?\d+,-?\d+,-?\d+$/;
-const PREFIX_DIM = { n: NETHER, e: END };
+export const DIM_KEY_RE = /^(?:[nemr]:)?-?\d+,-?\d+,-?\d+$/;
+const PREFIX_DIM = { n: NETHER, e: END, m: MOON, r: MARS };
 // [x, y, z, dim] of a key, or null.
 export function parseDimKey(key) {
   if (typeof key !== "string" || !DIM_KEY_RE.test(key)) return null;
@@ -200,6 +265,8 @@ const GENERATORS = {
   [NETHER]: (seed, opts) => new NetherGenerator(seed, opts),
   [END]: (seed, opts) => new EndGenerator(seed, opts),
   [CANYON]: (seed) => new CanyonGenerator(seed),
+  [MOON]: (seed) => new MoonGenerator(seed),
+  [MARS]: (seed) => new MarsGenerator(seed),
 };
 export function createGenerator(dim, seed, opts) {
   return (GENERATORS[dim] || GENERATORS[OVERWORLD])(seed, opts);

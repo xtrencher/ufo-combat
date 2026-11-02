@@ -229,7 +229,7 @@ export class ItemEntities {
         it.vel.x *= Math.exp(-2 * dt);
         it.vel.z *= Math.exp(-2 * dt);
       } else {
-        it.vel.y = Math.max(it.vel.y + GRAVITY * dt, -30);
+        it.vel.y = Math.max(it.vel.y + GRAVITY * (world.dimInfo?.gravity ?? 1) * dt, -30); // (Round 15: low gravity)
       }
       it.onGround = false;
       const nx = p.x + it.vel.x * dt;

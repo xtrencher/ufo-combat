@@ -35,6 +35,7 @@ const SCALES = [
 export const MOON_LANDING = { x: 0, z: 0, r: 70 }; // (js/space.js: where a rocket comes down)
 const PROBE_CELL = 192;
 const MONOLITH_CELL = 640;
+const HOME_SITES = [[PROBE_CELL, "probe", 0.55, 14], [MONOLITH_CELL, "monolith", 0.6, 10]]; // (the kinds of site: grid cell, chance, reach)
 const smooth = (a, b, v) => {
   const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -175,7 +176,7 @@ export class MoonGenerator {
   // The sites near chunk (bx, bz): probes and monoliths, each a list of cells.
   _sitesNear(bx, bz) {
     const out = [];
-    for (const [cell, kind, chance, span] of [[PROBE_CELL, "probe", 0.55, 14], [MONOLITH_CELL, "monolith", 0.6, 10]]) {
+    for (const [cell, kind, chance, span] of HOME_SITES) {
       const g0x = Math.floor((bx - span) / cell);
       const g1x = Math.floor((bx + S + span) / cell);
       const g0z = Math.floor((bz - span) / cell);
@@ -186,6 +187,11 @@ export class MoonGenerator {
           if (site && site.x + span >= bx && site.x - span < bx + S && site.z + span >= bz && site.z - span < bz + S) out.push(site);
         }
       }
+    }
+    // (the home cell's site, near the landing zone, may lie outside its own cell's square)
+    for (const [cell, kind, chance, span] of HOME_SITES) {
+      const site = this._site(kind, cell, chance, 0, 0);
+      if (site && !out.includes(site) && site.x + span >= bx && site.x - span < bx + S && site.z + span >= bz && site.z - span < bz + S) out.push(site);
     }
     return out;
   }

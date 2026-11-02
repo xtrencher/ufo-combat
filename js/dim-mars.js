@@ -32,6 +32,7 @@ const VOLCANO_CELL = 1536;
 const CRATER_CELL = 72;
 const RUIN_CELL = 448;
 const PROBE_CELL = 224;
+const HOME_SITES = [[RUIN_CELL, "ruin", 0.55, 14], [PROBE_CELL, "probe", 0.5, 12]]; // (the kinds of site: grid cell, chance, reach)
 const smooth = (a, b, v) => {
   const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -236,13 +237,18 @@ export class MarsGenerator {
 
   _sitesNear(bx, bz) {
     const out = [];
-    for (const [cell, kind, chance, span] of [[RUIN_CELL, "ruin", 0.55, 14], [PROBE_CELL, "probe", 0.5, 12]]) {
+    for (const [cell, kind, chance, span] of HOME_SITES) {
       for (let gz = Math.floor((bz - span) / cell); gz <= Math.floor((bz + S + span) / cell); gz++) {
         for (let gx = Math.floor((bx - span) / cell); gx <= Math.floor((bx + S + span) / cell); gx++) {
           const site = this._site(kind, cell, chance, gx, gz);
           if (site && site.x + span >= bx && site.x - span < bx + S && site.z + span >= bz && site.z - span < bz + S) out.push(site);
         }
       }
+    }
+    // (the home cell's site, near the landing zone, may lie outside its own cell's square)
+    for (const [cell, kind, chance, span] of HOME_SITES) {
+      const site = this._site(kind, cell, chance, 0, 0);
+      if (site && !out.includes(site) && site.x + span >= bx && site.x - span < bx + S && site.z + span >= bz && site.z - span < bz + S) out.push(site);
     }
     return out;
   }

@@ -93,6 +93,7 @@ import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensio
 import { NetherPortals } from "./portal.js";
 import { NetherAtmosphere } from "./nether-fx.js";
 import { EndGame } from "./dragon.js";
+import { SpaceSystem } from "./space.js"; // (Round 15: the rocket, orbit, the Moon and Mars)
 import { Transport } from "./boats.js"; // (Round 12: boats and minecarts)
 import { TransportSync } from "./net/transport.js";
 import { GroundSync } from "./net/ground.js"; // (Round 13)
@@ -1896,6 +1897,7 @@ function playerState() {
     leaderDrops: progress.mission?.squad ? missionDirector.serializeDrops() : undefined,
     missionsOff: progressOffAt || undefined, // (saved in Creative: what the mission counts had reached)
     ...dims.serialize(), // (Round 12) the dimension the player is in, the other dimensions' state
+    ...space.serialize(), // (Round 15) the landing sites; mid-trip: back at the pad it left from
     end: endGame.serialize(), // (Round 12) the dragon's fight (js/dragon.js)
   };
 }
@@ -3379,6 +3381,8 @@ function cullCreatureShadows() {
 }
 
 function renderFrame() {
+  // (Round 15) In orbit and on the way to a planet: space's own scene, drawn instead of the world.
+  if (space.view) return space.render(renderer, activePreset.post ? postfx : null);
   // (Round 12) Out of the sky's sight (a cave) the time of day doesn't change the exposure.
   const exposure = THREE.MathUtils.lerp(1, sky.exposure, worldUniforms.uEyeSky.value) * eyeAdaptation;
   const preset = activePreset;
@@ -3500,7 +3504,7 @@ const game = {
     const p = player.position;
     // (Flying or under a parachute: only the column, the aircraft isn't
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
-    const air = vehicles.active || player.parachute;
+    const air = vehicles.active || player.parachute || space.busy; // (Round 15: on a trip through space)
     const kept = mp.dogfight?.keptInventory;
     return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: vanillaRules() && !player.dead ? player.serializeSurvival() : undefined, bed: vanillaRules() ? sleep.serialize() : undefined, dim: dims.dim !== "overworld" ? dims.dim : undefined };
   },
@@ -3731,6 +3735,9 @@ game.netherPortals = netherPortals;
 const endGame = new EndGame(game, { dims, mp, renderer });
 endGame.load(savedPlayer?.end);
 game.endGame = endGame;
+// (Round 15) Space: the rocket's trip to orbit, the Moon and Mars, their skies and rules (js/space.js, js/rocket.js).
+const space = new SpaceSystem(game, { dims, mp, renderer });
+game.space = space;
 // (Round 12: the host's dimension the host's; another dimension the guest's who simulates it there, js/dimensions.js.)
 natureSim.fire.enabled = () => dims.simulatesWorld(); // (a guest's fires burn at the host; the results arrive as edits)
 redstone.enabled = () => dims.simulatesWorld(); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
@@ -3814,6 +3821,7 @@ window.__ufo = window.__voxelands = {
   netherPortals, // (Round 12)
   netherAir,
   endGame, // (Round 12)
+  space, // (Round 15)
   weapons,
   lasers,
   nuke,
@@ -4261,7 +4269,7 @@ function updateAltitudeView(dt) {
   altViewT = 0.5;
   let target = renderDistance;
   const v = vehicles.active;
-  if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli")) {
+  if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli" || v.type === "rocket")) {
     const ground = Math.max(world.heightAt(Math.floor(v.pos.x), Math.floor(v.pos.z)), SEA_LEVEL);
     const t = THREE.MathUtils.clamp((v.pos.y - ground - 20) / 140, 0, 1);
     const boost = 1 + ((ALT_VIEW_MAX[graphicsPreset] ?? 2.2) - 1) * t;
@@ -4433,6 +4441,7 @@ function simulate(dt, frameTime) {
   updateDebug(dt, frameTime);
   endGame.update(dt); // (Round 12: the End's fight, the portals' starfield, eyes of ender)
   dims.update(dt); // (Round 12: portals, a travel's arrival)
+  space.update(dt); // (Round 15: the rocket's trip, the planets' skies and air)
   netherPortals.update(dt); // (Round 12: the nether portals, js/portal.js)
   netherAir.update(dt);
   mp.update(dt);
@@ -4483,6 +4492,7 @@ window.__voxelands.hacks = hacks;
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 // (Round 12) A save made in the Nether or the End: the world goes there now.
 dims.init(savedPlayer);
+space.init(savedPlayer?.space); // (Round 15: the landing sites; a trip cut short: the rocket back on its pad)
 // (Round 15) The canyon run's page: into its course (js/canyon.js); any
 // other page: the main menu's canyon screen (js/menu-canyon.js).
 if (CANYON) {

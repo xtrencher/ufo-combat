@@ -382,8 +382,8 @@ async function browserChecks() {
       out.fallHurt = hp - p.health;
       p.setMode("creative");
       // an item
-      const it = g.entities.spawnItem ? g.entities.spawnItem(1, 1, { x: p.position.x + 2, y: p.position.y + 20, z: p.position.z }) : null;
-      const item = it || g.entities.items?.[g.entities.items.length - 1];
+      const it = g.entities.spawn(1, 1, new g.THREE.Vector3(p.position.x + 2, p.position.y + 20, p.position.z));
+      const item = it && it.vel ? it : g.entities.items?.[g.entities.items.length - 1];
       if (item) {
         item.vel.set(0, 0, 0);
         const y0 = item.vel.y;

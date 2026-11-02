@@ -4976,7 +4976,7 @@ export class MobManager {
       // behind actually touching the wall, close enough for a spider).
       m.vel.y = 3.4;
     } else {
-      m.vel.y = Math.max(m.vel.y + GRAVITY * dt, -40);
+      m.vel.y = Math.max(m.vel.y + GRAVITY * (this.world.dimInfo?.gravity ?? 1) * dt, -40); // (Round 15: low gravity)
     }
     // (A big jump, for 2-block rises, only for creatures built for it: aliens.)
     if (want.jump && (m.onGround || (m.inWater && !waterBody))) m.vel.y = spec.hop ? 6.4 : want.jump === 2 && spec.bigJump ? 11.2 : 8.2;
@@ -5019,7 +5019,7 @@ export class MobManager {
     // Fall damage (not for hoppers, who land softly).
     if (m.onGround || m.inWater) {
       if (m.peakY !== null && !m.inWater && !spec.hop && !wasOnGround) {
-        const dmg = Math.floor(m.peakY - m.pos.y - 3);
+        const dmg = Math.floor((m.peakY - m.pos.y) * (this.world.dimInfo?.gravity ?? 1) - 3); // (Round 15: low gravity)
         if (dmg > 0 && !spec.noFall) this._hurt(m, dmg, null, 0);
       }
       m.peakY = null;

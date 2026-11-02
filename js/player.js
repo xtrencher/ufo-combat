@@ -1044,7 +1044,7 @@ export class Player {
     } else {
       // (Round 15) The hacks: low gravity, a super jump (H.jumpMul times as
       // high), a jetpack on Space in the air.
-      this.velocity.y += GRAVITY * H.gravity * dt;
+      this.velocity.y += GRAVITY * H.gravity * (this.world.dimInfo?.gravity ?? 1) * dt; // (Round 15: and the Moon's and Mars' low gravity)
       if (this.velocity.y < MAX_FALL_SPEED) this.velocity.y = MAX_FALL_SPEED;
       this.jetting = H.jetpack && space && !this.onGround && !this.onClimbable;
       if (this.jetting) this.velocity.y = Math.min(Math.max(this.velocity.y, -4) + 46 * dt, 11);
@@ -1240,7 +1240,7 @@ export class Player {
       return;
     }
     if (this._airborneMaxY !== null) {
-      const fell = this._airborneMaxY - y;
+      const fell = (this._airborneMaxY - y) * (this.world.dimInfo?.gravity ?? 1); // (Round 15: a fall in low gravity hurts as one that much shorter)
       this._airborneMaxY = null;
       // (Round 11) What it lands on can soften it (vanilla: hay, beds).
       const p = this.position;

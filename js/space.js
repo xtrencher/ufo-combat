@@ -663,6 +663,8 @@ body.space-trip #hud, body.space-trip #vehicle-hud, body.space-trip #vehicle-pro
     if (dim === "mars" && !this.trip) this._dustDevils(dt);
     else if (this.devils.length) this.devils.length = 0;
     const t = this.trip;
+    // (alone, the pause menu holds the trip where it is, as it holds the world)
+    if (t && this.game.gameState === "paused" && !this.mp?.active) return;
     if (t) {
       t.t += dt;
       // (the player held, out of the world: no fall, no hunger's walk)

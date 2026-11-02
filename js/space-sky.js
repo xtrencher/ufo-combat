@@ -382,7 +382,7 @@ export class SpaceSky {
     sky.horizonColor.copy(u.uSkyHorizon.value);
     sky.exposure = THREE.MathUtils.lerp(1.15, 0.95, day);
     // (a dusty haze)
-    this._fog(sky, 0.62, 0.0016);
+    this._fog(sky, 0.75, 0.0009);
   }
 
   // The climb: black overhead, stars, a thin blue band low down; the clouds below.
