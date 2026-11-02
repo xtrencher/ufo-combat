@@ -13,24 +13,38 @@
 //   - the jet waits at the canyon's mouth while the course streams in, then
 //     3, 2, 1, GO (frozen in the air, engine running);
 //   - the clock starts at the start gate (a flying start) and stops at the
-//     finish ring; checkpoint rings in between (a missed one: +5 s), boost
-//     rings (a kick of speed), splits against the best run at every
-//     checkpoint, a ghost of the best run flying alongside;
-//   - hitting the rock (or being shot down) ends the run: the explosion, a
-//     look at the wreck, then the results; climbing out of the canyon over
-//     the rim for more than a few seconds ends it too;
+//     finish ring; checkpoint rings in between (a missed one: +5 s), splits
+//     against the best run at every checkpoint, a ghost of the best run
+//     flying alongside;
+//   - hitting the rock (or being shot down) brings the jet back at the last
+//     checkpoint (below) or ends the run: the explosion, a look at the
+//     wreck, then the results; leaving the course (over the rim, off the
+//     line through a valley or space) for more than a few seconds too;
 //   - the results: the time, rings, penalties, the medal (bronze, silver,
 //     gold by the course's par times), a new record saved with its splits
-//     and its ghost (per course, ufocombat_v1_canyon / canyon_ghost_<id>);
-//     R flies again (any time), N the next course, M back to the menu;
+//     and its ghost (per course and options, ufocombat_v1_canyon /
+//     canyon_ghost_<id>); R flies again (any time), N the next course, M
+//     back to the menu;
 //   - The Gauntlet's AA guns on the rim fire tracers at the jet; the cannon
 //     and missile blasts destroy them.
+// (Round 16) The run's options (the canyon screen, js/menu-canyon.js; in
+// the address: diff, biome, open, bots, crash): the difficulty (how wide
+// and winding: Easy .. Insane), the scenery (a biome, a mix of them, or a
+// random one), open stretches (a valley, space), enemy jets (js/canyon-bots.js:
+// they fly the canyon and fight; kills counted, the jet's damage shown) and
+// what a crash does: by default the jet comes back at the last checkpoint
+// passed (the clock runs on: a crash costs the time it takes), or the run
+// is over (the results, R from the mouth). No ring speeds the jet up any
+// more (Round 15's boost rings are gone). The sky follows the scenery under
+// the jet, and goes black with stars out in space.
 // Streaming: the course runs along +z, so the chunks wanted are a corridor
 // along the canyon ahead of the jet (stream(), handed to world.js as its
 // plan instead of the distant-terrain system's), as wide as its walls, with
 // the fog at its end.
 import * as THREE from "three";
-import { CANYON, CANYON_COURSES, courseOf } from "./dim-canyon.js";
+import { CANYON, CANYON_COURSES, courseOf, canyonSeed, BIOME_MIXED } from "./dim-canyon.js";
+import { CANYON_BIOMES, BIOME_ORDER, BIOME_SKY, CANYON_DIFFS, DIFF_ORDER, OPEN_ORDER } from "./canyon-biomes.js";
+import { CanyonBots, BOT_LEVELS } from "./canyon-bots.js";
 import { loadJSON, saveJSON } from "./storage.js";
 import { createJetModel } from "./jet-model.js";
 import { worldUniforms } from "./shaders.js";
@@ -41,40 +55,62 @@ export { CANYON_COURSES };
 
 const START_BACK = 240; // blocks before the start gate the jet waits
 const AHEAD_ROWS = 22; // chunk rows streamed ahead of the jet (16 blocks each)
-const BEHIND_ROWS = 3;
+const BEHIND_ROWS = 3; // (Round 16: 6 with enemy jets, who fly behind the player too)
 const SIDE_MARGIN = 10; // blocks beyond the walls' widest reach
 const MISS_PENALTY = 5; // seconds per missed checkpoint
-const OUT_LIMIT = 4; // seconds over the rim before the run is over
-const OUT_MARGIN = 6; // blocks over the rim that count as out
+const OUT_LIMIT = 4; // seconds out of the course before the run is over
 const CRASH_LOOK = 2.4; // seconds looking at the wreck before the results
+const DOWN_LOOK = 1.5; // (Round 16) ... before the respawn's panel
+const RESPAWN_AUTO = 2.5; // (Round 16) seconds on that panel before the jet comes back by itself
+const RESPAWN_SHIELD = 3; // (Round 16) seconds after a respawn no shot hurts the jet
 const GHOST_DT = 0.2; // seconds between two samples of the ghost
 const GHOST_MAX = 3600; // samples (12 minutes)
-const BOOST = 70; // blocks/s a boost ring adds
 const START_SPEED = { grand: 140, slot: 92, night: 125, gauntlet: 140 };
 const TURRET_RANGE = 330;
 const TURRET_HP = 40;
 const TURRET_REFIRE = 1.7;
 const COURSE_TIME = { golden: 2.88, dusk: 3.0, noon: 1.9, night: 4.6 }; // the sun's angle (sky.js: 0 sunrise, PI sunset)
+const BOT_IDS = BOT_LEVELS.map((b) => b.id);
 
 // ---------- The page's parameters and links ----------
 
 // The run this page is for (from its address), or null: a normal page.
+// (Round 16) Its options: diff (easy | normal | hard | insane), biome (a
+// biome, "mixed", "random" or none: the course's own), open (none | some |
+// lots), bots (none | few | some | many), crash (checkpoint | restart). The
+// ones that shape the canyon go into the world's seed (canyonSeed): the
+// chunk workers make the same canyon from it.
 export function canyonParams(search = typeof window !== "undefined" ? window.location.search : "") {
   const p = new URLSearchParams(search);
   const c = p.get("canyon");
   if (c === null) return null;
   const fixed = CANYON_COURSES.find((x) => x.id === c);
-  const seed = fixed ? fixed.seed : /^\d{1,10}$/.test(c) ? Number(c) >>> 0 : CANYON_COURSES[0].seed;
-  return { seed, course: courseOf(seed), jet: p.get("jet") === "f16" ? "f16" : "f22" };
+  const base = fixed ? fixed.seed : /^\d{1,10}$/.test(c) ? (Number(c) >>> 0) & 0x1fffff : CANYON_COURSES[0].seed;
+  const own = courseOf(base);
+  const diff = DIFF_ORDER.includes(p.get("diff")) ? p.get("diff") : "normal";
+  let biome = p.get("biome");
+  if (biome === "random") biome = BIOME_ORDER[Math.floor(Math.random() * BIOME_ORDER.length)];
+  if (!(BIOME_ORDER.includes(biome) || biome === BIOME_MIXED) || biome === own.biome) biome = null;
+  const open = OPEN_ORDER.includes(p.get("open")) && p.get("open") !== "some" ? p.get("open") : null;
+  const bots = Math.max(0, BOT_IDS.indexOf(p.get("bots")));
+  const seed = canyonSeed(base, { biome, diff, open });
+  return { seed, course: courseOf(seed), jet: p.get("jet") === "f16" ? "f16" : "f22", bots, crash: p.get("crash") === "restart" ? "restart" : "checkpoint" };
 }
 
 // The address of a run (course: a course of CANYON_COURSES, or { seed }).
-export function canyonUrl(course, jet = "f22") {
+// (Round 16) opts: { diff, biome, open, bots, crash } (the defaults left out).
+export function canyonUrl(course, jet = "f22", opts = {}) {
   const u = new URL(window.location.href);
   u.search = "";
   u.hash = "";
-  u.searchParams.set("canyon", course.id ?? String(course.seed >>> 0));
+  u.searchParams.set("canyon", course.id ?? String((course.courseSeed ?? course.seed) >>> 0));
   u.searchParams.set("jet", jet === "f16" ? "f16" : "f22");
+  if (opts.diff && opts.diff !== "normal") u.searchParams.set("diff", opts.diff);
+  if (opts.biome && opts.biome !== "default") u.searchParams.set("biome", opts.biome);
+  if (opts.open && opts.open !== "some") u.searchParams.set("open", opts.open);
+  const bots = typeof opts.bots === "number" ? BOT_IDS[opts.bots] : opts.bots;
+  if (bots && bots !== "none") u.searchParams.set("bots", bots);
+  if (opts.crash === "restart") u.searchParams.set("crash", "restart");
   return u.toString();
 }
 
@@ -98,16 +134,25 @@ function saveRecords(rec) {
   return saveJSON("canyon", rec);
 }
 
+// (Round 16) A course's record key: its id with the default options (as in
+// Round 15), else the id and the options (another difficulty, scenery, open
+// stretches or enemy jets is another race: its own best time and ghost).
+export function recordId(spec, bots = 0) {
+  if (!spec?.id) return null;
+  return spec.opts || bots ? `${spec.id}~${spec.opts}~${bots}` : spec.id;
+}
+
 // The par times (seconds): gold, silver and bronze, from the course's length.
-export function medalTimes(course) {
-  const pace = { grand: 158, slot: 96, night: 140, gauntlet: 148 }[course.kind] || 140;
-  const gold = Math.round(course.length / pace);
+// (Round 16: at the difficulty's pace; a little more with enemy jets about.)
+export function medalTimes(course, bots = 0) {
+  const pace = ({ grand: 158, slot: 96, night: 140, gauntlet: 148 }[course.kind] || 140) * (CANYON_DIFFS[course.diff]?.pace ?? 1);
+  const gold = Math.round((course.length / pace) * (bots ? 1.08 : 1));
   return { gold, silver: Math.round(gold * 1.15), bronze: Math.round(gold * 1.35) };
 }
 
-export function medalFor(course, time) {
+export function medalFor(course, time, bots = 0) {
   if (!Number.isFinite(time)) return null;
-  const m = medalTimes(course);
+  const m = medalTimes(course, bots);
   return time <= m.gold ? "gold" : time <= m.silver ? "silver" : time <= m.bronze ? "bronze" : null;
 }
 
@@ -121,8 +166,17 @@ export function formatTime(t, plus = false) {
 }
 
 // The ghost of a course's best run (a separate key: the records stay small).
-function ghostKey(course) {
-  return `canyon_ghost_${course.id ?? course.seed}`;
+function ghostKey(course, bots = 0) {
+  return `canyon_ghost_${recordId(course, bots) ?? course.seed}`;
+}
+
+// (Round 16) The run's options in words (the HUD, the results).
+export function optionsLabel(spec, bots = 0) {
+  const parts = [CANYON_DIFFS[spec.diff]?.name || "Normal", spec.biome === BIOME_MIXED ? "Mixed scenery" : CANYON_BIOMES[spec.biome]?.name || ""];
+  if (spec.open === "none") parts.push("no open stretches");
+  else if (spec.open === "lots") parts.push("lots of open stretches");
+  if (bots) parts.push(`${BOT_LEVELS[bots].name.toLowerCase()} enemy jets`);
+  return parts.filter(Boolean).join(" · ");
 }
 
 // ---------- The run ----------
@@ -131,6 +185,12 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _dir = new THREE.Vector3();
+const _c = new THREE.Color();
+
+function smooth(a, b, x) {
+  const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
+  return t * t * (3 - 2 * t);
+}
 
 export class CanyonRun {
   // game: main.js's game object; params: canyonParams(); hooks: { enter() (into
@@ -143,16 +203,23 @@ export class CanyonRun {
     this.vehicles = game.vehicles;
     this.spec = params.course;
     this.jetType = params.jet;
+    this.botLevel = params.bots || 0;
+    this.crashMode = params.crash === "restart" ? "restart" : "checkpoint";
+    this.diff = CANYON_DIFFS[this.spec.diff] || CANYON_DIFFS.normal;
     this.active = false;
-    this.state = "idle"; // loading | countdown | flying | crashed | finished | out
+    this.state = "idle"; // loading | countdown | flying | crashed | down (Round 16: the respawn's panel) | finished | out
     this.jet = null;
     this.records = loadRecords();
-    this.record = this.spec.id ? this.records[this.spec.id] || null : null;
-    this.ghostData = this.spec.id ? loadJSON(ghostKey(this.spec)) : null;
-    this.stats = { restarts: 0, crashes: 0, finishes: 0, ringsPassed: 0, plans: 0 };
+    this.recId = recordId(this.spec, this.botLevel);
+    this.record = this.recId ? this.records[this.recId] || null : null;
+    this.ghostData = this.recId ? loadJSON(ghostKey(this.spec, this.botLevel)) : null;
+    this.stats = { restarts: 0, crashes: 0, finishes: 0, ringsPassed: 0, plans: 0, respawns: 0 };
     this._planKey = null;
     this._plan = null;
     this.waitForGround = true; // (tests that move the jet about turn it off)
+    this.respawns = 0;
+    this.shieldT = 0;
+    this.bots = null;
   }
 
   // Into the canyon: the dimension, the sky, the rings, the HUD, the hooks,
@@ -166,9 +233,8 @@ export class CanyonRun {
     this.course = this.world.terrainOf(CANYON).course;
     this.length = this.course.length;
     this.rings = this.course.rings().map((r) => ({ ...r, state: "ahead", t: 0, mesh: null }));
-    this.checks = this.rings.filter((r) => r.kind !== "boost");
-    this.boosts = this.rings.filter((r) => r.kind === "boost");
-    this.medals = medalTimes(this.spec);
+    this.checks = this.rings; // (Round 16: all of them: no boost rings)
+    this.medals = medalTimes(this.spec, this.botLevel);
     this.active = true;
     document.body.classList.add("canyon-mode");
     // The sky: a fixed hour (the course's), clouds, the sun's shadows down the walls.
@@ -176,7 +242,19 @@ export class CanyonRun {
     if (sky) {
       sky.locked = true;
       sky.setSunAngle(COURSE_TIME[this.spec.time] ?? COURSE_TIME.golden);
+      // (Round 16) ...tinted by the scenery under the jet, black in space
+      // (after any other hook of the sky's: space's own, js/space-sky.js).
+      const prev = sky.post;
+      sky.post = (s, e, dt) => {
+        prev?.(s, e, dt);
+        if (this.active) this._skyPost(s);
+      };
     }
+    // (Round 16) The enemy jets (none unless picked); the game's own patrols never fly here.
+    this.bots = new CanyonBots(this, this.botLevel, this.spec.diff);
+    // (its manager would take our bandits for its patrols, and clear them)
+    if (g.enemyJets) g.enemyJets.update = () => {};
+    this.behindRows = this.botLevel ? 6 : BEHIND_ROWS;
     this._buildRings();
     this._buildTurrets();
     this._buildGhost();
@@ -190,7 +268,7 @@ export class CanyonRun {
       const again = document.createElement("button");
       again.className = "btn big";
       again.id = "canyon-again-btn";
-      again.textContent = "Fly again (R)";
+      again.textContent = "Restart the course (R)";
       again.addEventListener("click", () => this.restart());
       resume.after(again);
     }
@@ -216,6 +294,11 @@ export class CanyonRun {
     return { x: row.xc, y: row.floor + 36, z, yaw: Math.PI };
   }
 
+  // (Round 16) The jet's speed as it sets off (the difficulty's).
+  get startSpeed() {
+    return (START_SPEED[this.spec.kind] ?? 130) * (this.diff.speed ?? 1);
+  }
+
   // ---------- Streaming ----------
 
   // The chunks around (x, z): a corridor along the canyon (world.js's plan).
@@ -238,20 +321,25 @@ export class CanyonRun {
     const set = new Set();
     let reach = 1;
     const c = this.course;
-    for (let cz = pcz - BEHIND_ROWS; cz <= pcz + AHEAD_ROWS; cz++) {
+    for (let cz = pcz - (this.behindRows ?? BEHIND_ROWS); cz <= pcz + AHEAD_ROWS; cz++) {
       let lo = Infinity;
       let hi = -Infinity;
+      let xc = 0;
+      let wide = 0;
       for (let i = 0; i < 16; i += 5) {
         const r = c.row(cz * 16 + i);
         lo = Math.min(lo, r.xMin);
         hi = Math.max(hi, r.xMax);
+        xc = r.xc;
+        wide = Math.max(wide, r.W * r.sec + (r.valley > 0 ? 50 : 0));
       }
       const r = c.row(cz * 16 + 15);
       lo = Math.min(lo, r.xMin) - SIDE_MARGIN;
       hi = Math.max(hi, r.xMax) + SIDE_MARGIN;
-      // (the mouth and the run-out are wide open: only so far each side)
-      lo = Math.max(lo, pcx * 16 - 200);
-      hi = Math.min(hi, pcx * 16 + 200);
+      // (the mouth and the run-out are wide open: only so far each side;
+      // Round 16: a valley's or space's too, round the course's line)
+      lo = Math.max(lo, pcx * 16 - 200, xc - wide - 60);
+      hi = Math.min(hi, pcx * 16 + 200, xc + wide + 60);
       for (let cx = Math.floor(lo / 16); cx <= Math.floor(hi / 16); cx++) {
         set.add(`${cx},${cz}`);
         reach = Math.max(reach, Math.ceil(Math.hypot(cx - pcx, cz - pcz)));
@@ -286,21 +374,24 @@ export class CanyonRun {
 
   // ---------- The jet ----------
 
-  _spawn() {
+  // A new jet at a pose ({ x, y, z, yaw }: yaw about +y, PI flies along +z),
+  // the player in its seat; the old one (or its wreck) gone.
+  _makeJet(pose, speed) {
     const mgr = this.vehicles;
     if (this.jet) {
       const old = this.jet;
       this.jet = null;
       if (mgr.vehicles.includes(old)) mgr.remove(old);
     }
-    const s = this._startPose();
-    const speed = START_SPEED[this.spec.kind] ?? 130;
-    const v = mgr.create("jet", { jetType: this.jetType, pos: [s.x, s.y, s.z], yaw: s.yaw, airborne: true, speed, throttle: 0.72 });
-    if (!v) return;
+    const v = mgr.create("jet", { jetType: this.jetType, pos: [pose.x, pose.y, pose.z], yaw: pose.yaw, airborne: true, speed, throttle: 0.72 });
+    if (!v) return null;
     v.transient = true; // (never saved)
     v.keep = true;
     v.canyon = true;
     v.throttle = 0.72;
+    // (Round 16) Just back at a checkpoint: a moment no shot hurts it (the rock still does).
+    const hurt = v.damage.bind(v);
+    v.damage = (amount, cause, byPlayer) => ((this.shieldT > 0 || this.state === "countdown" || this.state === "loading") && cause !== "crash" ? false : hurt(amount, cause, byPlayer));
     this.jet = v;
     this._start = { pos: v.pos.clone(), q: v.q.clone(), vel: v.vel.clone() };
     // (Back in the seat, not boarded anew: no "jets flown" for every try.)
@@ -310,8 +401,14 @@ export class CanyonRun {
     } finally {
       mgr.restoring = false;
     }
-    const p = this.game.player;
-    p.position.copy(v.pos);
+    this.game.player.position.copy(v.pos);
+    this._lastPos = v.pos.clone();
+    return v;
+  }
+
+  _spawn() {
+    const v = this._makeJet(this._startPose(), this.startSpeed);
+    if (!v) return;
     // The run's own state.
     this.state = "loading";
     this.t = 0; // since GO (the ghost's clock)
@@ -327,18 +424,50 @@ export class CanyonRun {
     this.crashAt = null;
     this.ghostRec = [];
     this._ghostAcc = GHOST_DT;
-    this._lastPos = v.pos.clone();
-    this._boostT = 0;
-    this._streak = 0;
     this._wait = null;
+    this._resume = false;
+    this._streak = 0;
+    this.respawns = 0;
+    this.shieldT = 0;
+    this.final = null;
+    this.ghostOff = false;
     for (const r of this.rings) {
       r.state = "ahead";
       r.t = 0;
     }
     this.checks[0] && (this.checks[0].state = "next");
     for (const t of this.turrets) this._resetTurret(t);
+    this.bots?.reset();
     this._hideResults();
     this._banner("", 0);
+    this._warn("");
+  }
+
+  // (Round 16) Back at the last checkpoint passed (or missed) after a crash:
+  // a new jet in the ring, along the canyon, at the starting speed, a short
+  // countdown (the clock runs on), a moment's shield; the bandits near it
+  // gone. Before the start gate there is none: the run starts again.
+  respawn() {
+    if (!this.active) return;
+    const ring = this.checks[this.nextCheck - 1];
+    if (!ring || this.clock === null || this.state === "finished") return this.restart();
+    const v = this._makeJet({ x: ring.x, y: ring.y, z: ring.z, yaw: Math.PI + ring.yaw }, this.startSpeed);
+    if (!v) return;
+    this.respawns++;
+    this.stats.respawns++;
+    this.state = "countdown";
+    this._resume = true;
+    this.countT = 1; // (2, 1, GO)
+    this._lastCount = 0;
+    this.outT = 0;
+    this.crashAt = null;
+    this._wait = null;
+    this.ghostOff = true; // (the ghost no longer flies alongside: it would be off by the time lost)
+    this.bots?.clearNear(v.pos);
+    this._hideResults();
+    this._warn("");
+    this._banner(ring.kind === "start" ? "START" : `CHECKPOINT ${ring.i}`, 1, "good");
+    if (this.game.gameState !== "playing") this.game.requestLock?.();
   }
 
   // Holds the jet at the start, engine running (loading, the countdown).
@@ -362,6 +491,8 @@ export class CanyonRun {
   restart() {
     if (!this.active) return;
     this.stats.restarts++;
+    // (a run that got going and didn't finish counts as one flown)
+    if (this.clock !== null && this.state !== "finished") this._countRun();
     this._spawn();
     if (this.game.gameState !== "playing") this.game.requestLock?.();
   }
@@ -382,6 +513,8 @@ export class CanyonRun {
       return;
     }
     const v = this.jet;
+    // (Round 16) The clock runs on while the jet is down and comes back.
+    if (this.clock !== null && (this.state === "crashed" || this.state === "down" || (this.state === "countdown" && this._resume))) this.clock += dt;
     switch (this.state) {
       case "loading":
         this._hold();
@@ -393,6 +526,11 @@ export class CanyonRun {
         break;
       case "countdown": {
         this._hold();
+        // (back at a checkpoint: the ground there may still be coming in)
+        if (this._resume && this.waitForGround && !this._readyAhead(this._start.pos.z, 4)) {
+          this._banner("Loading the canyon...", 0.3, "info");
+          break;
+        }
         this.countT += dt;
         const n = Math.ceil(3 - this.countT);
         if (n !== this._lastCount && n > 0) {
@@ -404,7 +542,9 @@ export class CanyonRun {
           this.state = "flying";
           this._banner("GO!", 1.2, "go");
           this._tone([880], 0.4, 0.15);
-          voice.say("canyon_go", { text: "Go!" });
+          if (this._resume) this.shieldT = RESPAWN_SHIELD;
+          else voice.say("canyon_go", { text: "Go!" });
+          this._resume = false;
         }
         break;
       }
@@ -423,15 +563,29 @@ export class CanyonRun {
         this._wait = null;
         this.t += dt;
         if (this.clock !== null) this.clock += dt;
+        if (this.shieldT > 0) this.shieldT -= dt;
         this._record(dt);
+        if (this._rockUnloaded(v)) break;
         this._checkRings(v);
         this._checkOut(dt, v);
-        if (this._boostT > 0) this._boostT -= dt;
+        this._sections(v);
         break;
       case "crashed":
         this.resultT += dt;
         this._crashCam(dt);
-        if (this.resultT >= CRASH_LOOK && !this._resultsShown) this._showResults("crashed");
+        if (this.crashMode === "checkpoint" && this.resultT >= DOWN_LOOK && this.clock !== null) this._down(this.crashCause);
+        else if (this.resultT >= CRASH_LOOK && !this._resultsShown) {
+          if (this.clock === null && this.crashMode === "checkpoint") this.restart(); // (before the start gate: from the mouth again)
+          else this._showResults("crashed");
+        }
+        break;
+      case "down":
+        this.resultT += dt;
+        this.downT += dt;
+        if (this.jet?.alive) this._hold(this._downPose, true);
+        else this._crashCam(dt);
+        this._downTick();
+        if (this.downT >= RESPAWN_AUTO) this.respawn();
         break;
       case "finished":
       case "out":
@@ -439,14 +593,51 @@ export class CanyonRun {
         break;
     }
     // (No hand or body in view at the wreck: the camera is the run's.)
-    if (!this.vehicles.active && (this.state === "crashed" || this.state === "finished" || this.state === "out") && this.game.held) {
+    if (!this.vehicles.active && (this.state === "crashed" || this.state === "down" || this.state === "finished" || this.state === "out") && this.game.held) {
       this.game.held.visible = false;
       if (this.game.held.pivot) this.game.held.pivot.visible = false;
     }
     this._updateTurrets(dt);
+    this.bots?.update(dt);
     this._updateGhost();
-    if (v) this._lastPos.copy(v.pos);
+    if (this.jet) this._lastPos.copy(this.jet.pos);
     this._hud(dt);
+  }
+
+  // (Round 16) The rock where the world hasn't loaded the ground yet (a
+  // jump ahead, a test): the course's own shape stops the jet as the
+  // blocks would.
+  _rockUnloaded(v) {
+    if (this.world.getChunk(Math.floor(v.pos.x) >> 4, Math.floor(v.pos.z) >> 4)) return false;
+    const c = this.course;
+    const f = v.forward(_v);
+    const r = v.right(_w);
+    const p = v.pos;
+    for (const [a, b] of [[7, 0], [0, 6], [0, -6]]) {
+      if (c.solidAt(p.x + f.x * a + r.x * b, p.y + f.y * a + r.y * b, p.z + f.z * a + r.z * b)) {
+        v.crashWhy = "the rock (ground not loaded yet)";
+        v._crash("crash");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // (Round 16) A banner as the jet enters a valley, space, another scenery.
+  _sections(v) {
+    const c = this.course;
+    const z = v.pos.z;
+    const o = c.openAt(z, -20);
+    const key = o ? `${o.kind}${o.i}` : null;
+    if (key !== this._openKey) {
+      if (o) this._banner(o.kind === "space" ? "INTO SPACE" : "OPEN VALLEY", 1.4, "info");
+      else if (this._openKey) this._banner("BACK INTO THE CANYON", 1.2, "info");
+      this._openKey = key;
+    }
+    const b = c.biomeAt(z);
+    const id = b.t > 0.5 ? b.b : b.a;
+    if (this._biome && id !== this._biome && !o) this._banner(CANYON_BIOMES[id].name.toUpperCase(), 1.4, "info");
+    this._biome = id;
   }
 
   // The fog ends where the corridor does (the course's own sky otherwise).
@@ -461,6 +652,95 @@ export class CanyonRun {
         sf.far = end;
       }
     }
+  }
+
+  // (Round 16) The sky over the jet: its scenery's tint (blended across a
+  // change of biome), and space's black and stars (sky.js post hook, after
+  // the hour's colours are worked out). The haze from the view's fog base.
+  _skyPost(sky) {
+    const u = worldUniforms;
+    const m = sky.material.uniforms;
+    const z = this.game.camera.position.z;
+    const c = this.course;
+    const b = c.biomeAt(z);
+    const A = BIOME_SKY[b.a];
+    const B = BIOME_SKY[b.b];
+    const t = b.t;
+    const mix = (key, i, def = 1) => (A ? A[key][i] : def) * (1 - t) + (B ? B[key][i] : def) * t;
+    const desat = (A?.desat ?? 0) * (1 - t) + (B?.desat ?? 0) * t;
+    const tint = (col, key) => {
+      if (desat > 0) {
+        const l = col.r * 0.3 + col.g * 0.59 + col.b * 0.11;
+        col.setRGB(col.r + (l - col.r) * desat, col.g + (l - col.g) * desat, col.b + (l - col.b) * desat);
+      }
+      col.setRGB(col.r * mix(key, 0), col.g * mix(key, 1), col.b * mix(key, 2));
+    };
+    if (A || B) {
+      tint(u.uSkyZenith.value, "zen");
+      tint(u.uSkyHorizon.value, "hor");
+      tint(u.uLightColor.value, "light");
+      tint(u.uAmbientSky.value, "amb");
+      tint(u.uAmbientGround.value, "amb");
+    }
+    let haze = (A?.haze ?? 1) * (1 - t) + (B?.haze ?? 1) * t;
+    // Space: the canyon's sky fades to black, the stars come out, no clouds, no air.
+    const o = c.openAt(z, 90);
+    const sp = o && o.kind === "space" ? smooth(o.z0 - 90, o.z0 + 30, z) * (1 - smooth(o.z1 - 30, o.z1 + 90, z)) : 0;
+    this.spaceK = sp;
+    if (sp > 0) {
+      u.uSkyZenith.value.multiplyScalar(1 - 0.995 * sp);
+      u.uSkyHorizon.value.lerp(_c.setRGB(0.004, 0.005, 0.012), sp);
+      u.uSkyGlow.value.multiplyScalar(1 - sp);
+      u.uNight.value = Math.max(u.uNight.value, sp);
+      m.uCloudCoverage.value *= 1 - sp;
+      u.uAmbientSky.value.multiplyScalar(1 - 0.5 * sp);
+      haze *= 1 - sp;
+    }
+    sky.sunLight.color.copy(u.uLightColor.value);
+    sky.hemiLight.color.copy(u.uAmbientSky.value);
+    sky.hemiLight.groundColor.copy(u.uAmbientGround.value);
+    sky.horizonColor.copy(u.uSkyHorizon.value);
+    const fog = u.uFog.value;
+    const base = sky._fogBase;
+    if (base && haze !== 1) {
+      fog.z = base.z * haze;
+      sky._fogSet?.copy(fog);
+    }
+    this._planet(sp);
+  }
+
+  // (Round 16) A ringed planet hanging in space's sky.
+  _planet(k) {
+    const scene = this.game.scene;
+    if (k <= 0.02) {
+      if (this._planetG) this._planetG.visible = false;
+      return;
+    }
+    if (!this._planetG) {
+      const g = new THREE.Group();
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.36, 0.62), fog: false, transparent: true, depthWrite: false }));
+      const ring = new THREE.Mesh(new THREE.RingGeometry(78, 118, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.7, 0.6, 0.48), side: THREE.DoubleSide, fog: false, transparent: true, opacity: 0.55, depthWrite: false }));
+      ring.rotation.x = Math.PI / 2 - 0.35;
+      ring.rotation.y = 0.2;
+      // (the lit side and the night side: a darker shell offset from the sun)
+      const shade = new THREE.Mesh(new THREE.SphereGeometry(60.5, 32, 16, 0, Math.PI), new THREE.MeshBasicMaterial({ color: 0x000000, fog: false, transparent: true, opacity: 0.55, depthWrite: false }));
+      shade.rotation.y = -0.6;
+      g.add(ball, shade, ring);
+      g.renderOrder = -1;
+      for (const o of [ball, shade, ring]) {
+        o.renderOrder = -1;
+        o.frustumCulled = false;
+      }
+      scene.add(g);
+      this._planetG = g;
+    }
+    const g = this._planetG;
+    g.visible = true;
+    const cam = this.game.camera;
+    const d = Math.min(800, (cam.far || 1000) * 0.8);
+    g.position.copy(cam.position).add(_v.set(-0.55, 0.32, 0.77).normalize().multiplyScalar(d));
+    g.scale.setScalar(d / 800);
+    for (const o of g.children) o.material.opacity = (o.geometry.type === "RingGeometry" ? 0.55 : o.material.color.r === 0 ? 0.55 : 1) * k;
   }
 
   // ---------- Rings ----------
@@ -504,22 +784,7 @@ export class CanyonRun {
         if (nx) nx.state = "next";
       }
     }
-    // Boost rings: any of them, flown through.
-    for (const r of this.boosts) {
-      if (r.state !== "ahead" || Math.abs(r.z - b.z) > 60) continue;
-      const cross = this._cross(r, a, b);
-      if (!cross) continue;
-      if (cross.dist <= r.r) {
-        r.state = "passed";
-        r.t = 0;
-        const f = v.forward(_v);
-        v.vel.addScaledVector(f, BOOST);
-        this._boostT = 1.2;
-        this._banner("BOOST!", 0.8, "boost");
-        this._whoosh();
-        this.game.effects?.shake?.add?.(0.25);
-      } else r.state = "gone";
-    }
+    // (Round 16: no boost rings: a ring never changes the jet's speed.)
   }
 
   // Where the jet's step a -> b crosses the ring's plane: { dist (from its
@@ -561,21 +826,22 @@ export class CanyonRun {
     this._banner("FINISH!", 2, "go");
     const prev = this.record?.best;
     const better = !Number.isFinite(prev) || this.final < prev;
-    this.newRecord = better && !!this.spec.id;
-    if (this.spec.id) {
-      const rec = this.records[this.spec.id] || { runs: 0 };
+    const id = this.recId;
+    this.newRecord = better && !!id;
+    if (id) {
+      const rec = this.records[id] || { runs: 0 };
       rec.runs = (rec.runs || 0) + 1;
       rec.finished = (rec.finished || 0) + 1;
       if (better) {
-        Object.assign(rec, { best: Math.round(this.final * 1000) / 1000, splits: this.splits.map((s) => Math.round(s * 1000) / 1000), rings: this.passed, missed: this.missed, jet: this.jetType, medal: medalFor(this.spec, this.final), date: Date.now() });
-        // (The ghost: the run flown to the finish ring.)
+        Object.assign(rec, { best: Math.round(this.final * 1000) / 1000, splits: this.splits.map((s) => Math.round(s * 1000) / 1000), rings: this.passed, missed: this.missed, respawns: this.respawns, kills: this.bots?.kills ?? 0, jet: this.jetType, medal: medalFor(this.spec, this.final, this.botLevel), date: Date.now() });
+        // (The ghost: the run flown to the finish ring; not one with a respawn in it, a jump.)
         this._sample(v, true);
-        if (this.ghostRec.length > 4) {
+        if (this.ghostRec.length > 4 && !this.respawns) {
           const ghost = { dt: GHOST_DT, jet: this.jetType, data: this.ghostRec };
-          if (saveJSON(ghostKey(this.spec), ghost)) this.ghostData = ghost;
+          if (saveJSON(ghostKey(this.spec, this.botLevel), ghost)) this.ghostData = ghost;
         }
       }
-      this.records[this.spec.id] = rec;
+      this.records[id] = rec;
       saveRecords(this.records);
       this.record = rec;
     }
@@ -583,8 +849,16 @@ export class CanyonRun {
     setTimeout(() => this.state === "finished" && this._showResults("finished"), 900);
   }
 
+  // Out of the course for too long: the run is over (or, Round 16, back at
+  // the last checkpoint).
   _fail(why) {
     if (this.state !== "flying") return;
+    if (this.crashMode === "checkpoint" && this.clock !== null) {
+      this.crashAt = null;
+      this._downPose = { pos: this.jet.pos.clone(), q: this.jet.q.clone(), vel: this.jet.vel.clone() };
+      this._down(why);
+      return;
+    }
     this.state = "out";
     this.resultT = 0;
     this._countRun();
@@ -592,18 +866,22 @@ export class CanyonRun {
   }
 
   _countRun() {
-    if (!this.spec.id) return;
-    const rec = this.records[this.spec.id] || { runs: 0 };
+    if (!this.recId) return;
+    const rec = this.records[this.recId] || { runs: 0 };
     rec.runs = (rec.runs || 0) + 1;
-    this.records[this.spec.id] = rec;
+    this.records[this.recId] = rec;
     saveRecords(this.records);
     this.record = rec;
   }
 
-  // Over the rim: a few seconds to get back down, then the run is over.
+  // Out of the course: over the rim (Round 16: off the line through a
+  // valley or space, or low in space): a few seconds to get back, then the
+  // run is over.
   _checkOut(dt, v) {
     const r = this.course.row(Math.floor(v.pos.z));
-    const over = v.pos.y > r.rim + OUT_MARGIN && v.pos.z > -40 && v.pos.z < this.length + 40;
+    const inCourse = v.pos.z > -40 && v.pos.z < this.length + 40;
+    const wide = Math.abs(v.pos.x - r.xc) > r.outX;
+    const over = inCourse && (v.pos.y > r.outY || wide || (r.space && v.pos.y < 6));
     if (!over) {
       if (this.outT > 0) this._warn("");
       this.outT = 0;
@@ -611,7 +889,7 @@ export class CanyonRun {
     }
     this.outT += dt;
     const left = Math.ceil(OUT_LIMIT - this.outT);
-    this._warn(`BACK INTO THE CANYON! ${Math.max(0, left)}`);
+    this._warn(`${r.valley > 0.3 || r.space ? "BACK ON COURSE!" : "BACK INTO THE CANYON!"} ${Math.max(0, left)}`);
     if (Math.floor(this.outT * 2) !== Math.floor((this.outT - dt) * 2)) this.game.audio?.playWarning?.();
     if (this.outT >= OUT_LIMIT) {
       this._warn("");
@@ -619,22 +897,50 @@ export class CanyonRun {
     }
   }
 
-  // The jet blew up (vehicles.onPilotKilled, hooked): the run is over.
+  // The jet blew up (vehicles.onPilotKilled, hooked): the run is over, or
+  // (Round 16) the jet comes back at the last checkpoint.
   _crashed(v) {
     if (v !== this.jet) return;
     this.stats.crashes++;
     const was = this.state;
     this.crashAt = { pos: v.pos.clone(), dir: v.vel.lengthSq() > 1 ? v.vel.clone().normalize() : v.forward(new THREE.Vector3()), yaw: 0 };
     this._warn("");
-    if (was === "finished" || was === "out") return; // (after the results: nothing changes)
+    if (was === "finished" || was === "out" || was === "down") return; // (after the results: nothing changes)
     this.state = "crashed";
     this.resultT = 0;
     this.crashCause = v.lastHitBy && v.lastHitBy !== "crash" ? "shot" : "crashed";
     this.crashWhy = v.crashWhy || v.lastHitBy || null;
     // (tests: the rock it met was drawn, not ground still streaming in)
     this.crashSeen = !!this.world.getChunk(Math.floor(v.pos.x / 16), Math.floor(v.pos.z / 16))?.meshed;
-    this._countRun();
+    if (this.crashMode === "restart" || this.clock === null) this._countRun();
     this._banner(this.crashCause === "shot" ? "SHOT DOWN" : "CRASHED", 2, "bad");
+  }
+
+  // (Round 16) Down, the respawn's panel: back at the last checkpoint in a
+  // moment (Enter at once), or R for the whole course from the mouth.
+  _down(why) {
+    this.state = "down";
+    this.downT = 0;
+    this.downWhy = why;
+    this._warn("");
+    const u = this.ui;
+    if (!u) return;
+    const ring = this.checks[this.nextCheck - 1];
+    const title = why === "out" ? "OUT OF THE COURSE" : why === "shot" ? "SHOT DOWN" : "CRASHED";
+    u.down.innerHTML = `
+      <div class="cy-down-title">${title}</div>
+      <div class="cy-down-sub">Back at ${ring?.kind === "start" ? "the start gate" : `checkpoint ${ring?.i ?? 1}`} in <b class="cy-down-n">${Math.ceil(RESPAWN_AUTO)}</b></div>
+      <div class="cy-down-keys"><span><kbd>Enter</kbd> Respawn now</span><span><kbd>R</kbd> Restart the course</span><span><kbd>M</kbd> Main menu</span></div>`;
+    u.down.classList.add("show");
+    this._downN = null;
+  }
+
+  _downTick() {
+    const n = Math.max(0, Math.ceil(RESPAWN_AUTO - this.downT));
+    if (n === this._downN) return;
+    this._downN = n;
+    const el = this.ui?.down.querySelector(".cy-down-n");
+    if (el) el.textContent = String(n);
   }
 
   _crashCam(dt) {
@@ -701,7 +1007,7 @@ export class CanyonRun {
   _updateGhost() {
     const gh = this.ghost;
     if (!gh) return;
-    const show = (this.state === "flying" || this.state === "countdown") && this.game.settings?.canyonGhost !== false;
+    const show = (this.state === "flying" || this.state === "countdown") && !this.ghostOff && this.game.settings?.canyonGhost !== false;
     const root = gh.model.root;
     const n = gh.data.length / 7;
     const t = this.state === "flying" ? this.t : 0;
@@ -737,7 +1043,6 @@ export class CanyonRun {
     this._ringMats = {
       next: new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 3.6, 0.7), fog: false, toneMapped: false }),
       ahead: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 1.7, 2.6), fog: false, toneMapped: false }),
-      boost: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.6, 4.5, 1.4), fog: false, toneMapped: false }),
       start: new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 4, 4), fog: false, toneMapped: false }),
       missed: new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 0.4, 0.3), fog: false, transparent: true, toneMapped: false }),
       passed: new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3.4, 4), fog: false, transparent: true, toneMapped: false }),
@@ -745,7 +1050,7 @@ export class CanyonRun {
     this._haloMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.7, 0.25), transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false });
     for (const r of this.rings) {
       const big = r.kind === "start" || r.kind === "finish";
-      const m = new THREE.Mesh(torus(r.r, big ? 1.1 : r.kind === "boost" ? 0.45 : 0.6), this._matFor(r));
+      const m = new THREE.Mesh(torus(r.r, big ? 1.1 : 0.6), this._matFor(r));
       const halo = new THREE.Mesh(torus(r.r, big ? 2.8 : 1.8), this._haloMat);
       const holder = new THREE.Group();
       holder.add(m, halo);
@@ -771,23 +1076,6 @@ export class CanyonRun {
         tiles.layers.set(LAYER_FX);
         holder.add(tiles);
       }
-      // (a boost ring's chevrons pointing through it)
-      if (r.kind === "boost") {
-        const chev = new THREE.Group();
-        const bar = new THREE.BoxGeometry(0.5, r.r * 0.5, 0.5);
-        for (let i = 0; i < 3; i++) {
-          for (const side of [-1, 1]) {
-            const b = new THREE.Mesh(bar, this._ringMats.boost);
-            b.position.set(side * r.r * 0.16, 0, -i * 2.2);
-            b.rotation.x = side * 0.7;
-            b.rotation.y = Math.PI / 2;
-            b.layers.set(LAYER_FX);
-            chev.add(b);
-          }
-        }
-        chev.rotation.y = 0;
-        holder.add(chev);
-      }
       r.mesh = holder;
       r.core = m;
       r.halo = halo;
@@ -801,7 +1089,6 @@ export class CanyonRun {
     const M = this._ringMats;
     if (r.state === "missed") return M.missed;
     if (r.state === "passed") return M.passed;
-    if (r.kind === "boost") return M.boost;
     if (r.kind === "start" || r.kind === "finish") return r.state === "next" || r.kind === "start" ? M.start : M.ahead;
     return r.state === "next" ? M.next : M.ahead;
   }
@@ -833,8 +1120,8 @@ export class CanyonRun {
       const next = r.state === "next";
       const pulse = next ? 1 + Math.sin(now * 6) * 0.06 : 1;
       m.scale.setScalar(pulse);
-      r.halo.visible = next || r.kind === "boost";
-      m.rotation.z = r.kind === "boost" ? now * 2 : 0;
+      r.halo.visible = next;
+      m.rotation.z = 0;
     }
   }
 
@@ -1011,12 +1298,24 @@ export class CanyonRun {
       if (this.active && v && v.canyon) return this._crashed(v);
       return killed?.(cause, v);
     };
+    // (Round 16) The ground under a jet over a chunk not loaded yet: the
+    // course's own shape below it, not the height map (the canyon's is the
+    // plateau's top: a jet down in the canyon "landed" on it in mid-air and
+    // broke up: the Round 15 crashes with "touchdown" after a jump ahead).
+    const below = mgr.groundBelow.bind(mgr);
+    mgr.groundBelow = (x, y, z) => {
+      if (!this.active || this.world.dim !== CANYON || this.world.getChunk(Math.floor(x) >> 4, Math.floor(z) >> 4)) return below(x, y, z);
+      const c = this.course;
+      for (let by = Math.min(127, Math.floor(y)); by >= 0; by--) if (c.solidAt(x, by, z)) return by + 1;
+      return 0;
+    };
     // (No getting out: the run is in the jet.)
     const locked = mgr.exitLocked;
     mgr.exitLocked = () => (this.active ? "Canyon run: no getting out (R flies again)" : locked?.());
     this._turretHits();
-    // Keys: R flies again; the results' N and M; the game's own keys that
-    // make no sense here (the inventory, F7's dimensions, items) stay off.
+    // Keys: R flies again; the results' N and M; (Round 16) the respawn's
+    // Enter and M; the game's own keys that make no sense here (the
+    // inventory, F7's dimensions, items) stay off.
     window.addEventListener(
       "keydown",
       (e) => {
@@ -1027,6 +1326,19 @@ export class CanyonRun {
           e.stopImmediatePropagation();
           this.restart();
           return;
+        }
+        if (this.state === "down" && playing && !e.repeat) {
+          if (e.code === "Enter" || e.code === "Space" || e.code === "NumpadEnter") {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            this.respawn();
+            return;
+          }
+          if (e.code === "KeyM") {
+            e.stopImmediatePropagation();
+            this.leave();
+            return;
+          }
         }
         if (this._resultsShown && !e.repeat) {
           if (e.code === "KeyN") {
@@ -1055,14 +1367,30 @@ export class CanyonRun {
     );
   }
 
+  // (Round 16) The run's options, for the next course's address.
+  get options() {
+    const own = CANYON_COURSES.find((c) => c.id === this.spec.id);
+    return { diff: this.spec.diff, biome: own && this.spec.biome === own.biome ? null : this.spec.biome, open: this.spec.open, bots: this.botLevel, crash: this.crashMode };
+  }
+
   next() {
     const i = CANYON_COURSES.findIndex((c) => c.id === this.spec.id);
     const nx = CANYON_COURSES[(i + 1) % CANYON_COURSES.length];
-    this.hooks.go ? this.hooks.go(canyonUrl(nx, this.jetType)) : (window.location.href = canyonUrl(nx, this.jetType));
+    // (the same options; a course's own scenery stays its own)
+    const url = canyonUrl(nx, this.jetType, this.options);
+    this.hooks.go ? this.hooks.go(url) : (window.location.href = url);
   }
 
   leave() {
     this.hooks.leave ? this.hooks.leave() : (window.location.href = menuUrl());
+  }
+
+  // (Round 16) A bandit shot down (js/canyon-bots.js).
+  onBotKilled() {
+    const k = this.bots.kills;
+    this._banner(k > 1 ? `BANDIT DOWN  x${k}` : "BANDIT DOWN", 1.1, "good");
+    this._tone([880, 1320], 0.25, 0.1);
+    voice.say(`splash${Math.min(3, k)}`);
   }
 
   // ---------- Sounds ----------
@@ -1088,29 +1416,6 @@ export class CanyonRun {
     });
   }
 
-  _whoosh() {
-    const a = this.game.audio;
-    const ctx = a?.ctx;
-    if (!ctx) return;
-    a._cat?.("ui");
-    const out = a._out || a.master;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.setValueAtTime(120, t);
-    o.frequency.exponentialRampToValueAtTime(900, t + 0.5);
-    const f = ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = 1400;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.09, t + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-    o.connect(f).connect(g).connect(out);
-    o.start(t);
-    o.stop(t + 0.65);
-  }
-
   // ---------- The HUD ----------
 
   _buildHud() {
@@ -1120,26 +1425,33 @@ export class CanyonRun {
     el.innerHTML = `
       <div class="cy-top">
         <div class="cy-course"></div>
+        <div class="cy-opts"></div>
         <div class="cy-time">0.00</div>
-        <div class="cy-sub"><span class="cy-rings"></span><span class="cy-pen"></span><span class="cy-best"></span></div>
+        <div class="cy-sub"><span class="cy-rings"></span><span class="cy-pen"></span><span class="cy-best"></span><span class="cy-kills"></span></div>
         <div class="cy-speed"></div>
         <div class="cy-bar"><div class="cy-fill"></div><div class="cy-ghost"></div></div>
       </div>
+      <div class="cy-hp"><span>ARMOR</span><div class="cy-hp-bar"><div class="cy-hp-fill"></div></div></div>
+      <div class="cy-hit"></div>
+      <div class="cy-marks"></div>
       <div class="cy-banner"></div>
       <div class="cy-warn"></div>
+      <div class="cy-down"></div>
       <div class="cy-arrow">&#9650;</div>
-      <div class="cy-keys">R: fly again &nbsp; Esc: menu</div>`;
+      <div class="cy-keys">R: restart &nbsp; Esc: menu</div>`;
     document.body.appendChild(el);
     const res = document.createElement("div");
     res.id = "canyon-results";
     res.className = "hidden";
     document.body.appendChild(res);
     const q = (s) => el.querySelector(s);
-    this.ui = { el, res, speed: q(".cy-speed"), course: q(".cy-course"), time: q(".cy-time"), rings: q(".cy-rings"), pen: q(".cy-pen"), best: q(".cy-best"), fill: q(".cy-fill"), ghost: q(".cy-ghost"), banner: q(".cy-banner"), warn: q(".cy-warn"), arrow: q(".cy-arrow") };
+    this.ui = { el, res, speed: q(".cy-speed"), course: q(".cy-course"), opts: q(".cy-opts"), time: q(".cy-time"), rings: q(".cy-rings"), pen: q(".cy-pen"), best: q(".cy-best"), kills: q(".cy-kills"), fill: q(".cy-fill"), ghost: q(".cy-ghost"), banner: q(".cy-banner"), warn: q(".cy-warn"), arrow: q(".cy-arrow"), hp: q(".cy-hp"), hpFill: q(".cy-hp-fill"), hit: q(".cy-hit"), marks: q(".cy-marks"), down: q(".cy-down") };
     this.ui.course.textContent = this.spec.name.toUpperCase();
+    this.ui.opts.textContent = optionsLabel(this.spec, this.botLevel);
     this._bannerT = 0;
     this._hudT = 0;
     this._text = {};
+    this._marks = [];
   }
 
   _set(key, el, text) {
@@ -1170,15 +1482,17 @@ export class CanyonRun {
       this._bannerT -= dt;
       if (this._bannerT <= 0) u.banner.classList.remove("show");
     }
+    if (this.state !== "down" && u.down.classList.contains("show")) u.down.classList.remove("show");
     const t = this.state === "finished" ? this.final : this.clock !== null ? this.clock + this.penalty : 0;
     this._set("time", u.time, formatTime(t));
     const total = this.checks.length - 2;
     this._set("rings", u.rings, `RINGS ${this.passed}/${Math.max(0, total)}`);
     this._set("pen", u.pen, this.penalty ? `+${this.penalty} s` : "");
     this._set("best", u.best, Number.isFinite(this.record?.best) ? `BEST ${formatTime(this.record.best)}` : "");
+    this._set("kills", u.kills, this.bots?.count ? `KILLS ${this.bots.kills}` : "");
     const v = this.jet;
     const z = v ? v.pos.z : 0;
-    if (v?.alive) this._set("speed", u.speed, `${Math.round(v.vel.length() * 3.6)} KM/H  ${v.afterburner ? "AB" : `${Math.round((v.throttle || 0) * 100)}%`}${this._boostT > 0 ? "  BOOST" : ""}`);
+    if (v?.alive) this._set("speed", u.speed, `${Math.round(v.vel.length() * 3.6)} KM/H  ${v.afterburner ? "AB" : `${Math.round((v.throttle || 0) * 100)}%`}`);
     const frac = Math.max(0, Math.min(1, z / this.length));
     const pct = `${(frac * 100).toFixed(1)}%`;
     if (this._text.fill !== pct) {
@@ -1186,14 +1500,41 @@ export class CanyonRun {
       u.fill.style.width = pct;
     }
     const gr = this.ghost?.model.root;
-    const gf = gr && this.state === "flying" ? Math.max(0, Math.min(1, gr.position.z / this.length)) : -1;
+    const gf = gr && this.state === "flying" && !this.ghostOff ? Math.max(0, Math.min(1, gr.position.z / this.length)) : -1;
     const gp = gf < 0 ? "none" : `${(gf * 100).toFixed(1)}%`;
     if (this._text.ghost !== gp) {
       this._text.ghost = gp;
       u.ghost.style.display = gf < 0 ? "none" : "block";
       if (gf >= 0) u.ghost.style.left = gp;
     }
+    // (Round 16) The jet's armor (shown once it is hurt, or with enemies
+    // about), a red flash on a hit, the shield after a respawn.
+    const hpK = v?.alive ? v.health / v.maxHealth : 0;
+    const hpS = `${Math.round(hpK * 100)}`;
+    if (this._text.hp !== hpS) {
+      if (v?.alive && this._lastHp !== undefined && hpK < this._lastHp - 0.001 && this._lastJet === v) {
+        u.hit.classList.remove("on");
+        void u.hit.offsetWidth;
+        u.hit.classList.add("on");
+      }
+      this._text.hp = hpS;
+      u.hpFill.style.width = `${hpK * 100}%`;
+      u.hpFill.style.background = hpK > 0.6 ? "#7dff9a" : hpK > 0.3 ? "#ffd36b" : "#ff6d5e";
+    }
+    this._lastHp = hpK;
+    this._lastJet = v;
+    const showHp = !!v?.alive && (hpK < 0.999 || !!this.bots?.count || this.turrets.length > 0);
+    if (this._text.hpOn !== showHp) {
+      this._text.hpOn = showHp;
+      u.hp.style.display = showHp ? "flex" : "none";
+    }
+    const shield = this.shieldT > 0 && this.state === "flying";
+    if (this._text.shield !== shield) {
+      this._text.shield = shield;
+      u.hp.classList.toggle("shield", shield);
+    }
     this._arrow();
+    this._botMarks();
   }
 
   // An arrow at the edge of the screen toward the next ring, when it is off it.
@@ -1233,30 +1574,72 @@ export class CanyonRun {
     }
   }
 
+  // (Round 16) A red marker on each bandit in view (its distance under it).
+  _botMarks() {
+    const list = this.bots?.list ?? [];
+    const cam = this.game.camera;
+    const fwd = cam.getWorldDirection(_dir);
+    let n = 0;
+    if (this.state === "flying" || this.state === "countdown") {
+      for (const b of list) {
+        if (!b.alive) continue;
+        const d = _w.copy(b.pos).sub(cam.position);
+        const dist = d.length();
+        if (dist > 900 || d.dot(fwd) <= 0) continue;
+        _v.copy(b.pos).project(cam);
+        if (Math.abs(_v.x) > 1 || Math.abs(_v.y) > 1) continue;
+        let m = this._marks[n];
+        if (!m) {
+          m = document.createElement("div");
+          m.className = "cy-mark";
+          m.innerHTML = "<i></i><span></span>";
+          this.ui.marks.appendChild(m);
+          this._marks.push(m);
+        }
+        m.style.display = "block";
+        m.style.left = `${(_v.x * 0.5 + 0.5) * 100}%`;
+        m.style.top = `${(-_v.y * 0.5 + 0.5) * 100}%`;
+        const t = `${Math.round(dist)}`;
+        if (m._t !== t) {
+          m._t = t;
+          m.lastChild.textContent = t;
+        }
+        n++;
+      }
+    }
+    for (let i = n; i < this._marks.length; i++) if (this._marks[i].style.display !== "none") this._marks[i].style.display = "none";
+  }
+
   // ---------- The results ----------
 
   _showResults(why) {
     const u = this.ui;
     if (!u) return;
     this._resultsShown = true;
+    u.down.classList.remove("show");
     const done = why === "finished";
     const title = done ? (this.newRecord ? "NEW RECORD!" : "FINISHED") : why === "out" ? "OUT OF THE CANYON" : this.crashCause === "shot" ? "SHOT DOWN" : "CRASHED";
     const time = done ? this.final : null;
-    const medal = done ? medalFor(this.spec, this.final) : null;
+    const medal = done ? medalFor(this.spec, this.final, this.botLevel) : null;
     const M = this.medals;
     const best = this.record?.best;
     const total = this.checks.length - 2;
     const prog = this.jet ? Math.max(0, Math.min(1, (this.crashAt?.pos.z ?? this.jet.pos.z) / this.length)) : 0;
     const medalRow = (m, label) => `<div class="cy-m ${m} ${medal === m ? "got" : ""}"><i></i><b>${label}</b><span>${formatTime(M[m])}</span></div>`;
+    const extra = [];
+    if (this.respawns) extra.push(`<div><span>Respawns</span><b>${this.respawns}</b></div>`);
+    if (this.bots?.count) extra.push(`<div><span>Kills</span><b>${this.bots.kills}</b></div>`);
     u.res.innerHTML = `
       <div class="cy-panel ${done ? "done" : "fail"}">
         <div class="cy-course-name">${this.spec.name}</div>
+        <div class="cy-opts-name">${optionsLabel(this.spec, this.botLevel)}</div>
         <h2>${title}</h2>
         ${done ? `<div class="cy-big">${formatTime(time)}</div>` : `<div class="cy-big small">${Math.round(prog * 100)}% of the canyon</div>`}
         ${medal ? `<div class="cy-medal ${medal}">${medal.toUpperCase()} MEDAL</div>` : done ? `<div class="cy-medal none">No medal: beat ${formatTime(M.bronze)} for bronze</div>` : ""}
         <div class="cy-stats">
           <div><span>Rings</span><b>${this.passed}/${Math.max(0, total)}</b></div>
           <div><span>Missed</span><b>${this.missed}${this.penalty ? ` (+${this.penalty} s)` : ""}</b></div>
+          ${extra.join("")}
           <div><span>Best</span><b>${Number.isFinite(best) ? formatTime(best) : "none yet"}</b></div>
         </div>
         <div class="cy-medals">${medalRow("gold", "Gold")}${medalRow("silver", "Silver")}${medalRow("bronze", "Bronze")}</div>
@@ -1278,11 +1661,13 @@ export class CanyonRun {
   _hideResults() {
     this._resultsShown = false;
     this.ui?.res.classList.add("hidden");
+    this.ui?.down.classList.remove("show");
   }
 
   // (Tests: the run's state.)
   info() {
-    return { state: this.state, clock: this.clock, penalty: this.penalty, passed: this.passed, missed: this.missed, nextCheck: this.nextCheck, checks: this.checks.length, boosts: this.boosts.length, rings: this.rings.length, results: !!this._resultsShown, final: this.final ?? null, record: this.record, length: this.length, crashWhy: this.crashWhy ?? null, crashSeen: this.crashSeen ?? null, turrets: this.turrets.length, turretsAlive: this.turrets.filter((t) => t.alive).length, stats: this.stats };
+    const j = this.jet;
+    return { state: this.state, clock: this.clock, penalty: this.penalty, passed: this.passed, missed: this.missed, nextCheck: this.nextCheck, checks: this.checks.length, rings: this.rings.length, results: !!this._resultsShown, final: this.final ?? null, record: this.record, length: this.length, crashWhy: this.crashWhy ?? null, crashSeen: this.crashSeen ?? null, turrets: this.turrets.length, turretsAlive: this.turrets.filter((t) => t.alive).length, stats: this.stats, respawns: this.respawns, health: j?.alive ? j.health : 0, maxHealth: j?.maxHealth ?? 0, bots: this.bots ? { count: this.bots.count, alive: this.bots.list.filter((b) => b.alive).length, kills: this.bots.kills, spawned: this.bots.spawned, lost: this.bots.lost } : null, spec: { diff: this.spec.diff, biome: this.spec.biome, open: this.spec.open }, space: this.spaceK ?? 0 };
   }
 }
 
@@ -1324,6 +1709,26 @@ function injectStyle() {
   @keyframes cy-blink { 50% { opacity: 0.35; } }
   #canyon-hud .cy-arrow { position: absolute; display: none; color: #ffd36b; font-size: 30px; text-shadow: 0 0 10px rgba(255,180,60,0.9), 0 2px 4px #000; }
   #canyon-hud .cy-keys { position: absolute; top: 14px; right: 18px; font: 700 11px var(--ui-font, sans-serif); letter-spacing: 1.5px; color: rgba(255,255,255,0.55); text-shadow: 0 1px 3px #000; }
+  #canyon-hud .cy-opts { font: 600 10px var(--ui-font, sans-serif); letter-spacing: 1px; color: rgba(255,255,255,0.6); }
+  #canyon-hud .cy-kills { color: #ff9a7a; }
+  #canyon-hud .cy-hp { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); display: none; align-items: center; gap: 8px; font: 800 10px var(--ui-font, sans-serif); letter-spacing: 2px; color: rgba(255,255,255,0.75); text-shadow: 0 1px 3px #000; }
+  #canyon-hud .cy-hp-bar { width: 220px; height: 7px; border-radius: 4px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); overflow: hidden; }
+  #canyon-hud .cy-hp-fill { height: 100%; width: 100%; background: #7dff9a; transition: width 0.15s; }
+  #canyon-hud .cy-hp.shield .cy-hp-bar { border-color: #7fe4ff; box-shadow: 0 0 10px #7fe4ff; }
+  #canyon-hud .cy-hit { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,30,10,0.55)); }
+  #canyon-hud .cy-hit.on { animation: cy-hit 0.45s ease-out; }
+  @keyframes cy-hit { 0% { opacity: 1; } 100% { opacity: 0; } }
+  #canyon-hud .cy-mark { position: absolute; display: none; transform: translate(-50%, -50%); text-align: center; pointer-events: none; }
+  #canyon-hud .cy-mark i { display: block; width: 14px; height: 14px; margin: 0 auto; border: 2px solid #ff5a4a; transform: rotate(45deg); box-shadow: 0 0 6px rgba(255,80,60,0.8); }
+  #canyon-hud .cy-mark span { display: block; margin-top: 3px; font: 700 10px ui-monospace, Consolas, monospace; color: #ff9a8a; text-shadow: 0 1px 2px #000; }
+  #canyon-hud .cy-down { position: absolute; top: 64%; left: 50%; transform: translate(-50%, -50%); display: none; text-align: center; padding: 16px 26px; border-radius: 14px; background: rgba(16,14,14,0.78); border: 1px solid rgba(255,110,90,0.45); box-shadow: 0 16px 50px rgba(0,0,0,0.55); }
+  #canyon-hud .cy-down.show { display: block; }
+  #canyon-hud .cy-down-title { font: 900 30px var(--ui-font, sans-serif); letter-spacing: 3px; color: #ff7a66; }
+  #canyon-hud .cy-down-sub { margin: 4px 0 10px; font: 700 15px var(--ui-font, sans-serif); color: #e6edf3; }
+  #canyon-hud .cy-down-sub b { color: #ffd36b; font-family: ui-monospace, Consolas, monospace; }
+  #canyon-hud .cy-down-keys { display: flex; gap: 16px; justify-content: center; font: 600 12px var(--ui-font, sans-serif); color: rgba(255,255,255,0.75); }
+  #canyon-hud .cy-down-keys kbd, #canyon-results kbd { font: 700 10px ui-monospace, Consolas, monospace; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.25); margin-right: 4px; }
+  #canyon-results .cy-opts-name { font: 600 11px var(--ui-font, sans-serif); color: rgba(255,255,255,0.55); margin-top: 2px; }
   #canyon-results { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 45%, rgba(10,8,6,0.35), rgba(4,4,6,0.75)); font-family: var(--ui-font, sans-serif); color: #fff; }
   #canyon-results.hidden { display: none; }
   #canyon-results .cy-panel { width: min(440px, 92vw); padding: 24px 28px; border-radius: 18px; background: rgba(16,14,14,0.86); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 24px 70px rgba(0,0,0,0.6); text-align: center; }
