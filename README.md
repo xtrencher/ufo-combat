@@ -194,15 +194,38 @@ you dare, through every ring, and don't touch the rock.
 
 - **Courses:** **Grand Canyon** (15 km: wide, deep and winding, with arches,
   rock pillars and a river far below; the one to learn), **Slot Canyon**
-  (8 km: a crack in the rock barely two wingspans wide, undercut walls,
-  arches and dark tunnels: throttle back), **Night Run** (11 km by
-  moonlight, with glowing crystals in the walls and long tunnels) and **The
-  Gauntlet** (16 km of everything, with AA guns on the rim that shoot back).
+  (8 km: a crack in the sandstone, undercut walls, arches and dark tunnels:
+  throttle back), **Night Run** (11 km by moonlight, with glowing crystals
+  in the walls and long tunnels) and **The Gauntlet** (16 km of everything,
+  through every kind of scenery, with AA guns on the rim that shoot back).
   Each course is the same every time (it is made from its own seed), with
-  layered red, orange and white rock, ledges and overhangs, arches across
-  the canyon (under or over them), hoodoo pillars, fins of rock that split
-  it into two lanes, narrows, tunnels lit by crystals, waterfalls and a
-  river.
+  layered rock, ledges and overhangs, arches across the canyon (under or
+  over them), hoodoo pillars, fins of rock that split it into two lanes,
+  narrows, tunnels lit by crystals, waterfalls and a river.
+- (Round 16) **Options** on the canyon screen (remembered):
+  - **Difficulty:** **Easy** (wide and gentle: about twice as wide as Hard,
+    calmer bends, no overhangs, few narrows and tunnels, bigger rings),
+    **Normal** (roomy, with a few tight spots; the default), **Hard** (the
+    Round 15 canyon) and **Insane** (a crack in the rock).
+  - **Scenery:** the course's own, **Red rock**, **Desert** (pale
+    sandstone, cactus), **Green gorge** (grass, trees on the rim, mossy
+    stone), **Grey stone** (bare rock under an overcast sky), **Frozen
+    pass** (snow, a frozen river, pine trees) or **Volcanic** (black basalt,
+    magma bands, lava falls and a lava river), each with its own sky and
+    haze; **Mixed** (one after another along the course) or **Random**.
+  - **Open stretches:** **None**, **Some** (the default) or **Lots**: now
+    and then the canyon opens into a wide **valley** of low hills and rock
+    buttes, or ends at a cliff into **space**: a black sky with stars, a
+    ringed planet, and floating asteroids to dodge, then the next canyon's
+    mouth. One continuous run.
+  - **Enemy jets:** **None** (the default), **Few**, **Some** or **Many**:
+    bandits fly the canyon (some your way, slower: catch them; some
+    head-on) and shoot at you; shoot them down with the cannon or missiles.
+    Your kills are counted, your armor is shown (a red flash on a hit),
+    and red markers show the bandits ahead.
+  - **After a crash:** **Respawn at checkpoint** (the default) or
+    **Restart the course**.
+  Every set of options keeps its own best time.
 - **Your jet:** pick the **F-22 Raptor** (faster, tougher) or the **F-16
   Falcon** (lighter, turns tighter) on the canyon screen. It flies as
   everywhere else: the mouse steers, W/S throttle, Shift afterburner,
@@ -212,21 +235,28 @@ you dare, through every ring, and don't touch the rock.
   GO. The clock starts at the checkered **start gate** and stops at the
   checkered **finish ring**. In between, the **checkpoint rings** (the next
   one glows gold, an arrow at the edge of the screen points to it when it
-  is out of sight): miss one and it costs **5 seconds**. Green **boost
-  rings** kick you forward. At every checkpoint the split against your best
-  run shows (green ahead, red behind), and a pale blue **ghost** of your
-  best run flies the canyon with you (its marker is on the progress bar).
-- **Crashing:** touching the rock (or being shot down) ends the run: the
-  explosion, a look at the wreck, then the results. Climbing out over the
-  rim ends it too after 4 seconds of warning: the canyon run is in the
-  canyon.
-- **Results:** your time, rings, misses, and a **gold, silver or bronze
-  medal** by the course's par times (shown on the results and the canyon
-  screen). Your best time per course is kept (with its splits and its
-  ghost), and its medal shows on the canyon screen.
-- **Keys:** **R** flies again at any time (from the mouth, a fresh run);
-  on the results, **N** is the next course and **M** the main menu. **Esc**
-  pauses (Fly again, Settings, Leave the canyon).
+  is out of sight): miss one and it costs **5 seconds**. (Round 16: no ring
+  changes your speed: the boost rings are gone.) At every checkpoint the
+  split against your best run shows (green ahead, red behind), and a pale
+  blue **ghost** of your best run flies the canyon with you (its marker is
+  on the progress bar).
+- **Crashing:** touching the rock (or being shot down) blows the jet up.
+  (Round 16) By default you are back at the **last checkpoint** you flew
+  through a moment later (**Enter** at once), with a short countdown and a
+  few seconds' shield; the clock runs on, so a crash costs the time it
+  takes. **R** restarts the whole course instead. With **Restart the
+  course** picked, a crash ends the run (the explosion, a look at the
+  wreck, then the results). Leaving the course (over the rim, or far off
+  the line through a valley or space) for 4 seconds counts as a crash.
+- **Results:** your time, rings, misses (and respawns and kills), and a
+  **gold, silver or bronze medal** by the course's par times (shown on the
+  results and the canyon screen). Your best time per course and options is
+  kept (with its splits and its ghost), and its medal shows on the canyon
+  screen.
+- **Keys:** **R** restarts the course at any time (from the mouth, a fresh
+  run); after a crash **Enter** respawns at once; on the results, **N** is
+  the next course (the same options) and **M** the main menu. **Esc**
+  pauses (Restart the course, Settings, Leave the canyon).
 - The canyon run is its own page: it never touches your worlds (nothing is
   saved there but your best times), and leaving it brings back the main
   menu with your last world as it was. It is single player (close a room you
