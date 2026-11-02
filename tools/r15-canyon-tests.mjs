@@ -197,7 +197,7 @@ async function browserChecks() {
   await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
   const errors = [];
   const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    executablePath: (await import("./chromium-path.mjs")).default,
     args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage", "--autoplay-policy=no-user-gesture-required"],
   });
   const localThreeRoot = path.join(__dirname, "node_modules", "three");

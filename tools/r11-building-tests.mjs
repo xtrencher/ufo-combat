@@ -132,7 +132,7 @@ server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(PORT, r));
 browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+  executablePath: (await import("./chromium-path.mjs")).default,
   args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage"],
 });
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });

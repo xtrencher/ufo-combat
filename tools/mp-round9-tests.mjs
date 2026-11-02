@@ -53,7 +53,7 @@ const peerHttp = app.listen(PEER_PORT, "127.0.0.1");
 app.use("/ufo", ExpressPeerServer(peerHttp, { path: "/" }));
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+  executablePath: (await import("./chromium-path.mjs")).default,
   args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage", "--disable-features=WebRtcHideLocalIpsWithMdns", "--autoplay-policy=no-user-gesture-required"],
 });
 const errors = [];

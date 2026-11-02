@@ -65,7 +65,7 @@ function assert(cond, message) {
 
 const browser = await chromium.launch({
   // Any Chromium build works; set CHROMIUM_PATH to use your own.
-  executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+  executablePath: (await import("./chromium-path.mjs")).default,
   args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage"],
 });
 
