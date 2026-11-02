@@ -512,7 +512,8 @@ export class HeliWar {
 
   update(dt) {
     const veh = this.vehicles;
-    const off = !veh.enabled || !this.enabled;
+    // (Round 15: out of the Overworld too: the Missions layer's.)
+    const off = !veh.enabled || !this.enabled || veh.away;
     if (off) {
       for (const u of this.units) veh.remove(u);
       for (const [, v] of this.pads) if (!v.occupied && veh.vehicles.includes(v)) veh.remove(v);

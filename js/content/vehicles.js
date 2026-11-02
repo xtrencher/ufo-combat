@@ -21,6 +21,8 @@ export const MBT_ITEM = 317;
 export const TEL_ITEM = 318;
 // (Round 14) The helicopter (js/vehicle-heli.js; sneaking: the Black Hawk).
 export const HELI_ITEM = 319;
+// (Round 15) The Battle Tank placed while sneaking: the AA vehicle
+// (js/tanks.js ParkedAA: twin cannons and SAMs; `sneak`, another summon's key).
 
 export const items = {
   [F22_ITEM]: { name: "F-22 Raptor", icon: "vehicle_f22", stack: 1, vehicle: "f22" },
@@ -28,13 +30,13 @@ export const items = {
   [B2_ITEM]: { name: "B-2 Spirit", icon: "vehicle_b2", stack: 1, vehicle: "b2" },
   [UFO_ITEM]: { name: "UFO", icon: "vehicle_ufo", stack: 1, vehicle: "ufo" },
   [TIGER_ITEM]: { name: "Tiger Tank", icon: "vehicle_tiger", stack: 1, vehicle: "tiger" },
-  [MBT_ITEM]: { name: "Battle Tank", icon: "vehicle_mbt", stack: 1, vehicle: "mbt" },
+  [MBT_ITEM]: { name: "Battle Tank (sneaking: AA vehicle)", icon: "vehicle_mbt", stack: 1, vehicle: "mbt", sneak: "aa" },
   [TEL_ITEM]: { name: "Missile Launcher (TEL)", icon: "vehicle_tel", stack: 1, vehicle: "tel" },
   [HELI_ITEM]: { name: "Helicopter (AH-64 Apache)", icon: "vehicle_heli", stack: 1, vehicle: "heli" },
 };
 
 export const itemUse = {};
-for (const [id, def] of Object.entries(items)) itemUse[id] = (ctx) => !!LIB.summonVehicle?.(ctx, def.vehicle);
+for (const [id, def] of Object.entries(items)) itemUse[id] = (ctx) => !!LIB.summonVehicle?.(ctx, ctx?.sneaking && def.sneak ? def.sneak : def.vehicle);
 
 // ---------- Icons ----------
 

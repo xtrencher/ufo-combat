@@ -1411,7 +1411,8 @@ export class Tank extends GroundVehicle {
       P.stadia.setAttribute("transform", `translate(${W / 2},${H / 2})`);
       P.cross.style.display = "none";
     } else P.cross.style.display = "block";
-    const txt = `${sight ? `RANGE ${Math.round(this.range)} m  ` : ""}${this.reloadT > 0 ? `RELOAD ${this.reloadT.toFixed(1)}` : "HE READY"}`;
+    // (Round 15: a vehicle of its own guns says its own: the AA's, tanks.js.)
+    const txt = this.overlayText ? this.overlayText(sight) : `${sight ? `RANGE ${Math.round(this.range)} m  ` : ""}${this.reloadT > 0 ? `RELOAD ${this.reloadT.toFixed(1)}` : "HE READY"}`;
     if (P.read._t !== txt) {
       P.read._t = txt;
       P.read.textContent = txt;

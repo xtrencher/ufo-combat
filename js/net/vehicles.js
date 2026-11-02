@@ -15,6 +15,15 @@
 // first who asks ("vown"); the old owner's copy becomes a puppet and the new
 // owner's puppet becomes the real thing. A vehicle someone is sitting in
 // can't be claimed.
+//
+// (Round 15) Vehicles of every dimension: each shared vehicle's data says
+// which one it is of ("dim"; an older save's or peer's none: the Overworld).
+// Every peer keeps every shared vehicle and draws only its own dimension's
+// (the others wait aside, js/vehicles.js switchDim), so a guest in the Nether
+// sees the host's Nether jet and nothing of the Overworld's, and finds the
+// Overworld's where they were on the way back. A vehicle aside on its owner's
+// machine (its owner is in another dimension) stands still and takes no hits
+// there; it can still be claimed by a player in its dimension.
 import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { RATES } from "./config.js";
@@ -64,14 +73,15 @@ export class VehicleSync {
     // (Remembered: in stop() the role already reads "offline".)
     this._wasHost = this.net.isHost;
     // Host: what is already in the world is shared from now on.
-    if (this.net.isHost) for (const v of this.vehicles.vehicles) this._adopt(v, false);
+    // (Round 15: every dimension's.)
+    if (this.net.isHost) for (const v of this.vehicles.all()) this._adopt(v, false);
   }
 
   stop() {
     // The session is over: puppets go, our own vehicles stay ours. (The
     // host keeps the empty ones a guest had, e.g. its own B-2 a guest
     // borrowed: they stay in its world and save, as when a guest leaves.)
-    for (const v of [...this.vehicles.vehicles]) {
+    for (const v of this.vehicles.all()) {
       // (Not in a Dogfight: a guest's empty match jet is no part of the host's world.)
       if (v.puppet && this._wasHost && this.mp.mode !== "dogfight" && !v.isEnemyJet && v.alive && !v.wreck && !v.netOcc) {
         this._makeOwned(v);
@@ -188,7 +198,7 @@ export class VehicleSync {
     const nid = `${this.net.pid}:${this._n++}`;
     v.net = { nid, owner: this.net.pid };
     this.byId.set(nid, v);
-    if (announce) this.net.toAll({ t: "vadd", nid, owner: this.net.pid, type: v.type, data: v.serialize() });
+    if (announce) this.net.toAll({ t: "vadd", nid, owner: this.net.pid, type: v.type, data: this._data(v) });
   }
 
   // We boarded something: a parked aircraft becomes shared now.
@@ -206,8 +216,14 @@ export class VehicleSync {
         this.game.airports.taken.add(key);
       }
       this._adopt(v, false);
-      this.net.toAll({ t: "vadd", nid: v.net.nid, owner: this.net.pid, type: v.type, data: v.serialize(), took: key || null });
+      this.net.toAll({ t: "vadd", nid: v.net.nid, owner: this.net.pid, type: v.type, data: this._data(v), took: key || null });
     }
+  }
+
+  // (Round 15) What another peer makes its copy from: the vehicle's data,
+  // always with its dimension (a save leaves the Overworld's out).
+  _data(v) {
+    return { ...v.serialize(), dim: v.dim || "overworld" };
   }
 
   // ---------- Puppets ----------
@@ -264,7 +280,7 @@ export class VehicleSync {
   _removeLocal(v) {
     this._creatingPuppet = true;
     try {
-      if (this.vehicles.vehicles.includes(v)) this.vehicles.remove(v);
+      if (this.vehicles.has(v)) this.vehicles.remove(v);
       else v.dispose?.();
     } finally {
       this._creatingPuppet = false;
@@ -467,6 +483,8 @@ export class VehicleSync {
   _onHit(m, from) {
     const v = this.byId.get(m.nid);
     if (!v || v.puppet || !v.alive) return;
+    // (Round 15: ours, aside in another dimension than ours: it takes no hits from there.)
+    if (!this.vehicles.vehicles.includes(v)) return;
     const by = m.by || from;
     // A player's weapon: theirs (the death message, the PvP rule). The host's
     // AI hitting an empty aircraft of ours keeps its own cause (Round 9).
@@ -518,7 +536,7 @@ export class VehicleSync {
 
   _broadcastOwn(nid, owner) {
     const v = this.byId.get(nid);
-    this.net.broadcast({ t: "vown", nid, owner, data: v && !v.puppet ? v.serialize() : null });
+    this.net.broadcast({ t: "vown", nid, owner, data: v && !v.puppet ? this._data(v) : null });
   }
 
   _onOwn(m) {
@@ -529,7 +547,7 @@ export class VehicleSync {
       const wanted = this.pendingClaim && this.pendingClaim.nid === m.nid;
       this.pendingClaim = null;
       this._makeOwned(v);
-      if (wanted && !this.vehicles.active && !this.game.player.dead) this.vehicles.enter(v);
+      if (wanted && !this.vehicles.active && !this.game.player.dead && this.vehicles.vehicles.includes(v)) this.vehicles.enter(v);
     } else {
       if (!v.puppet) {
         // Someone else's now: we stop simulating it.
@@ -595,7 +613,7 @@ export class VehicleSync {
   // comes from there). The airport sets out a new one in time, like theirs.
   _onParkedGone(m) {
     if (typeof m.k !== "string") return;
-    for (const v of [...this.vehicles.vehicles]) {
+    for (const v of this.vehicles.all()) {
       if (v.parkKey !== m.k || !v.parkedAt || v.net) continue;
       this._parkGone = true;
       try {
@@ -657,7 +675,7 @@ export class VehicleSync {
 
   update(dt) {
     if (this._pendingAdopt.length) {
-      for (const v of this._pendingAdopt) if (this.vehicles.vehicles.includes(v) && v.alive) this._adopt(v, true);
+      for (const v of this._pendingAdopt) if (this.vehicles.has(v) && v.alive) this._adopt(v, true);
       this._pendingAdopt.length = 0;
     }
     if (!this.mp.stateLoaded) return;
@@ -686,8 +704,8 @@ export class VehicleSync {
   _snapshot() {
     const out = [];
     for (const v of this.byId.values()) {
-      if (!v.alive || !this.vehicles.vehicles.includes(v)) continue;
-      const data = v.serialize();
+      if (!v.alive || !this.vehicles.has(v)) continue;
+      const data = this._data(v);
       // (A puppet's data is where it is drawn now.)
       // (Round 9: which parking spot it was taken from, the host's own boarded
       // aircraft too: the joiner's airport doesn't set out a second copy.)

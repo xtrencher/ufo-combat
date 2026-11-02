@@ -209,7 +209,7 @@ async function browserChecks() {
   await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
   const errors = [];
   const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    executablePath: (await import("./chromium-path.mjs")).default,
     args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage", "--disable-features=WebRtcHideLocalIpsWithMdns", "--autoplay-policy=no-user-gesture-required"],
   });
   const localThreeRoot = path.join(__dirname, "node_modules", "three");
@@ -594,7 +594,7 @@ async function browserChecks() {
       war.sites = { yardSpots: () => spots, within: () => [{ id: "t2" }] };
       war._yardUpkeep();
       const vs = spots.map((s) => war.yard.get(s.key));
-      const out = { types: vs.map((q) => q && `${q.type}:${q.kind}`), aaBoard: !!vs[1]?.unusable, aaFriendly: !vs[1]?.enemy };
+      const out = { types: vs.map((q) => q && `${q.type}:${q.kind}`), aaBoard: !vs[1]?.unusable, aaFriendly: !vs[1]?.enemy };
       const p = vs[2];
       p.pos.y = f.y + 1;
       g.player.position.set(f.x0 - 20, f.y + 1, f.z0 + 10);

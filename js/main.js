@@ -65,9 +65,11 @@ import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
 import { installGround } from "./tanks.js"; // (Round 13: tanks, AA vehicles, missile launchers)
-import { installHelis } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
+import { installHelis, heliMissionId } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
 import { SupplyCrates } from "./crates.js";
 import { NukeSystem } from "./nuke.js";
+import { HackSystem } from "./hacks.js"; // (Round 15)
+import { HacksUI } from "./hacks-ui.js";
 import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
 import { createJetModel } from "./jet-model.js";
@@ -91,10 +93,13 @@ import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensio
 import { NetherPortals } from "./portal.js";
 import { NetherAtmosphere } from "./nether-fx.js";
 import { EndGame } from "./dragon.js";
+import { SpaceSystem } from "./space.js"; // (Round 15: the rocket, orbit, the Moon and Mars)
 import { Transport } from "./boats.js"; // (Round 12: boats and minecarts)
 import { TransportSync } from "./net/transport.js";
 import { GroundSync } from "./net/ground.js"; // (Round 13)
 import { HeliSync } from "./net/heli.js"; // (Round 14)
+import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: the canyon run)
+import { installCanyonMenu } from "./menu-canyon.js";
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -139,7 +144,10 @@ const net = new NetSession();
 const JOIN_PARAM = new URLSearchParams(window.location.search).get("join");
 const joinWelcome = JOIN_PARAM !== null ? await bootJoin(net, normalizeRoomCode(JOIN_PARAM)) : null;
 const GUEST = !!joinWelcome;
-const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
+// (Round 15) The canyon run's page (?canyon=, js/canyon.js): its course is
+// the seed, and none of the player's worlds is read or written.
+const CANYON = GUEST ? null : canyonParams();
+const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : CANYON ? CANYON.seed : parseSeedFromURL();
 
 // ---------- World type ----------
 // (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
@@ -149,7 +157,7 @@ const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : parseSeedFromURL();
 // last-world record), else (Round 12) Survival, the default (a ?seed= link
 // without a type: Missions, as before). A guest plays the host's.
 // (A saved player: position, inventory, ...; a guest's session reads none.)
-const savedPlayer = GUEST ? null : loadPlayer(SEED);
+const savedPlayer = GUEST || CANYON ? null : loadPlayer(SEED);
 function newWorldPick() {
   const params = new URLSearchParams(window.location.search);
   const last = loadJSON("last");
@@ -158,7 +166,7 @@ function newWorldPick() {
   const mode = params.get("mode") ?? lastHere?.mode;
   return { type: newWorldType(type, { link: params.has("seed") }), mode: mode === "creative" ? "creative" : "survival" };
 }
-const NEW_PICK = savedPlayer || GUEST ? null : newWorldPick();
+const NEW_PICK = savedPlayer || GUEST ? null : CANYON ? { type: "survival", mode: "creative" } : newWorldPick();
 // (Round 12) Reloaded into a world picked on the main menu: straight into the
 // game (menu-go.js; the end of this file). Read at once: it leaves the address.
 const GO = GUEST ? null : takeGo(SEED);
@@ -167,7 +175,7 @@ const GO = GUEST ? null : takeGo(SEED);
 // the old terrain; a guest's is the host's (an older host's: the old one).
 // (The world's own record, storage.js, when its player save is missing: a
 // world whose player save failed keeps its type and terrain.)
-const WORLD_REC = GUEST ? null : loadWorldRecord(SEED);
+const WORLD_REC = GUEST || CANYON ? null : loadWorldRecord(SEED);
 let worldRecorded = !!WORLD_REC;
 const WORLD_TYPE = GUEST ? joinWelcome.worldType : savedPlayer ? savedPlayer.worldType : WORLD_REC?.type ?? NEW_PICK.type;
 setWorldType(WORLD_TYPE, { gen: terrainGenOf(WORLD_TYPE, GUEST ? joinWelcome.gen : savedPlayer?.gen ?? WORLD_REC?.gen, { old: GUEST || !!savedPlayer || hasSavedEdits(SEED) }) });
@@ -365,7 +373,9 @@ const distant = new DistantStructures({ scene, world, material: lod.material });
 distant.zones = () => nuke.zones;
 
 // Plans chunk streaming and LOD tiles around a position (cheap when nothing changed).
+let canyonRun = null; // (Round 15: the canyon run streams its own course, js/canyon.js)
 function streamAround(x, z) {
+  if (canyonRun?.stream(x, z)) return;
   lod.plan(x, z);
   world.ensureChunksAround(x, z, lod.worldPlan);
 }
@@ -393,7 +403,7 @@ const startZ = savedPos ? savedPos[2] : spawnZ + 0.5;
 const INITIAL_SYNC_RADIUS = 2;
 // (Round 12: a save made in the Nether or the End gets its own ground once
 // the world is there, dims.init below, not the Overworld's at that place.)
-if (savedDimension(savedPlayer) === "overworld") {
+if (!CANYON && savedDimension(savedPlayer) === "overworld") {
   world.prepareArea(startX, startZ, INITIAL_SYNC_RADIUS);
   streamAround(startX, startZ);
 }
@@ -1104,7 +1114,7 @@ function findRunway() {
 // (a jet on day one would skip the whole curve). Creative: always.
 // (Round 10: by mission id: each run has its own order, see progression.js.)
 function jetLocked() {
-  return !player.creative && progress.enabled && !progress.reached("wings");
+  return !player.creative && chainLocks() && !progress.reached("wings");
 }
 // "...mission 12 ("Take to the air")": where it is in this run.
 const missionRef = (id) => {
@@ -1115,13 +1125,13 @@ const jetLockedText = () => `Fighter jets join the fight with ${missionRef("wing
 // UFOs (wrecks and the ones in airport hangars) can be boarded from the
 // "Salvage" mission on; before that the player fights on foot.
 function ufoLocked() {
-  return !player.creative && progress.enabled && !progress.reached("salvage");
+  return !player.creative && chainLocks() && !progress.reached("salvage");
 }
 const ufoLockedText = () => `You can't fly alien ships yet: that comes with ${missionRef("salvage")}.`;
 // The B-2 (and so the nuke) is Operation Sunburn's: before it the bomber
 // stays parked (a nuke on any squad would skip the missions in between).
 function b2Locked() {
-  return !player.creative && progress.enabled && !progress.reached("sunburn");
+  return !player.creative && chainLocks() && !progress.reached("sunburn");
 }
 const b2LockedText = () => `The B-2 bomber and its nuke come with ${missionRef("sunburn")}.`;
 vehicles.canBoard = (v) =>
@@ -1216,7 +1226,8 @@ function callIn(kind) {
         const yaw = player.yaw + a;
         const gx = p0.x - Math.sin(yaw) * d;
         const gz = p0.z - Math.cos(yaw) * d;
-        const gy = Math.max(world.heightAt(Math.floor(gx), Math.floor(gz)), SEA_LEVEL) + 1;
+        // (Round 15: under a roof, the Nether's, the height map is the highest ledge: from the player's level.)
+        const gy = world.dimInfo?.ceiling ? p0.y : Math.max(world.heightAt(Math.floor(gx), Math.floor(gz)), SEA_LEVEL) + 1;
         gv = vehicles.summonOnGround(kind, { x: gx, y: gy, z: gz });
         if (gv) break;
       }
@@ -1232,19 +1243,25 @@ function callIn(kind) {
     toast(`${gv.name}: you're in!`, 3);
     return true;
   }
-  removePlayerJets();
   const p = player.position;
   const ground = Math.max(world.heightAt(Math.floor(p.x), Math.floor(p.z)), SEA_LEVEL);
+  // (Round 15) Under the Nether's roof: the open air above the player (vehicles.skyY), or no room.
+  const skyY = (want) => vehicles.skyY(p, want, 8);
+  if (skyY(kind === "ufo" ? 200 : 215) === null) {
+    toast("No room to fly here: find a bigger cavern.", 3);
+    return false;
+  }
+  removePlayerJets();
   let v;
   if (kind === "ufo") {
     const design = UFO_DESIGNS[Math.floor(Math.random() * UFO_DESIGNS.length)];
     const radius = [4, 5.5, 7, 9, 12][Math.floor(Math.random() * 5)];
-    v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, Math.min(200, Math.max(ground + 40 + radius, p.y + 30)), p.z], yaw: player.yaw });
+    v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, skyY(Math.min(200, Math.max(ground + 40 + radius, p.y + 30))), p.z], yaw: player.yaw });
   } else {
     if (!JET_TYPES[kind]) return false;
     const cfg = vehicles.config.jet;
     const alt = kind === "b2" ? 100 : 75;
-    v = vehicles.create("jet", { jetType: kind, pos: [p.x, Math.min(215, Math.max(ground + alt, p.y + 45)), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62 * (JET_TYPES[kind].speed ?? 1), throttle: 0.75 });
+    v = vehicles.create("jet", { jetType: kind, pos: [p.x, skyY(Math.min(215, Math.max(ground + alt, p.y + 45))), p.z], yaw: player.yaw, airborne: true, speed: cfg.maxSpeed * 0.62 * (JET_TYPES[kind].speed ?? 1), throttle: 0.75 });
     if (v) v.isPlayerJet = true;
   }
   if (!v) return false;
@@ -1408,7 +1425,7 @@ let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
 mods.onChange((on) => {
   ufos.setEnabled(on && missionsHere());
-  vehicles.setEnabled(on && missionsHere());
+  vehicles.setEnabled(on); // (Round 15: in every dimension; the Missions layer's rest out of the Overworld, vehicles.away)
   if (!on) mobs.removeKind("alien");
 });
 // (A Survival world: Mods off for that world, whatever the setting, which is
@@ -1563,6 +1580,13 @@ let progressOffAt = null; // (the mission stats when the chain went off)
 function missionsHere() {
   return (world.dim ?? "overworld") === "overworld";
 }
+// (Round 15) The mission chain's locks on the vehicles (jets, the B-2, UFOs,
+// helicopters): while the chain runs, and in the Nether and the End too,
+// where it only pauses (vehicles are in every dimension now). Never in Creative.
+function chainLocks() {
+  return progress.enabled || (!missionsHere() && mods.enabled && !player.creative && !survivalPaused && !isVanilla() && !testFlags.noMissions);
+}
+helis.locked = () => !player.creative && chainLocks() && !progress.reached(heliMissionId(progress));
 function refreshSurvivalSystems() {
   // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
   const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla() && missionsHere();
@@ -1873,6 +1897,7 @@ function playerState() {
     leaderDrops: progress.mission?.squad ? missionDirector.serializeDrops() : undefined,
     missionsOff: progressOffAt || undefined, // (saved in Creative: what the mission counts had reached)
     ...dims.serialize(), // (Round 12) the dimension the player is in, the other dimensions' state
+    ...space.serialize(), // (Round 15) the landing sites; mid-trip: back at the pad it left from
     end: endGame.serialize(), // (Round 12) the dragon's fight (js/dragon.js)
   };
 }
@@ -1903,7 +1928,8 @@ let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
 // `force`: try the edits even while backing off (leaving, a menu's save).
 function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
-  if (GUEST) {
+  // (Round 15: nor does the canyon run: the player's worlds stay as they were.)
+  if (GUEST || CANYON) {
     pendingSave = false;
     dims.clearDirty();
     lastSaveTime = lastPlayerSave = performance.now();
@@ -2803,7 +2829,7 @@ function enterGame() {
   setMode(mp.active ? playerModeOf(mp.mode) : ui.modeSelect.value);
   fillStartingWeapons(newWorld);
   markInventoryChanged();
-  if (!GUEST) {
+  if (!GUEST && !CANYON) {
     saveJSON("last", { seed: SEED, type: worldType() });
     rememberWorld();
   }
@@ -2962,6 +2988,12 @@ document.getElementById("new-world-create").addEventListener("click", () => {
 // Back to the main menu: save and reload this world's page (the menu
 // then offers to continue it).
 document.getElementById("main-menu-btn").addEventListener("click", () => {
+  // (Round 15) From the canyon run: back to the menu (nothing to save).
+  if (CANYON) {
+    leavingToMenu = true;
+    window.location.href = menuUrl();
+    return;
+  }
   if (GUEST) {
     mp.leave();
     return;
@@ -3349,6 +3381,8 @@ function cullCreatureShadows() {
 }
 
 function renderFrame() {
+  // (Round 15) In orbit and on the way to a planet: space's own scene, drawn instead of the world.
+  if (space.view) return space.render(renderer, activePreset.post ? postfx : null);
   // (Round 12) Out of the sky's sight (a cave) the time of day doesn't change the exposure.
   const exposure = THREE.MathUtils.lerp(1, sky.exposure, worldUniforms.uEyeSky.value) * eyeAdaptation;
   const preset = activePreset;
@@ -3470,7 +3504,7 @@ const game = {
     const p = player.position;
     // (Flying or under a parachute: only the column, the aircraft isn't
     // brought back on a rejoin; applyPlayerData puts them on the ground.)
-    const air = vehicles.active || player.parachute;
+    const air = vehicles.active || player.parachute || space.busy; // (Round 15: on a trip through space)
     const kept = mp.dogfight?.keptInventory;
     return { inv: kept ? kept.slots : serializeInvWithCursor(), armor: kept ? kept.armor : inventory.serializeArmor(), modStash: mods.serialize(), sel: kept ? kept.sel : inventory.selected, health: player.dead ? MAX_HEALTH : player.health, absorb: player.dead ? 0 : player.absorption, pos: player.dead ? null : [round3(p.x), air ? null : round3(p.y), round3(p.z)], loadout: loadoutGiven, surv: vanillaRules() && !player.dead ? player.serializeSurvival() : undefined, bed: vanillaRules() ? sleep.serialize() : undefined, dim: dims.dim !== "overworld" ? dims.dim : undefined };
   },
@@ -3682,7 +3716,6 @@ game.dims = dims;
 // (Round 13) The Missions layer stays in the Overworld (missionsHere).
 dims.onChange.push(() => {
   ufos.setEnabled(mods.enabled && missionsHere());
-  vehicles.setEnabled(mods.enabled && missionsHere());
   refreshSurvivalSystems();
 });
 if (dims.sync) mp.addModule(dims.sync);
@@ -3702,6 +3735,9 @@ game.netherPortals = netherPortals;
 const endGame = new EndGame(game, { dims, mp, renderer });
 endGame.load(savedPlayer?.end);
 game.endGame = endGame;
+// (Round 15) Space: the rocket's trip to orbit, the Moon and Mars, their skies and rules (js/space.js, js/rocket.js).
+const space = new SpaceSystem(game, { dims, mp, renderer });
+game.space = space;
 // (Round 12: the host's dimension the host's; another dimension the guest's who simulates it there, js/dimensions.js.)
 natureSim.fire.enabled = () => dims.simulatesWorld(); // (a guest's fires burn at the host; the results arrive as edits)
 redstone.enabled = () => dims.simulatesWorld(); // (a guest's levers and buttons reach the host as edits; the results come back as edits)
@@ -3776,12 +3812,16 @@ window.__ufo = window.__voxelands = {
   weatherFx,
   spawners,
   dims, // (Round 12)
+  get canyon() {
+    return canyonRun; // (Round 15)
+  },
   get transport() {
     return transport; // (Round 12)
   },
   netherPortals, // (Round 12)
   netherAir,
   endGame, // (Round 12)
+  space, // (Round 15)
   weapons,
   lasers,
   nuke,
@@ -4004,7 +4044,7 @@ function updateRadar(dt) {
       contacts.push({ kind: "player", x: at.x, z: at.z, air: !!rv, heading: rv ? headingOf(rv) : 0, color: r.color });
     }
   }
-  for (const s of world.terrain.sites.withinCached(pos.x, pos.z, radar.range * 2.5)) {
+  for (const s of world.terrain.sites?.withinCached(pos.x, pos.z, radar.range * 2.5) ?? []) {
     if (s.kind !== "airport" && s.kind !== "city") continue;
     const [ux, uz] = world.terrain.sites.dirU(s);
     contacts.push({ kind: "airport", x: s.x, z: s.z, heading: Math.atan2(-ux, -uz), size: (s.half ?? 300) * 2 });
@@ -4229,7 +4269,7 @@ function updateAltitudeView(dt) {
   altViewT = 0.5;
   let target = renderDistance;
   const v = vehicles.active;
-  if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli")) {
+  if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli" || v.type === "rocket")) {
     const ground = Math.max(world.heightAt(Math.floor(v.pos.x), Math.floor(v.pos.z)), SEA_LEVEL);
     const t = THREE.MathUtils.clamp((v.pos.y - ground - 20) / 140, 0, 1);
     const boost = 1 + ((ALT_VIEW_MAX[graphicsPreset] ?? 2.2) - 1) * t;
@@ -4401,9 +4441,12 @@ function simulate(dt, frameTime) {
   updateDebug(dt, frameTime);
   endGame.update(dt); // (Round 12: the End's fight, the portals' starfield, eyes of ender)
   dims.update(dt); // (Round 12: portals, a travel's arrival)
+  space.update(dt); // (Round 15: the rocket's trip, the planets' skies and air)
   netherPortals.update(dt); // (Round 12: the nether portals, js/portal.js)
   netherAir.update(dt);
   mp.update(dt);
+  canyonRun?.update(dt, running); // (Round 15: the canyon run, js/canyon.js)
+  hacks.update(dt, running && gameState !== "start"); // (Round 15: js/hacks.js)
 }
 
 let lastFrozenRender = 0;
@@ -4416,7 +4459,7 @@ function animate() {
   requestAnimationFrame(animate);
   const frameStart = performance.now();
   const frameTime = clock.getDelta();
-  const dt = Math.min(frameTime, MAX_DT); // simulation step (clamped after hitches)
+  const dt = Math.min(frameTime, MAX_DT) * hacks.timeWarp; // simulation step (clamped after hitches; Round 15: the hacks' bullet time)
   simulate(dt, frameTime);
 
   ui.updateFps(frameTime); // real frame time, so slow frames aren't hidden by the clamp
@@ -4440,17 +4483,36 @@ function animate() {
   }
 }
 
+// (Round 15) The Creative hacks (js/hacks.js) and their screen (js/hacks-ui.js).
+const hacks = new HackSystem({ player, world, scene, camera, effects, weapons, interaction, mobs, ufos, vehicles, nuke, sky, audio, avatar, mp, net, seed: SEED, getState: () => gameState, toast, sendTime: () => mp.active && net.isHost && net.broadcast({ t: "time", time: sky.time, scale: sky.timeScale ?? 1, locked: !!sky.locked, ts: net.time }) });
+new HacksUI(hacks, { openScreen, screens, audio });
+window.__voxelands.hacks = hacks;
+
 // Vehicles last: the player may have saved while seated in one.
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 // (Round 12) A save made in the Nether or the End: the world goes there now.
 dims.init(savedPlayer);
+space.init(savedPlayer?.space); // (Round 15: the landing sites; a trip cut short: the rocket back on its pad)
+// (Round 15) The canyon run's page: into its course (js/canyon.js); any
+// other page: the main menu's canyon screen (js/menu-canyon.js).
+if (CANYON) {
+  const go = (url) => {
+    leavingToMenu = true;
+    window.location.href = url;
+  };
+  canyonRun = new CanyonRun(game, CANYON, { enter: enterAsGuest, leave: () => go(menuUrl()), go });
+  canyonRun.init();
+} else if (!GUEST) {
+  installCanyonMenu({ screens, audio, toast, beforeLeave: () => entered && flushSave(), refusal: () => (mp.active ? "The canyon run is single player: close the room first (Multiplayer)." : null) });
+}
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
 // (Round 12) Reloaded into a world picked on the main menu (or for a room the
 // Multiplayer screen asked for there): straight into the game, in the mode
 // picked, one click to take the mouse ("Click to play", as a guest's join).
-if (GO) {
+if (CANYON) canyonRun.start();
+else if (GO) {
   if (GO.mode) ui.setModeShown(GO.mode);
   enterAsGuest();
   if (GO.host) mp.ui.hostNow(GO.host);

@@ -290,7 +290,8 @@ export class Sky {
     this.hemiLight.groundColor.copy(u.uAmbientGround.value);
     this.hemiLight.intensity = Math.PI;
 
-    if (this.dimSky) this._applyDimension(this.dimSky);
+    // (Round 15: a dimension's sky with a sun, the Moon's or Mars': the day's light; its colours from the hook below)
+    if (this.dimSky && !this.dimSky.sun) this._applyDimension(this.dimSky);
     else this._applyWeather();
 
     // Horizon color in the view direction, for three's built-in fog.
@@ -298,6 +299,8 @@ export class Sky {
 
     // Night is dark, but the eye adapts a bit (like in classic voxel games).
     this.exposure = this.dimSky ? this.dimSky.exposure ?? 1 : THREE.MathUtils.lerp(1.1, 0.8, smoothstep(-0.15, 0.25, e));
+    // (Round 15) Space (js/space-sky.js): the Moon's and Mars' skies, the rocket's climb into the black.
+    if (this.post) this.post(this, e, dt);
 
     for (let i = 0; i < this.cascades.length; i++) this._placeShadowLight(this.shadowLights[i], this.cascades[i], center, forward);
     this._scheduleShadows();
@@ -414,8 +417,8 @@ export class Sky {
     for (let i = 0; i < this.shadowLights.length; i++) {
       const shadow = this.shadowLights[i].shadow;
       shadow.autoUpdate = false;
-      // (Round 12: no sun in that dimension, nothing to draw them for.)
-      if (this.dimSky) {
+      // (Round 12: no sun in that dimension, nothing to draw them for. Round 15: the Moon and Mars have one.)
+      if (this.dimSky && !this.dimSky.sun) {
         if (shadow.map) shadow.needsUpdate = false;
         continue;
       }

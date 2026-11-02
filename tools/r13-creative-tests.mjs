@@ -99,7 +99,7 @@ async function browserChecks() {
   await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
   const errors = [];
   const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    executablePath: (await import("./chromium-path.mjs")).default,
     args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox", "--disable-dev-shm-usage", "--disable-features=WebRtcHideLocalIpsWithMdns", "--autoplay-policy=no-user-gesture-required"],
   });
   const localThreeRoot = path.join(__dirname, "node_modules", "three");
@@ -354,7 +354,7 @@ async function browserChecks() {
     assert(after === before, `after the reload: ${after} (before: ${before})`);
   });
 
-  await browserCheck("the Nether: the vehicles stay in the Overworld (hidden, nothing summoned there), back on the return", async () => {
+  await browserCheck("the Nether: the Overworld's vehicles wait aside (Round 15: vehicles work there, summons too), back on the return", async () => {
     const r = await v(page, (g) => {
       const vm = g.vehicles;
       const n = vm.vehicles.length;
@@ -365,7 +365,7 @@ async function browserChecks() {
       vm.update(1 / 30);
       return { n, there, back: { on: vm.enabled, shown: vm.vehicles.filter((v) => v.root.visible).length } };
     });
-    assert(r.there.ok && !r.there.on && r.there.shown === 0 && /Overworld/.test(r.there.why), `in the Nether: ${JSON.stringify(r)}`);
+    assert(r.there.ok && r.there.on && r.there.shown === 0 && !/Overworld/.test(r.there.why || ""), `in the Nether: ${JSON.stringify(r)}`);
     assert(r.back.on && r.back.shown === r.n && r.n > 0, `back: ${JSON.stringify(r)}`);
     await play(page);
   });

@@ -46,12 +46,14 @@ import { GLASS_BOTTLE } from "./content/ids.js";
 import { offhandUse } from "./content/items-vanilla.js";
 import { cactusHolds } from "./content/nature.js";
 import { PICKUP_DELAY, THROWN_PICKUP_DELAY } from "./entities.js";
+import { H } from "./hacks.js";
 
 const REACH_SURVIVAL = 4.5;
 const REACH_CREATIVE = 6;
 const BREAK_DELAY = 0.25; // pause after breaking a block before the next one starts (survival)
 const CREATIVE_BREAK_REPEAT = 0.22;
 const PLACE_REPEAT = 0.22;
+const FAST_REPEAT = 0.06; // (Round 15) the hacks' instant mining and building
 const ENTITY_REACH = 3.5; // mobs must be closer than blocks to hit (survival)
 // (Worn by their own use only, not by mining or hitting: vanilla's.)
 const OWN_USE_WEAR = new Set(["flint_and_steel", "fishing_rod", "shield"]);
@@ -190,10 +192,13 @@ export class Interaction {
     this.weapons = null; // the weapon system (grenades, pistol, bazooka), if any
     this.entityHit = null; // { mob, distance } under the crosshair
     this.onUseMob = null; // (mob, stack) => true if a right click on the creature was handled (Round 11)
+    // (Round 15) The Creative hacks' hand powers (js/hacks.js): { press(), release(), primary() }, each true if it took the click.
+    this.powers = null;
   }
 
+  // (Round 15: the hacks' super reach, Creative only; H.reach is 6 while it is off.)
   get reach() {
-    return this.player.creative ? REACH_CREATIVE : REACH_SURVIVAL;
+    return this.player.creative ? Math.max(REACH_CREATIVE, H.reach) : REACH_SURVIVAL;
   }
 
   _tool() {
@@ -215,6 +220,11 @@ export class Interaction {
   // ---------- Input ----------
 
   mouseDown(button) {
+    // (Round 15) A hand power (the hacks), with nothing in hand: it takes the click.
+    if (this.powers && !this.inventory.selectedStack && (button === 0 ? this.powers.primary() : button === 2 && this.powers.press())) {
+      this.held.swing();
+      return;
+    }
     if (button === 0) {
       this.leftDown = true;
       this._breakCooldown = 0;
@@ -263,6 +273,7 @@ export class Interaction {
       this.rightDown = false;
       this.eating = 0;
       if (this.weapons) this.weapons.release();
+      this.powers?.release();
     }
   }
 
@@ -329,7 +340,7 @@ export class Interaction {
     this.target = this.world.raycast(origin, dir, this.reach);
     if (this.target) this._faceHit(this.target, origin, dir);
     // A mob in front of the block takes the crosshair.
-    this.entityHit = this.combat ? this.combat.raycast(origin, dir, this.player.creative ? 5 : ENTITY_REACH) : null;
+    this.entityHit = this.combat ? this.combat.raycast(origin, dir, this.player.creative ? (H.reach > REACH_CREATIVE ? H.reach : 5) : ENTITY_REACH) : null;
     if (this.entityHit && this.target && this.target.distance < this.entityHit.distance) this.entityHit = null;
     if (this.entityHit) this.target = null;
 
@@ -449,7 +460,9 @@ export class Interaction {
     if (id === BLOCK.AIR) return;
     if (this.player.creative) {
       this._breakBlock(x, y, z, id, false);
-      this._breakCooldown = CREATIVE_BREAK_REPEAT;
+      // (Round 15) The hacks: a whole cube of blocks at once, and no wait between breaks.
+      if (H.mineArea > 1) this._breakArea(x, y, z, H.mineArea);
+      this._breakCooldown = H.fastMine ? FAST_REPEAT : CREATIVE_BREAK_REPEAT;
       return;
     }
     const time = this._breakTime(id);
@@ -460,6 +473,27 @@ export class Interaction {
       this.mining = null;
       this._breakCooldown = BREAK_DELAY;
     }
+  }
+
+  // (Round 15) The hacks' area mining (Creative): the cube of n x n x n
+  // blocks around the one broken goes too, in one edit (online it goes out
+  // as edits like any other); never bedrock or other unbreakable blocks,
+  // fluids, chests or a block with its own use (a furnace's contents...).
+  _breakArea(cx, cy, cz, n) {
+    const h = (n - 1) >> 1;
+    const edits = [];
+    for (let x = cx - h; x <= cx + h; x++)
+      for (let y = Math.max(1, cy - h); y <= cy + h; y++)
+        for (let z = cz - h; z <= cz + h; z++) {
+          const id = this.world.getBlock(x, y, z);
+          const info = BLOCK_INFO[id];
+          if (id === BLOCK.AIR || !info || info.liquid || info.lava || !(info.hardness >= 0) || IS_CHEST[id] || BLOCK_USE[id]) continue;
+          edits.push(x, y, z, BLOCK.AIR);
+        }
+    if (!edits.length) return 0;
+    this.world.setBlocks(edits);
+    if (cy - h <= SEA_LEVEL) this.effects.floodInto(edits);
+    return edits.length / 4;
   }
 
   _stopMining() {
@@ -704,9 +738,9 @@ export class Interaction {
 
   _overlapsPlayer(bx, by, bz) {
     const p = this.player.position;
-    const r = 0.3;
+    const r = this.player.bodyRadius ?? 0.3; // (Round 15: the hacks' size)
     const overlapsXZ = bx + 1 > p.x - r && bx < p.x + r && bz + 1 > p.z - r && bz < p.z + r;
-    const overlapsY = by + 1 > p.y && by < p.y + 1.8;
+    const overlapsY = by + 1 > p.y && by < p.y + (this.player.bodyHeight ?? 1.8);
     return overlapsXZ && overlapsY;
   }
 
@@ -755,7 +789,7 @@ export class Interaction {
       return;
     }
     this._placeTimer += dt;
-    if (this._placeTimer >= PLACE_REPEAT) {
+    if (this._placeTimer >= (H.fastMine ? FAST_REPEAT : PLACE_REPEAT)) {
       this._placeTimer = 0;
       this._use();
     }

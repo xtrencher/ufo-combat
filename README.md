@@ -88,6 +88,8 @@ The main menu has:
   are buttons at its top, and the graphics preset and **Fullscreen** live in
   its Graphics tab.
 - **Fullscreen** (next to Settings; **Leave fullscreen** while it is on).
+- (Round 15) **Canyon run**: a single-player time trial in a fighter jet
+  through a huge canyon (see **Canyon run** below).
 
 Click Play to lock your mouse; **Esc** opens the pause menu (Resume,
 Settings, Fullscreen, Missions (in a Missions world), Stats, Multiplayer, Copy
@@ -95,7 +97,9 @@ world link, Save & main menu, and the **Game mode**; in Creative (either
 world type) also the **call-ins**: F-22, F-16, B-2 or a random UFO, and
 you are straight in the air at the controls of it; or the Tiger tank, the
 battle tank, the missile truck or the **Helicopter** (an Apache), parked on
-open ground just ahead with you straight in it).
+open ground just ahead with you straight in it; or (Round 15) the **Rocket**,
+on its launch pad a few blocks ahead with you aboard (see **Space**), and the
+**HACKS** button (see **Creative hacks**)).
 
 **Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
 fullscreen: with it on, the game goes fullscreen as you enter it (Play,
@@ -133,12 +137,15 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   mining, flight, and no damage, and (Round 13) the vehicles: the palette's
   **Vehicles** tab has the **F-22 Raptor**, the **F-16 Fighting Falcon**, the
   **B-2 Spirit**, a **UFO**, the **Tiger Tank**, the **Battle Tank**, the
-  **Missile Launcher** (the missile truck) and (Round 14) the **Helicopter**,
-  in either world type (see **Vehicles in Creative** below). The main
+  **Missile Launcher** (the missile truck), (Round 14) the **Helicopter** and
+  (Round 15) the **Rocket**, in either world type (see **Vehicles in
+  Creative** below). The main
   menu's Creative card plays a Survival world
   (plain Minecraft: its land stays as it is, with no airports or cities, no
   UFO fleets and no missions); a Missions world has its own Creative in its
   pause menu, with every weapon in your hotbar and the call-ins too.
+  (Round 15) Creative also has **hacks**: Esc > **HACKS** (see **Creative
+  hacks** below).
 - **Missions** (the mods add-on): **the normal world with the UFO war on
   top** (Round 13). It is a Survival world in everything (the same land,
   villages, structures, ores, the Nether and the End, crafting and smelting,
@@ -179,6 +186,53 @@ new world starts on flat, open, dry ground. A world link (`?seed=N`)
 without a type still opens a Missions world, as it always did; a new player's
 first world (no link, nothing saved) is a Survival world.
 
+### Canyon run (single player)
+
+(Round 15) The main menu's **Canyon run** button opens a time trial in a
+fighter jet through a huge winding canyon: fly between the walls as fast as
+you dare, through every ring, and don't touch the rock.
+
+- **Courses:** **Grand Canyon** (15 km: wide, deep and winding, with arches,
+  rock pillars and a river far below; the one to learn), **Slot Canyon**
+  (8 km: a crack in the rock barely two wingspans wide, undercut walls,
+  arches and dark tunnels: throttle back), **Night Run** (11 km by
+  moonlight, with glowing crystals in the walls and long tunnels) and **The
+  Gauntlet** (16 km of everything, with AA guns on the rim that shoot back).
+  Each course is the same every time (it is made from its own seed), with
+  layered red, orange and white rock, ledges and overhangs, arches across
+  the canyon (under or over them), hoodoo pillars, fins of rock that split
+  it into two lanes, narrows, tunnels lit by crystals, waterfalls and a
+  river.
+- **Your jet:** pick the **F-22 Raptor** (faster, tougher) or the **F-16
+  Falcon** (lighter, turns tighter) on the canyon screen. It flies as
+  everywhere else: the mouse steers, W/S throttle, Shift afterburner,
+  Space air brakes, left click the cannon, right click missiles, F5 the
+  cockpit view.
+- **The run:** you wait in the canyon's mouth while it loads, then 3, 2, 1,
+  GO. The clock starts at the checkered **start gate** and stops at the
+  checkered **finish ring**. In between, the **checkpoint rings** (the next
+  one glows gold, an arrow at the edge of the screen points to it when it
+  is out of sight): miss one and it costs **5 seconds**. Green **boost
+  rings** kick you forward. At every checkpoint the split against your best
+  run shows (green ahead, red behind), and a pale blue **ghost** of your
+  best run flies the canyon with you (its marker is on the progress bar).
+- **Crashing:** touching the rock (or being shot down) ends the run: the
+  explosion, a look at the wreck, then the results. Climbing out over the
+  rim ends it too after 4 seconds of warning: the canyon run is in the
+  canyon.
+- **Results:** your time, rings, misses, and a **gold, silver or bronze
+  medal** by the course's par times (shown on the results and the canyon
+  screen). Your best time per course is kept (with its splits and its
+  ghost), and its medal shows on the canyon screen.
+- **Keys:** **R** flies again at any time (from the mouth, a fresh run);
+  on the results, **N** is the next course and **M** the main menu. **Esc**
+  pauses (Fly again, Settings, Leave the canyon).
+- The canyon run is its own page: it never touches your worlds (nothing is
+  saved there but your best times), and leaving it brings back the main
+  menu with your last world as it was. It is single player (close a room you
+  are hosting first). On a slow computer the jet waits, the clock stopped,
+  whenever the canyon ahead hasn't loaded yet.
+
 ### Controls
 
 | Action | Key |
@@ -209,6 +263,8 @@ first world (no link, nothing saved) is a Survival world.
 | Fly up / down (Creative) | Double-tap `Space` to toggle, then `Space` / `Shift` |
 | Glide with an elytra (worn in the chest slot) | `Space` while falling |
 | Pick the targeted block (Creative) | Middle click |
+| Bullet time on / off (Creative, with the **Bullet time** hack) | `Z` |
+| Chain lightning, the gravity gun or nuke rain (Creative, with a hand power hack) | Right click with an empty hand |
 | Pause menu | `Esc` (also steps back out of any menu screen) |
 | Board / leave a vehicle (Mods on; in a Survival world: in Creative) | `F` (near it) |
 | Swap the item in hand with the off hand (when no vehicle you can board is in reach) | `F` |
@@ -271,6 +327,63 @@ and the arrow (the item cooking). `Shift` + click on your inventory puts what
 can be smelted into the input and fuel into the fuel slot; the fuel slot takes
 only fuel; the output only gives (all, half with the right button). Taking from
 the output gives the experience of what was smelted.
+
+### Creative hacks
+
+(Round 15) In Creative, in either world type, the pause menu has a **HACKS**
+button (above the call-ins): cheats you turn on and off, grouped, with sliders
+and choices, and **Reset all**. They are kept with the world (in your browser)
+and are yours alone. **Survival turns them all off** (switching to Survival
+clears them), and a Dogfight room has none. A small green **HACKS** line on
+the screen (bottom left) shows how many are on and your hand power.
+
+- **Weapons:** **No reload, infinite ammo** (every hand weapon, and your
+  vehicles' guns, missiles, rockets, shells, flares, the B-2's nuke and the UFO
+  superweapon); **No overheat** (the laser minigun, the jets' and helicopters'
+  cannons, the UFOs' beams); **Rapid fire** (x1-x5: hand weapons fire, draw,
+  charge and reload faster); **Explosion size** (x1-x10: your grenades,
+  bazooka rockets, airstrike meteors, missiles, tank shells, the ballistic
+  missile, the UFO cannon and TNT; they look, shake and hurt at the full size;
+  the crater stops at about 22 blocks so the game doesn't stall); **One-hit
+  kills** (creatures, UFOs and the dragon; never other players); **Explosive
+  ammo** (bullets, laser bolts and arrows blow up where they land); **Super
+  punch** (your blows and shots send creatures flying).
+- **Hand powers** (right click with **nothing in hand**): **Chain lightning**
+  (from the creature you point at, jumping to up to 7 hostile creatures
+  nearby), **Gravity gun** (right click picks up the block or creature you
+  point at; it floats in front of you; right click throws it, left click
+  drops it; a thrown block lands as a block, knocking over what it hits),
+  **Nuke rain** (three small nukes fall around the spot you point at; size
+  12-30, every 7 s).
+- **Body:** **God mode** (Creative already takes no damage: no knockback
+  either, and your vehicle can't be hurt, though a crash still wrecks it),
+  **Super speed** (x1-x6), **Super jump** (x1-x12 as high), **Gravity**
+  (Earth, Mars, Moon, Feather), **Fly speed** (x1-x6), **Ghost flight** (while
+  flying, through blocks), **Jetpack** (hold Space in the air), **Size** (Tiny,
+  Small, Normal, Big, Giant: you grow only where there is room; others online
+  see you at your normal size).
+- **Mining and building:** **Super reach** (up to 64 blocks), **Mine an area**
+  (3x3x3 or 5x5x5 at once: never bedrock, fluids, chests or blocks with their
+  own use), **Instant mining and building** (hold the button: no wait).
+- **World and vision:** **X-ray** (ores, chests and spawners glow through the
+  rock within 20 blocks), **Night vision**, the **Clock** (Normal, Frozen, x20,
+  x120, and Dawn / Noon / Dusk / Midnight buttons), **Bullet time** (Half,
+  Quarter or Tenth: **Z** slows the whole world, single player only).
+- **Creatures:** **Freeze creatures** (they stand still and don't attack),
+  **Spawn the army** (ten zombies, skeletons, creepers, iron golems, wolves or
+  chickens round you), **Smite hostiles** (lightning on every hostile creature
+  within 48 blocks).
+- **Vehicles:** **Turbo** (x1-x4: your vehicle runs that many times as fast,
+  everything it does), **Infinite boost** (the UFO's teleport dash and
+  superweapon with no cooldown).
+- **Party:** **Fireworks on kills**, a **Rainbow trail** behind you and your
+  vehicle.
+
+Online the hacks change what you control: your weapons, your body, your
+vehicle, your own hits and blasts (others see your blasts at their size). The
+host's world follows the host's hacks: the **Clock** and **Freeze creatures**
+are the host's only (a guest's show greyed out), and TNT goes off at the
+host's explosion size.
 
 ## Missions
 
@@ -1419,11 +1532,13 @@ golem is replaced after 5 to 10 minutes.)
 ## The Nether and the End
 
 Both world types have three dimensions, as in Minecraft: the **Overworld**,
-the **Nether** and the **End** (Creative too). In a **Missions** world the
+the **Nether** and the **End** (Creative too; and, Round 15, the **Moon** and
+**Mars**, reached by rocket: see **Space**). In a **Missions** world the
 UFO war stays in the Overworld: in the Nether and the End there are no UFOs,
-aliens, missions, supply drops or aircraft (fly in? You can't: get out of the
-aircraft first), and they are back when you come home (a mission's fight
-starts over: a boss you left comes back at full strength). Online the war
+aliens, missions, supply drops, airports or enemy machines, and they are back
+when you come home (a mission's fight starts over: a boss you left comes back
+at full strength). Your **vehicles** work everywhere (Round 15): see
+**Vehicles in every dimension** below. Online the war
 follows the host: while the host is in the Nether or the End the missions
 wait for everyone.
 
@@ -1442,6 +1557,21 @@ wait for everyone.
   there boils away. The End has no day or weather either, only the void
   under its islands: fall off and you die. Beds explode in both (use them in
   the Overworld). Lava flows three times faster in the Nether.
+- **Vehicles in every dimension** (Round 15). Jets, UFOs, tanks, the AA
+  vehicle, the missile truck and helicopters can be summoned (Creative),
+  parked, boarded, driven and flown in the Nether and the End too. Each
+  vehicle belongs to the dimension it is in: the ones you leave behind wait
+  there, exactly where they were, and the ones of the dimension you arrive in
+  are back (saved with your world, each in its own dimension). No vehicle
+  goes through a portal: get out (`F`) and step in. Under the Nether's
+  bedrock roof an aircraft summoned into the air (or called in) starts in the
+  open air above you, below the roof (best in a big cavern: a jet needs room;
+  if there is none you are told so), and the roof is as hard as the ground.
+  Online everyone sees the vehicles of the dimension they are in: a guest in
+  the Nether sees the host's Nether jet, and the Overworld's are where they
+  were on the way back. The Missions world's mission locks (jets, the B-2,
+  UFOs, helicopters before their mission) hold in every dimension outside
+  Creative.
 - **Dying** in the Nether or the End brings you back to your bed or the
   world spawn in the Overworld (or to a charged respawn anchor in the
   Nether); what you carried stays where you died, in that dimension, and so
@@ -1818,7 +1948,8 @@ keeps running there (it just isn't drawn).
   UFO" (Missions mods screen) asks the host's game for it. Everyone can use the
   pause menu's **call-ins** (an F-22, F-16, B-2 or UFO, straight into the
   air; the Tiger tank, the battle tank, the missile truck or the helicopter
-  on the ground): the others see the vehicle and who drives or flies it.
+  on the ground; the rocket on its pad): the others see the vehicle and who
+  drives or flies it.
   The palette's vehicle
   items work the same online, in a Survival world's Creative too: everyone
   sees the aircraft anyone puts down or flies. Switching between
@@ -2023,13 +2154,16 @@ creatures around (a Survival world still makes no UFO fleets, aliens,
 missions, airports or cities). A jet takes off from any long, flat field and
 lands on any flat ground: no runway needed. The vehicles you put down stay in
 the world and are saved with it, like boats (up to 8: the oldest empty one
-goes when you put down a ninth). They stay in the Overworld: in the Nether or
-the End you can't summon one, and the ones you left are waiting when you are
-back.
+goes when you put down a ninth). (Round 15) They work in every dimension:
+summon them in the Nether and the End too, where they stay (see **Vehicles in
+every dimension**); the ones you left in another dimension are waiting when
+you are back.
 
 The Vehicles tab also has the **Tiger Tank**, the **Battle Tank** and the
 **Missile Launcher (TEL)** (see **The ground war**): put one down on the
-ground (right click) and get in with F. In the launcher, aim with the mouse:
+ground (right click) and get in with F. Placed while **sneaking**, the Battle
+Tank is the **AA vehicle** instead (see **The AA vehicle** below). In the
+launcher, aim with the mouse:
 a **ring on the ground** (the warhead's blast) and the **range** beside it
 mark the target: whatever the crosshair is on (the ground, a hill, a
 building, a tree, the surface of water or lava) up to **2 km** away, or,
@@ -2043,6 +2177,10 @@ The Vehicles tab also has the **Helicopter** (an AH-64 Apache; sneak while
 you place it for a UH-60 Black Hawk): put it down on the ground and get in
 (the rotor spins up, then Space lifts off), or aim at the sky to start in
 the air, hovering. See **Helicopters**.
+
+(Round 15) The Vehicles tab also has the **Rocket** (the pause menu has its
+call-in too): it builds a launch pad a few blocks ahead, stands the rocket
+on it and puts you aboard. See **Space: rockets, the Moon and Mars**.
 
 In a Survival world this is Creative's only: in Survival mode the vehicle
 items do nothing, you can't board a vehicle (`F` swaps your hands as usual),
@@ -2351,12 +2489,25 @@ two, one or two missile trucks), and one or two tanks drive a patrol loop
 round the base's roads. The airports have a few vehicles too: two to four
 tanks and AA vehicles parked on the open ground past the end of the apron
 by the tower, and at some a tank on patrol round them. Patrols stop for
-anyone in their way. The tanks are yours to take from the tank battle
-mission on (in Creative at once; get in and it's yours: a patrol stops
-patrolling); the AA vehicles and the trucks stay parked. A base the aliens
-hold (the base assault's) has none of ours: their garrison patrols it.
+anyone in their way. The tanks and the AA vehicles are yours to take from
+the tank battle mission on (in Creative at once; get in and it's yours: a
+patrol stops patrolling); the missile trucks are Creative's (in Creative get
+in with F). A base the aliens hold (the base assault's) has none of ours:
+their garrison patrols it.
 Worlds saved before Round 13 keep their land and sites as they were (their
 airports get the parked tanks too).
+
+**The AA vehicle** (Round 15): drive it like a tank (`W`/`S`/`A`/`D`,
+`Space` brakes) and aim with the mouse, up to the sky. Its radar locks what
+is near the crosshair (a UFO, an enemy aircraft or machine, a flying
+creature such as a ghast; the HUD shows the lock and its range), and the
+guns lead it. **Left click** (hold) fires the twin 30 mm cannons, tracer
+rounds from the four barrels by turns, with black flak bursts round a
+locked target; after about 7 seconds of fire they overheat and must cool
+(the heat bar). **Right click** launches a **SAM** (4 ready, then a 20
+second reload): it homes on the lock (nothing locked: straight along the
+aim). `C` smoke, `V` (or `F5`) the gunner's sight, `I` its stats and
+controls, `F` out. Online everyone sees its tracers, flak bursts and SAMs.
 
 **New missions:** *Tank battle* (always in a run: a tank of ours, a platoon
 of theirs), *Stop the launch* (destroy the launchers before they fire at
@@ -2426,6 +2577,50 @@ run is now 27-31 missions long.
 Online: everyone sees everyone's helicopters (the rotor, the attitude, the
 gun, the stores), their tracers, rockets, missiles, flares and blasts; the
 host runs the gunships and anyone's hits count.
+
+## Space: rockets, the Moon and Mars
+
+(Round 15) In Creative (either world type) the pause menu has a **Rocket**
+call-in (and the Creative palette's Vehicles tab has the Rocket item): it
+builds a concrete launch pad a few blocks ahead, stands a 40-block rocket on
+it beside its red gantry tower, and puts you aboard.
+
+- **Launch:** press **Space** for the countdown (Backspace stops it). The
+  voice counts down from ten, the tower's arms swing away, the engines light
+  at T-3 and the smoke rolls out over the ground. At zero the rocket lifts off
+  slowly and climbs faster and faster, turning over the way it faced. Its four
+  boosters drop away and tumble down, and the sky darkens to black and stars.
+  F5 changes the camera: the ground camera, the chase, onboard. F in flight
+  bails out with a parachute.
+- **Orbit:** at engine cut-off the core stage separates over the curve of the
+  Earth and you're in orbit. Pick where to go: **1** the Moon, **2** Mars,
+  **3** back to Earth (or the planet below). The mouse turns the view.
+- **The trip:** the planet behind you shrinks and the one ahead grows until it
+  fills the view. The ship turns engine-first and lights its descent engine.
+- **Landing:** the ship comes down on its engine and its landing legs come
+  out. The autopilot lands it in the landing zone (on Earth, on the pad you
+  left from). Take over whenever you like: Space and Shift for throttle, W A S
+  D to tilt, R to hand back to the autopilot. Touching down faster than 7 m/s,
+  or tilted, is a crash.
+- **The Moon:** grey dust and craters, the dark maria, a black sky with the
+  Earth hanging in it and a low sun that casts long, hard shadows. Gravity is
+  1/6: you jump about six times as high, and a fall hurts as one six times
+  shorter (items and creatures fall slowly too). There's no air, so sounds are
+  muffled. Look for lunar crystal ore, ice at the bottom of the deepest
+  craters, crashed probes (their glowing data cores) and the black monoliths
+  ringed with glyph stones.
+- **Mars:** rusty plains, dunes, mesas and a great canyon with layered walls
+  just north of the landing zone, and a huge volcano. The sky is butterscotch
+  by day, the sunset is blue and the nights are starry. Dust devils wander
+  past and two little moons cross the sky. Gravity is 0.38. Look for hematite
+  ore (raw iron), polar ice and the alien ruins: stepped pyramids with lit
+  glyph bands and a relic in the middle.
+- **Going home:** board your ship and press Space. It lifts off to orbit, and
+  from there you pick Earth.
+- **Online:** each player flies their own rocket. The others watch the launch
+  (the smoke, the climb, the boosters falling) and see a ship come down where
+  they are. A save made mid-trip puts you back at the pad with the rocket on
+  it.
 
 ## Stats
 

@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(PORT, r));
 
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const browser = await chromium.launch({ executablePath: (await import("./chromium-path.mjs")).default });
 const page = await browser.newPage();
 const localThreeRoot = path.join(__dirname, "node_modules", "three");
 await page.route("https://cdn.jsdelivr.net/npm/three@0.160.0/**", (route) => {

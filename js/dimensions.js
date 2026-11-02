@@ -15,6 +15,12 @@
 //     re-spawned there as their ground loads), the XP orbs lying there
 //     (xp.js stash: back as they were on the return); falling blocks land
 //     first; primed TNT, thrown things and spawner caches are let go;
+//   - (Round 15) the vehicles (jets, UFOs, tanks, helicopters, Creative's
+//     summons) are each of the dimension they were made in: the ones left
+//     behind wait aside, still, as they were, and the new dimension's come
+//     back (vehicles.js switchDim; saved with the player's `vehicles`, each
+//     with its `dim`; online, every peer keeps every shared vehicle and draws
+//     its own dimension's, net/vehicles.js). Nobody travels seated;
 //   - the containers (chests, furnaces, brewing stands) and signs are not
 //     swapped: every dimension's are in one store, keyed by dimension
 //     ("n:x,y,z", dim-registry.js dimKey), so the host can serve them all;
@@ -539,6 +545,8 @@ export class DimensionManager {
       mobs._seeded = !!next.seeded;
     }
     g.xp?.unstash?.(next.xp);
+    // (Round 15) The vehicles: the ones of the dimension left wait aside, this one's come back (vehicles.js switchDim).
+    g.vehicles?.switchDim?.(dim);
     x.weather?.dimChanged?.();
     g.sky?.setDimension?.(this.info);
     if (x.distant) x.distant.enabled = this.info.lod !== false;
