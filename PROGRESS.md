@@ -2661,3 +2661,14 @@ Parts (parallel): **aim** (the HUD, the missile truck's targeting), **tanks** (m
 - **Helicopters:** js/vehicle-heli.js, js/heli-model.js (AH-64 Apache, UH-60 Black Hawk), js/helis.js (the aliens' gunships, parked helicopters), js/net/heli.js; missions Air cavalry, Search and rescue, Gunship hunt; a run is 27-31 missions.
 - **Look:** lava meshed by the mesher (vanilla's sloped surface, per-vertex flow), its own material and shader variant (a flowing crust with glowing cracks, rim, embers; heat haze on High/Ultra); mob sounds quieter (0.6 bus) and rarer (10-22 s per creature, per-kind and global caps, 16-block falloff).
 - Tests: unit 73/73; r14-aim 3/3, r14-look 4/4, r14-heli 8/8 (+online); r13-air, r13-ground 13/13, r13-creative, r13-unify; r12-render 8/8, r12-transport, r12-nether 18/18, r11-engine16; round2, round6, round9, r10-missions; smoke 67/67; ufo-tests 35/35; mp-tests 23/23; mp-damage 444/444; perf 5/5; chaos 0 problems.
+
+# Round 15 plan: hacks, space, the canyon run
+The owner: a vehicle can't be entered (the parked AA vehicle, Round 14's "aapark"): make every vehicle enterable; vehicles in the Nether and the End (today they stay in the Overworld and summoning is refused); Creative "hacks" (no reload, bigger explosions... "think creatively... go nuts"); space: a rocket ship launched for real, flying to another planet; a single-player canyon run: fly a jet through huge canyons without hitting the walls.
+
+Decisions:
+- **Vehicles everywhere:** every vehicle can be boarded (the parked AA too); vehicles live per dimension (summoned, parked and flown in the Nether, the End and the new planets), saved and online per dimension.
+- **Hacks:** Creative only (either world type), a Hacks screen; Missions balance untouched outside Creative.
+- **Space:** a rocket on a launch pad (Creative call-in), a cinematic launch into orbit, then flight to the Moon or Mars (new dimensions through the dims engine: low gravity, their own terrain and sky), landing and return.
+- **Canyon run:** a single-player mode from the main menu: its own course (a generated dimension of long winding canyons), checkpoints, time, crashes end the run; best times saved.
+
+Parts (parallel): **anywhere** (boarding, vehicles per dimension), **hacks**, **space**, **canyon**. Then review, tests, the PR merged.
