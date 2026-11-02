@@ -783,6 +783,8 @@ export class VehicleManager {
       return null;
     };
     if (!this.world.getChunk(Math.floor(cx) >> 4, Math.floor(cz) >> 4)) return fail("Too far: that ground isn't loaded");
+    // (Round 16) Over the End's void (nothing under the spot at all): it would fall out of the world.
+    if (g <= 0) return fail(`No ground there for the ${v.name}`);
     v.pos.set(cx, g + v.bottom + (v.type === "jet" ? 0 : 0.3), cz);
     if (v.type === "jet") {
       // (On its three wheels, on dry ground: water under them would wreck it.)

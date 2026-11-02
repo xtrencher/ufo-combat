@@ -659,7 +659,11 @@ export class GroundVehicle extends Vehicle {
     this._fpValid = true;
     this._fpT = (this._fpT || 0) - dt;
     // Up a step at once (smoothly), down a ledge with gravity.
-    const g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    let g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    // (Round 16) Nothing under it at all (driven off an island of the End):
+    // it falls into the void and is lost, not left floating at the bottom.
+    const voidBelow = g <= 0;
+    if (voidBelow) g = -64;
     if (g > this.pos.y + 0.01) {
       this.pos.y = Math.min(g, this.pos.y + Math.max(4, Math.abs(this.speed) * 1.2) * dt);
       this.vy = 0;
@@ -676,7 +680,9 @@ export class GroundVehicle extends Vehicle {
         this.onGround = true;
       } else this.onGround = this.pos.y - g < 0.2;
     }
-    if (this.pos.y < 1) this.pos.y = 1;
+    if (voidBelow && this.pos.y < -8) {
+      if (this.alive && !this.puppet) this.damage(this.maxHealth * 2, "void");
+    } else if (this.pos.y < 1 && !voidBelow) this.pos.y = 1;
     this._attitude(fp, Math.min(1, dt * 6));
     this.inWater = IS_WET[mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.4), Math.floor(this.pos.z))] === 1;
     this._liquid(dt);
