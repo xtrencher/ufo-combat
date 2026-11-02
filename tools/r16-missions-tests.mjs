@@ -40,7 +40,9 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 async function check(name, fn) {
-  if (args.only && !name.startsWith("boot") && !name.toLowerCase().includes(String(args.only).toLowerCase())) return;
+  // (The boot always runs, the solo checks build on it; not for --only=online, which boots its own.)
+  const only = args.only ? String(args.only).toLowerCase() : "";
+  if (only && !(name.startsWith("boot") && only !== "online") && !name.toLowerCase().includes(only)) return;
   const t0 = Date.now();
   try {
     await fn();
@@ -214,7 +216,8 @@ async function browserChecks() {
       }
       await frames(p, 3);
     }
-    throw new Error("the game didn't start playing");
+    const why = await v(p, (g) => ({ state: g.gameState, shown: [...document.querySelectorAll(".overlay:not(.hidden), #click-to-play:not(.hidden), #death-screen:not(.hidden)")].map((e) => e.id).join(",") })).catch((e) => String(e));
+    throw new Error(`the game didn't start playing: ${JSON.stringify(why)}`);
   }
   const browserCheck = async (name, fn) => {
     const before = errors.length;
@@ -480,7 +483,8 @@ async function browserChecks() {
       await guest.click("#mp-boot-join");
       await guest.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
       assert(await until(guest, (g) => g.mp.stateLoaded, 60000), "the host's state never arrived");
-      await play(guest);
+      // (The guest is not put into play: two pages of one headless browser
+      // don't both get the pointer lock. Its board and rewards run anyway.)
       // The guest asks for a mission from its board: the host starts it.
       await v(host, (g) => {
         g.player.setMode("survival");
@@ -492,8 +496,12 @@ async function browserChecks() {
       assert(hs === "tank_battle", `the host's mission: ${hs}`);
       const gs = await until(guest, (g) => (g.progress.board && g.progress.mission?.id === "tank_battle" ? g.progress.active.left : null), 20000);
       assert(gs > 0, "the guest never mirrored the mission");
-      // Its objectives on the guest's tracker.
-      const t = await until(guest, () => (/Tank battle/.test(document.getElementById("mission-tracker").textContent) ? document.getElementById("mission-tracker").textContent : null), 15000);
+      // Its objectives on the guest's tracker (its lines, js/mission-ui.js).
+      const t = await until(guest, async (g) => {
+        const { trackerHtml } = await import("./js/mission-ui.js");
+        const h = trackerHtml({ board: g.progress, stats: g.stats.world, target: g.missions.target, pos: g.player.position, note: g.missions.note() });
+        return /Tank battle/.test(h) ? h : null;
+      }, 15000);
       assert(t && /Enemy tanks destroyed/.test(t), `the guest's tracker: ${t}`);
       // The host wins it: the guest's reward.
       const g0 = await v(guest, (g) => g.inventory.slots.reduce((n, s) => n + (s && s.id === 262 ? s.count : 0), 0));
