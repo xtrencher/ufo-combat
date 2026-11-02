@@ -2672,3 +2672,6 @@ Decisions:
 - **Canyon run:** a single-player mode from the main menu: its own course (a generated dimension of long winding canyons), checkpoints, time, crashes end the run; best times saved.
 
 Parts (parallel): **anywhere** (boarding, vehicles per dimension), **hacks**, **space**, **canyon**. Then review, tests, the PR merged.
+
+### Release step: build stamp (Round 15 follow-up)
+Players with stale cached JS saw new buttons that did nothing. index.html now fetches `js/build.json` (no-store) and, when the build hash changes, re-fetches every script with `cache: "reload"` before importing main.js. **Run `node tools/stamp-build.mjs` before every release** to regenerate js/build.json.

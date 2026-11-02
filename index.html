@@ -2052,6 +2052,34 @@
   </script>
   <!-- (Round 12) The logo first: it needs nothing else, so the loading screen has it at once. -->
   <script type="module" src="./js/menu-logo.js"></script>
-  <script type="module" src="./js/main.js" onerror="__ufoBoot.loadFailed()"></script>
+  <script type="module">
+    // (Round 15) After an update the browser may still hold the old game
+    // scripts for a while (GitHub Pages lets it keep them 10 minutes): a new
+    // page over old scripts shows buttons that do nothing. When js/build.json
+    // (tools/stamp-build.mjs) names a build this browser hasn't run yet, every
+    // script is fetched afresh first, then the game starts.
+    (async () => {
+      try {
+        const r = await fetch("./js/build.json", { cache: "no-store" });
+        if (r.ok) {
+          const b = await r.json();
+          let last = null;
+          try {
+            last = localStorage.getItem("ufocombat_v1_build");
+          } catch {}
+          if (b.build && b.build !== last) {
+            await Promise.all((b.files || []).map((f) => fetch(f, { cache: "reload" }).catch(() => {})));
+            try {
+              localStorage.setItem("ufocombat_v1_build", b.build);
+            } catch {}
+          }
+        }
+      } catch {}
+      import("./js/main.js").catch((e) => {
+        console.error(e);
+        window.__ufoBoot?.loadFailed();
+      });
+    })();
+  </script>
 </body>
 </html>
