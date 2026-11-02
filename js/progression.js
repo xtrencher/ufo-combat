@@ -605,6 +605,14 @@ const GROUND_STATS = [
 GROUND_STATS.push(["gunshipsDown", "Enemy gunships shot down"], ["crewsRescued", "Downed crews brought home (mission)"]);
 for (const e of GROUND_STATS) if (!STAT_LABELS.some(([k]) => k === e[0])) STAT_LABELS.push(e);
 export const missionById = (id) => BY_ID.get(id) || null;
+// (Round 16) The mission board (js/mission-catalog.js) adds its own missions
+// to the pool: in MISSIONS and known by id, like the ones above. Optional and
+// in the last act, so a drawn run (makeChain) stays fair if it picks them.
+export function registerMission(m) {
+  if (!m?.id || BY_ID.has(m.id)) return;
+  MISSIONS.push(m);
+  BY_ID.set(m.id, m);
+}
 
 // The classic chain (Round 9's order; saves from before Round 10 keep it, and
 // so do automated test runs: see defaultChain). Its missions' `rules` and

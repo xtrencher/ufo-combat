@@ -153,19 +153,18 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   block and item) plus its airports, cities and military bases, the UFOs and
   aliens, the missions, supply crates, the mod weapons and the vehicles.
   You start with basic gear (a stone sword, a stone pickaxe and five apples)
-  at 17:50 (the golden hour before sunset), fed, and a **campaign** of 27 to
-  31 **missions** drawn afresh for every new Missions game from a pool of 42
-  (see **Missions** below): it starts with a skeleton and its bow, goes
-  through jets, a meteor storm and a mothership boss, abductor ships hunting
-  you, crash sites and radio beacons to hold, then the aliens'
-  counterattack (fighter wings, abductors, a titan, a night of swarms, a
-  fortress), and ends with the Armada and its flagship: win that and the war
-  is won (a victory screen; the game goes on). Missions pay in apples and
-  golden apples; the mod weapons come from the places that make sense (the
-  skeleton's bow, standard weapons in **supply crates** that drop by
-  parachute with orange smoke, alien weapons from alien leaders): they can't
-  be crafted. The fighter jets (parked at airports) join with "Take to the
-  air", alien ships with "Salvage". Watch your hearts and your hunger.
+  at 17:50 (the golden hour before sunset), fed, with the **mission board**
+  (Round 16; `M`, or Esc > Missions; see **The mission board** below): 41
+  missions in six categories (Infantry, Ground war, Air, Helicopter, UFO war,
+  Defense) and three tiers, which you pick yourself, each giving you the
+  vehicle it needs. The finale, the Armada and its flagship, wins the war (a
+  victory screen; the game goes on). Missions pay in golden apples, food,
+  iron, diamonds and emeralds; the mod weapons come from the places that
+  make sense (the skeleton's bow, standard weapons in **supply crates** that
+  drop by parachute with orange smoke, alien weapons from alien leaders):
+  they can't be crafted. Fighter jets, helicopters, tanks and alien ships
+  are yours for free play once you have won a mission that uses them. Watch
+  your hearts and your hunger.
 
   (Worlds saved before Round 13: a Missions world keeps the land it was made
   with, so your builds stay where they were: the old terrain, with its own
@@ -299,6 +298,7 @@ you dare, through every ring, and don't touch the rock.
 | Board / leave a vehicle (Mods on; in a Survival world: in Creative) | `F` (near it) |
 | Swap the item in hand with the off hand (when no vehicle you can board is in reach) | `F` |
 | Stats and controls of the vehicle you are in | `I` |
+| The mission board (a Missions world, Round 16) | `M` |
 | Fullscreen (and the keyboard lock in Chromium) | `F11` or `Alt+Enter` |
 | Hide the HUD / debug info | `F1` / `F3` |
 | Camera: first person, third person behind, third person in front (facing you) | `F5` |
@@ -463,7 +463,72 @@ in a Missions world is a Survival world's.
   location (when no mission is running, at your bed or the world spawn: see
   **Beds, sleeping and dying**).
 
+### The mission board (Round 16)
+
+The player asked for missions that are "actually playable" with everything
+the game has gained (tanks, helicopters, the AA vehicle, airports and bases,
+co-op). The classified campaign below (a fixed run you could not choose
+from, with long walks to far airports and missions that could not fail or
+be retried) is replaced by a **mission board**:
+
+- **Pick any open mission:** `M` (or Esc > Missions) opens the board. Six
+  categories (tabs): **Infantry** (on foot: the bow, the pistol and the alien
+  guns come from these), **Ground war** (tanks), **Air** (fighter jets and the
+  B-2), **Helicopter**, **UFO war** and **Defense**. Each mission has a tier:
+  **Recruit** (one star), **Veteran** (two) or **Elite** (three). Recruit
+  missions are open from the start; winning one opens its category's Veteran
+  missions, winning a Veteran one its Elite ones (the finale needs the
+  Overlord down; a few Recruit ones need the pistol from "Supply drop"
+  first). The card says what you get, how long you have and the reward.
+- **The tier sets the difficulty:** the sky (how many UFOs, how tough), the
+  loot and the reward, whenever you play it. Between missions the sky is
+  calm (no UFOs at all until your first win, then a few).
+- **Your vehicle is provided:** a tank, an attack or transport helicopter or
+  an AA vehicle is set down next to you; a fighter jet (or the B-2) is
+  called in on a runway close by, or straight into the air with you in it.
+  A win **unlocks** that kind of vehicle for free play (the parked jets,
+  helicopters and alien ships at airports and bases). Creative is free play,
+  as before.
+- **Always on the HUD:** the tracker (top right) shows the mission, its
+  category and stars, the **time left**, every objective with a bar, the
+  target's name, distance and direction, and notes (a defended position's
+  strength, how many trucks are left); the yellow marker points at the
+  target.
+- **Failing and retrying:** every mission has a time limit (7 to 25
+  minutes), and some can be lost: the convoy's trucks destroyed, a position
+  or an airport overrun, the helicopter shot down with the rescued crew
+  aboard, two ballistic missiles getting through, two abductor carriers
+  getting away, an enemy convoy escaping. The tracker says why; `M` >
+  **Retry** sets it up afresh. **Abandon** walks away from one.
+- **Rewards:** Recruit: a golden apple, bread and iron ingots; Veteran:
+  three golden apples, steak and two diamonds; Elite: six golden apples,
+  steak, five diamonds and four emeralds (the bosses and the big ones add
+  golden apples). Playing a mission again pays its golden apples only.
+  Your rank (Private to General) grows with your wins.
+- **New missions:** **Convoy escort** (Ground, Veteran: three of our trucks
+  drive to a base or a depot; you escort them in a tank; hijacked tanks lie
+  in ambush and go for the trucks; the trucks wait for you; two must get
+  through), **Air raid** (Defense, Recruit: man the AA vehicle against waves
+  of UFOs coming in on your position; it falls if they hover over it too
+  long) and **Airport defense** (Defense, Elite: tank columns, gunships and
+  UFOs in waves against the nearest airport, an Apache and an AA vehicle
+  there for you).
+- **Off the board:** The crew (it only worked straight after First contact),
+  UFO slayer (twenty-five UFOs, a grind), Take to the air (over in seconds
+  with the jet handed to you; Touchdown teaches flying and landing) and
+  Falling stars (a wait for the night, then a fetch round). The rest of the table below is on the
+  board, with the fixes listed in PROGRESS.md (Round 16).
+- **Online:** the board is the host's. Everyone sees the mission, its clock
+  and its outcome; a guest's pick on the board is sent to the host, which
+  starts it (and a guest's Abandon too); a win rewards everyone.
+- **Old saves** load as before; a run from before Round 16 has no place on
+  the board, but the missions it had won count as won (so their vehicles
+  stay open).
+
 ### Missions, loot and supply crates
+
+(The campaign below is the pre-Round 16 one; the missions themselves are
+the board's, see above.)
 
 - **Missions:** a campaign of 27 to 31, one after another, shown top right
   with a progress bar per objective, the target's distance and direction,
