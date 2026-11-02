@@ -404,7 +404,7 @@ async function browserChecks() {
       assert(there, "never got to the Nether");
       await frames(page, 5);
       const n = await v(page, (g) => ({ ufos: g.ufos.enabled, list: g.ufos.ufos.length, missions: g.missions.enabled, crates: g.crates.enabled, vehicles: g.vehicles.enabled, mods: g.mods.enabled }));
-      assert(!n.ufos && n.list === 0 && !n.missions && !n.crates && !n.vehicles && n.mods, `the Missions layer in the Nether: ${JSON.stringify(n)}`);
+      assert(!n.ufos && n.list === 0 && !n.missions && !n.crates && n.vehicles && n.mods, `the Missions layer in the Nether: ${JSON.stringify(n)}`);
       await v(page, (g) => g.dims.debugTravel("overworld"));
       const home = await until(page, (g) => (g.world.dim === "overworld" && !g.dims.pending ? true : null), 90000);
       assert(home, "never got back");
