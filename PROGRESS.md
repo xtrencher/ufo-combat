@@ -2708,3 +2708,4 @@ The owner: "Rethink the whole mission system, because it has to be playable, act
 
 ## Tests
 - tools/r16-missions-tests.mjs (new): Node (catalog, board rules, saves) and browser (board screen, one mission per category completed, escort, airport defense, failure and retry, locks and a reload, online co-op).
+- Results: r16-missions 16/16 (Node 3, browser 12, online co-op 1); unit 73/73; r13-unify 10/10; r10-missions 6/6; r11-modes 4-6/8 on this shared, heavily loaded machine: its "didn't start playing" failures (the pointer lock) are the same on the untouched base commit run side by side (4/8 both), so not from this change.

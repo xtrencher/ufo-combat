@@ -4233,7 +4233,7 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Press M to pick a mission from the board; the tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Tap right click: a missile straight ahead; hold it to lock on.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
@@ -4282,8 +4282,8 @@ screens.onOpen["missions-screen"] = () => {
       stats: stats.world,
       creative: player.creative,
       guest: GUEST,
-      onStart: (id) => go(player.creative ? "Missions run in Survival: switch the game mode first." : progress.begin(id, stats.world)),
-      onRetry: () => go(player.creative ? "Missions run in Survival: switch the game mode first." : progress.retry(stats.world)),
+      onStart: (id) => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.begin(id, stats.world)),
+      onRetry: () => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.retry(stats.world)),
       onAbandon: () => {
         progress.abandon();
         again();

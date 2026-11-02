@@ -58,7 +58,7 @@ export function renderBoard(el, o) {
   const cur = list.find((m) => m.state === "current");
   if (!tab) tab = cur?.cat || "foot";
   const rows = [];
-  if (o.creative) rows.push(`<p class="hint">Missions run in Survival (switch the game mode in the pause menu). Creative is free play.</p>`);
+  if (o.creative) rows.push(`<p class="hint">Missions run in the Missions game mode (switch the game mode in the pause menu). Creative is free play.</p>`);
   const won = list.filter((m) => m.wins > 0).length;
   rows.push(`<div class="mb-head"><span class="mb-rank">${esc(b.rank)}</span><span class="mb-sub">${b.wins} mission${b.wins === 1 ? "" : "s"} won (${won} of ${list.length} different)${b.fails ? ` · ${b.fails} failed` : ""}</span>${o.guest ? `<span class="mb-sub">Online: the host's board (your picks are sent to the host)</span>` : ""}</div>`);
   if (cur) {
