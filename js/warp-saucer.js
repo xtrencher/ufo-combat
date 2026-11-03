@@ -14,6 +14,7 @@
 import * as THREE from "three";
 import { VehicleManager } from "./vehicles.js";
 import { UFO_HOOKS } from "./vehicle-ufo.js";
+import { BODY_OF_DIM } from "./solar-data.js";
 
 const RING_IDLE = new THREE.Color(0.25, 0.55, 1.4);
 const RING_WARP = new THREE.Color(2.4, 3.2, 5.0);
@@ -168,10 +169,29 @@ UFO_HOOKS.saved = (ship, data) => {
   if (ship.legacyWarp) data.warp = true;
 };
 
+// (Round 16 follow-up) J in the world: the jump to space. The UFO shoots
+// straight up past the space line, and the warp drive lights out there
+// (js/solar.js enter). J again calls it off. No sky to leave in the Nether,
+// the End or the canyon.
+const JUMP_SPEED = 1500; // blocks/s
 UFO_HOOKS.update = (ship, dt, input) => {
   if (!ship.warp) return;
   ship.warpFx?.(dt, 0, false);
-  if (input?.pressed?.has("KeyJ")) ship.manager.onMessage?.("The warp drive works in space: climb past the space line (6,000 m over Earth) first");
+  const dim = ship.manager.world?.dim || "overworld";
+  if (input?.pressed?.has("KeyJ")) {
+    if (ship.spaceJump) {
+      ship.spaceJump = false;
+      ship.manager.onMessage?.("Jump to space called off");
+    } else if (!BODY_OF_DIM[dim]) ship.manager.onMessage?.("No space to jump to from here: the warp drive works from the Overworld, the Moon and Mars");
+    else {
+      ship.spaceJump = true;
+      ship.manager.onMessage?.("Jumping to space: the warp drive lights out there (J: call it off)");
+    }
+  }
+  if (ship.spaceJump && ship.occupied) {
+    ship.pos.y += JUMP_SPEED * dt;
+    if (ship.vel) ship.vel.set(0, JUMP_SPEED, 0);
+  } else ship.spaceJump = false;
 };
 
 // Creative's Warp Saucer: the call-in (straight into the air, at the
