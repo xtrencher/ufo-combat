@@ -34,6 +34,10 @@ import { tileSpan } from "./lod-mesher.js";
 import { discShape, hullContact } from "./hitboxes.js";
 
 export const UFO_SPEED_DEFAULTS = { minSpeed: 2, maxSpeed: 300, ghost: false, beamBlocks: true };
+// (Round 16) Hooks for a ship with more to it (js/warp-saucer.js: the Warp
+// Saucer, a UFO with `warp` in its data): created(ship, data), saved(ship,
+// data out), update(ship, dt, input).
+export const UFO_HOOKS = { created: null, saved: null, update: null };
 const BEAM_LIFT = 6; // blocks per second
 const MAX_LIFTED_BLOCKS = 12;
 // The tractor beam reaches this far below the ship at any altitude (the ground, if it is nearer).
@@ -183,6 +187,7 @@ export class PilotUfo extends Vehicle {
     if (typeof data.parkKey === "string") this.parkKey = data.parkKey;
     if (typeof data.tookKey === "string") this.tookKey = data.tookKey;
     if (typeof data.missionShip === "string") this.missionShip = data.missionShip;
+    UFO_HOOKS.created?.(this, data); // (Round 16)
     this._place();
   }
 
@@ -464,6 +469,7 @@ export class PilotUfo extends Vehicle {
     m.lightsOn = this.downed ? 0 : 1; // a shot-down UFO never glows again
     if (this.downed && !m.dead) m.setDead(true);
     m.animate(this.time, { night, damage: 1 - this.health / this.maxHealth, beam: this.beam.strength, speed: this.vel.length() });
+    UFO_HOOKS.update?.(this, dt, input); // (Round 16)
   }
 
   _place() {
@@ -1798,6 +1804,7 @@ export class PilotUfo extends Vehicle {
     if (this.parkKey && !this.parkedAt) data.parkKey = this.parkKey; // (boarded: no longer the airport's)
     if (this.tookKey) data.tookKey = this.tookKey;
     if (this.missionShip) data.missionShip = this.missionShip;
+    UFO_HOOKS.saved?.(this, data); // (Round 16)
     return data;
   }
 

@@ -134,7 +134,8 @@ await check("every course is flyable end to end: open air down the canyon, rings
       const row = course.row(z);
       let ok = false;
       let widest = 0;
-      for (let y = row.floor + 5; y < Math.min(row.rim - 4, row.ceil - 4) && !ok; y += 3) {
+      // (Round 16: a valley's walls are low hills: up to the band it is flown in)
+      for (let y = row.floor + 5; y < Math.max(row.hi ?? 0, Math.min(row.rim - 4, row.ceil - 4)) && !ok; y += 3) {
         let run = 0;
         for (let x = Math.floor(row.xMin) - 2; x <= Math.ceil(row.xMax) + 2; x++) {
           const open = !course.solidAt(x, y, z) && !course.solidAt(x, y + 5, z) && !course.solidAt(x, y - 5, z);
@@ -316,7 +317,7 @@ async function browserChecks() {
   });
 
   await browserCheck("rings: the start gate starts the clock, a ring flown through counts, one flown past costs 5 s", async () => {
-    const put = `(g, a) => { const c = g.canyon; const j = g.vehicles.active; const r = c.checks[a.i]; const s = Math.sin(r.yaw), co = Math.cos(r.yaw); j.pos.set(r.x - s * 30, r.y + (a.off ? r.r + 2.5 : 0), r.z - co * 30); j.q.setFromAxisAngle(new g.THREE.Vector3(0, 1, 0), Math.PI - r.yaw); j.vel.set(s * 120, 0, co * 120); j.aimQ.copy(j.q); c._lastPos.copy(j.pos); return true; }`;
+    const put = `(g, a) => { const c = g.canyon; const j = g.vehicles.active; const r = c.checks[a.i]; const s = Math.sin(r.yaw), co = Math.cos(r.yaw); j.pos.set(r.x - s * 30, r.y + (a.off ? r.r + 2.5 : 0), r.z - co * 30); j.q.setFromAxisAngle(new g.THREE.Vector3(0, 1, 0), Math.PI + r.yaw); j.vel.set(s * 120, 0, co * 120); j.aimQ.copy(j.q); c._lastPos.copy(j.pos); return true; }`;
     const putAt = (i, off) => page.evaluate(([src, a]) => new Function("return " + src)()(window.__ufo, a), [put, { i, off }]);
     // The start gate.
     await putAt(0, 0);
@@ -332,8 +333,10 @@ async function browserChecks() {
   });
 
   await browserCheck("a wall hit ends the run: the crash, the results; R flies again from the mouth", async () => {
+    // (Round 16: with "Restart the course" picked; by default the jet comes back at the last checkpoint, r16-canyon-tests.mjs)
+    await v((g) => (g.canyon.crashMode = "restart"));
     await v((g) => g.canyon.state !== "flying" && g.canyon.restart());
-    await until((g) => g.canyon.state === "flying", 60000);
+    await until((g) => g.canyon.state === "flying", 200000); // (Round 16: from the mouth again, the canyon there can take a while to come back in on the software renderer)
     const r0 = await v((g) => {
       const c = g.canyon;
       const j = g.vehicles.active;
@@ -362,7 +365,7 @@ async function browserChecks() {
   });
 
   await browserCheck("a finish records the best time (and its ghost), the results show it", async () => {
-    await until((g) => g.canyon.state === "flying", 60000);
+    await until((g) => g.canyon.state === "flying", 200000); // (Round 16: from the mouth again, the canyon there can take a while to come back in on the software renderer)
     const r = await v((g) => {
       const c = g.canyon;
       const j = g.vehicles.active;

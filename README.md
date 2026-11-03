@@ -153,19 +153,18 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   block and item) plus its airports, cities and military bases, the UFOs and
   aliens, the missions, supply crates, the mod weapons and the vehicles.
   You start with basic gear (a stone sword, a stone pickaxe and five apples)
-  at 17:50 (the golden hour before sunset), fed, and a **campaign** of 27 to
-  31 **missions** drawn afresh for every new Missions game from a pool of 42
-  (see **Missions** below): it starts with a skeleton and its bow, goes
-  through jets, a meteor storm and a mothership boss, abductor ships hunting
-  you, crash sites and radio beacons to hold, then the aliens'
-  counterattack (fighter wings, abductors, a titan, a night of swarms, a
-  fortress), and ends with the Armada and its flagship: win that and the war
-  is won (a victory screen; the game goes on). Missions pay in apples and
-  golden apples; the mod weapons come from the places that make sense (the
-  skeleton's bow, standard weapons in **supply crates** that drop by
-  parachute with orange smoke, alien weapons from alien leaders): they can't
-  be crafted. The fighter jets (parked at airports) join with "Take to the
-  air", alien ships with "Salvage". Watch your hearts and your hunger.
+  at 17:50 (the golden hour before sunset), fed, with the **mission board**
+  (Round 16; `M`, or Esc > Missions; see **The mission board** below): 41
+  missions in six categories (Infantry, Ground war, Air, Helicopter, UFO war,
+  Defense) and three tiers, which you pick yourself, each giving you the
+  vehicle it needs. The finale, the Armada and its flagship, wins the war (a
+  victory screen; the game goes on). Missions pay in golden apples, food,
+  iron, diamonds and emeralds; the mod weapons come from the places that
+  make sense (the skeleton's bow, standard weapons in **supply crates** that
+  drop by parachute with orange smoke, alien weapons from alien leaders):
+  they can't be crafted. Fighter jets, helicopters, tanks and alien ships
+  are yours for free play once you have won a mission that uses them. Watch
+  your hearts and your hunger.
 
   (Worlds saved before Round 13: a Missions world keeps the land it was made
   with, so your builds stay where they were: the old terrain, with its own
@@ -194,15 +193,38 @@ you dare, through every ring, and don't touch the rock.
 
 - **Courses:** **Grand Canyon** (15 km: wide, deep and winding, with arches,
   rock pillars and a river far below; the one to learn), **Slot Canyon**
-  (8 km: a crack in the rock barely two wingspans wide, undercut walls,
-  arches and dark tunnels: throttle back), **Night Run** (11 km by
-  moonlight, with glowing crystals in the walls and long tunnels) and **The
-  Gauntlet** (16 km of everything, with AA guns on the rim that shoot back).
+  (8 km: a crack in the sandstone, undercut walls, arches and dark tunnels:
+  throttle back), **Night Run** (11 km by moonlight, with glowing crystals
+  in the walls and long tunnels) and **The Gauntlet** (16 km of everything,
+  through every kind of scenery, with AA guns on the rim that shoot back).
   Each course is the same every time (it is made from its own seed), with
-  layered red, orange and white rock, ledges and overhangs, arches across
-  the canyon (under or over them), hoodoo pillars, fins of rock that split
-  it into two lanes, narrows, tunnels lit by crystals, waterfalls and a
-  river.
+  layered rock, ledges and overhangs, arches across the canyon (under or
+  over them), hoodoo pillars, fins of rock that split it into two lanes,
+  narrows, tunnels lit by crystals, waterfalls and a river.
+- (Round 16) **Options** on the canyon screen (remembered):
+  - **Difficulty:** **Easy** (wide and gentle: about twice as wide as Hard,
+    calmer bends, no overhangs, few narrows and tunnels, bigger rings),
+    **Normal** (roomy, with a few tight spots; the default), **Hard** (the
+    Round 15 canyon) and **Insane** (a crack in the rock).
+  - **Scenery:** the course's own, **Red rock**, **Desert** (pale
+    sandstone, cactus), **Green gorge** (grass, trees on the rim, mossy
+    stone), **Grey stone** (bare rock under an overcast sky), **Frozen
+    pass** (snow, a frozen river, pine trees) or **Volcanic** (black basalt,
+    magma bands, lava falls and a lava river), each with its own sky and
+    haze; **Mixed** (one after another along the course) or **Random**.
+  - **Open stretches:** **None**, **Some** (the default) or **Lots**: now
+    and then the canyon opens into a wide **valley** of low hills and rock
+    buttes, or ends at a cliff into **space**: a black sky with stars, a
+    ringed planet, and floating asteroids to dodge, then the next canyon's
+    mouth. One continuous run.
+  - **Enemy jets:** **None** (the default), **Few**, **Some** or **Many**:
+    bandits fly the canyon (some your way, slower: catch them; some
+    head-on) and shoot at you; shoot them down with the cannon or missiles.
+    Your kills are counted, your armor is shown (a red flash on a hit),
+    and red markers show the bandits ahead.
+  - **After a crash:** **Respawn at checkpoint** (the default) or
+    **Restart the course**.
+  Every set of options keeps its own best time.
 - **Your jet:** pick the **F-22 Raptor** (faster, tougher) or the **F-16
   Falcon** (lighter, turns tighter) on the canyon screen. It flies as
   everywhere else: the mouse steers, W/S throttle, Shift afterburner,
@@ -212,21 +234,28 @@ you dare, through every ring, and don't touch the rock.
   GO. The clock starts at the checkered **start gate** and stops at the
   checkered **finish ring**. In between, the **checkpoint rings** (the next
   one glows gold, an arrow at the edge of the screen points to it when it
-  is out of sight): miss one and it costs **5 seconds**. Green **boost
-  rings** kick you forward. At every checkpoint the split against your best
-  run shows (green ahead, red behind), and a pale blue **ghost** of your
-  best run flies the canyon with you (its marker is on the progress bar).
-- **Crashing:** touching the rock (or being shot down) ends the run: the
-  explosion, a look at the wreck, then the results. Climbing out over the
-  rim ends it too after 4 seconds of warning: the canyon run is in the
-  canyon.
-- **Results:** your time, rings, misses, and a **gold, silver or bronze
-  medal** by the course's par times (shown on the results and the canyon
-  screen). Your best time per course is kept (with its splits and its
-  ghost), and its medal shows on the canyon screen.
-- **Keys:** **R** flies again at any time (from the mouth, a fresh run);
-  on the results, **N** is the next course and **M** the main menu. **Esc**
-  pauses (Fly again, Settings, Leave the canyon).
+  is out of sight): miss one and it costs **5 seconds**. (Round 16: no ring
+  changes your speed: the boost rings are gone.) At every checkpoint the
+  split against your best run shows (green ahead, red behind), and a pale
+  blue **ghost** of your best run flies the canyon with you (its marker is
+  on the progress bar).
+- **Crashing:** touching the rock (or being shot down) blows the jet up.
+  (Round 16) By default you are back at the **last checkpoint** you flew
+  through a moment later (**Enter** at once), with a short countdown and a
+  few seconds' shield; the clock runs on, so a crash costs the time it
+  takes. **R** restarts the whole course instead. With **Restart the
+  course** picked, a crash ends the run (the explosion, a look at the
+  wreck, then the results). Leaving the course (over the rim, or far off
+  the line through a valley or space) for 4 seconds counts as a crash.
+- **Results:** your time, rings, misses (and respawns and kills), and a
+  **gold, silver or bronze medal** by the course's par times (shown on the
+  results and the canyon screen). Your best time per course and options is
+  kept (with its splits and its ghost), and its medal shows on the canyon
+  screen.
+- **Keys:** **R** restarts the course at any time (from the mouth, a fresh
+  run); after a crash **Enter** respawns at once; on the results, **N** is
+  the next course (the same options) and **M** the main menu. **Esc**
+  pauses (Restart the course, Settings, Leave the canyon).
 - The canyon run is its own page: it never touches your worlds (nothing is
   saved there but your best times), and leaving it brings back the main
   menu with your last world as it was. It is single player (close a room you
@@ -269,6 +298,7 @@ you dare, through every ring, and don't touch the rock.
 | Board / leave a vehicle (Mods on; in a Survival world: in Creative) | `F` (near it) |
 | Swap the item in hand with the off hand (when no vehicle you can board is in reach) | `F` |
 | Stats and controls of the vehicle you are in | `I` |
+| The mission board (a Missions world, Round 16) | `M` |
 | Fullscreen (and the keyboard lock in Chromium) | `F11` or `Alt+Enter` |
 | Hide the HUD / debug info | `F1` / `F3` |
 | Camera: first person, third person behind, third person in front (facing you) | `F5` |
@@ -433,7 +463,72 @@ in a Missions world is a Survival world's.
   location (when no mission is running, at your bed or the world spawn: see
   **Beds, sleeping and dying**).
 
+### The mission board (Round 16)
+
+The player asked for missions that are "actually playable" with everything
+the game has gained (tanks, helicopters, the AA vehicle, airports and bases,
+co-op). The classified campaign below (a fixed run you could not choose
+from, with long walks to far airports and missions that could not fail or
+be retried) is replaced by a **mission board**:
+
+- **Pick any open mission:** `M` (or Esc > Missions) opens the board. Six
+  categories (tabs): **Infantry** (on foot: the bow, the pistol and the alien
+  guns come from these), **Ground war** (tanks), **Air** (fighter jets and the
+  B-2), **Helicopter**, **UFO war** and **Defense**. Each mission has a tier:
+  **Recruit** (one star), **Veteran** (two) or **Elite** (three). Recruit
+  missions are open from the start; winning one opens its category's Veteran
+  missions, winning a Veteran one its Elite ones (the finale needs the
+  Overlord down; a few Recruit ones need the pistol from "Supply drop"
+  first). The card says what you get, how long you have and the reward.
+- **The tier sets the difficulty:** the sky (how many UFOs, how tough), the
+  loot and the reward, whenever you play it. Between missions the sky is
+  calm (no UFOs at all until your first win, then a few).
+- **Your vehicle is provided:** a tank, an attack or transport helicopter or
+  an AA vehicle is set down next to you; a fighter jet (or the B-2) is
+  called in on a runway close by, or straight into the air with you in it.
+  A win **unlocks** that kind of vehicle for free play (the parked jets,
+  helicopters and alien ships at airports and bases). Creative is free play,
+  as before.
+- **Always on the HUD:** the tracker (top right) shows the mission, its
+  category and stars, the **time left**, every objective with a bar, the
+  target's name, distance and direction, and notes (a defended position's
+  strength, how many trucks are left); the yellow marker points at the
+  target.
+- **Failing and retrying:** every mission has a time limit (7 to 25
+  minutes), and some can be lost: the convoy's trucks destroyed, a position
+  or an airport overrun, the helicopter shot down with the rescued crew
+  aboard, two ballistic missiles getting through, two abductor carriers
+  getting away, an enemy convoy escaping. The tracker says why; `M` >
+  **Retry** sets it up afresh. **Abandon** walks away from one.
+- **Rewards:** Recruit: a golden apple, bread and iron ingots; Veteran:
+  three golden apples, steak and two diamonds; Elite: six golden apples,
+  steak, five diamonds and four emeralds (the bosses and the big ones add
+  golden apples). Playing a mission again pays its golden apples only.
+  Your rank (Private to General) grows with your wins.
+- **New missions:** **Convoy escort** (Ground, Veteran: three of our trucks
+  drive to a base or a depot; you escort them in a tank; hijacked tanks lie
+  in ambush and go for the trucks; the trucks wait for you; two must get
+  through), **Air raid** (Defense, Recruit: man the AA vehicle against waves
+  of UFOs coming in on your position; it falls if they hover over it too
+  long) and **Airport defense** (Defense, Elite: tank columns, gunships and
+  UFOs in waves against the nearest airport, an Apache and an AA vehicle
+  there for you).
+- **Off the board:** The crew (it only worked straight after First contact),
+  UFO slayer (twenty-five UFOs, a grind), Take to the air (over in seconds
+  with the jet handed to you; Touchdown teaches flying and landing) and
+  Falling stars (a wait for the night, then a fetch round). The rest of the table below is on the
+  board, with the fixes listed in PROGRESS.md (Round 16).
+- **Online:** the board is the host's. Everyone sees the mission, its clock
+  and its outcome; a guest's pick on the board is sent to the host, which
+  starts it (and a guest's Abandon too); a win rewards everyone.
+- **Old saves** load as before; a run from before Round 16 has no place on
+  the board, but the missions it had won count as won (so their vehicles
+  stay open).
+
 ### Missions, loot and supply crates
+
+(The campaign below is the pre-Round 16 one; the missions themselves are
+the board's, see above.)
 
 - **Missions:** a campaign of 27 to 31, one after another, shown top right
   with a progress bar per objective, the target's distance and direction,
@@ -2578,49 +2673,76 @@ Online: everyone sees everyone's helicopters (the rotor, the attitude, the
 gun, the stores), their tracers, rockets, missiles, flares and blasts; the
 host runs the gunships and anyone's hits count.
 
-## Space: rockets, the Moon and Mars
+## Space: rockets, UFOs, the Moon, Mars and the solar system
 
-(Round 15) In Creative (either world type) the pause menu has a **Rocket**
-call-in (and the Creative palette's Vehicles tab has the Rocket item): it
-builds a concrete launch pad a few blocks ahead, stands a 40-block rocket on
-it beside its red gantry tower, and puts you aboard.
+(Round 15, Round 16) In Creative (either world type) the pause menu has a
+**Rocket** call-in and a **Warp Saucer** call-in (the Creative palette's
+Vehicles tab has both items). The Rocket builds a concrete launch pad a few
+blocks ahead, stands a 40-block rocket on it beside its red gantry tower and
+puts you aboard. Any UFO can fly to space too.
 
+- **The sky is higher now:** it only starts to darken 2,200 m up and is black
+  by 5,400 m; the jets' air thins out above 900 m (their ceiling is about
+  1,500 m), so planes never see space. Above about 1,500 m the planet itself
+  (a globe, its oceans, clouds and atmosphere) appears under you.
+- **The space line:** 6,000 m over Earth (3,000 m over the Moon, 4,500 m over
+  Mars). A rocket or a UFO that climbs past it flies straight on into space:
+  no cutscene and no menu, the same craft, camera and speed, now over a round
+  planet in the solar system (the Sun, Mercury, Venus, Earth and the Moon,
+  Mars, Jupiter and Saturn with its rings). The voxel world rests meanwhile.
 - **Launch:** press **Space** for the countdown (Backspace stops it). The
-  voice counts down from ten, the tower's arms swing away, the engines light
-  at T-3 and the smoke rolls out over the ground. At zero the rocket lifts off
-  slowly and climbs faster and faster, turning over the way it faced. Its four
-  boosters drop away and tumble down, and the sky darkens to black and stars.
-  F5 changes the camera: the ground camera, the chase, onboard. F in flight
-  bails out with a parachute.
-- **Orbit:** at engine cut-off the core stage separates over the curve of the
-  Earth and you're in orbit. Pick where to go: **1** the Moon, **2** Mars,
-  **3** back to Earth (or the planet below). The mouse turns the view.
-- **The trip:** the planet behind you shrinks and the one ahead grows until it
-  fills the view. The ship turns engine-first and lights its descent engine.
-- **Landing:** the ship comes down on its engine and its landing legs come
-  out. The autopilot lands it in the landing zone (on Earth, on the pad you
-  left from). Take over whenever you like: Space and Shift for throttle, W A S
-  D to tilt, R to hand back to the autopilot. Touching down faster than 7 m/s,
-  or tilted, is a crash.
+  voice counts down, the tower's arms swing away, the engines light at T-3,
+  the smoke rolls out. The rocket climbs faster and faster, turning over; its
+  boosters drop away; about 50 s later it is in space. Its core stage falls
+  away a few seconds later.
+- **Flying the rocket in space:** real orbital mechanics (the pull of the
+  nearest planet). **Space / Shift** throttle (**Z** full, **X** off),
+  **W A S D** tilt the nose the way the camera sees it, **Q / E** roll, the
+  mouse turns the camera. **R** is the assist: it points the nose and tells
+  you when to **BURN** and when to **CUT ENGINE**: first into orbit (it does
+  that by itself after the climb), then for the transfer to the target (the
+  Moon by default, **T** picks another), then for the landing burn.
+- **Time warp:** **,** and **.** step through 1x, 10x, 100x, 1,000x, 10,000x
+  and 100,000x (**/** back to 1x). It drops by itself on thrust and near a
+  planet. The Moon is a few minutes away in real time, Mars a few more.
+- **UFOs in space:** they fly as ever (W A S D, Space / Shift, the mouse); the
+  mouse wheel's cruising speed goes on up to a fifth of the speed of light
+  out in space (slower near a planet). Time warp works for them too.
+- **The Warp Saucer:** a UFO with a warp drive. In space, away from planets,
+  **J** lights it: the stars stretch into streaks, a tunnel of light, the
+  drive's roar. The mouse wheel sets the warp factor (1c to 10,000c), the
+  mouse steers, and it slows and drops out of warp by itself in front of a
+  planet. Earth to Mars takes tens of seconds.
+- **Guides (N):** a marker on every planet with its name, distance and the time
+  to get there at your speed; arrows at the edge for ones off screen; the
+  target marked (**T** next, **Shift+T** back). **M** opens the map: the
+  orbits, the planets, your path ahead (the wheel zooms out to the whole
+  solar system).
+- **Landing:** fly down into the Moon, Mars or Earth: below its entry
+  altitude the world goes there, with you high over the spot you came down
+  on, still moving. A rocket's autopilot lands it on its legs (take over with
+  Space / Shift and W A S D; R hands back); touching down faster than 7 m/s or
+  tilted is a crash. Jupiter, Saturn, Venus and Mercury have nowhere to land,
+  and the Sun's heat pushes you back.
 - **The Moon:** grey dust and craters, the dark maria, a black sky with the
   Earth hanging in it and a low sun that casts long, hard shadows. Gravity is
   1/6: you jump about six times as high, and a fall hurts as one six times
   shorter (items and creatures fall slowly too). There's no air, so sounds are
   muffled. Look for lunar crystal ore, ice at the bottom of the deepest
   craters, crashed probes (their glowing data cores) and the black monoliths
-  ringed with glyph stones.
+  ringed with glyph stones (near the middle of the Moon's world: x 0, z 0).
 - **Mars:** rusty plains, dunes, mesas and a great canyon with layered walls
   just north of the landing zone, and a huge volcano. The sky is butterscotch
   by day, the sunset is blue and the nights are starry. Dust devils wander
   past and two little moons cross the sky. Gravity is 0.38. Look for hematite
   ore (raw iron), polar ice and the alien ruins: stepped pyramids with lit
   glyph bands and a relic in the middle.
-- **Going home:** board your ship and press Space. It lifts off to orbit, and
-  from there you pick Earth.
-- **Online:** each player flies their own rocket. The others watch the launch
-  (the smoke, the climb, the boosters falling) and see a ship come down where
-  they are. A save made mid-trip puts you back at the pad with the rocket on
-  it.
+- **Going home:** board your ship and press Space (or fly up in a UFO), then
+  fly down into Earth.
+- **Saving and online:** a UFO saved in space comes back in space where it
+  was; a rocket saved in flight is back on its pad (or on the ground below).
+  Online each player flies and travels on their own; the others watch the
+  launch until it is out of sight.
 
 ## Stats
 

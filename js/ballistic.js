@@ -786,7 +786,7 @@ export class Tel extends GroundVehicle {
         ["Reach", `${fmtRange(TEL_RANGE.min)} to ${fmtRange(TEL_RANGE.max)}`],
       ],
       weapon: "Ballistic missile",
-      warning: this.state === "ignite" ? "LAUNCH!" : "",
+      warning: this.state === "ignite" ? "LAUNCH!" : this.flooded ? "Engine flooded: get out (F) and swim" : "", // (Round 16: flooded)
       health: this.health / this.maxHealth,
       help: "W/S drive, A/D turn, mouse aim (the ring marks the target), LMB launch at it, RMB call it off, F get out",
     };

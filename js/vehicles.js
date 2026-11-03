@@ -541,7 +541,7 @@ export class VehicleManager {
     if (!this.enabled) return false;
     if (this.active) {
       // (Online Dogfight: no getting out.)
-      const why = this.exitLocked?.();
+      const why = this.exitLocked?.() || this.spaceLock?.(); // (Round 16: js/solar.js, no getting out in space)
       if (why) {
         this.onMessage?.(why);
         return false;
@@ -783,6 +783,8 @@ export class VehicleManager {
       return null;
     };
     if (!this.world.getChunk(Math.floor(cx) >> 4, Math.floor(cz) >> 4)) return fail("Too far: that ground isn't loaded");
+    // (Round 16) Over the End's void (nothing under the spot at all): it would fall out of the world.
+    if (g <= 0) return fail(`No ground there for the ${v.name}`);
     v.pos.set(cx, g + v.bottom + (v.type === "jet" ? 0 : 0.3), cz);
     if (v.type === "jet") {
       // (On its three wheels, on dry ground: water under them would wreck it.)
@@ -790,6 +792,9 @@ export class VehicleManager {
       if (wet || c?.wet) return fail(`Not on the water: the ${v.name} needs dry ground (or aim at the sky to start in the air)`);
       if (c) v.pos.y = Math.max(v.pos.y, c.centerY);
     }
+    // (Round 16) A ground vehicle sinks to the bed now: not into deep water
+    // (its engine would drown at once), shallow water is fine.
+    if (v.isGround && wet && typeof v._water === "function" && v._water(cx, cz, v._ground(cx, cz, g)) > 2) return fail(`Not in deep water: the ${v.name} needs ground (or shallow water)`);
     if (!this._roomFor(v, yaw)) return fail(`No room for the ${v.name} there: aim at open, flat ground (or at the sky to start in the air)`);
     v._place?.();
     this._addSummoned(v);
@@ -1136,6 +1141,15 @@ export class VehicleManager {
   // ---------- Per frame ----------
 
   update(dt) {
+    // (Round 16) In space (js/solar.js sets spaceStep): the solar system flies
+    // the player's craft with this input; the world's vehicles wait.
+    if (this.spaceStep?.(dt, this.input)) {
+      this.input.dx = 0;
+      this.input.dy = 0;
+      this.input.wheel = 0;
+      this.input.pressed.clear();
+      return;
+    }
     const p = this.player;
     // (Round 15) Each dimension's vehicles (the engine calls switchDim on the
     // change itself; this catches a world put elsewhere without it).

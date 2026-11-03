@@ -53,6 +53,22 @@ export class CoopSync {
     net.on("summon", (m, from) => this._onSummon(m, from));
     net.on("own", (m, from) => this._onOwn(m, from));
     net.on("gown", (m) => this.net.isClient && Array.isArray(m.l) && (this.groupOwned = new Set(m.l)));
+    // (Round 16) A guest picked a mission on the board (or abandoned one): the host's board plays it.
+    net.on("misreq", (m, from) => {
+      const p = this.game.progress;
+      if (!this.net.isHost || !p.board || typeof m.id !== "string" || this.game.player.creative) return;
+      const who = this.mp.playerName?.(from) || "A player";
+      if (m.k === "abandon") {
+        if (p.mission?.id === m.id) {
+          p.abandon();
+          this.game.toast?.(`${who} abandoned the mission.`, 4);
+        }
+        return;
+      }
+      if (p.mission) return;
+      const why = p.begin(m.id, this.game.stats.world);
+      if (!why) this.game.toast?.(`${who} picked the mission.`, 3);
+    });
     net.on("mtoast", (m) => this.net.isClient && typeof m.text === "string" && this.game.toast?.(m.text.slice(0, 200), Math.max(1, Math.min(8, Number(m.s) || 3))));
     // (Round 9) A guest came back from a death: the host's UFOs leave them be a moment.
     net.on("rsp", (m, from) => {
@@ -121,6 +137,8 @@ export class CoopSync {
       }
     } else {
       g.progress.mirror = true;
+      // (Round 16) This guest's board picks go to the host.
+      g.progress.onRequest = (k, id) => this.mp.active && typeof id === "string" && this.net.toHost({ t: "misreq", k, id });
       // (Until the host's run comes: the classic chain, which is also what a
       // host from before Round 10 plays and never sends.)
       g.progress.setChain(CLASSIC_IDS);
@@ -252,12 +270,15 @@ export class CoopSync {
       // (Round 10) A dusk the clock is easing toward: [t0, dist, D, when it began on the room's clock].
       dk: ((w) => (w ? [Math.round(w[0] * 100) / 100, Math.round(w[1] * 100) / 100, w[2], Math.round((this.net.time - w[3]) * 10) / 10] : null))(g.missions.warpInfo?.()),
       cs: this._chainSig(),
+      // (Round 16) The mission board: the running mission, its clock, the last outcome, what was won.
+      ...(p.board && p.netState ? { bd: p.netState() } : {}),
     };
   }
 
   // (Round 10) The run's signature (in every mission state), and the run
   // itself, compactly: ids in order, the variants and the acts as digits.
   _chainSig() {
+    if (this.game.progress.board) return "board"; // (Round 16: the board goes in every state, "bd")
     return this.game.progress.key || "";
   }
 
@@ -284,8 +305,13 @@ export class CoopSync {
     const g = this.game;
     const p = g.progress;
     this.mission = m;
-    // (Round 10) The host's run: this guest's missions, their order, their rewards.
-    if (typeof m.ch === "string" && m.ch.length < 4000) {
+    // (Round 16) The host plays the mission board: mirror it (mission-board.js applyNet).
+    if (m.bd && p.applyNet) {
+      const ev = p.applyNet(m.bd);
+      if (ev === "start" && this._lastStep >= 0 && p.mission) g.toast?.(`MISSION: ${p.mission.title}. ${p.mission.text}`, 7);
+      if (ev === "fail" && p.result) g.toast?.(`MISSION FAILED: ${p.result.reason} The host can retry it (M: the board).`, 6);
+      this._lastStep = 0;
+    } else if (typeof m.ch === "string" && m.ch.length < 4000) {
       const ids = m.ch.split(",");
       const vars = typeof m.cv === "string" ? [...m.cv].map(Number) : null;
       // (No acts, e.g. from an older host: each mission by its earliest act.)
@@ -297,7 +323,7 @@ export class CoopSync {
         this._lastStep = -1; // (a new run: no "NEW MISSION" for the step it is at)
       }
     }
-    if (Number.isInteger(m.step) && m.step !== p.step) {
+    if (!m.bd && Number.isInteger(m.step) && m.step !== p.step) {
       const first = this._lastStep < 0;
       p.step = Math.max(0, Math.min(p.total, m.step));
       p.done = p.chain.slice(0, p.step);

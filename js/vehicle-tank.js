@@ -38,6 +38,7 @@ import { createTankModel } from "./tank-model.js";
 import { IS_SOLID, IS_WET, IS_LEAVES, IS_REPLACEABLE, SHAPE_OF, BLOCK } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
+import { isLava } from "./content/nature.js";
 
 export const SHELL_G = 20; // gravity on a shell (blocks/s^2)
 const STEP_UP = 1.15; // the highest step a hull climbs (blocks)
@@ -470,8 +471,18 @@ export class GroundVehicle extends Vehicle {
   // ---------- The ground under it ----------
 
   // The ground's top at (x, z), searching down from y.
+  // (Round 16) Through water and lava to the bed: the manager's groundBelow
+  // stops on a liquid's surface (an aircraft lands on it), which let tanks
+  // and trucks drive across lakes and the sea on top of the water.
   _ground(x, z, y) {
-    return this.manager.groundBelow(x, y, z);
+    const w = this.manager.world;
+    const bx = Math.floor(x);
+    const bz = Math.floor(z);
+    if (!w.getChunk(bx >> 4, bz >> 4)) return this.manager.groundBelow(x, y, z);
+    for (let by = Math.min(WORLD_HEIGHT - 1, Math.floor(y)); by >= 0; by--) {
+      if (IS_SOLID[w.getBlock(bx, by, bz)]) return by + 1;
+    }
+    return 0;
   }
 
   // The heights under the four corners (front left, front right, back left,
@@ -492,6 +503,30 @@ export class GroundVehicle extends Vehicle {
     out.ff = this._ground(x + fx * (L + 0.6), z + fz * (L + 0.6), from);
     out.bb = this._ground(x - fx * (L + 0.6), z - fz * (L + 0.6), from);
     return out;
+  }
+
+  // (Round 16) Whether the ground under the hull's outline at (x, z, yaw),
+  // its leading edge (dir 1: the front, -1: the back) and both sides,
+  // sampled less than a block apart, rises higher than it can climb.
+  _outlineHit(x, z, yaw, from, dir) {
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const rx = -fz;
+    const rz = fx;
+    const L = this.half.z * 0.86;
+    const W = this.half.x * 0.8;
+    const y = this.pos.y;
+    const nw = Math.max(2, Math.ceil((2 * W) / 0.8));
+    for (let i = 0; i <= nw; i++) {
+      const b = -W + (2 * W * i) / nw;
+      if (this._ground(x + fx * L * dir + rx * b, z + fz * L * dir + rz * b, from) - y > STEP_UP) return true;
+    }
+    const nl = Math.max(2, Math.ceil((2 * L) / 0.8));
+    for (let i = 1; i < nl; i++) {
+      const a = -L + (2 * L * i) / nl;
+      for (const s of [-1, 1]) if (this._ground(x + fx * a + rx * W * s, z + fz * a + rz * W * s, from) - y > STEP_UP + 0.3) return true;
+    }
+    return false;
   }
 
   // Sets it down on the ground where it is (a new or loaded vehicle).
@@ -534,7 +569,7 @@ export class GroundVehicle extends Vehicle {
         const bz = Math.floor(z + fz * a + rz * b);
         for (let y = y0; y <= y0 + Math.ceil(this.model.height); y++) {
           const id = w.getBlock(bx, y, bz);
-          if (!id || IS_WET[id]) continue;
+          if (!id || IS_WET[id] || isLava(id)) continue; // (Round 16: lava is no `liquid`: it was crushed away like grass)
           if (IS_LEAVES[id] || ((IS_REPLACEABLE[id] || SHAPE_OF[id] === 1) && !IS_SOLID[id])) {
             if (edits.length < 120) edits.push(bx, y, bz, BLOCK.AIR);
           }
@@ -554,7 +589,8 @@ export class GroundVehicle extends Vehicle {
     const bx = Math.floor(x);
     const bz = Math.floor(z);
     for (let y = Math.floor(groundY); y < groundY + 4; y++) {
-      if (!IS_WET[w.getBlock(bx, y, bz)]) break;
+      const id = w.getBlock(bx, y, bz);
+      if (!IS_WET[id] && !isLava(id)) break; // (Round 16: lava is no `liquid`, deep lava stops it too)
       d++;
     }
     return d;
@@ -564,7 +600,9 @@ export class GroundVehicle extends Vehicle {
   _drive(dt, throttle, steer, brake = false) {
     const S = this.spec;
     const mgr = this.manager;
-    const water = this.inWater ? 0.45 : 1;
+    // (Round 16) Fording: slow in shallow water, slower the deeper it gets;
+    // in water over the engine deck it drowns and the tracks stop.
+    const water = this.flooded ? 0 : this.inWater ? (this.depth >= 2 ? 0.28 : 0.45) : 1;
     let target = throttle > 0 ? throttle * S.speed * water : throttle < 0 ? throttle * S.reverse * water : 0;
     if (brake) target = 0;
     // (Braking or reversing against the motion is stronger than speeding up.)
@@ -593,7 +631,15 @@ export class GroundVehicle extends Vehicle {
       const lead = this.speed >= 0 ? Math.max(fp.fl, fp.fr, fp.ff) : Math.max(fp.bl, fp.br, fp.bb);
       const all = Math.max(fp.fl, fp.fr, fp.bl, fp.br, fp.c);
       const deep = this._water(nx, nz, fp.c) > DEEP_WATER;
-      const blocked = lead - this.pos.y > STEP_UP || all - this.pos.y > STEP_UP + 0.3 || (deep && !this.inWater) || (deep && this._water(this.pos.x, this.pos.z, fp.c) <= DEEP_WATER && throttle !== 0);
+      let blocked = lead - this.pos.y > STEP_UP || all - this.pos.y > STEP_UP + 0.3 || (deep && !this.inWater) || (deep && this._water(this.pos.x, this.pos.z, fp.c) <= DEEP_WATER && throttle !== 0);
+      // (Round 16) The corners alone let a tree trunk or a post between them
+      // through the hull: the whole leading edge and the sides too (unless
+      // it is already stuck in something: then it may drive out).
+      if (!blocked) {
+        const from = this.pos.y + STEP_UP + 0.9;
+        const dir = this.speed >= 0 ? 1 : -1;
+        if (this._outlineHit(nx, nz, yaw, from, dir) && !this._outlineHit(this.pos.x, this.pos.z, this.yaw, from, dir)) blocked = true;
+      }
       if (blocked) {
         // (Stopped by a wall: a jolt felt by the driver, no going through.)
         if (Math.abs(this.speed) > 3 && this === mgr.active) mgr.effects?.shake?.add?.(Math.min(0.25, Math.abs(this.speed) * 0.02));
@@ -614,13 +660,18 @@ export class GroundVehicle extends Vehicle {
     this._fpValid = true;
     this._fpT = (this._fpT || 0) - dt;
     // Up a step at once (smoothly), down a ledge with gravity.
-    const g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    let g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    // (Round 16) Nothing under it at all (driven off an island of the End):
+    // it falls into the void and is lost, not left floating at the bottom.
+    const voidBelow = g <= 0;
+    if (voidBelow) g = -64;
     if (g > this.pos.y + 0.01) {
       this.pos.y = Math.min(g, this.pos.y + Math.max(4, Math.abs(this.speed) * 1.2) * dt);
       this.vy = 0;
       this.onGround = true;
     } else {
-      this.vy -= 25 * dt;
+      this.vy -= (this.inWater ? 6 : 25) * dt;
+      if (this.inWater && this.vy < -4) this.vy = -4; // (Round 16: sinking, not falling, through water)
       this.pos.y += this.vy * dt;
       if (this.pos.y <= g) {
         if (this.vy < -9 && this === mgr.active) mgr.effects?.shake?.add?.(Math.min(0.4, -this.vy * 0.02));
@@ -630,10 +681,38 @@ export class GroundVehicle extends Vehicle {
         this.onGround = true;
       } else this.onGround = this.pos.y - g < 0.2;
     }
-    if (this.pos.y < 1) this.pos.y = 1;
+    if (voidBelow && this.pos.y < -8) {
+      if (this.alive && !this.puppet) this.damage(this.maxHealth * 2, "void");
+    } else if (this.pos.y < 1 && !voidBelow) this.pos.y = 1;
     this._attitude(fp, Math.min(1, dt * 6));
     this.inWater = IS_WET[mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.4), Math.floor(this.pos.z))] === 1;
+    this._liquid(dt);
     this.vel.set(-Math.sin(this.yaw) * this.speed, this.vy, -Math.cos(this.yaw) * this.speed);
+  }
+
+  // (Round 16) What the water (or lava) it is in does to it: depth over the
+  // bed under its middle; deeper than DEEP_WATER (over the engine deck) the
+  // engine drowns (it won't drive again until it's out of it: the crew gets
+  // out and swims); lava burns it.
+  _liquid(dt) {
+    const w = this.manager.world;
+    const bx = Math.floor(this.pos.x);
+    const bz = Math.floor(this.pos.z);
+    const by = Math.floor(this.pos.y + 0.4);
+    const id = w.getBlock(bx, by, bz);
+    const lava = isLava(id);
+    this.depth = this.inWater ? this._water(this.pos.x, this.pos.z, this.pos.y) : 0;
+    const was = this.flooded;
+    this.flooded = this.depth > DEEP_WATER && !lava;
+    if (this.flooded && !was && this === this.manager.active) this.manager.onMessage?.(`${this.spec.name}: the engine is flooded! Get out (F) and swim.`);
+    if (this.flooded) this.speed *= Math.max(0, 1 - dt * 3);
+    if (lava && this.alive && !this.puppet) {
+      this._lavaT = (this._lavaT || 0) - dt;
+      if (this._lavaT <= 0) {
+        this._lavaT = 0.5;
+        this.damage(Math.ceil(this.maxHealth * 0.06), "lava");
+      }
+    }
   }
 
   // ---------- Pose, model, effects ----------
@@ -1436,7 +1515,7 @@ export class Tank extends GroundVehicle {
       ],
       bars: [{ label: "Reload", value: this.reloadT > 0 ? 1 - this.reloadT / S.reload : 1, hot: this.reloadT > 0 }],
       weapon: "HE shell",
-      warning: this.health / this.maxHealth < 0.25 ? "ON FIRE: get out (F)!" : this.inWater ? "In the water: slow going" : "",
+      warning: this.health / this.maxHealth < 0.25 ? "ON FIRE: get out (F)!" : this.flooded ? "Engine flooded: get out (F) and swim" : this.inWater ? "In the water: slow going" : "",
       health: this.health / this.maxHealth,
       help: "W/S drive, A/D turn, mouse aim, LMB fire, RMB MG, V sight, C smoke, F get out",
     };

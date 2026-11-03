@@ -16,21 +16,26 @@
 //             gravity turn the way the rocket faces; the boosters fall away
 //             (js/space.js drops them, tumbling, trailing smoke); the sky
 //             darkens to black and stars as it climbs (js/space-sky.js);
-//             at engine cut-off the rocket is in orbit: js/space.js takes
-//             over (the orbit's own scene, the choice of where to go)
+//             (Round 16) no engine cut-off and no cutscene: it climbs on, in
+//             the world, all the way to the space line (6,000 blocks up from
+//             Earth, about 50 s; 3,000 from the Moon, 4,500 from Mars), and
+//             flies on into space as it is (js/solar.js: the same rocket,
+//             now under the player's control, its core stage falling away)
+//   space     (Round 16) out in the solar system: js/solar.js flies it (its
+//             model is drawn there; the world it left keeps it, unseen)
 //   descent   the ship comes down on its engine to the ground of the planet
-//             (js/space.js puts it in the sky there): the autopilot flies it
-//             down onto the landing zone (or the pad back on Earth) unless
-//             the player takes the controls (Space / Shift throttle, W A S D
+//             (js/solar.js brings it in high over the spot it came down on,
+//             moving as it was): the autopilot flies it down unless the
+//             player takes the controls (Space / Shift throttle, W A S D
 //             tilt; R gives it back to the autopilot); the legs come out
 //             near the ground; dust blows out under the engine; a touchdown
 //             slower than 7 blocks a second upright is a landing, else a
 //             crash
 //   landed    the ship standing on its legs: board it, Space flies it up to
-//             orbit again (a short countdown, an ascent of its own)
+//             space again (a short countdown, an ascent of its own)
 // Getting out in flight is a bail-out (a parachute); a rocket flying on with
-// nobody aboard ends its climb in orbit (it goes), a ship coming down
-// without its pilot lands itself.
+// nobody aboard climbs on into space (it goes), a ship coming down without
+// its pilot lands itself.
 //
 // Saving: on the pad or landed, as it stands; saved in flight, it is back on
 // its pad (climbing) or on the ground below (coming down).
@@ -45,9 +50,10 @@ import { IS_SOLID, IS_WET, BLOCK } from "./blocks.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { voice } from "./voice.js";
 import { LAUNCH_PAD, LAUNCH_PAD_EDGE } from "./content/space.js";
+import { skyDark, spaceLineY } from "./solar-data.js";
 
-// js/space.js sets `space` (the orbit and the travel), so the rocket can hand
-// itself over at engine cut-off and show its captions.
+// js/space.js sets `space` (the captions, the boosters falling, the hand-over
+// to space: Round 16, js/solar.js takes the climb on past the space line).
 export const ROCKET_HOOKS = { space: null };
 
 const G = 26; // the Overworld's gravity (player.js), blocks/s^2
@@ -57,11 +63,13 @@ const CORE_TOP = 27.6; // the ship's body's bottom in the full stack
 const COUNT_FULL = 10;
 const COUNT_SHIP = 3;
 const IGNITION = 3; // seconds before T-0 the engines light
-// The climb: acceleration a0 + a1 t (blocks/s^2), the pitch-over (start,
-// end, the tilt reached), staging and engine cut-off (s after lift-off).
+// The climb: acceleration a0 + a1 t (blocks/s^2) up to `kink` s, then
+// growing by a2 a second, at most amax; the pitch-over (start, end, the
+// tilt reached), staging (s after lift-off). (Round 16: no engine cut-off:
+// it climbs on to the space line, Earth's in about 50 s.)
 const CLIMB = {
-  earth: { a0: 1.4, a1: 0.13, turn0: 7, turn1: 24, tilt: 0.62, boosters: 13, meco: 26 },
-  planet: { a0: 3.2, a1: 0.42, turn0: 4, turn1: 12, tilt: 0.55, boosters: 6, meco: 13 },
+  earth: { a0: 1.4, a1: 0.13, kink: 13, a2: 0.6, amax: 42, turn0: 7, turn1: 30, tilt: 0.62, boosters: 13 },
+  planet: { a0: 3.2, a1: 0.42, kink: 99, a2: 0, amax: 40, turn0: 4, turn1: 16, tilt: 0.55, boosters: Infinity },
 };
 const LAND_SPEED = 7; // blocks/s down at touchdown, at most, for a landing
 const LAND_TILT = 0.35; // radians off upright, at most
@@ -550,7 +558,7 @@ class RocketSound {
 
 // ---------- The vehicle ----------
 
-const PHASES = ["pad", "count", "ascent", "orbit", "descent", "landed"];
+const PHASES = ["pad", "count", "ascent", "orbit", "descent", "landed", "space"]; // (Round 16: "space" last, the old indexes kept)
 const STACKS = ["full", "core", "ship"];
 
 export class Rocket extends Vehicle {
@@ -763,7 +771,7 @@ export class Rocket extends Vehicle {
     this.camYaw = this.yaw + Math.PI * 0.75;
     this._camManual = false;
     this.cameraMode = 0;
-    if (this.phase === "pad" || this.phase === "landed") ROCKET_HOOKS.space?.caption?.(this.phase === "landed" ? "Space: lift off to orbit" : "Space: start the countdown", "hint", 4);
+    if (this.phase === "pad" || this.phase === "landed") ROCKET_HOOKS.space?.caption?.(this.phase === "landed" ? "Space: lift off (to space)" : "Space: start the countdown", "hint", 4);
   }
 
   onExit() {
@@ -850,9 +858,9 @@ export class Rocket extends Vehicle {
         this._descent(dt, input);
         break;
       case "orbit":
-        // (in orbit: js/space.js has it; nothing here is drawn)
-        this.root.visible = false;
-        break;
+      case "space":
+        // (in space: js/solar.js flies it and draws it; nothing to do here)
+        return;
       default:
         this.throttle = 0;
         this.power.core = this.power.boost = this.power.ship = 0;
@@ -907,7 +915,7 @@ export class Rocket extends Vehicle {
     const t = this.t;
     const g = this.dimGravity;
     // (the thrust is the acceleration's: the planets' climb is the faster one, their gravity lower)
-    const a = C.a0 + C.a1 * t;
+    const a = Math.min(C.amax, C.a0 + C.a1 * Math.min(t, C.kink) + C.a2 * Math.max(0, t - C.kink));
     this.speed = (this.speed || 0) + a * dt;
     const tilt = smooth(C.turn0, C.turn1, t) * C.tilt;
     // facing: -Z of the yaw (the way the rocket was set down facing)
@@ -923,7 +931,7 @@ export class Rocket extends Vehicle {
     const dim = this.manager.world.dim;
     const ground = this.pad ? this.pad[1] : this.manager.groundBelow(this.pos.x, this.pos.y, this.pos.z);
     this.agl = this.pos.y - ground;
-    this.altK = dim === "overworld" || !dim ? smooth(90, 620, this.agl) : 1;
+    this.altK = dim === "moon" ? 1 : skyDark(this.pos.y, dim || "overworld");
     if (t < 6) this._padSmoke(dt, 1.4 - t * 0.2);
     this._trail(dt);
     if (t < 8) this.manager.effects?.shake?.add(dt * 0.5 * this._near() * (1 - t / 8));
@@ -936,14 +944,10 @@ export class Rocket extends Vehicle {
       ROCKET_HOOKS.space?.caption?.("Booster separation", "stage", 2.5);
     }
     if (t > C.turn0 && t < C.turn0 + 0.1) this._say("roll", "Roll program");
-    if (t >= C.meco - 4 && t < C.meco - 3.9) this._say("go", g < 0.5 ? "Climbing to orbit" : "Max Q. Throttling up");
-    if (t >= C.meco) {
-      this.phase = "orbit";
-      this.t = 0;
-      this.power.core = this.power.boost = this.power.ship = 0;
-      this.sound.set(0);
-      ROCKET_HOOKS.space?.reachedOrbit?.(this);
-    }
+    if (t >= 22 && t < 22.1) this._say("go", g < 0.5 ? "Climbing to space" : "Max Q. Throttling up");
+    // (Round 16) Past the space line: the player's flies on into space (js/space.js
+    // watches for it); one with nobody aboard is gone.
+    if (this.pos.y > spaceLineY(dim || "overworld") && this !== this.manager.active && !this.puppet) ROCKET_HOOKS.space?.goneToSpace?.(this);
   }
 
   // Smoke rolling out over the pad (the ignition's cloud, the lift-off's).
@@ -994,7 +998,7 @@ export class Rocket extends Vehicle {
     const ground = w.groundBelow(this.pos.x, this.pos.y + 1, this.pos.z);
     const agl = Math.max(0, this.pos.y - ground);
     this.agl = agl;
-    const tmax = Math.max(2.4 * g, 16);
+    const tmax = Math.max(2.4 * g, 30); // (Round 16: strong enough to land from an entry at speed)
     const keys = input?.keys;
     let thr = this.throttle;
     let tx = this.tilt.x;
@@ -1002,7 +1006,9 @@ export class Rocket extends Vehicle {
     if (this.autopilot || !input) {
       // Down at a speed that slows with the height, then gently onto the
       // ground; across toward the target, slowing to rest over it.
-      const vt = agl < 2.5 ? -1.2 : -Math.max(2.2, Math.min(45, 0.25 * agl + 1.5));
+      // (Round 16: from high up (an entry from space) down fast, slowing in time)
+      const vcap = Math.min(300, Math.sqrt(2 * 0.45 * Math.max(1, tmax - g) * agl) + 2);
+      const vt = agl < 2.5 ? -1.2 : -Math.max(2.2, Math.min(Math.max(45, vcap), 0.25 * agl + 1.5));
       const ay = g + (vt - this.vel.y) * 1.8;
       let hx = 0;
       let hz = 0;
@@ -1018,6 +1024,8 @@ export class Rocket extends Vehicle {
       const az = (hz - this.vel.z) * 0.9;
       thr = Math.max(0, Math.min(1, Math.hypot(ax, ay, az) / tmax));
       if (agl > 120 && this.vel.y > vt - 2) thr = Math.min(thr, 0.15); // (falling first: the burn comes lower)
+      // (Round 16: far too fast for the height left: everything it has)
+      if (-this.vel.y > 5 && this.vel.y * this.vel.y > 1.6 * Math.max(1, tmax - g) * Math.max(1, agl - 4)) thr = 1;
       const lim = agl < 4 ? 0.06 : MAX_TILT;
       tx = Math.max(-lim, Math.min(lim, Math.atan2(az, Math.max(1, ay))));
       tz = Math.max(-lim, Math.min(lim, -Math.atan2(ax, Math.max(1, ay))));
@@ -1049,7 +1057,7 @@ export class Rocket extends Vehicle {
     this.power.ship = this.throttle;
     this.power.core = this.power.boost = 0;
     this.legsK += ((agl < LEGS_AGL ? 1 : 0) - this.legsK) * Math.min(1, dt * 1.6);
-    this.altK = this.manager.world.dim === "overworld" ? smooth(90, 620, agl) : 1;
+    this.altK = this.manager.world.dim === "moon" ? 1 : skyDark(this.pos.y, this.manager.world.dim || "overworld");
     if (this.throttle > 0.05) this._landingDust(dt, agl);
     if (this.throttle > 0.05) this._exhaust(dt);
     // Touchdown?
@@ -1135,7 +1143,7 @@ export class Rocket extends Vehicle {
     if (Math.abs(m.legsK - this.legsK) > 0.001) m.setLegs(this.legsK);
     const vac = this.manager.world.dimInfo?.airless ? 1 : this.altK;
     m.setFlames(this.power, this.time, vac);
-    this.root.visible = this.phase !== "orbit" && this.manager.enabled !== false;
+    this.root.visible = this.phase !== "orbit" && this.phase !== "space" && this.manager.enabled !== false;
     // light: the sky's where it stands (the flames light it from below)
     const w = this.manager.world;
     const l = w.lightAt ? w.lightAt(this.pos.x, this.pos.y + 4, this.pos.z) : null;
@@ -1240,8 +1248,9 @@ export class Rocket extends Vehicle {
       rows.push(["T-minus", `${Math.ceil(this.count)} s`]);
       help = "Backspace stop · F get out";
     } else if (this.phase === "ascent") {
-      rows.push(["Altitude", `${alt} m`], ["Speed", `${kmh} km/h`], ["Stage", this.stack === "full" ? "1 (boosters)" : this.stack === "core" ? "1 (core)" : "Ship"]);
-      help = "F bail out · F5 camera";
+      const line = spaceLineY(this.manager.world.dim || "overworld") - (this.pad ? this.pad[1] : 64);
+      rows.push(["Altitude", `${alt} m`], ["Space at", `${Math.round(line).toLocaleString("en-US")} m`], ["Speed", `${kmh} km/h`], ["Stage", this.stack === "full" ? "1 (boosters)" : this.stack === "core" ? "1 (core)" : "Ship"]);
+      help = "Mouse camera · F bail out · F5 camera";
     } else if (this.phase === "descent") {
       rows.push(["Height", `${alt} m`], ["Descent", `${Math.round(-this.vel.y)} m/s`], ["Drift", `${Math.round(Math.hypot(this.vel.x, this.vel.z))} m/s`], ["Pilot", this.autopilot ? "Autopilot" : "Manual"]);
       help = "Space/Shift throttle · W A S D tilt · R autopilot · F bail out";
@@ -1255,16 +1264,19 @@ export class Rocket extends Vehicle {
       title: "Rocket",
       stats: [
         ["Stages", "4 boosters, the core, the ship (lands on its legs)"],
-        ["To orbit", "about 30 s from the pad (13 s from the Moon or Mars)"],
-        ["Where to", "the Moon (1/6 gravity), Mars (0.38), back to Earth"],
+        ["To space", "about 50 s from the pad to the space line (6,000 m); 30 s from the Moon, 35 from Mars"],
+        ["In space", "fly it yourself: Newton's laws, time warp, the assist (R) for orbit, the transfer and the landing; M map, N guides, T target"],
+        ["Where to", "the Moon (1/6 gravity), Mars (0.38), back to Earth: fly down into it to land"],
         ["Landing", `under ${LAND_SPEED} m/s, upright`],
       ],
       controls: [
-        ["Space", "countdown / lift off (descent: more throttle)"],
+        ["Space", "countdown / lift off (in space and coming down: more throttle)"],
         ["Backspace", "stop the countdown"],
         ["Shift", "less throttle (descent)"],
         ["W A S D", "tilt (descent)"],
-        ["R", "autopilot on / off"],
+        ["R", "autopilot on / off (in space: the assist)"],
+        ["Z / X", "in space: full throttle / engine off"],
+        [", and .", "in space: time warp down / up"],
         ["F5", "camera"],
         ["F", "get out (in flight: bail out)"],
       ],
@@ -1307,7 +1319,7 @@ export class Rocket extends Vehicle {
     this.power.core = this.stack !== "ship" ? lvl : 0;
     this.power.boost = this.stack === "full" ? lvl : 0;
     this.power.ship = this.stack === "ship" ? lvl : 0;
-    this.altK = this.manager.world.dim === "overworld" ? smooth(90, 620, this.agl ?? 0) : 1;
+    this.altK = this.manager.world.dim === "moon" ? 1 : skyDark(this.pos.y, this.manager.world.dim || "overworld");
     if (this.tower && p === "count") this.tower.setArms(Math.min(1, (6.5 - this.count) / 3));
     if (this.tower && p === "ascent") this.tower.setArms(1);
     if (p === "count" && this.count <= IGNITION) this._padSmoke(dt, 1);
@@ -1326,7 +1338,7 @@ export class Rocket extends Vehicle {
     const d = { ...super.serialize(), stack: this.stack, yaw: Math.round(this.yaw * 1000) / 1000 };
     if (this.pad) d.pad = this.pad.map((v) => Math.round(v * 100) / 100);
     // (saved in flight: back on its pad if it has one and was climbing, else on the ground below)
-    const flying = this.phase === "ascent" || this.phase === "count" || this.phase === "orbit" || this.phase === "descent";
+    const flying = this.phase === "ascent" || this.phase === "count" || this.phase === "orbit" || this.phase === "space" || this.phase === "descent";
     if (flying && this.pad && this.phase !== "descent") {
       d.pos = this.pad.slice();
       d.stack = this.stack === "ship" ? "ship" : "full";

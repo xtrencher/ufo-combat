@@ -64,6 +64,8 @@ import { EnemyJetManager } from "./enemy-jets.js";
 import { AirportManager } from "./airports.js";
 import { Progress, MISSIONS, ACT_NAMES, rollLoot, rollArmorDrop, alienColour } from "./progression.js";
 import { MissionDirector } from "./missions.js";
+import { MissionBoard } from "./mission-board.js"; // (Round 16: the mission board replaces the classified run)
+import { renderBoard, trackerHtml } from "./mission-ui.js";
 import { installGround } from "./tanks.js"; // (Round 13: tanks, AA vehicles, missile launchers)
 import { installHelis, heliMissionId } from "./helis.js"; // (Round 14: the helicopters, the aliens' gunships)
 import { SupplyCrates } from "./crates.js";
@@ -1118,10 +1120,12 @@ function jetLocked() {
 }
 // "...mission 12 ("Take to the air")": where it is in this run.
 const missionRef = (id) => {
+  // (Round 16) On the mission board: a win in the vehicle's category opens it.
+  if (progress.board) return { wings: "a win in an Air mission", salvage: 'a win in "Salvage" or "Steal the ship"', sunburn: 'a win in "Operation Sunburn"' }[id] || "a mission win";
   const m = progress.missionById(id);
   return m ? `mission ${m.n + 1} ("${m.title}")` : "a later mission";
 };
-const jetLockedText = () => `Fighter jets join the fight with ${missionRef("wings")}. Esc > Missions shows the way there.`;
+const jetLockedText = () => `Fighter jets join the fight with ${missionRef("wings")}. ${progress.board ? "Press M for the mission board." : "Esc > Missions shows the way there."}`;
 // UFOs (wrecks and the ones in airport hangars) can be boarded from the
 // "Salvage" mission on; before that the player fights on foot.
 function ufoLocked() {
@@ -1257,6 +1261,9 @@ function callIn(kind) {
     const design = UFO_DESIGNS[Math.floor(Math.random() * UFO_DESIGNS.length)];
     const radius = [4, 5.5, 7, 9, 12][Math.floor(Math.random() * 5)];
     v = vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos: [p.x, skyY(Math.min(200, Math.max(ground + 40 + radius, p.y + 30))), p.z], yaw: player.yaw });
+  } else if (kind === "warp") {
+    // (Round 16) The Warp Saucer (js/warp-saucer.js): a UFO with a warp drive, for space.
+    v = vehicles.create("ufo", { ...VehicleManager.summons.warp.data(), pos: [p.x, skyY(Math.min(200, Math.max(ground + 46, p.y + 30))), p.z], yaw: player.yaw });
   } else {
     if (!JET_TYPES[kind]) return false;
     const cfg = vehicles.config.jet;
@@ -1270,7 +1277,7 @@ function callIn(kind) {
   if (v.type === "jet") playerJet = v;
   vehicles.enter(v);
   audio.playNotice();
-  toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3);
+  toast(kind === "warp" ? "Warp Saucer: climb past 6,000 m into space, then J lights the warp drive" : kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3); // (Round 16: the Warp Saucer's)
   return true;
 }
 // The call-ins show in the pause menu in Creative only (Round 13: in a
@@ -1434,7 +1441,7 @@ mods.set(settings.mods && !isVanilla(), { initial: true });
 stats.loadWorld(savedPlayer?.stats);
 
 // ---------- Missions, loot, supply crates ----------
-const progress = new Progress();
+const progress = new MissionBoard(); // (Round 16: a Progress with the mission board on top)
 progress.load(savedPlayer?.missions, stats.world);
 const progressTier = () => progress.tier(stats.world);
 const myItems = () => {
@@ -1567,7 +1574,28 @@ mobs.onWake = () => missionDirector.crewAwake();
 hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
-  setTimeout(() => toast(`NEW MISSION ${m.n + 1}/${progress.total}: ${m.title}. ${m.text}`, 7), 6500);
+  // (Round 16: a board mission starts at once, when picked.)
+  if (progress.board) toast(`MISSION: ${m.title}. ${m.text}`, 8);
+  else setTimeout(() => toast(`NEW MISSION ${m.n + 1}/${progress.total}: ${m.title}. ${m.text}`, 7), 6500);
+};
+// (Round 16) A board mission lost: why, and the way to retry.
+progress.onFail = (m, why) => {
+  toast(`MISSION FAILED: ${m.title}. ${why} Press M to retry.`, 7);
+  audio.playNotice?.();
+};
+// (Round 16) The director calls in the jet a mission gives you (see callJet).
+missionDirector.callJet = (type) => {
+  if (gameState !== "playing" || vehicles.active || player.dead) return false;
+  // (A runway close by, or straight into the air: never a long walk to a far airport.)
+  const cfg = vehicles.config.jet;
+  const was = cfg.airborne;
+  cfg.airborne = was || !airports.runwayNear(player.position.x, player.position.z, 200);
+  try {
+    callJet(true, type);
+  } finally {
+    cfg.airborne = was;
+  }
+  return true;
 };
 // (testFlags.noMissions: the older test suites check UFO features without the mission chain.)
 const testFlags = { noMissions: false };
@@ -1587,6 +1615,11 @@ function chainLocks() {
   return progress.enabled || (!missionsHere() && mods.enabled && !player.creative && !survivalPaused && !isVanilla() && !testFlags.noMissions);
 }
 helis.locked = () => !player.creative && chainLocks() && !progress.reached(heliMissionId(progress));
+// (Round 16) On the mission board the helicopters' lock says how to open it.
+{
+  const heliCan = vehicles.canBoard;
+  vehicles.canBoard = (v) => (progress.board && v.type === "heli" && helis.locked() ? "Helicopters join the fight with a win in a Helicopter mission. Press M for the mission board." : heliCan(v));
+}
 function refreshSurvivalSystems() {
   // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
   const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla() && missionsHere();
@@ -3155,6 +3188,13 @@ window.addEventListener("keydown", (e) => {
   if (mp.dogfight?.watching) return; // (only watching: no dropping, reloading or inventory)
   if (player.sleeping) return; // (Round 11: in bed, Shift gets up first)
   if (e.code === "KeyE") openInventory("inventory");
+  else if (e.code === "KeyM" && progress.board && !isVanilla()) {
+    // (Round 16) M: the mission board (a Missions world).
+    const show = () => setTimeout(() => gameState === "paused" && screens.show("missions-screen", "pause-menu"), 0);
+    if (document.pointerLockElement) document.addEventListener("pointerlockchange", show, { once: true });
+    document.exitPointerLock();
+    if (!document.pointerLockElement) show();
+  }
   else if (e.code === "KeyQ") interaction.dropSelected(e.ctrlKey);
   else if (e.code === "KeyF") {
     // (Round 13) F boards a vehicle in reach that this player may fly (in a
@@ -4145,7 +4185,9 @@ function updateMissions(dt) {
   if (!tick && !missionEl.classList.contains("hidden")) return;
   const m = progress.mission;
   const parts = [];
-  if (m) {
+  // (Round 16) The mission board's tracker: js/mission-ui.js.
+  if (progress.board) parts.push(trackerHtml({ board: progress, stats: stats.world, target: missionDirector.target, pos: player.position, note: m ? missionDirector.note() : "" }));
+  else if (m) {
     parts.push(`<div class="mt-head"><span class="mt-title">${escHtml(m.title)}</span><span class="mt-step">MISSION ${progress.completed + 1}/${progress.total}</span></div><div class="mt-text">${escHtml(m.text)}</div>`);
     for (const o of progress.objectives(stats.world)) {
       const val = Number(o.value) || 0;
@@ -4194,7 +4236,7 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Press M to pick a mission from the board; the tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Tap right click: a missile straight ahead; hold it to lock on.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
@@ -4230,6 +4272,28 @@ screens.onOpen["stats-screen"] = () => stats.renderTable(document.getElementById
 // the current act is about to end.
 screens.onOpen["missions-screen"] = () => {
   const el = document.getElementById("missions-list");
+  // (Round 16) The mission board: js/mission-ui.js. Starting one goes straight back to the game.
+  if (progress.board) {
+    const again = () => screens.onOpen["missions-screen"]();
+    const go = (why) => {
+      if (why) toast(why, 4);
+      else if (!GUEST) requestLock();
+      again();
+    };
+    renderBoard(el, {
+      board: progress,
+      stats: stats.world,
+      creative: player.creative,
+      guest: GUEST,
+      onStart: (id) => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.begin(id, stats.world)),
+      onRetry: () => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.retry(stats.world)),
+      onAbandon: () => {
+        progress.abandon();
+        again();
+      },
+    });
+    return;
+  }
   const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   const reward = (r) => r.map(([id, n]) => `${n > 1 ? `${n} x ` : ""}${itemInfo(id)?.name ?? "item"}`).join(", ");
   const intro = player.creative ? `<p class="hint">Missions run in the Missions mode (switch the game mode in the pause menu). Creative is free play.</p>` : "";
@@ -4387,13 +4451,15 @@ function simulate(dt, frameTime) {
   } else {
     player.syncCamera(); // keep the view behind the menus sensible
   }
-  streamAround(player.position.x, player.position.z);
+  // (Round 16) Out in space (js/space.js worldIdle) the voxel world isn't drawn: nothing streamed, meshed or planned far off.
+  const worldIdle = space.worldIdle;
+  if (!worldIdle) streamAround(player.position.x, player.position.z);
   // (Perf: with the terrain generated in workers the main thread only lights
   // and meshes, so a smaller share of the frame still streams faster than before.)
   // (The menu's larger share only while the world is frozen or on the main
   // menu: behind the inventory, the death screen or an online pause it goes on.)
-  world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
-  lod.update();
+  if (!worldIdle) world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
+  if (!worldIdle) lod.update();
   // (High over the ground in an aircraft the plants below are specks: not
   // refilled as it races along, not drawn.)
   const gv = vehicles.active;

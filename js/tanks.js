@@ -992,7 +992,7 @@ export class ParkedAA extends Tank {
       ],
       bars: [{ label: "Gun heat", value: this.heat, hot: this.hot }],
       weapon: this.lock ? "Cannons + SAM (locked)" : "Cannons + SAM",
-      warning: this.hot ? "GUNS OVERHEATED" : this.health / this.maxHealth < 0.25 ? "ON FIRE: get out (F)!" : "",
+      warning: this.hot ? "GUNS OVERHEATED" : this.health / this.maxHealth < 0.25 ? "ON FIRE: get out (F)!" : this.flooded ? "Engine flooded: get out (F) and swim" : "", // (Round 16: flooded)
       health: this.health / this.maxHealth,
       help: "W/S drive, A/D turn, mouse aim, LMB cannons, RMB SAM, V sight, C smoke, F get out",
     };
