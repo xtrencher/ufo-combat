@@ -1210,11 +1210,26 @@ function callIn(kind) {
   if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight") return false;
   // (Round 13: a Survival world's Creative too; never in the Nether or the End, nor a Missions world with the Mods off.)
   // (Round 16 follow-up) Out in space the craft can't be swapped: land first.
-  if (space.solar?.active) {
-    toast("You're in space: land first to call in another vehicle. Every UFO has the warp drive (J in space).", 4);
-    return false;
-  }
   if (kind === "warp") kind = "ufo"; // (the old Warp Saucer button: any UFO warps now)
+  if (space.solar?.active) {
+    // (a UFO swaps in right here; anything else needs ground)
+    if (kind !== "ufo") {
+      toast("Only a UFO can be called in out in space: land first for the others.", 4);
+      return false;
+    }
+    const design = UFO_DESIGNS[Math.floor(Math.random() * UFO_DESIGNS.length)];
+    const radius = [4, 5.5, 7, 9, 12][Math.floor(Math.random() * 5)];
+    const nv = space.solar.swapCraft((pos) => vehicles.create("ufo", { design, seed: Math.floor(Math.random() * 1e6), radius, pos, yaw: player.yaw }));
+    if (!nv) {
+      toast("Not now: wait until the arrival is over.", 3);
+      return false;
+    }
+    nv.keep = true;
+    nv.calledIn = true;
+    audio.playNotice();
+    toast(`${UFO_DESIGN_NAMES[nv.design] || "UFO"}: you're in! J: warp drive (faster than light).`, 4);
+    return true;
+  }
   const why = vehicles.summonRefusal({ seatedOk: true });
   if (why) {
     toast(`${why}.`, 3);
@@ -1283,7 +1298,7 @@ function callIn(kind) {
   if (v.type === "jet") playerJet = v;
   vehicles.enter(v);
   audio.playNotice();
-  toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air! (Past 6,000 m you're in space: J for the warp drive.)` : `${JET_TYPES[kind].name}: you're in the air!`, 3); // (Round 16: the Warp Saucer's)
+  toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air! J: jump to space and warp (faster than light).` : `${JET_TYPES[kind].name}: you're in the air!`, 3); // (Round 16: the Warp Saucer's)
   return true;
 }
 // The call-ins show in the pause menu in Creative only (Round 13: in a

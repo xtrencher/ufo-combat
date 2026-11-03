@@ -237,7 +237,7 @@ export class SolarSystem {
       assist: false,
       spaceT: 0,
       warpOn: false,
-      warpFactor: 10,
+      warpFactor: 1000, // (Round 16 follow-up: fast from the start; the wheel goes 1c to 10,000c)
       warpK: 0,
       warpDir: new THREE.Vector3(0, 0, -1),
       speedLevel: v.speedLevel ?? 0.5,
@@ -289,6 +289,13 @@ export class SolarSystem {
     this.stats.exits++;
     if (!this.target || this.target === body) this.target = body === "earth" ? "moon" : "earth";
     document.body?.classList.add("in-space");
+    // (Round 16 follow-up) A UFO comes out at a fast cruise (the wheel still
+    // sets it), and after J's jump from the ground the warp drive lights.
+    if (c.kind === "warp") c.speedLevel = Math.max(c.speedLevel, 1.35);
+    if (c.kind === "warp" && v.spaceJump) {
+      v.spaceJump = false;
+      this.toggleWarp();
+    }
     this.space.caption("SPACE", "big", 2.5);
     this.space.caption(c.kind === "rocket" ? "R: assist · M: map · N: guides · T: target · , and . time warp" : c.kind === "warp" ? "J: warp drive · M: map · N: guides · T: target · , and . time warp" : "M: map · N: guides · T: target · , and . time warp · wheel: speed", "hint", 7);
     if (c.kind === "rocket") voice.say("rocket_space", { text: "We are in space" });
@@ -544,13 +551,18 @@ export class SolarSystem {
     if (c.warpOn) {
       // at warp: along the view, the drive slowing by itself near a planet
       c.warpDir.lerp(view, Math.min(1, dt * 3)).normalize();
-      const cap = Math.max(0, near.dEff) * WARP_NEAR;
+      // (Round 16 follow-up) It holds back only while heading toward the
+      // nearest body: leaving a planet, the full warp at once.
+      const me = this.absOf(c);
+      const toB = norm(sub(absState(near.id, this.t), me));
+      const toward = c.warpDir.x * toB[0] + c.warpDir.y * toB[1] + c.warpDir.z * toB[2];
+      const cap = toward > 0.25 ? Math.max(0, near.dEff) * WARP_NEAR : Infinity;
       c.warpK = Math.min(1, c.warpK + dt / 1.2);
       const ramp = Math.pow(c.warpK, 2);
       const vw = Math.min(c.warpFactor * C_LIGHT, cap) * ramp + UFO_SPACE_TOP * (1 - ramp);
       c.vel = toA(_v3.copy(c.warpDir).multiplyScalar(vw));
       c.warpSpeed = vw;
-      if (c.warpK > 0.9 && vw < WARP_DROP) this.dropWarp(`Dropped out of warp: ${BODIES[near.id].name} ahead`);
+      if (c.warpK > 0.9 && toward > 0.25 && vw < WARP_DROP) this.dropWarp(`Dropped out of warp: ${BODIES[near.id].name} ahead`);
     } else {
       c.warpK = Math.max(0, c.warpK - dt * 1.5);
       if (move.lengthSq() > 0) c.vel = toA(move.normalize().multiplyScalar(speed));
@@ -603,12 +615,8 @@ export class SolarSystem {
     const c = this.craft;
     if (!c || c.kind !== "warp") return false;
     if (c.warpOn) return this.dropWarp("Warp drive off");
-    const near = this._nearest(c);
-    if (near.dEff * WARP_NEAR < 1.2 * C_LIGHT) {
-      const need = 1.5 * BODIES[near.id].r + (1.2 * C_LIGHT) / WARP_NEAR;
-      this.space.caption(`Too near ${BODIES[near.id].name} for the warp drive: fly ${Math.round((need - near.dc) / 1000).toLocaleString("en-US")} km further out`, "hint", 3);
-      return false;
-    }
+    // (Round 16 follow-up: anywhere in space, even just over a planet; the
+    // drive only holds back while it heads toward one)
     c.warpOn = true;
     c.warpK = 0;
     c.warpDir.copy(this._viewDir(c, _v));
@@ -944,6 +952,47 @@ export class SolarSystem {
     this._mouseWhileLoading(false);
     document.body?.classList.remove("in-space");
     this.ui?.show(false);
+  }
+
+  // (Round 16 follow-up) Creative's call-in in space: the craft swapped for a
+  // new UFO right here, at once (make: () => the new vehicle, in the world).
+  swapCraft(make) {
+    const c = this.craft;
+    if (!this.active || !c || this.pending) return null;
+    const vm = this.vehicles;
+    const old = c.v;
+    if (c.warpOn) this.dropWarp(null);
+    this.view.craft.remove(old.root);
+    if (old._spaceDamage) {
+      old.damage = old._spaceDamage;
+      delete old._spaceDamage;
+    }
+    old.occupied = false;
+    if (vm.active === old) vm.active = null;
+    this.player.vehicle = null;
+    try {
+      old.onExit?.();
+    } catch {}
+    vm.remove(old);
+    const nv = make([c.exit[0], Math.min(c.exit[1], spaceLineY(c.fromDim) - 100), c.exit[2]]);
+    if (!nv) return null;
+    vm.enter(nv);
+    this.view.craft.add(nv.root);
+    nv.root.position.set(0, 0, 0);
+    nv.root.visible = true;
+    nv._spaceDamage = nv.damage;
+    nv.damage = () => false;
+    nv.camYaw = c.camYaw;
+    nv.camPitch = c.camPitch;
+    c.v = nv;
+    c.kind = nv.type === "rocket" ? "rocket" : "warp";
+    c.throttle = 1;
+    c.assist = false;
+    c.speedLevel = Math.max(nv.speedLevel ?? 0.5, 1.35);
+    c.vel = [0, 0, 0];
+    this.warpIndex = 0;
+    this.space.caption("J: warp drive (faster than light) · wheel: speed · N: guides · T: target · M: map", "hint", 6);
+    return nv;
   }
 
   // Back to the world at once (a mode change, death, a reload): the craft
