@@ -1209,6 +1209,12 @@ function removePlayerJets() {
 function callIn(kind) {
   if (!player.creative || player.dead || gameState === "start" || gameState === "dead" || mp.mode === "dogfight") return false;
   // (Round 13: a Survival world's Creative too; never in the Nether or the End, nor a Missions world with the Mods off.)
+  // (Round 16 follow-up) Out in space the craft can't be swapped: land first.
+  if (space.solar?.active) {
+    toast("You're in space: land first to call in another vehicle. Every UFO has the warp drive (J in space).", 4);
+    return false;
+  }
+  if (kind === "warp") kind = "ufo"; // (the old Warp Saucer button: any UFO warps now)
   const why = vehicles.summonRefusal({ seatedOk: true });
   if (why) {
     toast(`${why}.`, 3);
@@ -1277,7 +1283,7 @@ function callIn(kind) {
   if (v.type === "jet") playerJet = v;
   vehicles.enter(v);
   audio.playNotice();
-  toast(kind === "warp" ? "Warp Saucer: climb past 6,000 m into space, then J lights the warp drive" : kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air!` : `${JET_TYPES[kind].name}: you're in the air!`, 3); // (Round 16: the Warp Saucer's)
+  toast(kind === "ufo" ? `${UFO_DESIGN_NAMES[v.design] || "UFO"}: you're in the air! (Past 6,000 m you're in space: J for the warp drive.)` : `${JET_TYPES[kind].name}: you're in the air!`, 3); // (Round 16: the Warp Saucer's)
   return true;
 }
 // The call-ins show in the pause menu in Creative only (Round 13: in a

@@ -91,7 +91,7 @@ export const items = {
   [ROCKET_ITEM]: { name: "Rocket (to the Moon and Mars)", icon: "vehicle_rocket", stack: 1, vehicle: "rocket" },
   [LUNAR_CRYSTAL]: { name: "Lunar Crystal", icon: "lunar_crystal" },
   // (Round 16) The Warp Saucer: in the air, aimed at the sky; on the ground aimed at.
-  [WARP_ITEM]: { name: "Warp Saucer (faster than light, in space)", icon: "vehicle_warp", stack: 1, vehicle: "warp" },
+  [WARP_ITEM]: { name: "UFO (warp drive in space)", icon: "vehicle_warp", stack: 1, vehicle: "warp" },
 };
 
 export const itemUse = {

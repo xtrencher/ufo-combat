@@ -130,25 +130,30 @@ class WarpSound {
   }
 }
 
+// (Round 16 follow-up) Every UFO has the warp drive now, not one special
+// ship: the sound and the stars' streaks come with any of them. Only a ship
+// saved as a Warp Saucer before keeps its ring and nacelles.
 UFO_HOOKS.created = (ship, data) => {
-  if (!data?.warp) return;
   ship.warp = true;
-  ship.name = "Warp Saucer";
-  ship.facingOffset = 0;
-  try {
-    ship.warpParts = addParts(ship);
-  } catch (err) {
-    console.warn("MINECLAUDE: the Warp Saucer's drive wasn't drawn", err);
+  if (data?.warp) {
+    ship.legacyWarp = true;
+    ship.name = "Warp Saucer";
+    ship.facingOffset = 0;
+    try {
+      ship.warpParts = addParts(ship);
+    } catch (err) {
+      console.warn("MINECLAUDE: the Warp Saucer's drive wasn't drawn", err);
+    }
   }
   const sound = new WarpSound(ship.manager.audio);
   // (js/solar.js: the look of the drive, k 0-1 into warp; its sound on / off)
   ship.warpFx = (dt, k, on) => {
+    sound.set(k);
     const P = ship.warpParts;
     if (!P) return;
     P.spin += dt * (0.6 + 9 * k);
     P.ring.rotation.z = P.spin;
     P.glow.color.copy(RING_IDLE).lerp(RING_WARP, k);
-    sound.set(k);
   };
   ship.warpSound = (on) => (on ? sound.start() : sound.stop());
   const dispose = ship.dispose.bind(ship);
@@ -160,7 +165,7 @@ UFO_HOOKS.created = (ship, data) => {
 };
 
 UFO_HOOKS.saved = (ship, data) => {
-  if (ship.warp) data.warp = true;
+  if (ship.legacyWarp) data.warp = true;
 };
 
 UFO_HOOKS.update = (ship, dt, input) => {
@@ -174,5 +179,6 @@ UFO_HOOKS.update = (ship, dt, input) => {
 VehicleManager.registerSummon("warp", {
   type: "ufo",
   alt: 40,
-  data: () => ({ warp: true, design: "saucer_domed", seed: Math.floor(Math.random() * 1e6), radius: 6, glow: true }),
+  // (Round 16 follow-up: an ordinary UFO now; every UFO has the drive)
+  data: () => ({ design: "saucer_domed", seed: Math.floor(Math.random() * 1e6), radius: 6, glow: true }),
 });

@@ -224,7 +224,7 @@ export class SolarSystem {
     const fq = frameQuat(f);
     const c = {
       v,
-      kind: v.type === "rocket" ? "rocket" : v.warp ? "warp" : "ufo",
+      kind: v.type === "rocket" ? "rocket" : "warp", // (Round 16 follow-up: every UFO has the warp drive)
       ref: body,
       r: scale(f.up, B.r + alt),
       vel: [0, 0, 0],
@@ -513,7 +513,7 @@ export class SolarSystem {
     const p = inp.pressed;
     // the warp drive (the Warp Saucer)
     if (c.kind === "warp" && p.has("KeyJ")) this.toggleWarp();
-    if (c.kind !== "warp" && p.has("KeyJ")) this.space.caption("This UFO has no warp drive: the Warp Saucer has (Creative call-ins)", "hint", 2.5);
+    if (c.kind !== "warp" && p.has("KeyJ")) this.space.caption("The rocket has no warp drive: fly a UFO for that", "hint", 2.5);
     if (inp.wheel) {
       if (c.warpOn) {
         const i = WARP_FACTORS.indexOf(c.warpFactor);

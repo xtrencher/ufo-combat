@@ -226,7 +226,7 @@ async function browserChecks() {
       return true;
     });
     const r = await v((g) => ({
-      warpBtn: !!document.querySelector('#pause-callins [data-callin="warp"]'),
+      noWarpBtn: !document.querySelector('#pause-callins [data-callin="warp"]'), // (any UFO warps: no separate button)
       rocketBtn: !!document.querySelector('#pause-callins [data-callin="rocket"]'),
       summon: !!g.vehicles.constructor.summons.warp,
       solar: !!g.space.solar,
@@ -415,7 +415,7 @@ async function browserChecks() {
     const r = await run(`async (g, a) => {
       const until = new Function("return " + a.STEP_UNTIL)();
       g.vehicles.exit({ force: true });
-      document.querySelector('#pause-callins [data-callin="warp"]').click();
+      document.querySelector('#pause-callins [data-callin="ufo"]').click(); // (every UFO has the warp drive)
       const u = g.vehicles.active;
       const out = { warp: !!u?.warp, name: u?.name, parts: !!u?.warpParts };
       if (!u) return out;
@@ -462,7 +462,7 @@ async function browserChecks() {
       g.player.keys.clear();
       return out;
     }`, { STEP_UNTIL });
-    assert(r.warp && r.name === "Warp Saucer" && r.parts && r.kind === "warp", `the Warp Saucer: ${JSON.stringify(r)}`);
+    assert(r.warp && r.kind === "warp", `the Warp Saucer: ${JSON.stringify(r)}`);
     assert(r.refusedNear && r.out >= 0 && r.on, `the drive: ${JSON.stringify(r)}`);
     assert(r.dropped && r.secs < 90 && r.maxC > 50 && r.near === "mars", `to Mars at warp: ${JSON.stringify(r)}`);
     assert(r.down >= 0, `down to Mars: ${JSON.stringify(r)}`);
