@@ -113,6 +113,41 @@ export class AirportManager {
       const spot = this._bomberSpot(s, slots);
       if (spot) put(spot, "b2", 48, 22, true);
     }
+    // (Round 16) About one airport in four has an SR-71 Blackbird too.
+    if (JET_TYPES.sr71 && this.hasSR71(s) && !have.has(`${s.id}#s`) && !this.taken.has(`${s.id}#s`)) {
+      const spot = this._sr71Spot(s, jets);
+      if (spot) put(spot, "sr71", 16, 30, true);
+    }
+  }
+
+  // (Round 16) Whether airport s keeps an SR-71 (fixed per airport: the same for every player).
+  hasSR71(s) {
+    return Math.imul((s.seed ^ 0x5bd1e995) >>> 0, 0x27d4eb2d) >>> 30 === 0;
+  }
+
+  // (Round 16) Where an airport's SR-71 stands: out on the runway past
+  // either end of the apron, facing the long way (room for its long
+  // takeoff roll), clear of the B-2; else at either end of the runway.
+  // One per airport (one key); null while the chunks aren't there yet.
+  _sr71Spot(s, jets) {
+    const key = `${s.id}#s`;
+    const list = [];
+    const [ux, uz] = this.sites.dirU(s);
+    const lim = (s.half ?? 300) - 20;
+    for (const u0 of [s.apron.u1 + 80, s.apron.u0 - 80, s.apron.u1 + 130, s.apron.u0 - 130]) {
+      const u = Math.max(-lim, Math.min(lim, u0));
+      const [x, z] = this.sites.toWorld(s, u, 0);
+      const dir = u > 0 ? -1 : 1;
+      list.push({ x: x + 0.5, y: s.y + 1, z: z + 0.5, yaw: Math.atan2(-dir * ux, -dir * uz), key });
+    }
+    for (const e of this.sites.runwayEnds(s)) list.push({ x: e.x, y: s.y + 1, z: e.z, yaw: e.yaw, key });
+    for (const slot of list) {
+      if (jets.some((j) => j.parkKey !== key && Math.hypot(j.pos.x - slot.x, j.pos.z - slot.z) < 40)) continue;
+      const ok = this._clear(s, slot, 16, 30, true);
+      if (ok === null) return null;
+      if (ok) return slot;
+    }
+    return null;
   }
 
   // (Round 9) Where an airport's B-2 stands: its own slot in the parking row,

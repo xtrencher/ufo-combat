@@ -171,6 +171,7 @@ function coneShape(o) {
   const r = o.radius || 6;
   if (o.type === "ufo" || !o.forward) return { len: r * 1.25, rad: r * 1.45, ahead: r * 0.35 };
   if (o.spec?.id === "b2") return { len: r * 0.62, rad: r * 1.08, ahead: r * 0.22 };
+  if (o.spec?.id === "sr71") return { len: r * 1.05, rad: r * 0.62, ahead: r * 0.45 }; // (Round 16: long and slim)
   return { len: r * 1.3, rad: r * 0.98, ahead: r * 0.3 };
 }
 

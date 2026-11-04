@@ -1363,6 +1363,7 @@ const jetSummon = (jetType, alt) => ({
 VehicleManager.registerSummon("f22", jetSummon("f22", 75));
 VehicleManager.registerSummon("f16", jetSummon("f16", 75));
 VehicleManager.registerSummon("b2", jetSummon("b2", 100));
+VehicleManager.registerSummon("sr71", jetSummon("sr71", 90)); // (Round 16: the SR-71 Blackbird)
 VehicleManager.registerSummon("ufo", {
   type: "ufo",
   alt: 40,

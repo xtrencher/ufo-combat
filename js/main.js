@@ -76,6 +76,7 @@ import { UfoManager } from "./ufos.js";
 import { UFO_DESIGNS, UFO_DESIGN_NAMES, createUfoModel } from "./ufo-models.js";
 import { createJetModel } from "./jet-model.js";
 import { createB2Model } from "./b2-model.js";
+import { createSR71Model } from "./sr71-model.js"; // (Round 16)
 import { TractorBeam } from "./tractor-beam.js";
 import { Stats, formatPlayTime } from "./stats.js";
 import { DEATH_MESSAGES, isPlayerCause, boltCause, pilotCause, baseCause, BYPASSES_ARMOR } from "./damage.js";
@@ -1203,7 +1204,7 @@ function removePlayerJets() {
 }
 
 // (Round 9) Creative call-ins (the pause menu): straight into the air, at the
-// controls of an F-22, an F-16, the B-2 or a random UFO. The last one called
+// controls of an F-22, an F-16, the B-2, the SR-71 (Round 16) or a random UFO. The last one called
 // in that nobody sits in goes. Online the aircraft is shared like any other
 // player's (net/vehicles.js), for the host and guests alike.
 function callIn(kind) {
@@ -2449,7 +2450,7 @@ const shaderStandIns = new THREE.Group();
 {
   const warm = new THREE.Group();
   // (The B-2 too: every airport parks one, and its windscreen is a shader of its own.)
-  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root, createJetModel(1, { type: "f16" }).root, createB2Model().root);
+  warm.add(createUfoModel("saucer", 1, { castShadow: false }).root, createJetModel().root, createJetModel(1, { type: "f16" }).root, createB2Model().root, createSR71Model().root);
   const beam = new TractorBeam(warm);
   beam.mesh.visible = true;
   beam.pool.visible = true;

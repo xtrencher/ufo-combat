@@ -1593,7 +1593,8 @@ await check("airports: parked jets stand on the apron in front of the hangars (b
     const slots = g.sites.parkingSlots(s);
     // (Round 9: the B-2 where there is room for it: its row slot, else on the runway beside the apron.)
     const b2spot = g.airports._bomberSpot(s, slots);
-    const spots = [...slots.fighters, ...(slots.hangars || []), ...(slots.bomber ? [slots.bomber] : []), ...(b2spot ? [b2spot] : [])]; // (Round 10: some fighters stand inside hangars)
+    const sr71spot = g.airports.hasSR71?.(s) ? g.airports._sr71Spot(s, g.airports.parked.get(s.id) || []) : null; // (Round 16: some airports have an SR-71)
+    const spots = [...slots.fighters, ...(slots.hangars || []), ...(slots.bomber ? [slots.bomber] : []), ...(b2spot ? [b2spot] : []), ...(sr71spot ? [sr71spot] : [])]; // (Round 10: some fighters stand inside hangars)
     return {
       n: jets.length,
       onGround: jets.every((j) => Math.abs(j.pos.y - (site.y + 1 + j.gearH)) < 0.3),

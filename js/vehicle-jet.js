@@ -35,6 +35,7 @@ import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
 import { createJetModel, PAINT_SCHEMES } from "./jet-model.js";
 import { createB2Model, B2_GEAR_HEIGHT } from "./b2-model.js";
+import { createSR71Model, SR71_GEAR_HEIGHT } from "./sr71-model.js"; // (Round 16: the SR-71 Blackbird)
 import { IS_SOLID, IS_WET } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
@@ -89,7 +90,7 @@ const YAW_RATE = 0.8;
 const ROLL_RATE = 4.2; // a full roll in 1.5 s
 const AIM_LEVEL = 1.3; // 1/s: the aim (the crosshair) levels its own roll out, so the jet comes back to wings level
 const LOOK_DELAY = 0.07; // seconds both mouse buttons are held before free look starts
-const GEAR_LAYOUT = { f22: { noseF: 4.6, mainB: 2.0, track: 1.6 }, f16: { noseF: 2.4, mainB: 1.0, track: 1.05 }, b2: { noseF: 4.6, mainB: 0.6, track: 5.2 } };
+const GEAR_LAYOUT = { f22: { noseF: 4.6, mainB: 2.0, track: 1.6 }, f16: { noseF: 2.4, mainB: 1.0, track: 1.05 }, b2: { noseF: 4.6, mainB: 0.6, track: 5.2 }, sr71: { noseF: 5.62, mainB: 3.62, track: 1.81 } };
 const TOUCH_SAFE_SINK = 9; // blocks/s: a landing harder than this damages the jet
 const TOUCH_MAX_SINK = 17; // ... and this much breaks it
 const WRECK_LIFE = 45; // seconds a falling wreck is kept at most
@@ -137,6 +138,15 @@ export const JET_TYPES = {
   f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1.25, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.1 },
   f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.06 },
   b2: { id: "b2", name: "B-2 Spirit", short: "stealth bomber (the nuke)", takeoff: "about 270 blocks", maxHealth: 420, speed: 0.52, stall: 0.85, accel: 0.62, turn: 0.42, roll: 0.42, cannonRate: 0, cannonDamage: 0, heatPerShot: 0, salvo: 1, salvoTime: 99, missileCooldown: 1.4, probes: { nose: 9.0, wing: 21.6, tail: 7.5 }, gear: B2_GEAR_HEIGHT, touchPitch: 0.3, radius: 22, hitRadius: 13, mass: 6, seat: [0, 1.7, -5.8], nuke: true, ab: false },
+  // (Round 16) The SR-71 Blackbird: the Mach 3 reconnaissance jet. Far the
+  // fastest in a straight line (Mach 3.2 high up: machLow near the ground,
+  // the full Mach from machAlt[0] to machAlt[1] above sea level), slow to
+  // turn and roll, a long takeoff roll; unarmed, like the real one (no
+  // cannon, no missiles, no nuke: the right button takes a reconnaissance
+  // photo, recon: true); flares for its defence. Its ceiling is `ceiling`
+  // times the others' (the thin air starts that much higher: well below
+  // space, which it can't reach).
+  sr71: { id: "sr71", name: "SR-71 Blackbird", short: "Mach 3 reconnaissance jet", takeoff: "about 300 blocks (200 with the afterburner)", maxHealth: 190, speed: 1.9, stall: 1.35, accel: 1.05, turn: 0.5, roll: 0.5, cannonRate: 0, cannonDamage: 0, heatPerShot: 0, salvo: 1, salvoTime: 99, missileCooldown: 1, probes: { nose: 13.6, wing: 6.6, tail: 9.6 }, gear: SR71_GEAR_HEIGHT, touchPitch: 0.22, radius: 14.5, hitRadius: 7, mass: 2.6, seat: [0, 0.79, -8.1], nuke: false, ab: true, mach: 3.2, machLow: 1.7, machAlt: [250, 1800], ceiling: 2.3, recon: true, missiles: false },
 };
 const ROGUE_MISSILE_DAMAGE = 70; // an enemy fighter's missile at a UFO (they help, but never clear the sky for you)
 
@@ -206,12 +216,12 @@ export class Jet extends Vehicle {
     // The colour scheme (Round 8: gray, green, light blue, desert, navy, arctic; enemies their own).
     this.paint = opts.paint || (typeof data.paint === "string" ? data.paint : "gray");
     this.gearH = spec.gear;
-    this.model = spec.id === "b2" ? createB2Model({ paint: this.paint }) : createJetModel(1, { paint: this.paint, type: spec.id });
+    this.model = spec.id === "b2" ? createB2Model({ paint: this.paint }) : spec.id === "sr71" ? createSR71Model() : createJetModel(1, { paint: this.paint, type: spec.id });
     this.root.add(this.model.root);
     this.hitRadius = spec.hitRadius; // (for locks and rams: shots meet the hull)
     this.hull = hullShape(spec.id); // (Round 10) what shots, blasts and other aircraft meet
     this.mass = spec.mass;
-    this.enterRadius = spec.id === "b2" ? 9 : spec.radius; // (boarding the bomber: walk up to its middle)
+    this.enterRadius = spec.id === "b2" ? 9 : spec.id === "sr71" ? 8 : spec.radius; // (boarding the bomber or the SR-71: walk up to its middle)
     this.cameraModes = ["chase", "cockpit"];
     if (Array.isArray(data.pos)) this.pos.fromArray(data.pos);
     else if (data.pos) this.pos.copy(data.pos);
@@ -407,7 +417,8 @@ export class Jet extends Vehicle {
     const kL = G / (clMax * vStall * vStall);
     // (Open air brakes spoil some of the lift: the jet sinks faster, as a real one does.)
     // (Round 16) High up the air thins (js/solar-data.js): less lift and thrust, a ceiling about 1,500 up, far below space.
-    const air = Math.max(0.02, airDensity(this.pos.y, this.manager.world.dim || "overworld"));
+    // (The SR-71's thin air starts `ceiling` times as high.)
+    const air = Math.max(0.02, airDensity(this.spec.ceiling ? 64 + (this.pos.y - 64) / this.spec.ceiling : this.pos.y, this.manager.world.dim || "overworld"));
     let lift = kL * cl * Math.max(0, vF) * Math.max(0, vF) * (1 - AIRBRAKE_LIFT_LOSS * this.airbrake) * air;
     if (this.onGround && !this._rot) lift = 0;
     const liftDir = _v.copy(up);
@@ -426,7 +437,7 @@ export class Jet extends Vehicle {
     // Drag: top speed with the afterburner lit is the max speed setting
     // (Round 13: in the air, at least the fighter's own supersonic top; an
     // enemy fighter keeps its edge over that too, enemy-jets.js speedEdge).
-    const top = this.afterburner && !this.onGround && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.spec.mach * (this.speedEdge ?? 1)) : maxSpeed;
+    const top = this.afterburner && !this.onGround && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.topMach * (this.speedEdge ?? 1)) : maxSpeed;
     const kD = (THRUST_AIR * cfg.accel * AB_THRUST) / (top * top);
     // (Induced drag from the wings' lift only once airborne: on the takeoff
     // roll a raised nose would otherwise eat the speed it needs to lift off.)
@@ -695,6 +706,8 @@ export class Jet extends Vehicle {
     this._effects(dt, aero);
     this.model.setThrottle(this.throttle, this.afterburner, this.time);
     this.model.setLights(this.time, this.manager.night ?? 0, this.lightsActive);
+    // (Round 16) The SR-71's hot skin and heat shimmer past Mach 2.
+    this.model.setHeat?.(clamp((this.speed / MACH1 - 2) / 1.1, 0, 1), this.time);
     // Control surfaces follow the stick (ailerons roll, elevators pitch,
     // rudders yaw), smoothed like a real hydraulic actuator.
     const sf = Math.min(1, dt * 10);
@@ -1027,7 +1040,9 @@ export class Jet extends Vehicle {
     this._jamT = Math.max(0, (this._jamT || 0) - dt);
     // (The B-2 has no cannon: a left click is only the lock's cancel.)
     if (firing && !this.jammed && this.cannonT <= 0 && this.spec.cannonRate > 0) this._fireCannon(fwd);
-    this._updateLock(dt, input);
+    // (Round 16: the unarmed SR-71's right button is its reconnaissance camera.)
+    if (this.spec.recon) this._recon(dt, input);
+    else this._updateLock(dt, input);
     // Flares (C).
     if (input.pressed.has("KeyC")) {
       if (this.flareT > 0) mgr.onMessage?.(`Flares reloading (${Math.ceil(this.flareT)} s)`);
@@ -1037,8 +1052,42 @@ export class Jet extends Vehicle {
     if (input.pressed.has("KeyB") && this.nukeT <= 0) {
       this.nukeT = NUKE_COOLDOWN;
       if (this.spec.nuke) this._dropNuke();
-      else mgr.onMessage?.("No nuke on a fighter: only the B-2 bomber carries it (airports)");
+      else mgr.onMessage?.(this.spec.recon ? "The SR-71 is unarmed: no nuke (only the B-2 bomber carries it)" : "No nuke on a fighter: only the B-2 bomber carries it (airports)");
     }
+  }
+
+  // (Round 16) The SR-71's top Mach: machLow near the ground, the full Mach high up.
+  get topMach() {
+    const sp = this.spec;
+    if (!sp.machLow || !sp.machAlt) return sp.mach || 0;
+    const t = clamp((this.pos.y - 64 - sp.machAlt[0]) / (sp.machAlt[1] - sp.machAlt[0]), 0, 1);
+    return sp.machLow + (sp.mach - sp.machLow) * t * t * (3 - 2 * t);
+  }
+
+  // (Round 16) The SR-71's reconnaissance camera (it carries no weapons): a
+  // right click photographs what is around it out to 3,000 blocks (UFOs,
+  // aircraft, the aliens' ground vehicles), counted on the HUD.
+  _recon(dt, input) {
+    const lk = this.lock;
+    lk.look = 0;
+    lk.target = null;
+    this.reconT = Math.max(0, (this.reconT || 0) - dt);
+    if (!input.pressed.has("mouse2") || this.freeLook) return;
+    if (this.reconT > 0) {
+      this.manager.onMessage?.(`Camera: next frame in ${this.reconT.toFixed(1)} s`);
+      return;
+    }
+    this.reconT = 1.5;
+    const range = 3000;
+    const seen = { ufo: 0, jet: 0, vehicle: 0 };
+    for (const t of this._lockables()) {
+      const p = this._targetPos(t, _v);
+      if (p && p.distanceTo(this.pos) < range) seen[t.kind] = (seen[t.kind] || 0) + 1;
+    }
+    this.reconShots = (this.reconShots || 0) + 1;
+    this.reconSeen = seen.ufo + seen.jet + seen.vehicle;
+    this.manager.audio?.playNotice?.();
+    this.manager.onMessage?.(`RECON photo ${this.reconShots}: ${this.reconSeen ? `${seen.ufo} UFO${seen.ufo === 1 ? "" : "s"}, ${seen.jet} aircraft, ${seen.vehicle} ground vehicle${seen.vehicle === 1 ? "" : "s"} within ${range} blocks` : `nothing hostile within ${range} blocks`}`);
   }
 
   // The things a missile lock or the cannon assist can pick: UFOs and enemy
@@ -1327,7 +1376,7 @@ export class Jet extends Vehicle {
 
   // (Round 13) Auto aim (the setting; the jets and the B-2 only).
   get autoAim() {
-    return this.cfg.autoAim !== false && !this.isEnemyJet;
+    return this.cfg.autoAim !== false && !this.isEnemyJet && !this.spec.recon;
   }
 
   // (Round 13) Auto aim with the button up: the UFO or aircraft nearest the
@@ -1993,7 +2042,8 @@ export class Jet extends Vehicle {
     const upv = _w.set(0, 1, 0).applyQuaternion(this.camView);
     // (Farther back for the big bomber.)
     const big = this.spec.id === "b2";
-    camera.position.copy(this.pos).addScaledVector(back, big ? 52 : 24).addScaledVector(upv, big ? 11 : 5.5);
+    const long = this.spec.id === "sr71"; // (Round 16: the SR-71's 26 blocks)
+    camera.position.copy(this.pos).addScaledVector(back, big ? 52 : long ? 36 : 24).addScaledVector(upv, big ? 11 : long ? 7 : 5.5);
     camera.rotateX(-0.08);
     // Never under the ground.
     const g = this.manager.groundBelow(camera.position.x, camera.position.y + 3, camera.position.z);
@@ -2057,13 +2107,13 @@ export class Jet extends Vehicle {
         ...(this.airbrake > 0.02 ? [["Air brakes", `<span class="vh-on">${this.airbrake > 0.97 ? "OPEN" : this.onGround ? "wheel brakes" : "OPENING"}</span> ${"▮".repeat(Math.round(this.airbrake * 5))}${"▯".repeat(5 - Math.round(this.airbrake * 5))}`]] : []),
         ...(this.freeLook ? [["View", `<span class="vh-lock">FREE LOOK</span> (controls held)`]] : []),
         ["Heading", `${Math.round(heading)}° ${card}`],
-        ["Missile", lockText],
+        this.spec.recon ? ["Camera", this.reconT > 0 ? "advancing the film..." : `READY (RMB: recon photo)${this.reconShots ? ` · ${this.reconShots} taken, ${this.reconSeen} contacts in the last` : ""}`] : ["Missile", lockText],
         ["Flares", this.flareT > 0 ? `reloading ${Math.ceil(this.flareT)} s` : "READY (C)"],
         ...(this.spec.nuke ? [["Nuke", this.nukeT > 0 ? `reloading ${Math.ceil(this.nukeT)} s` : "READY (B)"]] : []),
         ...(onRunway ? [["Takeoff", onRunway]] : []),
       ],
       bars: this.spec.cannonRate > 0 ? [{ label: "Cannon heat", value: this.heat, hot: this.jammed || this.heat > 0.75 }] : [],
-      weapon: this.spec.nuke ? "RMB missile (hold to lock; LMB cancels) · C flares · B NUKE" : "LMB cannon · RMB missile (hold to lock; LMB cancels) · C flares",
+      weapon: this.spec.recon ? "Unarmed · RMB recon camera · C flares" : this.spec.nuke ? "RMB missile (hold to lock; LMB cancels) · C flares · B NUKE" : "LMB cannon · RMB missile (hold to lock; LMB cancels) · C flares",
       warning: warnings.join(" · "),
       health: this.health / this.maxHealth,
       help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle${this.spec.ab !== false ? " · Shift afterburner" : ""} · A/D roll · Q/E rudder · Space air brakes · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
@@ -2074,14 +2124,15 @@ export class Jet extends Vehicle {
   infoPanel() {
     const cfg = this.cfg;
     return {
-      title: `${this.name}: ${this.isEnemyJet ? "hostile fighter" : this.spec.nuke ? "your stealth bomber" : "your fighter jet"}`,
+      title: `${this.name}: ${this.isEnemyJet ? "hostile fighter" : this.spec.nuke ? "your stealth bomber" : this.spec.recon ? "your reconnaissance jet" : "your fighter jet"}`,
       stats: [
         ["Top speed", `${Math.round(Math.max(cfg.maxSpeed, MACH1 * (this.spec.mach || 0)) * 3.6)} km/h with the afterburner${this.spec.mach && MACH1 * this.spec.mach > cfg.maxSpeed ? ` (Mach ${this.spec.mach}: past the sound barrier, 1235 km/h)` : ""} (${Math.round((cfg.maxSpeed / Math.sqrt(AB_THRUST)) * 3.6)} km/h at 100% throttle); speed follows the throttle, 0% to 100%`],
         ["Stall speed", `${Math.round(cfg.stallSpeed * 3.6)} km/h: the wings stop lifting below it`],
         ["Takeoff run", `${this.spec.takeoff}; the nose rises at ${ROTATE_SPEED}x the stall speed`],
         ["Armour", `${this.maxHealth} hit points (${Math.round(this.health)} left)`],
-        ...(this.spec.cannonRate > 0 ? [["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`]] : [["Autocannon", "none (a bomber)"]]),
-        ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the salvo's pips fill under the target box (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
+        ...(this.spec.cannonRate > 0 ? [["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`]] : [["Autocannon", this.spec.recon ? "none: unarmed, like the real one" : "none (a bomber)"]]),
+        ...(this.spec.recon ? [["Ceiling", `about ${Math.round(1500 * this.spec.ceiling)} blocks up (the others about 1,500): the sky darkens up there`], ["Camera", "a right click photographs every UFO, aircraft and alien ground vehicle within 3,000 blocks"]] : []),
+        this.spec.missiles === false ? ["Missiles", "none: it outruns them (Mach 3 high up, Mach 1.7 low down)"] : ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the salvo's pips fill under the target box (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
         ["Auto aim", this.autoAim ? `on: keep a UFO or aircraft in (or near) the seeker ring round the crosshair for ${AUTO_LOCK_TIME} s and it is locked (the tone goes solid); a click then sends a homing missile after it` : "off (Settings > Vehicles): lock by holding the right button"],
         ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the nuke"],
@@ -2098,8 +2149,9 @@ export class Jet extends Vehicle {
         ["Q / E", "Rudder (yaw)"],
         ["Space (hold)", "Air brakes: panels / control surfaces open, the jet sheds speed very fast and turns much tighter (too slow and it stalls); on the ground the wheel brakes"],
         ["Left click", this.spec.cannonRate > 0 ? "Autocannon (hold; watch the heat bar); while locking: cancel the lock" : "While locking: cancel the lock"],
-        ["Right click", this.autoAim ? "Missile: homing at the auto aim's lock, else straight ahead" : "Unguided missile straight ahead"],
-        ["Right click (hold)", "Missile lock on the UFO or aircraft nearest the view centre (attackers first); release to fire; click again to bring the view back"],
+        ...(this.spec.recon
+          ? [["Right click", "Reconnaissance photo (counts what is within 3,000 blocks)"]]
+          : [["Right click", this.autoAim ? "Missile: homing at the auto aim's lock, else straight ahead" : "Unguided missile straight ahead"], ["Right click (hold)", "Missile lock on the UFO or aircraft nearest the view centre (attackers first); release to fire; click again to bring the view back"]]),
         ["C", "Flares"],
         ["B", this.spec.nuke ? "Drop the nuke" : "(the B-2 only: the nuke)"],
         ["F", "Get out on the ground / eject in the air"],

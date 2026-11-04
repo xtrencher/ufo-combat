@@ -1171,7 +1171,7 @@ export class MissionDirector {
     const p = this.player.position;
     let jet = null;
     for (const v of this.vehicles.vehicles) {
-      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet || v.jetType === "b2") continue;
+      if (v.type !== "jet" || !v.alive || v.occupied || v.isEnemyJet || v.jetType === "b2" || v.jetType === "sr71") continue; // (Round 16: the SR-71 is unarmed)
       if (!jet || v.pos.distanceTo(p) < jet.pos.distanceTo(p)) jet = v;
     }
     return jet ? { pos: jet.pos.clone(), label: "Parked fighter: get in (F)", follow: jet } : null;
@@ -2918,7 +2918,7 @@ export class MissionDirector {
     const st = this.state;
     if (!this.progress.board || st.provided || !(m.vehicle === "jet" || m.vehicle === "b2")) return;
     const act = this.vehicles.active;
-    if (act?.type === "jet" && (m.vehicle !== "b2" || act.jetType === "b2")) {
+    if (act?.type === "jet" && (m.vehicle !== "b2" || act.jetType === "b2") && act.jetType !== "sr71") {
       st.provided = true;
       return;
     }

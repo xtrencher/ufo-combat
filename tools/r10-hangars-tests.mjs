@@ -302,7 +302,7 @@ await check("the airport parks as many fighters as before (a hangar's jet is one
     for (const sl of [...g.sites.parkingSlots(s).fighters, ...g.sites.parkingSlots(s).hangars]) g.world.prepareArea(sl.x, sl.z, 1);
     g.airports.timer = 0;
     g.airports.update(1);
-    const jets = g.airports.parked.get(s.id).filter((j) => j.type === "jet" && j.jetType !== "b2");
+    const jets = g.airports.parked.get(s.id).filter((j) => j.type === "jet" && j.jetType !== "b2" && j.jetType !== "sr71"); // (Round 16: nor the SR-71)
     out.here = { total: g.airports.fighterCount(s), jets: jets.length, apron: jets.filter((j) => !/#g\d+$/.test(j.parkKey)).length, room: g.sites.parkingSlots(s).fighters.length + g.sites.parkingSlots(s).hangars.length };
     return out;
   });
