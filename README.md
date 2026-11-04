@@ -2362,6 +2362,26 @@ fighter's top speed, slow to turn and roll, 420 health, no afterburner and
 no cannon, missiles one at a time, and a long takeoff roll (about 270
 blocks). Lost, it is replaced at its airport.
 
+**The SR-71 Blackbird** (Round 16; js/sr71-model.js, js/sr71-shape.js) is
+the Mach 3 reconnaissance jet: 26 blocks long and 13.6 across (the real
+32.7 m by 16.9 m at the fighters' scale), lofted smooth from the real
+shape: the long chined fuselage blending into the thin delta (its leading
+edge swept 52 degrees, the outboard wing drooped toward the tip: the
+conical camber), the two big nacelles at mid-span with their inlet spikes
+and ejector nozzles, the two all-moving fins canted 15 degrees inward, the
+tandem canopies, the matte blue-black finish with red walkway lines, red
+fin serials and the white insignia and "U.S. AIR FORCE" on the nacelles.
+It is unarmed, like the real one (the right button takes a reconnaissance
+photo: it counts every UFO, aircraft and alien ground vehicle within 3,000
+blocks; flares still work), far the fastest thing with wings (about 2,100
+km/h low down, Mach 3.2 above about 1,800 blocks, where its afterburners'
+shock diamonds glow and its skin runs hot), slow to turn and roll, with a
+long takeoff roll (about 300 blocks, 170 with the afterburner) and 190
+health. It flies about 2.3 times as high as the others (its thin air starts
+there: a ceiling round 3,500 blocks, below the space line). Creative:
+the "SR-71" call-in and the Vehicles tab; about one airport in four parks
+one on its runway.
+
 **Radar** (Round 8): bottom right in any aircraft (jets, the B-2, your own
 UFO), heading up, 2.4 km to the rim: UFOs (red diamonds, bigger for bigger
 ships), enemy aircraft (orange arrowheads), other players (their colour),

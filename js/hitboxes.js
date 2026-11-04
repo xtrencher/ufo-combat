@@ -24,6 +24,7 @@
 //       crossing): the earliest contact, its normal (from a toward b), how
 //       deep and whether it began this frame.
 import { S as B2_S, A1, A2, A3, A4, leZ, teZ, b2Section, intakeHood } from "./b2-shape.js";
+import * as SR from "./sr71-shape.js"; // (Round 16: the SR-71)
 
 // ---------- Building ----------
 
@@ -294,6 +295,48 @@ function buildB2() {
   return parts;
 }
 
+// (Round 16) The SR-71 (sr71-shape.js, in metres; scaled here to blocks):
+// the core lofted from its sections (the canopies on top), the chines and
+// the inboard wing as plates strip by strip (their edge is concave in plan),
+// the nacelles lofted with their spikes, the outboard wings (the nacelle
+// chine apart from the swept part), the canted fins.
+function buildSR71() {
+  const K = SR.K;
+  const zm = (z) => (z - SR.Z0) * K;
+  const out = (pts) => pts.map(([x, z]) => [x * K, zm(z)]);
+  const parts = [];
+  const core = [];
+  for (const z of [0.3, 2, 4.5, 7, 9.5, 12, 16, 22, 26, 28.5, 30.5, 31.8]) {
+    const r = Math.max(0.03, SR.coreR(z));
+    const top = SR.coreTop(0, z) + SR.canopyH(0, z) + 0.05;
+    const tq = SR.coreTop(r * 0.7, z) + SR.canopyH(r * 0.7, z) + 0.05;
+    const bot = SR.coreBot(0, z) + 0.05;
+    const pts = [[0, top], [r * 0.7, tq], [r + 0.04, 0], [r * 0.7, -bot * 0.72], [0, -bot], [-r * 0.7, -bot * 0.72], [-r - 0.04, 0], [-r * 0.7, tq]];
+    core.push({ z: zm(z), pts: pts.map(([x, y]) => [x * K, y * K]) });
+  }
+  parts.push(...loftAll(core));
+  const zs = [1.2, 4, 7, 10, 13, 15.2, SR.CHINE_Z, SR.CHINE_Z + 1.6];
+  for (const s of [1, -1]) {
+    for (let i = 0; i < zs.length - 1; i++) {
+      const a = zs[i];
+      const b = zs[i + 1];
+      parts.push(plate(out([[0, a], [s * SR.bodyEdge(a), a], [s * SR.bodyEdge(b), b], [0, b]]), -0.2 * K, 0.22 * K));
+    }
+    parts.push(plate(out([[0, SR.CHINE_Z + 1.6], [s * SR.XN, SR.CHINE_Z + 1.6], [s * SR.XN, SR.TE_IN], [0, SR.TE_IN]]), -0.24 * K, 0.27 * K));
+    // The nacelle with its spike.
+    const ring = (z, r) => ({ z: zm(z), pts: [0, 1, 2, 3, 4, 5, 6, 7].map((k) => [(s * SR.XN + Math.cos((k * Math.PI) / 4) * r * 1.04) * K, (SR.YN + Math.sin((k * Math.PI) / 4) * r * 1.04) * K]) });
+    parts.push(...loftAll([ring(SR.SPIKE_Z, 0.04), ring(SR.LIP_Z, 0.72), ring(19.8, 0.86), ring(28.6, 0.86), ring(SR.EXIT_Z, 0.8)]));
+    // The outboard wing: the nacelle chine, then the swept part.
+    const [rx, rz] = SR.OUT_ROOT;
+    parts.push(plate(out([[s * SR.XN, SR.LIP_Z + 0.4], [s * rx, rz], [s * rx, SR.outerTE(rx)], [s * SR.XN, SR.ROOT_TE]]), -0.16 * K, 0.17 * K));
+    parts.push(plate(out([[s * rx, rz], [s * SR.TIP_X, SR.TIP_LE], [s * SR.TIP_X, SR.TIP_TE], [s * rx, SR.outerTE(rx)]]), -0.24 * K, 0.14 * K));
+    // The fin, canted inward.
+    const F = SR.FIN;
+    parts.push(plate([[0, zm(F.z0)], [0, zm(F.z1)], [F.h * K, zm(F.tz1)], [F.h * K, zm(F.tz0)]], -0.08 * K, 0.08 * K, finMatrix(Math.PI / 2 + s * F.cant, s * SR.XN * K, (SR.YN + 0.8) * K, 0)));
+  }
+  return parts;
+}
+
 // A shape: its pieces, its bounding radius about the origin, and (for
 // collisions) its points and edges, flattened.
 function shapeFrom(parts) {
@@ -315,9 +358,9 @@ function shapeFrom(parts) {
 }
 
 const SHAPES = {};
-const BUILD = { f22: buildF22, f16: buildF16, b2: buildB2 };
+const BUILD = { f22: buildF22, f16: buildF16, b2: buildB2, sr71: buildSR71 };
 
-// The shape of an aircraft type ("f22", "f16", "b2"), built once; null for anything else.
+// The shape of an aircraft type ("f22", "f16", "b2", "sr71"), built once; null for anything else.
 export function hullShape(type) {
   if (!BUILD[type]) return null;
   return SHAPES[type] || (SHAPES[type] = shapeFrom(BUILD[type]()));

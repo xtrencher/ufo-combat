@@ -8,7 +8,8 @@
 // LIB.summonVehicle; `vehicle` is the key of VehicleManager.summons).
 // Ids: the core item range's unused 266-269; 316-319 are kept for more
 // vehicles (the tanks; Round 14: 319 the helicopter, placed as the Black
-// Hawk while sneaking).
+// Hawk while sneaking). (Round 16) 912-919 (taken from end.js's unused
+// top): 912 the SR-71 Blackbird.
 import { LIB } from "./base.js";
 
 export const F22_ITEM = 266;
@@ -21,6 +22,8 @@ export const MBT_ITEM = 317;
 export const TEL_ITEM = 318;
 // (Round 14) The helicopter (js/vehicle-heli.js; sneaking: the Black Hawk).
 export const HELI_ITEM = 319;
+// (Round 16) The SR-71 Blackbird (js/sr71-model.js).
+export const SR71_ITEM = 912;
 // (Round 15) The Battle Tank placed while sneaking: the AA vehicle
 // (js/tanks.js ParkedAA: twin cannons and SAMs; `sneak`, another summon's key).
 
@@ -28,6 +31,7 @@ export const items = {
   [F22_ITEM]: { name: "F-22 Raptor", icon: "vehicle_f22", stack: 1, vehicle: "f22" },
   [F16_ITEM]: { name: "F-16 Fighting Falcon", icon: "vehicle_f16", stack: 1, vehicle: "f16" },
   [B2_ITEM]: { name: "B-2 Spirit", icon: "vehicle_b2", stack: 1, vehicle: "b2" },
+  [SR71_ITEM]: { name: "SR-71 Blackbird", icon: "vehicle_sr71", stack: 1, vehicle: "sr71" },
   [UFO_ITEM]: { name: "UFO", icon: "vehicle_ufo", stack: 1, vehicle: "ufo" },
   [TIGER_ITEM]: { name: "Tiger Tank", icon: "vehicle_tiger", stack: 1, vehicle: "tiger" },
   [MBT_ITEM]: { name: "Battle Tank (sneaking: AA vehicle)", icon: "vehicle_mbt", stack: 1, vehicle: "mbt", sneak: "aa" },
@@ -78,6 +82,28 @@ icons.vehicle_b2 = (kit) => {
   const hump = kit.ramp(0x26292e, 0x33373d, 0x42474e, 0x545a62, 0x676e77);
   const glass = kit.ramp(0x0e1a24, 0x1a2e3e, 0x2a4a60, 0x426c86, 0x6a96ae);
   return c.render([wing, hump, glass], [10, 10, 12]);
+};
+// (Round 16) The SR-71 from above, nose up: the long chined body flaring
+// into the delta, the nacelles with their spikes, the canted fins, the
+// small canopies.
+icons.vehicle_sr71 = (kit) => {
+  const c = new kit.Canvas();
+  const BODY = 0;
+  const NAC = 1;
+  const GLASS = 2;
+  const half = [[16.6, 4.5], [17.1, 8.5], [17.7, 12.2], [18.6, 15.6], [19.6, 17.4], [20.4, 21], [24.2, 26.2], [24.2, 28.2], [19.2, 29.2], [17.2, 28.6], [16.8, 30.6]];
+  const left = half.map(([x, y]) => [32 - x, y]).reverse();
+  c.poly(BODY, [[16, 1.2], ...half, [16, 31.2], ...left], (x, y) => (y < 14 ? 0.3 : x < 16 ? 0.1 : -0.15));
+  for (const s of [-1, 1]) {
+    const x = 16 + s * 3.1;
+    c.poly(NAC, [[x, 12.8], [x + 1.05, 16], [x + 1.1, 30.4], [x - 1.1, 30.4], [x - 1.05, 16]], () => 0.15);
+    c.line(BODY, x, 25.6, x - s * 0.6, 29.6, 1.1, () => -0.3); // (the fins, canted inward)
+  }
+  c.poly(GLASS, [[16, 5.6], [16.6, 6.8], [16.5, 8.6], [15.5, 8.6], [15.4, 6.8]], () => 0.4);
+  const body = kit.ramp(0x111317, 0x1a1d22, 0x252930, 0x323740, 0x434954);
+  const nac = kit.ramp(0x15171b, 0x1f2227, 0x2b2f36, 0x3a3f48, 0x4d535e);
+  const glass = kit.ramp(0x0e1a24, 0x1a2e3e, 0x2a4a60, 0x426c86, 0x6a96ae);
+  return c.render([body, nac, glass], [70, 74, 82]);
 };
 // A saucer from the side: the silver disc, its glowing rim lights and the dome.
 icons.vehicle_ufo = (kit) => {
