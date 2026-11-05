@@ -78,13 +78,19 @@ const DIFF_CODES = ["normal", "easy", "hard", "insane"]; // (0: the default)
 const OPEN_CODES = [null, "none", "some", "lots"]; // (0: the course's default)
 export const BIOME_MIXED = "mixed";
 
-// The world seed of a course with options: { biome: a biome id, "mixed" or
-// null (the course's), diff, open }.
+// (Round 17) Space is a scenery of its own (the whole run out among the
+// asteroids), no longer an open stretch between canyons: a bit of its own in
+// the seed. Mixed and Random never pick it (it isn't in BIOME_ORDER).
+export const BIOME_SPACE = "space";
+
+// The world seed of a course with options: { biome: a biome id, "mixed",
+// "space" (Round 17) or null (the course's), diff, open }.
 export function canyonSeed(base, { biome = null, diff = "normal", open = null } = {}) {
+  const space = biome === BIOME_SPACE;
   const b = biome === BIOME_MIXED ? 7 : Math.max(0, BIOME_ORDER.indexOf(biome) + 1);
   const d = Math.max(0, DIFF_CODES.indexOf(diff));
   const o = Math.max(0, OPEN_CODES.indexOf(open));
-  return ((base & BASE_MASK) | (b << BASE_BITS) | (d << (BASE_BITS + 3)) | (o << (BASE_BITS + 5))) >>> 0;
+  return ((base & BASE_MASK) | (b << BASE_BITS) | (d << (BASE_BITS + 3)) | (o << (BASE_BITS + 5)) | ((space ? 1 : 0) << (BASE_BITS + 7))) >>> 0;
 }
 
 export function courseOf(seed) {
@@ -100,7 +106,9 @@ export function courseOf(seed) {
   spec.biome = bc === 0 ? spec.biome : bc === 7 ? BIOME_MIXED : BIOME_ORDER[bc - 1];
   spec.diff = DIFF_CODES[(opts >> 3) & 3];
   spec.open = OPEN_CODES[(opts >> 5) & 3] || "some";
-  spec.opts = opts & 0x7f; // (records: a course with other options keeps its own best)
+  // (Round 17) The Space scenery: the course's own rock at the mouth and the run-out only.
+  spec.space = ((opts >> 7) & 1) === 1;
+  spec.opts = opts & 0xff; // (records: a course with other options keeps its own best)
   return spec;
 }
 
@@ -111,6 +119,7 @@ function smooth(a, b, x) {
 
 const VALLEY_W = 100; // a valley's half-width
 const VALLEY_RAMP = 220; // blocks over which the canyon opens into a valley (and closes again)
+const SPACE_FROM = 260; // (Round 17) the Space scenery: its cliff edges, this far in from either end
 const SPACE_HALF = 90; // the width of the course through space (each side of its line)
 const BIOME_BLEND = 260; // blocks over which one biome gives way to the next
 const ROCK_BLOCKS = [BLACKSTONE, BASALT, ANDESITE, BLOCK.COBBLESTONE, BLACKSTONE, BASALT];
@@ -226,24 +235,36 @@ export class CanyonCourse {
     const per = (CANYON_OPENS[this.spec.open] || CANYON_OPENS.some).per;
     this.opens = [];
     this.rocks = [];
-    if (!per) return;
     const L = this.length;
+    // (Round 17) The Space scenery: the whole course out among the asteroids
+    // (the mouth and the run-out still the course's rock, the start and the
+    // finish gates in them); no valleys.
+    if (this.spec.space) {
+      this.opens.push({ kind: "space", z0: SPACE_FROM, z1: L - SPACE_FROM, i: 0 });
+      this._makeRocks(rand);
+      return;
+    }
+    if (!per) return;
     const n = Math.max(1, Math.round(L * per));
     const from = 1400;
     const to = L - 1300;
     if (to - from < 1200) return;
-    let kind = rand() < 0.5 ? "space" : "valley";
+    // (Round 17) Valleys only between the canyons (space is a scenery of its own).
+    rand();
     for (let i = 0; i < n; i++) {
-      const len = kind === "space" ? 650 + rand() * 350 : 800 + rand() * 500;
+      const kind = "valley";
+      const len = 800 + rand() * 500;
       const mid = from + ((i + 0.5 + (rand() - 0.5) * 0.4) / n) * (to - from);
       const z0 = Math.round(mid - len / 2);
       const z1 = Math.round(mid + len / 2);
       if (this.opens.some((o) => z0 < o.z1 + 500 && z1 > o.z0 - 500)) continue;
       this.opens.push({ kind, z0, z1, i: this.opens.length });
-      kind = kind === "space" ? "valley" : "space";
     }
-    // The asteroids: lumpy rocks floating along the way through space, round
-    // the course's line, a few big, most small.
+  }
+
+  // The asteroids: lumpy rocks floating along the way through space, round
+  // the course's line, a few big, most small.
+  _makeRocks(rand) {
     for (const o of this.opens) {
       if (o.kind !== "space") continue;
       for (let z = o.z0 + 60; z < o.z1 - 40; z += 7 + rand() * 9) {

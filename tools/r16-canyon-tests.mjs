@@ -98,6 +98,12 @@ await check("the options ride in the world's seed and come back out", async () =
       }
     }
   }
+  // (Round 17) The Space scenery rides in a bit of its own.
+  for (const course of C.CANYON_COURSES) {
+    const s = C.courseOf(C.canyonSeed(course.seed, { biome: C.BIOME_SPACE, diff: "hard", open: "lots" }));
+    assert(s.id === course.id && s.space === true && s.diff === "hard" && s.biome === course.biome, `space: ${JSON.stringify(s)}`);
+    assert(!C.courseOf(C.canyonSeed(course.seed, { biome: "mixed" })).space, "mixed is not space");
+  }
   // (the defaults: the course's own seed, as in Round 15)
   assert(C.canyonSeed(1515001, {}) === 1515001, "the default options are the course's own seed");
 });
@@ -204,7 +210,8 @@ await check("difficulty: the widths are in order (Easy wide open, Insane a crack
   }
 });
 
-await check("open stretches: valleys and space (asteroids, nothing else) when asked for, none when not", async () => {
+// (Round 17) Open stretches are valleys only; space is the Space scenery (the whole run).
+await check("open stretches: valleys only (never space) when asked for, none when not; the Space scenery: the whole run among asteroids", async () => {
   for (const course of C.CANYON_COURSES) {
     const none = new C.CanyonCourse(C.canyonSeed(course.seed, { open: "none" }));
     assert(none.opens.length === 0 && none.rocks.length === 0, `${course.id}: open stretches with "none"`);
@@ -212,18 +219,22 @@ await check("open stretches: valleys and space (asteroids, nothing else) when as
     assert(some.opens.length >= 1, `${course.id}: no open stretch by default`);
     const lots = new C.CanyonCourse(C.canyonSeed(course.seed, { open: "lots" }));
     assert(lots.opens.length > some.opens.length || lots.opens.length >= 3, `${course.id}: lots ${lots.opens.length} vs some ${some.opens.length}`);
+    for (const k of [some, lots]) assert(k.opens.every((o) => o.kind === "valley") && k.rocks.length === 0, `${course.id}: space between the canyons`);
+    const sp = new C.CanyonCourse(C.canyonSeed(course.seed, { biome: C.BIOME_SPACE }));
+    assert(sp.spec.space && sp.opens.length === 1 && sp.opens[0].kind === "space" && sp.opens[0].z1 - sp.opens[0].z0 > sp.length - 700, `${course.id}: the Space scenery ${JSON.stringify(sp.opens)}`);
   }
-  const gen = new C.CanyonGenerator(C.canyonSeed(1515001, { open: "lots" }));
+  assert(!BIO.BIOME_ORDER.includes("space"), "Mixed or Random could pick space");
+  const gen = new C.CanyonGenerator(C.canyonSeed(1515001, { biome: C.BIOME_SPACE }));
   const c = gen.course;
   const space = c.opens.find((o) => o.kind === "space");
-  const valley = c.opens.find((o) => o.kind === "valley");
+  const valley = new C.CanyonCourse(C.canyonSeed(1515001, { open: "lots" })).opens.find((o) => o.kind === "valley");
   assert(space && valley, `kinds: ${c.opens.map((o) => o.kind)}`);
   // Space: the canyon gone (no wall, no floor), asteroids to dodge, rings among them.
   const mid = Math.round((space.z0 + space.z1) / 2);
   const row = c.row(mid);
   let solid = 0;
   let rock = 0;
-  const s = census(gen, space.z0 + 40, space.z1 - 40, 2);
+  const s = census(gen, Math.max(space.z0 + 40, mid - 500), Math.min(space.z1 - 40, mid + 500), 2);
   for (const [id, n] of s.counts) {
     solid += n;
     if ([IDS.BLACKSTONE, IDS.BASALT, IDS.ANDESITE, BLOCK.COBBLESTONE, BLOCK.LUMEN, IDS.MAGMA_BLOCK].includes(id)) rock += n;
@@ -234,7 +245,7 @@ await check("open stretches: valleys and space (asteroids, nothing else) when as
   const inSpace = c.rings().filter((r) => r.z > space.z0 && r.z < space.z1);
   assert(inSpace.length >= 1, "no ring in space");
   // A valley: wide, low walls.
-  const vm = c.row(Math.round((valley.z0 + valley.z1) / 2));
+  const vm = new C.CanyonCourse(C.canyonSeed(1515001, { open: "lots" })).row(Math.round((valley.z0 + valley.z1) / 2));
   assert(vm.valley > 0.99 && vm.W >= 95 && vm.rim < vm.floor + 20, `the valley: W ${vm.W} rim ${vm.rim} floor ${vm.floor}`);
 });
 
@@ -397,10 +408,10 @@ async function browserChecks() {
     const r = await v(() => {
       const n = (k) => document.querySelectorAll(`[data-opt="${k}"] .cy-seg-btn`).length;
       const act = (k) => document.querySelector(`[data-opt="${k}"] .cy-seg-btn.active`)?.dataset.v;
-      return { shown: !document.getElementById("canyon-screen")?.classList.contains("hidden"), cards: document.querySelectorAll(".cy-course-card").length, diff: n("diff"), biome: n("biome"), open: n("open"), bots: n("bots"), crash: n("crash"), defaults: [act("diff"), act("biome"), act("open"), act("bots"), act("crash")] };
+      return { shown: !document.getElementById("canyon-screen")?.classList.contains("hidden"), cards: document.querySelectorAll(".cy-course-card").length, diff: n("diff"), biome: n("biome"), open: n("open"), bots: n("bots"), crash: n("crash"), rings: n("rings"), defaults: [act("diff"), act("biome"), act("open"), act("bots"), act("crash"), act("rings")] };
     });
-    assert(r.shown && r.cards === 4 && r.diff === 4 && r.biome === 9 && r.open === 3 && r.bots === 4 && r.crash === 2, `the screen: ${JSON.stringify(r)}`);
-    assert(r.defaults.join() === "normal,default,some,none,checkpoint", `the defaults: ${r.defaults}`);
+    assert(r.shown && r.cards === 4 && r.diff === 4 && r.biome === 10 && r.open === 3 && r.bots === 4 && r.crash === 2 && r.rings === 2, `the screen: ${JSON.stringify(r)}`);
+    assert(r.defaults.join() === "normal,default,some,none,checkpoint,off", `the defaults: ${r.defaults}`);
     await shot("r16-menu");
     await page.evaluate(() => {
       const pick = (k, val) => document.querySelector(`[data-opt="${k}"] .cy-seg-btn[data-v="${val}"]`).click();
@@ -409,12 +420,13 @@ async function browserChecks() {
       pick("open", "lots");
       pick("bots", "many");
       pick("crash", "restart");
+      pick("rings", "on");
       document.querySelectorAll(".cy-course-card")[2].click();
     });
     await Promise.all([page.waitForURL(/canyon=night/, { timeout: 60000 }), click("#canyon-fly")]);
     const url = new URL(page.url());
     const q = Object.fromEntries(url.searchParams);
-    assert(q.diff === "insane" && q.biome === "volcanic" && q.open === "lots" && q.bots === "many" && q.crash === "restart", `the address: ${url.search}`);
+    assert(q.diff === "insane" && q.biome === "volcanic" && q.open === "lots" && q.bots === "many" && q.crash === "restart" && q.rings === "on", `the address: ${url.search}`);
     await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady && window.__ufo.canyon, null, { timeout: 120000 });
     const s = await v((g) => g.canyon.info().spec);
     assert(s.diff === "insane" && s.biome === "volcanic" && s.open === "lots", `the run: ${JSON.stringify(s)}`);
@@ -554,7 +566,9 @@ async function browserChecks() {
     console.log(`        ${JSON.stringify({ state: r.state, bots: r.bots, bolts, minHp })}`);
     assert(r.bots.spawned >= 3, `spawned ${r.bots.spawned}`);
     assert(r.state === "flying", `the player: ${r.state}`);
-    assert(r.bots.lost <= Math.max(1, Math.floor(r.bots.spawned / 3)), `${r.bots.lost} of ${r.bots.spawned} flew into the rock`);
+    // (Round 17: a bandit never crashes, and none comes head-on)
+    assert(r.bots.lost === 0, `${r.bots.lost} of ${r.bots.spawned} flew into the rock`);
+    assert(await v((g) => g.canyon.bots.list.every((b) => b.dirZ === 1 && !b.collider)), "a bandit head-on, or one that can ram");
     assert(bolts > 0, "no enemy jet fired");
     await shot("r16-bots");
   });
@@ -591,8 +605,8 @@ async function browserChecks() {
       }
       c._hud(0);
       const out = { alive: b.alive, hp: b.health, kills: c.bots.kills - kills0, hud: document.querySelector("#canyon-hud .cy-kills")?.textContent };
-      // A bandit head-on, its guns on the player.
-      const h = c.bots.spawn({ dirZ: -1, ahead: 160 });
+      // A bandit (Round 17: the player's way, never head-on), its guns on the player.
+      const h = c.bots.spawn({ ahead: 160 });
       const hp0 = j.health;
       for (let i = 0; i < 90 && h && h.alive; i++) {
         h.ai.burstT = 0;
@@ -626,7 +640,17 @@ async function browserChecks() {
     assert(r.state === "flying" && r.respawns >= 1, `back: ${JSON.stringify({ state: r.state, respawns: r.respawns })}`);
   });
 
+  // (Round 17: space is the Space scenery now, its own run)
+  const runPage = async (q) => {
+    await page.goto(`${base}?${q}`, { waitUntil: "load", timeout: 60000 });
+    await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady && window.__ufo.canyon, null, { timeout: 120000 });
+    await v((g) => g.setGraphics?.("low"));
+    await play();
+    const f = await until((g) => (g.canyon.state === "flying" ? g.canyon.info() : null), 200000);
+    assert(f, "never flying");
+  };
   await browserCheck("space: a black sky with stars, asteroids, rings among them; off the line there is out", async () => {
+    await runPage("canyon=grand&jet=f22&diff=easy&biome=space&bots=some");
     const r = await v((g) => {
       const c = g.canyon;
       c.bots.clear();
@@ -686,6 +710,7 @@ async function browserChecks() {
   });
 
   await browserCheck("a valley: wide open, low hills; the sky back to the scenery's", async () => {
+    await runPage("canyon=grand&jet=f22&diff=easy&biome=snow&open=lots");
     const r = await v((g) => {
       const c = g.canyon;
       const o = c.course.opens.find((x) => x.kind === "valley");

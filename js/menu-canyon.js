@@ -5,12 +5,13 @@
 // left as it is). The screen is made here; index.html has its button.
 // (Round 16) The run's options, remembered with the rest: the difficulty
 // (how wide the canyon is: Easy .. Insane), the scenery (the course's own,
-// a biome, a mix of them, or a random one), open stretches (a valley,
-// space: none, some, lots), enemy jets (none, few, some, many) and what a
+// a biome, a mix of them, or a random one; Round 17: or Space, the whole
+// run among the asteroids), open stretches (Round 17: valleys only: none,
+// some, lots), the rings (Round 17: off by default), enemy jets (none, few, some, many) and what a
 // crash does (back at the last checkpoint, the default, or the course
 // again). The best times shown are the ones for the options picked.
 import { CANYON_COURSES, canyonUrl, loadRecords, medalTimes, formatTime, recordId } from "./canyon.js";
-import { courseOf, canyonSeed, BIOME_MIXED } from "./dim-canyon.js";
+import { courseOf, canyonSeed, BIOME_MIXED, BIOME_SPACE } from "./dim-canyon.js";
 import { CANYON_BIOMES, BIOME_ORDER, CANYON_DIFFS, DIFF_ORDER, OPEN_ORDER, CANYON_OPENS } from "./canyon-biomes.js";
 import { BOT_LEVELS } from "./canyon-bots.js";
 import { loadJSON, saveJSON } from "./storage.js";
@@ -20,11 +21,14 @@ const JETS = [
   { id: "f16", name: "F-16 Falcon", note: "Lighter, turns tighter" },
 ];
 // (Round 16) The options' choices: [value, label, note].
-const BIOMES = [["default", "Course's own", ""], ...BIOME_ORDER.map((id) => [id, CANYON_BIOMES[id].name, CANYON_BIOMES[id].note]), [BIOME_MIXED, "Mixed", "One after another"], ["random", "Random", "A surprise each time"]];
+// (Round 17: Space, the whole run among the asteroids, a scenery of its own: never Mixed's or Random's)
+const BIOMES = [["default", "Course's own", ""], ...BIOME_ORDER.map((id) => [id, CANYON_BIOMES[id].name, CANYON_BIOMES[id].note]), [BIOME_MIXED, "Mixed", "One after another"], ["random", "Random", "A surprise each time"], [BIOME_SPACE, "Space", "The whole run among the asteroids"]];
 const DIFFS = DIFF_ORDER.map((id) => [id, CANYON_DIFFS[id].name, CANYON_DIFFS[id].note]);
-const OPENS = OPEN_ORDER.map((id) => [id, CANYON_OPENS[id].name, { none: "Canyon all the way", some: "A valley or space now and then", lots: "Often" }[id]]);
+const OPENS = OPEN_ORDER.map((id) => [id, CANYON_OPENS[id].name, { none: "Canyon all the way", some: "An open valley now and then", lots: "Often" }[id]]);
 const BOTS = BOT_LEVELS.map((b) => [b.id, b.name, { none: "A time trial", few: "Two at a time", some: "Four at a time", many: "Six at a time" }[b.id]]);
 const CRASH = [["checkpoint", "Respawn at checkpoint", "Back at the last checkpoint passed"], ["restart", "Restart the course", "A crash ends the run"]];
+// (Round 17) The rings to fly through: off by default (the checkpoints stay, unseen, no penalty).
+const RINGS = [["off", "Off", "Checkpoints only, no penalty"], ["on", "On", "Fly through each ring: +5 s a miss"]];
 
 // The course spec a set of options makes (for its record and par times).
 function specFor(course, o) {
@@ -48,6 +52,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
     open: pick(OPENS, pref.open, "some"),
     bots: pick(BOTS, pref.bots, "none"),
     crash: pick(CRASH, pref.crash, "checkpoint"),
+    rings: pick(RINGS, pref.rings, "off"),
   };
 
   const el = document.createElement("div");
@@ -56,7 +61,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
   el.innerHTML = `
     <div class="panel wide cy-menu">
       <h2>Canyon run <small>single player</small></h2>
-      <div class="hint">Fly a jet through a huge winding canyon as fast as you can: through every ring, under the arches, between the walls. Touch the rock and you're back at the last checkpoint.</div>
+      <div class="hint">Fly a jet through a huge winding canyon as fast as you can: past every checkpoint, under the arches, between the walls. Touch the rock and you're back at the last checkpoint.</div>
       <div class="cy-courses"></div>
       <div class="cy-opt-grid">
         <div class="cy-opt"><div class="subhead">Difficulty <span class="cy-opt-note" data-note="diff"></span></div><div class="cy-seg" data-opt="diff"></div></div>
@@ -64,6 +69,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
         <div class="cy-opt wide"><div class="subhead">Scenery <span class="cy-opt-note" data-note="biome"></span></div><div class="cy-seg cy-wrap" data-opt="biome"></div></div>
         <div class="cy-opt"><div class="subhead">Open stretches <span class="cy-opt-note" data-note="open"></span></div><div class="cy-seg" data-opt="open"></div></div>
         <div class="cy-opt"><div class="subhead">After a crash <span class="cy-opt-note" data-note="crash"></span></div><div class="cy-seg" data-opt="crash"></div></div>
+        <div class="cy-opt"><div class="subhead">Rings <span class="cy-opt-note" data-note="rings"></span></div><div class="cy-seg" data-opt="rings"></div></div>
       </div>
       <div class="subhead">Your jet</div>
       <div class="cy-jets"></div>
@@ -76,7 +82,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
   document.body.appendChild(el);
   const list = el.querySelector(".cy-courses");
   const jets = el.querySelector(".cy-jets");
-  const CHOICES = { diff: DIFFS, biome: BIOMES, open: OPENS, bots: BOTS, crash: CRASH };
+  const CHOICES = { diff: DIFFS, biome: BIOMES, open: OPENS, bots: BOTS, crash: CRASH, rings: RINGS };
 
   function render() {
     const rec = loadRecords();

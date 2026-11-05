@@ -14,8 +14,16 @@
 // is in between), weaker and less accurate on the easier difficulties.
 // They never get a missile off (in a canyon a missile is a sure kill), but
 // drop flares at the player's. The run (js/canyon.js) counts the kills.
+// (Round 17) Runners only: every bandit flies the player's way along the
+// course, none comes head-on. A bandit never crashes: the rock doesn't
+// break it (where its airframe meets the rock it is eased back onto the
+// course's safe line, through the rock if need be) and it touches no other
+// aircraft (no collider: it can't ram the player, nor the player it); only
+// the player's guns and missiles bring one down.
 import * as THREE from "three";
 import { VehicleManager } from "./vehicles.js";
+import { IS_SOLID } from "./blocks.js";
+import { WORLD_HEIGHT } from "./constants.js";
 import { Jet } from "./vehicle-jet.js";
 import { EnemyJet } from "./enemy-jets.js";
 import { isPlayerCause } from "./damage.js";
@@ -56,8 +64,11 @@ export class CanyonBot extends EnemyJet {
     super(manager, { ...data, hijacked: true });
     this.name = "Bandit";
     this.canyonBot = true;
-    this.dirZ = data.dirZ === -1 ? -1 : 1;
-    this.role = this.dirZ < 0 ? "headon" : "runner";
+    // (Round 17: the player's way only)
+    this.dirZ = 1;
+    this.role = "runner";
+    this.rockT = 0;
+    this.rescues = 0;
     this.skill = SKILL[data.skill] || SKILL.normal;
     this.maxHealth = this.health = this.skill.hp;
     this.run = data.run || null;
@@ -268,23 +279,67 @@ export class CanyonBot extends EnemyJet {
     }
   }
 
-  // The rock: over ground the world has loaded, as any jet; over ground
-  // not loaded yet (a bandit far ahead), the course's own shape (the
-  // world's height map there is the plateau's top: it would "land" the jet
-  // on it in mid-air).
-  _groundAndCrash(dt, aero) {
+  // (Round 17) No collider: a bandit never rams (nor is rammed by) the
+  // player or another bandit (vehicles.js _collide skips it). Shots still
+  // hit it (they test its hit radius, not this).
+  get collider() {
+    return null;
+  }
+
+  // (Round 17) The rock never brings a bandit down. Where its airframe
+  // (nose, wingtips, tail) meets the rock (the world's blocks where they
+  // are loaded, the course's own shape where not), it is eased back onto
+  // the course's safe line just ahead and turned along the course: through
+  // the rock if need be (a ghost through a wall for a moment rather than a
+  // fireball). It never lands either.
+  _groundAndCrash(dt) {
     const c = this.run?.course;
-    const w = this.manager.world;
-    if (!c || w.getChunk(Math.floor(this.pos.x) >> 4, Math.floor(this.pos.z) >> 4)) return super._groundAndCrash(dt, aero);
+    if (!c) return super._groundAndCrash(dt, { speed: this.speed });
+    this.onGround = false;
     const f = this.forward(_v);
     const r = this.right(_w);
     const p = this.pos;
-    for (const [a, b] of [[7, 0], [0, 6], [0, -6], [-6, 0]]) {
-      if (c.solidAt(p.x + f.x * a + r.x * b, p.y + f.y * a + r.y * b, p.z + f.z * a + r.z * b)) {
-        this.crashWhy = `the rock (ahead of the loaded ground) at ${(p.x + f.x * a + r.x * b).toFixed(1)},${(p.y + f.y * a + r.y * b).toFixed(1)},${(p.z + f.z * a + r.z * b).toFixed(1)}`;
-        return this._crash("crash");
+    let hit = false;
+    for (const [a, b] of [[7, 0], [3, 0], [0, 6], [0, -6], [-6, 0], [0, 0]]) {
+      if (this._rockAt(p.x + f.x * a + r.x * b, p.y + f.y * a + r.y * b, p.z + f.z * a + r.z * b)) {
+        hit = true;
+        break;
       }
     }
+    if (!hit) {
+      this.rockT = 0;
+      return;
+    }
+    if (this.rockT === 0) this.rescues++;
+    this.rockT += dt;
+    const sp = c.safePoint(p.z + this.dirZ * 16);
+    // (quickly, and at once if it stays in the rock)
+    const k = this.rockT > 0.35 ? 1 : Math.min(1, dt * 6);
+    p.x += (sp.x - p.x) * k;
+    p.y += (sp.y - p.y) * k;
+    const speed = Math.max(60, this.vel.length());
+    const sl = c.slope(p.z);
+    const d = _u.set(sl, 0, 1).normalize();
+    const vd = _v2.copy(this.vel).normalize();
+    if (vd.lengthSq() > 0.5 && vd.angleTo(d) > 1e-3) {
+      _q.setFromUnitVectors(vd, d);
+      this.q.premultiply(_q);
+    }
+    this.vel.copy(d).multiplyScalar(speed);
+    this.angVel?.set(0, 0, 0);
+    this.aimYaw = Math.atan2(-d.x, -d.z);
+    this.aimPitch = 0;
+    this.avoidT = 0.8;
+  }
+
+  _rockAt(x, y, z) {
+    if (y < 0) return true;
+    if (y >= WORLD_HEIGHT) return false;
+    const w = this.manager.world;
+    const fx = Math.floor(x);
+    const fz = Math.floor(z);
+    if (w.getChunk(fx >> 4, fz >> 4)) return IS_SOLID[w.getBlock(fx, Math.floor(y), fz)] === 1;
+    return this.run.course.solidAt(x, y, z);
   }
 
   // Aim: the patrols' lead, then a spread by skill.
@@ -388,7 +443,7 @@ export class CanyonBots {
     const c = run.course;
     const pj = run.jet;
     if (!pj) return null;
-    const dirZ = opts.dirZ ?? (Math.random() < 0.35 ? -1 : 1);
+    const dirZ = 1; // (Round 17: the player's way only, never head-on)
     const z = Math.round(pj.pos.z + (opts.ahead ?? AHEAD[0] + Math.random() * (AHEAD[1] - AHEAD[0])));
     if (z > run.length - 150 || z < 60) return null;
     const sp = c.safePoint(z);

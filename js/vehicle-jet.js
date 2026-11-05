@@ -991,17 +991,23 @@ export class Jet extends Vehicle {
     pts[3].copy(this.pos).addScaledVector(right2, -pr.wing);
     pts[4].copy(this.pos).addScaledVector(fwd, -pr.tail).addScaledVector(up, 2.2);
     pts[5].copy(this.pos).addScaledVector(up, this.onGround ? 1.2 : -0.6);
-    for (const p of pts) {
+    // (Round 17) Every part in the rock (bits: 0 nose, 1 fuselage, 2/3
+    // wingtips, 4 tail, 5 belly); a hook (the canyon run's, js/canyon.js)
+    // may take a light touch as a scrape instead of a crash. None: as before.
+    let hits = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
       if (p.y < 0 || p.y >= WORLD_HEIGHT) continue;
-      if (IS_SOLID[w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))]) {
-        if (this.speed > 8) {
-          this.crashWhy = `airframe at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} block ${w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))}`;
-          return this._crash("crash");
-        }
-        this.vel.multiplyScalar(0.2);
-        return;
-      }
+      if (IS_SOLID[w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))]) hits |= 1 << i;
     }
+    if (!hits) return;
+    if (this.speed > 8) {
+      if (this.onGraze?.(hits, pts, dt)) return;
+      const p = pts[31 - Math.clz32(hits & -hits)];
+      this.crashWhy = `airframe at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} block ${w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))}`;
+      return this._crash("crash");
+    }
+    this.vel.multiplyScalar(0.2);
   }
 
   _crash(cause) {
