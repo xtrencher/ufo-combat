@@ -348,9 +348,10 @@ window.addEventListener("resize", onResize);
 // worldtype.js terrainOptions. The generators in the workers and the LOD get
 // the same options from the world.)
 const world = new World(scene, SEED, terrainOptions());
-if (!GUEST) world.loadEdits(loadEdits(SEED));
+// (Round 17: the canyon run reads no saved edits: every run starts on a fresh canyon, js/canyon.js)
+if (!GUEST && !CANYON) world.loadEdits(loadEdits(SEED));
 // (Round 12) The Nether's and the End's edits (js/dimensions.js), kept aside until the player goes there.
-if (!GUEST) loadDimensionEdits(world, SEED);
+if (!GUEST && !CANYON) loadDimensionEdits(world, SEED);
 // (Round 11) Concrete powder against water, and the colours of blocks that
 // share a tile (js/decor-sim.js: before the LOD system reads them).
 const decorSim = new DecorSim(world);

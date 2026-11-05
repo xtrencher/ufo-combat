@@ -212,18 +212,26 @@ you dare, through every ring, and don't touch the rock.
     pass** (snow, a frozen river, pine trees) or **Volcanic** (black basalt,
     magma bands, lava falls and a lava river), each with its own sky and
     haze; **Mixed** (one after another along the course) or **Random**.
+    (Round 17) **Space**: the whole run out past a cliff edge into space, a
+    black sky with stars, a ringed planet and floating asteroids to dodge
+    (Mixed and Random never pick it).
   - **Open stretches:** **None**, **Some** (the default) or **Lots**: now
     and then the canyon opens into a wide **valley** of low hills and rock
-    buttes, or ends at a cliff into **space**: a black sky with stars, a
-    ringed planet, and floating asteroids to dodge, then the next canyon's
-    mouth. One continuous run.
+    buttes, then closes again. One continuous run. (Round 17: valleys only;
+    space is a scenery of its own.)
   - **Enemy jets:** **None** (the default), **Few**, **Some** or **Many**:
-    bandits fly the canyon (some your way, slower: catch them; some
-    head-on) and shoot at you; shoot them down with the cannon or missiles.
-    Your kills are counted, your armor is shown (a red flash on a hit),
-    and red markers show the bandits ahead.
+    bandits fly the canyon your way, a little slower (catch them; once
+    past, they chase you) and shoot at you; shoot them down with the cannon
+    or missiles. (Round 17) None comes head-on, none ever crashes into the
+    rock, and none can ram you: only your guns bring them down. Your kills
+    are counted, your armor is shown (a red flash on a hit), and red
+    markers show the bandits ahead.
   - **After a crash:** **Respawn at checkpoint** (the default) or
     **Restart the course**.
+  - (Round 17) **Rings:** **Off** (the default) or **On**. Off, the
+    checkpoints are still there (where you respawn, the splits, the map)
+    but no ring is drawn and nothing costs time; On, fly through each ring
+    or it costs 5 seconds.
   Every set of options keeps its own best time.
 - **Your jet:** pick the **F-22 Raptor** (faster, tougher) or the **F-16
   Falcon** (lighter, turns tighter) on the canyon screen. It flies as
@@ -234,7 +242,8 @@ you dare, through every ring, and don't touch the rock.
   GO. The clock starts at the checkered **start gate** and stops at the
   checkered **finish ring**. In between, the **checkpoint rings** (the next
   one glows gold, an arrow at the edge of the screen points to it when it
-  is out of sight): miss one and it costs **5 seconds**. (Round 16: no ring
+  is out of sight): miss one and it costs **5 seconds** (Round 17: with
+  **Rings** on; off, the checkpoints are unseen and free). (Round 16: no ring
   changes your speed: the boost rings are gone.) At every checkpoint the
   split against your best run shows (green ahead, red behind), and a pale
   blue **ghost** of your best run flies the canyon with you (its marker is
@@ -247,6 +256,23 @@ you dare, through every ring, and don't touch the rock.
   course** picked, a crash ends the run (the explosion, a look at the
   wreck, then the results). Leaving the course (over the rim, or far off
   the line through a valley or space) for 4 seconds counts as a crash.
+  (Round 17) A light touch is forgiven: a wingtip, the tail or the belly
+  grazing the rock at a shallow angle throws sparks, grinds, shakes the
+  view a little and does a little damage, and the jet is pushed off the
+  wall. The nose or the fuselage into the rock, a steep angle or a fast
+  hit still blows it up.
+- (Round 17) **The view ahead:** the canyon is drawn about 1.1 km ahead
+  (it was about 320 blocks): the chunks in full for the first ~570 blocks
+  (the course's line ahead streamed first), then a light far terrain of
+  the canyon's walls, floor and river, the fog at its end. **The course
+  map** in the bottom-right corner shows the canyon ahead from above (its
+  walls at your height, the course's line, the rock in the way), the
+  checkpoints (the next one yellow, its distance under the map), the
+  enemy jets and your jet's heading.
+- (Round 17) **A fresh canyon every run:** the holes you blast or crash
+  into the walls stay while you respawn at a checkpoint in the same run,
+  but every new run (R, Fly again, the next course, a reload) starts on
+  the canyon as it was made.
 - **Results:** your time, rings, misses (and respawns and kills), and a
   **gold, silver or bronze medal** by the course's par times (shown on the
   results and the canyon screen). Your best time per course and options is
