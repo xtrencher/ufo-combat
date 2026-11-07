@@ -16,7 +16,7 @@ const _p = {};
 CONTROLS.push([
   "Space (rocket and UFOs above the space line)",
   [
-    ["Climb", "A rocket or any UFO that climbs past the space line (6,000 m over Earth, 3,000 over the Moon, 4,500 over Mars) flies on into space, no cutscene. Fly down into a planet to land on it"],
+    ["Climb", "A rocket or any UFO that climbs past the space line (6,000 m over Earth, 3,000 over the Moon and Mercury, 4,500 over Mars, 5,000 over Venus) flies on into space, no cutscene. Fly down into a planet to land on it (Earth, the Moon, Mars, Mercury, Venus)"],
     ["N", "Guides on / off: every planet's name, distance and time to get there at your speed; arrows at the edge for ones off screen"],
     ["T / Shift+T", "Next / previous target (marked; the rocket's assist plans the way to it)"],
     ["M", "Map: orbits, planets, your path ahead (mouse wheel zooms out to the whole solar system)"],

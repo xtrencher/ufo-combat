@@ -24,6 +24,7 @@ import { TREE } from "./trees.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
 import { ICE } from "./content/ids.js";
 import { WATER_SURFACE_HEIGHT } from "./mesher.js";
+import { createGenerator } from "./dim-registry.js"; // (Round 17: the planets' far terrain)
 
 export const LOD_CELLS = 32;
 // Trees are drawn as boxes up to this level; beyond, they only tint the grass.
@@ -51,9 +52,14 @@ const EDIT_CACHE_MAX = 256;
 // Terrain columns for LOD sampling: the generator's height map, plus the
 // real blocks of chunks the player has edited (so a crater stays visible
 // from afar).
+// (Round 17) dim: another dimension's far terrain (the planets: the Moon,
+// Mars, Mercury, Venus): its generator's lodColumn(x, z, out) gives each
+// column's top and block; no water, no trees.
 export class LodTerrain {
-  constructor(seed, opts) {
-    this.terrain = new TerrainGenerator(seed, opts);
+  constructor(seed, opts, dim = "overworld") {
+    this.dim = dim || "overworld";
+    this.planet = this.dim !== "overworld";
+    this.terrain = this.planet ? createGenerator(this.dim, seed, opts) : new TerrainGenerator(seed, opts);
     this.edits = new Map(); // "cx,cz" -> flat [blockIndex, id, ...]
     this._edited = new Map(); // "cx,cz" -> { blocks, top, id, depth } (cache, LRU order)
   }
@@ -129,6 +135,7 @@ export class LodTerrain {
       }
     }
     const t = this.terrain;
+    if (this.planet) return this._planetSample(wx, wz, out, spread);
     let h = t.heightAt(wx, wz);
     if (spread > 0) {
       let hi = h;
@@ -152,9 +159,31 @@ export class LodTerrain {
     return out;
   }
 
+  // (Round 17) A planet's column: its generator's top and block; a coarse
+  // cell leans toward the highest of its quarter points (as above: a crater
+  // rim or a scarp keeps its line from afar).
+  _planetSample(wx, wz, out, spread) {
+    const t = this.terrain;
+    if (!t.lodColumn) {
+      // (a dimension with no far tiles of its own, the Nether, the End: never planned there; its height map in stone if ever asked)
+      out.top = t.heightAt(wx, wz) + 1;
+      out.id = BLOCK.STONE;
+      out.depth = 0;
+      return out;
+    }
+    t.lodColumn(wx, wz, out);
+    if (spread > 0) {
+      let hi = out.top;
+      for (const [dx, dz] of QUARTERS) hi = Math.max(hi, t.lodColumn(wx + dx * spread, wz + dz * spread, _q).top);
+      if (hi > out.top) out.top += Math.round((hi - out.top) * 0.6);
+    }
+    return out;
+  }
+
   // The tree rooted at (wx, wz) (see trees.js), or null (also once the
   // player has cut it down or blown it up).
   treeAt(wx, wz) {
+    if (!this.terrain.trees) return null; // (Round 17: the planets have none)
     const root = this.terrain.trees.rootAt(wx, wz);
     if (!root || this.edits.size === 0) return root;
     const c = this._editedChunk(wx >> 4, wz >> 4);
@@ -303,6 +332,8 @@ export function makeLodPalette(palette) {
 }
 
 const _s = { top: 0, id: 0, depth: 0 };
+const _q = { top: 0, id: 0, depth: 0 };
+const QUARTERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
 
 // Builds the mesh for tile (tx, tz) at `level`. pal: from makeLodPalette.
 export function buildLodTile(lt, level, tx, tz, pal) {
@@ -331,7 +362,7 @@ export function buildLodTile(lt, level, tx, tz, pal) {
   // Skirts reach well below anything a neighbouring (finer) tile can show
   // near the border.
   const skirtBottom = Math.max(0, Math.floor(lowest) - step - 3);
-  const trees = level <= LOD_TREE_MAX_LEVEL;
+  const trees = level <= LOD_TREE_MAX_LEVEL && !!lt.terrain.trees;
   const cellTop = (k) => (id[k] === BLOCK.GRASS && !trees ? pal.forest : pal.top[id[k]]);
   const kindOf = (k) => (id[k] === BLOCK.WATER ? LOD_KIND.WATER : LOD_KIND.LAND);
   const out = new MeshOut();

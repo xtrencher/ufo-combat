@@ -1,7 +1,9 @@
 // Web Worker that builds distant-terrain (LOD) tile meshes off the main
 // thread (see lod-mesher.js for the meshes and lod.js for the tiles).
 //
-// Messages in:  { type: "init", seed, opts, palette, edits: [[key, list], ...] }
+// Messages in:  { type: "init", seed, opts, palette, edits: [[key, list], ...], dim }
+//               (Round 17: dim, the dimension whose far terrain it builds: a
+//               new init for each change of dimension)
 //               { type: "edits", key, list }   (a chunk's edits changed)
 //               { type: "build", id, level, tx, tz }
 // Messages out: { type: "tile", id, mesh }     (typed arrays transferred)
@@ -13,7 +15,7 @@ let palette = null;
 self.onmessage = (e) => {
   const m = e.data;
   if (m.type === "init") {
-    terrain = new LodTerrain(m.seed, m.opts);
+    terrain = new LodTerrain(m.seed, m.opts, m.dim);
     palette = makeLodPalette(m.palette);
     for (const [key, list] of m.edits) terrain.setChunkEdits(key, list);
   } else if (m.type === "edits") {

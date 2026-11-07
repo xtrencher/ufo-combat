@@ -2764,12 +2764,12 @@ puts you aboard. Any UFO can fly to space too.
   target marked (**T** next, **Shift+T** back). **M** opens the map: the
   orbits, the planets, your path ahead (the wheel zooms out to the whole
   solar system).
-- **Landing:** fly down into the Moon, Mars or Earth: below its entry
+- **Landing:** fly down into the Moon, Mars, Mercury, Venus or Earth: below its entry
   altitude the world goes there, with you high over the spot you came down
   on, still moving. A rocket's autopilot lands it on its legs (take over with
   Space / Shift and W A S D; R hands back); touching down faster than 7 m/s or
-  tilted is a crash. Jupiter, Saturn, Venus and Mercury have nowhere to land,
-  and the Sun's heat pushes you back.
+  tilted is a crash. (Round 17: Mercury and Venus can be landed on too.)
+  Jupiter and Saturn have nowhere to land, and the Sun's heat pushes you back.
 - **The Moon:** grey dust and craters, the dark maria, a black sky with the
   Earth hanging in it and a low sun that casts long, hard shadows. Gravity is
   1/6: you jump about six times as high, and a fall hurts as one six times
@@ -2783,6 +2783,25 @@ puts you aboard. Any UFO can fly to space too.
   past and two little moons cross the sky. Gravity is 0.38. Look for hematite
   ore (raw iron), polar ice and the alien ruins: stepped pyramids with lit
   glyph bands and a relic in the middle.
+- (Round 17) **Mercury:** grey-brown ground battered by craters of every
+  size (great basins with rings of peaks), the darker smooth plains, long
+  curved cliffs (lobate scarps) where the crust was pushed up, bright bluish
+  "hollows" crumbling out of the big craters' floors. A black sky, stars, and
+  a huge white-hot sun. Gravity is 0.38, no air (muffled sounds). A crashed
+  probe lies near x 0, z 0. Space line 3,000 m.
+- (Round 17) **Venus:** volcanic plains of orange-brown soil and basalt under
+  a thick yellow-orange haze (a tint over the far land: you still see a long
+  way), a dim orange sky with the sun only a brighter smudge, shield
+  volcanoes with lava pools in their calderas and lava flows running out over
+  the plains (their crust still glowing in the cracks), sulfur round the
+  vents, groups of flat-topped pancake domes (one near x 0, z 0), crumpled
+  highlands. Gravity is 0.9. Space line 5,000 m.
+- (Round 17) **The view on the planets:** the Moon, Mars, Mercury and Venus
+  have far terrain like Earth's (they used to show only 6-12 chunks): the
+  Moon's and Mercury's airless view is crisp and the longest (1.6 times the
+  render distance), Mars' long but dusty, Venus' hazy. From high up the far
+  land bends down toward the horizon, and over the airless ones the planet's
+  globe carries on beyond it to the curved horizon.
 - **Going home:** board your ship and press Space (or fly up in a UFO), then
   fly down into Earth.
 - **Saving and online:** a UFO saved in space comes back in space where it
@@ -2890,7 +2909,10 @@ Auto uses the preset's), **far terrain (LOD) quality** (up to Extreme),
 detail** (particles).
 
 **Render distance** (Settings > Graphics) goes up to 256 chunks, about 4 km
-(Auto starts at 32). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
+(Auto starts at 32). (Round 17) **Far view** (Settings > Performance): flying
+high (jets, UFOs) the far land reaches further as you climb: **Normal** as
+before, **Far** up to about 6 km, **Extreme** up to about 10 km for strong
+PCs; **Auto** follows the graphics preset (Far on High, Extreme on Ultra). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
 
@@ -2920,7 +2942,7 @@ filled up by big world saves can't stop them from being saved.
 | Tab | Settings (default) |
 | --- | --- |
 | Graphics | Render distance 2-256 chunks (Auto's), graphics preset **Auto (best for this PC)** / Low / Medium / High / Ultra with individual options, show FPS (on), Fullscreen |
-| Performance | One-click presets **Auto** / Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto's), far terrain quality Low-Extreme (Auto's), resolution scale 50-200% (Auto's), effects detail (Auto's) |
+| Performance | One-click presets **Auto** / Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto's), far terrain quality Low-Extreme (Auto's), far view Auto / Normal / Far / Extreme (Auto), resolution scale 50-200% (Auto's), effects detail (Auto's) |
 | Controls | Field of view 50-110 (75), mouse sensitivity 0.1-4x (0.5x), invert Y (off), binocular zoom 2-12x (6x) |
 | Audio | Master (15%), blocks and footsteps, weapons and explosions, creatures, player, menus, pilot voice |
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, stats on the HUD (off); **Creative only:** creatures spawn (on), time of day and lock |
