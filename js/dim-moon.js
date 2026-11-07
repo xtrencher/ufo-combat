@@ -137,6 +137,17 @@ export class MoonGenerator {
     return -1;
   }
 
+  // (Round 17: the far terrain, js/lod-mesher.js) the top face's height and block of column (x, z).
+  lodColumn(x, z, out) {
+    const c = this.column(x, z, _col);
+    out.top = c.h + 1;
+    out.id = c.ice ? LUNAR_ICE : MOON_REGOLITH;
+    // (the maria's dust is darker: their basalt shows through)
+    if (!c.ice && c.mare > 0.5) out.id = MARE_BASALT;
+    out.depth = 0;
+    return out;
+  }
+
   generate(chunk) {
     const blocks = chunk.blocks;
     const bx = chunk.cx * S;
@@ -150,7 +161,8 @@ export class MoonGenerator {
         const top = col.h;
         const i0 = (z << 4) | x;
         blocks[i0] = BLOCK.BEDROCK;
-        const dust = col.mare > 0.5 ? 1 : 2 + (hash2(this.seed, wx, wz) < 0.5 ? 1 : 0);
+        // (Round 17: the maria's dark basalt bare on top, as the far tiles show it)
+        const dust = col.mare > 0.5 ? 0 : 2 + (hash2(this.seed, wx, wz) < 0.5 ? 1 : 0);
         const basaltTo = col.mare > 0.5 ? top - dust : -1;
         const basaltFrom = top - 6 - Math.floor(col.mare * 6);
         for (let y = 1; y <= top; y++) {
@@ -290,3 +302,5 @@ export class MoonGenerator {
     }
   }
 }
+
+const _col = {};

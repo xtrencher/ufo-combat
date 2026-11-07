@@ -43,10 +43,10 @@ export const BASE_Y = 64; // a planet's "sea level" in its world (altitude 0)
 // above the planes): the sky darkens from SKY_DARK[0] and is black by
 // SKY_DARK[1]; the air thins from AIR_THIN[0] and is gone by AIR_THIN[1]
 // (the jets' engines and wings lose their bite: a ceiling about 1,500 up).
-export const SKY_DARK = { overworld: [2200, 5400], mars: [1400, 4000], moon: [0, 1] };
+export const SKY_DARK = { overworld: [2200, 5400], mars: [1400, 4000], moon: [0, 1], mercury: [0, 1], venus: [2600, 4800] }; // (Round 17: Mercury airless, Venus' haze thick far up)
 // (The Moon has no air, but Round 15 lets the jets fly there: they get the
 // Overworld's ceiling, so they still can't reach space.)
-export const AIR_THIN = { overworld: [900, 2000], mars: [700, 1900], moon: [900, 2000] };
+export const AIR_THIN = { overworld: [900, 2000], mars: [700, 1900], moon: [900, 2000], mercury: [900, 2000], venus: [1400, 3000] };
 
 // The bodies. a: orbit radius (round `parent`), th0: where it is at time 0
 // (radians), r: radius, gm: gravity (G times mass), soi: its sphere of
@@ -57,8 +57,9 @@ export const AIR_THIN = { overworld: [900, 2000], mars: [700, 1900], moon: [900,
 const R_E = 60000;
 export const BODIES = {
   sun: { id: "sun", name: "the Sun", label: "Sun", parent: null, a: 0, th0: 0, r: 1.2e6, gm: GM_SUN, soi: Infinity, color: "#ffd27a", star: true, keepOut: 1.6 },
-  mercury: { id: "mercury", name: "Mercury", label: "Mercury", parent: "sun", a: 0.39 * AU, th0: 2.1, r: 0.38 * R_E, gm: 9.9 * (0.38 * R_E) ** 2, soi: 2.5e6, color: "#b5aca2", keepOut: 1.08 },
-  venus: { id: "venus", name: "Venus", label: "Venus", parent: "sun", a: 0.72 * AU, th0: 4.0, r: 0.95 * R_E, gm: 23.4 * (0.95 * R_E) ** 2, soi: 5e6, color: "#f0d9a0", atmo: true, keepOut: 1.12 },
+  // (Round 17: Mercury and Venus have ground now: their dimensions, js/dim-mercury.js and js/dim-venus.js)
+  mercury: { id: "mercury", name: "Mercury", label: "Mercury", parent: "sun", a: 0.39 * AU, th0: 2.1, r: 0.38 * R_E, gm: 9.9 * (0.38 * R_E) ** 2, soi: 2.5e6, dim: "mercury", line: 3000, entry: 2600, color: "#b5aca2" },
+  venus: { id: "venus", name: "Venus", label: "Venus", parent: "sun", a: 0.72 * AU, th0: 4.0, r: 0.95 * R_E, gm: 23.4 * (0.95 * R_E) ** 2, soi: 5e6, dim: "venus", line: 5000, entry: 4500, color: "#f0d9a0", atmo: true },
   earth: { id: "earth", name: "Earth", label: "Earth", parent: "sun", a: AU, th0: 0, r: R_E, gm: G_EARTH * R_E * R_E, soi: 1.8e7, dim: "overworld", line: 6000, entry: 5400, color: "#7fb8ff", atmo: true },
   moon: { id: "moon", name: "the Moon", label: "Moon", parent: "earth", a: 1.8e6, th0: 1.2, r: 16400, gm: (G_EARTH / 6) * 16400 * 16400, soi: 3e5, dim: "moon", line: 3000, entry: 2600, color: "#d8d8d8" },
   mars: { id: "mars", name: "Mars", label: "Mars", parent: "sun", a: 1.52 * AU, th0: 0.75, r: 31900, gm: 0.38 * G_EARTH * 31900 * 31900, soi: 1.2e7, dim: "mars", line: 4500, entry: 4000, color: "#ff8f5e", atmo: true },
@@ -67,7 +68,7 @@ export const BODIES = {
 };
 export const BODY_IDS = Object.keys(BODIES);
 // The body whose ground each dimension is.
-export const BODY_OF_DIM = { overworld: "earth", moon: "moon", mars: "mars" };
+export const BODY_OF_DIM = { overworld: "earth", moon: "moon", mars: "mars", mercury: "mercury", venus: "venus" };
 for (const b of Object.values(BODIES)) b.children = BODY_IDS.filter((id) => BODIES[id].parent === b.id);
 
 // ---------- Small vector helpers (arrays [x, y, z]) ----------

@@ -38,7 +38,7 @@ import { skyDark, spaceLineY, BODY_OF_DIM } from "./solar-data.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 
-const NAME_OF = { overworld: "Earth", moon: "the Moon", mars: "Mars" };
+const NAME_OF = { overworld: "Earth", moon: "the Moon", mars: "Mars", mercury: "Mercury", venus: "Venus" }; // (Round 17: Mercury, Venus)
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -127,7 +127,7 @@ body.hud-off #space-hud { display: none; }
 
   onCountdown(r) {
     // (the planets' looks, painted a little each frame from now: ready by space)
-    if (r === this.vehicles.active) for (const n of ["earth", "earthClouds", "earthNight", "moon", "mars"]) planetTexture(n);
+    if (r === this.vehicles.active) for (const n of ["earth", "earthClouds", "earthNight", "moon", "mars", "mercury", "venus"]) planetTexture(n);
     if (r === this.vehicles.active) this.caption(r.stack === "ship" ? "Lift-off in 3" : "Countdown: T-10", "stage", 2);
   }
 

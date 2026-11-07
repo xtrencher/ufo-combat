@@ -17,6 +17,13 @@
 // a tile splits, it stays visible until all of its children (or chunks) are
 // ready; when tiles merge, the children stay visible until the parent tile
 // is built. New chunks start hidden, and this module decides which ones show.
+//
+// (Round 17) Every dimension with distant tiles (the Overworld and the
+// planets: js/dim-registry.js `lod`) has them built from its own generator:
+// setDimension(dim) starts the builders over for it (js/dimensions.js). On a
+// planet the tiles bend down with the distance past the full-detail chunks
+// (`curve`: as on a globe of that radius), so from high up the land drops
+// away to the horizon instead of ending in a flat edge.
 import * as THREE from "three";
 import { LodTerrain, buildLodTile, makeLodPalette, tileChunks } from "./lod-mesher.js";
 import { createLodMaterial } from "./shaders.js";
@@ -60,6 +67,8 @@ export class LodSystem {
     this.group.name = "lod";
     scene.add(this.group);
     this.material = createLodMaterial();
+    this.dim = "overworld"; // (Round 17: whose terrain the tiles are)
+    this._curve(this.material);
 
     this.renderDistance = 20; // chunks
     this.detailDistance = 8; // chunks
@@ -123,7 +132,7 @@ export class LodSystem {
           if (e && e.preventDefault) e.preventDefault();
           this._useLocalBuilder(`worker error: ${e && e.message}`);
         };
-        w.postMessage({ type: "init", seed: this.seed, opts: this.world.terrainOptions, palette: this.world.facePalette, edits });
+        w.postMessage({ type: "init", seed: this.seed, opts: this.world.terrainOptions, palette: this.world.facePalette, edits, dim: this.dim });
         w.busy = 0;
         this.workers.push(w);
       }
@@ -142,10 +151,64 @@ export class LodSystem {
     this.workers = [];
     for (const tile of this._inFlight.values()) tile.building = false;
     this._inFlight.clear();
-    const terrain = new LodTerrain(this.seed, this.world.terrainOptions);
+    const terrain = new LodTerrain(this.seed, this.world.terrainOptions, this.dim);
     for (const [key, list] of this._allEdits()) terrain.setChunkEdits(key, list);
     this.local = { terrain, palette: makeLodPalette(this.world.facePalette) };
     this._queueDirty = true;
+  }
+
+  // (Round 17) The tiles become `dim`'s (the world has just gone there: its
+  // edits are the world's now). Every tile goes, the builders start over
+  // with that dimension's generator and edits; curve: the globe's radius
+  // the far tiles bend down by (0: flat).
+  setDimension(dim, { curve = 0 } = {}) {
+    dim = dim || "overworld";
+    for (const tile of [...this.tiles.values()]) this._disposeTile(tile);
+    this._results.length = 0;
+    this._inFlight.clear();
+    this._queue = [];
+    this._editedChunks.clear();
+    this.curve = curve > 0 ? curve : 0;
+    if (dim === this.dim) return;
+    this.dim = dim;
+    if (this.workers.length) {
+      const edits = this._allEdits();
+      for (const w of this.workers) {
+        w.busy = 0;
+        w.postMessage({ type: "init", seed: this.seed, opts: this.world.terrainOptions, palette: this.world.facePalette, edits, dim });
+      }
+    } else if (this.local) {
+      const terrain = new LodTerrain(this.seed, this.world.terrainOptions, dim);
+      for (const [key, list] of this._allEdits()) terrain.setChunkEdits(key, list);
+      this.local.terrain = terrain;
+    }
+    this._queueDirty = true;
+  }
+
+  // (Round 17) The far tiles' bend (the planets): each vertex drops by the
+  // square of its distance past the full-detail chunks over twice the
+  // globe's radius. A uniform added to the shared LOD shader (shaders.js);
+  // if its text ever changes shape, the tiles simply stay flat.
+  _curve(mat) {
+    this.curve = 0;
+    const u = (this._curveU = { value: new THREE.Vector2(0, 0) });
+    const anchor = "vec4 worldPosition = modelMatrix * vec4(position, 1.0);";
+    if (typeof mat.vertexShader !== "string" || !mat.vertexShader.includes(anchor)) return;
+    mat.uniforms.uCurve = u;
+    mat.vertexShader = mat.vertexShader
+      .replace("void main() {", "uniform vec2 uCurve;\nvoid main() {")
+      .replace(anchor, `${anchor}\n  if (uCurve.x > 0.0) { float cd = max(length(worldPosition.xz - cameraPosition.xz) - uCurve.y, 0.0); worldPosition.y -= cd * cd * uCurve.x; }`);
+  }
+
+  _updateCurve() {
+    const u = this._curveU?.value;
+    if (!u) return;
+    if (!(this.curve > 0)) {
+      u.set(0, 0);
+      return;
+    }
+    // (flat over the full-detail chunks and a ring past them: the tiles meet the chunks without a step)
+    u.set(1 / (2 * this.curve), (this.detailDistance + 3) * CHUNK_SIZE);
   }
 
   _onWorkerMessage(m, w) {
@@ -552,6 +615,7 @@ export class LodSystem {
   // Per frame, after the World has streamed chunks.
   update() {
     const start = performance.now();
+    this._updateCurve();
     this._flushEdits();
     this._applyResults();
     if (this._queueDirty) this._rebuildQueue();

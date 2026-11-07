@@ -34,6 +34,8 @@ const smooth = (a, b, v) => {
   return t * t * (3 - 2 * t);
 };
 const MOON_SUN = new THREE.Vector3(0.62, 0.36, -0.42).normalize(); // (low over the Moon: long shadows)
+const MERCURY_SUN = new THREE.Vector3(-0.55, 0.6, -0.5).normalize(); // (Round 17: high in Mercury's black sky)
+const VENUS_SUN = new THREE.Vector3(0.25, 0.92, 0.3).normalize(); // (overhead, behind the clouds)
 const EARTH_DIR = new THREE.Vector3(-0.62, 0.52, 0.42).normalize(); // (across the sky from the sun: its day side toward the Moon, gibbous) // (where the Earth hangs in the Moon's sky)
 const _c = new THREE.Color();
 const _m = new THREE.Matrix4();
@@ -506,9 +508,104 @@ export class SpaceSky {
     const m = sky.material.uniforms;
     if (dim === "moon") this._moon(sky, u, m);
     else if (dim === "mars") this._mars(sky, u, m, e);
-    if ((dim === "overworld" || dim === "mars") && this.altK > 0.001) this._climb(sky, u, m, this.altK);
+    else if (dim === "mercury") this._mercury(sky, u, m); // (Round 17)
+    else if (dim === "venus") this._venus(sky, u, m);
+    if ((dim === "overworld" || dim === "mars" || dim === "venus") && this.altK > 0.001) this._climb(sky, u, m, this.altK);
     this._sky3d(dim);
+    this._bigSun(dim);
     this._planetBelow(dim);
+  }
+
+  // (Round 17) Mercury: the black sky, a huge white-hot sun fixed in it
+  // (the sprite below, over the sky's own disc and glare), hard light,
+  // shadows lit only by the bright ground; no air, no haze.
+  _mercury(sky, u, m) {
+    u.uSunDir.value.copy(MERCURY_SUN);
+    u.uMoonDir.value.set(0, -1, 0);
+    u.uLightDir.value.copy(MERCURY_SUN);
+    u.uLightColor.value.setRGB(1.85, 1.78, 1.66);
+    u.uSkyZenith.value.setRGB(0, 0, 0.0006);
+    u.uSkyHorizon.value.setRGB(0.002, 0.0018, 0.0016);
+    u.uSkyGlow.value.setRGB(0, 0, 0);
+    u.uSunGlowColor.value.setRGB(2.4, 2.25, 2.0);
+    u.uAmbientSky.value.setRGB(0.13, 0.125, 0.12);
+    u.uAmbientGround.value.setRGB(0.2, 0.18, 0.16);
+    u.uNight.value = 1;
+    m.uStarAngle.value = 1.7;
+    m.uCloudCoverage.value = 0;
+    sky.sunLight.color.copy(u.uLightColor.value);
+    sky.hemiLight.color.copy(u.uAmbientSky.value);
+    sky.hemiLight.groundColor.copy(u.uAmbientGround.value);
+    sky.horizonColor.copy(u.uSkyHorizon.value);
+    sky.exposure = 0.88;
+    this._fog(sky, 0.96, 0); // (Round 17: crisp to the edge, the globe below beyond it: _planetBelow)
+  }
+
+  // (Round 17) Venus: a dim orange sky under the clouds, the sun only a
+  // brighter smudge high up, a soft orange light from everywhere, and a
+  // thick haze that tints the far land (not a wall: the view stays long).
+  _venus(sky, u, m) {
+    u.uSunDir.value.copy(VENUS_SUN);
+    u.uMoonDir.value.set(0, -1, 0);
+    u.uLightDir.value.copy(VENUS_SUN);
+    u.uLightColor.value.setRGB(0.62, 0.42, 0.2);
+    u.uSkyZenith.value.setRGB(0.2, 0.11, 0.04);
+    u.uSkyHorizon.value.setRGB(0.6, 0.39, 0.16);
+    u.uSkyGlow.value.setRGB(0.1, 0.05, 0.015);
+    u.uSunGlowColor.value.setRGB(0.05, 0.035, 0.015);
+    u.uAmbientSky.value.setRGB(0.36, 0.23, 0.1);
+    u.uAmbientGround.value.setRGB(0.2, 0.11, 0.05);
+    u.uNight.value = 0;
+    m.uCloudCoverage.value = 0;
+    sky.sunLight.color.copy(u.uLightColor.value);
+    sky.hemiLight.color.copy(u.uAmbientSky.value);
+    sky.hemiLight.groundColor.copy(u.uAmbientGround.value);
+    sky.horizonColor.copy(u.uSkyHorizon.value);
+    sky.exposure = 1.1;
+    this._fog(sky, 0.5, this._haze(this.world.dimInfo?.haze ?? 0.0026, 5));
+  }
+
+  // (Round 17) The haze's density for the eye's height: the world's haze
+  // (shaders.js) thins above the ground, so high up it is thickened to keep
+  // a planet's air as thick from a UFO as from the ground (at most `most` times).
+  _haze(base, most) {
+    const y = this.game.camera?.position.y ?? 75;
+    return base * Math.max(1, Math.min(most, (y - 24) / 51));
+  }
+
+  // (Round 17) Mercury's sun: two and a half times the Earth's across, and
+  // its glare (a sprite far off along the sun's direction, as the Earth
+  // over the Moon); bloom makes it blaze.
+  _bigSun(dim) {
+    const scene = this.game.scene;
+    const cam = this.game.camera;
+    if (dim !== "mercury") {
+      if (this._sunSprite?.parent) this._sunSprite.parent.remove(this._sunSprite);
+      return;
+    }
+    if (!this._sunSprite) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const g = c.getContext("2d");
+      const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+      grad.addColorStop(0, "rgba(255,255,250,1)");
+      grad.addColorStop(0.16, "rgba(255,252,240,1)");
+      grad.addColorStop(0.19, "rgba(255,236,200,0.55)");
+      grad.addColorStop(0.32, "rgba(255,214,160,0.2)");
+      grad.addColorStop(0.6, "rgba(255,200,140,0.05)");
+      grad.addColorStop(1, "rgba(255,190,130,0)");
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this._sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: new THREE.Color(3.2, 3.0, 2.7), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+      this._sunSprite.renderOrder = -1;
+    }
+    const s = this._sunSprite;
+    if (!s.parent) scene.add(s);
+    const d = Math.min(900, (cam.far || 1000) * 0.8);
+    s.position.copy(cam.position).addScaledVector(MERCURY_SUN, d);
+    s.scale.setScalar(d * 0.5);
   }
 
   _moon(sky, u, m) {
@@ -531,7 +628,7 @@ export class SpaceSky {
     sky.horizonColor.copy(u.uSkyHorizon.value);
     sky.exposure = 1;
     // (no air: no haze, the ground sharp out to the edge of the view)
-    this._fog(sky, 0.9, 0);
+    this._fog(sky, 0.96, 0);
   }
 
   // The fog's start (a share of its end) and haze, from the view's (sky.js keeps the base).
@@ -565,8 +662,8 @@ export class SpaceSky {
     sky.hemiLight.groundColor.copy(u.uAmbientGround.value);
     sky.horizonColor.copy(u.uSkyHorizon.value);
     sky.exposure = THREE.MathUtils.lerp(1.15, 0.95, day);
-    // (a dusty haze)
-    this._fog(sky, 0.75, 0.0009);
+    // (a dusty haze; Round 17: as thick seen from high up, the far view long but hazy)
+    this._fog(sky, 0.65, this._haze(this.world.dimInfo?.haze ?? 0.0011, 2));
   }
 
   // The climb: black overhead, stars, a thin blue band low down; the clouds below.
@@ -574,7 +671,7 @@ export class SpaceSky {
     const z = u.uSkyZenith.value;
     z.multiplyScalar(1 - k * 0.995);
     const h = u.uSkyHorizon.value;
-    h.lerp(this.world.dim === "mars" ? _c.setRGB(0.22, 0.12, 0.08) : _c.setRGB(0.05, 0.12, 0.32), smooth(0, 0.5, k)).multiplyScalar(1 - 0.7 * smooth(0.5, 1, k));
+    h.lerp(this.world.dim === "mars" ? _c.setRGB(0.22, 0.12, 0.08) : this.world.dim === "venus" ? _c.setRGB(0.3, 0.18, 0.06) : _c.setRGB(0.05, 0.12, 0.32), smooth(0, 0.5, k)).multiplyScalar(1 - 0.7 * smooth(0.5, 1, k));
     u.uSkyGlow.value.multiplyScalar(1 - k);
     u.uNight.value = Math.max(u.uNight.value, smooth(0.25, 0.9, k));
     m.uCloudCoverage.value *= 1 - smooth(0.05, 0.3, k);
@@ -589,7 +686,9 @@ export class SpaceSky {
     const cam = this.game.camera;
     const alt = cam ? cam.position.y - BASE_Y : 0;
     const B = body && BODIES[body];
-    const k = B ? smooth(Math.max(500, B.line * 0.25), B.line * 0.6, alt) : 0;
+    // (Round 17: over an airless world from a little way up: the far land ends crisp, and the globe goes on beyond it to the curved horizon)
+    const airless = !!this.world.dimInfo?.airless && dim !== "overworld";
+    const k = B ? (airless ? smooth(90, 600, alt) : smooth(Math.max(500, B.line * 0.25), B.line * 0.6, alt)) : 0;
     this.belowK = k;
     for (const [kind, p] of Object.entries(this._below)) {
       if (kind !== body || k <= 0.002) {

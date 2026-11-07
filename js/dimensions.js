@@ -106,7 +106,7 @@
 // Testing: F7 in Creative goes Overworld -> Nether -> End -> Overworld; the
 // page's debug object has `dims` (travel, enterPortal, ...).
 import * as THREE from "three";
-import { DIMS, OVERWORLD, NETHER, END, DIM_IDS, PORTAL_BLOCKS, dimId, codeOf, scaleBetween } from "./dim-registry.js";
+import { DIMS, OVERWORLD, NETHER, END, DIM_IDS, PORTAL_BLOCKS, dimId, codeOf, dimOfCode, scaleBetween } from "./dim-registry.js";
 import { loadEdits, saveEdits as storeEdits } from "./storage.js";
 import { WaterSim } from "./watersim.js";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
@@ -536,8 +536,8 @@ export class DimensionManager {
       if (Array.isArray(sp.active)) sp.active.length = 0;
     }
     this.stash.set(from, prev);
-    // (The last moment's Overworld edits to the distant tiles' builders: _resetLod forgets the rest.)
-    if (from === OVERWORLD) this._lodFlush?.(true);
+    // (The last moment's edits to the distant tiles' builders: _resetLod forgets the rest.)
+    if (DIMS[from]?.lod) this._lodFlush?.(true);
     this.world.setDimension(dim);
     // The new one's.
     if (mobs) {
@@ -549,7 +549,8 @@ export class DimensionManager {
     g.vehicles?.switchDim?.(dim);
     x.weather?.dimChanged?.();
     g.sky?.setDimension?.(this.info);
-    if (x.distant) x.distant.enabled = this.info.lod !== false;
+    // (Round 17: the airports and villages seen from afar are the Overworld's alone, even where there are far tiles)
+    if (x.distant) x.distant.enabled = dim === OVERWORLD;
     this._resetLod();
     this._portalT = 0;
     this.stats.switches++;
@@ -607,9 +608,11 @@ export class DimensionManager {
   }
 
   // Every tile goes (they showed the other dimension), the plan starts over.
+  // (Round 17: the builders start over with this dimension's generator.)
   _resetLod() {
     const lod = this.x.lod;
     if (!lod) return;
+    if (typeof lod.setDimension === "function") lod.setDimension(this.dim, { curve: this.info.curve || 0 }); // (the Nether's and the End's too: no tiles are planned there, but the builders must not keep their edits as another dimension's)
     if (lod.tiles) for (const tile of [...lod.tiles.values()]) lod._disposeTile?.(tile);
     if (Array.isArray(lod._results)) lod._results.length = 0;
     lod._inFlight?.clear?.();
@@ -923,7 +926,7 @@ export class DimensionManager {
       el.innerHTML = '<div class="t"></div><div class="s" style="font:15px sans-serif;color:#bbb">Building terrain</div>';
       document.body.appendChild(el);
     }
-    const bg = { [NETHER]: "radial-gradient(circle, #3a0d0b, #120302)", [END]: "radial-gradient(circle, #241b2e, #07050a)" }[dim] || "radial-gradient(circle, #2a2620, #0c0b09)";
+    const bg = { [NETHER]: "radial-gradient(circle, #3a0d0b, #120302)", [END]: "radial-gradient(circle, #241b2e, #07050a)", moon: "radial-gradient(circle, #2a2a2c, #050506)", mars: "radial-gradient(circle, #4a2416, #120604)", mercury: "radial-gradient(circle, #2e2a26, #060505)", venus: "radial-gradient(circle, #5a3a14, #160c04)" }[dim] || "radial-gradient(circle, #2a2620, #0c0b09)";
     el.style.background = bg;
     el.querySelector(".t").textContent = `Entering ${DIMS[dim].name}`;
     el.style.display = "flex";
@@ -1037,7 +1040,8 @@ export class DimSync {
   _onDim(m, from) {
     if (!this.net.isHost) return;
     const c = m.d | 0;
-    if (c < 0 || c >= DIM_IDS.length) return;
+    // (Round 17: a dimension's code, not its place in DIM_IDS: the canyon's 5 is not there, Mercury's and Venus' come after it)
+    if (c < 0 || codeOf(dimOfCode(c)) !== c) return;
     this.net.setPlayerDim(from, c);
     this.mp.entities?.known?.delete?.(from);
   }
@@ -1057,7 +1061,7 @@ export class DimSync {
 
   _onPortal(m, from) {
     if (!Array.isArray(m.p) || m.p.length !== 3 || !m.p.every(Number.isInteger)) return;
-    const dim = DIM_IDS[m.d | 0] || OVERWORLD;
+    const dim = dimOfCode(m.d | 0); // (Round 17: by code, as everywhere)
     const [x, y, z] = m.p;
     if (m.a) this.dims.addPortal(dim, x, y, z, false);
     else this.dims.removePortal(dim, x, y, z, false);

@@ -10,6 +10,7 @@ import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setSto
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
+import { farViewOf } from "./graphics.js"; // (Round 17: the far view)
 import { AutoTune } from "./autotune.js";
 import { normalizeSettings, DEFAULT_SETTINGS, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
@@ -2664,6 +2665,7 @@ settingsPanel.on("perf.detailDistance", applyDetailDistance);
 settingsPanel.on("perf.lodQuality", (v) => lod.configure({ quality: LOD_QUALITY[v] ?? 1 }));
 settingsPanel.on("perf.resolution", () => setGraphics(graphicsPreset), { now: false });
 settingsPanel.on("perf.effects", (v) => (effectsQuality.scale = { low: 0.35, medium: 0.65, high: 1 }[v] ?? 1));
+settingsPanel.on("perf.farView", () => (altViewT = 0), { now: false }); // (Round 17: the far view, updateAltitudeView)
 
 const PERF_PRESETS = {
   potato: { label: "Potato", hint: "Old laptops", graphics: "low", renderDistance: 7, detail: 3, lod: "low", resolution: 0.7, effects: "low" },
@@ -3780,6 +3782,7 @@ game.dims = dims;
 dims.onChange.push(() => {
   ufos.setEnabled(mods.enabled && missionsHere());
   refreshSurvivalSystems();
+  game._viewJump = true; // (Round 17: the new dimension's view distance at once, updateAltitudeView)
 });
 if (dims.sync) mp.addModule(dims.sync);
 // (Round 12) Boats and minecarts (js/boats.js, js/minecarts.js: the rails' redstone too), saved with the world, online (js/net/transport.js).
@@ -4352,18 +4355,35 @@ const ALT_VIEW_MAX = { low: 1.6, medium: 2.2, high: 2.9, ultra: 3.4 };
 let altViewT = 0;
 function updateAltitudeView(dt) {
   altViewT -= dt;
-  if (altViewT > 0) return;
+  if (altViewT > 0 && !game._viewJump) return;
   altViewT = 0.5;
   let target = renderDistance;
+  // (Round 17) The planets' longer view (js/dim-registry.js viewScale, minView:
+  // the Moon's airless view the longest), and the far view (Settings,
+  // Performance: graphics.js FAR_VIEW): flying high, the far land keeps
+  // growing with the height, out to `top` chunks on Far and Extreme.
+  const dimInfo = world.dimInfo;
+  if (dimInfo?.viewScale) target = Math.max(dimInfo.minView || 0, Math.round(renderDistance * dimInfo.viewScale));
+  const fv = farViewOf(settings.perf.farView, graphicsPreset);
   const v = vehicles.active;
   if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli" || v.type === "rocket")) {
     const ground = Math.max(world.heightAt(Math.floor(v.pos.x), Math.floor(v.pos.z)), SEA_LEVEL);
     const t = THREE.MathUtils.clamp((v.pos.y - ground - 20) / 140, 0, 1);
     const boost = 1 + ((ALT_VIEW_MAX[graphicsPreset] ?? 2.2) - 1) * t;
-    target = Math.min(MAX_RENDER_DISTANCE, Math.round(renderDistance * boost));
+    const t2 = THREE.MathUtils.clamp((v.pos.y - ground - 160) / 1800, 0, 1); // (Round 17: higher still)
+    target = Math.round(target * boost * (1 + (fv.high - 1) * t2));
+    // (and never less than a few times the height above the ground: the land seen well past what is straight below)
+    if (fv.perHeight) target = Math.max(target, Math.round(((v.pos.y - ground) * fv.perHeight) / 16));
   }
-  if (target === viewRD) return;
-  const next = viewRD + THREE.MathUtils.clamp(target - viewRD, -2, 2);
+  target = Math.min(Math.max(MAX_RENDER_DISTANCE, fv.top), target);
+  if (target === viewRD) {
+    game._viewJump = false;
+    return;
+  }
+  // (Round 17: steps that grow with the view, so a far view arrives in seconds; at once after a change of dimension)
+  const stepMax = game._viewJump ? Infinity : Math.max(2, Math.round(viewRD * 0.15));
+  game._viewJump = false;
+  const next = viewRD + THREE.MathUtils.clamp(target - viewRD, -stepMax, stepMax);
   if (Math.abs(next - viewRD) < 1) return;
   viewRD = next;
   updateViewDistance();

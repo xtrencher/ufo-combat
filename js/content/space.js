@@ -21,6 +21,11 @@
 //   other vehicle items), the lunar crystal (a gem: nine make a block of it);
 //   (Round 16) the Warp Saucer (the Vehicles tab too: a UFO with a warp
 //   drive, js/warp-saucer.js; vehicles are Creative's, so it is not crafted).
+// - (Round 17) Mercury (js/dim-mercury.js): mercurian regolith and rock
+//   (grey-brown), smooth plains basalt (the dark volcanic plains), hollows
+//   crust (bright, bluish, in the big craters' floors). Venus (js/dim-venus.js):
+//   venusian soil and basalt, lava crust (the flows: glowing cracks), dome
+//   rock (the pancake domes), sulfur crust (round the vents).
 // Low gravity, the skies, the travel: js/space.js and js/dim-registry.js.
 import { BLOCK, ITEM, LIB } from "./base.js";
 import * as I from "./ids.js";
@@ -47,7 +52,17 @@ export const LAUNCH_PAD = 3089;
 export const LAUNCH_PAD_EDGE = 3090;
 export const LUNAR_CRYSTAL_BLOCK = 3091;
 export const MOONSTONE_BRICKS = 3092;
-// (space.js blocks: next free 3093)
+// (Round 17) Mercury (js/dim-mercury.js) and Venus (js/dim-venus.js)
+export const MERCURY_REGOLITH = 3093;
+export const MERCURY_ROCK = 3094;
+export const MERCURY_PLAINS = 3095;
+export const MERCURY_HOLLOWS = 3096;
+export const VENUS_SOIL = 3097;
+export const VENUS_BASALT = 3098;
+export const VENUS_CRUST = 3099;
+export const VENUS_FELSIC = 3100;
+export const SULFUR_CRUST = 3101;
+// (space.js blocks: next free 3102)
 
 // ---- Items (920-959) ----
 export const ROCKET_ITEM = 920;
@@ -83,6 +98,20 @@ def(LAUNCH_PAD, { name: "Launch Pad Concrete", faces: "launch_pad", hardness: 2,
 def(LAUNCH_PAD_EDGE, { name: "Launch Pad Edge", faces: { top: "launch_pad_edge", bottom: "launch_pad", side: "launch_pad" }, hardness: 2, ...PICK });
 def(LUNAR_CRYSTAL_BLOCK, { name: "Block of Lunar Crystal", faces: "lunar_crystal_block", hardness: 5, ...PICK, emission: 12, emissive: true });
 def(MOONSTONE_BRICKS, { name: "Moonstone Bricks", faces: "moonstone_bricks", hardness: 1.5, ...PICK });
+// (Round 17) Mercury: grey-brown dust and rock, the dark smooth plains, the
+// bright bluish "hollows" crumbling out of the big craters' floors.
+def(MERCURY_REGOLITH, { name: "Mercurian Regolith", faces: "mercury_regolith", hardness: 0.5, tool: "shovel", sound: "sand" });
+def(MERCURY_ROCK, { name: "Mercurian Rock", faces: "mercury_rock", hardness: 1.5, ...PICK });
+def(MERCURY_PLAINS, { name: "Smooth Plains Basalt", faces: "mercury_plains", hardness: 1.5, ...PICK });
+def(MERCURY_HOLLOWS, { name: "Hollows Crust", faces: "mercury_hollows", hardness: 0.6, tool: "shovel", sound: "sand" });
+// (Round 17) Venus: orange-brown soil over volcanic basalt, the lava flows'
+// crust (still glowing in its cracks), the pancake domes' pale rock, sulfur
+// round the vents.
+def(VENUS_SOIL, { name: "Venusian Soil", faces: "venus_soil", hardness: 0.6, tool: "shovel", sound: "sand" });
+def(VENUS_BASALT, { name: "Venusian Basalt", faces: "venus_basalt", hardness: 1.5, ...PICK });
+def(VENUS_CRUST, { name: "Lava Crust", faces: "venus_crust", hardness: 1.2, ...PICK, emission: 7, emissive: true });
+def(VENUS_FELSIC, { name: "Dome Rock", faces: "venus_felsic", hardness: 1.5, ...PICK });
+def(SULFUR_CRUST, { name: "Sulfur Crust", faces: "sulfur_crust", hardness: 0.8, tool: "pickaxe", sound: "sand" });
 
 // ---------- Items ----------
 
@@ -352,6 +381,28 @@ export const tiles = {
     });
   },
   moonstone_bricks: (t, kit) => bricks(t, kit, [0x7a7a7c, 0x8a8a8c, 0x9a9a9c, 0xaaaaac, 0xbababa], 0x4a4a4c, 16, 8),
+  // (Round 17) Mercury
+  mercury_regolith: (t, kit) => dust(t, kit, [0x4a4440, 0x56504a, 0x625b54, 0x6e665e, 0x7c736a, 0x8c8278], 16, 3),
+  mercury_rock: (t, kit) => rock(t, kit, [0x4e4842, 0x5c554e, 0x6a625a, 0x786f66, 0x867c72, 0x968b80], 15, 0.24),
+  mercury_plains: (t, kit) => rock(t, kit, [0x302c2a, 0x3a3532, 0x443e3a, 0x4e4743, 0x58514c, 0x645c56], 24, 0.16),
+  mercury_hollows: (t, kit) => dust(t, kit, [0x6e7c88, 0x7e8e9a, 0x90a0ac, 0xa2b2be, 0xb6c4ce, 0xccd8e0], 8, 1),
+  // (Round 17) Venus
+  venus_soil: (t, kit) => dust(t, kit, [0x4e3620, 0x5c4026, 0x6a4a2c, 0x7a5634, 0x88623c, 0x987046], 14, 0),
+  venus_basalt: (t, kit) => rock(t, kit, [0x26201c, 0x302822, 0x3a3028, 0x463a30, 0x524438, 0x604e40], 20, 0.18),
+  venus_crust: (t, kit) => {
+    // (black glassy crust, plates split by glowing cracks)
+    rock(t, kit, [0x0e0c0c, 0x161212, 0x1e1816, 0x261e1a, 0x30261e, 0x3a2e24], 9, 0.0);
+    const glow = R(kit, [0x8a1e04, 0xd04a08, 0xff8a1e, 0xffd070]);
+    const v = t.voronoi(9, 5);
+    t.forEach((x, y) => {
+      const c = v(x, y);
+      const e = c.d2 - c.d1;
+      if (e < 0.7) t.set(x, y, glow[2 + (t.rand() < 0.3 ? 1 : 0)]);
+      else if (e < 1.4) t.set(x, y, glow[t.rand() < 0.5 ? 0 : 1]);
+    });
+  },
+  venus_felsic: (t, kit) => rock(t, kit, [0x5a4c3e, 0x685848, 0x766454, 0x847060, 0x927e6c, 0xa28c7a], 12, 0.2),
+  sulfur_crust: (t, kit) => dust(t, kit, [0x8a7a10, 0xa89418, 0xc4ae22, 0xd8c234, 0xe8d450, 0xf6e47a], 10, 1),
 };
 
 export const tileRelief = {
@@ -362,6 +413,12 @@ export const tileRelief = {
   mars_regolith: [0.9, 0.9, 0.5],
   mars_rock: [1.1, 0.8, 0.6],
   mars_strata: [1.0, 0.8, 0.6],
+  mercury_regolith: [0.9, 0.9, 0.5],
+  mercury_rock: [1.1, 0.8, 0.6],
+  mercury_plains: [1.0, 0.8, 0.6],
+  venus_soil: [0.9, 0.9, 0.5],
+  venus_basalt: [1.1, 0.8, 0.6],
+  venus_felsic: [1.0, 0.8, 0.6],
 };
 
 // ---------- Icons ----------
@@ -420,4 +477,6 @@ export const icons = {
 // (Kept for the generators: what is "ground" on each planet.)
 export const MOON_GROUND = new Set([MOON_REGOLITH, MOON_ROCK, MARE_BASALT]);
 export const MARS_GROUND = new Set([MARS_SAND, MARS_REGOLITH, MARS_ROCK, MARS_STRATA]);
+export const MERCURY_GROUND = new Set([MERCURY_REGOLITH, MERCURY_ROCK, MERCURY_PLAINS, MERCURY_HOLLOWS]); // (Round 17)
+export const VENUS_GROUND = new Set([VENUS_SOIL, VENUS_BASALT, VENUS_CRUST, VENUS_FELSIC, SULFUR_CRUST]);
 export { ITEM };
