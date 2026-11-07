@@ -186,6 +186,38 @@ await browserCheck("a dropped item burns up in lava and in fire (it sank and lay
   assert(r.debris && r.debrisY > -1.2, `a netherite ingot doesn't burn and floats up in lava: ${JSON.stringify(r)}`);
 });
 
+// ---------- Creatures ----------
+
+await browserCheck("a creature burns in flowing lava and in soul fire (only the still source and plain fire burnt it)", async () => {
+  const ids = await v(async () => {
+    const n = await import("./js/content/nature.js");
+    const I = await import("./js/content/ids.js");
+    return { flow: n.lavaFlowId(2), soul: I.SOUL_FIRE, soulBase: I.SOUL_SAND };
+  });
+  // A strip of flowing lava 6 blocks east (no source: nothing else ticks it
+  // here), soul fire on soul sand 6 blocks west.
+  const f = await field([[6, 0, 0, ids.flow], [7, 0, 0, ids.flow], [6, 0, 1, ids.flow], [7, 0, 1, ids.flow], [-6, -1, 0, ids.soulBase], [-6, 0, 0, ids.soul]]);
+  const r = await v((g, f) => {
+    g.sky.setHours(12);
+    g.mobs.clear();
+    const a = g.mobs.spawn("pig", f.x0 + 6.5, f.y, f.z0 + 0.5);
+    const b = g.mobs.spawn("pig", f.x0 - 5.5, f.y, f.z0 + 0.5);
+    const hp = [a.health, b.health];
+    for (let i = 0; i < 30 * 1.5; i++) {
+      a.pos.set(f.x0 + 6.5, f.y, f.z0 + 0.5);
+      b.pos.set(f.x0 - 5.5, f.y, f.z0 + 0.5);
+      a.vel.set(0, 0, 0);
+      b.vel.set(0, 0, 0);
+      g.mobs.update(1 / 30);
+    }
+    const out = { lava: [hp[0], a.health, a.fireT > 0 || a.dead], soul: [hp[1], b.health, b.fireT > 0 || b.dead] };
+    g.mobs.clear();
+    return out;
+  }, f);
+  assert(r.lava[1] < r.lava[0] && r.lava[2], `burnt in flowing lava: ${JSON.stringify(r)}`);
+  assert(r.soul[1] < r.soul[0] && r.soul[2], `burnt in soul fire: ${JSON.stringify(r)}`);
+});
+
 // ---------- The End's void ----------
 
 await browserCheck("over the End's void a boat, a minecart and falling sand are lost (they fell for ever / the sand landed at y 0 in mid-air); a Creative player caught by the void flies", async () => {

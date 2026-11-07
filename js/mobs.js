@@ -43,7 +43,7 @@ import { Crowd } from "./crowd.js";
 import { Pathfinder } from "./pathfinding.js";
 import { meleeCause, shooterCause } from "./damage.js";
 import { vanillaRules, missionsLayer } from "./worldtype.js";
-import { touchesCactus } from "./survival.js";
+import { touchesCactus, BODY, BODY_FLAGS } from "./survival.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { dyeColorOf, mixDyeColors } from "./content/decor.js";
@@ -2783,9 +2783,12 @@ export class MobManager {
     const z = Math.floor(m.pos.z);
     const feet = w.getBlock(x, Math.floor(m.pos.y + 0.1), z);
     const body = w.getBlock(x, Math.floor(m.pos.y + m.spec.h * 0.6), z);
-    const lava = feet === V.LAVA || body === V.LAVA;
+    // (Round 17: any lava, flowing too, and any fire, soul fire too: only the
+    // still source and the plain fire burnt them, a lava flow didn't.)
+    const hot = BODY_FLAGS[feet] | BODY_FLAGS[body];
+    const lava = (hot & BODY.LAVA) !== 0;
     if (lava) m.fireT = 15;
-    else if (feet === V.FIRE || body === V.FIRE) m.fireT = Math.max(m.fireT, 8);
+    else if (hot & BODY.FIRE) m.fireT = Math.max(m.fireT, 8);
     if (m.inWater) m.fireT = 0;
     if (m.fireT <= 0) return;
     m.fireT -= dt;
