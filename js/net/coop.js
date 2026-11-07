@@ -65,6 +65,14 @@ export class CoopSync {
         }
         return;
       }
+      // (Round 17) A guest paused or resumed the automatic missions.
+      if (m.k === "auto") {
+        if (p.auto !== (m.id === "on")) {
+          p.setAuto(m.id === "on");
+          this.game.toast?.(`${who} ${p.auto ? "resumed" : "paused"} the automatic missions.`, 4);
+        }
+        return;
+      }
       if (p.mission) return;
       const why = p.begin(m.id, this.game.stats.world);
       if (!why) this.game.toast?.(`${who} picked the mission.`, 3);
@@ -309,7 +317,8 @@ export class CoopSync {
     if (m.bd && p.applyNet) {
       const ev = p.applyNet(m.bd);
       if (ev === "start" && this._lastStep >= 0 && p.mission) g.toast?.(`MISSION: ${p.mission.title}. ${p.mission.text}`, 7);
-      if (ev === "fail" && p.result) g.toast?.(`MISSION FAILED: ${p.result.reason} The host can retry it (M: the board).`, 6);
+      // (Round 17: what comes next, from the host's automatic flow.)
+      if (ev === "fail" && p.result) g.toast?.(`MISSION FAILED: ${p.result.reason} ${p.next ? (p.next.retry ? `Trying again in ${Math.ceil(p.next.left)} s.` : `Next: ${p.missionById(p.next.id)?.title || "another mission"} in ${Math.ceil(p.next.left)} s.`) : "The host can retry it (M: the board)."}`, 6);
       this._lastStep = 0;
     } else if (typeof m.ch === "string" && m.ch.length < 4000) {
       const ids = m.ch.split(",");

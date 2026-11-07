@@ -175,6 +175,12 @@ export class MissionDirector {
     this.ufos.rules = this.enabled ? this.progress.rules : null;
     this.mobs.alienDamageScale = this.enabled ? this.progress.rules.damage : 1;
     this._trackNight();
+    // (Round 17) Between board missions: the break counts down and the next
+    // mission starts by itself (not while this player lies dead; the
+    // director runs on the host only, and not at all in Creative).
+    if (!m && this.enabled && this.progress.board && this.progress.tickAuto && !this.player?.dead) {
+      if (this.progress.tickAuto(dt, this.stats.world)) return this.update(0);
+    }
     if (!m) {
       this.target = null;
       this.bossInfo = null;

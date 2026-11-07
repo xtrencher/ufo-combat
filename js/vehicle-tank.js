@@ -8,6 +8,9 @@
 // wall, a tree trunk), crushes the leaves and plants in its way, is slowed
 // by water and won't go into water deeper than its hull. W/S throttle (S
 // brakes, then backs up), A/D turn the hull (it turns on the spot too).
+// (Round 17: tracks climb two-block steps and slopes up to about 35
+// degrees, slower uphill; fences and slabs are rolled over, trees knocked
+// down; a hull wedged anywhere is nudged up or out; see _drive.)
 //
 // The gun: the mouse aims; the turret traverses and the gun elevates toward
 // the aim at their own (slow) rates, so a heavy turret takes a few seconds
@@ -35,13 +38,34 @@
 import * as THREE from "three";
 import { Vehicle, VehicleManager } from "./vehicles.js";
 import { createTankModel } from "./tank-model.js";
-import { IS_SOLID, IS_WET, IS_LEAVES, IS_REPLACEABLE, SHAPE_OF, BLOCK } from "./blocks.js";
+import { IS_SOLID, IS_WET, IS_LEAVES, IS_REPLACEABLE, IS_LOG, IS_CHEST, IS_WALL_TORCH, SHAPE_OF, BLOCK, BLOCK_INFO, COLLISION_BOXES, BLOCK_LIMIT } from "./blocks.js";
 import { effectsQuality } from "./effects.js";
 import { WORLD_HEIGHT } from "./constants.js";
 import { isLava } from "./content/nature.js";
 
 export const SHELL_G = 20; // gravity on a shell (blocks/s^2)
-const STEP_UP = 1.15; // the highest step a hull climbs (blocks)
+// (Round 17) Climbing: the player asked that ground vehicles never get stuck
+// on uneven ground ("they can slow down when going up a lot"). A tracked
+// hull climbs a two-block step, a wheeled one (the missile trucks) a block
+// and a bit; slopes up to MAX_CLIMB (about 35 degrees: a voxel hill's
+// two-up-three-along), losing up to CLIMB_SLOW of its speed on the way up.
+const TRACK_STEP = 2.1;
+const WHEEL_STEP = 1.25;
+const MAX_CLIMB = 0.62;
+const CLIMB_SLOW = 0.6;
+const MAX_TILT = 0.7; // (the hull's pitch as drawn)
+const STUCK_TIME = 1.2; // seconds pushing without getting anywhere: see _watchStuck
+const POST_MAX = 6; // the tallest post a hull pushes over (see _knock)
+const DROP_MAX = 4; // the deepest drop it drives over (more would hurt it: see _canMove)
+const ESCAPE_RUN = 10; // blocks of drivable ground that count as a way out of a pit (_escapes)
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+// A solid block's height for the tracks: its collision box's top, never
+// above one block (a fence or a wall is rolled over like a block; a slab is half).
+const CELL_TOP = new Float32Array(BLOCK_LIMIT).fill(1);
+for (let id = 0; id < BLOCK_LIMIT; id++) {
+  const boxes = COLLISION_BOXES[id];
+  if (boxes?.length) CELL_TOP[id] = Math.min(1, Math.max(...boxes.map((b) => b[4])));
+}
 const DEEP_WATER = 2.4; // deeper than this it won't drive in
 const WRECK_TIME = 40; // seconds a burnt-out wreck stays
 const SMOKE_COOLDOWN = 25;
@@ -474,15 +498,25 @@ export class GroundVehicle extends Vehicle {
   // (Round 16) Through water and lava to the bed: the manager's groundBelow
   // stops on a liquid's surface (an aircraft lands on it), which let tanks
   // and trucks drive across lakes and the sea on top of the water.
+  // (Round 17) A block's own height (a slab is half a block; a fence or a
+  // wall counts as one block, not its 1.5: a hull rolls over it), and leaves
+  // are no ground (the hull crushes them as it goes).
   _ground(x, z, y) {
     const w = this.manager.world;
     const bx = Math.floor(x);
     const bz = Math.floor(z);
     if (!w.getChunk(bx >> 4, bz >> 4)) return this.manager.groundBelow(x, y, z);
     for (let by = Math.min(WORLD_HEIGHT - 1, Math.floor(y)); by >= 0; by--) {
-      if (IS_SOLID[w.getBlock(bx, by, bz)]) return by + 1;
+      const id = w.getBlock(bx, by, bz);
+      if (IS_SOLID[id] && !IS_LEAVES[id]) return by + CELL_TOP[id];
     }
     return 0;
+  }
+
+  // (Round 17) The highest step this hull climbs: two blocks on tracks, a
+  // block and a bit on wheels (the missile trucks).
+  get stepUp() {
+    return this.spec.stepUp ?? (this.kind === "tel" ? WHEEL_STEP : TRACK_STEP);
   }
 
   // The heights under the four corners (front left, front right, back left,
@@ -505,28 +539,71 @@ export class GroundVehicle extends Vehicle {
     return out;
   }
 
-  // (Round 16) Whether the ground under the hull's outline at (x, z, yaw),
-  // its leading edge (dir 1: the front, -1: the back) and both sides,
-  // sampled less than a block apart, rises higher than it can climb.
-  _outlineHit(x, z, yaw, from, dir) {
-    const fx = -Math.sin(yaw);
-    const fz = -Math.cos(yaw);
-    const rx = -fz;
-    const rz = fx;
+  // (Round 17) The points of the hull's outline, in its own frame: [along
+  // (forward +), across (right +), limit]. The limit is how far above the
+  // hull's floor the ground may rise under it: a step at the front and back
+  // edges, a little more under the sides.
+  _outline() {
+    if (this._ol) return this._ol;
     const L = this.half.z * 0.86;
     const W = this.half.x * 0.8;
-    const y = this.pos.y;
+    const out = [];
     const nw = Math.max(2, Math.ceil((2 * W) / 0.8));
     for (let i = 0; i <= nw; i++) {
       const b = -W + (2 * W * i) / nw;
-      if (this._ground(x + fx * L * dir + rx * b, z + fz * L * dir + rz * b, from) - y > STEP_UP) return true;
+      out.push([L, b, 0], [-L, b, 0]);
     }
     const nl = Math.max(2, Math.ceil((2 * L) / 0.8));
     for (let i = 1; i < nl; i++) {
       const a = -L + (2 * L * i) / nl;
-      for (const s of [-1, 1]) if (this._ground(x + fx * a + rx * W * s, z + fz * a + rz * W * s, from) - y > STEP_UP + 0.3) return true;
+      out.push([a, -W, 0.3], [a, W, 0.3]);
+    }
+    this._ol = out;
+    return out;
+  }
+
+  // (Round 17) Would the hull moved to (x, z, yaw) run into something? A
+  // point of its outline is in the way where the ground there rises higher
+  // above the hull's floor (its plane now: on a slope, the slope) than it
+  // can climb, and only where that ground is new to the hull: outside its
+  // outline now, and higher than under that point now. So nothing gets in
+  // through the edges, and a hull with something in it already (a block put
+  // against it, a lamp post it was set down on, a wall it was nudged
+  // against) may still move off it, never further into anything new.
+  // (Round 13 to 16 measured every point from the hull's middle height: a
+  // long hull on a gentle slope met the hill ahead as a wall, and one with
+  // anything in its outline could not move at all.)
+  _snagged(x, z, yaw, from) {
+    const step = this.stepUp;
+    const tp = Math.tan(this.pitch);
+    const tr = Math.tan(this.roll);
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const ox = -Math.sin(this.yaw);
+    const oz = -Math.cos(this.yaw);
+    const L = this.half.z * 0.86 + 1e-3;
+    const W = this.half.x * 0.8 + 1e-3;
+    for (const [a, b, extra] of this._outline()) {
+      const px = x + fx * a - fz * b;
+      const pz = z + fz * a + fx * b;
+      const h = this._ground(px, pz, from);
+      const floor = this.pos.y + a * tp + b * tr;
+      if (h - floor <= step + extra) continue;
+      // (Under the hull already: not new.)
+      const dx = px - this.pos.x;
+      const dz = pz - this.pos.z;
+      if (Math.abs(dx * ox + dz * oz) <= L && Math.abs(-dx * oz + dz * ox) <= W) continue;
+      const h0 = this._ground(this.pos.x + ox * a - oz * b, this.pos.z + oz * a + ox * b, from);
+      if (h > h0 + 0.05) return true;
     }
     return false;
+  }
+
+  // (Round 17) The hull's pitch and roll at rest on footprint fp (unclamped).
+  _tilt(fp) {
+    const p = Math.atan2((fp.fl + fp.fr - fp.bl - fp.br) / 2, this.half.z * 1.72);
+    const r = Math.atan2((fp.fr + fp.br - fp.fl - fp.bl) / 2, this.half.x * 1.6);
+    return [p, r];
   }
 
   // Sets it down on the ground where it is (a new or loaded vehicle).
@@ -541,19 +618,19 @@ export class GroundVehicle extends Vehicle {
   }
 
   _attitude(fp, k) {
-    const L = this.half.z * 1.72;
-    const W = this.half.x * 1.6;
-    const front = (fp.fl + fp.fr) / 2;
-    const back = (fp.bl + fp.br) / 2;
-    const left = (fp.fl + fp.bl) / 2;
-    const right = (fp.fr + fp.br) / 2;
-    const p = clamp(Math.atan2(front - back, L), -0.5, 0.5);
-    const r = clamp(Math.atan2(right - left, W), -0.4, 0.4);
+    // (Round 17: a little steeper than before, as far as it now climbs.)
+    const [tp, tr] = this._tilt(fp);
+    const p = clamp(tp, -MAX_TILT, MAX_TILT);
+    const r = clamp(tr, -0.5, 0.5);
     this.pitch += (p - this.pitch) * k;
     this.roll += (r - this.roll) * k;
   }
 
   // Leaves and plants inside the hull (a little ahead of it) are crushed.
+  // (Round 17) And a tree in its way is knocked down: its trunk and the
+  // leaves round its top (a trunk is a post a hull can't climb, and tanks
+  // got stuck in every forest). Only trees: logs with leaves on top, not a
+  // log wall or a house's posts.
   _crush(x, z, yaw) {
     const mgr = this.manager;
     const w = mgr.world;
@@ -563,7 +640,13 @@ export class GroundVehicle extends Vehicle {
     const rz = fx;
     const y0 = Math.floor(this.pos.y + 0.3);
     const edits = [];
-    for (let a = -this.half.z; a <= this.half.z + 1.2; a += 0.9) {
+    let felled = 0;
+    const seen = this._fellSeen || (this._fellSeen = new Set());
+    seen.clear();
+    // (Round 17: farther ahead the faster it goes, so a trunk is down before the hull reaches it.)
+    const ahead = 1.2 + Math.max(0, this.speed) * 0.3;
+    const behind = Math.max(0, -this.speed) * 0.3;
+    for (let a = -this.half.z - behind; a <= this.half.z + ahead; a += 0.9) {
       for (let b = -this.half.x; b <= this.half.x; b += 0.9) {
         const bx = Math.floor(x + fx * a + rx * b);
         const bz = Math.floor(z + fz * a + rz * b);
@@ -572,14 +655,79 @@ export class GroundVehicle extends Vehicle {
           if (!id || IS_WET[id] || isLava(id)) continue; // (Round 16: lava is no `liquid`: it was crushed away like grass)
           if (IS_LEAVES[id] || ((IS_REPLACEABLE[id] || SHAPE_OF[id] === 1) && !IS_SOLID[id])) {
             if (edits.length < 120) edits.push(bx, y, bz, BLOCK.AIR);
+          } else if (IS_SOLID[id] && felled < 3 && !seen.has(bx * 65536 + bz)) {
+            seen.add(bx * 65536 + bz);
+            if ((IS_LOG[id] && this._fell(bx, y, bz, edits)) || this._knock(bx, y, bz, edits)) felled++;
           }
         }
       }
     }
     if (edits.length) {
       w.setBlocks(edits);
-      if (Math.random() < 0.3) mgr.audio?.playBreak?.("grass");
+      if (felled) mgr.audio?.playBreak?.("wood");
+      else if (Math.random() < 0.3) mgr.audio?.playBreak?.("grass");
     }
+  }
+
+  // (Round 17) The tree whose trunk has a log at (bx, by, bz): its trunk and
+  // the leaves round its top go into `edits` (true), or nothing (false: not
+  // a tree, e.g. a log wall, a house's corner post, a log pile).
+  _fell(bx, by, bz, edits) {
+    const w = this.manager.world;
+    let y0 = by;
+    while (y0 > 1 && IS_LOG[w.getBlock(bx, y0 - 1, bz)]) y0--;
+    let y1 = by;
+    while (y1 < WORLD_HEIGHT - 2 && y1 - y0 < 30 && IS_LOG[w.getBlock(bx, y1 + 1, bz)]) y1++;
+    // (A tree stands on the ground: no log wall beside the trunk at its foot.)
+    let side = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (IS_LOG[w.getBlock(bx + dx, y0, bz + dz)]) side++;
+    if (side > 1) return false;
+    let leaves = 0;
+    for (let y = y1 - 1; y <= y1 + 2; y++) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (IS_LEAVES[w.getBlock(bx + dx, y, bz + dz)]) leaves++;
+    if (leaves < 4) return false;
+    for (let y = y0; y <= y1; y++) edits.push(bx, y, bz, BLOCK.AIR);
+    // The crown round the top (the leaves it held; others' leaves farther off stay).
+    for (let y = y1 - 3; y <= y1 + 3; y++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dz = -2; dz <= 2; dz++) {
+          if (edits.length >= 600) return true;
+          if (IS_LEAVES[w.getBlock(bx + dx, y, bz + dz)]) edits.push(bx + dx, y, bz + dz, BLOCK.AIR);
+        }
+      }
+    }
+    return true;
+  }
+
+  // (Round 17) A post in the hull's way is pushed over: a column one block
+  // wide standing on its own (nothing solid beside it all the way up),
+  // higher than the hull climbs and at most POST_MAX high (a village's lamp
+  // post, a fence post, a stack of hay, a log post): its blocks and the
+  // torches on it go into `edits` (true). Not a wall, a house's corner, a
+  // pillar of a building, nothing hard (obsidian, bedrock) and no chest.
+  _knock(bx, by, bz, edits) {
+    const w = this.manager.world;
+    const alone = (y) => {
+      for (const [dx, dz] of SIDES) {
+        const n = w.getBlock(bx + dx, y, bz + dz);
+        if (IS_SOLID[n] && !IS_LEAVES[n]) return false;
+      }
+      return true;
+    };
+    const ok = (id) => IS_SOLID[id] && !IS_LEAVES[id] && !IS_CHEST[id] && (BLOCK_INFO[id]?.hardness ?? 1) >= 0 && (BLOCK_INFO[id]?.hardness ?? 1) <= 10;
+    if (!alone(by)) return false;
+    let y0 = by;
+    while (y0 > 1 && ok(w.getBlock(bx, y0 - 1, bz)) && alone(y0 - 1)) y0--;
+    let y1 = by;
+    while (y1 < WORLD_HEIGHT - 2 && y1 - y0 < POST_MAX && ok(w.getBlock(bx, y1 + 1, bz)) && alone(y1 + 1)) y1++;
+    const height = y1 - y0 + 1;
+    if (height <= this.stepUp || height > POST_MAX || IS_SOLID[w.getBlock(bx, y1 + 1, bz)]) return false;
+    for (let y = y0; y <= y1; y++) if (!ok(w.getBlock(bx, y, bz))) return false;
+    for (let y = y0; y <= y1; y++) edits.push(bx, y, bz, BLOCK.AIR);
+    // (The torches on its sides and its top.)
+    for (const [dx, dz] of SIDES) for (let y = y0; y <= y1 + 1; y++) if (IS_WALL_TORCH[w.getBlock(bx + dx, y, bz + dz)]) edits.push(bx + dx, y, bz + dz, BLOCK.AIR);
+    const cap = w.getBlock(bx, y1 + 1, bz);
+    if (cap && !IS_SOLID[cap] && !IS_WET[cap] && !isLava(cap)) edits.push(bx, y1 + 1, bz, BLOCK.AIR);
+    return true;
   }
 
   // The water at (x, z): how deep it is over the ground (0: dry).
@@ -596,14 +744,76 @@ export class GroundVehicle extends Vehicle {
     return d;
   }
 
+  // (Round 17) Whether the hull may move to (x, z, yaw): nothing in the way
+  // (see _snagged), not up a slope steeper than MAX_CLIMB (steeper than now,
+  // in the way it is going), not into water over its deck. fp: the
+  // footprint there (filled in). dir: 1 forward, -1 back, 0 turning.
+  _canMove(x, z, yaw, dir, throttle, fp) {
+    const from = this.pos.y + this.stepUp + 0.9;
+    this._footprint(x, z, yaw, from, fp);
+    const deep = this._water(x, z, fp.c) > DEEP_WATER;
+    if ((deep && !this.inWater) || (deep && this._water(this.pos.x, this.pos.z, fp.c) <= DEEP_WATER && throttle !== 0)) return false;
+    // (Turning on the spot climbs nothing: a hull on a steep slope may always turn.)
+    if (dir) {
+      const [p] = this._tilt(fp);
+      if (p * dir > MAX_CLIMB && Math.abs(p) > Math.abs(this._tp ?? this.pitch) + 1e-3) return false;
+      // Not over a drop that would hurt it (a cliff, a ravine's edge: it fell
+      // in and could never climb out); down a slope is fine.
+      const L = this.half.z * 0.86;
+      const lead = dir > 0 ? Math.max(fp.ff, fp.fl, fp.fr) : Math.max(fp.bb, fp.bl, fp.br);
+      if (this.pos.y + dir * L * Math.tan(this.pitch) - lead > DROP_MAX) return false;
+    }
+    return !this._snagged(x, z, yaw, from);
+  }
+
+  // (Round 17) Is there a way out from here: a line of ground it can drive
+  // (no step it can't climb, no slope too steep, no drop that hurts, no deep
+  // water) for ESCAPE_RUN blocks in any of eight directions?
+  _escapes() {
+    const run = ESCAPE_RUN;
+    const k = Math.tan(MAX_CLIMB) * 3 + 0.5;
+    for (let i = 0; i < 8; i++) {
+      const dx = Math.sin((i * Math.PI) / 4);
+      const dz = Math.cos((i * Math.PI) / 4);
+      const hs = [this.pos.y];
+      let ok = true;
+      for (let s = 1; s <= run && ok; s++) {
+        const x = this.pos.x + dx * s;
+        const z = this.pos.z + dz * s;
+        const prev = hs[hs.length - 1];
+        const h = this._ground(x, z, prev + this.stepUp + 0.9);
+        if (h - prev > this.stepUp || prev - h > DROP_MAX || this._water(x, z, h) > DEEP_WATER) ok = false;
+        else if (hs.length >= 3 && h - hs[hs.length - 3] > k) ok = false;
+        hs.push(h);
+      }
+      if (ok) return true;
+    }
+    return false;
+  }
+
   // One step of driving: throttle -1..1, steer -1..1 (A +1: left).
   _drive(dt, throttle, steer, brake = false) {
     const S = this.spec;
     const mgr = this.manager;
+    // (Round 17) A driverless one (the AI, a convoy, a patrol) that has been
+    // pushing against something backs off a little, turning, then goes on.
+    if (this._backT > 0 && !this.occupied) {
+      this._backT -= dt;
+      if (throttle !== 0 || steer !== 0) {
+        throttle = -0.6 * (this._backDir || 1);
+        steer = this._backSteer || 1;
+        brake = false;
+      }
+    }
     // (Round 16) Fording: slow in shallow water, slower the deeper it gets;
     // in water over the engine deck it drowns and the tracks stop.
     const water = this.flooded ? 0 : this.inWater ? (this.depth >= 2 ? 0.28 : 0.45) : 1;
-    let target = throttle > 0 ? throttle * S.speed * water : throttle < 0 ? throttle * S.reverse * water : 0;
+    // (Round 17) Slower up a slope: the steeper, the slower (CLIMB_SLOW of
+    // its speed lost at the steepest it climbs); downhill as on the flat.
+    const dirNow = throttle > 0 ? 1 : throttle < 0 ? -1 : 0;
+    const climb = clamp((this.pitch * dirNow) / MAX_CLIMB, 0, 1);
+    const hill = 1 - CLIMB_SLOW * climb;
+    let target = throttle > 0 ? throttle * S.speed * water * hill : throttle < 0 ? throttle * S.reverse * water * hill : 0;
     if (brake) target = 0;
     // (Braking or reversing against the motion is stronger than speeding up.)
     const against = Math.sign(target - this.speed) !== Math.sign(this.speed) && Math.abs(this.speed) > 0.1;
@@ -627,38 +837,35 @@ export class GroundVehicle extends Vehicle {
           this._crush(nx, nz, yaw);
         }
       }
-      this._footprint(nx, nz, yaw, this.pos.y + STEP_UP + 0.9, fp);
-      const lead = this.speed >= 0 ? Math.max(fp.fl, fp.fr, fp.ff) : Math.max(fp.bl, fp.br, fp.bb);
-      const all = Math.max(fp.fl, fp.fr, fp.bl, fp.br, fp.c);
-      const deep = this._water(nx, nz, fp.c) > DEEP_WATER;
-      let blocked = lead - this.pos.y > STEP_UP || all - this.pos.y > STEP_UP + 0.3 || (deep && !this.inWater) || (deep && this._water(this.pos.x, this.pos.z, fp.c) <= DEEP_WATER && throttle !== 0);
-      // (Round 16) The corners alone let a tree trunk or a post between them
-      // through the hull: the whole leading edge and the sides too (unless
-      // it is already stuck in something: then it may drive out).
-      if (!blocked) {
-        const from = this.pos.y + STEP_UP + 0.9;
-        const dir = this.speed >= 0 ? 1 : -1;
-        if (this._outlineHit(nx, nz, yaw, from, dir) && !this._outlineHit(this.pos.x, this.pos.z, this.yaw, from, dir)) blocked = true;
-      }
-      if (blocked) {
+      const dir = Math.abs(step) > 1e-4 ? Math.sign(step) : 0;
+      let ok = this._canMove(nx, nz, yaw, dir, throttle, fp);
+      // (Moving and turning at once into something: maybe the move alone, or the turn alone, goes.)
+      if (!ok && dir && Math.abs(this.yawRate) > 1e-3) {
+        const sx = this.pos.x - Math.sin(this.yaw) * step;
+        const sz = this.pos.z - Math.cos(this.yaw) * step;
+        if (this._canMove(sx, sz, this.yaw, dir, throttle, fp)) {
+          ok = true;
+          this._moveTo(sx, sz, this.yaw, step, 0, dt);
+        } else if (this._canMove(this.pos.x, this.pos.z, yaw, 0, throttle, fp)) {
+          ok = true;
+          this.speed = 0;
+          this._moveTo(this.pos.x, this.pos.z, yaw, 0, this.yawRate, dt);
+        }
+      } else if (ok) this._moveTo(nx, nz, yaw, step, this.yawRate, dt);
+      if (!ok) {
         // (Stopped by a wall: a jolt felt by the driver, no going through.)
         if (Math.abs(this.speed) > 3 && this === mgr.active) mgr.effects?.shake?.add?.(Math.min(0.25, Math.abs(this.speed) * 0.02));
         this.speed = 0;
         this.yawRate *= 0.3;
-        this._footprint(this.pos.x, this.pos.z, this.yaw, this.pos.y + STEP_UP + 0.9, fp);
-      } else {
-        this.trackL += step - this.yawRate * dt * this.half.x;
-        this.trackR += step + this.yawRate * dt * this.half.x;
-        this.pos.x = nx;
-        this.pos.z = nz;
-        this.yaw = yaw;
+        this._footprint(this.pos.x, this.pos.z, this.yaw, this.pos.y + this.stepUp + 0.9, fp);
       }
     } else if (!this._fpValid || this._fpT <= 0) {
-      this._footprint(this.pos.x, this.pos.z, this.yaw, this.pos.y + STEP_UP + 0.9, fp);
+      this._footprint(this.pos.x, this.pos.z, this.yaw, this.pos.y + this.stepUp + 0.9, fp);
       this._fpT = 0.5;
     }
     this._fpValid = true;
     this._fpT = (this._fpT || 0) - dt;
+    this._tp = this._tilt(fp)[0];
     // Up a step at once (smoothly), down a ledge with gravity.
     let g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
     // (Round 16) Nothing under it at all (driven off an island of the End):
@@ -666,6 +873,8 @@ export class GroundVehicle extends Vehicle {
     const voidBelow = g <= 0;
     if (voidBelow) g = -64;
     if (g > this.pos.y + 0.01) {
+      // (Round 17: a big step up costs a little speed: a bump, not a lift.)
+      if (g - this.pos.y > 0.6 && Math.abs(this.speed) > 2) this.speed *= 1 - Math.min(0.5, (g - this.pos.y) * 0.12);
       this.pos.y = Math.min(g, this.pos.y + Math.max(4, Math.abs(this.speed) * 1.2) * dt);
       this.vy = 0;
       this.onGround = true;
@@ -687,7 +896,129 @@ export class GroundVehicle extends Vehicle {
     this._attitude(fp, Math.min(1, dt * 6));
     this.inWater = IS_WET[mgr.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.4), Math.floor(this.pos.z))] === 1;
     this._liquid(dt);
+    this._watchStuck(dt, throttle, steer, brake);
     this.vel.set(-Math.sin(this.yaw) * this.speed, this.vy, -Math.cos(this.yaw) * this.speed);
+  }
+
+  // (Round 17) The hull goes to (x, z, yaw): the tracks run.
+  _moveTo(x, z, yaw, step, yawRate, dt) {
+    this.trackL += step - yawRate * dt * this.half.x;
+    this.trackR += step + yawRate * dt * this.half.x;
+    this.pos.x = x;
+    this.pos.z = z;
+    this.yaw = yaw;
+  }
+
+  // (Round 17) Never wedged: someone (or the AI) pushing for a while without
+  // getting anywhere. A driverless one backs off and turns (then its AI
+  // goes on); any hull that can't move at all, forward, back or turning
+  // (sunk in the ground, wedged between blocks), is nudged up or out to the
+  // nearest place it can stand.
+  _watchStuck(dt, throttle, steer, brake) {
+    const k = this._stk || (this._stk = { t: 0, x: this.pos.x, z: this.pos.z, yaw: this.yaw, n: 0 });
+    const push = !brake && !this.flooded && (Math.abs(throttle) > 0.1 || Math.abs(steer) > 0.3);
+    const moved = Math.hypot(this.pos.x - k.x, this.pos.z - k.z) > 0.6 || Math.abs(wrapAngle(this.yaw - k.yaw)) > 0.2;
+    if (!push || moved) {
+      k.t = 0;
+      k.x = this.pos.x;
+      k.z = this.pos.z;
+      k.yaw = this.yaw;
+      if (moved) k.n = 0;
+      return;
+    }
+    k.t += dt;
+    if (k.t < STUCK_TIME) return;
+    k.t = 0;
+    k.n++;
+    if (this.puppet) return;
+    if (this._unstick()) return;
+    // Pushing on for a while (four tries) in a pit with no way out at all (a
+    // crater, a ravine, a hole it was dropped in): lifted out onto the
+    // nearest ground it can stand on.
+    if (k.n >= 4 && !this._escapes() && this._unstick(true)) {
+      k.n = 0;
+      return;
+    }
+    // Not wedged, only against something: a driverless one backs off (each
+    // time a little longer), a player drives as they like.
+    if (!this.occupied && (throttle !== 0 || steer !== 0)) {
+      this._backT = 1.2 + Math.min(2, k.n * 0.4);
+      this._backDir = throttle < 0 ? -1 : 1;
+      this._backSteer = (k.n & 1 ? -1 : 1) * (Math.random() < 0.5 ? 1 : -1);
+    }
+  }
+
+  // (Round 17) Frees a hull that can't move at all (pit: one in a hole with
+  // no way out, lifted up out of it): true if it did.
+  _unstick(pit = false) {
+    const fp = this._ufp || (this._ufp = {});
+    // Sunk into the ground (a block put into it, sand fallen on it, ground
+    // that loaded after it): up onto it.
+    this._footprint(this.pos.x, this.pos.z, this.yaw, this.pos.y + this.stepUp + 2.5, fp);
+    const g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    if (g - this.pos.y > 0.5 && g - this.pos.y < this.stepUp + 2.5) {
+      this.pos.y = g;
+      this.vy = 0;
+      this._attitude(fp, 1);
+      this._fpValid = false;
+      return true;
+    }
+    const f = this.forward(_u);
+    if (!pit) {
+      // Anything it can still do: forward, back, a turn either way? Then it isn't wedged.
+      for (const [d, dy] of [[0.4, 0], [-0.4, 0], [0, 0.15], [0, -0.15]]) {
+        if (this._canMove(this.pos.x + f.x * d, this.pos.z + f.z * d, this.yaw + dy, Math.sign(d), 0, fp)) return false;
+      }
+    }
+    // Wedged: the nearest place round it where it stands clear (not up a
+    // cliff, not in deep water), toward where it was heading first.
+    // (Farther off, down to lower ground too: off a roof it was set down on;
+    // out of a pit: up onto its rim.)
+    const base = Math.atan2(f.x, f.z);
+    for (const r of pit ? [3, 4.5, 6, 8, 10, 12, 15, 18] : [0.75, 1.5, 2.25, 3, 4, 5.5, 7, 9, 12]) {
+      for (let i = 0; i < 16; i++) {
+        const a = base + (i & 1 ? -1 : 1) * Math.ceil(i / 2) * (Math.PI / 8);
+        const x = this.pos.x + Math.sin(a) * r;
+        const z = this.pos.z + Math.cos(a) * r;
+        const y = this._standAt(x, z, this.yaw, fp, pit ? "up" : r > 6);
+        if (y === null) continue;
+        this.pos.set(x, y, z);
+        this.speed = 0;
+        this.vy = 0;
+        this._attitude(fp, 1);
+        this._fpValid = false;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // (Round 17) The height a hull at (x, z, yaw) would rest at, if it can
+  // stand there clear of everything (no point of its outline higher above
+  // its floor than it climbs, not much higher or lower than it is now, not
+  // in deep water); null if not. low: lower ground too (as far as 24
+  // down); "up": higher ground only (out of a pit, as far as 30 up).
+  _standAt(x, z, yaw, fp, low = false) {
+    const up = low === "up";
+    const from = this.pos.y + (up ? 30 : this.stepUp + 1.5);
+    this._footprint(x, z, yaw, from, fp);
+    const g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    if (!(g > 0) || this.pos.y - g > 24) return null;
+    if (up ? g - this.pos.y < 1.5 : g - this.pos.y > this.stepUp + 1 || (!low && this.pos.y - g > this.stepUp + 1)) return null;
+    // (Out of a pit: open sky over it, not a ledge inside a cave.)
+    if (up && IS_SOLID[this.manager.world.getBlock(Math.floor(x), Math.floor(g) + 3, Math.floor(z))]) return null;
+    if (this._water(x, z, fp.c) > DEEP_WATER) return null;
+    const [p, r] = this._tilt(fp);
+    if (Math.abs(p) > MAX_CLIMB) return null;
+    const tp = Math.tan(p);
+    const tr = Math.tan(r);
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    for (const [a, b, extra] of this._outline()) {
+      const h = this._ground(x + fx * a - fz * b, z + fz * a + fx * b, from);
+      if (h - (g + a * tp + b * tr) > this.stepUp * 0.5 + extra) return null;
+    }
+    return g;
   }
 
   // (Round 16) What the water (or lava) it is in does to it: depth over the

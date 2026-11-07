@@ -156,8 +156,10 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   at 17:50 (the golden hour before sunset), fed, with the **mission board**
   (Round 16; `M`, or Esc > Missions; see **The mission board** below): 41
   missions in six categories (Infantry, Ground war, Air, Helicopter, UFO war,
-  Defense) and three tiers, which you pick yourself, each giving you the
-  vehicle it needs. The finale, the Armada and its flagship, wins the war (a
+  Defense) and three tiers, each giving you the vehicle it needs. (Round 17)
+  They come **by themselves** again, one after another (a short break
+  between them; a failed one is tried again): the board is the overview and
+  a way to skip ahead. The finale, the Armada and its flagship, wins the war (a
   victory screen; the game goes on). Missions pay in golden apples, food,
   iron, diamonds and emeralds; the mod weapons come from the places that
   make sense (the skeleton's bow, standard weapons in **supply crates** that
@@ -497,6 +499,20 @@ co-op). The classified campaign below (a fixed run you could not choose
 from, with long walks to far airports and missions that could not fail or
 be retried) is replaced by a **mission board**:
 
+- **(Round 17) The missions start by themselves:** the player found it
+  better when the missions came automatically, so they do again. Your first
+  mission starts a few seconds into a new world; when one ends, the next
+  starts after a short break (20 seconds after a win, the tracker counting
+  down), in a set order: the Recruit missions first, then Veteran, then
+  Elite, the categories taking turns (foot, tank, jet, helicopter, UFO war,
+  defense), each after what opens it, the Armada last. A **failed** mission
+  is tried again by itself after 12 seconds (set up afresh); after three
+  failures in a row the next one comes instead and the failed one comes back
+  once the rest are done (so does an abandoned one). Nothing has to be
+  picked: the board (`M`) shows what comes next with **Start now**, starts
+  any open mission out of turn (skipping ahead), and can **pause** the
+  automatic missions (and resume them; saved with the world). Online, the
+  host's flow is everyone's; a guest's pause or pick goes to the host.
 - **Pick any open mission:** `M` (or Esc > Missions) opens the board. Six
   categories (tabs): **Infantry** (on foot: the bow, the pistol and the alien
   guns come from these), **Ground war** (tanks), **Air** (fighter jets and the
@@ -524,8 +540,9 @@ be retried) is replaced by a **mission board**:
   minutes), and some can be lost: the convoy's trucks destroyed, a position
   or an airport overrun, the helicopter shot down with the rescued crew
   aboard, two ballistic missiles getting through, two abductor carriers
-  getting away, an enemy convoy escaping. The tracker says why; `M` >
-  **Retry** sets it up afresh. **Abandon** walks away from one.
+  getting away, an enemy convoy escaping. The tracker says why and when it
+  is tried again (Round 17: by itself; `M` > **Retry now** at once).
+  **Abandon** walks away from one.
 - **Rewards:** Recruit: a golden apple, bread and iron ingots; Veteran:
   three golden apples, steak and two diamonds; Elite: six golden apples,
   steak, five diamonds and four emeralds (the bosses and the big ones add
@@ -2354,9 +2371,12 @@ of the hangars (F-22 Raptors and F-16 Fighting Falcons), and (Round 10) now and
 then **inside a hangar**, nose to the open doorway, with a clear way out to the
 taxiway (nothing is parked in front of it): get in and taxi straight out. And a
 **B-2 Spirit** bomber at every airport (always outside: it is too big for a
-hangar): in its own spot on the apron, or (Round 9) where
-the apron has no room for its wing, on the runway just past the end of the
-apron, lined up for takeoff. Walk up to one and press **F** (the B-2 near
+hangar): in its own spot on the apron, or where the apron has no room for
+its wing, (Round 17) on a stand beside the taxiway past the end of the
+apron, nose to the runway (Round 9 to 16 put it on the runway itself). **No
+aircraft ever stands on a runway** (Round 17): taxi out (`W` a little
+throttle, the mouse or `Q`/`E` to steer the nose wheel), turn onto the
+runway and open the throttle. Walk up to one and press **F** (the B-2 near
 the middle of its wing). In Missions that works from "Take to the air" (the
 marker points at the nearest parked fighter; **F3** shows the nearest airport);
 the B-2, and with it the nuke, from Operation Sunburn (a locked aircraft's
@@ -2406,7 +2426,8 @@ long takeoff roll (about 300 blocks, 170 with the afterburner) and 190
 health. It flies about 2.3 times as high as the others (its thin air starts
 there: a ceiling round 3,500 blocks, below the space line). Creative:
 the "SR-71" call-in and the Vehicles tab; about one airport in four parks
-one on its runway.
+one beside its runway (Round 17: on a stand by the taxiway, no longer on
+the runway).
 
 **Radar** (Round 8): bottom right in any aircraft (jets, the B-2, your own
 UFO), heading up, 2.4 km to the rim: UFOs (red diamonds, bigger for bigger
@@ -2596,7 +2617,16 @@ land right now: it slides onto the cross as the turret comes round (the
 fire control works out the range and the elevation). The ring round the
 cross fills as the gun reloads. A tank climbs one-block steps, crushes
 leaves and plants, is slowed by water and won't go into deep water; walls
-and tree trunks stop it. Below half its armour it smokes, below a quarter
+stop it. (Round 17) Ground vehicles never get stuck: tanks and the AA
+vehicle climb **two-block steps** (the missile truck one), and slopes up to
+about 35 degrees, slower the steeper it gets; fences and walls are rolled
+over like a block, slabs like half of one; **trees are knocked down**, and
+so are lamp posts, fence posts and hay stacks standing alone; a vehicle
+won't drive over a drop that would hurt it (a cliff, a ravine), and one
+that is wedged anyway (boxed in, a block put into it, set down on a post or
+a roof, in a pit with no way out) is nudged up or out after a moment of
+pushing. Driverless ones (the aliens', convoys, patrols) back off and turn
+when something is in the way. Below half its armour it smokes, below a quarter
 it burns; at nothing it cooks off and throws its turret.
 
 Every weapon fires from its own muzzle: the shell and the flash from the

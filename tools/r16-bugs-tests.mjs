@@ -255,9 +255,9 @@ await browserCheck("a post between a tank's corners stops it (it drove through)"
   const f = await field();
   const r = await v(async (g, f) => {
     const { summonTank } = await import("./js/vehicle-tank.js");
-    // (A four-block post 0.4 to 1.4 right of the tank's centre line, 10 blocks ahead: between its corner probes.)
+    // (A post 0.4 to 1.4 right of the tank's centre line, 10 blocks ahead: between its corner probes. Round 17: eight high, as a lone post of up to six is pushed over now.)
     const l = [];
-    for (let k = 0; k < 4; k++) l.push(f.x0, f.y + k, f.z0 - 25, 1);
+    for (let k = 0; k < 8; k++) l.push(f.x0, f.y + k, f.z0 - 25, 1);
     g.world.setBlocks(l);
     const t = summonTank(g.vehicles, "mbt", new g.THREE.Vector3(f.x0 - 0.4, f.y, f.z0 - 10), 0);
     t.pos.y = f.y;

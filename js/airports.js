@@ -4,6 +4,11 @@
 // A parked fighter is a real jet (boardable with F, like the one called in
 // with J); they are set out when the player comes within range and put away
 // when they leave. Parked aircraft are never saved.
+// (Round 17) No aircraft is ever set out on a runway: the fighters stand in
+// the apron's parking row or in the hangars, the B-2 in the row where it
+// fits, else (and the SR-71 always) on a stand beside the taxiway; from
+// there the player taxis onto the runway (W a little throttle, Q/E or the
+// mouse to steer).
 
 import { IS_SOLID } from "./blocks.js";
 import { JET_TYPES } from "./vehicle-jet.js";
@@ -13,7 +18,14 @@ const NEAR = 420; // blocks: parked aircraft appear inside this range
 const FAR = 900; // and are put away beyond this
 const GUARDS_BACK = 20 * 60; // seconds: a cleared airport's guards come back after this
 const GEAR = 1.35;
-const HANGAR_DESIGNS = ["saucer", "saucer_disc", "saucer_domed", "tictac", "triangle"]; // small enough for the bunker hall
+// (Round 17) The big aircraft's stands beside the runway (airports.js
+// _stands): [span, length] (blocks), the taxiway's far edge from the
+// runway's edge, and the gap between it and a stand's nose.
+const B2_STAND = [48, 22];
+const SR71_STAND = [16, 30];
+const TAXI_EDGE = 6;
+const STAND_GAP = 3;
+const HANGAR_DESIGNS =["saucer", "saucer_disc", "saucer_domed", "tictac", "triangle"]; // small enough for the bunker hall
 
 export class AirportManager {
   constructor({ sites, vehicles, world, player, mobs }) {
@@ -110,7 +122,7 @@ export class AirportManager {
     for (let i = 0; i < n; i++) put(slots.fighters[i], (s.seed + i) % 2 ? "f16" : "f22", 15, 16);
     for (let i = 0; i < nh; i++) put(inHangars[i], ((s.seed >>> 3) + inHangars[i].hangar) % 2 ? "f16" : "f22", 15, 16);
     if (JET_TYPES.b2 && !have.has(`${s.id}#b`) && !this.taken.has(`${s.id}#b`)) {
-      const spot = this._bomberSpot(s, slots);
+      const spot = this._bomberSpot(s, slots, jets);
       if (spot) put(spot, "b2", 48, 22, true);
     }
     // (Round 16) About one airport in four has an SR-71 Blackbird too.
@@ -125,25 +137,17 @@ export class AirportManager {
     return Math.imul((s.seed ^ 0x5bd1e995) >>> 0, 0x27d4eb2d) >>> 30 === 0;
   }
 
-  // (Round 16) Where an airport's SR-71 stands: out on the runway past
-  // either end of the apron, facing the long way (room for its long
-  // takeoff roll), clear of the B-2; else at either end of the runway.
-  // One per airport (one key); null while the chunks aren't there yet.
+  // (Round 17) Where an airport's SR-71 stands. (Round 16 parked it out on
+  // the runway; the player asked that no plane ever stands on a runway,
+  // "next to it or in the hangars".) Now on a stand beside the taxiway past
+  // either end of the apron (see _stands), nose to the runway: a turn onto
+  // the taxiway, then onto the runway for its long takeoff roll. One per
+  // airport (one key); null while the chunks aren't there yet.
   _sr71Spot(s, jets) {
     const key = `${s.id}#s`;
-    const list = [];
-    const [ux, uz] = this.sites.dirU(s);
-    const lim = (s.half ?? 300) - 20;
-    for (const u0 of [s.apron.u1 + 80, s.apron.u0 - 80, s.apron.u1 + 130, s.apron.u0 - 130]) {
-      const u = Math.max(-lim, Math.min(lim, u0));
-      const [x, z] = this.sites.toWorld(s, u, 0);
-      const dir = u > 0 ? -1 : 1;
-      list.push({ x: x + 0.5, y: s.y + 1, z: z + 0.5, yaw: Math.atan2(-dir * ux, -dir * uz), key });
-    }
-    for (const e of this.sites.runwayEnds(s)) list.push({ x: e.x, y: s.y + 1, z: e.z, yaw: e.yaw, key });
-    for (const slot of list) {
-      if (jets.some((j) => j.parkKey !== key && Math.hypot(j.pos.x - slot.x, j.pos.z - slot.z) < 40)) continue;
-      const ok = this._clear(s, slot, 16, 30, true);
+    for (const slot of this._stands(s, SR71_STAND[0], SR71_STAND[1], key)) {
+      if (this._overlapsJets(s, slot, SR71_STAND[0], SR71_STAND[1], jets, key)) continue;
+      const ok = this._clear(s, slot, SR71_STAND[0], SR71_STAND[1]);
       if (ok === null) return null;
       if (ok) return slot;
     }
@@ -152,31 +156,85 @@ export class AirportManager {
 
   // (Round 9) Where an airport's B-2 stands: its own slot in the parking row,
   // or, where the row has no room for it (about one airport in four) or the
-  // slot is blocked, on the runway just past either end of the apron (near
-  // the other aircraft, facing the long way: room for its takeoff roll),
-  // else at either end of the runway, lined up for takeoff. It used to be
-  // left out: no B-2 for Operation Sunburn. One B-2 per airport (one key);
-  // null while the chunks of the spot to try next aren't there (every peer
-  // then waits and picks the same spot).
-  _bomberSpot(s, slots) {
+  // slot is blocked, (Round 17) on a stand beside the taxiway past either
+  // end of the apron, nose to the runway (Round 9 to 16 put it on the
+  // runway itself). One B-2 per airport (one key); null while the chunks of
+  // the spot to try next aren't there (every peer then waits and picks the
+  // same spot).
+  _bomberSpot(s, slots, jets = this.parked.get(s.id) || []) {
     const key = `${s.id}#b`;
     const list = [];
-    if (slots.bomber) list.push({ slot: slots.bomber, along: false });
-    const [ux, uz] = this.sites.dirU(s);
-    const lim = (s.half ?? 300) - 12;
-    for (const u0 of [s.apron.u1 + 36, s.apron.u0 - 36]) {
-      const u = Math.max(-lim, Math.min(lim, u0));
-      const [x, z] = this.sites.toWorld(s, u, 0);
-      const dir = u > 0 ? -1 : 1; // toward the far end of the runway
-      list.push({ slot: { x: x + 0.5, y: s.y + 1, z: z + 0.5, yaw: Math.atan2(-dir * ux, -dir * uz), key }, along: true });
-    }
-    for (const e of this.sites.runwayEnds(s)) list.push({ slot: { x: e.x, y: s.y + 1, z: e.z, yaw: e.yaw, key }, along: true });
-    for (const c of list) {
-      const ok = this._clear(s, c.slot, 48, 22, c.along);
+    if (slots.bomber) list.push(slots.bomber);
+    list.push(...this._stands(s, B2_STAND[0], B2_STAND[1], key));
+    for (const slot of list) {
+      if (slot !== slots.bomber && this._overlapsJets(s, slot, B2_STAND[0], B2_STAND[1], jets, key)) continue;
+      const ok = this._clear(s, slot, B2_STAND[0], B2_STAND[1]);
       if (ok === null) return null;
-      if (ok) return c.slot;
+      if (ok) return slot;
     }
     return null;
+  }
+
+  // (Round 17) The stands beside the runway for a big aircraft (span across
+  // the runway's line, len along the nose): on the levelled ground behind
+  // the taxiway, past either end of the apron, its nose a few blocks behind
+  // the taxiway's edge, so it never reaches the runway; nearest the apron
+  // first, the end away from the tower (its tank yard) first. Clear of the
+  // fuel tanks and the tank yard and its patrol; the runway's far ends are
+  // left free. Slots { x, y, z, yaw, u, v, key, stand: true } (fixed per site).
+  _stands(s, span, len, key) {
+    const a = s.apron;
+    if (!a) return [];
+    const S = this.sites;
+    const [vx, vz] = S.dirV(s);
+    const yaw = Math.atan2(vx, vz); // (facing -v: toward the runway, like the parking row)
+    const rw = s.rw ?? 14;
+    const v = rw + TAXI_EDGE + STAND_GAP + Math.ceil(len / 2);
+    const lim = (s.half ?? 300) - 16 - span / 2;
+    // What already stands on the ground there (local boxes [u0, u1, v0, v1]).
+    const keep = [];
+    for (const k of s.tanks || []) keep.push([k.u - k.r - 3, k.u + k.r + 3, k.v - k.r - 3, k.v + k.r + 3]);
+    for (const y of S.yardSpots ? S.yardSpots(s) : []) {
+      const [u, w] = S.toLocal(s, y.x, y.z);
+      keep.push([u - 6, u + 6, w - 6, w + 6]);
+      for (const p of y.patrol || []) {
+        const [pu, pv] = S.toLocal(s, p[0], p[1]);
+        keep.push([pu - 6, pu + 6, pv - 6, pv + 6]);
+      }
+      // (The patrol loop's rectangle: from its points.)
+      if (y.patrol?.length) {
+        const pts = y.patrol.map((p) => S.toLocal(s, p[0], p[1]));
+        keep.push([Math.min(...pts.map((p) => p[0])) - 6, Math.max(...pts.map((p) => p[0])) + 6, Math.min(...pts.map((p) => p[1])) - 6, Math.max(...pts.map((p) => p[1])) + 6]);
+      }
+    }
+    const t = s.tower;
+    const towerHigh = t ? t.u0 > (a.u0 + a.u1) / 2 : false;
+    const sides = towerHigh ? [-1, 1] : [1, -1];
+    const out = [];
+    for (let d = Math.ceil(span / 2) + 6; d < 400; d += 10) {
+      for (const sd of sides) {
+        const u = (sd > 0 ? a.u1 : a.u0) + sd * d;
+        if (Math.abs(u) > lim) continue;
+        const box = [u - span / 2 - 2, u + span / 2 + 2, v - len / 2 - 2, v + len / 2 + 2];
+        if (keep.some((k) => k[0] <= box[1] && k[1] >= box[0] && k[2] <= box[3] && k[3] >= box[2])) continue;
+        const [x, z] = S.toWorld(s, u, v);
+        out.push({ x: x + 0.5, y: s.y + 1, z: z + 0.5, yaw, u, v, key, stand: true });
+      }
+    }
+    return out;
+  }
+
+  // (Round 17) Whether a stand (span x len, nose to the runway) overlaps an
+  // aircraft already set out here (another key).
+  _overlapsJets(s, slot, span, len, jets, key) {
+    const [u, v] = this.sites.toLocal(s, slot.x, slot.z);
+    for (const j of jets || []) {
+      if (j.type !== "jet" || j.parkKey === key || !j.alive) continue;
+      const [ju, jv] = this.sites.toLocal(s, j.pos.x, j.pos.z);
+      const [js, jl] = j.jetType === "b2" ? B2_STAND : j.jetType === "sr71" ? SR71_STAND : [15, 16];
+      if (Math.abs(ju - u) < (span + js) / 2 + 3 && Math.abs(jv - v) < (len + jl) / 2 + 3) return true;
+    }
+    return false;
   }
 
   // An aircraft's colour scheme: fixed per airport and slot (the same for

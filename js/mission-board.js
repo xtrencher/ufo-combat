@@ -13,14 +13,37 @@
 // (A "sequence" mode keeps the old campaign's behaviour for the automated
 // suites that set a run up with setChain; see legacyAutomation below. A real
 // player always gets the board.)
+//
+// (Round 17) The automatic flow: the player wanted the missions to come by
+// themselves again. With nothing running, the next mission of AUTO_ORDER
+// (the first one not won yet that is open) starts after a short break
+// (`next`, counted down by the director on the host: tickAuto); a failed
+// mission is tried again after a pause, and after MAX_TRIES failures in a
+// row it is put aside (`skipped`: it comes back once everything else is
+// done) and the next one comes. The board stays: the overview, starting a
+// mission out of turn, and pausing the flow (`auto`, saved).
 import { Progress, missionById as poolMission, curveAt } from "./progression.js";
-import { BOARD, BOARD_BY_ID, CATEGORIES, TIERS, VEHICLE_NAMES, tierCurve, limitFor, rewardFor, rankFor, lockReason, setTitles } from "./mission-catalog.js";
+import { BOARD, BOARD_BY_ID, CATEGORIES, TIERS, VEHICLE_NAMES, AUTO_ORDER, tierCurve, limitFor, rewardFor, rankFor, lockReason, setTitles } from "./mission-catalog.js";
 
 setTitles((id) => poolMission(id)?.title);
 
 // Mission ids the game's locks ask about (progress.reached / isDone), and
 // the vehicle (or anything) a win of which opens them on the board.
 const GATES = { wings: "jet", salvage: "ufo", sunburn: "b2", air_cav: "heli", tank_battle: "tank", supply: "any" };
+
+// (Round 17) The automatic flow's breaks (seconds of play) and tries.
+export const AUTO_BREAK = { first: 8, win: 20, fail: 12, skip: 12 };
+export const MAX_TRIES = 3;
+
+// (Round 17: a page opened with ?auto=0 starts with the flow paused, for the
+// suites that drive one mission at a time.)
+function autoDefault() {
+  try {
+    return !/[?&]auto=0\b/.test(globalThis.location?.search || "");
+  } catch {
+    return true;
+  }
+}
 
 // (Automation: the suites from before Round 16 drive the classic run; a page
 // opened with ?board plays the board like a player.)
@@ -42,6 +65,12 @@ export class MissionBoard extends Progress {
     this.result = null; // { id, ok, reason, t } the last mission's outcome
     this.onFail = null; // (mission, reason) => void
     this.onRequest = null; // (online, a guest) (kind, id) => void: asks the host
+    // (Round 17) The automatic flow.
+    this.auto = autoDefault(); // the next mission starts by itself
+    this.next = null; // { id, left, retry, tries } the mission coming after the break
+    this.skipped = new Set(); // put aside after MAX_TRIES failures (or abandoned)
+    this.streak = { id: null, n: 0 }; // failures in a row of one mission
+    this.allDone = false; // nothing left to come (every mission won)
     this._idle(null);
   }
 
@@ -191,6 +220,9 @@ export class MissionBoard extends Progress {
     this.runId = (this.runId || 0) + 1; // (the director sets a retried mission up afresh)
     this.active = { id, tier: e.tier, limit: limitFor(e), left: limitFor(e) };
     this.result = null;
+    this.next = null; // (Round 17: what was coming waits for this one)
+    if (this.streak.id !== id) this.streak = { id, n: 0 };
+    this.mission.retry = this.streak.n; // (the failures before this try)
     if (this.onChange) this.onChange();
     if (this.onStart) this.onStart(this.mission);
     return null;
@@ -209,8 +241,26 @@ export class MissionBoard extends Progress {
     this.fails++;
     this.result = { id: m.id, ok: false, reason, t: Date.now() };
     this._idle(m.id);
+    // (Round 17) Tried again by itself after a pause; after MAX_TRIES
+    // failures in a row it is put aside and the next one comes.
+    if (this.streak.id !== m.id) this.streak = { id: m.id, n: 0 };
+    this.streak.n++;
+    if (this.streak.n >= MAX_TRIES) {
+      this.skipped.add(m.id);
+      this.streak = { id: null, n: 0 };
+      this._queueNext(AUTO_BREAK.skip);
+    } else this._queue(m.id, AUTO_BREAK.fail, true);
+    this.result.after = this.next ? (this.next.retry ? "retry" : "next") : null;
     this.onFail?.(m, reason);
     if (this.onChange) this.onChange();
+  }
+
+  // (Round 17) What comes after a failure, for its message.
+  failNote() {
+    const n = this.next;
+    if (!n) return this.auto ? "Press M for the mission board." : "Press M to retry it (automatic missions are paused).";
+    if (n.retry) return `Trying again in ${Math.ceil(n.left)} s (try ${n.tries + 1} of ${MAX_TRIES}).`;
+    return `Moving on: ${this._title(n.id)} in ${Math.ceil(n.left)} s (this one comes back later).`;
   }
 
   // Walking away from it (no penalty but the time).
@@ -223,6 +273,10 @@ export class MissionBoard extends Progress {
     if (!this.board || !m) return;
     this.result = { id: m.id, ok: false, reason: "Abandoned.", t: Date.now() };
     this._idle(m.id);
+    // (Round 17) Put aside for now: the next one comes after the break (or pick one on the board).
+    this.skipped.add(m.id);
+    this.streak = { id: null, n: 0 };
+    this._queueNext(AUTO_BREAK.skip);
     if (this.onChange) this.onChange();
   }
 
@@ -243,8 +297,90 @@ export class MissionBoard extends Progress {
       this.won.set(done.id, was + 1);
       this.result = { id: done.id, ok: true, reason: "", t: Date.now(), unlock: this._unlockText(done.id, was) };
       this.active = null;
+      // (Round 17) The next one after a break.
+      this.skipped.delete(done.id);
+      this.streak = { id: null, n: 0 };
+      this._queueNext(AUTO_BREAK.win);
+      if (this.onChange) this.onChange();
     }
     return done;
+  }
+
+  // ---------- (Round 17) The automatic flow ----------
+
+  _title(id) {
+    return poolMission(id)?.title || id;
+  }
+
+  // The mission that comes next: the first of AUTO_ORDER not won yet, open,
+  // and not put aside (the ones put aside once nothing else is left); null
+  // when every mission is won.
+  pickNext() {
+    const won = this._wonSet();
+    const open = (id) => !won.has(id) && BOARD_BY_ID.has(id) && !this.lockOf(id);
+    for (const id of AUTO_ORDER) if (open(id) && !this.skipped.has(id)) return id;
+    for (const id of AUTO_ORDER) if (open(id)) return id;
+    return null;
+  }
+
+  // Mission `id` starts after `secs` (none: nothing comes).
+  _queue(id, secs, retry = false) {
+    this.next = id && this.auto && !this.mirror ? { id, left: secs, retry: !!retry, tries: retry && this.streak.id === id ? this.streak.n : 0 } : null;
+    this.allDone = !id && !this.mirror;
+  }
+
+  _queueNext(secs) {
+    const id = this.pickNext();
+    // (Everything left was put aside: those come back now.)
+    if (id && this.skipped.has(id)) this.skipped.clear();
+    this._queue(id, secs);
+  }
+
+  // Counts the break down and starts the next mission (the director calls
+  // it on the host while no mission runs: not in Creative, nor away in the
+  // Nether or the End). Returns the mission started, or null.
+  tickAuto(dt, stats) {
+    if (!this.board || this.mirror || this.mission || !this.auto) return null;
+    if (!this.next) {
+      if (this.allDone) return null;
+      // (A fresh world, a loaded save: a mission failed before it was saved
+      // is tried again, else the next one.)
+      const s = this.streak;
+      if (s.id && s.n > 0 && s.n < MAX_TRIES && !this.won.has(s.id) && !this.lockOf(s.id)) this._queue(s.id, AUTO_BREAK.first, true);
+      else this._queueNext(AUTO_BREAK.first);
+      if (!this.next) return null;
+    }
+    this.next.left -= dt;
+    if (this.next.left > 0) return null;
+    const id = this.next.id;
+    this.next = null;
+    const why = this.begin(id, stats);
+    if (why) {
+      // (No longer open: put aside, the next one instead.)
+      this.skipped.add(id);
+      this._queueNext(AUTO_BREAK.first);
+      return null;
+    }
+    return this.mission;
+  }
+
+  // Pauses (false) or resumes (true) the automatic flow.
+  setAuto(on) {
+    if (this.mirror) {
+      this.onRequest?.("auto", on ? "on" : "off");
+      return;
+    }
+    this.auto = !!on;
+    this.next = null;
+    this.allDone = false;
+    if (this.auto && !this.mission) this._queueNext(AUTO_BREAK.first);
+    if (this.onChange) this.onChange();
+  }
+
+  // Starts what comes next at once (the board's "Start now").
+  startNext(stats) {
+    const id = this.next?.id || this.pickNext();
+    return id ? this.begin(id, stats) : "Every mission is won: pick one to play again.";
   }
 
   // "Fighter jets are yours for free flight now." (a first win that opens a vehicle)
@@ -276,7 +412,9 @@ export class MissionBoard extends Progress {
   serialize() {
     if (!this.board) return super.serialize();
     const a = this.active && this.mission ? { id: this.active.id, v: this.mission.variant, left: Math.round(this.active.left), base: this.base } : null;
-    return { v: 8, board: true, won: Object.fromEntries(this.won), fails: this.fails, ...(a ? { active: a } : {}), ...(this.place ? { place: this.place } : {}) };
+    // (Round 17: the flow's state, as extra fields a Round 16 game ignores.)
+    const flow = { ...(this.auto ? {} : { auto: false }), ...(this.skipped.size ? { skip: [...this.skipped] } : {}), ...(this.streak.id && this.streak.n ? { streak: [this.streak.id, this.streak.n] } : {}) };
+    return { v: 8, board: true, won: Object.fromEntries(this.won), fails: this.fails, ...flow, ...(a ? { active: a } : {}), ...(this.place ? { place: this.place } : {}) };
   }
 
   load(data, stats) {
@@ -290,9 +428,17 @@ export class MissionBoard extends Progress {
     this.won = new Map();
     this.fails = 0;
     this.result = null;
+    this.next = null;
+    this.allDone = false;
+    this.skipped = new Set();
+    this.streak = { id: null, n: 0 };
     if (data?.v === 8) {
       for (const [k, n] of Object.entries(data.won || {})) if (BOARD_BY_ID.has(k) && Number.isFinite(n) && n > 0) this.won.set(k, Math.min(999, n | 0));
       this.fails = Number.isFinite(data.fails) ? data.fails | 0 : 0;
+      // (Round 17) The flow (a Round 16 save has none: on, nothing put aside).
+      if (data.auto === false) this.auto = false;
+      if (Array.isArray(data.skip)) for (const k of data.skip) if (BOARD_BY_ID.has(k) && !this.won.has(k)) this.skipped.add(k);
+      if (Array.isArray(data.streak) && BOARD_BY_ID.has(data.streak[0]) && Number.isFinite(data.streak[1])) this.streak = { id: data.streak[0], n: Math.max(0, Math.min(MAX_TRIES - 1, data.streak[1] | 0)) };
       const a = data.active;
       if (a && BOARD_BY_ID.has(a.id) && !this.begin(a.id, stats, { force: true, variant: Number.isInteger(a.v) ? Math.max(0, Math.min(3, a.v)) : 0 })) {
         if (Number.isFinite(a.left)) this.active.left = Math.max(30, a.left);
@@ -319,7 +465,9 @@ export class MissionBoard extends Progress {
     if (!this.board) return null;
     const a = this.active && this.mission ? [this.active.id, this.mission.variant, Math.max(0, Math.round(this.active.left))] : null;
     const r = this.result ? [this.result.id, this.result.ok ? 1 : 0, String(this.result.reason || "").slice(0, 120), this.result.t] : null;
-    return { a, r, w: [...this.won.keys()].join(",") };
+    // (Round 17) What comes next and when ([id, seconds, 1 if a retry]), and whether the flow is on.
+    const n = this.next && !this.mission ? [this.next.id, Math.max(0, Math.ceil(this.next.left)), this.next.retry ? 1 : 0] : null;
+    return { a, r, w: [...this.won.keys()].join(","), n, au: this.auto ? 1 : 0 };
   }
 
   // A guest mirrors it. Returns "start" when a new mission began here.
@@ -347,6 +495,10 @@ export class MissionBoard extends Progress {
       // (Not for the outcome already there when joining.)
       if (this._joined && !r.ok && r.reason !== "Abandoned.") out = out || "fail";
     }
+    // (Round 17) The host's flow (an older host sends none: nothing shown as coming).
+    const n = Array.isArray(s.n) && BOARD_BY_ID.has(s.n[0]) ? s.n : null;
+    this.next = n && !this.mission ? { id: n[0], left: Math.max(0, Math.min(3600, Number(n[1]) || 0)), retry: !!n[2], tries: 0 } : null;
+    if (s.au === 0 || s.au === 1) this.auto = !!s.au;
     this._joined = true;
     return out;
   }
