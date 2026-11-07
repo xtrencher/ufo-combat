@@ -8,6 +8,10 @@
 //     (SALVO and a double box once the salvo is charged);
 //   - auto aim's seeker: a small, faint broken ring round the crosshair;
 //   - an arrow on the screen's edge when the target is off the screen;
+//   - (Round 17) at the bottom in the middle: the selected missile (MSL or
+//     SUPER MSL, X switches) with its reload bar, and the afterburner (AB,
+//     orange, flickering while lit; LATCH when a double tap of Shift holds
+//     it on);
 //   - the warnings, small on the screen's edge: a chevron on the bearing
 //     they come from, the word at the top: MISSILE (red, flashing, faster
 //     when close), or LOCK (amber) when something has its nose on us.
@@ -91,6 +95,8 @@ export class FighterHud {
       this.box.size = 0;
       this.ring = 0;
       this._setState("", "");
+      this.canvas.dataset.weapon = this._wState = ""; // (Round 17)
+      this.canvas.dataset.ab = this._aState = "";
     }
   }
 
@@ -268,6 +274,51 @@ export class FighterHud {
       this._threatCue(hud.spiked.pos, camera, AMBER, `LOCK ${fmtRange(hud.spiked.dist)}`, 0.9);
     }
     this._setState(state, warn);
+    this._drawStatus(hud);
+  }
+
+  // (Round 17) The selected missile and its reload, the afterburner: small,
+  // at the bottom in the middle (the flight panel is bottom left, the radar
+  // bottom right). The canvas's data-weapon and data-ab say what is shown.
+  _drawStatus(hud) {
+    const s = this.s;
+    const W = this.w;
+    const y = this.h - 34 * s;
+    const wp = hud.weapon;
+    let wState = "";
+    if (wp) {
+      const ready = clamp(wp.ready ?? 1, 0, 1);
+      const color = wp.super ? (ready >= 1 ? LOCK : AMBER) : GREEN;
+      wState = wp.super ? (ready >= 1 ? "super" : "super-reload") : "missile";
+      const x = W / 2 + 34 * s;
+      this._text(wp.name, x, y, color, 11 * s, "center", 800, 0.95);
+      // The reload bar under it (full: ready).
+      const bw = Math.round(54 * s);
+      const bh = Math.max(2, Math.round(3 * s));
+      const bx = Math.round(x - bw / 2);
+      const by = Math.round(y + 9 * s);
+      const ctx = this.ctx;
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = EDGE;
+      ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = color;
+      ctx.fillRect(bx, by, Math.round(bw * ready), bh);
+      ctx.globalAlpha = 1;
+      if (wp.super && ready < 1 && wp.left > 0) this._text(`${Math.ceil(wp.left)} S`, x + bw / 2 + 6 * s, by + 1, AMBER, 9 * s, "left", 700, 0.9);
+    }
+    const ab = hud.ab;
+    let aState = ab ? "off" : "";
+    if (ab && (ab.on || ab.latched)) {
+      aState = ab.on ? (ab.latched ? "latched" : "on") : "latched";
+      const x = W / 2 - 34 * s;
+      const flick = ab.on ? 0.8 + 0.2 * Math.sin(this.t * 37) : 0.55;
+      this._text("AB", x, y, AMBER, (ab.on ? 14 : 11) * s, "center", 900, flick);
+      if (ab.latched) this._text("LATCH", x, y + 12 * s, AMBER, 8.5 * s, "center", 800, 0.85);
+    }
+    if (wState !== this._wState) this.canvas.dataset.weapon = this._wState = wState;
+    if (aState !== this._aState) this.canvas.dataset.ab = this._aState = aState;
   }
 
   // The seeker: a thin ring broken into four arcs (a reticle, not a circle

@@ -652,6 +652,8 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
   const gear = { nose: mkGear(noseGeo, ...L.nose.at), left: mkGear(mainGeo, -mx, my, mz), right: mkGear(mainGeo, mx, my, mz) };
   const noseY = L.nose.at[1];
   let gearT = 1;
+  let abWas = false; // (Round 17: the afterburner's lighting flash)
+  let abT = 0;
   // Afterburner flames: layered additive cones out of each nozzle.
   if (!flameTex) flameTex = flameTexture();
   const flames = [];
@@ -750,11 +752,17 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
     length: L.length * scale,
     span: L.span * scale,
     // throttle 0-1; afterburner: long, bright blue-white flames.
+    // (Round 17: much bigger lit, with a flash as it lights: the afterburner
+    // on is unmistakable from outside.)
     setThrottle(throttle, afterburner, t) {
+      if (afterburner && !abWas) abT = t;
+      abWas = afterburner;
+      const light = afterburner ? Math.max(0, 1 - (t - abT) / 0.3) : 0; // (the lighting's flash, 0.3 s)
       for (const f of flames) {
         const flicker = 0.9 + Math.sin(t * 43 + f.flame.position.x * 7) * 0.1;
-        const len = afterburner ? 5.6 + Math.sin(t * 31) * 0.5 : 0.4 + throttle * 1.8;
-        f.flame.scale.set(afterburner ? 1.15 : 0.8, afterburner ? 1.15 : 0.8, len * flicker * (0.7 + 0.3 * f.k));
+        const len = afterburner ? 9.2 + Math.sin(t * 31) * 0.8 + light * 3 : 0.4 + throttle * 1.8;
+        const wide = afterburner ? 1.45 + light * 0.5 : 0.8;
+        f.flame.scale.set(wide, wide, len * flicker * (0.7 + 0.3 * f.k));
         f.flame.visible = throttle > 0.05 || afterburner;
         f.flame.material.color.setRGB(afterburner ? 2.2 : 3, afterburner ? 2.2 : 1.6, afterburner ? 3.2 : 0.8);
         f.flame.material.opacity = afterburner ? 1 : 0.35 + throttle * 0.5;
@@ -764,13 +772,16 @@ export function createJetModel(scale = 1, { paint = "raptor", type = "f22" } = {
         for (let i = 0; i < f.diamonds.length; i++) {
           const d = f.diamonds[i];
           d.visible = afterburner;
-          if (afterburner) d.scale.setScalar((0.5 - i * 0.08) * f.k * (0.85 + 0.25 * Math.sin(t * 60 + i * 2)));
+          if (afterburner) {
+            d.scale.setScalar((0.62 - i * 0.09) * f.k * (0.85 + 0.25 * Math.sin(t * 60 + i * 2)));
+            d.position.z = f.flame.position.z + 1.0 + i * 1.55; // (spread along the longer plume)
+          }
         }
         const g = 0.4 + throttle * 1.6 + (afterburner ? 2 : 0);
         f.glow.material.color.setRGB(g * 1.3, g * 0.6, g * 0.3);
         f.halo.visible = throttle > 0.05;
         f.halo.material.color.setRGB(g * 0.8, g * 0.4, g * 0.25 + (afterburner ? 0.5 : 0));
-        f.halo.scale.setScalar((0.9 + throttle * 0.8 + (afterburner ? 1.1 : 0)) * f.k);
+        f.halo.scale.setScalar((0.9 + throttle * 0.8 + (afterburner ? 1.8 + light * 2.5 : 0)) * f.k);
       }
     },
     // The control surfaces follow the stick (-1..1 each): the tailplanes move

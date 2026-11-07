@@ -63,12 +63,19 @@ const MISSILE_TURN = 3.2; // rad/s
 // it costs time rather than the lock: AUTO_DECAY x as fast); once locked it
 // is held anywhere within AUTO_GIMBAL of the view (a seeker's gimbal), and
 // lost AUTO_GRACE s after it leaves that or the range.
+// (Round 17) "The view" is any of the aim (the crosshair), the camera's own
+// direction and the nose (a cockpit view looks along the nose while the aim
+// leads it in a hard turn; manual flight's chase camera lags the nose), to
+// the nearest edge of the target (a big UFO close by fills the view); a
+// lock is never lost for being close (only acquired beyond 25 blocks), and a
+// held lock (the button down) only by range or the target's end, never
+// because the target started to flee.
 const AUTO_LOCK_TIME = 2;
 const AUTO_CONE = 0.12; // radians (~7 degrees)
 const AUTO_HOLD = 0.2;
 const AUTO_GIMBAL = 1.0;
 const AUTO_DECAY = 1.5;
-const AUTO_GRACE = 0.5;
+const AUTO_GRACE = 1.0; // (Round 17: was 0.5)
 const PN_GAIN = 4; // proportional navigation: the missile turns this many times as fast as the line of sight
 const PN_PURSUIT = 0.6; // radians: further off than this the missile first turns onto the target (a launch at one behind)
 const FLARE_COOLDOWN = 5;
@@ -119,6 +126,42 @@ const ROLL_EVADE_MISS = 9; // blocks: how close the missile passes
 const NUKE_COOLDOWN = 0.5; // just a debounce: the nuke has no real cooldown
 export const MISSILE_DAMAGE = 190;
 const MISSILE_FUSE = 2.5; // blocks from an aircraft's surface: the proximity fuse goes off (Round 10)
+// (Round 17) The afterburner, much stronger for a pilot (the AI's fighters
+// keep AB_THRUST: their autopilots are tuned to it), lit while Shift is
+// held or latched on by a double tap of Shift (another double tap, or S,
+// lets it go).
+const AB_THRUST_PILOT = 2.1; // x the thrust in the air with it lit (the top speed with it lit is still the spec's)
+const AB_DOUBLE_TAP = 0.4; // s: two Shift presses closer than this latch it (or let it go)
+// (Round 17) The heavy missile ("super missile", X to switch): one at a time,
+// slower, a long reload, very visible, and a big conventional blast (far
+// more than a missile's 6.5, far less than the B-2's nuke).
+export const SUPER_MISSILE = {
+  damage: 650, // a direct hit (a missile: MISSILE_DAMAGE)
+  radius: 14, // what the blast digs and hurts (a missile 6.5, the launcher's warhead 11)
+  look: 46, // how big the blast looks
+  reload: 14, // seconds
+  speed: 250, // blocks/s it flies at (more off a fast jet: + SPEED_OVER, up to MAX)
+  speedOver: 45,
+  maxSpeed: 400,
+  accel: 110, // blocks/s^2
+  turn: 1.7, // rad/s (a missile: MISSILE_TURN)
+  fuse: 5, // the proximity fuse (blocks from an aircraft's surface)
+  life: 12, // seconds before it goes off by itself (about 3,000 blocks out)
+};
+// (Round 17) A light touch of the terrain (a wingtip, the tail or the belly,
+// shallow and slow into it) scrapes instead of crashing, for every pilot's
+// jet (the canyon run's hook too): sparks, a grind, a small shake, a little
+// damage, and no bounce: the jet is only eased out of the blocks, along its
+// face, and keeps flying its own path.
+const GRAZE_INTO = 26; // blocks/s into the surface: faster is a crash
+const GRAZE_ANGLE = 0.28; // radians (16 degrees) between the path and the surface: steeper is a crash
+const GRAZE_DAMAGE = 2.5; // per scrape (more the harder it was)
+const GRAZE_COOL = 0.18; // seconds between two scrapes' damage, sound and shake
+const GRAZE_DIRS = [];
+for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) if (x || y || z) GRAZE_DIRS.push(new THREE.Vector3(x, y, z).normalize());
+const _gn = new THREE.Vector3();
+const _gp = new THREE.Vector3();
+const _gd = new THREE.Vector3();
 
 // The two jets you can call in. The Raptor is the heavy one (more armour, a
 // salvo of four, the higher top speed); the Falcon is lighter and nimbler:
@@ -134,9 +177,11 @@ const MISSILE_FUSE = 2.5; // blocks from an aircraft's surface: the proximity fu
 // top speed setting, if higher, still wins): the real F-22 and F-16 are
 // supersonic, so the sound barrier is there to break. The bomber, like the
 // real B-2, stays subsonic (unless the setting is raised in Creative).
+// (Round 17: the fighters' afterburner tops out higher, Mach 1.25 and 1.2
+// (were 1.1 and 1.06): with it the jet is much faster than without.)
 export const JET_TYPES = {
-  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1.25, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.1 },
-  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.06 },
+  f22: { id: "f22", name: "F-22 Raptor", short: "heavy stealth fighter", takeoff: "about 175 blocks (115 with the afterburner)", maxHealth: 160, speed: 1, stall: 1, accel: 1, turn: 1, roll: 1, cannonRate: 16, cannonDamage: 5, heatPerShot: 0.05, salvo: 4, salvoTime: 3, missileCooldown: 0.5, probes: { nose: 7.4, wing: 6.2, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1.25, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.25 },
+  f16: { id: "f16", name: "F-16 Fighting Falcon", short: "light, agile fighter", takeoff: "about 130 blocks (85 with the afterburner)", maxHealth: 130, speed: 0.92, stall: 0.9, accel: 1.1, turn: 1.18, roll: 1.3, cannonRate: 20, cannonDamage: 4, heatPerShot: 0.042, salvo: 2, salvoTime: 2, missileCooldown: 0.35, probes: { nose: 7.2, wing: 5.0, tail: 6 }, gear: GEAR, radius: 7.5, hitRadius: 5.5, mass: 1, seat: [0, 0.8, -3.6], nuke: false, ab: true, mach: 1.2 },
   b2: { id: "b2", name: "B-2 Spirit", short: "stealth bomber (the nuke)", takeoff: "about 270 blocks", maxHealth: 420, speed: 0.52, stall: 0.85, accel: 0.62, turn: 0.42, roll: 0.42, cannonRate: 0, cannonDamage: 0, heatPerShot: 0, salvo: 1, salvoTime: 99, missileCooldown: 1.4, probes: { nose: 9.0, wing: 21.6, tail: 7.5 }, gear: B2_GEAR_HEIGHT, touchPitch: 0.3, radius: 22, hitRadius: 13, mass: 6, seat: [0, 1.7, -5.8], nuke: true, ab: false },
   // (Round 16) The SR-71 Blackbird: the Mach 3 reconnaissance jet. Far the
   // fastest in a straight line (Mach 3.2 high up: machLow near the ground,
@@ -168,9 +213,11 @@ const _up = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _acc = new THREE.Vector3();
 const _probes = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
+const _lv = [0, 1, 2, 3].map(() => new THREE.Vector3()); // (Round 17: the lock's views, _offView)
 
 // (Shared by every jet's missiles and bombs: made once, never per jet or per drop.)
 let _missileGeo = null;
+let _superGeo = null; // (Round 17: the heavy missile)
 let _nukeGeo = null;
 let _missileMat = null;
 function missileMaterial() {
@@ -237,6 +284,10 @@ export class Jet extends Vehicle {
     this.rollEvadeT = 0; // cooldown of the roll evasion
     this.airbrake = 0; // 0-1: how far the air brakes are open (Space held in the air: panels / control surfaces, a lot of drag)
     this._abWant = false;
+    this.abLatch = false; // (Round 17) the afterburner latched on (a double tap of Shift)
+    this._shiftAt = -9; // (when Shift was last pressed: the double tap)
+    this.weapon = "missile"; // (Round 17) "missile" or "super" (the heavy missile): X switches
+    this.superT = 0; // the heavy missile's reload (s)
     this.angVel = new THREE.Vector3(); // body rates: x pitch, y yaw, z roll
     this.onGround = !data.airborne;
     const fwd = this.forward(new THREE.Vector3());
@@ -385,6 +436,7 @@ export class Jet extends Vehicle {
     this.lock.autoSave = null;
     this.queued.length = 0;
     this.afterburner = false;
+    this.abLatch = false; // (Round 17)
     this.freeLook = false;
     this.lookYaw = this.lookPitch = 0;
     this.manager.audio?.setJetEngine?.(0, false, 0, false);
@@ -431,14 +483,18 @@ export class Jet extends Vehicle {
     // at is in proportion to it (50% throttle: half the speed); the
     // afterburner adds to it. On the wheels only part of the thrust gets the
     // jet rolling: a real ground roll of about a hundred blocks.
-    const ab = this.afterburner ? (this.onGround ? 1.55 : AB_THRUST) : 1;
+    // (Round 17: a pilot's afterburner much stronger, AB_THRUST_PILOT; the AI's as before.)
+    const abAir = this.ai ? AB_THRUST : AB_THRUST_PILOT;
+    const abLit = this.afterburner && !this.onGround;
+    const ab = this.afterburner ? (this.onGround ? 1.55 : abAir) : 1;
     const thrust = (this.onGround ? THRUST_GROUND : THRUST_AIR) * cfg.accel * this.throttle * this.throttle * ab * air;
     acc.addScaledVector(fwd, thrust);
     // Drag: top speed with the afterburner lit is the max speed setting
     // (Round 13: in the air, at least the fighter's own supersonic top; an
     // enemy fighter keeps its edge over that too, enemy-jets.js speedEdge).
-    const top = this.afterburner && !this.onGround && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.topMach * (this.speedEdge ?? 1)) : maxSpeed;
-    const kD = (THRUST_AIR * cfg.accel * AB_THRUST) / (top * top);
+    // Without it, 100% throttle settles at the max speed / sqrt(AB_THRUST).
+    const top = abLit && this.spec.mach ? Math.max(maxSpeed, MACH1 * this.topMach * (this.speedEdge ?? 1)) : maxSpeed;
+    const kD = (THRUST_AIR * cfg.accel * (abLit ? abAir : AB_THRUST)) / (top * top);
     // (Induced drag from the wings' lift only once airborne: on the takeoff
     // roll a raised nose would otherwise eat the speed it needs to lift off.)
     const induced = this.onGround ? 0 : 1.5 * cl * cl;
@@ -601,8 +657,20 @@ export class Jet extends Vehicle {
       // Parked or taxiing with the throttle at 0%: S backs the jet up, slowly.
       this.reversing = sKey && !wKey && this.onGround && this.throttle <= 0.001;
       const shift = k.has("ShiftLeft") || k.has("ShiftRight");
-      this.afterburner = shift && this.spec.ab !== false && (!this.onGround || this.throttle > 0.5);
+      // (Round 17) A double tap of Shift latches the afterburner on (another
+      // double tap, or S, lets it go); held, it is on as before.
+      const canAB = this.spec.ab !== false;
+      if (canAB && (input.pressed.has("ShiftLeft") || input.pressed.has("ShiftRight"))) {
+        if (this.time - this._shiftAt < AB_DOUBLE_TAP) {
+          this._shiftAt = -9;
+          this.setAbLatch(!this.abLatch);
+        } else this._shiftAt = this.time;
+      }
+      if (this.abLatch && (sKey || !canAB)) this.setAbLatch(false);
+      const wasAB = this.afterburner;
+      this.afterburner = (shift || this.abLatch) && canAB && (!this.onGround || this.throttle > 0.5);
       if (this.afterburner) this.throttle = 1;
+      if (this.afterburner && !wasAB) this.manager.audio?.playAfterburner?.(true);
       this.brake = k.has("Space");
       // Free look: both mouse buttons freeze the controls (the jet holds its
       // attitude) and the mouse looks around; letting go flies on from there.
@@ -672,6 +740,7 @@ export class Jet extends Vehicle {
     if (!input) {
       this.cannonT = Math.max(0, this.cannonT - dt);
       this.missileT = Math.max(0, this.missileT - dt);
+      this.superT = Math.max(0, this.superT - dt); // (Round 17)
     }
     this.stickX = stick.x;
     // The cannon cools all the time (firing heats it faster than that).
@@ -724,9 +793,23 @@ export class Jet extends Vehicle {
     this._updateView(dt);
   }
 
+  // (Round 17) Latches the afterburner on or lets it go (with a word on the HUD).
+  setAbLatch(on) {
+    on = !!on && this.spec.ab !== false;
+    if (on === this.abLatch) return;
+    this.abLatch = on;
+    if (this === this.manager.active) this.manager.onMessage?.(on ? "AFTERBURNER LATCHED (double tap Shift, or S, to let it go)" : "Afterburner off");
+    if (!on) this.manager.audio?.playAfterburner?.(false);
+  }
+
   // Free look begins: no weapon fires from the press that started it.
   _startFreeLook() {
     const lock = this.lock;
+    // (Round 17) An auto aim lock (or one building) goes on through a free
+    // look: it holds while the view stays on the target (_autoLock's view
+    // includes the camera's). A held lock is dropped, as before.
+    const alive = (t) => t && this._targetAlive(t);
+    const keep = !this.autoAim ? null : alive(lock.autoSave?.target) ? lock.autoSave : lock.auto && !lock.holding && alive(lock.target) ? { target: lock.target, t: lock.t, locked: lock.locked } : null;
     lock.holding = false;
     lock.target = null;
     lock.progress = 0;
@@ -745,6 +828,15 @@ export class Jet extends Vehicle {
     this.lookYaw = _e.y;
     this.lookRoll = _e.z;
     lock.look = 0;
+    if (keep) {
+      lock.auto = true;
+      lock.autoSave = null;
+      lock.target = keep.target;
+      lock.t = keep.t;
+      lock.locked = keep.locked;
+      lock.out = 0;
+      lock.progress = keep.locked ? 1 : Math.min(1, keep.t / AUTO_LOCK_TIME);
+    }
   }
 
   // Free look ends: the aim is where the nose points, wings level, and the
@@ -828,9 +920,11 @@ export class Jet extends Vehicle {
     // Hot haze behind the nozzles under afterburner.
     if (this.afterburner) {
       const c = this._haze || (this._haze = new THREE.Color(1.6, 1.0, 0.6));
+      // (Round 17: a longer, bigger plume of it, behind the nozzles: it was
+      // put ahead of the nose, so it flashed through the jet at speed.)
       for (const sx of [-0.62, 0.62]) {
-        const at = this.pos.clone().addScaledVector(right, sx).addScaledVector(fwd, 8.2 + Math.random() * 3);
-        fx.glow.spawn({ x: at.x, y: at.y, z: at.z, life: 0.16, size0: 0.9, size1: 0.2, color0: c, alpha: 0.45 });
+        const at = this.pos.clone().addScaledVector(right, sx).addScaledVector(fwd, -(8.2 + Math.random() * 7));
+        fx.glow.spawn({ x: at.x, y: at.y, z: at.z, life: 0.2, size0: 1.6, size1: 0.3, color0: c, alpha: 0.5 });
       }
     }
   }
@@ -897,7 +991,11 @@ export class Jet extends Vehicle {
       if (!liftingOff && !dropped) {
         const vy = Math.max(0, this.vel.y); // lift building up for the take-off
         // Follow the ground: up at once (a kerb), down at a steady rate.
-        this.pos.y = c.centerY > this.pos.y ? c.centerY : Math.max(c.centerY, this.pos.y - 10 * dt);
+        // (Round 17: up a kerb only, not up a wall: a building or a cliff
+        // rolled into is left to the airframe's probes, which stop or crash
+        // it; it used to jump up onto it.)
+        const rise = c.centerY - this.pos.y;
+        this.pos.y = rise > 0 ? (rise < 1.6 ? c.centerY : this.pos.y) : Math.max(c.centerY, this.pos.y - 10 * dt);
         // Along the nose's heading. (The speed is measured along the level
         // heading: measuring it along the raised nose lost a few percent of
         // it every frame while rotating, so at a real frame rate the jet
@@ -940,7 +1038,11 @@ export class Jet extends Vehicle {
         const g = mgr.groundBelow(p.x, p.y + 4, p.z);
         pen = Math.max(pen, g - p.y);
       }
-      if (pen > -0.05) {
+      // (Round 17) A wheel far below the ground under it is not a landing:
+      // the jet is beside a wall, a cliff or a building (the ground "under"
+      // a wheel is the top of it); the airframe's probes decide (a scrape or
+      // a crash). It used to land the jet on top of it: a jump up.
+      if (pen > -0.05 && pen < 2.5) {
         if (this.vel.y > 0.2 && !c.wet) {
           // Just lifted off (or climbing away from a bump): the wheels skim
           // the ground on the way up; that's not a touchdown.
@@ -1000,9 +1102,35 @@ export class Jet extends Vehicle {
       if (p.y < 0 || p.y >= WORLD_HEIGHT) continue;
       if (IS_SOLID[w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))]) hits |= 1 << i;
     }
+    // (Round 17) Fast, the nose's own path since the last frame is looked
+    // along too (a few blocks at speed): a thin wall, a trunk or a roof's
+    // edge between two frames used to be flown straight through.
+    const last = this._noseAt;
+    const nose = pts[0];
+    if (last && !(hits & 1) && !this.onGround) {
+      const d = last.distanceTo(nose);
+      if (d > 1 && d < 12 + this.speed * 0.25) {
+        const n = Math.min(24, Math.ceil(d / 0.8));
+        for (let k = 1; k < n; k++) {
+          const f = k / n;
+          const x = last.x + (nose.x - last.x) * f;
+          const y = last.y + (nose.y - last.y) * f;
+          const z = last.z + (nose.z - last.z) * f;
+          if (y < 0 || y >= WORLD_HEIGHT) continue;
+          if (IS_SOLID[w.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))]) {
+            nose.set(x, y, z);
+            hits |= 1;
+            break;
+          }
+        }
+      }
+    }
+    (this._noseAt ||= new THREE.Vector3()).copy(nose);
     if (!hits) return;
     if (this.speed > 8) {
-      if (this.onGraze?.(hits, pts, dt)) return;
+      // (Round 17) A light touch scrapes: the canyon run's hook, else the
+      // jet's own (any pilot's jet; not the AI's, nor another player's here).
+      if (this.onGraze ? this.onGraze(hits, pts, dt) : this.grazeOk && this.graze(hits, pts, dt)) return;
       const p = pts[31 - Math.clz32(hits & -hits)];
       this.crashWhy = `airframe at ${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)} block ${w.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))}`;
       return this._crash("crash");
@@ -1015,6 +1143,110 @@ export class Jet extends Vehicle {
     this.manager.destroy(this, cause);
   }
 
+  // (Round 17) Whether a light touch of the terrain may be a scrape: any
+  // jet flown here by a player (or left flying by one), not the AI's.
+  get grazeOk() {
+    return !this.isEnemyJet && !this.ai && !this.puppet;
+  }
+
+  // (Round 17) A light touch of the terrain, the trees or a building (hits:
+  // the bits of the airframe's parts in solid blocks, 0 nose, 1 fuselage,
+  // 2/3 wingtips, 4 tail, 5 belly; pts: those parts' points). A wingtip,
+  // the tail or the belly (at most two of them) at under GRAZE_ANGLE and
+  // GRAZE_INTO into the surface is a scrape: sparks, a grind, a small
+  // shake, a little damage. No bounce: the speed into the surface is gone
+  // (the jet slides along it) and the jet is eased just out of the blocks
+  // along the surface's face; its nose, aim and turn are left alone. The
+  // nose or the fuselage in it, more parts, steeper or faster: false (a
+  // crash). True: taken as a scrape. (The canyon run calls it too.)
+  graze(hits, pts, dt) {
+    if (!this.alive || hits & 0b11) return false;
+    let parts = 0;
+    for (let b = hits; b; b &= b - 1) parts++;
+    if (parts > 2) return false;
+    const w = this.manager.world;
+    const solid = (x, y, z) => !!IS_SOLID[w.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))];
+    // The surface's face there: away from the solid blocks round the parts that touch.
+    const n = _gn.set(0, 0, 0);
+    const at = _gp.set(0, 0, 0);
+    for (let i = 0; i < 6; i++) {
+      if (!(hits & (1 << i))) continue;
+      const p = pts[i];
+      at.add(p);
+      for (const d of GRAZE_DIRS) {
+        if (solid(p.x + d.x * 1.5, p.y + d.y * 1.5, p.z + d.z * 1.5)) n.sub(d);
+        if (solid(p.x + d.x * 3, p.y + d.y * 3, p.z + d.z * 3)) n.addScaledVector(d, -0.5);
+      }
+    }
+    at.multiplyScalar(1 / parts);
+    if (n.lengthSq() < 0.25) n.copy(this.pos).sub(at); // (deep in it all round: back toward the jet's middle)
+    if (n.lengthSq() < 1e-6) return false;
+    n.normalize();
+    // (The surface's roughness: a bump just ahead of a wingtip tilts the
+    // face back against the flight; a wingtip meets it side on, mostly:
+    // most of that tilt left out.)
+    const speed = this.vel.length();
+    if (speed > 1) {
+      const vd = _gd.copy(this.vel).multiplyScalar(1 / speed);
+      const along = n.dot(vd);
+      if (along < 0) n.addScaledVector(vd, -along * 0.8);
+      if (n.lengthSq() < 1e-4) return false;
+      n.normalize();
+    }
+    const into = -this.vel.dot(n); // (blocks/s into the surface)
+    const ang = speed > 1 ? Math.asin(Math.min(1, Math.max(0, into) / speed)) : 0;
+    this.lastGraze = { hits, into: Math.round(into * 10) / 10, ang: Math.round(ang * 100) / 100 }; // (tests)
+    if (into > GRAZE_INTO || ang > GRAZE_ANGLE) return false;
+    // Just out of the blocks, along the face, in small steps (no kick).
+    for (let k = 0; k < 24; k++) {
+      let still = false;
+      for (let i = 0; i < 6; i++) if (hits & (1 << i) && solid(pts[i].x, pts[i].y, pts[i].z)) still = true;
+      if (!still) break;
+      for (let i = 0; i < 6; i++) if (hits & (1 << i)) pts[i].addScaledVector(n, 0.15);
+      this.pos.addScaledVector(n, 0.15);
+    }
+    // Along the surface: the speed into it gone, nothing added (no bounce).
+    if (into > 0) this.vel.addScaledVector(n, into);
+    this.grazes = (this.grazes || 0) + 1;
+    this.grazeAt = this.time;
+    this._grazeFx(at, n, parts);
+    if (this.time - (this._grazeHurtAt ?? -9) >= GRAZE_COOL) {
+      this._grazeHurtAt = this.time;
+      const mgr = this.manager;
+      if (this === mgr.active) mgr.effects?.shake?.add?.(0.04 + Math.min(0.05, Math.max(0, into) * 0.002));
+      this._sound(() => (mgr.audio?.playScrape ? mgr.audio.playScrape(Math.min(1, 0.3 + Math.max(0, into) / GRAZE_INTO)) : mgr.audio?.playRicochet?.(0)));
+      this.crashWhy = "scraped the ground once too often";
+      this.damage(GRAZE_DAMAGE + Math.max(0, into) * 0.3 + (parts - 1) * 1.5, "crash");
+    }
+    return true;
+  }
+
+  // (Round 17) The scrape's sparks (and now and then bits of what it scraped).
+  _grazeFx(at, n, k) {
+    const fx = this.manager.effects;
+    if (!fx?.glow) return;
+    const c = this._sparkC || (this._sparkC = { hot: new THREE.Color(1.8, 1.3, 0.6), end: new THREE.Color(1.0, 0.35, 0.06), bit: new THREE.Color() });
+    const vel = this.vel;
+    const count = Math.max(3, Math.round(9 * k * Math.max(0.4, effectsQuality.scale)));
+    for (let i = 0; i < count; i++) {
+      const r = () => Math.random() * 2 - 1;
+      const s = 4 + Math.random() * 12;
+      fx.glow.spawn({
+        x: at.x, y: at.y, z: at.z,
+        vx: vel.x * 0.55 + n.x * s + r() * 6, vy: vel.y * 0.55 + n.y * s + r() * 6 + 2, vz: vel.z * 0.55 + n.z * s + r() * 6,
+        life: 0.2 + Math.random() * 0.45, size0: 0.24 + Math.random() * 0.26, size1: 0.04,
+        color0: c.hot, color1: c.end, alpha: 1, drag: 1.6, gravity: 0.9,
+      });
+    }
+    if (fx.debris && Math.random() < 0.4) {
+      const w = this.manager.world;
+      const id = w.getBlock(Math.floor(at.x - n.x), Math.floor(at.y - n.y), Math.floor(at.z - n.z));
+      const rgb = w.blockColors?.[id] || [0.4, 0.36, 0.32];
+      c.bit.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+      for (let i = 0; i < 3; i++) fx.debris.spawn(at.x, at.y, at.z, vel.x * 0.4 + n.x * 6 + (Math.random() - 0.5) * 6, vel.y * 0.4 + n.y * 6 + 3, vel.z * 0.4 + n.z * 6 + (Math.random() - 0.5) * 6, 0.25 + Math.random() * 0.2, c.bit, 0.9);
+    }
+  }
+
   // ---------- Weapons ----------
 
   _weapons(dt, input) {
@@ -1023,6 +1255,15 @@ export class Jet extends Vehicle {
     this.missileT = Math.max(0, this.missileT - dt);
     this.nukeT = Math.max(0, this.nukeT - dt);
     this.flareT = Math.max(0, this.flareT - dt);
+    this.superT = Math.max(0, this.superT - dt);
+    // (Round 17) X switches the missiles: the normal ones or the heavy one
+    // (1 and 2 pick them); the right button fires whichever is selected.
+    if (this.armed) {
+      const p = input.pressed;
+      if (p.has("KeyX")) this.selectWeapon(this.weapon === "super" ? "missile" : "super");
+      else if (p.has("Digit1")) this.selectWeapon("missile");
+      else if (p.has("Digit2")) this.selectWeapon("super");
+    }
     const fwd = this.forward(new THREE.Vector3());
     // Autocannon: rapid fire with tracers; it pulls toward a target near the
     // nose, and jams if it is fired too long (it must cool down).
@@ -1060,6 +1301,23 @@ export class Jet extends Vehicle {
       if (this.spec.nuke) this._dropNuke();
       else mgr.onMessage?.(this.spec.recon ? "The SR-71 is unarmed: no nuke (only the B-2 bomber carries it)" : "No nuke on a fighter: only the B-2 bomber carries it (airports)");
     }
+  }
+
+  // (Round 17) Does it carry missiles (the SR-71 doesn't)?
+  get armed() {
+    return !this.spec.recon && this.spec.missiles !== false;
+  }
+
+  // (Round 17) Selects the missiles ("missile") or the heavy missile ("super").
+  selectWeapon(w) {
+    if (!this.armed || (w !== "missile" && w !== "super")) return;
+    const changed = w !== this.weapon;
+    this.weapon = w;
+    // (A salvo charged for the missiles isn't the heavy missile's: it fires one.)
+    if (w === "super") this.lock.salvo = false;
+    if (!changed || this !== this.manager.active) return;
+    this.manager.audio?.playSalvoPip?.(w === "super" ? 2 : 1, 3);
+    this.manager.onMessage?.(w === "super" ? `SUPER MISSILE selected${this.superT > 0 ? ` (reloading ${Math.ceil(this.superT)} s)` : ""}: right click fires it (X: back to missiles)` : "MISSILES selected (X: super missile)");
   }
 
   // (Round 16) The SR-71's top Mach: machLow near the ground, the full Mach high up.
@@ -1219,10 +1477,12 @@ export class Jet extends Vehicle {
     const held = !!input.buttons[2];
     const lookRate = Math.min(1, dt * 3.2);
     const pressed = input.pressed.has("mouse2");
-    // Free look (both mouse buttons): no lock, no missile.
+    // Free look (both mouse buttons): no new lock, no missile. (Round 17:
+    // an auto aim lock goes on, held while the view stays on its target.)
     if (this.freeLook) {
       lock.look += (0 - lock.look) * lookRate;
       if (lock.look < 0.02) lock.look = 0;
+      if (lock.auto && lock.target && this.autoAim) this._autoLock(dt);
       return;
     }
     // Following a launched missile's target: a click returns the camera (and
@@ -1279,13 +1539,13 @@ export class Jet extends Vehicle {
       let best = null;
       let bestScore = Infinity;
       let current = null; // the target already being tracked, if it is still there
-      for (const c of this._lockables()) {
+      // (A tracked target is only lost when it is far out of range, or gone.
+      // Round 17: not when it comes close, nor when a UFO turns to flee.)
+      if (lock.target && this._targetAlive(lock.target) && this._targetPos(lock.target, tp).distanceTo(this.pos) <= LOCK_LOSE_RANGE) current = lock.target;
+      for (const c of current ? [] : this._lockables()) {
         this._targetPos(c, tp);
         const dv = tp.clone().sub(this.pos);
         const dist = dv.length();
-        const isCurrent = !!lock.target && c.ref === lock.target.ref;
-        // (A tracked target is only lost when it is far out of range.)
-        if (isCurrent && dist >= 25 && dist <= LOCK_LOSE_RANGE) current = c;
         if (dist < 25 || dist > 1600) continue;
         // Nearest the view centre, and whatever is attacking you first (a
         // bonus worth about 35 degrees off the centre).
@@ -1321,7 +1581,7 @@ export class Jet extends Vehicle {
       const wasLocked = lock.locked;
       const wasSalvo = lock.salvo;
       lock.locked = !!lock.target && lock.t >= LOCK_TIME;
-      lock.salvo = !!lock.target && lock.t >= this.spec.salvoTime;
+      lock.salvo = !!lock.target && lock.t >= this.spec.salvoTime && this.weapon !== "super"; // (Round 17: the heavy missile flies alone)
       // (Only the one being tracked, and only once the lock is really building.)
       if (lock.target && lock.t > 0.3) lock.target.ref.lockedOn = mgr.ufos.time;
       // Look at it (not for a quick click, which fires straight ahead).
@@ -1338,10 +1598,10 @@ export class Jet extends Vehicle {
       if (lock.target && (lock.held > TAP_TIME || lock.fromAuto)) mgr.audio?.setSeekerTone?.(lock.locked ? 2 : 1, lock.progress);
       // The salvo charges pip by pip (one click per missile, each higher than the last).
       const n = this.spec.salvo;
-      const pip = lock.locked ? Math.min(n, Math.floor(((lock.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME)) * n)) : 0;
+      const pip = lock.locked && this.weapon !== "super" ? Math.min(n, Math.floor(((lock.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME)) * n)) : 0;
       if (pip > (lock.pip || 0) && pip < n) mgr.audio?.playSalvoPip?.(pip, n);
       lock.pip = pip;
-      if (lock.locked && !wasLocked && !lock.fromAuto) mgr.onMessage?.(this.spec.salvo > 1 ? "LOCKED: release to fire (hold for a salvo; left click cancels)" : "LOCKED: release to fire (left click cancels)");
+      if (lock.locked && !wasLocked && !lock.fromAuto) mgr.onMessage?.(this.weapon === "super" ? "LOCKED: release to fire the SUPER MISSILE (left click cancels)" : this.spec.salvo > 1 ? "LOCKED: release to fire (hold for a salvo; left click cancels)" : "LOCKED: release to fire (left click cancels)");
       if (lock.salvo && !wasSalvo) {
         mgr.onMessage?.(`SALVO READY x${this.spec.salvo}`);
         mgr.audio?.playSalvoTone?.();
@@ -1409,10 +1669,11 @@ export class Jet extends Vehicle {
     const tp = _w;
     if (lock.target && !this._targetAlive(lock.target)) lock.target = null;
     if (lock.target) {
-      const dv = this._targetPos(lock.target, tp).sub(this.pos);
-      const dist = dv.length();
-      const ang = dist > 1e-3 ? dv.divideScalar(dist).angleTo(view) : 0;
-      const inRange = dist >= 25 && dist <= LOCK_LOSE_RANGE;
+      const dist = this._targetPos(lock.target, tp).distanceTo(this.pos);
+      // (Round 17: off the view = off the aim, the camera and the nose alike,
+      // to the target's edge; close in is in range.)
+      const ang = this._offView(tp, lock.target);
+      const inRange = dist <= LOCK_LOSE_RANGE;
       if (lock.locked) {
         if (inRange && ang < AUTO_GIMBAL) lock.out = 0;
         else if ((lock.out += dt) > AUTO_GRACE) lock.target = null;
@@ -1453,6 +1714,25 @@ export class Jet extends Vehicle {
     if (lock.target) mgr.audio?.setSeekerTone?.(lock.locked ? 2 : 1, lock.progress);
   }
 
+  // (Round 17) How far (radians) the target at `tp` is off the pilot's view:
+  // the least of its angles from the aim (the crosshair), the camera's
+  // direction and the nose, to the edge of the target (its size seen from
+  // here), 0 when the view is on it.
+  _offView(tp, t) {
+    const d = _lv[3].copy(tp).sub(this.pos);
+    const dist = d.length();
+    if (dist < 1e-3) return 0;
+    d.divideScalar(dist);
+    const views = _lv;
+    if (this.cfg.assist) views[0].set(0, 0, -1).applyQuaternion(this.aimQ);
+    else this.forward(views[0]);
+    views[1].set(0, 0, -1).applyQuaternion(this.camView);
+    this.forward(views[2]);
+    const ang = Math.min(d.angleTo(views[0]), d.angleTo(views[1]), d.angleTo(views[2]));
+    const r = t ? (t.kind === "ufo" ? t.ref.radius : (t.ref.hitRadius ?? t.ref.radius ?? 0)) || 0 : 0;
+    return Math.max(0, ang - Math.asin(Math.min(1, (r * 0.8) / dist)));
+  }
+
   // The lock is cancelled (a left click): no missile, the camera comes back,
   // and no new lock until the right button is let go.
   _cancelLock() {
@@ -1491,8 +1771,27 @@ export class Jet extends Vehicle {
 
   _fireLock() {
     const lock = this.lock;
-    if (this.missileT > 0) return;
+    // (Round 17) The heavy missile: one at a time, its own long reload.
+    const heavy = this.weapon === "super" && this.armed;
+    if (heavy ? this.superT > 0 : this.missileT > 0) {
+      // (Round 17: a word instead of nothing at all.)
+      if (this === this.manager.active && (lock.locked || lock.held <= TAP_TIME)) this.manager.onMessage?.(heavy ? `SUPER MISSILE reloading: ${Math.ceil(this.superT)} s (X: missiles)` : "Missiles reloading");
+      return;
+    }
     const target = lock.target && this._targetAlive(lock.target) ? lock.target : null;
+    if (heavy && (target && lock.locked ? true : lock.held <= TAP_TIME || !lock.target)) {
+      const t = target && lock.locked ? target : null;
+      if (t?.kind === "ufo") t.ref.lockedOn = this.manager.ufos?.time ?? 0;
+      const m = this._launchMissile(t, { heavy: true });
+      this.superT = SUPER_MISSILE.reload;
+      this.missileT = Math.max(this.missileT, this.spec.missileCooldown);
+      if (t && !(lock.fromAuto && lock.held <= TAP_TIME)) lock.follow = { target: t, missiles: [m], after: FOLLOW_AFTER + 0.6, last: null };
+      if (this === this.manager.active) {
+        this.manager.onMessage?.(t ? "SUPER MISSILE AWAY!" : "SUPER MISSILE AWAY (unguided)");
+        voice.say("fox2");
+      }
+      return;
+    }
     if (target && lock.locked) {
       if (target.kind === "ufo") target.ref.lockedOn = this.manager.ufos?.time ?? 0;
       const follow = { target, missiles: [], after: FOLLOW_AFTER, last: null };
@@ -1579,13 +1878,15 @@ export class Jet extends Vehicle {
 
   // target: { kind, ref } or null (unguided). `hostile` missiles (an enemy
   // jet's) hunt the player, can be fooled by flares, and don't harm UFOs.
-  _launchMissile(target, { hostile = false, rogue = false } = {}) {
+  // (Round 17) heavy: the super missile (one from under the belly, bigger,
+  // slower, a blast of its own: SUPER_MISSILE).
+  _launchMissile(target, { hostile = false, rogue = false, heavy = false } = {}) {
     const mgr = this.manager;
     const fwd = this.forward(new THREE.Vector3());
     const right = this.right(new THREE.Vector3());
     this.rail = -this.rail;
-    const pos = this.pos.clone().addScaledVector(right, this.rail * 2.4).addScaledVector(this.up(_v), -0.7);
-    const mesh = new THREE.Mesh(_missileGeo || (_missileGeo = missileGeometry()), missileMaterial());
+    const pos = heavy ? this.pos.clone().addScaledVector(this.up(_v), -1.6) : this.pos.clone().addScaledVector(right, this.rail * 2.4).addScaledVector(this.up(_v), -0.7);
+    const mesh = new THREE.Mesh(heavy ? _superGeo || (_superGeo = superMissileGeometry()) : _missileGeo || (_missileGeo = missileGeometry()), missileMaterial());
     mesh.castShadow = true;
     mgr.scene.add(mesh);
     // A target behind the jet: the missile makes a hard turn to get around.
@@ -1600,8 +1901,17 @@ export class Jet extends Vehicle {
       behind = c < 0.25 || (!hostile && c < 0.8 && dist < 220); // (an enemy's missile at the player as before)
     }
     const m = { pos, vel: this.vel.clone().addScaledVector(fwd, 12), dir: fwd.clone(), target, age: 0, mesh, trail: 0, hostile, rogue, behind, lostT: 0, launcher: this, decoyed: false };
+    if (heavy) {
+      // (Round 17) Its own speed (a little more off a fast jet), turn and fuse.
+      m.heavy = true;
+      m.vmax = Math.max(SUPER_MISSILE.speed, Math.min(SUPER_MISSILE.maxSpeed, this.speed + SUPER_MISSILE.speedOver));
+      m.turn = SUPER_MISSILE.turn;
+      m.vel.copy(this.vel).addScaledVector(fwd, 6);
+      if (this === mgr.active) mgr.effects?.shake?.add?.(0.12);
+      this._sound(() => mgr.audio?.playSuperLaunch?.());
+    }
     this.missiles.push(m);
-    this._sound(() => mgr.audio?.playRocketLaunch?.());
+    if (!heavy || !mgr.audio?.playSuperLaunch) this._sound(() => mgr.audio?.playRocketLaunch?.());
     if (target?.kind === "player" || target?.kind === "vehicle") this.manager.onMissileLaunched?.(m, this);
     return m;
   }
@@ -1656,8 +1966,9 @@ export class Jet extends Vehicle {
       // (Round 13) A target going supersonic doesn't outrun the missile: it
       // keeps its old edge over the jets (an enemy's 30 blocks/s, ours 85).
       const tvl = m.target && m.target.kind !== "decoy" ? this._targetVel(m.target)?.length() || 0 : 0;
-      const maxSpeed = m.hostile ? clamp(tvl + 30, 330, 440) : clamp(tvl + 85, 420, 520);
-      const speed = Math.min(maxSpeed, m.vel.length() + 260 * dt);
+      // (Round 17: the heavy missile flies at its own, slower speed.)
+      const maxSpeed = m.heavy ? m.vmax : m.hostile ? clamp(tvl + 30, 330, 440) : clamp(tvl + 85, 420, 520);
+      const speed = Math.min(maxSpeed, m.vel.length() + (m.heavy ? SUPER_MISSILE.accel : 260) * dt);
       if ((m.hostile || m.target?.kind === "jet") && m.age > 0.3) this._checkDecoys(m);
       // Guidance: lead pursuit, with a turn-rate limit. A rear shot gets a
       // hard turn at first. A target crossing the seeker's view too fast
@@ -1682,7 +1993,7 @@ export class Jet extends Vehicle {
           const want = tp.sub(m.pos).normalize();
           const ang = m.dir.angleTo(want);
           const boost = m.behind && m.age < 2.2 ? 2.3 : 1;
-          const maxTurn = (m.hostile ? MISSILE_TURN * 0.85 : MISSILE_TURN) * boost * dt;
+          const maxTurn = (m.turn ?? (m.hostile ? MISSILE_TURN * 0.85 : MISSILE_TURN)) * boost * dt;
           if (!pn) turnToward(m.dir, want, maxTurn);
           // Lost track: the target is far outside what the missile can turn onto.
           if (ang > 1.05 && m.age > 2.4) m.lostT += dt;
@@ -1703,7 +2014,7 @@ export class Jet extends Vehicle {
         // which it moved along too; anything else: near its middle.)
         const hv = this._targetHull(m.target);
         if (hv) {
-          const t = hv.sweptRaycast(m.pos, m.dir, step, MISSILE_FUSE, dt);
+          const t = hv.sweptRaycast(m.pos, m.dir, step, m.heavy ? SUPER_MISSILE.fuse : MISSILE_FUSE, dt);
           if (t !== null) {
             boom = m.pos.clone().addScaledVector(m.dir, t);
             direct = m.target;
@@ -1711,7 +2022,7 @@ export class Jet extends Vehicle {
         } else {
           const tp = this._targetPos(m.target, _w);
           const r = this._targetRadius(m.target);
-          if (tp.distanceTo(m.pos) < r + step) {
+          if (tp.distanceTo(m.pos) < r + step + (m.heavy ? SUPER_MISSILE.fuse - 2 : 0)) {
             boom = m.pos.clone().lerp(tp, 0.7);
             direct = m.target;
           }
@@ -1755,9 +2066,15 @@ export class Jet extends Vehicle {
         m.age = Math.min(m.age, 1.2);
         continue;
       }
+      // (Round 17: the heavy missile goes off at the end of its flight, wherever it is.)
+      if (!boom && m.heavy && m.age > SUPER_MISSILE.life) boom = m.pos.clone();
       if (boom || m.age > (m.hostile ? 11 : 14) || m.pos.y < -10) {
         mgr.scene.remove(m.mesh);
         this.missiles.splice(i, 1);
+        if (boom && m.heavy) {
+          this._superBoom(m, boom, direct);
+          continue;
+        }
         if (boom) {
           const src = m.rogue ? "roguemissile" : m.hostile ? "enemymissile" : "missile";
           if (direct?.kind === "ufo" && m.rogue) {
@@ -1788,6 +2105,10 @@ export class Jet extends Vehicle {
       m.mesh.quaternion.setFromUnitVectors(_w.set(0, 0, -1), m.dir);
       // Smoke trail and a bright motor.
       const c = this._trailC || (this._trailC = [new THREE.Color(0.75, 0.73, 0.7), new THREE.Color(0.9, 0.89, 0.87), new THREE.Color(4, 2.4, 1)]);
+      if (m.heavy) {
+        superTrail(fx, m, step);
+        continue;
+      }
       m.trail += step;
       const spacing = 1.6 / Math.max(0.35, effectsQuality.scale);
       while (m.trail > spacing) {
@@ -1798,6 +2119,26 @@ export class Jet extends Vehicle {
       fx.glow.spawn({ x: m.pos.x - m.dir.x, y: m.pos.y - m.dir.y, z: m.pos.z - m.dir.z, life: 0.08, size0: 1.3, size1: 0.4, color0: c[2], alpha: 0.9 });
     }
     this._updateBombs(dt);
+  }
+
+  // (Round 17) The heavy missile goes off at `at` (direct: what it hit, or
+  // null): its own damage on a direct hit, then the big blast (the "missile"
+  // source: a player's weapon, the missile blast's extras, online as any
+  // blast; air-fx.js adds the heavy one's on top by its size).
+  _superBoom(m, at, direct) {
+    const mgr = this.manager;
+    const S = SUPER_MISSILE;
+    if (direct?.kind === "ufo") {
+      mgr.ufos.damage(direct.ref, S.damage, true, at);
+      mgr.onMissileHit?.(direct.ref);
+    } else if (direct?.kind === "jet") {
+      direct.ref.damage(S.damage, "missile", true);
+      mgr.onMissileHit?.(direct.ref);
+    } else if (direct?.kind === "vehicle" || direct?.kind === "player") {
+      const v = direct.kind === "vehicle" ? direct.ref : direct.ref.vehicle;
+      v?.damage?.(S.damage * 0.55, "missile");
+    }
+    mgr.effects.explode(at, { radius: S.radius, source: "missile", visual: S.look });
   }
 
   // (Round 13) One step of proportional navigation for missile `m` at a
@@ -1814,7 +2155,7 @@ export class Jet extends Vehicle {
     if (tv) rel.add(tv);
     const w = _a[3].crossVectors(r, rel).divideScalar(d2).multiplyScalar(PN_GAIN);
     const rate = w.length();
-    if (rate > 1e-6) m.dir.applyAxisAngle(w.divideScalar(rate), Math.min(rate * dt, MISSILE_TURN * dt)).normalize();
+    if (rate > 1e-6) m.dir.applyAxisAngle(w.divideScalar(rate), Math.min(rate * dt, (m.turn ?? MISSILE_TURN) * dt)).normalize();
     return true;
   }
 
@@ -2080,7 +2421,7 @@ export class Jet extends Vehicle {
             ? `locking ${Math.round(lock.progress * 100)}%`
             : lock.holding && lock.held > TAP_TIME
               ? "searching..."
-              : this.missileT > 0
+              : (this.weapon === "super" ? this.superT : this.missileT) > 0
                 ? "reloading"
                 : this.autoAim
                   ? "keep a target in the seeker ring to lock it · RMB fire · hold: lock"
@@ -2089,6 +2430,7 @@ export class Jet extends Vehicle {
     if (this.stalled) warnings.push("STALL");
     else if (this.airbrake > 0.3 && !this.onGround && speed < this.cfg.stallSpeed * 1.35) warnings.push("LOW SPEED: BRAKES OPEN");
     if (!this.onGround && agl < 35 && this.vel.y < -12) warnings.push("PULL UP");
+    if (this.time - (this.grazeAt ?? -9) < 0.5) warnings.push("SCRAPING"); // (Round 17)
     if (this.warn) warnings.push(this.warn.kind === "missile" ? "MISSILE INCOMING" : "INCOMING ATTACK");
     else if (this.incoming > 0) warnings.push("INCOMING ATTACK");
     if (this.jammed) warnings.push("CANNON OVERHEATED");
@@ -2110,19 +2452,23 @@ export class Jet extends Vehicle {
         ["Speed", `${Math.round(speed * 3.6)} km/h (${Math.round(speed)} b/s) · M ${(speed / MACH1).toFixed(2)}`],
         ["Altitude", `${Math.round(this.pos.y)} (${Math.round(agl)} above ground)`],
         ["Throttle", `${Math.round(this.throttle * 100)}%${this.afterburner ? " AFTERBURNER" : ""}${this.brake && this.onGround ? " · BRAKES" : ""}`],
+        // (Round 17) The afterburner: held or latched (a double tap of Shift).
+        ...(this.spec.ab !== false ? [["Afterburner", this.afterburner ? `<span class="vh-on">ON${this.abLatch ? " · LATCHED" : ""}</span>${this.abLatch ? " (Shift Shift or S: off)" : ""}` : this.abLatch ? `<span class="vh-on">LATCHED</span> (lights with the throttle up)` : "off (hold Shift, or double tap it to latch)"]] : []),
         ...(this.airbrake > 0.02 ? [["Air brakes", `<span class="vh-on">${this.airbrake > 0.97 ? "OPEN" : this.onGround ? "wheel brakes" : "OPENING"}</span> ${"▮".repeat(Math.round(this.airbrake * 5))}${"▯".repeat(5 - Math.round(this.airbrake * 5))}`]] : []),
         ...(this.freeLook ? [["View", `<span class="vh-lock">FREE LOOK</span> (controls held)`]] : []),
         ["Heading", `${Math.round(heading)}° ${card}`],
         this.spec.recon ? ["Camera", this.reconT > 0 ? "advancing the film..." : `READY (RMB: recon photo)${this.reconShots ? ` · ${this.reconShots} taken, ${this.reconSeen} contacts in the last` : ""}`] : ["Missile", lockText],
+        // (Round 17) The selected missile (X switches) and the heavy one's reload.
+        ...(this.armed ? [["Weapon", this.weapon === "super" ? `<span class="vh-lock">SUPER MISSILE</span> ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "READY"} (X: missiles)` : `MISSILES · super missile ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "ready"} (X)`]] : []),
         ["Flares", this.flareT > 0 ? `reloading ${Math.ceil(this.flareT)} s` : "READY (C)"],
         ...(this.spec.nuke ? [["Nuke", this.nukeT > 0 ? `reloading ${Math.ceil(this.nukeT)} s` : "READY (B)"]] : []),
         ...(onRunway ? [["Takeoff", onRunway]] : []),
       ],
       bars: this.spec.cannonRate > 0 ? [{ label: "Cannon heat", value: this.heat, hot: this.jammed || this.heat > 0.75 }] : [],
-      weapon: this.spec.recon ? "Unarmed · RMB recon camera · C flares" : this.spec.nuke ? "RMB missile (hold to lock; LMB cancels) · C flares · B NUKE" : "LMB cannon · RMB missile (hold to lock; LMB cancels) · C flares",
+      weapon: this.spec.recon ? "Unarmed · RMB recon camera · C flares" : `${this.spec.nuke ? "" : "LMB cannon · "}RMB ${this.weapon === "super" ? "SUPER MISSILE" : "missile"} (hold to lock; LMB cancels) · X switch missiles · C flares${this.spec.nuke ? " · B NUKE" : ""}`,
       warning: warnings.join(" · "),
       health: this.health / this.maxHealth,
-      help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle${this.spec.ab !== false ? " · Shift afterburner" : ""} · A/D roll · Q/E rudder · Space air brakes · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
+      help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle${this.spec.ab !== false ? " · Shift afterburner (double tap: latch)" : ""}${this.armed ? " · X missiles / super missile" : ""} · A/D roll · Q/E rudder · Space air brakes · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
     };
   }
 
@@ -2139,6 +2485,8 @@ export class Jet extends Vehicle {
         ...(this.spec.cannonRate > 0 ? [["Autocannon", `${this.spec.cannonRate} rounds/s, ${this.spec.cannonDamage} damage each; aims a little for you; overheats after ~${(1 / (this.spec.heatPerShot * this.spec.cannonRate - HEAT_COOL)).toFixed(1)} s of fire`]] : [["Autocannon", this.spec.recon ? "none: unarmed, like the real one" : "none (a bomber)"]]),
         ...(this.spec.recon ? [["Ceiling", `about ${Math.round(1500 * this.spec.ceiling)} blocks up (the others about 1,500): the sky darkens up there`], ["Camera", "a right click photographs every UFO, aircraft and alien ground vehicle within 3,000 blocks"]] : []),
         this.spec.missiles === false ? ["Missiles", "none: it outruns them (Mach 3 high up, Mach 1.7 low down)"] : ["Missiles", this.spec.salvo > 1 ? `${MISSILE_DAMAGE} damage; a click fires one straight ahead (unguided); hold to lock on a UFO or enemy aircraft (ones attacking you first): 1 s for one; keep holding while the salvo's pips fill under the target box (${this.spec.salvoTime} s) for a salvo of ${this.spec.salvo}, all at that target; a left click cancels; the view follows the target until the hit (RMB brings it back); let go before the lock and nothing fires` : `${MISSILE_DAMAGE} damage, one at a time (no salvo); hold to lock (1 s), release to fire; a left click cancels`],
+        ...(this.armed ? [["Super missile", `X selects it: ${SUPER_MISSILE.damage} damage on a direct hit and a big blast (${SUPER_MISSILE.radius} blocks; a missile's is 6.5), slower (${Math.round(SUPER_MISSILE.speed * 3.6)} km/h), one at a time, ${SUPER_MISSILE.reload} s to reload; locks like a missile (no salvo)`]] : []),
+        ["Afterburner", this.spec.ab !== false ? `${AB_THRUST_PILOT}x the thrust; a top speed of ${Math.round(Math.max(cfg.maxSpeed, MACH1 * (this.spec.mach || 0)) * 3.6)} km/h with it, ${Math.round((cfg.maxSpeed / Math.sqrt(AB_THRUST)) * 3.6)} without; hold Shift, or double tap it to latch it on` : "none"],
         ["Auto aim", this.autoAim ? `on: keep a UFO or aircraft in (or near) the seeker ring round the crosshair for ${AUTO_LOCK_TIME} s and it is locked (the tone goes solid); a click then sends a homing missile after it` : "off (Settings > Vehicles): lock by holding the right button"],
         ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the nuke"],
@@ -2147,7 +2495,8 @@ export class Jet extends Vehicle {
       controls: [
         ["Mouse", cfg.assist ? "Steer (the jet flies toward the crosshair)" : "Stick: up/down pitch, left/right roll"],
         ["W / S", "Throttle up / down"],
-        ["Shift", "Afterburner"],
+        ["Shift", this.spec.ab !== false ? "Afterburner while held; a double tap latches it on (another double tap, or S, lets it go)" : "(no afterburner on the bomber)"],
+        ...(this.armed ? [["X (or 1 / 2)", `Switch: missiles / the SUPER MISSILE (one at a time, a huge blast, ${SUPER_MISSILE.reload} s to reload); the right button fires the selected one`]] : []),
         ["A / D", "Roll (hold for a full roll; let go and it stops without overshoot)"],
         ["Mouse: pull right through", "Loops and barrel rolls: the aim goes over the top, the jet follows"],
         ["Both mouse buttons", "Free look: the controls freeze (the jet holds its attitude) and the mouse looks around"],
@@ -2238,7 +2587,12 @@ export class Jet extends Vehicle {
       const close = Math.max(40, m.vel.length() - (tv ? tv.dot(m.dir) : 0));
       missiles.push({ pos: m.pos, ttg: tp.distanceTo(m.pos) / close, onTarget: !!t && m.target.ref === t.ref });
     }
+    // (Round 17) The selected missile and its reload (0-1, 1 ready); the afterburner.
+    const heavy = this.weapon === "super";
+    const weapon = this.armed ? { super: heavy, name: heavy ? "SUPER MSL" : "MSL", ready: heavy ? 1 - this.superT / SUPER_MISSILE.reload : this.missileT > 0 ? 0.5 : 1, left: heavy ? this.superT : this.missileT } : null;
     return {
+      weapon,
+      ab: this.spec.ab !== false ? { on: !!this.afterburner, latched: !!this.abLatch } : null,
       bore,
       cone: this.autoAim && !L.holding && !L.follow && !this.freeLook ? AUTO_CONE : 0,
       target,
@@ -2421,6 +2775,41 @@ VehicleManager.prototype.update = function (dt) {
   if (!this.airFx && this.scene && this.effects) this.airFx = new AirFx(this);
   if (this.enabled) this.airFx?.update(dt);
 };
+
+// (Round 17) The heavy missile's trail: a thick, long-lived smoke column, a
+// big flame and a red beacon blinking on its body (seen from far off).
+let _superC = null;
+function superTrail(fx, m, step) {
+  const c = _superC || (_superC = { s0: new THREE.Color(0.82, 0.8, 0.78), s1: new THREE.Color(0.95, 0.94, 0.92), hot: new THREE.Color(6, 4, 1.6), mid: new THREE.Color(4, 1.6, 0.4), red: new THREE.Color(6, 0.3, 0.2) });
+  const d = m.dir;
+  m.trail += step;
+  const spacing = 1.3 / Math.max(0.35, effectsQuality.scale);
+  while (m.trail > spacing) {
+    m.trail -= spacing;
+    const k = -m.trail - 2.6;
+    fx.smoke.spawn({ x: m.pos.x + d.x * k, y: m.pos.y + d.y * k, z: m.pos.z + d.z * k, vx: (Math.random() - 0.5) * 0.8, vy: 0.4, vz: (Math.random() - 0.5) * 0.8, life: 4 + Math.random() * 2, size0: 1.2, size1: 6, color0: c.s0, color1: c.s1, alpha: 0.62, drag: 0.7 });
+  }
+  fx.glow.spawn({ x: m.pos.x - d.x * 2.8, y: m.pos.y - d.y * 2.8, z: m.pos.z - d.z * 2.8, life: 0.09, size0: 3.6, size1: 1.2, color0: c.hot, alpha: 1 });
+  fx.glow.spawn({ x: m.pos.x - d.x * 4.2, y: m.pos.y - d.y * 4.2, z: m.pos.z - d.z * 4.2, vx: -d.x * 25, vy: -d.y * 25, vz: -d.z * 25, life: 0.14, size0: 2.4, size1: 0.6, color0: c.mid, alpha: 0.85 });
+  if (Math.floor(m.age * 5) % 2 === 0) fx.glow.spawn({ x: m.pos.x, y: m.pos.y + 0.5, z: m.pos.z, life: 0.05, size0: 2.6, size1: 2.2, color0: c.red, alpha: 0.9 });
+}
+
+// (Round 17) The heavy missile: a fat body with red and yellow bands, a big
+// warhead and four large fins (along -Z), about twice a missile's size.
+export function superMissileGeometry() {
+  const parts = [
+    [new THREE.CylinderGeometry(0.42, 0.42, 4.4, 12).rotateX(Math.PI / 2), 0xdcdcd4],
+    [new THREE.ConeGeometry(0.42, 1.3, 12).rotateX(-Math.PI / 2).translate(0, 0, -2.85), 0x3a3d44],
+    [new THREE.CylinderGeometry(0.44, 0.44, 0.32, 12).rotateX(Math.PI / 2).translate(0, 0, -1.5), 0xd02a1c],
+    [new THREE.CylinderGeometry(0.44, 0.44, 0.2, 12).rotateX(Math.PI / 2).translate(0, 0, -1.1), 0xe8c020],
+    [new THREE.CylinderGeometry(0.3, 0.38, 0.4, 12).rotateX(Math.PI / 2).translate(0, 0, 2.4), 0x2b2b2b],
+    [new THREE.BoxGeometry(1.9, 0.06, 0.9).translate(0, 0, 1.75), 0x8a8f96],
+    [new THREE.BoxGeometry(0.06, 1.9, 0.9).translate(0, 0, 1.75), 0x8a8f96],
+    [new THREE.BoxGeometry(1.2, 0.05, 0.5).translate(0, 0, -0.6), 0x8a8f96],
+    [new THREE.BoxGeometry(0.05, 1.2, 0.5).translate(0, 0, -0.6), 0x8a8f96],
+  ];
+  return mergeColored(parts);
+}
 
 // A missile: white body, grey fins, dark seeker head (along -Z).
 export function missileGeometry() {

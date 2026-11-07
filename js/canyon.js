@@ -214,22 +214,6 @@ const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _dir = new THREE.Vector3();
 const _c = new THREE.Color();
-// (Round 17) The scrape's scratch, its limits and its looks.
-const _gn = new THREE.Vector3();
-const _gp = new THREE.Vector3();
-const _gd = new THREE.Vector3();
-const _gv = new THREE.Vector3();
-const GRAZE_DIRS = [];
-for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) if (x || y || z) GRAZE_DIRS.push(new THREE.Vector3(x, y, z).normalize());
-const GRAZE_INTO = 26; // blocks/s into the rock: faster is a crash
-const GRAZE_ANGLE = 0.28; // radians (16 degrees) between the path and the rock's face: steeper is a crash
-const GRAZE_BOUNCE = 5; // blocks/s off the rock after a scrape
-const GRAZE_DAMAGE = 3; // per scrape (and more the harder it was)
-const GRAZE_COOL = 0.15; // seconds between two scrapes' damage
-const SPARK_HOT = new THREE.Color(1.6, 1.2, 0.6);
-const SPARK_END = new THREE.Color(1.0, 0.35, 0.06);
-const ROCK_BIT = new THREE.Color(0.32, 0.27, 0.24);
-
 function smooth(a, b, x) {
   const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
   return t * t * (3 - 2 * t);
@@ -766,112 +750,18 @@ export class CanyonRun {
     this._hud(dt);
   }
 
-  // (Round 17) Some tolerance on the rock (vehicle-jet.js's onGraze hook:
-  // hits, the bits of the airframe's parts in the rock: 0 nose, 1 fuselage,
-  // 2/3 wingtips, 4 tail, 5 belly). A light touch (a wingtip, the tail or
-  // the belly, at a shallow angle and not fast into the rock) is a scrape:
-  // sparks, a grinding sound, a small shake, a little damage, and the jet
-  // pushed off the rock and turned along it. The nose or the fuselage in
-  // the rock, more than two parts at once, a steep angle or a fast hit is
-  // a crash, as before. True: taken as a scrape.
+  // (Round 17) Some tolerance on the rock (vehicle-jet.js's onGraze hook).
+  // (Round 17, jets track: the scrape itself is the jet's own now, Jet.graze,
+  // the same in the whole game: a wingtip, the tail or the belly, shallow
+  // and slow into the rock, scrapes with sparks and no bounce; the nose, the
+  // fuselage, a steep angle or a fast hit is a crash, as before.) Here only
+  // while the run is flying. True: taken as a scrape.
   _graze(v, hits, pts, dt) {
     if (!this.active || v !== this.jet || !v.alive || this.state !== "flying") return false;
-    if (hits & 0b11) return false;
-    let parts = 0;
-    for (let b = hits; b; b &= b - 1) parts++;
-    if (parts > 2) return false;
-    const w = this.world;
-    const solid = (x, y, z) => w.isSolidAt(Math.floor(x), Math.floor(y), Math.floor(z));
-    // The rock's face there: away from the solid blocks round the parts that touch.
-    const n = _gn.set(0, 0, 0);
-    const at = _gp.set(0, 0, 0);
-    for (let i = 0; i < 6; i++) {
-      if (!(hits & (1 << i))) continue;
-      const p = pts[i];
-      at.add(p);
-      for (const d of GRAZE_DIRS) {
-        if (solid(p.x + d.x * 1.5, p.y + d.y * 1.5, p.z + d.z * 1.5)) n.sub(d);
-        if (solid(p.x + d.x * 3, p.y + d.y * 3, p.z + d.z * 3)) n.addScaledVector(d, -0.5);
-      }
-    }
-    at.multiplyScalar(1 / parts);
-    if (n.lengthSq() < 0.25) n.copy(v.pos).sub(at); // (deep in it all round: back toward the jet's middle)
-    if (n.lengthSq() < 1e-6) return false;
-    n.normalize();
-    // (the wall's roughness: a bump just ahead of a wingtip tilts the face
-    // back against the flight; a wingtip meets it side on, mostly: most of
-    // that tilt left out)
-    const speed = v.vel.length();
-    if (speed > 1) {
-      const vd = _gd.copy(v.vel).multiplyScalar(1 / speed);
-      const along = n.dot(vd);
-      if (along < 0) n.addScaledVector(vd, -along * 0.8);
-      if (n.lengthSq() < 1e-4) return false;
-      n.normalize();
-    }
-    const into = -v.vel.dot(n); // (blocks/s into the rock)
-    const ang = speed > 1 ? Math.asin(Math.min(1, Math.max(0, into) / speed)) : 0;
-    this.lastGraze = { hits, into: Math.round(into * 10) / 10, ang: Math.round(ang * 100) / 100 }; // (tests)
-    if (into > GRAZE_INTO || ang > GRAZE_ANGLE) return false;
-    // Off the rock: out along its face until no part is in it (a few blocks at most).
-    for (let k = 0; k < 10; k++) {
-      let still = false;
-      for (let i = 0; i < 6; i++) {
-        if (!(hits & (1 << i))) continue;
-        pts[i].addScaledVector(n, 0.4);
-        if (solid(pts[i].x, pts[i].y, pts[i].z)) still = true;
-      }
-      v.pos.addScaledVector(n, 0.4);
-      if (!still) break;
-    }
-    // Turned along it: the speed into the rock gone, a little bounce off it.
-    const before = _gd.copy(v.vel).normalize();
-    v.vel.addScaledVector(n, Math.max(0, into) + GRAZE_BOUNCE).multiplyScalar(0.985);
-    const after = _gv.copy(v.vel).normalize();
-    if (before.lengthSq() > 0.5 && before.angleTo(after) > 1e-4) {
-      _q.setFromUnitVectors(before, after);
-      v.q.premultiply(_q).normalize();
-      v.aimQ?.premultiply(_q).normalize();
-    }
-    if (v.angVel) v.angVel.multiplyScalar(0.5);
-    v.root?.position.copy(v.pos);
-    this.stats.grazes = (this.stats.grazes || 0) + 1;
-    // Sparks every time; the damage, the sound and the shake now and then (a long scrape wears the jet down).
-    this._sparks(at, n, v.vel, parts);
-    if (this.t - (this._grazeAt ?? -1) >= GRAZE_COOL) {
-      this._grazeAt = this.t;
-      this.game.effects?.shake?.add?.(0.05 + Math.min(0.06, Math.max(0, into) * 0.003));
-      this._scrapeSound(into);
-      v.crashWhy = "scraped the rock once too often";
-      v.damage(GRAZE_DAMAGE + Math.max(0, into) * 0.35 + (parts - 1) * 2, "crash");
-    }
-    return true;
-  }
-
-  _sparks(at, n, vel, k = 1) {
-    const fx = this.game.effects;
-    if (!fx?.glow) return;
-    const count = 10 * k;
-    for (let i = 0; i < count; i++) {
-      const r = () => Math.random() * 2 - 1;
-      const s = 4 + Math.random() * 12;
-      fx.glow.spawn({
-        x: at.x, y: at.y, z: at.z,
-        vx: vel.x * 0.55 + n.x * s + r() * 6, vy: vel.y * 0.55 + n.y * s + r() * 6 + 2, vz: vel.z * 0.55 + n.z * s + r() * 6,
-        life: 0.2 + Math.random() * 0.45, size0: 0.22 + Math.random() * 0.25, size1: 0.04,
-        color0: SPARK_HOT, color1: SPARK_END, alpha: 1, drag: 1.6, gravity: 0.9,
-      });
-    }
-    if (fx.debris && Math.random() < 0.5) {
-      for (let i = 0; i < 3; i++) fx.debris.spawn(at.x, at.y, at.z, vel.x * 0.4 + n.x * 6 + (Math.random() - 0.5) * 6, vel.y * 0.4 + n.y * 6 + 3, vel.z * 0.4 + n.z * 6 + (Math.random() - 0.5) * 6, 0.25 + Math.random() * 0.2, ROCK_BIT, 0.9);
-    }
-  }
-
-  // A short metal-on-rock grind.
-  _scrapeSound(into) {
-    const a = this.game.audio;
-    a?.playRicochet?.(0);
-    this._tone([150 + Math.random() * 40, 92], 0.2, Math.min(0.12, 0.05 + into * 0.003), "sawtooth");
+    const ok = v.graze(hits, pts, dt);
+    this.lastGraze = v.lastGraze; // (tests)
+    if (ok) this.stats.grazes = (this.stats.grazes || 0) + 1;
+    return ok;
   }
 
   // (Round 16) The rock where the world hasn't loaded the ground yet (a
