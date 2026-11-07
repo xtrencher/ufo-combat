@@ -9,12 +9,16 @@
 // the item flies into the player (vanilla's 3-tick pickup animation). A
 // cactus destroys items that touch it (vanilla). (A Missions world keeps its
 // pull toward a nearby player.)
+// (Round 17) Lava and fire burn them up too, as vanilla (they sank to the
+// bottom of a lava pool and lay there, a dead player's things in the
+// Nether's lava sea included); netherite and ancient debris don't burn and
+// float up in lava instead.
 import * as THREE from "three";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { maxStack } from "./items.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
-import { EGG, SNOWBALL, ENDER_PEARL } from "./content/ids.js";
+import { EGG, SNOWBALL, ENDER_PEARL, ANCIENT_DEBRIS, NETHERITE_BLOCK, NETHERITE_SCRAP, NETHERITE_BOOTS } from "./content/ids.js";
 import { LIB } from "./content/base.js";
 import { BODY, BODY_FLAGS } from "./survival.js";
 import { vanillaRules } from "./worldtype.js";
@@ -34,6 +38,8 @@ const REACH_XZ = PLAYER_R + 1 + 0.125;
 const REACH_DOWN = 0.5 + 0.25; // (the item's top must be above the grown box's bottom)
 const REACH_UP = PLAYER_H + 0.5;
 const FLY_TIME = 0.15; // (the pickup animation: 3 ticks)
+// (Round 17) What lava and fire don't burn (vanilla's fire-resistant items).
+const fireproof = (id) => id === ANCIENT_DEBRIS || id === NETHERITE_BLOCK || (id >= NETHERITE_SCRAP && id <= NETHERITE_BOOTS);
 
 export class ItemEntities {
   constructor(scene, world) {
@@ -48,6 +54,7 @@ export class ItemEntities {
     };
     this._mergeTimer = 0;
     this.onPickup = null; // (item) => leftover count
+    this.onBurn = null; // (item) => void: (Round 17) it burnt up in lava or fire (main.js: a puff of smoke)
     this._flying = []; // picked-up items flying in: { mesh, from, to (a position), t, light }
     this._prev = new THREE.Vector3(); // (the player's feet last frame: the pickup box sweeps the move)
     this._hasPrev = false;
@@ -223,8 +230,16 @@ export class ItemEntities {
       }
 
       // Physics: gravity (buoyant in water), axis-by-axis collision with blocks.
-      const inWater = IS_WET[world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z))] === 1;
-      if (inWater) {
+      const here = world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z));
+      const inWater = IS_WET[here] === 1;
+      // (Round 17) Lava or fire burns it up (not a mission's weapon drop); netherite floats in lava.
+      const hot = BODY_FLAGS[here] & (BODY.LAVA | BODY.FIRE);
+      if (hot && !it.keep && !fireproof(it.id)) {
+        this.onBurn?.(it);
+        this._remove(i);
+        continue;
+      }
+      if (inWater || (hot & BODY.LAVA && fireproof(it.id))) {
         it.vel.y += (4 - it.vel.y * 2) * dt;
         it.vel.x *= Math.exp(-2 * dt);
         it.vel.z *= Math.exp(-2 * dt);

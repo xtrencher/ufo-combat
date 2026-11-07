@@ -2077,6 +2077,15 @@ entities.onPickup = (item) => {
   return left;
 };
 
+// (Round 17) A dropped item burnt up in lava or fire (js/entities.js): a puff of smoke and a fizz.
+const burnSmoke = new THREE.Color(0.32, 0.31, 0.3);
+entities.onBurn = (it) => {
+  const p = it.pos;
+  for (let i = 0; i < 5; i++) effects.smoke.spawn({ x: p.x + (Math.random() - 0.5) * 0.4, y: p.y + 0.3, z: p.z + (Math.random() - 0.5) * 0.4, vx: (Math.random() - 0.5) * 0.6, vy: 1.2 + Math.random(), vz: (Math.random() - 0.5) * 0.6, life: 0.9, size0: 0.25, size1: 0.8, color0: burnSmoke, alpha: 0.5, drag: 1.5 });
+  const d = p.distanceTo(player.position);
+  if (d < 24) audio.playDistant(d * 0.6, () => audio.playFizz());
+};
+
 player.onFlightToggle = (enabled) => audio.playFlightToggle(enabled);
 
 // ---------- Damage, death and respawn ----------

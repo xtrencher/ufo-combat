@@ -395,6 +395,12 @@ export class Audio {
   }
 
   // Picking up an item: a soft little pop.
+  // (Round 17) Something burning up in lava or fire: vanilla's short fizz.
+  playFizz() {
+    this._cat("blocks");
+    this._hit({ type: "highpass", f: 2600, q: 0.7, d: 0.32, v: 0.1, jitter: 0.25, attack: 0.01, fEnd: 5200 });
+  }
+
   playPickup() {
     this._cat("ui");
     this._hit({ type: "bandpass", f: 1400, q: 3, d: 0.035, v: 0.16, jitter: 0.2 });
