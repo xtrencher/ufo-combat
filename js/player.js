@@ -1273,6 +1273,11 @@ export class Player {
       if (this.creative) {
         this.position.y = 70;
         this.velocity.y = 0;
+        // (Round 17: and flying there: over the End's void it fell straight back, again and again.)
+        if (!this.flying) {
+          this.flying = true;
+          this.onFlightToggle?.(true);
+        }
       } else {
         this._voidTimer += dt;
         if (this._voidTimer >= 0.5) {

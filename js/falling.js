@@ -50,8 +50,10 @@ export class FallingBlocks {
     }
   }
 
+  // (Round 17: at y 0 too, over the void: the world's getBlock under y 0 is
+  // bedrock, or the End's air.)
   _unsupported(x, y, z) {
-    return y > 0 && !IS_SOLID[this.world.getBlock(x, y - 1, z)];
+    return y >= 0 && !IS_SOLID[this.world.getBlock(x, y - 1, z)];
   }
 
   // Detaches loose columns whose support is gone.
@@ -121,6 +123,8 @@ export class FallingBlocks {
         clear.push(x, y + k, z, BLOCK.AIR);
         moved.set(`${x},${y + k},${z}`, BLOCK.AIR);
       }
+      // (Round 17) Nothing under it but the void (the End's): gone, cleared only.
+      if (land === 0 && !IS_SOLID[w.getBlock(x, -1, z)]) continue;
       for (let k = 0; k < ids.length; k++) {
         const t = land + k;
         // (The column's own cells are cleared first. A torch or flower in the
@@ -202,6 +206,12 @@ export class FallingBlocks {
           land = c + 1;
           break;
         }
+      }
+      // (Round 17) Over the void (the End's: no bedrock under the world) it
+      // falls out of the world, as vanilla's; it landed at y 0 in mid-air.
+      if (land === 0 && !IS_SOLID[w.getBlock(e.x, -1, e.z)]) {
+        this._remove(i);
+        continue;
       }
       if (land === null) {
         e.y = ny;
