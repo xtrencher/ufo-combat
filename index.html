@@ -1347,7 +1347,7 @@
   .settings-panel > .menu-buttons:last-child { background: #0b1019; margin: 8px -34px 0; padding: 12px 34px 18px; border-top: 1px solid var(--ui-line); }
   /* (Round 17) No bottom padding under the sticky Back bar: the later .panel rule gave it 28px back, and a sticky
      footer stops that far above the scroll box's edge, with the options scrolling past underneath it. */
-  .panel.settings-panel { padding-bottom: 0; }
+  .panel.settings-panel { padding-bottom: 0; scroll-padding-bottom: 96px; } /* (what is scrolled into view, e.g. by Tab, stays clear of the bar) */
   /* Settings, pause, multiplayer: the same flat look. */
   .settings-tab { border-radius: 0 !important; text-transform: uppercase; letter-spacing: 1.2px; font-size: 11px; padding: 9px 12px; }
   .settings-tab.active { color: var(--ui-text); border-bottom-color: var(--ui-accent); background: rgba(61,155,255,0.08); }
