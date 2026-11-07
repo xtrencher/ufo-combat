@@ -1598,12 +1598,12 @@ hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
   // (Round 16: a board mission starts at once, when picked.)
-  if (progress.board) toast(`MISSION: ${m.title}. ${m.text}`, 8);
+  if (progress.board) toast(`${m.retry ? `MISSION (try ${m.retry + 1})` : "MISSION"}: ${m.title}. ${m.text}`, 8); // (Round 17: a retry says so)
   else setTimeout(() => toast(`NEW MISSION ${m.n + 1}/${progress.total}: ${m.title}. ${m.text}`, 7), 6500);
 };
 // (Round 16) A board mission lost: why, and the way to retry.
 progress.onFail = (m, why) => {
-  toast(`MISSION FAILED: ${m.title}. ${why} Press M to retry.`, 7);
+  toast(`MISSION FAILED: ${m.title}. ${why} ${progress.failNote?.() ?? "Press M to retry."}`, 7); // (Round 17: retried by itself, or the next one)
   audio.playNotice?.();
 };
 // (Round 16) The director calls in the jet a mission gives you (see callJet).
@@ -4259,7 +4259,7 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Press M to pick a mission from the board; the tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Your first mission starts in a moment, the next ones by themselves (M: the mission board). The tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." /* (Round 17) */ : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
   if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Tap right click: a missile straight ahead; hold it to lock on.", 6);
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
@@ -4312,6 +4312,12 @@ screens.onOpen["missions-screen"] = () => {
       onRetry: () => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.retry(stats.world)),
       onAbandon: () => {
         progress.abandon();
+        again();
+      },
+      // (Round 17) The automatic flow: start what comes next now, or pause / resume it.
+      onNext: () => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.startNext(stats.world)),
+      onAuto: (on) => {
+        progress.setAuto(on);
         again();
       },
     });

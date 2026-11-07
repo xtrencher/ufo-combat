@@ -225,10 +225,11 @@ export class EnemyTank extends EnemyMixin(Tank) {
     if (Math.abs(this.speed) < 0.3 && throttle !== 0) ai.stuckT = (ai.stuckT || 0) + dt;
     else ai.stuckT = 0;
     if (ai.stuckT > 4) {
-      // (Stuck on something: a new way round.)
+      // (Stuck on something: a new way round. Round 17: the hull backs off and
+      // turns by itself (vehicle-tank.js _watchStuck); it used to be swung
+      // round on the spot, which could turn it into a wall or a tree.)
       ai.wp = null;
       ai.stuckT = 0;
-      this.yaw += rand(-1.2, 1.2);
     }
     // The gun.
     ai.reload -= dt;

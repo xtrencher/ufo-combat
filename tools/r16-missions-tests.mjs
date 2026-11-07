@@ -15,6 +15,9 @@
 // position; the clock runs out) and a retry; the board kept by a save and
 // a reload. With --online (also run by default): a guest mirrors the host's
 // board, asks for a mission, gets the reward, sees a failure.
+// (Round 17: the pages open with ?auto=0, the automatic flow paused, so
+// each check drives its own mission; tools/r17-ground-tests.mjs tests the
+// flow itself.)
 //
 //   node r16-missions-tests.mjs [--only=substring] [--node] [--solo]
 import http from "node:http";
@@ -286,7 +289,7 @@ async function browserChecks() {
   const page = await newPage("solo");
   const soloOnly = !!args.solo;
   await browserCheck("boot: a Missions world plays the board, no mission running", async () => {
-    await page.goto(`http://127.0.0.1:${PORT}/index.html?seed=8131&type=missions&graphics=low&board=1`, { waitUntil: "load", timeout: 60000 });
+    await page.goto(`http://127.0.0.1:${PORT}/index.html?seed=8131&type=missions&graphics=low&board=1&auto=0`, { waitUntil: "load", timeout: 60000 });
     await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
     await play(page);
     const r = await v(page, (g) => ({ board: g.progress.board, mission: g.progress.mission, enabled: g.progress.enabled, wins: g.progress.wins }));
@@ -463,7 +466,7 @@ async function browserChecks() {
     const app = express();
     const peerHttp = app.listen(PEER_PORT, "127.0.0.1");
     app.use("/ufo", ExpressPeerServer(peerHttp, { path: "/" }));
-    const NET_Q = `peerServer=127.0.0.1:${PEER_PORT}/ufo&noStun=1&graphics=low&board=1`;
+    const NET_Q = `peerServer=127.0.0.1:${PEER_PORT}/ufo&noStun=1&graphics=low&board=1&auto=0`; // (Round 17: auto=0, the automatic flow paused: these drive one mission at a time)
     await page.close();
     const host = await newPage("host", { width: 640, height: 360 });
     const guest = await newPage("guest", { width: 640, height: 360 });
