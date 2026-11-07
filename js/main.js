@@ -103,6 +103,7 @@ import { GroundSync } from "./net/ground.js"; // (Round 13)
 import { HeliSync } from "./net/heli.js"; // (Round 14)
 import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: the canyon run)
 import { installCanyonMenu } from "./menu-canyon.js";
+import { WorldLock } from "./world-lock.js"; // (Round 17: one tab per world)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -151,6 +152,10 @@ const GUEST = !!joinWelcome;
 // the seed, and none of the player's worlds is read or written.
 const CANYON = GUEST ? null : canyonParams();
 const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : CANYON ? CANYON.seed : parseSeedFromURL();
+// (Round 17) This tab has the world now: another tab with it open stops
+// saving it (its save would undo this one's progress: js/world-lock.js).
+const worldLock = GUEST || CANYON ? null : new WorldLock(SEED, () => worldTakenElsewhere());
+worldLock?.claim();
 
 // ---------- World type ----------
 // (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
@@ -1985,7 +1990,8 @@ let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
 function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
   // (Round 15: nor does the canyon run: the player's worlds stay as they were.)
-  if (GUEST || CANYON) {
+  // (Round 17: nor a tab whose world was opened in another tab since: that one saves it now.)
+  if (GUEST || CANYON || worldLock?.superseded) {
     pendingSave = false;
     dims.clearDirty();
     lastSaveTime = lastPlayerSave = performance.now();
@@ -2022,6 +2028,22 @@ function flushSave(force = true) {
     toast("Browser storage is full: this world can't be saved. Free some space (site data) or delete old worlds.", 8);
   }
 }
+
+// (Round 17) The world was opened in another tab (js/world-lock.js): this
+// one has stopped saving it; it says so, and "Play here" reloads it from
+// the save (taking the world back the same way).
+function worldTakenElsewhere() {
+  if (document.pointerLockElement) document.exitPointerLock();
+  interaction.release();
+  vehicles.releaseAll();
+  player.keys?.clear?.();
+  document.getElementById("world-elsewhere")?.classList.remove("hidden");
+}
+document.getElementById("world-elsewhere-here")?.addEventListener("click", () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("seed", String(SEED));
+  window.location.href = url.toString();
+});
 
 // Leaving the page mid-game (e.g. Ctrl+W while sprinting with Ctrl) asks
 // for confirmation first; the world is saved either way.
@@ -4606,6 +4628,7 @@ if (CANYON) {
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
+worldLock?.ready(); // (Round 17: a takeover heard while starting is shown now)
 // (Round 12) Reloaded into a world picked on the main menu (or for a room the
 // Multiplayer screen asked for there): straight into the game, in the mode
 // picked, one click to take the mouse ("Click to play", as a guest's join).

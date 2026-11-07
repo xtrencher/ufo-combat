@@ -265,6 +265,43 @@ await browserCheck("over the End's void a boat, a minecart and falling sand are 
   assert(await until((g) => g.dims.dim === "overworld" && !g.dims.pending, 90000), "never back home");
 });
 
+// ---------- Saves (last: the first page stops saving here) ----------
+
+await browserCheck("two tabs of one world: the new tab owns it, the old one stops saving and says so (closing it undid the new tab's progress)", async () => {
+  await v((g) => {
+    g.player.setMode("survival");
+    g.inventory.slots[0] = { id: 1, count: 5 };
+    g.mp.game.markInventoryChanged();
+    g.flushSave();
+  });
+  const page2 = await ctx.newPage();
+  await page2.route("https://cdn.jsdelivr.net/npm/three@0.160.0/**", (route) => {
+    const rel = new URL(route.request().url()).pathname.replace("/npm/three@0.160.0/", "");
+    route.fulfill({ path: path.join(localThreeRoot, rel), contentType: "text/javascript" });
+  });
+  page2.on("pageerror", (e) => errors.push(String(e)));
+  await page2.goto(`http://127.0.0.1:${PORT}/index.html?seed=1717&graphics=low`, { waitUntil: "load", timeout: 60000 });
+  await page2.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
+  const loaded = await page2.evaluate(() => window.__ufo.inventory.slots[0]?.count);
+  await page2.evaluate(() => {
+    const g = window.__ufo;
+    g.inventory.slots[0] = { id: 1, count: 40 };
+    g.mp.game.markInventoryChanged();
+    g.flushSave();
+  });
+  const notice = await until(() => !document.getElementById("world-elsewhere").classList.contains("hidden"), 10000);
+  // The old tab closes (it saves on the way out, as any tab does).
+  await v((g) => g.flushSave());
+  await page.evaluate(() => window.dispatchEvent(new Event("beforeunload")));
+  const kept = await page2.evaluate(() => JSON.parse(localStorage.getItem("ufocombat_v1_player_1717")).inv[0]);
+  const own = await page2.evaluate(() => !document.getElementById("world-elsewhere").classList.contains("hidden"));
+  await page2.close();
+  assert(loaded === 5, `the new tab started from the old one's save: ${loaded}`);
+  assert(notice, "the old tab says the world is open in another tab");
+  assert(!own, "the new tab is not told so");
+  assert(Array.isArray(kept) && kept[1] === 40, `the new tab's progress is kept: ${JSON.stringify(kept)}`);
+});
+
 await browser.close();
 server.close();
 
