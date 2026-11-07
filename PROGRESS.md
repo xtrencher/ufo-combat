@@ -2765,3 +2765,23 @@ The owner: see further ahead; enemy jets only the player's way, never crashing, 
 - **Wall tolerance** (vehicle-jet.js hook `onGraze(hits, pts, dt)`, set only by the canyon run; js/canyon.js `_graze`): a wingtip, tail or belly (not the nose or fuselage, at most two parts) at under 16 degrees and 26 blocks/s into the rock (the face's normal from the blocks round the touch, its tilt against the flight mostly left out for the wall's roughness) is a scrape: pushed out along the face, the speed into it gone plus 5 off, nose and aim turned with the path, sparks and rock bits, a grind, a small shake, 3+ damage every 0.15 s. Anything else crashes as before; elsewhere (no hook) nothing changes.
 - **Shared files (Round 17):** js/vehicle-jet.js (`_groundAndCrash`: the probe hits as bits and the `onGraze` hook); js/main.js (no saved edits read on the canyon page).
 - **Tests:** tools/r16-canyon-tests.mjs expectations updated (space scenery round trip, valleys only, menu 10 sceneries and the Rings option, bandits never lost / head-on / with a collider; the space and valley browser checks load their own pages); its Node part 7/7. Quick probes (tools/probe.mjs, scratch scenarios): rings off (0 drawn, passed off-centre, no penalty), a wingtip scrape (flying, 7.6 damage) vs a nose-in crash, edits kept on respawn and 0 after a restart, 4 bandits (all the player's way, no collider, none lost, one pushed out of the rock, the player held among them unhurt), Space page, no console errors.
+
+## Round 17 plan
+The user asked for:
+- canyon: a fixed time of day (Day or Night option); full detail far ahead; respawn keeps the throttle; no impossible respawn spots;
+- jet wall and ground tolerance everywhere, with sparks and no bounce;
+- a super missile mode;
+- an afterburner latch on double Shift, with a big difference on vs off;
+- fixes for the aim lock losing UFOs;
+- a much longer view on the Moon and Mars, plus landable Mercury and Venus;
+- missions starting automatically again;
+- planes never parked on runways;
+- ground vehicles that never get stuck on rough ground;
+- a deep bug hunt.
+
+Tracks (worktrees, merged by the lead):
+- **17.A Jets**: vehicle-jet.js, fighter-hud.js, air-fx.js, jet weapons, and the graze code in canyon.js.
+- **17.B Canyon**: canyon*.js, dim-canyon.js, menu-canyon.js.
+- **17.C Planets**: dim-moon.js, dim-mars.js, new dim-mercury.js and dim-venus.js, solar*.js, dim-registry.js, render-distance settings.
+- **17.D Missions/ground**: missions and mission-*.js, airports.js, tanks.js, vehicle-tank.js.
+- **17.E Bugs**: everything else.
