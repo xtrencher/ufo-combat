@@ -15,6 +15,7 @@
 // counted twice. Other code gives XP with LIB.giveXp(amount, x, y, z)
 // (content/base.js; main.js sets it).
 import * as THREE from "three";
+import { BODY, BODY_FLAGS } from "./survival.js";
 
 // The orb sizes vanilla splits a reward into (largest first).
 const ORB_VALUES = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
@@ -350,6 +351,12 @@ export class XpOrbs {
       if (this._solid(pos.x, pos.y, pos.z)) {
         pos.y = Math.floor(pos.y) + 1 + ORB_R;
         v.y = Math.max(v.y, 0);
+      }
+      // (Round 17) Lava and fire burn it up and the void takes it, as vanilla's
+      // (and as dropped items): it lay in a lava pool's bed, or fell on below an End island.
+      if (pos.y < -64 || BODY_FLAGS[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))] & (BODY.LAVA | BODY.FIRE)) {
+        this._remove(i);
+        continue;
       }
       o.sprite.position.copy(pos);
       // (vanilla's pulse: green to yellow)

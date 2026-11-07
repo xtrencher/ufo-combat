@@ -175,15 +175,24 @@ await browserCheck("a dropped item burns up in lava and in fire (it sank and lay
     let burnt = 0;
     const was = E.onBurn;
     E.onBurn = (it) => { burnt++; was?.(it); };
-    for (let i = 0; i < 60; i++) E.update(1 / 30, null);
+    // (And an experience orb: lava burns it too.)
+    g.xp.clear?.();
+    g.xp.spawn(f.x0 + 9.5, f.y + 0.5, f.z0 + 0.5, 3);
+    g.xp.spawn(f.x0 - 15.5, f.y + 0.5, f.z0 + 0.5, 3);
+    const orbs0 = g.xp.orbs.length;
+    for (let i = 0; i < 60; i++) {
+      E.update(1 / 30, null);
+      g.xp.update(1 / 30);
+    }
     E.onBurn = was;
     const has = (it) => E.items.includes(it);
-    return { cob: has(cob), inFire: has(inFire), onStone: has(onStone), debris: has(debris), debrisY: +(debris.pos.y - f.y).toFixed(2), burnt };
+    return { cob: has(cob), inFire: has(inFire), onStone: has(onStone), debris: has(debris), debrisY: +(debris.pos.y - f.y).toFixed(2), burnt, orbs: [orbs0, g.xp.orbs.length] };
   }, f);
   assert(!r.cob, `an item in lava burns up: ${JSON.stringify(r)}`);
   assert(!r.inFire, `an item in fire burns up: ${JSON.stringify(r)}`);
   assert(r.onStone, `an item on stone stays: ${JSON.stringify(r)}`);
   assert(r.debris && r.debrisY > -1.2, `a netherite ingot doesn't burn and floats up in lava: ${JSON.stringify(r)}`);
+  assert(r.orbs[0] === 2 && r.orbs[1] === 1, `an experience orb in lava burns up, one on stone stays: ${JSON.stringify(r)}`);
 });
 
 // ---------- Creatures ----------
