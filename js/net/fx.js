@@ -20,7 +20,7 @@ import { LASER_COLORS } from "../lasers.js";
 import { itemInfo } from "../items.js";
 import { bindEntityLight } from "../shaders.js";
 import { LAYER_FX } from "../layers.js";
-import { Jet, missileGeometry, nukeGeometry } from "../vehicle-jet.js";
+import { Jet, missileGeometry, nukeGeometry, superMissileGeometry } from "../vehicle-jet.js";
 import { r2, r1 } from "./interp.js";
 
 const PJ_RATE = 15;
@@ -187,7 +187,8 @@ export class FxSync {
     for (const v of g.vehicles.vehicles) {
       if (v.puppet || v.type === "ufo") continue;
       if (v.net || (this.net.isHost && v.isEnemyJet)) {
-        for (const m of v.missiles || []) if (!m.dead) add(m, "ms", m.target?.ref ? this.mp.refOf?.(m.target.ref) || 0 : 0);
+        // (Round 17: the heavy missile as "sm": drawn big, with its thick trail; an older version skips it.)
+        for (const m of v.missiles || []) if (!m.dead) add(m, m.heavy ? "sm" : "ms", m.target?.ref ? this.mp.refOf?.(m.target.ref) || 0 : 0);
         for (const b of v.bombs || []) add(b, "nb", b.chute?.visible ? 1 : 0);
       }
     }
@@ -334,6 +335,7 @@ export class FxSync {
     else if (kind === "eg" || kind === "sb" || kind === "ep") mesh = w.throwables?.remoteMesh(kind);
     else if (kind === "fb") mesh = w.fishing?.remoteMesh();
     else if (kind === "ms") mesh = new THREE.Mesh(this._missileGeo || (this._missileGeo = missileGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
+    else if (kind === "sm") mesh = new THREE.Mesh(this._superGeo || (this._superGeo = superMissileGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }))); // (Round 17)
     else if (kind === "nb") {
       mesh = new THREE.Group();
       mesh.add(new THREE.Mesh(this._nukeGeo || (this._nukeGeo = nukeGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }))));
@@ -355,7 +357,7 @@ export class FxSync {
     if (!this.remotePj.size || !jet?.net) return out;
     const me = `v:${jet.net.nid}`;
     const mePlayer = `p:${this.net.pid}`;
-    for (const p of this.remotePj.values()) if (p.kind === "ms" && (p.extra === me || p.extra === mePlayer)) out.push(p.pos);
+    for (const p of this.remotePj.values()) if ((p.kind === "ms" || p.kind === "sm") && (p.extra === me || p.extra === mePlayer)) out.push(p.pos);
     return out;
   }
 
@@ -363,7 +365,7 @@ export class FxSync {
   _incomingAt(ref) {
     if (!this.remotePj.size) return NONE;
     const out = [];
-    for (const p of this.remotePj.values()) if (p.kind === "ms" && p.extra === ref) out.push(p.pos);
+    for (const p of this.remotePj.values()) if ((p.kind === "ms" || p.kind === "sm") && p.extra === ref) out.push(p.pos);
     return out;
   }
 
@@ -394,7 +396,8 @@ export class FxSync {
         p.light.block = l.block;
       }
       // Smoke trails behind rockets and missiles.
-      if (p.kind === "rk" || p.kind === "ms") {
+      if (p.kind === "sm") this._superTrail(p, dt, fx); // (Round 17: the heavy missile's, thick and long)
+      else if (p.kind === "rk" || p.kind === "ms") {
         p.trail -= dt;
         if (p.trail <= 0) {
           p.trail = 0.03;
@@ -404,6 +407,20 @@ export class FxSync {
         }
       }
     }
+  }
+
+  // (Round 17) Another machine's heavy missile: a thick, long-lived smoke
+  // trail, a big flame and a blinking red beacon, as its owner sees it.
+  _superTrail(p, dt, fx) {
+    p.trail -= dt;
+    if (p.trail > 0) return;
+    p.trail = 0.025;
+    const c = this._superC || (this._superC = [new THREE.Color(0.82, 0.8, 0.78), new THREE.Color(0.95, 0.94, 0.92), new THREE.Color(6, 4, 1.6), new THREE.Color(6, 0.3, 0.2)]);
+    const d = _v.copy(p.vel);
+    if (d.lengthSq() > 1e-4) d.normalize();
+    fx.smoke.spawn({ x: p.pos.x - d.x * 2.6, y: p.pos.y - d.y * 2.6, z: p.pos.z - d.z * 2.6, vx: (Math.random() - 0.5) * 0.8, vy: 0.4, vz: (Math.random() - 0.5) * 0.8, life: 4 + Math.random() * 2, size0: 1.2, size1: 6, color0: c[0], color1: c[1], alpha: 0.62, drag: 0.7 });
+    fx.glow.spawn({ x: p.pos.x - d.x * 2.8, y: p.pos.y - d.y * 2.8, z: p.pos.z - d.z * 2.8, life: 0.09, size0: 3.6, size1: 1.2, color0: c[2], alpha: 1 });
+    if (Math.floor(performance.now() / 100) % 2 === 0) fx.glow.spawn({ x: p.pos.x, y: p.pos.y + 0.5, z: p.pos.z, life: 0.05, size0: 2.6, size1: 2.2, color0: c[3], alpha: 0.9 });
   }
 
   stop() {
