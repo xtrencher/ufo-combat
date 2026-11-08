@@ -195,6 +195,30 @@ await browserCheck("a dropped item burns up in lava and in fire (it sank and lay
   assert(r.orbs[0] === 2 && r.orbs[1] === 1, `an experience orb in lava burns up, one on stone stays: ${JSON.stringify(r)}`);
 });
 
+await browserCheck("an item or an orb in ground that isn't loaded doesn't age (a death's things far away were gone after 5 minutes); a near one despawns", async () => {
+  const f = await field();
+  const r = await v(async (g, f) => {
+    const T = g.THREE;
+    const { ITEM } = await import("./js/items.js");
+    const E = g.entities;
+    E.clear();
+    g.xp.clear();
+    const far = E.spawn(ITEM.STICK, 1, new T.Vector3(f.x0 + 9000.5, 70, f.z0 + 0.5), new T.Vector3(), { pickupDelay: 99 });
+    const near = E.spawn(ITEM.STICK, 1, new T.Vector3(f.x0 + 9.5, f.y + 0.2, f.z0 + 9.5), new T.Vector3(), { pickupDelay: 99 });
+    g.xp.spawn(f.x0 + 9000.5, 70, f.z0 + 0.5, 3);
+    for (let i = 0; i < 320; i++) {
+      E.update(1, null);
+      g.xp.update(1);
+    }
+    const out = { far: E.items.includes(far), near: E.items.includes(near), orbs: g.xp.orbs.length };
+    E.clear();
+    g.xp.clear();
+    return out;
+  }, f);
+  assert(r.far && r.orbs === 1, `the far item and orb wait: ${JSON.stringify(r)}`);
+  assert(!r.near, `the near item despawned after 5 minutes: ${JSON.stringify(r)}`);
+});
+
 // ---------- Creatures ----------
 
 await browserCheck("a creature burns in flowing lava and in soul fire (only the still source and plain fire burnt it)", async () => {

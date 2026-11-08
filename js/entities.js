@@ -225,13 +225,16 @@ export class ItemEntities {
         continue;
       }
       it.mesh.visible = true;
+      const p = it.pos;
+      // Frozen until loaded: (Round 17) its despawn clock too, as vanilla's and
+      // as another dimension's (a death's things far from the respawn point
+      // were gone after five minutes on the way back to them).
+      if (!world.getChunk(Math.floor(p.x) >> 4, Math.floor(p.z) >> 4)) continue;
       it.age += dt;
       if (it.age > DESPAWN_SECONDS && !it.keep) {
         this._remove(i);
         continue;
       }
-      const p = it.pos;
-      if (!world.getChunk(Math.floor(p.x) >> 4, Math.floor(p.z) >> 4)) continue; // frozen until loaded
       it.pickupDelay -= dt;
 
       // Picked up once collectable.
