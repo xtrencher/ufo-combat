@@ -217,7 +217,7 @@ export class Audio {
   playDistant(distance, fn) {
     if (!this.ctx) return;
     const k = 1 / (1 + Math.max(0, distance) / 14);
-    if (k < 0.04) return;
+    if (!(k >= 0.04)) return; // (Round 17: and a NaN distance: no sound, not a NaN gain)
     this._distGain = k;
     try {
       fn();
@@ -290,6 +290,9 @@ export class Audio {
   // One filtered noise hit (or `n` staggered grains of it) into `dest`.
   _hit({ type = "lowpass", f = 1000, q = 1, d = 0.1, v = 0.3, n = 1, spread = 0.03, jitter = 0.15, attack = 0.004, fEnd = null }, when = 0, dest = null) {
     if (!this.ctx) return;
+    // (Round 17) A value gone bad upstream (a distance from a NaN point) is
+    // a silent sound, not an exception thrown into the game's frame.
+    if (!(v > 0) || !Number.isFinite(v + f + d + attack + when + (fEnd ?? 0))) return;
     const out = dest || this._out || this.master;
     for (let i = 0; i < n; i++) {
       const t = this.ctx.currentTime + when + i * spread * (0.7 + Math.random() * 0.6);
@@ -313,6 +316,7 @@ export class Audio {
   _voice({ f0, f1, d, v, formants, vib = 0, breath = 0, delay = 0 }, gainScale = 1) {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (!(v * gainScale > 0) || !Number.isFinite(f0 + f1 + d + delay + v * gainScale)) return; // (Round 17: as _hit)
     const t = ctx.currentTime + delay;
     const bus = ctx.createGain();
     bus.gain.setValueAtTime(0.0001, t);
@@ -395,6 +399,12 @@ export class Audio {
   }
 
   // Picking up an item: a soft little pop.
+  // (Round 17) Something burning up in lava or fire: vanilla's short fizz.
+  playFizz() {
+    this._cat("blocks");
+    this._hit({ type: "highpass", f: 2600, q: 0.7, d: 0.32, v: 0.1, jitter: 0.25, attack: 0.01, fEnd: 5200 });
+  }
+
   playPickup() {
     this._cat("ui");
     this._hit({ type: "bandpass", f: 1400, q: 3, d: 0.035, v: 0.16, jitter: 0.2 });

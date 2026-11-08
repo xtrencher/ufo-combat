@@ -7,6 +7,8 @@ import { LAYER_WATER } from "./layers.js";
 
 export { CHUNK_SIZE, WORLD_HEIGHT, blockIndex };
 
+let serials = 0;
+
 export class Chunk {
   // (blocks: already generated, e.g. by a worker: see world.js. A byte
   // array, from a stale cached worker, is widened.)
@@ -14,6 +16,9 @@ export class Chunk {
     this.cx = cx;
     this.cz = cz;
     this.key = chunkKey(cx, cz);
+    // (Round 17) This chunk object's own number: a cache can tell a chunk
+    // loaded again from the one it read, without keeping the old one alive.
+    this.serial = ++serials;
     this.blocks = blocks ? (blocks instanceof Uint16Array ? blocks : Uint16Array.from(blocks)) : new Uint16Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     // High nibble: sky light, low nibble: block light (see light.js).
     this.light = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);

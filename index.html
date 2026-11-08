@@ -1345,6 +1345,9 @@
   .menu-corner + .menu-ufo-hint { top: 12vh; }
   .settings-links { display: flex; gap: 8px; margin: -6px 0 14px; }
   .settings-panel > .menu-buttons:last-child { background: #0b1019; margin: 8px -34px 0; padding: 12px 34px 18px; border-top: 1px solid var(--ui-line); }
+  /* (Round 17) No bottom padding under the sticky Back bar: the later .panel rule gave it 28px back, and a sticky
+     footer stops that far above the scroll box's edge, with the options scrolling past underneath it. */
+  .panel.settings-panel { padding-bottom: 0; scroll-padding-bottom: 96px; } /* (what is scrolled into view, e.g. by Tab, stays clear of the bar) */
   /* Settings, pause, multiplayer: the same flat look. */
   .settings-tab { border-radius: 0 !important; text-transform: uppercase; letter-spacing: 1.2px; font-size: 11px; padding: 9px 12px; }
   .settings-tab.active { color: var(--ui-text); border-bottom-color: var(--ui-accent); background: rgba(61,155,255,0.08); }
@@ -1548,6 +1551,17 @@
       <div class="menu-buttons">
         <button class="btn big primary" id="mp-ended-solo" type="button">Back to my own world</button>
         <button class="btn secondary" id="mp-ended-rejoin" type="button">Try to rejoin</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- (Round 17) The world was opened in another tab: this one no longer saves it (js/world-lock.js). -->
+  <div id="world-elsewhere" class="overlay hidden" style="z-index: 400">
+    <div class="panel">
+      <h2>Open in another tab</h2>
+      <p class="mp-note">This world was opened in another tab, which saves it now. This tab has stopped saving it, so nothing you do there is undone: close this tab, or play the world here instead (the other tab then stops saving it).</p>
+      <div class="menu-buttons">
+        <button class="btn big primary" id="world-elsewhere-here" type="button">Play here</button>
       </div>
     </div>
   </div>

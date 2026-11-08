@@ -16,7 +16,8 @@
 import * as THREE from "three";
 import { BLOCK, IS_SOLID } from "./blocks.js";
 import { ITEM, itemInfo, maxStack } from "./items.js";
-import { FISHING_ROD, COD, SALMON, BOWL, LEATHER, ROTTEN_FLESH, STRING, BONE, LILY_PAD, LAVA, ENCHANTED_BOOK } from "./content/ids.js";
+import { FISHING_ROD, COD, SALMON, BOWL, LEATHER, ROTTEN_FLESH, STRING, BONE, LILY_PAD, ENCHANTED_BOOK } from "./content/ids.js";
+import { isLava } from "./content/nature.js";
 import { INK_SAC } from "./content/decor.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { LIB } from "./content/base.js";
@@ -288,8 +289,8 @@ export class Fishing {
     b.age += dt;
     const w = this.world;
     const id = w.getBlock(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z));
-    if (id === LAVA) {
-      // (burnt up)
+    if (isLava(id)) {
+      // (burnt up; Round 17: in a lava flow too)
       this._remove();
       return;
     }

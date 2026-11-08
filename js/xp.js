@@ -15,6 +15,7 @@
 // counted twice. Other code gives XP with LIB.giveXp(amount, x, y, z)
 // (content/base.js; main.js sets it).
 import * as THREE from "three";
+import { BODY, BODY_FLAGS } from "./survival.js";
 
 // The orb sizes vanilla splits a reward into (largest first).
 const ORB_VALUES = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
@@ -271,6 +272,23 @@ export class XpOrbs {
     }
   }
 
+  // (Round 17) The orbs lying here, saved with the world (main.js): a
+  // death's orbs were lost on a reload. [value, x, y, z, age (s)], or undefined.
+  serialize() {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const out = this.orbs.filter((o) => o.value > 0 && [o.pos.x, o.pos.y, o.pos.z].every(Number.isFinite)).map((o) => [o.value, r2(o.pos.x), r2(o.pos.y), r2(o.pos.z), Math.round(o.age)]);
+    return out.length ? out : undefined;
+  }
+
+  load(list) {
+    if (!Array.isArray(list)) return;
+    this.unstash(
+      list
+        .filter((e) => Array.isArray(e) && e.length >= 4 && e.slice(0, 4).every(Number.isFinite) && e[0] >= 1)
+        .map((e) => ({ value: Math.floor(e[0]), pos: new THREE.Vector3(e[1], e[2], e[3]), vel: new THREE.Vector3(), age: Math.max(0, Math.min(ORB_LIFE, Number(e[4]) || 0)), phase: Math.random() * 6.28 }))
+    );
+  }
+
   // Total points still lying around (tests, the debug overlay).
   get pending() {
     let n = 0;
@@ -295,14 +313,15 @@ export class XpOrbs {
     const drag = Math.pow(0.98, dt * 20);
     for (let i = this.orbs.length - 1; i >= 0; i--) {
       const o = this.orbs[i];
+      // (Round 12) Its ground not loaded (yet, back from another dimension; or
+      // left far behind): it waits there, not falling through the world.
+      // (Round 17: nor ageing, as vanilla's and as dropped items.)
+      if (this.world.getChunk && !this.world.getChunk(Math.floor(o.pos.x) >> 4, Math.floor(o.pos.z) >> 4)) continue;
       o.age += dt;
       if (o.age > ORB_LIFE) {
         this._remove(i);
         continue;
       }
-      // (Round 12) Its ground not loaded (yet, back from another dimension; or
-      // left far behind): it waits there, not falling through the world.
-      if (this.world.getChunk && !this.world.getChunk(Math.floor(o.pos.x) >> 4, Math.floor(o.pos.z) >> 4)) continue;
       const v = o.vel;
       v.y -= GRAVITY * dt;
       // Pulled to a player within 8 blocks, harder the closer (vanilla).
@@ -350,6 +369,12 @@ export class XpOrbs {
       if (this._solid(pos.x, pos.y, pos.z)) {
         pos.y = Math.floor(pos.y) + 1 + ORB_R;
         v.y = Math.max(v.y, 0);
+      }
+      // (Round 17) Lava and fire burn it up and the void takes it, as vanilla's
+      // (and as dropped items): it lay in a lava pool's bed, or fell on below an End island.
+      if (pos.y < -64 || BODY_FLAGS[this.world.getBlock(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))] & (BODY.LAVA | BODY.FIRE)) {
+        this._remove(i);
+        continue;
       }
       o.sprite.position.copy(pos);
       // (vanilla's pulse: green to yellow)

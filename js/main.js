@@ -2,6 +2,7 @@ import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
+import { boxInSolid } from "./physics.js"; // (Round 17: a reload's stuck test)
 import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
@@ -104,6 +105,7 @@ import { GroundSync } from "./net/ground.js"; // (Round 13)
 import { HeliSync } from "./net/heli.js"; // (Round 14)
 import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: the canyon run)
 import { installCanyonMenu } from "./menu-canyon.js";
+import { WorldLock } from "./world-lock.js"; // (Round 17: one tab per world)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -152,6 +154,10 @@ const GUEST = !!joinWelcome;
 // the seed, and none of the player's worlds is read or written.
 const CANYON = GUEST ? null : canyonParams();
 const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : CANYON ? CANYON.seed : parseSeedFromURL();
+// (Round 17) This tab has the world now: another tab with it open stops
+// saving it (its save would undo this one's progress: js/world-lock.js).
+const worldLock = GUEST || CANYON ? null : new WorldLock(SEED, () => worldTakenElsewhere());
+worldLock?.claim();
 
 // ---------- World type ----------
 // (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
@@ -1414,7 +1420,15 @@ if (savedPlayer) {
     // puts the player back in the seat.)
     // (The sea's surface counts as ground: a swimmer stays up there.)
     const top = world.surfaceY(Math.floor(savedPos[0]), Math.floor(savedPos[2]));
-    if (world.isSolidAt(Math.floor(savedPos[0]), Math.floor(savedPos[1] + 0.1), Math.floor(savedPos[2])) || (!player.creative && top >= 0 && savedPos[1] > Math.max(top, SEA_LEVEL) + 3)) {
+    // (Round 17: stuck means the body inside a block's real shape, not standing
+    // on a slab, stairs or a bed, which sent the player up onto the roof; and
+    // a body just inside one is freed upward first, a few blocks at most.)
+    let stuck = boxInSolid(world, player.position, player.bodyRadius, player.bodyHeight);
+    for (let dy = 1; stuck && dy <= 3; dy++) {
+      player.position.y = Math.floor(savedPos[1]) + dy;
+      stuck = boxInSolid(world, player.position, player.bodyRadius, player.bodyHeight);
+    }
+    if (stuck || (!player.creative && top >= 0 && savedPos[1] > Math.max(top, SEA_LEVEL) + 3)) {
       player.spawnAt(Math.floor(savedPos[0]), Math.floor(savedPos[2]));
     }
   } else {
@@ -1444,6 +1458,7 @@ if (savedPlayer) {
     weather.load(savedPlayer.weather);
   }
   nuke.loadZones(savedPlayer.blastZones);
+  entities.load(savedPlayer.items); // (Round 17: the items lying in the world, a death's too)
   waterSim.loadMeta(savedPlayer.water);
 } else {
   // (A new world made from the Creative choice starts in Creative.)
@@ -1945,10 +1960,12 @@ function playerState() {
     signs: signs.serialize(),
     transport: transport?.serialize(), // (Round 12) the boats and minecarts (every dimension's), and the one the player sits in
     gadgets: gadgets.serialize(), // (Round 12)
-    mobs: dims.overworld("mobs", () => mobs.serializeKept()), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
+    mobs: dims.overworld("mobs", () => mobs.serializeKept({ pending: true })), // (Round 11) bred, fed, shorn or tame animals (a Survival world) (Round 17: those not back yet too)
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
+    items: entities.serialize(), // (Round 17: the items lying in the world, every dimension's; they were lost on a reload)
+    xpOrbs: xp.orbs.length ? { d: dims.dim, o: xp.serialize() } : undefined, // (Round 17: the experience orbs here, and where "here" is)
     // (Flowing water's cells: without them a reload turns each into a source.)
     // (Round 12: the Overworld's, wherever the player is; the other dimensions' are in `dims`.)
     water: dims.overworld("water", () => (waterSim.meta.size ? savedWaterMeta() : undefined)),
@@ -1987,7 +2004,8 @@ let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
 function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
   // (Round 15: nor does the canyon run: the player's worlds stay as they were.)
-  if (GUEST || CANYON) {
+  // (Round 17: nor a tab whose world was opened in another tab since: that one saves it now.)
+  if (GUEST || CANYON || worldLock?.superseded) {
     pendingSave = false;
     dims.clearDirty();
     lastSaveTime = lastPlayerSave = performance.now();
@@ -2024,6 +2042,22 @@ function flushSave(force = true) {
     toast("Browser storage is full: this world can't be saved. Free some space (site data) or delete old worlds.", 8);
   }
 }
+
+// (Round 17) The world was opened in another tab (js/world-lock.js): this
+// one has stopped saving it; it says so, and "Play here" reloads it from
+// the save (taking the world back the same way).
+function worldTakenElsewhere() {
+  if (document.pointerLockElement) document.exitPointerLock();
+  interaction.release();
+  vehicles.releaseAll();
+  player.keys?.clear?.();
+  document.getElementById("world-elsewhere")?.classList.remove("hidden");
+}
+document.getElementById("world-elsewhere-here")?.addEventListener("click", () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("seed", String(SEED));
+  window.location.href = url.toString();
+});
 
 // Leaving the page mid-game (e.g. Ctrl+W while sprinting with Ctrl) asks
 // for confirmation first; the world is saved either way.
@@ -2077,6 +2111,15 @@ entities.onPickup = (item) => {
     markInventoryChanged();
   }
   return left;
+};
+
+// (Round 17) A dropped item burnt up in lava or fire (js/entities.js): a puff of smoke and a fizz.
+const burnSmoke = new THREE.Color(0.32, 0.31, 0.3);
+entities.onBurn = (it) => {
+  const p = it.pos;
+  for (let i = 0; i < 5; i++) effects.smoke.spawn({ x: p.x + (Math.random() - 0.5) * 0.4, y: p.y + 0.3, z: p.z + (Math.random() - 0.5) * 0.4, vx: (Math.random() - 0.5) * 0.6, vy: 1.2 + Math.random(), vz: (Math.random() - 0.5) * 0.6, life: 0.9, size0: 0.25, size1: 0.8, color0: burnSmoke, alpha: 0.5, drag: 1.5 });
+  const d = p.distanceTo(player.position);
+  if (d < 24) audio.playDistant(d * 0.6, () => audio.playFizz());
 };
 
 player.onFlightToggle = (enabled) => audio.playFlightToggle(enabled);
@@ -3615,7 +3658,8 @@ const game = {
   // Puts this player at (x, z) (on the ground there, or at height y if given and free).
   teleport(x, y, z) {
     world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
-    const stuck = y === null || world.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || world.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z));
+    // (Round 17: the body against the blocks' real shapes: on a slab or stairs it isn't stuck, not sent up onto the roof.)
+    const stuck = y === null || boxInSolid(world, new THREE.Vector3(x, y, z), player.bodyRadius, player.bodyHeight);
     // (Round 12) Under a roof (the Nether): the floor nearest that height, not the topmost cavern's.
     const roof = stuck && world.dimInfo.ceiling ? dims.safeSpot(x, y ?? 64, z, 6) : null;
     if (roof) {
@@ -4616,6 +4660,9 @@ window.__voxelands.hacks = hacks;
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 // (Round 12) A save made in the Nether or the End: the world goes there now.
 dims.init(savedPlayer);
+// (Round 17) After the dimension the save was made in is back (a save made
+// dead there comes back in the respawn's dimension: its orbs stay behind).
+if (savedPlayer?.xpOrbs?.d === dims.dim) xp.load(savedPlayer.xpOrbs.o);
 space.init(savedPlayer?.space); // (Round 15: the landing sites; a trip cut short: the rocket back on its pad)
 // (Round 15) The canyon run's page: into its course (js/canyon.js); any
 // other page: the main menu's canyon screen (js/menu-canyon.js).
@@ -4632,6 +4679,7 @@ if (CANYON) {
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
+worldLock?.ready(); // (Round 17: a takeover heard while starting is shown now)
 // (Round 12) Reloaded into a world picked on the main menu (or for a room the
 // Multiplayer screen asked for there): straight into the game, in the mode
 // picked, one click to take the mouse ("Click to play", as a guest's join).

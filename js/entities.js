@@ -9,12 +9,17 @@
 // the item flies into the player (vanilla's 3-tick pickup animation). A
 // cactus destroys items that touch it (vanilla). (A Missions world keeps its
 // pull toward a nearby player.)
+// (Round 17) Lava and fire burn them up too, as vanilla (they sank to the
+// bottom of a lava pool and lay there, a dead player's things in the
+// Nether's lava sea included); netherite and ancient debris don't burn and
+// float up in lava instead.
 import * as THREE from "three";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { maxStack } from "./items.js";
+import { encodeStack, decodeStack } from "./inventory.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
-import { EGG, SNOWBALL, ENDER_PEARL } from "./content/ids.js";
+import { EGG, SNOWBALL, ENDER_PEARL, ANCIENT_DEBRIS, NETHERITE_BLOCK, NETHERITE_SCRAP, NETHERITE_BOOTS } from "./content/ids.js";
 import { LIB } from "./content/base.js";
 import { BODY, BODY_FLAGS } from "./survival.js";
 import { vanillaRules } from "./worldtype.js";
@@ -34,6 +39,8 @@ const REACH_XZ = PLAYER_R + 1 + 0.125;
 const REACH_DOWN = 0.5 + 0.25; // (the item's top must be above the grown box's bottom)
 const REACH_UP = PLAYER_H + 0.5;
 const FLY_TIME = 0.15; // (the pickup animation: 3 ticks)
+// (Round 17) What lava and fire don't burn (vanilla's fire-resistant items).
+const fireproof = (id) => id === ANCIENT_DEBRIS || id === NETHERITE_BLOCK || (id >= NETHERITE_SCRAP && id <= NETHERITE_BOOTS);
 
 export class ItemEntities {
   constructor(scene, world) {
@@ -48,6 +55,7 @@ export class ItemEntities {
     };
     this._mergeTimer = 0;
     this.onPickup = null; // (item) => leftover count
+    this.onBurn = null; // (item) => void: (Round 17) it burnt up in lava or fire (main.js: a puff of smoke)
     this._flying = []; // picked-up items flying in: { mesh, from, to (a position), t, light }
     this._prev = new THREE.Vector3(); // (the player's feet last frame: the pickup box sweeps the move)
     this._hasPrev = false;
@@ -90,6 +98,32 @@ export class ItemEntities {
     this.items.push(item);
     this._place(item);
     return item;
+  }
+
+  // (Round 17) The items lying in the world, saved with it (main.js): they
+  // were lost on every reload, a death's spilled things with them (vanilla
+  // keeps them). [x, y, z, age (s), dim code, 0, stack (encodeStack)]. (Not
+  // a mission's weapon drop, `keep`: the missions save and set out their own.)
+  serialize() {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const out = [];
+    for (const it of this.items) {
+      const p = it.pos;
+      if (it.keep || !(it.count > 0) || ![p.x, p.y, p.z].every(Number.isFinite)) continue;
+      out.push([r2(p.x), r2(p.y), r2(p.z), Math.round(it.age), it.dim | 0, 0, encodeStack(it)]);
+    }
+    return out.length ? out : undefined;
+  }
+
+  load(list) {
+    if (!Array.isArray(list)) return;
+    for (const e of list) {
+      if (!Array.isArray(e) || e.length < 7 || !e.slice(0, 3).every(Number.isFinite)) continue;
+      const s = decodeStack(e[6]);
+      if (!s) continue;
+      const it = this.spawn(s.id, s.count, new THREE.Vector3(e[0], e[1], e[2]), new THREE.Vector3(0, 0, 0), { dur: s.dur, tag: s.tag, dim: Math.max(0, e[4] | 0) });
+      if (it && Number.isFinite(e[3])) it.age = Math.max(0, Math.min(DESPAWN_SECONDS, e[3]));
+    }
   }
 
   _remove(i) {
@@ -191,13 +225,16 @@ export class ItemEntities {
         continue;
       }
       it.mesh.visible = true;
+      const p = it.pos;
+      // Frozen until loaded: (Round 17) its despawn clock too, as vanilla's and
+      // as another dimension's (a death's things far from the respawn point
+      // were gone after five minutes on the way back to them).
+      if (!world.getChunk(Math.floor(p.x) >> 4, Math.floor(p.z) >> 4)) continue;
       it.age += dt;
       if (it.age > DESPAWN_SECONDS && !it.keep) {
         this._remove(i);
         continue;
       }
-      const p = it.pos;
-      if (!world.getChunk(Math.floor(p.x) >> 4, Math.floor(p.z) >> 4)) continue; // frozen until loaded
       it.pickupDelay -= dt;
 
       // Picked up once collectable.
@@ -223,8 +260,16 @@ export class ItemEntities {
       }
 
       // Physics: gravity (buoyant in water), axis-by-axis collision with blocks.
-      const inWater = IS_WET[world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z))] === 1;
-      if (inWater) {
+      const here = world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z));
+      const inWater = IS_WET[here] === 1;
+      // (Round 17) Lava or fire burns it up (not a mission's weapon drop); netherite floats in lava.
+      const hot = BODY_FLAGS[here] & (BODY.LAVA | BODY.FIRE);
+      if (hot && !it.keep && !fireproof(it.id)) {
+        this.onBurn?.(it);
+        this._remove(i);
+        continue;
+      }
+      if (inWater || (hot & BODY.LAVA && fireproof(it.id))) {
         it.vel.y += (4 - it.vel.y * 2) * dt;
         it.vel.x *= Math.exp(-2 * dt);
         it.vel.z *= Math.exp(-2 * dt);

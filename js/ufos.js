@@ -531,6 +531,9 @@ export class UfoManager {
       const dy = dir.y * sy;
       const dz = dir.z;
       const a = dx * dx + dy * dy + dz * dz;
+      // (Round 17) No direction (a bolt aimed at its own muzzle): no hit; it
+      // came out at a NaN distance, a NaN point and a NaN sound.
+      if (!(a > 1e-12)) continue;
       const b = ox * dx + oy * dy + oz * dz;
       const c = ox * ox + oy * oy + oz * oz - u.radius * u.radius;
       const disc = b * b - a * c;
