@@ -2031,7 +2031,9 @@ export class MobManager {
     m.exploded = true;
     const i = this.mobs.indexOf(m);
     if (i >= 0) this._remove(i);
-    const removed = this.effects.explode(at, { radius: CREEPER_RADIUS, source: "creeper" });
+    // (Round 17) In water it breaks nothing, as vanilla's (and as TNT here).
+    const wet = !!IS_WET[this.world.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.5), Math.floor(m.pos.z))];
+    const removed = this.effects.explode(at, { radius: CREEPER_RADIUS, source: "creeper", carve: !wet });
     if (Array.isArray(removed) && vanillaRules()) this.blastDrops(removed, at, 1 / 3);
   }
 

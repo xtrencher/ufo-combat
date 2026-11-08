@@ -227,6 +227,35 @@ await browserCheck("a creature burns in flowing lava and in soul fire (only the 
   assert(r.soul[1] < r.soul[0] && r.soul[2], `burnt in soul fire: ${JSON.stringify(r)}`);
 });
 
+await browserCheck("a creeper going off in water breaks no blocks, as vanilla's (it blew a crater under water); on land it does", async () => {
+  const W = await v(async () => (await import("./js/blocks.js")).BLOCK.WATER);
+  // A pool 3 deep 8 blocks north (stone round it), dry ground elsewhere.
+  const pool = [];
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -10; dz <= -6; dz++) for (let dy = -3; dy < 0; dy++) pool.push([dx, dy, dz, W]);
+  const f = await field(pool);
+  const r = await v((g, f) => {
+    const count = (x, y, z) => {
+      let n = 0;
+      for (let dx = -3; dx <= 3; dx++) for (let dy = -4; dy <= 1; dy++) for (let dz = -3; dz <= 3; dz++) if (g.world.isSolidAt(x + dx, y + dy, z + dz)) n++;
+      return n;
+    };
+    g.mobs.clear();
+    const wet = g.mobs.spawn("creeper", f.x0 + 5.5, f.y, f.z0 + 5.5);
+    const dry = g.mobs.spawn("creeper", f.x0 + 12.5, f.y, f.z0 + 0.5);
+    wet.pos.set(f.x0 + 0.5, f.y - 2.5, f.z0 - 7.5);
+    const a0 = count(f.x0, f.y - 2, f.z0 - 8);
+    const b0 = count(f.x0 + 12, f.y, f.z0);
+    g.mobs._creeperBlast(wet);
+    g.mobs._creeperBlast(dry);
+    const out = { wet: [a0, count(f.x0, f.y - 2, f.z0 - 8)], dry: [b0, count(f.x0 + 12, f.y, f.z0)] };
+    g.mobs.clear();
+    g.entities.clear();
+    return out;
+  }, f);
+  assert(r.wet[1] === r.wet[0], `in water: no block broken: ${JSON.stringify(r)}`);
+  assert(r.dry[1] < r.dry[0], `on land: a crater: ${JSON.stringify(r)}`);
+});
+
 // ---------- Memory ----------
 
 await browserCheck("travelling far and back doesn't keep the unloaded chunks in memory (the rain's column cache held hundreds of them)", async () => {
