@@ -121,6 +121,11 @@ browsers never let a page cancel Ctrl+W, Ctrl+T or Ctrl+N: the browser asks
 way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
 `Ctrl+W`.
 
+**One tab per world** (Round 17): a world opened in a second browser tab
+belongs to that tab from then on. The first tab stops saving it and says
+so ("Open in another tab", with **Play here** to take it back), so closing
+an old tab can never undo what you did in the new one.
+
 ### Three ways to play
 
 - **Survival** (the default): normal Minecraft (see **Survival (vanilla
@@ -1073,7 +1078,10 @@ died; the rest is lost.
   Nether: see **The Nether and the End**), with full food; if the bed was
   broken or blocked in, at the world spawn ("Your home bed was missing or
   obstructed"). Your experience is lost (some of it drops as orbs: see
-  **Experience**).
+  **Experience**). (Round 17) What lies on the ground is saved with the
+  world, your spilled things and orbs too: close the game and they are
+  still there when you come back. Far away, where the ground isn't loaded,
+  they wait without despawning, as in Minecraft; lava and fire burn them.
 
 ### Weather
 
@@ -1128,7 +1136,12 @@ died; the rest is lost.
   fire for 15 s, fire for 8 s (half a heart a second while burning, the
   flames show on screen); water puts you out. A **cactus** pricks (half a
   heart every half second you touch it: walking into it, standing or
-  landing on it, jumping into one overhead; never in Creative; creatures too) and destroys items that touch it. A block at
+  landing on it, jumping into one overhead; never in Creative; creatures too) and destroys items that touch it.
+  (Round 17) **Lava and fire burn up dropped items** and experience orbs
+  (netherite and ancient debris don't burn: they float up in lava), and
+  creatures burn in flowing lava and soul fire too. A creeper going off in
+  water breaks no blocks, as TNT. A fall into water, even one block deep,
+  doesn't hurt. A block at
   your eyes **suffocates**, and your breath lasts **15 seconds** under water (10
   bubbles). Falls hurt as before (a half-heart a block beyond 3); a hay bale
   takes 80% of it, a bed half. Armor helps against lava, fire, cactus and
