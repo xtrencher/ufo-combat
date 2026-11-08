@@ -16,6 +16,7 @@
 import * as THREE from "three";
 import { BLOCK, IS_SOLID, IS_WET } from "./blocks.js";
 import { maxStack } from "./items.js";
+import { encodeStack, decodeStack } from "./inventory.js";
 import { itemModel } from "./models.js";
 import { createEntityMaterial, bindEntityLight } from "./shaders.js";
 import { EGG, SNOWBALL, ENDER_PEARL, ANCIENT_DEBRIS, NETHERITE_BLOCK, NETHERITE_SCRAP, NETHERITE_BOOTS } from "./content/ids.js";
@@ -97,6 +98,32 @@ export class ItemEntities {
     this.items.push(item);
     this._place(item);
     return item;
+  }
+
+  // (Round 17) The items lying in the world, saved with it (main.js): they
+  // were lost on every reload, a death's spilled things with them (vanilla
+  // keeps them). [x, y, z, age (s), dim code, 0, stack (encodeStack)]. (Not
+  // a mission's weapon drop, `keep`: the missions save and set out their own.)
+  serialize() {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const out = [];
+    for (const it of this.items) {
+      const p = it.pos;
+      if (it.keep || !(it.count > 0) || ![p.x, p.y, p.z].every(Number.isFinite)) continue;
+      out.push([r2(p.x), r2(p.y), r2(p.z), Math.round(it.age), it.dim | 0, 0, encodeStack(it)]);
+    }
+    return out.length ? out : undefined;
+  }
+
+  load(list) {
+    if (!Array.isArray(list)) return;
+    for (const e of list) {
+      if (!Array.isArray(e) || e.length < 7 || !e.slice(0, 3).every(Number.isFinite)) continue;
+      const s = decodeStack(e[6]);
+      if (!s) continue;
+      const it = this.spawn(s.id, s.count, new THREE.Vector3(e[0], e[1], e[2]), new THREE.Vector3(0, 0, 0), { dur: s.dur, tag: s.tag, dim: Math.max(0, e[4] | 0) });
+      if (it && Number.isFinite(e[3])) it.age = Math.max(0, Math.min(DESPAWN_SECONDS, e[3]));
+    }
   }
 
   _remove(i) {

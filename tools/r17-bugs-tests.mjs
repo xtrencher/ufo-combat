@@ -324,6 +324,39 @@ await browserCheck("over the End's void a boat, a minecart and falling sand are 
   assert(await until((g) => g.dims.dim === "overworld" && !g.dims.pending, 90000), "never back home");
 });
 
+await browserCheck("what lies on the ground is saved: a death's spilled things and experience orbs are still there after a reload (they were lost)", async () => {
+  const f = await field();
+  const at = await v(async (g, f) => {
+    const { ITEM } = await import("./js/items.js");
+    g.entities.clear();
+    g.xp.clear();
+    g.player.setMode("survival");
+    g.inventory.clear();
+    const { DIAMOND } = await import("./js/content/ids.js");
+    g.inventory.slots[0] = { id: DIAMOND, count: 7 };
+    g.inventory.slots[1] = { id: ITEM.IRON_PICKAXE, count: 1, dur: 99 };
+    g.player.xpLevel = 3;
+    g.player.position.set(f.x0 + 6.5, f.y, f.z0 + 6.5);
+    g.player.damage(999, "zombie", { pierce: true });
+    for (let i = 0; i < 60; i++) {
+      g.entities.update(1 / 30, null);
+      g.xp.update(1 / 30);
+    }
+    const items = g.entities.items.map((it) => `${it.id}x${it.count}`).sort();
+    g.respawn();
+    g.flushSave();
+    return { items, orbs: g.xp.pending };
+  }, f);
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
+  await play();
+  const back = await v((g) => ({ items: g.entities.items.map((it) => `${it.id}x${it.count}`).sort(), dur: g.entities.items.find((it) => it.dur !== undefined)?.dur, orbs: g.xp.pending }));
+  assert(at.items.length >= 2 && JSON.stringify(back.items) === JSON.stringify(at.items), `the items are back: ${JSON.stringify(at)} -> ${JSON.stringify(back)}`);
+  assert(back.dur === 99, `with their wear: ${back.dur}`);
+  assert(at.orbs > 0 && back.orbs === at.orbs, `the orbs are back: ${at.orbs} -> ${back.orbs}`);
+  await v((g) => g.player.setMode("creative"));
+});
+
 // ---------- Saves (last: the first page stops saving here) ----------
 
 await browserCheck("two tabs of one world: the new tab owns it, the old one stops saving and says so (closing it undid the new tab's progress)", async () => {

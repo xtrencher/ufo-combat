@@ -1447,6 +1447,7 @@ if (savedPlayer) {
     weather.load(savedPlayer.weather);
   }
   nuke.loadZones(savedPlayer.blastZones);
+  entities.load(savedPlayer.items); // (Round 17: the items lying in the world, a death's too)
   waterSim.loadMeta(savedPlayer.water);
 } else {
   // (A new world made from the Creative choice starts in Creative.)
@@ -1952,6 +1953,8 @@ function playerState() {
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
+    items: entities.serialize(), // (Round 17: the items lying in the world, every dimension's; they were lost on a reload)
+    xpOrbs: xp.serialize(), // (Round 17: the experience orbs here)
     // (Flowing water's cells: without them a reload turns each into a source.)
     // (Round 12: the Overworld's, wherever the player is; the other dimensions' are in `dims`.)
     water: dims.overworld("water", () => (waterSim.meta.size ? savedWaterMeta() : undefined)),
@@ -4612,6 +4615,7 @@ window.__voxelands.hacks = hacks;
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 // (Round 12) A save made in the Nether or the End: the world goes there now.
 dims.init(savedPlayer);
+xp.load(savedPlayer?.xpOrbs); // (Round 17: after the dimension the save was made in is back)
 space.init(savedPlayer?.space); // (Round 15: the landing sites; a trip cut short: the rocket back on its pad)
 // (Round 15) The canyon run's page: into its course (js/canyon.js); any
 // other page: the main menu's canyon screen (js/menu-canyon.js).

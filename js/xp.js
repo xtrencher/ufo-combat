@@ -272,6 +272,23 @@ export class XpOrbs {
     }
   }
 
+  // (Round 17) The orbs lying here, saved with the world (main.js): a
+  // death's orbs were lost on a reload. [value, x, y, z, age (s)], or undefined.
+  serialize() {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const out = this.orbs.filter((o) => o.value > 0 && [o.pos.x, o.pos.y, o.pos.z].every(Number.isFinite)).map((o) => [o.value, r2(o.pos.x), r2(o.pos.y), r2(o.pos.z), Math.round(o.age)]);
+    return out.length ? out : undefined;
+  }
+
+  load(list) {
+    if (!Array.isArray(list)) return;
+    this.unstash(
+      list
+        .filter((e) => Array.isArray(e) && e.length >= 4 && e.slice(0, 4).every(Number.isFinite) && e[0] >= 1)
+        .map((e) => ({ value: Math.floor(e[0]), pos: new THREE.Vector3(e[1], e[2], e[3]), vel: new THREE.Vector3(), age: Math.max(0, Math.min(ORB_LIFE, Number(e[4]) || 0)), phase: Math.random() * 6.28 }))
+    );
+  }
+
   // Total points still lying around (tests, the debug overlay).
   get pending() {
     let n = 0;
