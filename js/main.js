@@ -3648,7 +3648,8 @@ const game = {
   // Puts this player at (x, z) (on the ground there, or at height y if given and free).
   teleport(x, y, z) {
     world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
-    const stuck = y === null || world.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || world.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z));
+    // (Round 17: the body against the blocks' real shapes: on a slab or stairs it isn't stuck, not sent up onto the roof.)
+    const stuck = y === null || boxInSolid(world, new THREE.Vector3(x, y, z), player.bodyRadius, player.bodyHeight);
     // (Round 12) Under a roof (the Nether): the floor nearest that height, not the topmost cavern's.
     const roof = stuck && world.dimInfo.ceiling ? dims.safeSpot(x, y ?? 64, z, 6) : null;
     if (roof) {
