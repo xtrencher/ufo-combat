@@ -310,6 +310,32 @@ await browserCheck("a creeper going off in water breaks no blocks, as vanilla's 
   assert(r.dry[1] < r.dry[0], `on land: a crater: ${JSON.stringify(r)}`);
 });
 
+await browserCheck("a bolt aimed nowhere (a zero direction) hits nothing (a UFO took it at a NaN distance, and the hit's sound threw in the frame)", async () => {
+  const r = await v((g) => {
+    const T = g.THREE;
+    g.audio.ensureStarted?.();
+    const p = g.player.position;
+    const u = g.ufos.spawn({ size: "medium", pos: new T.Vector3(p.x + 30, p.y + 20, p.z) });
+    if (!u) return null;
+    const hp = u.health;
+    const hit = g.ufos.raycast(u.pos.clone(), new T.Vector3(0, 0, 0), 100);
+    const ray = hit ? String(hit.distance) : null;
+    g.lasers.fire({ from: u.pos.clone(), dir: new T.Vector3(0, 0, 0), owner: "player", damage: 50, sound: false });
+    let threw = null;
+    try {
+      for (let i = 0; i < 5; i++) g.lasers.update(1 / 30);
+    } catch (e) {
+      threw = String(e);
+    }
+    const out = { ray, threw, hp: [hp, u.health] };
+    g.ufos.clear();
+    return out;
+  });
+  assert(r, "no UFO");
+  assert(r.ray === null, `no hit from a zero direction: ${JSON.stringify(r)}`);
+  assert(!r.threw && r.hp[0] === r.hp[1], `nothing thrown, nothing hit: ${JSON.stringify(r)}`);
+});
+
 // ---------- Memory ----------
 
 await browserCheck("travelling far and back doesn't keep the unloaded chunks in memory (the rain's column cache held hundreds of them)", async () => {
