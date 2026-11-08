@@ -227,6 +227,56 @@ await browserCheck("a creature burns in flowing lava and in soul fire (only the 
   assert(r.soul[1] < r.soul[0] && r.soul[2], `burnt in soul fire: ${JSON.stringify(r)}`);
 });
 
+// ---------- Memory ----------
+
+await browserCheck("travelling far and back doesn't keep the unloaded chunks in memory (the rain's column cache held hundreds of them)", async () => {
+  const cdp = await page.context().newCDPSession(page);
+  const heap = async () => {
+    await cdp.send("HeapProfiler.collectGarbage");
+    await cdp.send("HeapProfiler.collectGarbage");
+    return page.evaluate(() => performance.memory.usedJSHeapSize / 1e6);
+  };
+  const home = await v((g) => {
+    g.player.setMode("creative");
+    g.player.flying = true;
+    g.setRenderDistance(6);
+    return g.player.position.toArray();
+  });
+  const settle = async () => {
+    await until((g) => g.world.isIdle, 20000);
+    await new Promise((r) => setTimeout(r, 800));
+  };
+  const trip = async (k) => {
+    for (const d of [350, 700, 1050]) {
+      await v((g, [h, d, k]) => {
+        const a = k * 1.3;
+        g.player.position.set(h[0] + Math.cos(a) * d, 110, h[2] + Math.sin(a) * d);
+        g.streamAround(g.player.position.x, g.player.position.z);
+        for (let i = 0; i < 400; i++) g.weather.update(0.05, [[g.player.position.x, g.player.position.z]]);
+      }, [home, d, k]);
+      await settle();
+    }
+    await v((g, h) => {
+      g.player.position.set(h[0], 110, h[2]);
+      g.streamAround(h[0], h[2]);
+    }, home);
+    await settle();
+  };
+  await settle();
+  await trip(0);
+  const before = await heap();
+  await trip(1);
+  await trip(2);
+  const after = await heap();
+  const kept = await v((g) => [...g.world.chunks.values()].length);
+  await v((g) => {
+    g.player.flying = false;
+    g.setRenderDistance(8);
+  });
+  await cdp.detach();
+  assert(after - before < 40, `the heap grew ${(after - before).toFixed(0)} MB over two round trips (${before.toFixed(0)} -> ${after.toFixed(0)} MB; ${kept} chunks loaded)`);
+});
+
 // ---------- The End's void ----------
 
 await browserCheck("over the End's void a boat, a minecart and falling sand are lost (they fell for ever / the sand landed at y 0 in mid-air); a Creative player caught by the void flies", async () => {
