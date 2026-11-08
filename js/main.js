@@ -2,6 +2,7 @@ import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
+import { boxInSolid } from "./physics.js"; // (Round 17: a reload's stuck test)
 import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
@@ -1417,7 +1418,15 @@ if (savedPlayer) {
     // puts the player back in the seat.)
     // (The sea's surface counts as ground: a swimmer stays up there.)
     const top = world.surfaceY(Math.floor(savedPos[0]), Math.floor(savedPos[2]));
-    if (world.isSolidAt(Math.floor(savedPos[0]), Math.floor(savedPos[1] + 0.1), Math.floor(savedPos[2])) || (!player.creative && top >= 0 && savedPos[1] > Math.max(top, SEA_LEVEL) + 3)) {
+    // (Round 17: stuck means the body inside a block's real shape, not standing
+    // on a slab, stairs or a bed, which sent the player up onto the roof; and
+    // a body just inside one is freed upward first, a few blocks at most.)
+    let stuck = boxInSolid(world, player.position, player.bodyRadius, player.bodyHeight);
+    for (let dy = 1; stuck && dy <= 3; dy++) {
+      player.position.y = Math.floor(savedPos[1]) + dy;
+      stuck = boxInSolid(world, player.position, player.bodyRadius, player.bodyHeight);
+    }
+    if (stuck || (!player.creative && top >= 0 && savedPos[1] > Math.max(top, SEA_LEVEL) + 3)) {
       player.spawnAt(Math.floor(savedPos[0]), Math.floor(savedPos[2]));
     }
   } else {

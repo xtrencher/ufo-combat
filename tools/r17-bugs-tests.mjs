@@ -357,6 +357,32 @@ await browserCheck("what lies on the ground is saved: a death's spilled things a
   await v((g) => g.player.setMode("creative"));
 });
 
+await browserCheck("saved standing on a slab under a roof, a reload puts the player back on the slab (it put them up on the roof)", async () => {
+  const I = await v(async () => {
+    const ids = await import("./js/content/ids.js");
+    const { BLOCK } = await import("./js/blocks.js");
+    return { slab: ids.OAK_SLAB, planks: BLOCK.PLANKS };
+  });
+  const roof = [];
+  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) roof.push([dx, 6, dz, I.planks]);
+  const f = await field([...roof, [0, 0, 0, I.slab]]);
+  const saved = await v((g, f) => {
+    g.player.setMode("survival");
+    g.player.position.set(f.x0 + 0.5, f.y + 0.5, f.z0 + 0.5);
+    g.player.velocity.set(0, 0, 0);
+    for (let i = 0; i < 10; i++) g.player.update(1 / 30);
+    g.flushSave();
+    return g.player.position.y;
+  }, f);
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
+  const back = await v((g) => g.player.position.y);
+  await play();
+  await v((g) => g.player.setMode("creative"));
+  assert(Math.abs(saved - (f.y + 0.5)) < 0.01, `stood on the slab: ${saved}`);
+  assert(Math.abs(back - saved) < 0.01, `back on the slab after the reload: ${saved} -> ${back}`);
+});
+
 // ---------- Saves (last: the first page stops saving here) ----------
 
 await browserCheck("two tabs of one world: the new tab owns it, the old one stops saving and says so (closing it undid the new tab's progress)", async () => {
