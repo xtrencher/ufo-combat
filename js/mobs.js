@@ -5027,8 +5027,11 @@ export class MobManager {
     }
 
     // Fall damage (not for hoppers, who land softly).
-    if (m.onGround || m.inWater) {
-      if (m.peakY !== null && !m.inWater && !spec.hop && !wasOnGround) {
+    // (Round 17: water where the move ended counts too, as the player's: a
+    // fall into a shallow pool reached its floor in the frame it reached the water.)
+    const wetNow = !m.inWater && IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.1), Math.floor(m.pos.z))] === 1;
+    if (m.onGround || m.inWater || wetNow) {
+      if (m.peakY !== null && !m.inWater && !wetNow && !spec.hop && !wasOnGround) {
         const dmg = Math.floor((m.peakY - m.pos.y) * (this.world.dimInfo?.gravity ?? 1) - 3); // (Round 15: low gravity)
         if (dmg > 0 && !spec.noFall) this._hurt(m, dmg, null, 0);
       }
