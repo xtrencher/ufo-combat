@@ -489,7 +489,7 @@ export class DimensionManager {
   _keptNow() {
     const mobs = this.game.mobs;
     const out = [];
-    const live = mobs?.serializeKept?.();
+    const live = mobs?.serializeKept?.({ pending: true }); // (Round 17: far kept creatures not dropped by a save)
     if (Array.isArray(live)) out.push(...live);
     if (Array.isArray(mobs?._kept)) out.push(...mobs._kept);
     return out.slice(0, 400);
