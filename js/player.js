@@ -1231,7 +1231,10 @@ export class Player {
 
   _updateFall() {
     const y = this.position.y;
-    if (this.flying || this.inWater || this.inLava || this.creative || this.parachute) {
+    // (Round 17: and water where the move ended: inWater is from before it,
+    // so at 30 fps a fall into a pool one block deep, landing on its floor in
+    // the same frame it reached the water, hurt as onto dry ground.)
+    if (this.flying || this.inWater || this.inLava || this.creative || this.parachute || this._waterAt(0.1)) {
       this._airborneMaxY = null;
       return;
     }

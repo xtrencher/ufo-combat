@@ -149,6 +149,36 @@ await browserCheck("boot: a Survival world", async () => {
   await play();
 });
 
+// ---------- The player ----------
+
+await browserCheck("a fall into water one block deep doesn't hurt, whatever the frame rate (at 30 fps it hurt as onto dry ground)", async () => {
+  const f = await field();
+  const r = await v(async (g, f) => {
+    const { BLOCK } = await import("./js/blocks.js");
+    const p = g.player;
+    const out = {};
+    for (const [depth, fps] of [[1, 30], [1, 60], [1, 20], [0, 30]]) {
+      const list = [];
+      for (let x = f.x0 - 2; x <= f.x0 + 2; x++) for (let z = f.z0 + 4; z <= f.z0 + 8; z++) list.push(x, f.y, z, depth ? BLOCK.WATER : 0);
+      g.world.setBlocks(list, { recordEdit: false });
+      p.setMode("survival");
+      p.flying = false;
+      p.health = 20;
+      p._invulnerable = 0;
+      p.position.set(f.x0 + 0.5, f.y + 20, f.z0 + 6.5);
+      p.velocity.set(0, 0, 0);
+      p.resetFall();
+      for (let i = 0; i < fps * 3; i++) p.update(1 / fps);
+      out[`${depth}@${fps}`] = p.health;
+    }
+    p.health = 20;
+    p.setMode("creative");
+    return out;
+  }, f);
+  assert(r["1@30"] === 20 && r["1@60"] === 20 && r["1@20"] === 20, `no hurt landing in the pool: ${JSON.stringify(r)}`);
+  assert(r["0@30"] < 20, `a fall onto dry ground hurts: ${JSON.stringify(r)}`);
+});
+
 // ---------- Items ----------
 
 await browserCheck("a dropped item burns up in lava and in fire (it sank and lay at the bottom); netherite floats up in lava", async () => {
