@@ -121,6 +121,11 @@ browsers never let a page cancel Ctrl+W, Ctrl+T or Ctrl+N: the browser asks
 way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
 `Ctrl+W`.
 
+**One tab per world** (Round 17): a world opened in a second browser tab
+belongs to that tab from then on. The first tab stops saving it and says
+so ("Open in another tab", with **Play here** to take it back), so closing
+an old tab can never undo what you did in the new one.
+
 ### Three ways to play
 
 - **Survival** (the default): normal Minecraft (see **Survival (vanilla
@@ -156,8 +161,10 @@ way), and you can sprint (and boost a UFO) with a double-tap of `W` instead of
   at 17:50 (the golden hour before sunset), fed, with the **mission board**
   (Round 16; `M`, or Esc > Missions; see **The mission board** below): 41
   missions in six categories (Infantry, Ground war, Air, Helicopter, UFO war,
-  Defense) and three tiers, which you pick yourself, each giving you the
-  vehicle it needs. The finale, the Armada and its flagship, wins the war (a
+  Defense) and three tiers, each giving you the vehicle it needs. (Round 17)
+  They come **by themselves** again, one after another (a short break
+  between them; a failed one is tried again): the board is the overview and
+  a way to skip ahead. The finale, the Armada and its flagship, wins the war (a
   victory screen; the game goes on). Missions pay in golden apples, food,
   iron, diamonds and emeralds; the mod weapons come from the places that
   make sense (the skeleton's bow, standard weapons in **supply crates** that
@@ -194,7 +201,7 @@ you dare, through every ring, and don't touch the rock.
 - **Courses:** **Grand Canyon** (15 km: wide, deep and winding, with arches,
   rock pillars and a river far below; the one to learn), **Slot Canyon**
   (8 km: a crack in the sandstone, undercut walls, arches and dark tunnels:
-  throttle back), **Night Run** (11 km by moonlight, with glowing crystals
+  throttle back), **Night Run** (11 km, best by moonlight: Time, Night; glowing crystals
   in the walls and long tunnels) and **The Gauntlet** (16 km of everything,
   through every kind of scenery, with AA guns on the rim that shoot back).
   Each course is the same every time (it is made from its own seed), with
@@ -232,6 +239,9 @@ you dare, through every ring, and don't touch the rock.
     checkpoints are still there (where you respawn, the splits, the map)
     but no ring is drawn and nothing costs time; On, fly through each ring
     or it costs 5 seconds.
+  - (Round 17) **Time:** **Day** (the default), **Dusk** or **Night**: the
+    sky stays at that hour for the whole run (no day going by). The time
+    of day doesn't change the course: its best time is shared.
   Every set of options keeps its own best time.
 - **Your jet:** pick the **F-22 Raptor** (faster, tougher) or the **F-16
   Falcon** (lighter, turns tighter) on the canyon screen. It flies as
@@ -261,10 +271,27 @@ you dare, through every ring, and don't touch the rock.
   view a little and does a little damage, and the jet is pushed off the
   wall. The nose or the fuselage into the rock, a steep angle or a fast
   hit still blows it up.
-- (Round 17) **The view ahead:** the canyon is drawn about 1.1 km ahead
-  (it was about 320 blocks): the chunks in full for the first ~570 blocks
-  (the course's line ahead streamed first), then a light far terrain of
-  the canyon's walls, floor and river, the fog at its end. **The course
+  (Round 17) **Coming back after a crash:** the jet comes back just past
+  the checkpoint at the spot with the most room (on the course's safe line,
+  level, heading for the course a little ahead: some rings sat under an
+  arch, by a pillar or by a wall, with no room to turn), at the throttle,
+  afterburner and speed it had before the crash (never below a speed that
+  flies well; the afterburner stays lit until you press and let go of Shift
+  or pull the throttle back). For the first 3 seconds after GO an
+  **autopilot** flies the course (the banner says so); move the mouse to
+  take over. Until then, and for a second after GO in any case, the rock
+  only nudges the jet back onto the line.
+- (Round 17) **The view ahead:** the canyon is drawn in full detail far
+  ahead, by the graphics preset and the render distance in Settings:
+  about 1.8 km on **Ultra**, 1.3 km on **High**, 960 blocks on Medium and
+  570 on Low (the canyon ahead along the course streamed first, in the
+  order you will reach it at your speed, with more of the frame and more
+  background workers for it than the main game), then a light far terrain
+  of the canyon's walls, floor and river a third as far again, the fog at
+  its end (the change from one to the other is a whole stretch at a time,
+  in the fog's start). The run waits at the mouth until most of the view
+  ahead is in, so even the afterburner at full speed doesn't catch up with
+  it. **The course
   map** in the bottom-right corner shows the canyon ahead from above (its
   walls at your height, the course's line, the rock in the way), the
   checkpoints (the next one yellow, its distance under the map), the
@@ -497,6 +524,20 @@ co-op). The classified campaign below (a fixed run you could not choose
 from, with long walks to far airports and missions that could not fail or
 be retried) is replaced by a **mission board**:
 
+- **(Round 17) The missions start by themselves:** the player found it
+  better when the missions came automatically, so they do again. Your first
+  mission starts a few seconds into a new world; when one ends, the next
+  starts after a short break (20 seconds after a win, the tracker counting
+  down), in a set order: the Recruit missions first, then Veteran, then
+  Elite, the categories taking turns (foot, tank, jet, helicopter, UFO war,
+  defense), each after what opens it, the Armada last. A **failed** mission
+  is tried again by itself after 12 seconds (set up afresh); after three
+  failures in a row the next one comes instead and the failed one comes back
+  once the rest are done (so does an abandoned one). Nothing has to be
+  picked: the board (`M`) shows what comes next with **Start now**, starts
+  any open mission out of turn (skipping ahead), and can **pause** the
+  automatic missions (and resume them; saved with the world). Online, the
+  host's flow is everyone's; a guest's pause or pick goes to the host.
 - **Pick any open mission:** `M` (or Esc > Missions) opens the board. Six
   categories (tabs): **Infantry** (on foot: the bow, the pistol and the alien
   guns come from these), **Ground war** (tanks), **Air** (fighter jets and the
@@ -524,8 +565,9 @@ be retried) is replaced by a **mission board**:
   minutes), and some can be lost: the convoy's trucks destroyed, a position
   or an airport overrun, the helicopter shot down with the rescued crew
   aboard, two ballistic missiles getting through, two abductor carriers
-  getting away, an enemy convoy escaping. The tracker says why; `M` >
-  **Retry** sets it up afresh. **Abandon** walks away from one.
+  getting away, an enemy convoy escaping. The tracker says why and when it
+  is tried again (Round 17: by itself; `M` > **Retry now** at once).
+  **Abandon** walks away from one.
 - **Rewards:** Recruit: a golden apple, bread and iron ingots; Veteran:
   three golden apples, steak and two diamonds; Elite: six golden apples,
   steak, five diamonds and four emeralds (the bosses and the big ones add
@@ -1073,7 +1115,10 @@ died; the rest is lost.
   Nether: see **The Nether and the End**), with full food; if the bed was
   broken or blocked in, at the world spawn ("Your home bed was missing or
   obstructed"). Your experience is lost (some of it drops as orbs: see
-  **Experience**).
+  **Experience**). (Round 17) What lies on the ground is saved with the
+  world, your spilled things and orbs too: close the game and they are
+  still there when you come back. Far away, where the ground isn't loaded,
+  they wait without despawning, as in Minecraft; lava and fire burn them.
 
 ### Weather
 
@@ -1128,7 +1173,12 @@ died; the rest is lost.
   fire for 15 s, fire for 8 s (half a heart a second while burning, the
   flames show on screen); water puts you out. A **cactus** pricks (half a
   heart every half second you touch it: walking into it, standing or
-  landing on it, jumping into one overhead; never in Creative; creatures too) and destroys items that touch it. A block at
+  landing on it, jumping into one overhead; never in Creative; creatures too) and destroys items that touch it.
+  (Round 17) **Lava and fire burn up dropped items** and experience orbs
+  (netherite and ancient debris don't burn: they float up in lava), and
+  creatures burn in flowing lava and soul fire too. A creeper going off in
+  water breaks no blocks, as TNT. A fall into water, even one block deep,
+  doesn't hurt. A block at
   your eyes **suffocates**, and your breath lasts **15 seconds** under water (10
   bubbles). Falls hurt as before (a half-heart a block beyond 3); a hay bale
   takes 80% of it, a bed half. Armor helps against lava, fire, cactus and
@@ -2354,9 +2404,12 @@ of the hangars (F-22 Raptors and F-16 Fighting Falcons), and (Round 10) now and
 then **inside a hangar**, nose to the open doorway, with a clear way out to the
 taxiway (nothing is parked in front of it): get in and taxi straight out. And a
 **B-2 Spirit** bomber at every airport (always outside: it is too big for a
-hangar): in its own spot on the apron, or (Round 9) where
-the apron has no room for its wing, on the runway just past the end of the
-apron, lined up for takeoff. Walk up to one and press **F** (the B-2 near
+hangar): in its own spot on the apron, or where the apron has no room for
+its wing, (Round 17) on a stand beside the taxiway past the end of the
+apron, nose to the runway (Round 9 to 16 put it on the runway itself). **No
+aircraft ever stands on a runway** (Round 17): taxi out (`W` a little
+throttle, the mouse or `Q`/`E` to steer the nose wheel), turn onto the
+runway and open the throttle. Walk up to one and press **F** (the B-2 near
 the middle of its wing). In Missions that works from "Take to the air" (the
 marker points at the nearest parked fighter; **F3** shows the nearest airport);
 the B-2, and with it the nuke, from Operation Sunburn (a locked aircraft's
@@ -2406,7 +2459,8 @@ long takeoff roll (about 300 blocks, 170 with the afterburner) and 190
 health. It flies about 2.3 times as high as the others (its thin air starts
 there: a ceiling round 3,500 blocks, below the space line). Creative:
 the "SR-71" call-in and the Vehicles tab; about one airport in four parks
-one on its runway.
+one beside its runway (Round 17: on a stand by the taxiway, no longer on
+the runway).
 
 **Radar** (Round 8): bottom right in any aircraft (jets, the B-2, your own
 UFO), heading up, 2.4 km to the rim: UFOs (red diamonds, bigger for bigger
@@ -2596,7 +2650,16 @@ land right now: it slides onto the cross as the turret comes round (the
 fire control works out the range and the elevation). The ring round the
 cross fills as the gun reloads. A tank climbs one-block steps, crushes
 leaves and plants, is slowed by water and won't go into deep water; walls
-and tree trunks stop it. Below half its armour it smokes, below a quarter
+stop it. (Round 17) Ground vehicles never get stuck: tanks and the AA
+vehicle climb **two-block steps** (the missile truck one), and slopes up to
+about 35 degrees, slower the steeper it gets; fences and walls are rolled
+over like a block, slabs like half of one; **trees are knocked down**, and
+so are lamp posts, fence posts and hay stacks standing alone; a vehicle
+won't drive over a drop that would hurt it (a cliff, a ravine), and one
+that is wedged anyway (boxed in, a block put into it, set down on a post or
+a roof, in a pit with no way out) is nudged up or out after a moment of
+pushing. Driverless ones (the aliens', convoys, patrols) back off and turn
+when something is in the way. Below half its armour it smokes, below a quarter
 it burns; at nothing it cooks off and throws its turret.
 
 Every weapon fires from its own muzzle: the shell and the flash from the
@@ -2764,12 +2827,12 @@ puts you aboard. Any UFO can fly to space too.
   target marked (**T** next, **Shift+T** back). **M** opens the map: the
   orbits, the planets, your path ahead (the wheel zooms out to the whole
   solar system).
-- **Landing:** fly down into the Moon, Mars or Earth: below its entry
+- **Landing:** fly down into the Moon, Mars, Mercury, Venus or Earth: below its entry
   altitude the world goes there, with you high over the spot you came down
   on, still moving. A rocket's autopilot lands it on its legs (take over with
   Space / Shift and W A S D; R hands back); touching down faster than 7 m/s or
-  tilted is a crash. Jupiter, Saturn, Venus and Mercury have nowhere to land,
-  and the Sun's heat pushes you back.
+  tilted is a crash. (Round 17: Mercury and Venus can be landed on too.)
+  Jupiter and Saturn have nowhere to land, and the Sun's heat pushes you back.
 - **The Moon:** grey dust and craters, the dark maria, a black sky with the
   Earth hanging in it and a low sun that casts long, hard shadows. Gravity is
   1/6: you jump about six times as high, and a fall hurts as one six times
@@ -2783,6 +2846,25 @@ puts you aboard. Any UFO can fly to space too.
   past and two little moons cross the sky. Gravity is 0.38. Look for hematite
   ore (raw iron), polar ice and the alien ruins: stepped pyramids with lit
   glyph bands and a relic in the middle.
+- (Round 17) **Mercury:** grey-brown ground battered by craters of every
+  size (great basins with rings of peaks), the darker smooth plains, long
+  curved cliffs (lobate scarps) where the crust was pushed up, bright bluish
+  "hollows" crumbling out of the big craters' floors. A black sky, stars, and
+  a huge white-hot sun. Gravity is 0.38, no air (muffled sounds). A crashed
+  probe lies near x 0, z 0. Space line 3,000 m.
+- (Round 17) **Venus:** volcanic plains of orange-brown soil and basalt under
+  a thick yellow-orange haze (a tint over the far land: you still see a long
+  way), a dim orange sky with the sun only a brighter smudge, shield
+  volcanoes with lava pools in their calderas and lava flows running out over
+  the plains (their crust still glowing in the cracks), sulfur round the
+  vents, groups of flat-topped pancake domes (one near x 0, z 0), crumpled
+  highlands. Gravity is 0.9. Space line 5,000 m.
+- (Round 17) **The view on the planets:** the Moon, Mars, Mercury and Venus
+  have far terrain like Earth's (they used to show only 6-12 chunks): the
+  Moon's and Mercury's airless view is crisp and the longest (1.6 times the
+  render distance), Mars' long but dusty, Venus' hazy. From high up the far
+  land bends down toward the horizon, and over the airless ones the planet's
+  globe carries on beyond it to the curved horizon.
 - **Going home:** board your ship and press Space (or fly up in a UFO), then
   fly down into Earth.
 - **Saving and online:** a UFO saved in space comes back in space where it
@@ -2890,7 +2972,10 @@ Auto uses the preset's), **far terrain (LOD) quality** (up to Extreme),
 detail** (particles).
 
 **Render distance** (Settings > Graphics) goes up to 256 chunks, about 4 km
-(Auto starts at 32). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
+(Auto starts at 32). (Round 17) **Far view** (Settings > Performance): flying
+high (jets, UFOs) the far land reaches further as you climb: **Normal** as
+before, **Far** up to about 6 km, **Extreme** up to about 10 km for strong
+PCs; **Auto** follows the graphics preset (Far on High, Extreme on Ultra). The far terrain is built by a pool of worker threads. The area around you is drawn in full detail, and the land beyond it in
 simplified level-of-detail tiles, so you can see hills, lakes and forests to
 the horizon.
 
@@ -2920,7 +3005,7 @@ filled up by big world saves can't stop them from being saved.
 | Tab | Settings (default) |
 | --- | --- |
 | Graphics | Render distance 2-256 chunks (Auto's), graphics preset **Auto (best for this PC)** / Low / Medium / High / Ultra with individual options, show FPS (on), Fullscreen |
-| Performance | One-click presets **Auto** / Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto's), far terrain quality Low-Extreme (Auto's), resolution scale 50-200% (Auto's), effects detail (Auto's) |
+| Performance | One-click presets **Auto** / Potato / Balanced / Beautiful / Max / Extreme; full-detail distance 0-24 (Auto's), far terrain quality Low-Extreme (Auto's), far view Auto / Normal / Far / Extreme (Auto), resolution scale 50-200% (Auto's), effects detail (Auto's) |
 | Controls | Field of view 50-110 (75), mouse sensitivity 0.1-4x (0.5x), invert Y (off), binocular zoom 2-12x (6x) |
 | Audio | Master (15%), blocks and footsteps, weapons and explosions, creatures, player, menus, pilot voice |
 | Gameplay | Difficulty Peaceful / Easy / **Normal** / Hard, stats on the HUD (off); **Creative only:** creatures spawn (on), time of day and lock |

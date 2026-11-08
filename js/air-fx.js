@@ -35,6 +35,7 @@ const RING_LIFE = 0.85;
 const CONES = 4;
 const RINGS = 8;
 const MISSILE_SOURCES = new Set(["missile", "roguemissile", "enemymissile"]);
+const SUPER_BLAST_MIN = 12; // (Round 17) a "missile" blast this big is the heavy missile's (vehicle-jet.js SUPER_MISSILE, 14)
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -209,6 +210,8 @@ export class AirFx {
     // The missile blasts (ours and, online, the ones mirrored here).
     this.fx.blastListeners?.push((pos, removed, radius, info) => {
       if (MISSILE_SOURCES.has(info?.source)) this.missileBlast(pos, radius, info.source);
+      // (Round 17) The heavy missile's (a "missile" blast of its size): more on top.
+      if (info?.source === "missile" && radius >= SUPER_BLAST_MIN) this.superBlast(pos, radius);
     });
   }
 
@@ -446,6 +449,41 @@ export class AirFx {
   // camera), burning fragments arcing out trailing sparks, a dark smoke ball
   // and the deeper boom. A ground hit has its own crater, debris and dust
   // already; this is what sells one in the air.
+  // (Round 17) The heavy missile's blast, on top of a missile's: a blinding
+  // flash, a huge rolling fireball, a shock sphere racing out, a ring along
+  // the ground, a column of smoke rising into a small cloud, burning
+  // fragments thrown far, a hard shake and a deep boom. Big, but nothing like
+  // the nuke (no mushroom cloud, no blast zone).
+  superBlast(pos, radius = 14) {
+    const fx = this.fx;
+    const c = this._colors;
+    const q = effectsQuality.scale;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const dist = pos.distanceTo(fx.listener);
+    if (dist > 2400) return;
+    const k = radius / 14;
+    fx.glow.spawn({ x: pos.x, y: pos.y, z: pos.z, life: 0.3, size0: 60 * k, size1: 20 * k, color0: c.hot, alpha: 1 });
+    for (let i = 0; i < Math.round(70 * q); i++) {
+      const d = _v.set(rnd(-1, 1), rnd(-0.5, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(6, 34) * k);
+      fx.glow.spawn({ x: pos.x + d.x * 0.2, y: pos.y + d.y * 0.2, z: pos.z + d.z * 0.2, vx: d.x, vy: d.y + 4, vz: d.z, life: rnd(0.8, 1.8), size0: rnd(7, 12) * k, size1: rnd(16, 28) * k, color0: c.hot, color1: Math.random() < 0.6 ? c.mid : c.hot, alpha: 0.5, drag: 2.1, gravity: -0.2 });
+    }
+    for (let i = 0; i < Math.round(28 * q); i++) {
+      const d = _v.set(rnd(-1, 1), rnd(-0.1, 1.3), rnd(-1, 1)).normalize().multiplyScalar(rnd(25, 60));
+      fx.glow.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: d.x, vy: d.y, vz: d.z, life: rnd(1.4, 2.6), size0: rnd(1.2, 2.2), size1: 0.3, color0: c.ember, color1: c.mid, alpha: 1, drag: 0.45, gravity: 0.8 });
+    }
+    // The smoke: a rising column and a cloud on it.
+    for (let i = 0; i < Math.round(46 * q); i++) {
+      const up = rnd(0, 1);
+      fx.smoke.spawn({ x: pos.x + rnd(-4, 4) * k, y: pos.y + rnd(0, 6) * k, z: pos.z + rnd(-4, 4) * k, vx: rnd(-3, 3) * k, vy: (4 + up * 14) * k, vz: rnd(-3, 3) * k, life: rnd(6, 10), size0: rnd(6, 10) * k, size1: rnd(22, 36) * k, color0: c.smoke0, color1: c.smoke1, alpha: rnd(0.55, 0.8), drag: 0.9, gravity: -0.03 });
+    }
+    fx.shockSphere?.(pos, radius * 0.5, radius * 5.5, 0.7, 1);
+    fx.shockRing?.(pos, radius * 4);
+    const warm = this._warm || (this._warm = new THREE.Color(1, 0.86, 0.62));
+    this._spawnRing(pos, UP, radius * 0.8, radius * 7, 0.9, 0.7, true, warm);
+    fx.shake?.add?.(0.55 * (1 - smooth(dist / (radius * 18 + 60))));
+    this.mgr.audio?.playBlastBoom?.(dist, 1.7);
+  }
+
   missileBlast(pos, radius = 6, source = "missile") {
     const fx = this.fx;
     const c = this._colors;

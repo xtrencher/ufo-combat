@@ -204,6 +204,15 @@ export class MarsGenerator {
     return -1;
   }
 
+  // (Round 17: the far terrain, js/lod-mesher.js) the top face's height and block of column (x, z).
+  lodColumn(x, z, out) {
+    const c = this.column(x, z, _col);
+    out.top = c.h + 1;
+    out.id = c.ice ? MARS_ICE : c.sand ? MARS_SAND : c.kind === "wall" ? ((c.h >> 2) % 3 === 1 ? MARS_ROCK : MARS_STRATA) : MARS_REGOLITH;
+    out.depth = 0;
+    return out;
+  }
+
   generate(chunk) {
     const blocks = chunk.blocks;
     const bx = chunk.cx * S;
@@ -333,3 +342,5 @@ export class MarsGenerator {
     }
   }
 }
+
+const _col = {};

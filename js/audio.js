@@ -217,7 +217,7 @@ export class Audio {
   playDistant(distance, fn) {
     if (!this.ctx) return;
     const k = 1 / (1 + Math.max(0, distance) / 14);
-    if (k < 0.04) return;
+    if (!(k >= 0.04)) return; // (Round 17: and a NaN distance: no sound, not a NaN gain)
     this._distGain = k;
     try {
       fn();
@@ -290,6 +290,9 @@ export class Audio {
   // One filtered noise hit (or `n` staggered grains of it) into `dest`.
   _hit({ type = "lowpass", f = 1000, q = 1, d = 0.1, v = 0.3, n = 1, spread = 0.03, jitter = 0.15, attack = 0.004, fEnd = null }, when = 0, dest = null) {
     if (!this.ctx) return;
+    // (Round 17) A value gone bad upstream (a distance from a NaN point) is
+    // a silent sound, not an exception thrown into the game's frame.
+    if (!(v > 0) || !Number.isFinite(v + f + d + attack + when + (fEnd ?? 0))) return;
     const out = dest || this._out || this.master;
     for (let i = 0; i < n; i++) {
       const t = this.ctx.currentTime + when + i * spread * (0.7 + Math.random() * 0.6);
@@ -313,6 +316,7 @@ export class Audio {
   _voice({ f0, f1, d, v, formants, vib = 0, breath = 0, delay = 0 }, gainScale = 1) {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (!(v * gainScale > 0) || !Number.isFinite(f0 + f1 + d + delay + v * gainScale)) return; // (Round 17: as _hit)
     const t = ctx.currentTime + delay;
     const bus = ctx.createGain();
     bus.gain.setValueAtTime(0.0001, t);
@@ -395,6 +399,12 @@ export class Audio {
   }
 
   // Picking up an item: a soft little pop.
+  // (Round 17) Something burning up in lava or fire: vanilla's short fizz.
+  playFizz() {
+    this._cat("blocks");
+    this._hit({ type: "highpass", f: 2600, q: 0.7, d: 0.32, v: 0.1, jitter: 0.25, attack: 0.01, fEnd: 5200 });
+  }
+
   playPickup() {
     this._cat("ui");
     this._hit({ type: "bandpass", f: 1400, q: 3, d: 0.035, v: 0.16, jitter: 0.2 });
@@ -1114,6 +1124,35 @@ export class Audio {
       this._hit({ type: "bandpass", f: 700, q: 0.7, d: 0.35, v: 0.09, attack: 0.04 });
       this._tone(80, 0.1, { type: "square", vol: 0.08, at: 0.3, fEnd: 45 });
     }
+  }
+
+  // (Round 17) The afterburner lighting (a deep whoomp and a roar opening up)
+  // or going out (a short sigh).
+  playAfterburner(on = true) {
+    this._cat("player");
+    if (on) {
+      this._hit({ type: "lowpass", f: 140, q: 1.2, d: 0.45, v: 0.55, attack: 0.01, fEnd: 70 });
+      this._hit({ type: "bandpass", f: 300, fEnd: 1200, q: 0.8, d: 0.6, v: 0.25, attack: 0.04 });
+      this._hit({ type: "highpass", f: 2200, q: 0.6, d: 0.35, v: 0.06, attack: 0.05 }, 0.05);
+    } else {
+      this._hit({ type: "lowpass", f: 400, fEnd: 120, q: 0.9, d: 0.4, v: 0.14, attack: 0.02 });
+    }
+  }
+
+  // (Round 17) A jet scraping the ground: a metal-on-rock grind (k 0-1: how hard).
+  playScrape(k = 0.5) {
+    this._cat("player");
+    this._hit({ type: "bandpass", f: 900 + Math.random() * 500, fEnd: 400, q: 2.5, d: 0.22, v: 0.08 + 0.12 * k, attack: 0.005, n: 3, spread: 0.04 });
+    this._hit({ type: "highpass", f: 3800, q: 0.8, d: 0.12, v: 0.04 + 0.05 * k, attack: 0.002 });
+    this._tone(150 + Math.random() * 40, 0.2, { type: "sawtooth", vol: 0.03 + 0.05 * k, fEnd: 92 });
+  }
+
+  // (Round 17) The heavy missile leaving the rail: a heavier thump and a long roar.
+  playSuperLaunch() {
+    this._cat("weapons");
+    this._hit({ type: "lowpass", f: 110, q: 1.1, d: 0.5, v: 0.85, attack: 0.003, fEnd: 50 });
+    this._hit({ type: "bandpass", f: 250, fEnd: 1100, q: 0.9, d: 1.1, v: 0.45, attack: 0.02 });
+    this._hit({ type: "highpass", f: 2600, q: 0.6, d: 0.8, v: 0.12, attack: 0.05 }, 0.08);
   }
 
   // One missile of the salvo is armed: a click that climbs with each (pip 1..n-1 of n).

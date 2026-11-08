@@ -23,7 +23,7 @@ export const CONTROLS = [
     ["1-9 / mouse wheel", "Pick a hotbar slot"],
     ["E", "Inventory (all items in Creative)"],
     ["Q", "Drop the held item (whole stack with Ctrl)"],
-    ["M", "The mission board (a Missions world): pick a mission, retry or abandon one"],
+    ["M", "The mission board (a Missions world): what comes next, start one now, pause the automatic missions, retry or abandon one"], // (Round 17: the missions come by themselves)
     ["Middle click", "Pick the targeted block (Creative)"],
     ["F11 or Alt+Enter", "Fullscreen (or the Fullscreen button on the main and pause menus; Settings > Graphics > Fullscreen keeps it on). In Chrome and Edge fullscreen also locks the keyboard, so Ctrl+W, Ctrl+R and the like reach the game instead of closing or reloading the page; hold Esc to leave fullscreen then"],
   ]],
@@ -64,7 +64,8 @@ export const CONTROLS = [
   ["Fighter jet, B-2 bomber and SR-71", [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
     ["W / S", "Throttle up / down (a takeoff roll takes about 175 blocks, 130 in the F-16, 270 in the B-2, 300 in the SR-71: use a runway)"],
-    ["Shift", "Afterburner"],
+    ["Shift", "Afterburner while held (much more thrust and a higher top speed); double tap Shift to latch it on, double tap again (or S) to let it go"], // (Round 17: the latch)
+    ["X (or 1 / 2)", "Switch missiles: normal missiles / the SUPER MISSILE (one at a time, slow, a huge blast, 14 s to reload; locks like a missile). Right click fires the selected one; the HUD shows which and its reload"], // (Round 17: the heavy missile)
     ["A / D", "Roll (hold for a full 360; let go and it stops cleanly)"],
     ["Q / E", "Rudder (yaw)"],
     ["Space (hold)", "Air brakes: panels (F-16) or control surfaces (F-22) open, the jet sheds speed very fast and turns much tighter; too slow and it stalls. On the ground: wheel brakes"],
@@ -74,6 +75,7 @@ export const CONTROLS = [
     ["Both mouse buttons (hold)", "Free look from where you are looking now; the aircraft holds its attitude"],
     ["Radar", "Bottom right while flying: UFOs (red diamonds), enemy aircraft (orange), other players, airports (white bars), missiles coming at you (blinking red), the mission (yellow star)"],
     ["Roll away", "A close enemy missile misses, narrowly, when you roll more than about 90 degrees (it needs a few seconds before it works again)"],
+    ["Scrapes", "A light touch of the ground, a tree or a building with a wingtip, the tail or the belly (shallow and slow) only scrapes: sparks and a little damage, no bounce. The nose, a steep angle or a fast hit still crashes"], // (Round 17)
     ["C", "Flares: fool missiles and seeking shots"],
     ["B", "B-2 only: drop the nuke (it falls on a parachute: get clear!)"],
     ["SR-71", "Unarmed, the fastest thing with wings: Mach 1.7 low down, Mach 3.2 high up (above about 1,800 blocks, its ceiling about 3,500); slow to turn and roll. Right click: a reconnaissance photo (counts every UFO, aircraft and alien vehicle within 3,000 blocks)"],
@@ -158,6 +160,7 @@ export const MENU_TIPS = [
   "Only the B-2 bomber carries the nuke: find one at an airport (it is the big flying wing).",
   "The SR-71 Blackbird is unarmed but nothing catches it: climb above 1,800 blocks for Mach 3. Some airports have one on the runway.",
   "Press C in the jet for flares: they fool missiles and seeking shots.",
+  "In a fighter, X switches to the SUPER MISSILE: one huge blast, then a long reload. Double tap Shift to latch the afterburner on.", // (Round 17)
   "Press I in any vehicle for its stats and controls.",
   "A UFO shot down over land may crash in one piece: board it with F and fly it yourself (in Missions from the Salvage mission).",
   "In your own UFO: R dashes you forward (hold it to keep going), B fires a huge laser straight down.",

@@ -516,20 +516,27 @@ export class Player {
         const every = Math.max(0.05, 1.25 / (1 << (L - 1)));
         if (e.acc >= every - TICK_EPS) {
           e.acc -= every;
-          if (this.health > 1) this.damage(1, "poison");
+          if (this.health > 1) this._bodyDamage(1, "poison");
         }
       } else if (e.effect === "wither") {
         // (Round 12: a half-heart every 40 ticks at I, 20 at II...; unlike poison it can kill)
         const every = Math.max(0.05, 2 / (1 << (L - 1)));
         if (e.acc >= every - TICK_EPS) {
           e.acc -= every;
-          this.damage(1, "wither");
+          this._bodyDamage(1, "wither");
         }
       } else if (e.effect === "hunger") this.addExhaustion(0.1 * L * dt);
       else e.acc = 0;
       if (e.time <= 0) this.removeEffect(e.effect);
       if (this.dead) return;
     }
+  }
+
+  // (Round 17) What hurts the body itself (poison, wither, hunger): the
+  // player's own health, seated or not (in a vehicle a hit lands on the
+  // vehicle: these took a jet's or a tank's health instead).
+  _bodyDamage(amount, cause) {
+    return this.damage(amount, cause, { pierce: !!this.vehicle });
   }
 
   // Vanilla's food rules (FoodData.tick): exhaustion
@@ -574,7 +581,7 @@ export class Player {
       if (this._foodTimer >= 4 - TICK_EPS) {
         this._foodTimer = 0;
         const d = this.difficulty;
-        if (this.health > 10 || d === "hard" || (this.health > 1 && d === "normal")) this.damage(1, "starve");
+        if (this.health > 10 || d === "hard" || (this.health > 1 && d === "normal")) this._bodyDamage(1, "starve");
       }
     } else this._foodTimer = 0;
   }
@@ -1231,7 +1238,10 @@ export class Player {
 
   _updateFall() {
     const y = this.position.y;
-    if (this.flying || this.inWater || this.inLava || this.creative || this.parachute) {
+    // (Round 17: and water where the move ended: inWater is from before it,
+    // so at 30 fps a fall into a pool one block deep, landing on its floor in
+    // the same frame it reached the water, hurt as onto dry ground.)
+    if (this.flying || this.inWater || this.inLava || this.creative || this.parachute || this._waterAt(0.1)) {
       this._airborneMaxY = null;
       return;
     }
@@ -1273,6 +1283,11 @@ export class Player {
       if (this.creative) {
         this.position.y = 70;
         this.velocity.y = 0;
+        // (Round 17: and flying there: over the End's void it fell straight back, again and again.)
+        if (!this.flying) {
+          this.flying = true;
+          this.onFlightToggle?.(true);
+        }
       } else {
         this._voidTimer += dt;
         if (this._voidTimer >= 0.5) {

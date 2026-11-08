@@ -231,6 +231,9 @@ export class LaserBolts {
     bolt.homing = null;
     bolt.friendlyFire = false;
     bolt.by = null;
+    // (Round 17) Aimed nowhere (a target at the muzzle itself: a zero
+    // direction): dropped before its first step, which hit at NaN distances.
+    if (!(bolt.dir.lengthSq() > 0.5) || ![bolt.pos.x, bolt.pos.y, bolt.pos.z].every(Number.isFinite)) bolt.dead = true;
     this.bolts.push(bolt);
     this.fired++;
     // A little muzzle glow (a gun's own flash does that for a bullet).

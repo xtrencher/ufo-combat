@@ -17,7 +17,11 @@
 //     helicopter, an AA vehicle) near you, and winning it unlocks that kind
 //     of vehicle for free play;
 //   - every mission has a time limit (and some their own ways to fail: a
-//     convoy lost, a base overrun); a failed one can be retried at once.
+//     convoy lost, a base overrun); a failed one can be retried at once;
+//   - (Round 17) the missions come by themselves again, in AUTO_ORDER
+//     below, a short break between them; a failed one is retried by
+//     itself, and after a few failures the next one comes. The board is
+//     the overview, and a way to skip ahead or to pause the flow.
 //
 // Missions left off the board (from the Round 10 pool): "The crew" (it only
 // worked straight after First contact), "UFO slayer" (twenty-five UFOs: a
@@ -171,6 +175,23 @@ export const BOARD = [
   { id: "swarm", cat: "defense", tier: 3, limit: 1080, bonus: 1, brief: "A night of swarms: survive and shoot down eight." },
 ];
 export const BOARD_BY_ID = new Map(BOARD.map((e) => [e.id, e]));
+
+// (Round 17) The order the missions come in by themselves (the player asked
+// for the automatic flow back: one mission after another, nothing to pick).
+// Recruit missions first, then Veteran, then Elite; within a tier the
+// categories take turns, so foot, tank, jet, helicopter, UFO and defense
+// missions alternate, and every mission comes after what opens it (a
+// category's Recruit win before its Veteran ones, Supply drop before the
+// ones that need its pistol, the Overlord before the Armada: the finale
+// last). The board (M) can still start any open one out of turn.
+export const AUTO_ORDER = [
+  // Recruit
+  "skeleton", "supply", "landing", "first_contact", "scout_hunter", "tank_battle", "touchdown", "air_cav", "air_raid", "dogfight", "village", "evac",
+  // Veteran
+  "patrol", "escort", "air_superiority", "salvage", "medevac", "long_night", "hold_line", "stop_launch", "convoy", "abductors", "gunship_hunt", "hunted", "grays", "air_defense", "rescue", "crash_site", "big_game",
+  // Elite
+  "reds", "base_assault", "scramble", "sabotage", "airport_defense", "fortress", "steal", "sunburn", "swarm", "titan", "overlord", "armada",
+];
 
 // The classic curve's place for a tier (its sky rules and loot tier).
 export function tierCurve(tier) {

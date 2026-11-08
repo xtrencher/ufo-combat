@@ -83,7 +83,9 @@ export class Weather {
     this._keyX = new Int32Array(GRID * GRID).fill(NO_KEY);
     this._keyZ = new Int32Array(GRID * GRID);
     this._top = new Int16Array(GRID * GRID);
-    this._chunk = new Array(GRID * GRID).fill(null);
+    // (Round 17: the chunk's serial, not the chunk: every chunk it had read
+    // stayed in memory after it was unloaded, hundreds of megabytes on a long flight.)
+    this._chunk = new Float64Array(GRID * GRID);
     this._precip = new Map();
     world.changeListeners?.push((changed) => {
       for (let i = 0; i < changed.length; i += 3) {
@@ -100,7 +102,7 @@ export class Weather {
   // (Round 12) The world went to another dimension: the column cache held its chunks.
   dimChanged() {
     this._keyX.fill(NO_KEY);
-    this._chunk.fill(null);
+    this._chunk.fill(0);
     this._precip.clear();
   }
 
@@ -230,7 +232,7 @@ export class Weather {
     const c = this.world.getChunk?.(x >> 4, z >> 4);
     if (!c) return WORLD_HEIGHT;
     // (a chunk loaded again may hold edits made while it was away)
-    if (this._keyX[k] === x && this._keyZ[k] === z && this._chunk[k] === c) return this._top[k];
+    if (this._keyX[k] === x && this._keyZ[k] === z && this._chunk[k] === (c.serial ?? 0)) return this._top[k];
     const b = c.blocks;
     const col = ((z & 15) << 4) | (x & 15);
     let y = Math.min(WORLD_HEIGHT, b.length >> 8) - 1;
@@ -240,7 +242,7 @@ export class Weather {
     }
     this._keyX[k] = x;
     this._keyZ[k] = z;
-    this._chunk[k] = c;
+    this._chunk[k] = c.serial ?? 0;
     this._top[k] = y;
     return y;
   }

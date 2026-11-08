@@ -41,7 +41,7 @@
 // craft is made again there, high up over the spot it came down on, moving
 // as it was (an entry slows it to a speed the rocket's descent can land
 // from: js/rocket.js's autopilot, or the player), with the player aboard.
-// A gas giant, Venus or Mercury has no ground to land on (the ship is
+// (Round 17: Mercury and Venus have ground too.) A gas giant has none (the ship is
 // turned away), nor has the Sun (its heat pushes you back).
 //
 // Saving: the solar clock, the planets' turn, the guides, and the ship's
@@ -86,7 +86,7 @@ export const TIME_WARPS = [1, 10, 100, 1000, 10000, 100000];
 export const WARP_FACTORS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
 const THRUST = 45; // the ship's engine in space, m/s^2 at full throttle
 const CORE_THRUST = 30; // the core stage's (the ship still on it)
-const ENTRY_SPEED = { earth: 300, mars: 300, moon: 220 }; // the most a ship comes into the world at
+const ENTRY_SPEED = { earth: 300, mars: 300, moon: 220, mercury: 220, venus: 260 }; // the most a ship comes into the world at (Round 17: Mercury, Venus)
 const UFO_SPACE_TOP = 0.2 * C_LIGHT; // the UFO's cruise, out in space
 const WARP_NEAR = 2; // at warp, the most the ship covers a second: this times the distance to the nearest ground (beyond 1.5 radii)
 const WARP_DROP = 0.5 * C_LIGHT; // below this the drive drops out
@@ -769,7 +769,7 @@ export class SolarSystem {
       const now = performance.now();
       if (now - (this._turnedT || 0) > 3000) {
         this._turnedT = now;
-        this.space.caption(B.star ? "Too hot! The Sun's heat pushes you back" : B.gas ? `${B.name} is a ball of gas: no ground to land on` : `No landing on ${B.name} (yet): the Moon, Mars and Earth have ground`, "hint", 3);
+        this.space.caption(B.star ? "Too hot! The Sun's heat pushes you back" : B.gas ? `${B.name} is a ball of gas: no ground to land on` : `No landing on ${B.name}`, "hint", 3);
       }
     }
     return false;

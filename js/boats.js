@@ -52,6 +52,7 @@ export const BOAT_FLOOR = 0.42; // (the model's floor, over the water line it fl
 export const CHEST_SLOTS = 27;
 export const MAX_VEHICLES = 256;
 const VIEW = 128; // blocks: drawn this near
+const VOID_Y = -64; // (Round 17) below this a vehicle is lost in the void (vanilla: 64 under the world)
 const REACH = 5; // (placing a boat on the water: vanilla's 5)
 const SIT_BOAT = -0.3; // a seated player's feet under the boat's bottom
 const SIT_CART = -0.35;
@@ -801,6 +802,14 @@ export class Transport {
       this.destroy(v, { drop: false });
       return;
     }
+    // (Round 17) Fallen into the void (off an End island): lost, as vanilla's,
+    // its chest's things with it. (It fell on for ever, and was saved so.)
+    if (v.pos.y < VOID_Y && !v.dying) {
+      if (this.mounted?.v === v) this.dismount(true);
+      v.inVoid = true;
+      this.destroy(v, { drop: false });
+      return;
+    }
     if (v.fallBreak && !v.dying) {
       const fall = v.fallBreak;
       v.fallBreak = 0;
@@ -1084,8 +1093,8 @@ export class Transport {
       spawn(256, 2); // (sticks)
       if (v.chest) spawn(BLOCK.CHEST, 1);
     } else if (drop) spawn(v.kind === "boat" ? boatItem(v.wood, v.chest) : cartItem(v.chest), 1);
-    // (a chest's contents spill, whatever broke it, but in lava)
-    if (v.slots && !v.inLava) {
+    // (a chest's contents spill, whatever broke it, but in lava or the void)
+    if (v.slots && !v.inLava && !v.inVoid) {
       for (const s of v.slots) {
         if (!s || !ents) continue;
         const vel = new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 2, (Math.random() - 0.5) * 3);

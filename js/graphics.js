@@ -103,6 +103,23 @@ export const PRESETS = {
   },
 };
 
+// (Round 17) The far view (Settings, Performance: perf.farView), how far the
+// cheap distant land reaches from high up (a jet, a UFO; main.js
+// updateAltitudeView) and so on the planets too: `high` how much more the
+// view grows from 160 to about 2,000 blocks above the ground (on top of the
+// preset's own boost low down), `perHeight` the least it reaches as a
+// multiple of the height above the ground, `top` the most chunks drawn at all. Auto
+// follows the graphics preset: strong PCs (High, Ultra) see further.
+export const FAR_VIEW = {
+  normal: { label: "Normal", high: 1, perHeight: 0, top: 256 },
+  far: { label: "Far", high: 1.8, perHeight: 2, top: 400 },
+  extreme: { label: "Extreme", high: 3, perHeight: 3, top: 640 },
+};
+const FAR_VIEW_AUTO = { low: "normal", medium: "normal", high: "far", ultra: "extreme" };
+export function farViewOf(choice, preset) {
+  return FAR_VIEW[choice] || FAR_VIEW[FAR_VIEW_AUTO[preset]] || FAR_VIEW.normal;
+}
+
 export const PRESET_ORDER = ["low", "medium", "high", "ultra"];
 export const DEFAULT_PRESET = "medium";
 

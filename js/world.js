@@ -565,7 +565,8 @@ export class World {
         if (!this.chunks.has(numKey(chunk.cx + dx, chunk.cz + dz))) return false;
       }
     }
-    return true;
+    // (Round 17: the canyon run first meshes a chunk only once its light is settled: meshGate, js/canyon.js)
+    return !this.meshGate || this.meshGate(chunk);
   }
 
   _dist2(chunk) {
@@ -737,7 +738,7 @@ export class World {
     const ws = this._genWorkers;
     let w = ws[0];
     for (const x of ws) if (x.meshBusy < w.meshBusy) w = x;
-    return w.meshBusy < 3 ? w : null;
+    return w.meshBusy < (this.meshPerWorker || 3) ? w : null; // (Round 17: the canyon run keeps the workers fuller)
   }
 
   // Takes the chunk's padded volume (see mesher.js) and has worker `w` mesh it.
@@ -776,7 +777,7 @@ export class World {
   // wait on a slow frame). True while workers do the generating.
   _dispatchGen() {
     const ws = this._genWorkers;
-    const perWorker = 3;
+    const perWorker = this.genPerWorker || 3; // (Round 17: the canyon run asks for more at once)
     while (this.genQueue.length > 0) {
       let w = ws[0];
       for (const x of ws) if (x.busy < w.busy) w = x;

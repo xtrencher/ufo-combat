@@ -2,6 +2,7 @@ import { WORLD_HEIGHT } from "./constants.js";
 import * as THREE from "three";
 import { World, SEA_LEVEL } from "./world.js";
 import { Player, MAX_HEALTH, MAX_AIR } from "./player.js";
+import { boxInSolid } from "./physics.js"; // (Round 17: a reload's stuck test)
 import { UI, isMobileDevice, MODE_HINTS } from "./ui.js";
 import { BLOCK, BLOCK_INFO, IS_WET } from "./blocks.js";
 import { Audio } from "./audio.js";
@@ -10,6 +11,7 @@ import { loadEdits, saveEdits, loadSettings, saveSettings, setActiveSeed, setSto
 import { EffectsSystem } from "./effects.js";
 import { PostFX } from "./postfx.js";
 import { PRESETS, PRESET_ORDER, DEFAULT_PRESET, applyPreset, normalizePreset, lowerPreset, resolvePreset, GFX_OPTIONS } from "./graphics.js";
+import { farViewOf } from "./graphics.js"; // (Round 17: the far view)
 import { AutoTune } from "./autotune.js";
 import { normalizeSettings, DEFAULT_SETTINGS, SCHEMA, SettingsPanel, AUDIO_CATEGORIES, DIFFICULTY_DAMAGE, formatHours } from "./settings.js";
 import { PlayerAvatar } from "./player-avatar.js";
@@ -103,6 +105,7 @@ import { GroundSync } from "./net/ground.js"; // (Round 13)
 import { HeliSync } from "./net/heli.js"; // (Round 14)
 import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: the canyon run)
 import { installCanyonMenu } from "./menu-canyon.js";
+import { WorldLock } from "./world-lock.js"; // (Round 17: one tab per world)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -151,6 +154,10 @@ const GUEST = !!joinWelcome;
 // the seed, and none of the player's worlds is read or written.
 const CANYON = GUEST ? null : canyonParams();
 const SEED = GUEST ? Number(joinWelcome.seed) >>> 0 : CANYON ? CANYON.seed : parseSeedFromURL();
+// (Round 17) This tab has the world now: another tab with it open stops
+// saving it (its save would undo this one's progress: js/world-lock.js).
+const worldLock = GUEST || CANYON ? null : new WorldLock(SEED, () => worldTakenElsewhere());
+worldLock?.claim();
 
 // ---------- World type ----------
 // (Round 11) A Missions world (the UFO war) or a Survival world (vanilla),
@@ -360,7 +367,8 @@ const decorSim = new DecorSim(world);
 {
   const want = new URLSearchParams(window.location.search).get("genWorkers");
   const cores = navigator.hardwareConcurrency || 4;
-  const n = want !== null ? Math.max(0, Math.min(4, Math.floor(Number(want)) || 0)) : Math.max(1, Math.min(2, cores - 2));
+  // (Round 17: the canyon run streams a long corridor at a jet's speed: more workers, up to 6, where the cores are there)
+  const n = want !== null ? Math.max(0, Math.min(CANYON ? 8 : 4, Math.floor(Number(want)) || 0)) : CANYON ? Math.max(2, Math.min(6, cores - 1)) : Math.max(1, Math.min(2, cores - 2));
   if (n > 0) world.enableGenWorkers(n);
   // (Meshing goes to the same workers; ?meshWorkers=0 keeps it here.)
   world.meshInWorkers = new URLSearchParams(window.location.search).get("meshWorkers") !== "0";
@@ -1412,7 +1420,15 @@ if (savedPlayer) {
     // puts the player back in the seat.)
     // (The sea's surface counts as ground: a swimmer stays up there.)
     const top = world.surfaceY(Math.floor(savedPos[0]), Math.floor(savedPos[2]));
-    if (world.isSolidAt(Math.floor(savedPos[0]), Math.floor(savedPos[1] + 0.1), Math.floor(savedPos[2])) || (!player.creative && top >= 0 && savedPos[1] > Math.max(top, SEA_LEVEL) + 3)) {
+    // (Round 17: stuck means the body inside a block's real shape, not standing
+    // on a slab, stairs or a bed, which sent the player up onto the roof; and
+    // a body just inside one is freed upward first, a few blocks at most.)
+    let stuck = boxInSolid(world, player.position, player.bodyRadius, player.bodyHeight);
+    for (let dy = 1; stuck && dy <= 3; dy++) {
+      player.position.y = Math.floor(savedPos[1]) + dy;
+      stuck = boxInSolid(world, player.position, player.bodyRadius, player.bodyHeight);
+    }
+    if (stuck || (!player.creative && top >= 0 && savedPos[1] > Math.max(top, SEA_LEVEL) + 3)) {
       player.spawnAt(Math.floor(savedPos[0]), Math.floor(savedPos[2]));
     }
   } else {
@@ -1442,6 +1458,7 @@ if (savedPlayer) {
     weather.load(savedPlayer.weather);
   }
   nuke.loadZones(savedPlayer.blastZones);
+  entities.load(savedPlayer.items); // (Round 17: the items lying in the world, a death's too)
   waterSim.loadMeta(savedPlayer.water);
 } else {
   // (A new world made from the Creative choice starts in Creative.)
@@ -1598,12 +1615,12 @@ hooks.onNuke = (center, R) => missionDirector.nukeDetonated(center, R);
 vehicles.onTakeoff = () => stats.add("takeoffs");
 progress.onStart = (m) => {
   // (Round 16: a board mission starts at once, when picked.)
-  if (progress.board) toast(`MISSION: ${m.title}. ${m.text}`, 8);
+  if (progress.board) toast(`${m.retry ? `MISSION (try ${m.retry + 1})` : "MISSION"}: ${m.title}. ${m.text}`, 8); // (Round 17: a retry says so)
   else setTimeout(() => toast(`NEW MISSION ${m.n + 1}/${progress.total}: ${m.title}. ${m.text}`, 7), 6500);
 };
 // (Round 16) A board mission lost: why, and the way to retry.
 progress.onFail = (m, why) => {
-  toast(`MISSION FAILED: ${m.title}. ${why} Press M to retry.`, 7);
+  toast(`MISSION FAILED: ${m.title}. ${why} ${progress.failNote?.() ?? "Press M to retry."}`, 7); // (Round 17: retried by itself, or the next one)
   audio.playNotice?.();
 };
 // (Round 16) The director calls in the jet a mission gives you (see callJet).
@@ -1943,10 +1960,12 @@ function playerState() {
     signs: signs.serialize(),
     transport: transport?.serialize(), // (Round 12) the boats and minecarts (every dimension's), and the one the player sits in
     gadgets: gadgets.serialize(), // (Round 12)
-    mobs: dims.overworld("mobs", () => mobs.serializeKept()), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
+    mobs: dims.overworld("mobs", () => mobs.serializeKept({ pending: true })), // (Round 11) bred, fed, shorn or tame animals (a Survival world) (Round 17: those not back yet too)
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
+    items: entities.serialize(), // (Round 17: the items lying in the world, every dimension's; they were lost on a reload)
+    xpOrbs: xp.orbs.length ? { d: dims.dim, o: xp.serialize() } : undefined, // (Round 17: the experience orbs here, and where "here" is)
     // (Flowing water's cells: without them a reload turns each into a source.)
     // (Round 12: the Overworld's, wherever the player is; the other dimensions' are in `dims`.)
     water: dims.overworld("water", () => (waterSim.meta.size ? savedWaterMeta() : undefined)),
@@ -1985,7 +2004,8 @@ let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
 function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
   // (Round 15: nor does the canyon run: the player's worlds stay as they were.)
-  if (GUEST || CANYON) {
+  // (Round 17: nor a tab whose world was opened in another tab since: that one saves it now.)
+  if (GUEST || CANYON || worldLock?.superseded) {
     pendingSave = false;
     dims.clearDirty();
     lastSaveTime = lastPlayerSave = performance.now();
@@ -2022,6 +2042,22 @@ function flushSave(force = true) {
     toast("Browser storage is full: this world can't be saved. Free some space (site data) or delete old worlds.", 8);
   }
 }
+
+// (Round 17) The world was opened in another tab (js/world-lock.js): this
+// one has stopped saving it; it says so, and "Play here" reloads it from
+// the save (taking the world back the same way).
+function worldTakenElsewhere() {
+  if (document.pointerLockElement) document.exitPointerLock();
+  interaction.release();
+  vehicles.releaseAll();
+  player.keys?.clear?.();
+  document.getElementById("world-elsewhere")?.classList.remove("hidden");
+}
+document.getElementById("world-elsewhere-here")?.addEventListener("click", () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("seed", String(SEED));
+  window.location.href = url.toString();
+});
 
 // Leaving the page mid-game (e.g. Ctrl+W while sprinting with Ctrl) asks
 // for confirmation first; the world is saved either way.
@@ -2075,6 +2111,15 @@ entities.onPickup = (item) => {
     markInventoryChanged();
   }
   return left;
+};
+
+// (Round 17) A dropped item burnt up in lava or fire (js/entities.js): a puff of smoke and a fizz.
+const burnSmoke = new THREE.Color(0.32, 0.31, 0.3);
+entities.onBurn = (it) => {
+  const p = it.pos;
+  for (let i = 0; i < 5; i++) effects.smoke.spawn({ x: p.x + (Math.random() - 0.5) * 0.4, y: p.y + 0.3, z: p.z + (Math.random() - 0.5) * 0.4, vx: (Math.random() - 0.5) * 0.6, vy: 1.2 + Math.random(), vz: (Math.random() - 0.5) * 0.6, life: 0.9, size0: 0.25, size1: 0.8, color0: burnSmoke, alpha: 0.5, drag: 1.5 });
+  const d = p.distanceTo(player.position);
+  if (d < 24) audio.playDistant(d * 0.6, () => audio.playFizz());
 };
 
 player.onFlightToggle = (enabled) => audio.playFlightToggle(enabled);
@@ -2664,6 +2709,7 @@ settingsPanel.on("perf.detailDistance", applyDetailDistance);
 settingsPanel.on("perf.lodQuality", (v) => lod.configure({ quality: LOD_QUALITY[v] ?? 1 }));
 settingsPanel.on("perf.resolution", () => setGraphics(graphicsPreset), { now: false });
 settingsPanel.on("perf.effects", (v) => (effectsQuality.scale = { low: 0.35, medium: 0.65, high: 1 }[v] ?? 1));
+settingsPanel.on("perf.farView", () => (altViewT = 0), { now: false }); // (Round 17: the far view, updateAltitudeView)
 
 const PERF_PRESETS = {
   potato: { label: "Potato", hint: "Old laptops", graphics: "low", renderDistance: 7, detail: 3, lod: "low", resolution: 0.7, effects: "low" },
@@ -3505,6 +3551,13 @@ const perf = { simMs: 0, renderMs: 0, maxSimMs: 0 };
 // shared online. Everything goes through this facade.)
 const game = {
   THREE,
+  // (Round 17) The graphics preset and the render distance (the canyon run's view follows them, js/canyon.js).
+  get graphics() {
+    return graphicsPreset;
+  },
+  get renderDistance() {
+    return renderDistance;
+  },
   SEED,
   GUEST,
   joinWelcome,
@@ -3605,7 +3658,8 @@ const game = {
   // Puts this player at (x, z) (on the ground there, or at height y if given and free).
   teleport(x, y, z) {
     world.prepareArea(x, z, INITIAL_SYNC_RADIUS);
-    const stuck = y === null || world.isSolidAt(Math.floor(x), Math.floor(y + 0.1), Math.floor(z)) || world.isSolidAt(Math.floor(x), Math.floor(y + 1.1), Math.floor(z));
+    // (Round 17: the body against the blocks' real shapes: on a slab or stairs it isn't stuck, not sent up onto the roof.)
+    const stuck = y === null || boxInSolid(world, new THREE.Vector3(x, y, z), player.bodyRadius, player.bodyHeight);
     // (Round 12) Under a roof (the Nether): the floor nearest that height, not the topmost cavern's.
     const roof = stuck && world.dimInfo.ceiling ? dims.safeSpot(x, y ?? 64, z, 6) : null;
     if (roof) {
@@ -3780,6 +3834,7 @@ game.dims = dims;
 dims.onChange.push(() => {
   ufos.setEnabled(mods.enabled && missionsHere());
   refreshSurvivalSystems();
+  game._viewJump = true; // (Round 17: the new dimension's view distance at once, updateAltitudeView)
 });
 if (dims.sync) mp.addModule(dims.sync);
 // (Round 12) Boats and minecarts (js/boats.js, js/minecarts.js: the rails' redstone too), saved with the world, online (js/net/transport.js).
@@ -4259,9 +4314,9 @@ function updateHints(dt) {
   hintT -= dt;
   if (hintT > 0) return;
   hintT = 0.5;
-  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Press M to pick a mission from the board; the tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
+  if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Your first mission starts in a moment, the next ones by themselves (M: the mission board). The tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." /* (Round 17) */ : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
-  if (v?.type === "jet") hint("jet", "Mouse steers, W/S throttle, Shift afterburner. Tap right click: a missile straight ahead; hold it to lock on.", 6);
+  if (v?.type === "jet") hint("jet", `Mouse steers, W/S throttle, Shift afterburner (double tap: latch it on).${v.armed === false ? "" : " Tap right click: a missile straight ahead; hold it to lock on. X: the super missile."}`, 7); // (Round 17: the latch, the super missile)
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   else if (v?.type === "heli") hint("heli", "Wait for the rotor, then Space lifts off. W/S tilt, A/D turn, Q/E sidestep; the mouse aims. LMB gun, RMB rockets, X: Hellfires, C flares.", 7);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
@@ -4314,6 +4369,12 @@ screens.onOpen["missions-screen"] = () => {
         progress.abandon();
         again();
       },
+      // (Round 17) The automatic flow: start what comes next now, or pause / resume it.
+      onNext: () => go(player.creative ? "Missions run in the Missions game mode: switch to it in the pause menu first." : progress.startNext(stats.world)),
+      onAuto: (on) => {
+        progress.setAuto(on);
+        again();
+      },
     });
     return;
   }
@@ -4352,18 +4413,35 @@ const ALT_VIEW_MAX = { low: 1.6, medium: 2.2, high: 2.9, ultra: 3.4 };
 let altViewT = 0;
 function updateAltitudeView(dt) {
   altViewT -= dt;
-  if (altViewT > 0) return;
+  if (altViewT > 0 && !game._viewJump) return;
   altViewT = 0.5;
   let target = renderDistance;
+  // (Round 17) The planets' longer view (js/dim-registry.js viewScale, minView:
+  // the Moon's airless view the longest), and the far view (Settings,
+  // Performance: graphics.js FAR_VIEW): flying high, the far land keeps
+  // growing with the height, out to `top` chunks on Far and Extreme.
+  const dimInfo = world.dimInfo;
+  if (dimInfo?.viewScale) target = Math.max(dimInfo.minView || 0, Math.round(renderDistance * dimInfo.viewScale));
+  const fv = farViewOf(settings.perf.farView, graphicsPreset);
   const v = vehicles.active;
   if (v && (v.type === "jet" || v.type === "ufo" || v.type === "heli" || v.type === "rocket")) {
     const ground = Math.max(world.heightAt(Math.floor(v.pos.x), Math.floor(v.pos.z)), SEA_LEVEL);
     const t = THREE.MathUtils.clamp((v.pos.y - ground - 20) / 140, 0, 1);
     const boost = 1 + ((ALT_VIEW_MAX[graphicsPreset] ?? 2.2) - 1) * t;
-    target = Math.min(MAX_RENDER_DISTANCE, Math.round(renderDistance * boost));
+    const t2 = THREE.MathUtils.clamp((v.pos.y - ground - 160) / 1800, 0, 1); // (Round 17: higher still)
+    target = Math.round(target * boost * (1 + (fv.high - 1) * t2));
+    // (and never less than a few times the height above the ground: the land seen well past what is straight below)
+    if (fv.perHeight) target = Math.max(target, Math.round(((v.pos.y - ground) * fv.perHeight) / 16));
   }
-  if (target === viewRD) return;
-  const next = viewRD + THREE.MathUtils.clamp(target - viewRD, -2, 2);
+  target = Math.min(Math.max(MAX_RENDER_DISTANCE, fv.top), target);
+  if (target === viewRD) {
+    game._viewJump = false;
+    return;
+  }
+  // (Round 17: steps that grow with the view, so a far view arrives in seconds; at once after a change of dimension)
+  const stepMax = game._viewJump ? Infinity : Math.max(2, Math.round(viewRD * 0.15));
+  game._viewJump = false;
+  const next = viewRD + THREE.MathUtils.clamp(target - viewRD, -stepMax, stepMax);
   if (Math.abs(next - viewRD) < 1) return;
   viewRD = next;
   updateViewDistance();
@@ -4481,7 +4559,8 @@ function simulate(dt, frameTime) {
   // and meshes, so a smaller share of the frame still streams faster than before.)
   // (The menu's larger share only while the world is frozen or on the main
   // menu: behind the inventory, the death screen or an online pause it goes on.)
-  if (!worldIdle) world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
+  // (Round 17: the canyon run's own share while flying, by the graphics preset: canyonRun.streamBudget)
+  if (!worldIdle) world.processQueues(running && gameState !== "start" ? canyonRun?.streamBudget ?? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
   if (!worldIdle) lod.update();
   // (High over the ground in an aircraft the plants below are specks: not
   // refilled as it races along, not drawn.)
@@ -4581,6 +4660,9 @@ window.__voxelands.hacks = hacks;
 if (savedPlayer?.vehicles) vehicles.load(savedPlayer.vehicles);
 // (Round 12) A save made in the Nether or the End: the world goes there now.
 dims.init(savedPlayer);
+// (Round 17) After the dimension the save was made in is back (a save made
+// dead there comes back in the respawn's dimension: its orbs stay behind).
+if (savedPlayer?.xpOrbs?.d === dims.dim) xp.load(savedPlayer.xpOrbs.o);
 space.init(savedPlayer?.space); // (Round 15: the landing sites; a trip cut short: the rocket back on its pad)
 // (Round 15) The canyon run's page: into its course (js/canyon.js); any
 // other page: the main menu's canyon screen (js/menu-canyon.js).
@@ -4597,6 +4679,7 @@ if (CANYON) {
 animate();
 ui.setStartNotice(startNotice);
 bootDone();
+worldLock?.ready(); // (Round 17: a takeover heard while starting is shown now)
 // (Round 12) Reloaded into a world picked on the main menu (or for a room the
 // Multiplayer screen asked for there): straight into the game, in the mode
 // picked, one click to take the mouse ("Click to play", as a guest's join).

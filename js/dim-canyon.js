@@ -65,7 +65,7 @@ const KINDS = {
 export const CANYON_COURSES = [
   { id: "grand", name: "Grand Canyon", seed: 1515001, kind: "grand", length: 15000, time: "golden", biome: "mesa", blurb: "Wide, deep and winding: arches, rock pillars and a river far below. The one to learn." },
   { id: "slot", name: "Slot Canyon", seed: 1515002, kind: "slot", length: 8200, time: "noon", biome: "desert", blurb: "A crack in the sandstone barely two wingspans wide, undercut walls, arches and dark tunnels. Throttle back." },
-  { id: "night", name: "Night Run", seed: 1515003, kind: "night", length: 11000, time: "night", biome: "mesa", blurb: "The Grand Canyon's cousin by moonlight: glowing crystals, long tunnels and rings that light the way." },
+  { id: "night", name: "Night Run", seed: 1515003, kind: "night", length: 11000, time: "night", biome: "mesa", blurb: "The Grand Canyon's cousin: glowing crystals, long tunnels and rings that light the way. Best flown at Night." },
   { id: "gauntlet", name: "The Gauntlet", seed: 1515004, kind: "gauntlet", length: 16000, time: "dusk", biome: "mixed", blurb: "Everything at once, through every kind of canyon, and AA guns on the rim that shoot back." },
 ];
 const KIND_ORDER = ["grand", "slot", "night", "gauntlet"];
@@ -760,9 +760,90 @@ export class CanyonCourse {
     return p;
   }
 
+  // (Round 17) Where a jet comes back after a crash, for checkpoint `ring`
+  // (one of rings()): not in the ring itself (under an arch, a wingspan off
+  // a wall, an asteroid or a pillar just ahead: some spots left no room to
+  // turn), but the point with the most room just past it: on or round the
+  // safe line (safePoint: the band of heights to fly in), level, heading
+  // for the safe line a little ahead, scored by the clear air straight
+  // ahead (a jet's width) and the room to each side and above and below.
+  // speed: what it comes back at (the look ahead). { x, y, z, yaw (PI
+  // flies along +z), ahead (clear blocks straight ahead), room }.
+  respawnPoint(ring, speed = 140) {
+    const look = Math.max(50, Math.min(150, speed * 0.55));
+    const want = Math.max(150, Math.min(320, speed * 1.4)); // (straight ahead: as much as this is plenty)
+    let best = null;
+    // (a second, wider look where the first found little room ahead: an
+    // asteroid field, a hairpin)
+    const near = [[0, 0], [0, 8], [0, -8], [0.2, 0], [-0.2, 0], [0, 16], [0.35, 6], [-0.35, 6]];
+    const wide = [];
+    for (let sx = -0.6; sx <= 0.61; sx += 0.15) for (let oy = -16; oy <= 24; oy += 8) wide.push([sx, oy]);
+    for (const [spots, zMax] of [[near, 96], [wide, 200]]) {
+      for (let dz = 8; dz <= zMax; dz += 8) {
+        const z = Math.round(ring.z + dz);
+        const sp = this.safePoint(z);
+        const row = this.row(z);
+        const half = Math.min(row.W, 60) * row.sec;
+        const tgt = this.safePoint(z + look);
+        for (const [sx, oy] of spots) {
+          const x = sp.x + sx * half;
+          const y = sp.y + oy;
+          if (y < row.lo - 4 || y > row.hi + 6 || !this._clear(x, y, z, 9) || !this.wideClear(x, y, z - 8, x, y, z + 8, 9)) continue;
+          let dx = tgt.x - x;
+          let dzz = look;
+          const n = Math.hypot(dx, dzz);
+          dx /= n;
+          dzz /= n;
+          const ahead = this._aheadClear(x, y, z, dx, dzz, want);
+          const room = this._room(x, y, z);
+          const score = ahead + Math.min(room, 30) * 3 - dz * 0.4 - Math.abs(oy) * 0.5;
+          if (!best || score > best.score) best = { x, y, z, yaw: Math.atan2(-dx, -dzz), ahead, room, score };
+        }
+      }
+      if (best && best.ahead >= Math.min(want, 140)) break;
+    }
+    if (!best) {
+      const sp = this.safePoint(ring.z + 16);
+      best = { x: sp.x, y: sp.y, z: Math.round(ring.z + 16), yaw: Math.PI + Math.atan2(this.slope(ring.z + 16), 1), ahead: 0, room: 0, score: 0 };
+    }
+    return best;
+  }
+
+  // (Round 17) Clear air straight ahead of (x, y, z) along (dx, dz), level:
+  // a jet's width and a little height (blocks, up to max).
+  _aheadClear(x, y, z, dx, dz, max = 300) {
+    const rx = -dz;
+    const rz = dx;
+    for (let d = 0; d <= max; d += 4) {
+      const px = x + dx * d;
+      const pz = z + dz * d;
+      for (const [o, oy] of [[0, 0], [3.5, 0], [-3.5, 0], [7, 0], [-7, 0], [0, 4], [0, -4]]) if (this.solidAt(px + rx * o, y + oy, pz + rz * o)) return d;
+    }
+    return max;
+  }
+
+  // (Round 17) The room round (x, y, z): the nearest rock to either side, above or below (blocks, up to 40).
+  _room(x, y, z) {
+    let m = 40;
+    for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) {
+      for (let d = 2; d < m; d += 2) {
+        if (this.solidAt(x + ax * d, y + ay * d, z)) {
+          m = d;
+          break;
+        }
+      }
+    }
+    return m;
+  }
+
   // Room for a jet at (x, y, z): its wingspan and a little more.
   _clear(x, y, z, m = 7) {
-    return !this.solidAt(x, y, z) && !this.solidAt(x - m, y, z) && !this.solidAt(x + m, y, z) && !this.solidAt(x, y + 5, z) && !this.solidAt(x, y - 5, z) && !this.solidAt(x, y, z + 8) && !this.solidAt(x, y, z - 8);
+    if (this.solidAt(x, y, z) || this.solidAt(x - m, y, z) || this.solidAt(x + m, y, z) || this.solidAt(x, y + 5, z) || this.solidAt(x, y - 5, z) || this.solidAt(x, y, z + 8) || this.solidAt(x, y, z - 8)) return false;
+    // (Round 17: and half a wingspan each side, and those ahead and behind: a
+    // pillar or a fin's thin edge slipped between the probes, the safe line
+    // a block or two off the rock)
+    const h = m * 0.5;
+    return !this.solidAt(x - h, y, z) && !this.solidAt(x + h, y, z) && !this.solidAt(x - h, y, z + 6) && !this.solidAt(x + h, y, z + 6) && !this.solidAt(x - h, y, z - 6) && !this.solidAt(x + h, y, z - 6) && !this.solidAt(x, y, z + 4) && !this.solidAt(x, y, z - 4);
   }
 
   // A jet's path from a to b clear of the rock: the line, and lines a
@@ -770,6 +851,22 @@ export class CanyonCourse {
   tubeClear(ax, ay, az, bx, by, bz, r = 6) {
     if (!this.lineClear(ax, ay, az, bx, by, bz)) return false;
     for (const [ox, oy] of [[r, 0], [-r, 0], [0, r * 0.6], [0, -r * 0.6]]) if (!this.lineClear(ax + ox, ay + oy, az, bx + ox, by + oy, bz, 6)) return false;
+    return true;
+  }
+
+  // (Round 17) A jet's path from a to b with room all round: lines a
+  // wingtip (r) and half of one to either side (across the path), above and
+  // below, sampled every 2.5 blocks (a fin's thin leading edge; tubeClear's lines r apart let a pillar
+  // between them through).
+  wideClear(ax, ay, az, bx, by, bz, r = 9) {
+    let hx = bz - az;
+    let hz = -(bx - ax);
+    const n = Math.hypot(hx, hz) || 1;
+    hx /= n;
+    hz /= n;
+    for (const [o, oy] of [[0, 0], [r * 0.5, 0], [-r * 0.5, 0], [r, 0], [-r, 0], [0, r * 0.55], [0, -r * 0.55], [r * 0.6, r * 0.4], [-r * 0.6, r * 0.4]]) {
+      if (!this.lineClear(ax + hx * o, ay + oy, az + hz * o, bx + hx * o, by + oy, bz + hz * o, 2.5)) return false;
+    }
     return true;
   }
 

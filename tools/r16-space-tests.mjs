@@ -425,9 +425,7 @@ async function browserChecks() {
       g.player.keys.clear();
       const s = g.space.solar;
       out.kind = s.craft?.kind;
-      // too near Earth for the drive at first
-      s.inp.pressed.add("KeyJ");
-      g.space.update(1 / 30);
+      // (Round 17: the drive lights anywhere in space now, near Earth too: tested in r17; here no J yet)
       out.refusedNear = !s.craft.warpOn;
       // out a little way (a fast UFO)
       s.craft.speedLevel = 2;

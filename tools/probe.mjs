@@ -3,7 +3,7 @@
 // faster than the full smoke suite for iterating on one feature, and it can
 // save screenshots for visual checks.
 //
-//   node probe.mjs <scenario.mjs> [--preset=ultra] [--seed=42] [--size=960x540] [--out=dir] [--base=/ufo-combat/]
+//   node probe.mjs <scenario.mjs> [--preset=ultra] [--seed=42] [--size=960x540] [--out=dir] [--base=/ufo-combat/] [--query=type=survival]
 //
 // The scenario's default export gets { page, assert, shot(name), frames(n), v(fn, arg) }
 // where v evaluates fn(window.__voxelands, arg) in the page. The run fails on
@@ -79,7 +79,7 @@ function assert(cond, msg) {
 }
 
 const t0 = Date.now();
-await page.goto(`http://localhost:${PORT}${BASE}index.html?seed=${SEED}`, { waitUntil: "load", timeout: 60000 });
+await page.goto(`http://localhost:${PORT}${BASE}index.html?seed=${SEED}${args.query ? "&" + args.query : ""}`, { waitUntil: "load", timeout: 60000 });
 await page.waitForFunction(() => !!window.__voxelands, null, { timeout: 60000 });
 // Boot on Low (fast under software rendering), then switch to the preset asked for.
 await page.evaluate(() => window.__voxelands.setGraphics("low"));

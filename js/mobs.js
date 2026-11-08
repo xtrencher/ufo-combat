@@ -43,7 +43,7 @@ import { Crowd } from "./crowd.js";
 import { Pathfinder } from "./pathfinding.js";
 import { meleeCause, shooterCause } from "./damage.js";
 import { vanillaRules, missionsLayer } from "./worldtype.js";
-import { touchesCactus } from "./survival.js";
+import { touchesCactus, BODY, BODY_FLAGS } from "./survival.js";
 import { LIB } from "./content/base.js";
 import * as V from "./content/ids.js";
 import { dyeColorOf, mixDyeColors } from "./content/decor.js";
@@ -2031,7 +2031,9 @@ export class MobManager {
     m.exploded = true;
     const i = this.mobs.indexOf(m);
     if (i >= 0) this._remove(i);
-    const removed = this.effects.explode(at, { radius: CREEPER_RADIUS, source: "creeper" });
+    // (Round 17) In water it breaks nothing, as vanilla's (and as TNT here).
+    const wet = !!IS_WET[this.world.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.5), Math.floor(m.pos.z))];
+    const removed = this.effects.explode(at, { radius: CREEPER_RADIUS, source: "creeper", carve: !wet });
     if (Array.isArray(removed) && vanillaRules()) this.blastDrops(removed, at, 1 / 3);
   }
 
@@ -2783,9 +2785,12 @@ export class MobManager {
     const z = Math.floor(m.pos.z);
     const feet = w.getBlock(x, Math.floor(m.pos.y + 0.1), z);
     const body = w.getBlock(x, Math.floor(m.pos.y + m.spec.h * 0.6), z);
-    const lava = feet === V.LAVA || body === V.LAVA;
+    // (Round 17: any lava, flowing too, and any fire, soul fire too: only the
+    // still source and the plain fire burnt them, a lava flow didn't.)
+    const hot = BODY_FLAGS[feet] | BODY_FLAGS[body];
+    const lava = (hot & BODY.LAVA) !== 0;
     if (lava) m.fireT = 15;
-    else if (feet === V.FIRE || body === V.FIRE) m.fireT = Math.max(m.fireT, 8);
+    else if (hot & BODY.FIRE) m.fireT = Math.max(m.fireT, 8);
     if (m.inWater) m.fireT = 0;
     if (m.fireT <= 0) return;
     m.fireT -= dt;
@@ -3091,9 +3096,14 @@ export class MobManager {
   // seconds to grow up (0: grown), shorn, tame (2: this player's wolf, 1:
   // someone's), sitting, a villager's offers (trading.js encodeOffers) or 0,
   // a tame wolf's owner's nickname or 0]. (Older saves stop at sitting.)
-  serializeKept() {
+  // (Round 17) pending: the saved ones whose ground hasn't loaded since (not
+  // spawned yet, _kept) go in too: a save, every few seconds, left them out,
+  // and pets and villagers left far away were gone after a reload made
+  // elsewhere. (The dimensions engine adds _kept itself: not there.)
+  serializeKept({ pending = false } = {}) {
     if (this.puppets || !vanillaRules()) return undefined;
     const out = [];
+    if (pending) for (const e of this._kept || []) if (out.length < 400) out.push(e);
     for (const m of this.mobs) {
       if (!m.persist || m.dead || m.net || (m.spec.hostile && !m.spec.keeps) || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
       // (A tame wolf: 2 if this player's, 1 if another's, who may not come back: then whoever clicks it next.)
@@ -5017,8 +5027,11 @@ export class MobManager {
     }
 
     // Fall damage (not for hoppers, who land softly).
-    if (m.onGround || m.inWater) {
-      if (m.peakY !== null && !m.inWater && !spec.hop && !wasOnGround) {
+    // (Round 17: water where the move ended counts too, as the player's: a
+    // fall into a shallow pool reached its floor in the frame it reached the water.)
+    const wetNow = !m.inWater && IS_WET[w.getBlock(Math.floor(m.pos.x), Math.floor(m.pos.y + 0.1), Math.floor(m.pos.z))] === 1;
+    if (m.onGround || m.inWater || wetNow) {
+      if (m.peakY !== null && !m.inWater && !wetNow && !spec.hop && !wasOnGround) {
         const dmg = Math.floor((m.peakY - m.pos.y) * (this.world.dimInfo?.gravity ?? 1) - 3); // (Round 15: low gravity)
         if (dmg > 0 && !spec.noFall) this._hurt(m, dmg, null, 0);
       }

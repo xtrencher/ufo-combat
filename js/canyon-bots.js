@@ -45,6 +45,7 @@ const SKILL = {
 };
 const AHEAD = [230, 320]; // blocks ahead of the player a bandit appears
 const BEHIND_GONE = 280; // ... and how far behind it is let go
+const CHASE_BEHIND = [150, 220]; // (Round 17 follow-up) blocks behind the player a chaser appears
 const FIRE_RANGE = 520;
 
 const _v = new THREE.Vector3();
@@ -243,7 +244,8 @@ export class CanyonBot extends EnemyJet {
     let want = 135;
     if (this.role === "runner" && pj) {
       const ps = pj.vel.length();
-      want = pj.pos.z > pos.z ? Math.max(ps * 1.08 + 15, 130) : clamp(ps * 0.72, 85, 165);
+      // (Round 17 follow-up: behind the player it closes properly, to fight)
+      want = pj.pos.z > pos.z ? Math.max(ps * 1.2 + 25, 140) : clamp(ps * 0.72, 85, 165);
     }
     if (row.W < 22 && !row.space) want = Math.min(want, 120);
     if (this.avoidT > 0) want = Math.min(want, 110);
@@ -256,7 +258,7 @@ export class CanyonBot extends EnemyJet {
     this._assistStick(stick);
     // ---- Guns ----
     ai.burstT -= dt;
-    if (attack && dist < FIRE_RANGE && angle < 0.09 && ai.burstT <= 0 && !this.jammed && run.shieldT <= 0) {
+    if (attack && dist < FIRE_RANGE && angle < 0.13 && ai.burstT <= 0 && !this.jammed && run.shieldT <= 0) {
       const b = this.skill.burst;
       ai.burstLeft = b[0] + Math.floor(Math.random() * (b[1] - b[0] + 1));
       ai.burstT = 1.6 + Math.random() * 1.6;
@@ -444,13 +446,19 @@ export class CanyonBots {
     const pj = run.jet;
     if (!pj) return null;
     const dirZ = 1; // (Round 17: the player's way only, never head-on)
-    const z = Math.round(pj.pos.z + (opts.ahead ?? AHEAD[0] + Math.random() * (AHEAD[1] - AHEAD[0])));
+    // (Round 17 follow-up) Every other bandit comes up from behind, the
+    // player's way too, and hunts the player (the ones ahead only get a shot
+    // once passed, and today's afterburner leaves them standing).
+    const chaser = opts.ahead === undefined && (opts.behind || this.spawned % 2 === 1);
+    const z = chaser
+      ? Math.round(pj.pos.z - (CHASE_BEHIND[0] + Math.random() * (CHASE_BEHIND[1] - CHASE_BEHIND[0])))
+      : Math.round(pj.pos.z + (opts.ahead ?? AHEAD[0] + Math.random() * (AHEAD[1] - AHEAD[0])));
     if (z > run.length - 150 || z < 60) return null;
     const sp = c.safePoint(z);
     if (sp.blocked) return null;
     const row = c.row(z);
     const yaw = dirZ > 0 ? Math.PI + Math.atan2(row.sl, 1) : Math.atan2(row.sl, 1);
-    const speed = dirZ > 0 ? clamp(pj.vel.length() * 0.75, 90, 160) : 130;
+    const speed = chaser ? clamp(pj.vel.length() * 1.15 + 20, 110, 260) : dirZ > 0 ? clamp(pj.vel.length() * 0.75, 90, 160) : 130;
     const b = run.vehicles.create("canyonbot", { pos: [sp.x, sp.y, z], yaw, airborne: true, speed, throttle: 0.6, dirZ, skill: this.skill, run });
     if (!b) return null;
     b.transient = true;
