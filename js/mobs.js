@@ -3096,9 +3096,14 @@ export class MobManager {
   // seconds to grow up (0: grown), shorn, tame (2: this player's wolf, 1:
   // someone's), sitting, a villager's offers (trading.js encodeOffers) or 0,
   // a tame wolf's owner's nickname or 0]. (Older saves stop at sitting.)
-  serializeKept() {
+  // (Round 17) pending: the saved ones whose ground hasn't loaded since (not
+  // spawned yet, _kept) go in too: a save, every few seconds, left them out,
+  // and pets and villagers left far away were gone after a reload made
+  // elsewhere. (The dimensions engine adds _kept itself: not there.)
+  serializeKept({ pending = false } = {}) {
     if (this.puppets || !vanillaRules()) return undefined;
     const out = [];
+    if (pending) for (const e of this._kept || []) if (out.length < 400) out.push(e);
     for (const m of this.mobs) {
       if (!m.persist || m.dead || m.net || (m.spec.hostile && !m.spec.keeps) || m.spec.flies || m.spec.special || m.missionTarget || m.abductedBy) continue;
       // (A tame wolf: 2 if this player's, 1 if another's, who may not come back: then whoever clicks it next.)

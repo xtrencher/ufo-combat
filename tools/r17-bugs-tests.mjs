@@ -436,6 +436,23 @@ await browserCheck("saved standing on a slab under a roof, a reload puts the pla
   assert(Math.abs(back - saved) < 0.01, `back on the slab after the reload: ${saved} -> ${back}`);
 });
 
+await browserCheck("a tame wolf or a villager kept far away, not back since a reload, is still saved (the next save dropped it for good)", async () => {
+  const r = await v((g) => {
+    const p = g.player.position;
+    g.mobs.clear();
+    // As a reload made far from home leaves them: waiting for their ground.
+    g.mobs.loadKept([["wolf", p.x + 6000.5, 70, p.z + 0.5, 0, 0, 0, 2, 1, 0, 0]]);
+    g.mobs.update(1 / 30);
+    const waiting = g.mobs._kept.length;
+    g.flushSave();
+    const saved = JSON.parse(localStorage.getItem("ufocombat_v1_player_1717")).mobs || [];
+    g.mobs.loadKept([]);
+    return { waiting, saved: saved.filter((e) => e[0] === "wolf").length };
+  });
+  assert(r.waiting === 1, `the wolf waits for its ground: ${JSON.stringify(r)}`);
+  assert(r.saved === 1, `and is saved meanwhile: ${JSON.stringify(r)}`);
+});
+
 // ---------- Saves (last: the first page stops saving here) ----------
 
 await browserCheck("two tabs of one world: the new tab owns it, the old one stops saving and says so (closing it undid the new tab's progress)", async () => {

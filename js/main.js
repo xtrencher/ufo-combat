@@ -1958,7 +1958,7 @@ function playerState() {
     signs: signs.serialize(),
     transport: transport?.serialize(), // (Round 12) the boats and minecarts (every dimension's), and the one the player sits in
     gadgets: gadgets.serialize(), // (Round 12)
-    mobs: dims.overworld("mobs", () => mobs.serializeKept()), // (Round 11) bred, fed, shorn or tame animals (a Survival world)
+    mobs: dims.overworld("mobs", () => mobs.serializeKept({ pending: true })), // (Round 11) bred, fed, shorn or tame animals (a Survival world) (Round 17: those not back yet too)
     vehicles: vehicles.serialize(),
     stats: stats.world,
     blastZones: nuke.serializeZones(),
