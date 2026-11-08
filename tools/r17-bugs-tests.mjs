@@ -179,6 +179,31 @@ await browserCheck("a fall into water one block deep doesn't hurt, whatever the 
   assert(r["0@30"] < 20, `a fall onto dry ground hurts: ${JSON.stringify(r)}`);
 });
 
+await browserCheck("poison and hunger hurt the player, seated or not (in a vehicle they took the vehicle's health)", async () => {
+  const f = await field();
+  const r = await v(async (g, f) => {
+    const { summonTank } = await import("./js/vehicle-tank.js");
+    const p = g.player;
+    p.setMode("creative");
+    const t = summonTank(g.vehicles, "mbt", new g.THREE.Vector3(f.x0 + 0.5, f.y, f.z0 - 10), 0);
+    g.vehicles.enter(t);
+    p.setMode("survival");
+    p.health = 20;
+    const vh = t.health;
+    p.addEffect("poison", 6, 1);
+    for (let i = 0; i < 30 * 4; i++) p.update(1 / 30);
+    const out = { player: [20, p.health], vehicle: [vh, t.health] };
+    p.removeEffect("poison");
+    p.health = 20;
+    p.setMode("creative");
+    g.vehicles.exit({ force: true });
+    g.vehicles.remove(t);
+    return out;
+  }, f);
+  assert(r.player[1] < r.player[0], `the poisoned player lost health: ${JSON.stringify(r)}`);
+  assert(r.vehicle[1] === r.vehicle[0], `the vehicle didn't: ${JSON.stringify(r)}`);
+});
+
 // ---------- Items ----------
 
 await browserCheck("a dropped item burns up in lava and in fire (it sank and lay at the bottom); netherite floats up in lava", async () => {
