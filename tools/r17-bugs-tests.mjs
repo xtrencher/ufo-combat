@@ -232,7 +232,7 @@ await browserCheck("a dropped item burns up in lava and in fire (it sank and lay
     E.onBurn = (it) => { burnt++; was?.(it); };
     // (And an experience orb: lava burns it too.)
     g.xp.clear?.();
-    g.xp.spawn(f.x0 + 9.5, f.y + 0.5, f.z0 + 0.5, 3);
+    g.xp.spawn(f.x0 + 8.5, f.y + 0.5, f.z0 + 0.5, 3); // (where the cobblestone burns: the same chunk)
     g.xp.spawn(f.x0 - 15.5, f.y + 0.5, f.z0 + 0.5, 3);
     const orbs0 = g.xp.orbs.length;
     for (let i = 0; i < 60; i++) {

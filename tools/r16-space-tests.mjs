@@ -425,14 +425,8 @@ async function browserChecks() {
       g.player.keys.clear();
       const s = g.space.solar;
       out.kind = s.craft?.kind;
-      // (Round 17: the drive lights anywhere in space, even just over Earth; J again drops it)
-      s.inp.pressed.add("KeyJ");
-      g.space.update(1 / 30);
-      out.refusedNear = s.craft.warpOn;
-      if (s.craft.warpOn) {
-        s.inp.pressed.add("KeyJ");
-        g.space.update(1 / 30);
-      }
+      // (Round 17: the drive lights anywhere in space now, near Earth too: tested in r17; here no J yet)
+      out.refusedNear = !s.craft.warpOn;
       // out a little way (a fast UFO)
       s.craft.speedLevel = 2;
       g.player.keys.add("Space");
