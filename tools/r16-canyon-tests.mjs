@@ -386,6 +386,7 @@ async function browserChecks() {
   const crash = () =>
     v((g) => {
       const c = g.canyon;
+      c._guide = null; // (Round 17: the respawn's autopilot and its grace over: the player flies into the wall)
       const j = g.vehicles.active;
       const row = c.course.row(Math.floor(j.pos.z));
       const y = Math.round((row.floor + Math.min(row.rim, row.ceil)) / 2);
@@ -497,7 +498,8 @@ async function browserChecks() {
     await page.keyboard.press("Enter");
     await frames(2);
     r = await v((g) => ({ ...g.canyon.info(), z: g.vehicles.active?.pos.z, speed: g.vehicles.active?.vel.length() }));
-    assert(r.state === "countdown" && r.respawns === 1 && Math.abs(r.z - before.ring) < 2 && r.nextCheck === before.next && r.clock > before.clock, `back at the checkpoint: ${JSON.stringify({ state: r.state, respawns: r.respawns, z: r.z, ring: before.ring, next: r.nextCheck, clock: r.clock })}`);
+    // (Round 17: just past the ring, where there is the most room: dim-canyon.js respawnPoint)
+    assert(r.state === "countdown" && r.respawns === 1 && r.z > before.ring && r.z <= before.ring + 200 && r.nextCheck === before.next && r.clock > before.clock, `back at the checkpoint: ${JSON.stringify({ state: r.state, respawns: r.respawns, z: r.z, ring: before.ring, next: r.nextCheck, clock: r.clock })}`);
     r = await step(100, { stopAt: "flying" });
     assert(r.state === "flying", `flying again: ${r.state}`);
     // ... and by itself, a moment after the next crash.
@@ -698,6 +700,11 @@ async function browserChecks() {
       const c = g.canyon;
       j.pos.x = c.course.row(Math.round(j.pos.z)).xc + 150;
       c._lastPos.copy(j.pos);
+      // (Round 17: as if flown here, past the start gate and the checkpoints
+      // behind: before the gate, out is the end of the run, not a respawn;
+      // this check failed on that already)
+      if (c.clock === null) c.clock = 20;
+      c.nextCheck = Math.max(1, c.checks.findIndex((k) => k.z > j.pos.z));
       c.waitForGround = false;
     });
     let r2 = await step(10);

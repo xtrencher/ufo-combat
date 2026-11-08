@@ -361,7 +361,8 @@ const decorSim = new DecorSim(world);
 {
   const want = new URLSearchParams(window.location.search).get("genWorkers");
   const cores = navigator.hardwareConcurrency || 4;
-  const n = want !== null ? Math.max(0, Math.min(4, Math.floor(Number(want)) || 0)) : Math.max(1, Math.min(2, cores - 2));
+  // (Round 17: the canyon run streams a long corridor at a jet's speed: more workers, up to 6, where the cores are there)
+  const n = want !== null ? Math.max(0, Math.min(CANYON ? 8 : 4, Math.floor(Number(want)) || 0)) : CANYON ? Math.max(2, Math.min(6, cores - 1)) : Math.max(1, Math.min(2, cores - 2));
   if (n > 0) world.enableGenWorkers(n);
   // (Meshing goes to the same workers; ?meshWorkers=0 keeps it here.)
   world.meshInWorkers = new URLSearchParams(window.location.search).get("meshWorkers") !== "0";
@@ -3507,6 +3508,13 @@ const perf = { simMs: 0, renderMs: 0, maxSimMs: 0 };
 // shared online. Everything goes through this facade.)
 const game = {
   THREE,
+  // (Round 17) The graphics preset and the render distance (the canyon run's view follows them, js/canyon.js).
+  get graphics() {
+    return graphicsPreset;
+  },
+  get renderDistance() {
+    return renderDistance;
+  },
   SEED,
   GUEST,
   joinWelcome,
@@ -4507,7 +4515,8 @@ function simulate(dt, frameTime) {
   // and meshes, so a smaller share of the frame still streams faster than before.)
   // (The menu's larger share only while the world is frozen or on the main
   // menu: behind the inventory, the death screen or an online pause it goes on.)
-  if (!worldIdle) world.processQueues(running && gameState !== "start" ? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
+  // (Round 17: the canyon run's own share while flying, by the graphics preset: canyonRun.streamBudget)
+  if (!worldIdle) world.processQueues(running && gameState !== "start" ? canyonRun?.streamBudget ?? (world.genInWorkers ? STREAM_BUDGET_WORKERS_MS : STREAM_BUDGET_PLAYING_MS) : STREAM_BUDGET_MENU_MS);
   if (!worldIdle) lod.update();
   // (High over the ground in an aircraft the plants below are specks: not
   // refilled as it races along, not drawn.)

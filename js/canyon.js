@@ -55,8 +55,25 @@ import { voice } from "./voice.js";
 export { CANYON_COURSES };
 
 const START_BACK = 240; // blocks before the start gate the jet waits
-const AHEAD_ROWS = 36; // chunk rows streamed in full ahead of the jet (16 blocks each; Round 17: 22 before, the fog at 322 blocks)
+const AHEAD_ROWS = 36; // chunk rows streamed in full ahead of the jet (16 blocks each; Round 17: 22 before, the fog at 322 blocks): Low's
 const FAR_ROWS = 72; // (Round 17) ... and drawn as far terrain beyond them (js/canyon-far.js), the fog at its end
+// (Round 17, later) Full detail much further out on the better graphics:
+// the rows streamed in full by preset (Ultra 112 rows, 1.8 km; High 84;
+// Medium 60; Low 36, as before) at the preset's own render distance
+// (graphics.js), scaled by the one set in Settings (0.6 to 1.3 times), at
+// most MAX_NEAR; the far terrain past them a third as far again (at least
+// 36 rows more), the fog at its end. [rows, at render distance]
+const VIEW_ROWS = { low: [36, 12], medium: [60, 25], high: [84, 28], ultra: [112, 32] };
+const MAX_NEAR = 128;
+const MAX_FAR = 176;
+// ... and the main thread's share of a frame (ms) for the chunks while the
+// run is on (the main game's 3.5 with workers), more while the canyon ahead
+// isn't in far enough; the workers kept fuller (world.js genPerWorker,
+// meshPerWorker; main.js gives the canyon page up to 6 of them).
+const STREAM_MS = { low: 4, medium: 6, high: 8, ultra: 10 };
+const LEAD_LOW = 2.5; // seconds of flight to the first row not in: below it, the larger share
+const LOAD_SHARE = 0.85; // the share of the rows ahead in full before the countdown starts...
+const LOAD_WAIT = 12; // ... or this many seconds after the first ten were (a slow computer)
 const BEHIND_ROWS = 3; // (Round 16: 6 with enemy jets, who fly behind the player too)
 const CANYON_HAZE = 0.0015; // (Round 17) the haze's density (the main game's 0.0024): the far canyon stays clear
 const SIDE_MARGIN = 10; // blocks beyond the walls' widest reach
@@ -66,6 +83,13 @@ const CRASH_LOOK = 2.4; // seconds looking at the wreck before the results
 const DOWN_LOOK = 1.5; // (Round 16) ... before the respawn's panel
 const RESPAWN_AUTO = 2.5; // (Round 16) seconds on that panel before the jet comes back by itself
 const RESPAWN_SHIELD = 3; // (Round 16) seconds after a respawn no shot hurts the jet
+const RESPAWN_GUIDE = 3; // (Round 17) seconds after a respawn's GO the autopilot flies the course (until the player steers)
+const RESPAWN_GRACE = 1; // (Round 17) ... and at least this long the rock doesn't bring it down (eased back onto the line)
+const GUIDE_RATE = 2.6; // (Round 17) rad/s: the most the autopilot bends the path (more at speed)
+const MIN_THROTTLE = 0.3; // (Round 17) a respawn's throttle at least this (a jet at 10% falls out of the sky)
+// (Round 17) Where the autopilot looks for a way through, round the safe line's point (across: x its half-width; up)
+const GUIDE_SPOTS = [[0, 0], [0.25, 0], [-0.25, 0], [0, 10], [0, -10], [0.45, 0], [-0.45, 0], [0, 20], [0, -18], [0.25, 12], [-0.25, 12], [0.25, -10], [-0.25, -10], [0, 30]];
+const AB_THRUST = 1.3; // (vehicle-jet.js: the afterburner's thrust: 100% throttle alone settles at 1/sqrt(1.3) of the top speed)
 const RADAR_AHEAD = 620; // (Round 17) the course map: blocks ahead of the jet shown
 const RADAR_BEHIND = 140; // ... and behind it
 const GHOST_DT = 0.2; // seconds between two samples of the ghost
@@ -74,7 +98,12 @@ const START_SPEED = { grand: 140, slot: 92, night: 125, gauntlet: 140 };
 const TURRET_RANGE = 330;
 const TURRET_HP = 40;
 const TURRET_REFIRE = 1.7;
-const COURSE_TIME = { golden: 2.88, dusk: 3.0, noon: 1.9, night: 4.6 }; // the sun's angle (sky.js: 0 sunrise, PI sunset)
+// (Round 17) The run's time of day (the canyon screen's "Time", ?time=): held
+// there all run long, no day going by (the sun's angle: sky.js 0 sunrise, PI
+// sunset). It was the course's own hour (golden 2.88, noon 1.9, dusk 3.0,
+// night 4.6), and the clock ran on.
+export const CANYON_TIMES = { day: 2.2, dusk: 2.98, night: 4.6 };
+export const TIME_ORDER = ["day", "dusk", "night"];
 const BOT_IDS = BOT_LEVELS.map((b) => b.id);
 
 // ---------- The page's parameters and links ----------
@@ -100,13 +129,15 @@ export function canyonParams(search = typeof window !== "undefined" ? window.loc
   const open = OPEN_ORDER.includes(p.get("open")) && p.get("open") !== "some" ? p.get("open") : null;
   const bots = Math.max(0, BOT_IDS.indexOf(p.get("bots")));
   const seed = canyonSeed(base, { biome, diff, open });
-  // (Round 17) rings: the rings to fly through (+5 s a miss): off by default.
-  return { seed, course: courseOf(seed), jet: p.get("jet") === "f16" ? "f16" : "f22", bots, crash: p.get("crash") === "restart" ? "restart" : "checkpoint", rings: p.get("rings") === "on" };
+  // (Round 17) rings: the rings to fly through (+5 s a miss): off by default;
+  // time: the time of day, held all run (day by default).
+  const time = TIME_ORDER.includes(p.get("time")) ? p.get("time") : "day";
+  return { seed, course: courseOf(seed), jet: p.get("jet") === "f16" ? "f16" : "f22", bots, crash: p.get("crash") === "restart" ? "restart" : "checkpoint", rings: p.get("rings") === "on", time };
 }
 
 // The address of a run (course: a course of CANYON_COURSES, or { seed }).
 // (Round 16) opts: { diff, biome, open, bots, crash } (the defaults left out);
-// (Round 17) rings ("on" / true: the rings are on).
+// (Round 17) rings ("on" / true: the rings are on), time ("dusk" | "night"; day left out).
 export function canyonUrl(course, jet = "f22", opts = {}) {
   const u = new URL(window.location.href);
   u.search = "";
@@ -120,6 +151,7 @@ export function canyonUrl(course, jet = "f22", opts = {}) {
   if (bots && bots !== "none") u.searchParams.set("bots", bots);
   if (opts.crash === "restart") u.searchParams.set("crash", "restart");
   if (opts.rings === "on" || opts.rings === true) u.searchParams.set("rings", "on");
+  if (opts.time && opts.time !== "day" && TIME_ORDER.includes(opts.time)) u.searchParams.set("time", opts.time);
   return u.toString();
 }
 
@@ -214,6 +246,14 @@ const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _dir = new THREE.Vector3();
 const _c = new THREE.Color();
+// (Round 17) Scratch (the respawn's autopilot among them).
+const _gp = new THREE.Vector3();
+const _gd = new THREE.Vector3();
+const _gv = new THREE.Vector3();
+const _gf = new THREE.Vector3(); // (Round 17: the respawn's autopilot)
+const _q2 = new THREE.Quaternion();
+const _e = new THREE.Euler();
+
 function smooth(a, b, x) {
   const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
   return t * t * (3 - 2 * t);
@@ -235,16 +275,23 @@ export class CanyonRun {
     // (Round 17) The rings (off by default): off, the checkpoints are still
     // there (the respawn's, the splits) but not drawn, and a miss costs nothing.
     this.ringsOn = !!params.rings;
+    // (Round 17) The time of day, held all run (the course's own hour no more: day unless picked).
+    this.timeOfDay = TIME_ORDER.includes(params.time) ? params.time : "day";
     // (Round 17) How far ahead the canyon is streamed in full (chunk rows)
     // and how far it is drawn at all (the far terrain beyond: the fog ends
-    // there). ?view=<rows> (the far end) and ?near=<rows> for tests.
+    // there): by the graphics preset and the render distance (_viewConfig).
+    // ?view=<rows> (the far end) and ?near=<rows> for tests.
     const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-    const rows = (k, def) => {
+    const rows = (k) => {
       const n = Number(q.get(k));
-      return q.has(k) && Number.isFinite(n) && n >= 8 ? Math.min(120, Math.round(n)) : def;
+      return q.has(k) && Number.isFinite(n) && n >= 8 ? Math.min(MAX_FAR, Math.round(n)) : null;
     };
-    this.farRows = rows("view", FAR_ROWS);
-    this.aheadRows = Math.min(this.farRows, rows("near", AHEAD_ROWS));
+    this._viewQ = { near: rows("near"), far: rows("view") };
+    this._viewKey = null;
+    this.farRows = FAR_ROWS;
+    this.aheadRows = AHEAD_ROWS;
+    this._viewConfig();
+    this.lead = { line: 0, full: 0, s: Infinity }; // (Round 17) rows in ahead of the jet (its line's chunks; whole rows), and seconds of flight to the first not in
     this.far = null;
     this.diff = CANYON_DIFFS[this.spec.diff] || CANYON_DIFFS.normal;
     this.active = false;
@@ -282,11 +329,10 @@ export class CanyonRun {
     this.medals = medalTimes(this.spec, this.botLevel);
     this.active = true;
     document.body.classList.add("canyon-mode");
-    // The sky: a fixed hour (the course's), clouds, the sun's shadows down the walls.
+    // The sky: a fixed hour (Round 17: the one picked, held: _holdTime), clouds, the sun's shadows down the walls.
     const sky = g.sky;
     if (sky) {
-      sky.locked = true;
-      sky.setSunAngle(COURSE_TIME[this.spec.time] ?? COURSE_TIME.golden);
+      this._holdTime();
       // (Round 16) ...tinted by the scenery under the jet, black in space
       // (after any other hook of the sky's: space's own, js/space-sky.js).
       const prev = sky.post;
@@ -302,6 +348,15 @@ export class CanyonRun {
     this.behindRows = this.botLevel ? 6 : BEHIND_ROWS;
     // (Round 17) The far terrain past the streamed chunks (and in any row of them not drawn yet).
     this.far = new CanyonFar(g.scene, this.world, this.course);
+    // (Round 17) The workers kept fuller (world.js): the canyon ahead comes in at a jet's speed.
+    this.world.genPerWorker = 6;
+    this.world.meshPerWorker = 4;
+    // (Round 17) A chunk first meshed only once its light has settled (every
+    // chunk two round it that the plan generates is in: light reaches 15
+    // blocks, a chunk's border cells mark their neighbours): ahead of a fast
+    // jet each chunk was meshed again two or three times over as the rows
+    // beyond it came in and lit it, the main thread's time spent twice.
+    this.world.meshGate = (ch) => this._lightSettled(ch);
     this._buildRings();
     this._buildTurrets();
     this._buildGhost();
@@ -348,62 +403,149 @@ export class CanyonRun {
 
   // ---------- Streaming ----------
 
-  // The chunks around (x, z): a corridor along the canyon (world.js's plan).
-  // False when the world is not in the canyon (the distant-terrain system's then).
-  stream(x, z) {
-    if (!this.active || this.world.dim !== CANYON) return false;
-    const pcx = Math.floor(x / 16);
-    const pcz = Math.floor(z / 16);
-    const key = `${pcx},${pcz}`;
-    let replanned = false;
-    if (key !== this._planKey) {
-      this._planKey = key;
-      this._plan = this._corridor(pcx, pcz);
-      this.stats.plans++;
-      replanned = true;
-    }
-    this.world.ensureChunksAround(x, z, this._plan);
-    if (replanned) this._prioritise(pcx, pcz);
+  // (Round 17) The view for the graphics preset and the render distance
+  // (VIEW_ROWS): the rows in full ahead, the far terrain's end; looked at every
+  // frame (Settings may change them during the run), replanned on a change.
+  _viewConfig() {
+    const g = this.game;
+    const preset = VIEW_ROWS[g?.graphics] ? g.graphics : "medium";
+    const rd = Number(g?.renderDistance) || 25;
+    const key = `${preset}|${rd}`;
+    if (key === this._viewKey) return false;
+    this._viewKey = key;
+    this.preset = preset;
+    const [rows, at] = VIEW_ROWS[preset];
+    let near = Math.max(AHEAD_ROWS * 0.6, Math.min(MAX_NEAR, Math.round(rows * Math.max(0.6, Math.min(1.3, rd / at)))));
+    let far = Math.min(MAX_FAR, near + Math.max(36, Math.round(near / 3)));
+    const q = this._viewQ;
+    if (q.far) far = q.far;
+    if (q.near) near = q.near;
+    this.farRows = far;
+    this.aheadRows = Math.min(far, near);
+    this._planKey = null;
     return true;
   }
 
+  // (Round 17) The main thread's share of a frame for the chunks (main.js
+  // processQueues), while the run is on: the preset's, half again more
+  // while the canyon ahead isn't in for LEAD_LOW seconds of flight.
+  // (On a slow computer, a share of its long frames instead: a few ms of a
+  // frame a second is nothing; while the jet waits at the mouth, more.)
+  get streamBudget() {
+    if (!this.active || this.world.dim !== CANYON) return null;
+    let ms = STREAM_MS[this.preset] ?? STREAM_MS.medium;
+    if (this.lead.s < LEAD_LOW) ms *= 1.5;
+    const held = this.state === "loading" || this.state === "countdown" || this.state === "down";
+    return Math.max(ms, held ? 14 : 0, Math.min(60, (this._frameMs || 0) * (held ? 0.5 : 0.3)));
+  }
+
+  // The chunks around (x, z): a corridor along the canyon (world.js's plan).
+  // False when the world is not in the canyon (the distant-terrain system's then).
+  // (Round 17) Planned every few rows, not every one (at a jet's speed, a
+  // long corridor's plan many times a second): from a row a step behind
+  // the jet (the corridor reaches a step further), round the line's chunk there.
+  stream(x, z) {
+    if (!this.active || this.world.dim !== CANYON) return false;
+    // (the time between two frames, smoothed: streamBudget)
+    const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (this._frameAt) this._frameMs = (this._frameMs || 16) * 0.8 + Math.min(1000, t - this._frameAt) * 0.2;
+    this._frameAt = t;
+    const pcz = Math.floor(z / 16);
+    const step = this.aheadRows > 48 ? 4 : 2;
+    const az = Math.floor(pcz / step) * step;
+    const ax = Math.floor(this.course.row(az * 16 + 8).xc / 16);
+    const key = `${az}|${this.aheadRows}|${this.behindRows ?? BEHIND_ROWS}`;
+    let replanned = false;
+    if (key !== this._planKey) {
+      this._planKey = key;
+      this._plan = this._corridor(ax, az, step);
+      this.stats.plans++;
+      replanned = true;
+    }
+    this.world.ensureChunksAround(ax * 16 + 8, az * 16 + 8, this._plan);
+    // (the chunks whose light has settled since: queued, a few times a second)
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (!replanned && now - (this._gateT || 0) > 150) {
+      this._gateT = now;
+      if (this._requeue()) this._prioritise(Math.floor(x / 16), pcz);
+    }
+    if (replanned) this._prioritise(Math.floor(x / 16), pcz);
+    return true;
+  }
+
+  // (Round 17) Every chunk two round chunk ch that the plan generates is in
+  // (world.js meshGate: then its first mesh is its last).
+  _lightSettled(ch) {
+    const w = this.world;
+    if (!this.active || w.dim !== CANYON || !w._genWanted) return true;
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (Math.abs(dx) < 2 && Math.abs(dz) < 2) continue;
+        const cx = ch.cx + dx;
+        const cz = ch.cz + dz;
+        if (!w.chunks.has(w.key(cx, cz)) && w._genWanted(cx, cz)) return false;
+      }
+    }
+    return true;
+  }
+
+  // (Round 17) The chunks meshGate held back that are ready now: into the
+  // world's mesh queue (it looks only at a new chunk's own neighbours).
+  _requeue() {
+    const w = this.world;
+    let n = 0;
+    for (const ch of w.chunks.values()) {
+      if (ch.meshed || w.meshQueued.has(ch) || w._meshing(ch) || !w.wantsMesh(ch.cx, ch.cz) || !w._isReady(ch)) continue;
+      w.meshQueue.push(ch);
+      w.meshQueued.add(ch);
+      n++;
+    }
+    return n;
+  }
+
   // (Round 17) The far terrain (js/canyon-far.js): every row from just ahead
-  // of the camera to the far end, but the ones whose chunks are drawn (the
-  // line's own chunk and its neighbours across the canyon).
+  // of the camera to the far end, but the ones whose chunks are drawn (later:
+  // every chunk of the row's corridor, not only the line's: no gap where a
+  // row's sides were still coming in; the change from the far terrain to
+  // the chunks is then a whole row at a time, deep in the fog's start).
   _updateFar() {
     const f = this.far;
     if (!f || this.world.dim !== CANYON) return;
     const z = this.game.camera.position.z;
     const pcz = Math.floor(z / 16);
     const w = this.world;
-    const c = this.course;
-    const limit = pcz + this.aheadRows;
+    const spans = this._spans;
+    const limit = pcz + this.aheadRows + 4;
     const drawn = (cz) => {
       if (cz > limit) return false;
-      const xc = c.row(cz * 16 + 8).xc;
-      const cx = Math.floor(xc / 16);
-      for (const dx of [-1, 0, 1]) if (!w.getChunk(cx + dx, cz)?.meshed) return false;
+      const sp = spans?.get(cz);
+      if (!sp) return false;
+      for (let cx = sp[0]; cx <= sp[1]; cx++) if (!w.getChunk(cx, cz)?.meshed) return false;
       return true;
     };
-    f.update(pcz, pcz + 1, pcz + this.farRows, drawn, 4);
+    f.update(pcz, pcz + 1, pcz + this.farRows, drawn, 6);
   }
 
-  // (Round 17) The world's queues in the run's order: the course's line
-  // ahead first, row by row (the chunks off to the sides of a far row after
-  // the line's own), what is behind the jet last. (world.js sorts them by
-  // the distance round the jet: the plateau beside it came before the
-  // canyon a few hundred blocks ahead.)
+  // (Round 17) The world's queues in the run's order: by the time the jet
+  // takes to get there at its speed (the line's row ahead first, a row's
+  // sides a moment after its middle: whole rows come in in order), what is
+  // behind the jet last. (world.js sorts them by the distance round the
+  // jet: the plateau beside it came before the canyon a few hundred blocks
+  // ahead.) pcx, pcz: the jet's chunk.
   _prioritise(pcx, pcz) {
     const w = this.world;
     const c = this.course;
+    const speed = Math.max(60, this.jet?.alive ? this.jet.vel.length() : 0, this.startSpeed || 0);
+    const rowT = 16 / speed; // seconds a row
     const lineX = new Map();
     const key = (cx, cz) => {
       const d = cz - pcz;
+      if (Math.abs(cx - pcx) <= 1 && Math.abs(d) <= 1) return -1000; // (the jet's own ground first of all)
       let xc = lineX.get(cz);
       if (xc === undefined) lineX.set(cz, (xc = c.row(cz * 16 + 8).xc));
       const lat = Math.abs(cx * 16 + 8 - xc) / 16;
-      const near = Math.abs(cx - pcx) <= 1 && Math.abs(d) <= 1 ? -100 : 0; // (the jet's own ground first of all)
-      return near + (d < 0 ? -d * 4 : d) + Math.max(0, lat - 1.5) * 2.2;
+      const t = d >= 0 ? d * rowT : 60 - d * rowT;
+      return t + Math.max(0, lat - 1.5) * 0.12 * rowT;
     };
     if (w.genQueue.length > 1) {
       for (const e of w.genQueue) e._p = key(e.cx, e.cz);
@@ -415,11 +557,15 @@ export class CanyonRun {
     }
   }
 
-  _corridor(pcx, pcz) {
+  // The corridor's chunks from row pcz back (behindRows) and ahead
+  // (aheadRows, Round 17: and `extra` more: the plan's row is a step behind
+  // the jet), round chunk pcx; (Round 17) each row's span kept (_spans) for the far terrain.
+  _corridor(pcx, pcz, extra = 0) {
     const set = new Set();
+    const spans = new Map();
     let reach = 1;
     const c = this.course;
-    for (let cz = pcz - (this.behindRows ?? BEHIND_ROWS); cz <= pcz + this.aheadRows; cz++) {
+    for (let cz = pcz - (this.behindRows ?? BEHIND_ROWS); cz <= pcz + this.aheadRows + extra; cz++) {
       let lo = Infinity;
       let hi = -Infinity;
       let xc = 0;
@@ -440,12 +586,59 @@ export class CanyonRun {
       // has wound a long way off to one side)
       lo = Math.max(lo, xc - 200, xc - wide - 60);
       hi = Math.min(hi, xc + 200, xc + wide + 60);
-      for (let cx = Math.floor(lo / 16); cx <= Math.floor(hi / 16); cx++) {
+      const a = Math.floor(lo / 16);
+      const b = Math.floor(hi / 16);
+      spans.set(cz, [a, b]);
+      for (let cx = a; cx <= b; cx++) {
         set.add(`${cx},${cz}`);
         reach = Math.max(reach, Math.ceil(Math.hypot(cx - pcx, cz - pcz)));
       }
     }
-    return { id: `canyon:${pcx},${pcz}`, reach, meshed: (cx, cz) => set.has(`${cx},${cz}`) };
+    this._spans = spans;
+    // (Round 17: the rows in the id: a new view (Settings) is a new plan for world.js)
+    return { id: `canyon:${pcx},${pcz}:${this.aheadRows + extra}:${this.behindRows ?? BEHIND_ROWS}`, reach, meshed: (cx, cz) => set.has(`${cx},${cz}`) };
+  }
+
+  // (Round 17) How far the canyon ahead of the jet is in: its line's chunks
+  // (the line's chunk and the one each side, row by row) and whole rows of
+  // the corridor, and the seconds of flight at its speed to the first row
+  // not in (this.lead; the lowest seen while flying in stats.minLead).
+  _measureLead(v) {
+    const w = this.world;
+    const c = this.course;
+    const pcz = Math.floor(v.pos.z / 16);
+    const spans = this._spans;
+    let line = -1;
+    let full = -1;
+    for (let d = 0; d <= this.aheadRows; d++) {
+      const cz = pcz + d;
+      if (cz * 16 > this.length + 400) {
+        if (line < 0) line = d;
+        if (full < 0) full = d;
+        break;
+      }
+      if (line < 0) {
+        const cx = Math.floor(c.row(cz * 16 + 8).xc / 16);
+        if (!w.getChunk(cx, cz)?.meshed || !w.getChunk(cx - 1, cz)?.meshed || !w.getChunk(cx + 1, cz)?.meshed) line = d;
+      }
+      if (full < 0) {
+        const sp = spans?.get(cz);
+        let ok = !!sp;
+        if (sp) for (let cx = sp[0]; cx <= sp[1] && ok; cx++) ok = !!w.getChunk(cx, cz)?.meshed;
+        if (!ok) full = d;
+      }
+      if (line >= 0 && full >= 0) break;
+    }
+    if (line < 0) line = this.aheadRows + 1;
+    if (full < 0) full = this.aheadRows + 1;
+    const speed = Math.max(30, v.vel.length());
+    const L = this.lead;
+    L.line = line;
+    L.full = full;
+    // (from the jet's own place in its row to the start of the first row not in)
+    L.s = Math.max(0, line * 16 - (v.pos.z - pcz * 16)) / speed;
+    L.fullS = Math.max(0, full * 16 - (v.pos.z - pcz * 16)) / speed;
+    return L;
   }
 
   // Is the stretch ahead of the jet in (meshed)? (The countdown waits for it.)
@@ -457,6 +650,23 @@ export class CanyonRun {
       if (!ch || !ch.meshed) return false;
     }
     return true;
+  }
+
+  // (Round 17) Most of the rows ahead in full (whole rows, LOAD_SHARE of
+  // them), or LOAD_WAIT seconds gone by since the first few were.
+  _loadedAhead(dt) {
+    const v = this.jet;
+    if (!v) return true;
+    // (in real seconds: a slow computer's frames are clamped short)
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (!this._loadT) this._loadT = now;
+    const L = this._measureLead(v);
+    if (L.full >= Math.min(this.aheadRows, Math.ceil((this.length + 400 - v.pos.z) / 16)) * LOAD_SHARE || now - this._loadT >= LOAD_WAIT * 1000) {
+      this._loadT = 0;
+      return true;
+    }
+    this.stats.loadWait = (this.stats.loadWait || 0) + dt;
+    return false;
   }
 
   // The ground half a second ahead of the jet is in (or not the run's to stream).
@@ -476,19 +686,45 @@ export class CanyonRun {
 
   // A new jet at a pose ({ x, y, z, yaw }: yaw about +y, PI flies along +z),
   // the player in its seat; the old one (or its wreck) gone.
-  _makeJet(pose, speed) {
+  // (Round 17) throttle: the throttle it flies at (a respawn: the one before the crash).
+  _makeJet(pose, speed, throttle = 0.72) {
     const mgr = this.vehicles;
     if (this.jet) {
       const old = this.jet;
       this.jet = null;
       if (mgr.vehicles.includes(old)) mgr.remove(old);
     }
-    const v = mgr.create("jet", { jetType: this.jetType, pos: [pose.x, pose.y, pose.z], yaw: pose.yaw, airborne: true, speed, throttle: 0.72 });
+    const v = mgr.create("jet", { jetType: this.jetType, pos: [pose.x, pose.y, pose.z], yaw: pose.yaw, airborne: true, speed, throttle });
     if (!v) return null;
     v.transient = true; // (never saved)
     v.keep = true;
     v.canyon = true;
-    v.throttle = 0.72;
+    v.throttle = throttle;
+    this._guide = null;
+    // (Round 17) Just back at a checkpoint, the autopilot on: the rock eases
+    // it back onto the course's line rather than bring it down (_rescue).
+    const crash = v._crash.bind(v);
+    v._crash = (cause) => (cause === "crash" && this._graceOn(v) ? this._rescue(v) : crash(cause));
+    // (Round 17) A respawn with the afterburner lit before the crash keeps it
+    // lit (as if Shift were held: the jet's own controls read the keys) until
+    // the player presses and lets go of Shift, or pulls the throttle back (S).
+    this._abHold = false;
+    this._abShift = false;
+    const update = v.update.bind(v);
+    v.update = (dt, input) => {
+      const keys = input?.keys;
+      if (!this._abHold || v !== this.jet || !keys) return update(dt, input);
+      const shift = keys.has("ShiftLeft") || keys.has("ShiftRight");
+      if (keys.has("KeyS") || (this._abShift && !shift)) this._abHold = false;
+      this._abShift = this._abShift || shift;
+      if (!this._abHold || shift) return update(dt, input);
+      input.keys = new Set(keys).add("ShiftLeft");
+      try {
+        return update(dt, input);
+      } finally {
+        input.keys = keys;
+      }
+    };
     // (Round 16) Just back at a checkpoint: a moment no shot hurts it (the rock still does).
     const hurt = v.damage.bind(v);
     v.damage = (amount, cause, byPlayer) => ((this.shieldT > 0 || this.state === "countdown" || this.state === "loading") && cause !== "crash" ? false : hurt(amount, cause, byPlayer));
@@ -575,6 +811,9 @@ export class CanyonRun {
     this.respawns = 0;
     this.shieldT = 0;
     this.final = null;
+    this._carry = null; // (Round 17: a new run flies off at the start's throttle)
+    this._loadT = 0;
+    this.respawnPose = null;
     this.ghostOff = false;
     for (const r of this.rings) {
       r.state = "ahead";
@@ -596,8 +835,18 @@ export class CanyonRun {
     if (!this.active) return;
     const ring = this.checks[this.nextCheck - 1];
     if (!ring || this.clock === null || this.state === "finished") return this.restart();
-    const v = this._makeJet({ x: ring.x, y: ring.y, z: ring.z, yaw: Math.PI + ring.yaw }, this.startSpeed);
+    // (Round 17) The throttle, the afterburner and the speed from before the
+    // crash (_carry: a speed that flies at that throttle), at the spot with
+    // the most room just past the ring (dim-canyon.js respawnPoint: some
+    // rings left no room to turn), and the autopilot for the first seconds.
+    const carry = this._respawnCarry();
+    const pose = this.course.respawnPoint(ring, carry.speed);
+    this.respawnPose = pose;
+    const v = this._makeJet(pose, carry.speed, carry.throttle);
     if (!v) return;
+    v.afterburner = carry.ab; // (lit as it was: _abHold keeps it lit)
+    this._abHold = carry.ab;
+    this._guide = { t: 0, on: true, aim: null, steered: false, ab: carry.ab };
     this.respawns++;
     this.stats.respawns++;
     this.state = "countdown";
@@ -613,6 +862,175 @@ export class CanyonRun {
     this._warn("");
     this._banner(ring.kind === "start" ? "START" : `CHECKPOINT ${ring.i}`, 1, "good");
     if (this.game.gameState !== "playing") this.game.requestLock?.();
+  }
+
+  // (Round 17) What a respawned jet flies at: the throttle and the
+  // afterburner from just before the crash (or the time out of the course),
+  // and the speed it had then, kept between the least that flies well (well
+  // above the stall, and most of what that throttle holds) and the most that
+  // throttle holds (the afterburner's: any). { throttle, ab, speed }
+  _respawnCarry() {
+    const c = this._carry;
+    const cfg = this.jet?.cfg;
+    const start = { throttle: 0.72, ab: false, speed: this.startSpeed };
+    if (!c || !cfg) return start;
+    const max = Math.max(60, cfg.maxSpeed || 300);
+    const stall = Math.max(15, cfg.stallSpeed || 42);
+    const ab = !!c.ab;
+    const throttle = ab ? 1 : Math.max(MIN_THROTTLE, Math.min(1, c.throttle));
+    // (the speed the throttle holds in level flight: thrust ~ throttle^2 against drag ~ speed^2)
+    const hold = (max * throttle) / Math.sqrt(AB_THRUST);
+    const lo = Math.max(stall * 1.7, hold * (ab ? 0.85 : 0.7));
+    const hi = ab ? Infinity : Math.max(lo, hold * 1.1);
+    const speed = Math.max(lo, Math.min(hi, Number.isFinite(c.speed) ? c.speed : hold));
+    return { throttle, ab, speed };
+  }
+
+  // (Round 17) The autopilot is on (the first seconds after a respawn's GO,
+  // until the player steers), or the moment's grace after GO: the rock eases
+  // the jet back onto the line rather than bring it down.
+  _graceOn(v) {
+    const gd = this._guide;
+    return !!gd && v === this.jet && this.state === "flying" && (gd.on || gd.t < RESPAWN_GRACE);
+  }
+
+  // (Round 17) Out of the rock, back on the course's safe line just ahead,
+  // turned along the course at the speed it had (no damage): a ghost
+  // through the rock for a moment rather than a crash, just after a respawn.
+  _rescue(v) {
+    const c = this.course;
+    const p = v.pos;
+    const sp = c.safePoint(p.z + 16);
+    p.set(sp.x, sp.y, Math.round(p.z / 8) * 8 + 16);
+    const speed = Math.max(60, v.vel.length());
+    const look = Math.max(50, Math.min(150, speed * 0.55));
+    const t = c.safePoint(p.z + look);
+    const d = _gd.set(t.x - p.x, (t.y - p.y) * 0.5, look).normalize();
+    const vd = _gv.copy(v.vel).normalize();
+    if (vd.lengthSq() > 0.5 && vd.angleTo(d) > 1e-3) v.q.premultiply(_q.setFromUnitVectors(vd, d));
+    v.vel.copy(d).multiplyScalar(speed);
+    v.angVel?.set(0, 0, 0);
+    this._levelAim(v, d);
+    v.root.position.copy(p);
+    v.root.quaternion.copy(v.q);
+    this.stats.rescues = (this.stats.rescues || 0) + 1;
+    return false;
+  }
+
+  // (Round 17) The jet's aim (the crosshair it flies to) along d, wings level.
+  _levelAim(v, d) {
+    if (!v.aimQ) return;
+    const yaw = Math.atan2(-d.x, -d.z);
+    const pitch = Math.asin(Math.max(-0.8, Math.min(0.8, d.y)));
+    v.aimQ.setFromEuler(_e.set(pitch, yaw, 0, "YXZ"));
+    if (this._guide) this._guide.aim = _gf.set(0, 0, -1).applyQuaternion(v.aimQ).clone();
+  }
+
+  // (Round 17) The respawn's autopilot (RESPAWN_GUIDE seconds after GO, until
+  // the player steers: the crosshair moved): the course's safe line ahead
+  // followed (its slope from here to a point ahead, and the error from it,
+  // like the bandits', js/canyon-bots.js), the path bent toward it on top
+  // of the flight model and the aim along it, wings level.
+  _guideJet(dt, v) {
+    const gd = this._guide;
+    if (!gd) return;
+    gd.t += dt;
+    if (gd.on && gd.aim && v.aimQ) {
+      // (the player's hand: the crosshair moved off where the autopilot put it)
+      const f = _gf.set(0, 0, -1).applyQuaternion(v.aimQ);
+      if (f.angleTo(gd.aim) > 0.015) {
+        gd.on = false;
+        gd.steered = true;
+      }
+    }
+    if (gd.on && gd.t >= RESPAWN_GUIDE) gd.on = false;
+    if (!gd.on) {
+      if (gd.t > RESPAWN_GRACE) this._guide = null;
+      return;
+    }
+    const c = this.course;
+    const p = v.pos;
+    const speed = Math.max(40, v.vel.length());
+    const look = Math.max(50, Math.min(160, speed * 0.6));
+    let tx = 0;
+    let ty = 0;
+    let tz = 0;
+    let found = false;
+    // (the furthest point of the safe line ahead it can fly straight to with
+    // a wingspan's room: round a pillar, under an arch, among the asteroids)
+    // (Round 17: the safe line's own point first, then beside it)
+    // (the point it was flying to, kept while still well ahead and clear:
+    // no going back and forth between over and under an arch)
+    const keep = gd.tgt;
+    if (keep && keep.z - p.z > look * 0.4 && c.wideClear(p.x, p.y, p.z, keep.x, keep.y, keep.z, keep.r)) {
+      tx = keep.x;
+      ty = keep.y;
+      tz = keep.z;
+      found = true;
+    }
+    // (a wide berth first, then a narrower one; round the safe line's point,
+    // then straight on along the course from where the jet is: a fin's
+    // other lane)
+    const here = c.row(Math.round(p.z));
+    let rr = keep?.r ?? 11;
+    for (const r of found ? [] : [11, 8]) {
+      for (const k of [1, 0.8, 0.62, 0.46, 0.32, 0.2]) {
+        const z = p.z + look * k;
+        const sp = c.safePoint(z);
+        const row = c.row(Math.round(z));
+        const half = Math.min(row.W, 60) * row.sec;
+        const own = p.x + row.xc - here.xc;
+        for (let i = 0; i < GUIDE_SPOTS.length + 3 && !found; i++) {
+          let x;
+          let y;
+          if (i < GUIDE_SPOTS.length) {
+            x = sp.x + GUIDE_SPOTS[i][0] * half;
+            y = sp.y + GUIDE_SPOTS[i][1];
+          } else {
+            x = own + [0, 0.15, -0.15][i - GUIDE_SPOTS.length] * half;
+            y = p.y;
+          }
+          y = Math.max(row.floor + 8, Math.min(row.hi + 10, y));
+          if (c.wideClear(p.x, p.y, p.z, x, y, z, r)) {
+            tx = x;
+            ty = y;
+            tz = z;
+            rr = r;
+            found = true;
+          }
+        }
+        if (found) break;
+      }
+      if (found) break;
+    }
+    gd.tgt = found ? { x: tx, y: ty, z: tz, r: rr } : null;
+    const d = _gd;
+    if (found) d.set(tx - p.x, ty - p.y, tz - p.z);
+    else d.copy(v.vel); // (no way through in sight: straight on, the grace's to ease it out)
+    d.normalize();
+    if (d.z < 0.3) {
+      d.z = 0.3;
+      d.normalize();
+    }
+    const vl = v.vel.length();
+    if (vl > 1) {
+      const vd = _gv.copy(v.vel).divideScalar(vl);
+      const ang = vd.angleTo(d);
+      const rate = GUIDE_RATE * Math.max(1, speed / 150);
+      if (ang > 1e-4) {
+        const k = Math.min(1, (rate * dt) / ang);
+        _q.setFromUnitVectors(vd, _gp.copy(vd).lerp(d, k).normalize());
+        v.vel.applyQuaternion(_q);
+        v.q.premultiply(_q);
+      }
+    }
+    // (wings level, the nose along the path)
+    const fl = _gp.copy(v.vel).normalize();
+    _q2.setFromEuler(_e.set(Math.asin(Math.max(-0.8, Math.min(0.8, fl.y))), Math.atan2(-fl.x, -fl.z), 0, "YXZ"));
+    v.q.slerp(_q2, Math.min(1, dt * 4));
+    v.angVel?.multiplyScalar(Math.max(0, 1 - dt * 6));
+    this._levelAim(v, d);
+    this.stats.guided = (this.stats.guided || 0) + dt;
   }
 
   // Holds the jet at the start, engine running (loading, the countdown).
@@ -632,6 +1050,24 @@ export class CanyonRun {
     }
   }
 
+  // (Round 17) The time of day held where the run's option put it: the
+  // clock locked, every frame (the settings' "Lock time of day", off,
+  // unlocked it as the page started: the sun went on down, and a
+  // golden-hour course was in the night a few minutes in).
+  _holdTime() {
+    const sky = this.game.sky;
+    if (!sky) return;
+    sky.locked = true;
+    const was = sky.time;
+    sky.setSunAngle(this.sunAngle);
+    if (sky.time !== was) this.stats.timeHeld = (this.stats.timeHeld || 0) + 1;
+  }
+
+  // (Round 17) The sun's angle for the run's time of day.
+  get sunAngle() {
+    return CANYON_TIMES[this.timeOfDay] ?? CANYON_TIMES.day;
+  }
+
   // R: fly again from the mouth.
   restart() {
     if (!this.active) return;
@@ -649,6 +1085,8 @@ export class CanyonRun {
   update(dt, running) {
     if (!this.active) return;
     const g = this.game;
+    this._holdTime();
+    this._viewConfig();
     this._fog();
     this._updateFar();
     this._updateRings(dt, running);
@@ -664,7 +1102,9 @@ export class CanyonRun {
     switch (this.state) {
       case "loading":
         this._hold();
-        if (this._readyAhead(-START_BACK, 10) && g.gameState === "playing") {
+        // (Round 17: and most of the view ahead in full, a lead to fly into
+        // on the afterburner; a slow computer waits LOAD_WAIT seconds at most for it)
+        if (this._readyAhead(-START_BACK, 10) && g.gameState === "playing" && this._loadedAhead(dt)) {
           this.state = "countdown";
           this.countT = 0;
           this._lastCount = 0;
@@ -710,6 +1150,14 @@ export class CanyonRun {
         this.t += dt;
         if (this.clock !== null) this.clock += dt;
         if (this.shieldT > 0) this.shieldT -= dt;
+        // (Round 17) The respawn's autopilot; what a respawn would carry over
+        // (the throttle, the afterburner, the speed: the frame before a
+        // crash); how far the canyon ahead is in.
+        this._guideJet(dt, v);
+        this._carry = { throttle: v.throttle, ab: !!v.afterburner, speed: v.vel.length() };
+        this._measureLead(v);
+        if (this.lead.s < (this.stats.minLead ?? Infinity)) this.stats.minLead = this.lead.s;
+        if (this._guide?.on && !(this._bannerT > 0.05)) this._banner("AUTOPILOT · STEER TO TAKE OVER", 0.3, "info");
         this._record(dt);
         if (this._rockUnloaded(v)) break;
         this._checkRings(v);
@@ -805,12 +1253,15 @@ export class CanyonRun {
   // plane past it: the canyon ahead is in view in time to react.)
   _fog() {
     const end = this.farRows * 16 - 40;
+    // (Round 17, later: the fog starts a little before the chunks give way
+    // to the far terrain, so the change is well into the haze)
+    const start = Math.min(end * 0.62, this.aheadRows * 16 * 0.85);
     const fog = worldUniforms.uFog.value;
-    if (fog.y !== end) {
-      fog.set(end * 0.62, end, Math.min(fog.z, CANYON_HAZE), fog.w);
+    if (fog.y !== end || fog.x !== start) {
+      fog.set(start, end, Math.min(fog.z, CANYON_HAZE), fog.w);
       const sf = this.game.scene?.fog;
       if (sf) {
-        sf.near = end * 0.62;
+        sf.near = start;
         sf.far = end;
       }
     }
@@ -1539,7 +1990,7 @@ export class CanyonRun {
   // (Round 16) The run's options, for the next course's address.
   get options() {
     const own = CANYON_COURSES.find((c) => c.id === this.spec.id);
-    return { diff: this.spec.diff, biome: this.spec.space ? BIOME_SPACE : own && this.spec.biome === own.biome ? null : this.spec.biome, open: this.spec.open, bots: this.botLevel, crash: this.crashMode, rings: this.ringsOn };
+    return { diff: this.spec.diff, biome: this.spec.space ? BIOME_SPACE : own && this.spec.biome === own.biome ? null : this.spec.biome, open: this.spec.open, bots: this.botLevel, crash: this.crashMode, rings: this.ringsOn, time: this.timeOfDay };
   }
 
   next() {
@@ -2017,7 +2468,7 @@ export class CanyonRun {
   // (Tests: the run's state.)
   info() {
     const j = this.jet;
-    return { state: this.state, clock: this.clock, penalty: this.penalty, passed: this.passed, missed: this.missed, nextCheck: this.nextCheck, checks: this.checks.length, rings: this.rings.length, results: !!this._resultsShown, final: this.final ?? null, record: this.record, length: this.length, crashWhy: this.crashWhy ?? null, crashSeen: this.crashSeen ?? null, turrets: this.turrets.length, turretsAlive: this.turrets.filter((t) => t.alive).length, stats: this.stats, respawns: this.respawns, health: j?.alive ? j.health : 0, maxHealth: j?.maxHealth ?? 0, bots: this.bots ? { count: this.bots.count, alive: this.bots.list.filter((b) => b.alive).length, kills: this.bots.kills, spawned: this.bots.spawned, lost: this.bots.lost } : null, spec: { diff: this.spec.diff, biome: this.spec.biome, open: this.spec.open, space: !!this.spec.space }, space: this.spaceK ?? 0, ringsOn: this.ringsOn, aheadRows: this.aheadRows, farRows: this.farRows, far: this.far ? { ...this.far.stats } : null };
+    return { state: this.state, clock: this.clock, penalty: this.penalty, passed: this.passed, missed: this.missed, nextCheck: this.nextCheck, checks: this.checks.length, rings: this.rings.length, results: !!this._resultsShown, final: this.final ?? null, record: this.record, length: this.length, crashWhy: this.crashWhy ?? null, crashSeen: this.crashSeen ?? null, turrets: this.turrets.length, turretsAlive: this.turrets.filter((t) => t.alive).length, stats: this.stats, respawns: this.respawns, health: j?.alive ? j.health : 0, maxHealth: j?.maxHealth ?? 0, bots: this.bots ? { count: this.bots.count, alive: this.bots.list.filter((b) => b.alive).length, kills: this.bots.kills, spawned: this.bots.spawned, lost: this.bots.lost } : null, spec: { diff: this.spec.diff, biome: this.spec.biome, open: this.spec.open, space: !!this.spec.space }, space: this.spaceK ?? 0, ringsOn: this.ringsOn, aheadRows: this.aheadRows, farRows: this.farRows, far: this.far ? { ...this.far.stats } : null, lead: { ...this.lead }, guide: this._guide ? { t: this._guide.t, on: this._guide.on, steered: this._guide.steered } : null, timeOfDay: this.timeOfDay, preset: this.preset, respawnPose: this.respawnPose ?? null, throttle: j?.alive ? j.throttle : null, afterburner: j?.alive ? !!j.afterburner : null, speed: j?.alive ? j.vel.length() : null };
   }
 }
 
