@@ -10,6 +10,7 @@
 // some, lots), the rings (Round 17: off by default), enemy jets (none, few, some, many) and what a
 // crash does (back at the last checkpoint, the default, or the course
 // again). The best times shown are the ones for the options picked.
+// (Round 17) The time of day (day, dusk, night: held all run long; records shared).
 import { CANYON_COURSES, canyonUrl, loadRecords, medalTimes, formatTime, recordId } from "./canyon.js";
 import { courseOf, canyonSeed, BIOME_MIXED, BIOME_SPACE } from "./dim-canyon.js";
 import { CANYON_BIOMES, BIOME_ORDER, CANYON_DIFFS, DIFF_ORDER, OPEN_ORDER, CANYON_OPENS } from "./canyon-biomes.js";
@@ -29,6 +30,8 @@ const BOTS = BOT_LEVELS.map((b) => [b.id, b.name, { none: "A time trial", few: "
 const CRASH = [["checkpoint", "Respawn at checkpoint", "Back at the last checkpoint passed"], ["restart", "Restart the course", "A crash ends the run"]];
 // (Round 17) The rings to fly through: off by default (the checkpoints stay, unseen, no penalty).
 const RINGS = [["off", "Off", "Checkpoints only, no penalty"], ["on", "On", "Fly through each ring: +5 s a miss"]];
+// (Round 17) The time of day, held all run (no day going by).
+const TIMES = [["day", "Day", "Sun high all run"], ["dusk", "Dusk", "Low sun, long shadows"], ["night", "Night", "Moonlight and crystals"]];
 
 // The course spec a set of options makes (for its record and par times).
 function specFor(course, o) {
@@ -53,6 +56,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
     bots: pick(BOTS, pref.bots, "none"),
     crash: pick(CRASH, pref.crash, "checkpoint"),
     rings: pick(RINGS, pref.rings, "off"),
+    time: pick(TIMES, pref.time, "day"),
   };
 
   const el = document.createElement("div");
@@ -70,6 +74,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
         <div class="cy-opt"><div class="subhead">Open stretches <span class="cy-opt-note" data-note="open"></span></div><div class="cy-seg" data-opt="open"></div></div>
         <div class="cy-opt"><div class="subhead">After a crash <span class="cy-opt-note" data-note="crash"></span></div><div class="cy-seg" data-opt="crash"></div></div>
         <div class="cy-opt"><div class="subhead">Rings <span class="cy-opt-note" data-note="rings"></span></div><div class="cy-seg" data-opt="rings"></div></div>
+        <div class="cy-opt"><div class="subhead">Time <span class="cy-opt-note" data-note="time"></span></div><div class="cy-seg" data-opt="time"></div></div>
       </div>
       <div class="subhead">Your jet</div>
       <div class="cy-jets"></div>
@@ -82,7 +87,7 @@ export function installCanyonMenu({ screens, audio = null, beforeLeave = null, r
   document.body.appendChild(el);
   const list = el.querySelector(".cy-courses");
   const jets = el.querySelector(".cy-jets");
-  const CHOICES = { diff: DIFFS, biome: BIOMES, open: OPENS, bots: BOTS, crash: CRASH, rings: RINGS };
+  const CHOICES = { diff: DIFFS, biome: BIOMES, open: OPENS, bots: BOTS, crash: CRASH, rings: RINGS, time: TIMES };
 
   function render() {
     const rec = loadRecords();

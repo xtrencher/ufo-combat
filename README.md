@@ -194,7 +194,7 @@ you dare, through every ring, and don't touch the rock.
 - **Courses:** **Grand Canyon** (15 km: wide, deep and winding, with arches,
   rock pillars and a river far below; the one to learn), **Slot Canyon**
   (8 km: a crack in the sandstone, undercut walls, arches and dark tunnels:
-  throttle back), **Night Run** (11 km by moonlight, with glowing crystals
+  throttle back), **Night Run** (11 km, best by moonlight: Time, Night; glowing crystals
   in the walls and long tunnels) and **The Gauntlet** (16 km of everything,
   through every kind of scenery, with AA guns on the rim that shoot back).
   Each course is the same every time (it is made from its own seed), with
@@ -232,6 +232,9 @@ you dare, through every ring, and don't touch the rock.
     checkpoints are still there (where you respawn, the splits, the map)
     but no ring is drawn and nothing costs time; On, fly through each ring
     or it costs 5 seconds.
+  - (Round 17) **Time:** **Day** (the default), **Dusk** or **Night**: the
+    sky stays at that hour for the whole run (no day going by). The time
+    of day doesn't change the course: its best time is shared.
   Every set of options keeps its own best time.
 - **Your jet:** pick the **F-22 Raptor** (faster, tougher) or the **F-16
   Falcon** (lighter, turns tighter) on the canyon screen. It flies as
@@ -261,10 +264,27 @@ you dare, through every ring, and don't touch the rock.
   view a little and does a little damage, and the jet is pushed off the
   wall. The nose or the fuselage into the rock, a steep angle or a fast
   hit still blows it up.
-- (Round 17) **The view ahead:** the canyon is drawn about 1.1 km ahead
-  (it was about 320 blocks): the chunks in full for the first ~570 blocks
-  (the course's line ahead streamed first), then a light far terrain of
-  the canyon's walls, floor and river, the fog at its end. **The course
+  (Round 17) **Coming back after a crash:** the jet comes back just past
+  the checkpoint at the spot with the most room (on the course's safe line,
+  level, heading for the course a little ahead: some rings sat under an
+  arch, by a pillar or by a wall, with no room to turn), at the throttle,
+  afterburner and speed it had before the crash (never below a speed that
+  flies well; the afterburner stays lit until you press and let go of Shift
+  or pull the throttle back). For the first 3 seconds after GO an
+  **autopilot** flies the course (the banner says so); move the mouse to
+  take over. Until then, and for a second after GO in any case, the rock
+  only nudges the jet back onto the line.
+- (Round 17) **The view ahead:** the canyon is drawn in full detail far
+  ahead, by the graphics preset and the render distance in Settings:
+  about 1.8 km on **Ultra**, 1.3 km on **High**, 960 blocks on Medium and
+  570 on Low (the canyon ahead along the course streamed first, in the
+  order you will reach it at your speed, with more of the frame and more
+  background workers for it than the main game), then a light far terrain
+  of the canyon's walls, floor and river a third as far again, the fog at
+  its end (the change from one to the other is a whole stretch at a time,
+  in the fog's start). The run waits at the mouth until most of the view
+  ahead is in, so even the afterburner at full speed doesn't catch up with
+  it. **The course
   map** in the bottom-right corner shows the canyon ahead from above (its
   walls at your height, the course's line, the rock in the way), the
   checkpoints (the next one yellow, its distance under the map), the
