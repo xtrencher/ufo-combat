@@ -575,7 +575,10 @@ export class GroundVehicle extends Vehicle {
         pmin = 0;
         bottom.push(a - half, 0, a + half, 0);
       }
-      if (pmin < 3) stations.push({ a, a0: a - half, a1: a + half, p: pmin, bottom });
+      // (Within the corners, as the footprint the driving checks use; past
+      // them only where the belt still runs low: the sprocket and the idler
+      // rising over a wall must not lift the hull up it.)
+      if (pmin < 3 && (Math.abs(a) <= this.half.z * 0.86 || pmin < 0.15)) stations.push({ a, a0: a - half, a1: a + half, p: pmin, bottom });
     }
     const lines = [];
     const edges = (x, w) => lines.push(x - w / 2 + 0.02, x + w / 2 - 0.02, -x - w / 2 + 0.02, -x + w / 2 - 0.02);

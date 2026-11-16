@@ -817,9 +817,11 @@ function lowestPoint(g) {
   const wheel = (zc, yc, r) => {
     for (let dz = -r; dz <= r + 1e-6; dz += PROFILE_STEP / 2) put(zc + dz, yc - Math.sqrt(Math.max(0, r * r - dz * dz)));
   };
+  // (The hull counts for the lowest point, not for the profile: the running
+  // gear is what rests on the ground; a bumper over a wall doesn't lift it.)
   if (g.hull) {
     const p = g.hull.getAttribute("position");
-    for (let i = 0; i < p.count; i++) if (p.getY(i) < 1) put(p.getZ(i), p.getY(i));
+    for (let i = 0; i < p.count; i++) min = Math.min(min, p.getY(i));
   }
   if (lay.track && g.link) {
     const T = lay.track;

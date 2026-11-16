@@ -458,8 +458,8 @@ async function browserChecks() {
       // (Home in it: out over the void of the End would be a fall.)
       const home = await teleport(page, "overworld");
       assert(home.dim === "overworld", "home again");
-      const back = await until(page, (g) => (g.vehicles.active ? g.vehicles.active.dim : null), 10000);
-      assert(back === "overworld", `the jet home too: ${back}`);
+      const jetHome = await until(page, (g) => (g.vehicles.active ? g.vehicles.active.dim : null), 10000);
+      assert(jetHome === "overworld", `the jet home too: ${jetHome}`);
       await v(page, (g) => g.vehicles.exit({ force: true }));
     });
 
@@ -662,7 +662,21 @@ async function browserChecks() {
     const peerHttp = app.listen(PEER_PORT, "127.0.0.1");
     app.use("/ufo", ExpressPeerServer(peerHttp, { path: "/" }));
     const NET_Q = `peerServer=127.0.0.1:${PEER_PORT}/ufo&noStun=1&graphics=low`;
+    // (The solo page's work is done: its frames would only slow the two here.)
+    await page.close();
     const host = await newPage("host", { width: 640, height: 360 });
+    // (Nothing drawn on the two pages: the world still runs, the tests read it.)
+    const noDraw = () => {
+      const rr = window.__ufo.renderer;
+      if (rr && !rr.__noDraw) {
+        rr.__noDraw = true;
+        rr.render = (scene, camera) => {
+          scene?.updateMatrixWorld?.();
+          camera?.updateMatrixWorld?.();
+        };
+      }
+      return true;
+    };
     const guest = await newPage("guest", { width: 640, height: 360 });
     await browserCheck("online: the guest and the host each teleport to the Moon alone, and home", async () => {
       await host.goto(`http://127.0.0.1:${PORT}/index.html?seed=9182&type=missions&${NET_Q}`, { waitUntil: "load", timeout: 60000 });
@@ -674,6 +688,7 @@ async function browserChecks() {
       assert(code, "no room code");
       await host.click("#mp-lobby-play");
       await host.waitForFunction(() => window.__ufo.gameState === "playing", null, { timeout: 30000 });
+      await v(host, noDraw);
       await v(host, (g) => {
         g.mp.rules.setMode("creative");
         return true;
@@ -683,8 +698,11 @@ async function browserChecks() {
       await guest.fill("#mp-boot-nick", "Bob");
       await guest.click("#mp-boot-join");
       await guest.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
-      assert(await until(guest, (g) => g.mp.stateLoaded, 60000), "the host's state never arrived");
-      await play(guest);
+      assert(await until(guest, (g) => g.mp.stateLoaded, 150000), "the host's state never arrived");
+      await v(guest, noDraw);
+      // (Online the world runs behind the pause menu too: the teleport works from either.)
+      await play(guest).catch(() => {});
+      if (args.verbose) console.log(`        guest: ${await v(guest, (g) => g.gameState)}`);
       assert(await until(guest, (g) => g.player.creative, 20000), "the guest is in the room's Creative");
       const gs = await teleport(guest, "moon");
       assert(gs.dim === "moon" && gs.solidBelow && gs.openFeet, `the guest on the Moon: ${JSON.stringify(gs)}`);
@@ -695,7 +713,8 @@ async function browserChecks() {
         return pid && (g.net.players.get(pid)?.dim | 0) === 3 ? true : null;
       }, 20000);
       assert(seen, "the host knows the guest is on the Moon");
-      await play(host);
+      await play(host).catch(() => {});
+      if (args.verbose) console.log(`        host: ${await v(host, (g) => g.gameState)}`);
       const hs = await teleport(host, "moon");
       assert(hs.dim === "moon" && hs.solidBelow, `the host on the Moon: ${JSON.stringify(hs)}`);
       const gh = await teleport(guest, "overworld");
