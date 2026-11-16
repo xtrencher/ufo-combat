@@ -26,6 +26,16 @@
 // embedded in the ground (in water it sinks to the sea floor), and a random
 // crew of aliens (1 to 10, green, gray and red) climbs out and hunts the
 // player.
+//
+// (Round 18) The planets (the Moon, Mars, Mercury, Venus) have them too: the
+// same ships, tricks, tempers, attacks, crashes and crews, on that
+// dimension's ground, under the same "UFO activity" setting (main.js
+// ufosHere; the mission chain stays the Overworld's). Only the Overworld has
+// a sea: elsewhere `hasSea` is false and `seaLevel` -Infinity, so nothing
+// rises out of the sea, hovers over a lake, dives in, splashes or sinks. The
+// night is that dimension's own sky's (sky.daylight reads its sun); on an
+// airless planet's black sky the ships glow as at night. Each planet leans
+// toward a few designs and one crew kind (PLANET_FLAVOUR).
 import * as THREE from "three";
 import { createUfoModel, designInfo, designFacingOffset, randomUfoSpec, ufoLaserKey } from "./ufo-models.js";
 import { TractorBeam } from "./tractor-beam.js";
@@ -110,6 +120,14 @@ const STYLE_WEIGHTS = {
 
 const TRICKS = ["hover_lake", "zigzag", "follow", "abduct", "hover", "abduct", "dive", "burrow", "blink_hop"];
 const MAX_UFOS = 150;
+// (Round 18) A planet's flavour: about half its ships are of these designs,
+// and about half its crews of this kind.
+const PLANET_FLAVOUR = {
+  moon: { designs: ["sphere", "tictac", "saucer_disc"], crew: "alien_gray" },
+  mars: { designs: ["triangle", "boomerang", "saucer_domed"], crew: "alien_red" },
+  mercury: { designs: ["tictac", "torus", "sphere"], crew: "alien_blue" },
+  venus: { designs: ["cylinder", "saucer_domed", "triangle"], crew: "alien" },
+};
 const DESPAWN_DISTANCE = 1500;
 const SPAWN_MAX = 900; // farthest spawn (blocks), however far the view distance reaches
 const MAX_KEPT_WRECKS = 8; // intact wrecks kept in the world
@@ -252,6 +270,28 @@ export class UfoManager {
     return Math.max(0, Math.min(1, 1 - this.sky.daylight));
   }
 
+  // (Round 18) Where the UFOs are: only the Overworld has a sea (its water
+  // tricks, splashes and sinking wrecks); a planet's ground is dry.
+  get hasSea() {
+    const d = this.world.dim;
+    return !d || d === "overworld";
+  }
+
+  get seaLevel() {
+    return this.hasSea ? SEA_LEVEL : -Infinity;
+  }
+
+  // How brightly the ships glow: by the night, and as at night under an
+  // airless planet's black sky.
+  get glowNight() {
+    const n = this.night;
+    return this.world.dimInfo?.airless ? Math.max(n, 0.6) : n;
+  }
+
+  _flavour() {
+    return PLANET_FLAVOUR[this.world.dim] || null;
+  }
+
   // In Survival the mission chain sets how many UFOs there are (`rules.max`
   // at most in the sky by day, more at night, and `rules.rate` new ones per
   // second): the UFO activity, spawn chance, max count and size settings are
@@ -316,7 +356,8 @@ export class UfoManager {
   spawn(opts = {}) {
     const size = opts.size || pickWeighted(this._sizeWeights());
     const S = SIZES[size] || SIZES.small;
-    const spec = opts.spec || randomUfoSpec(Math.random, { glow: opts.glow, design: opts.design });
+    const fl = !opts.spec && !opts.design ? this._flavour() : null;
+    const spec = opts.spec || randomUfoSpec(Math.random, { glow: opts.glow, design: opts.design ?? (fl && Math.random() < 0.5 ? fl.designs[Math.floor(Math.random() * fl.designs.length)] : undefined) });
     const design = spec.design;
     const radius = opts.radius || rand(S.r[0], S.r[1]);
     const model = createUfoModel(spec, radius, { castShadow: size !== "mothership" && size !== "giant" });
@@ -396,7 +437,7 @@ export class UfoManager {
   }
 
   _waterAt(x, z) {
-    return this.world.heightAt(Math.floor(x), Math.floor(z)) < SEA_LEVEL - 1;
+    return this.hasSea && this.world.heightAt(Math.floor(x), Math.floor(z)) < SEA_LEVEL - 1;
   }
 
   // A spawn point the player can't see: out in the fog, behind terrain,
@@ -415,16 +456,17 @@ export class UfoManager {
     let best = null;
     let bestScore = -1;
     const bottom = u.info.bottom * u.radius;
+    const sea = this.seaLevel; // (Round 18: none on a planet)
     for (let k = 0; k < 14; k++) {
       const a = Math.random() * Math.PI * 2;
       const d = rand(minD, maxD);
       const x = p.x + Math.cos(a) * d;
       const z = p.z + Math.sin(a) * d;
       const h = this.world.heightAt(Math.floor(x), Math.floor(z));
-      const ground = Math.max(h, SEA_LEVEL);
+      const ground = Math.max(h, sea);
       const mode = k % 3;
       let y;
-      if (mode === 1 && h < SEA_LEVEL - 3) y = SEA_LEVEL - u.radius * 0.5 - bottom - rand(2, 6); // under the sea
+      if (mode === 1 && h < sea - 3) y = SEA_LEVEL - u.radius * 0.5 - bottom - rand(2, 6); // under the sea
       else if (mode === 0) y = ground + bottom + rand(4, 26); // low, hoping for a hill in the way
       else y = ground + rand(90, 240) + u.radius; // high in the sky
       const cand = new THREE.Vector3(x, y, z);
@@ -441,7 +483,7 @@ export class UfoManager {
   // How well hidden a spawn point is (1 = certainly).
   _hiddenScore(eye, P, d, view, camDir, u) {
     const top = P.y + u.radius * 0.5;
-    if (top < SEA_LEVEL - 0.5) return 1; // under the sea
+    if (top < this.seaLevel - 0.5) return 1; // under the sea
     if (d >= view * 0.97) return 1; // beyond the fog
     // Behind terrain: sample the ground between the eye and the point.
     const dx = P.x - eye.x;
@@ -739,7 +781,7 @@ export class UfoManager {
   _groundAt(x, z) {
     const bx = Math.floor(x);
     const bz = Math.floor(z);
-    return Math.max(this._floorAt(bx, bz) + 1, SEA_LEVEL + 1);
+    return Math.max(this._floorAt(bx, bz) + 1, this.seaLevel + 1);
   }
 
   // The top of the solid ground (the sea floor under water), +1 for the
@@ -793,7 +835,7 @@ export class UfoManager {
     this._updateCrews(dt);
     const p = this.player.position;
     let tgt = this._targetInfo();
-    const night = this.night;
+    const night = this.glowNight; // (drawing only: _place)
     // Online (host): the attackers' cap covers every player.
     const targets = this.targets ? this.targets() : null;
     this._attackCap = targets ? targets.reduce((s, t) => s + (t.vehicle?.type === "jet" ? JET_MAX_ATTACKERS : MAX_ATTACKERS), 0) : 0;
@@ -925,7 +967,7 @@ export class UfoManager {
         u.beam.update(dt, this.effects);
       }
       const dist = u.pos.distanceTo(p);
-      this._place(u, dt, dist, this.night);
+      this._place(u, dt, dist, this.glowNight);
       if (dist < humD) humD = dist;
       // (A beam of the host's that has this player in it lifts them here.)
       if (!this.beamingPlayer && u.beam?.on && u.beam.strength > 0.5 && !this.player.dead && !this.player.vehicle && !this.player.creative && u.beam.contains(this.player.position.clone().setY(this.player.position.y + 0.9))) {
@@ -1124,6 +1166,8 @@ export class UfoManager {
     // (Round 9: no hiding in a lake, the sea or a mountain, no long hops, for
     // a mission's target or a ship in a fight.)
     if ((u.missionTarget || u.byPlayer) && (trick === "burrow" || trick === "hover_lake" || trick === "dive" || trick === "blink_hop")) trick = ["hover", "zigzag", "follow"][Math.floor(Math.random() * 3)];
+    // (Round 18: no water on a planet: a hover instead of the lake, a plunge into the ground instead of the sea.)
+    if (!this.hasSea && (trick === "hover_lake" || trick === "dive")) trick = trick === "dive" ? "burrow" : "hover";
     if (trick === "blink_hop") {
       this._blink(u, 240);
       u.state = "roam";
@@ -1155,12 +1199,14 @@ export class UfoManager {
       u.trick = "hover";
     }
     if (trick === "burrow") {
-      // Fly into a mountainside and out again.
+      // Fly into a mountainside and out again. (Round 18: on a planet, high
+      // ground is a crater's rim or a ridge above the ground under the ship.)
+      const hill = this.hasSea ? 44 : this.world.heightAt(Math.floor(u.pos.x), Math.floor(u.pos.z)) + 8;
       for (let k = 0; k < 30; k++) {
         const x = u.pos.x + rand(-260, 260);
         const z = u.pos.z + rand(-260, 260);
         const h = this.world.heightAt(Math.floor(x), Math.floor(z));
-        if (h >= 44) {
+        if (h >= hill) {
           u.waypoint = new THREE.Vector3(x, h - rand(3, 9), z);
           u.timer = rand(14, 24);
           u.diveStage = 0;
@@ -2164,7 +2210,8 @@ export class UfoManager {
     const bottom = u.info.bottom * u.radius;
     const bx = Math.floor(u.pos.x);
     const bz = Math.floor(u.pos.z);
-    const inWater = IS_WET[this.world.getBlock(bx, Math.floor(u.pos.y - bottom * 0.3), bz)] === 1 || (u.pos.y - bottom < SEA_LEVEL + 1 && this._waterAt(u.pos.x, u.pos.z) && !this.world.getChunk(bx >> 4, bz >> 4));
+    // (Round 18: a planet's liquid is lava, not a sea: the ship falls through to the ground.)
+    const inWater = this.hasSea && (IS_WET[this.world.getBlock(bx, Math.floor(u.pos.y - bottom * 0.3), bz)] === 1 || (u.pos.y - bottom < SEA_LEVEL + 1 && this._waterAt(u.pos.x, u.pos.z) && !this.world.getChunk(bx >> 4, bz >> 4)));
     if (inWater) {
       // Into the sea: it slows, and sinks toward the sea floor.
       if (!u.splashed) {
@@ -2370,6 +2417,9 @@ export class UfoManager {
         }
       }
     }
+    // (Round 18) A planet's ships carry its own kind about half the time.
+    const fl = this._flavour();
+    if (fl && Math.random() < 0.5) return fl.crew;
     const r = Math.random();
     const red = 0.05 + sizeIdx * 0.06;
     const gray = 0.22 + sizeIdx * 0.03;
@@ -2379,7 +2429,7 @@ export class UfoManager {
 
   // ---------- Drawing ----------
 
-  _place(u, dt, dist = u.pos.distanceTo(this.player.position), night = this.night) {
+  _place(u, dt, dist = u.pos.distanceTo(this.player.position), night = this.glowNight) {
     const m = u.model;
     m.root.position.copy(u.pos);
     // Designs with a front (tic-tac, triangle, boomerang, cylinder) point where

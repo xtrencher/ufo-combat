@@ -43,6 +43,11 @@
 // pauses for everyone (its UFOs and fighters go; a guest in the Overworld
 // then has none: DimSync._creatures drops the host's puppets, and the host's
 // "eadd" draws them again once it is back).
+// (Round 18) The UFOs alone are on the planets too (main.js ufosHere; the
+// rest of the layer stays the Overworld's). Online they are the host's in
+// the host's dimension (drawn for every guest there, as before); a guest in
+// another dimension that has them runs its own there, as its creatures
+// (DimSync._creatures), and goes back to the host's on returning.
 //
 // Saves: each dimension's edits under a key of its own (storage.js,
 // saveEdits below), and in the player's save `dim` (where the player is;
@@ -1081,6 +1086,7 @@ export class DimSync {
   // js/net/entities.js), its own elsewhere (this round: not shared).
   _creatures(away) {
     const mobs = this.game.mobs;
+    const ufos = this.game.ufos;
     const es = this.mp.entities;
     if (!mobs) return;
     if (away) {
@@ -1093,9 +1099,19 @@ export class DimSync {
       // and the host's pauses while the host is out of the Overworld.)
       es?.dropAirPuppets?.();
       mobs.puppets = false;
+      // (Round 18: a dimension with UFOs the host is not in: this guest's own,
+      // main.js ufosHere; the dropped puppets are cleared as "gone".)
+      if (ufos) ufos.puppets = false;
     } else {
       for (let i = mobs.mobs.length - 1; i >= 0; i--) if (!mobs.mobs[i].spec.flies) mobs._remove(i);
       mobs.puppets = true;
+      // (Round 18: this guest's own UFOs go, as "gone"; the host's come with
+      // its "eadd", which may be here already: those, u.net, stay.)
+      if (ufos && !ufos.puppets) {
+        for (const u of ufos.ufos) if (!u.net) u.state = "gone";
+        ufos.pendingCrews.length = 0;
+        ufos.puppets = true;
+      }
     }
   }
 }
