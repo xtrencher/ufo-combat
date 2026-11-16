@@ -1471,7 +1471,7 @@ if (savedPlayer) {
 let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
 mods.onChange((on) => {
-  ufos.setEnabled(on && missionsHere());
+  ufos.setEnabled(on && ufosHere());
   vehicles.setEnabled(on); // (Round 15: in every dimension; the Missions layer's rest out of the Overworld, vehicles.away)
   if (!on) mobs.removeKind("alien");
 });
@@ -1647,6 +1647,11 @@ let progressOffAt = null; // (the mission stats when the chain went off)
 // the End (dims.onChange below), back on the way home.
 function missionsHere() {
   return (world.dim ?? "overworld") === "overworld";
+}
+// (Round 18) The UFOs (not the rest of the layer) are on the planets too;
+// still none in the Nether, the End or the canyon.
+function ufosHere() {
+  return ["overworld", "moon", "mars", "mercury", "venus"].includes(world.dim ?? "overworld");
 }
 // (Round 15) The mission chain's locks on the vehicles (jets, the B-2, UFOs,
 // helicopters): while the chain runs, and in the Nether and the End too,
@@ -3832,7 +3837,10 @@ const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionTh
 game.dims = dims;
 // (Round 13) The Missions layer stays in the Overworld (missionsHere).
 dims.onChange.push(() => {
-  ufos.setEnabled(mods.enabled && missionsHere());
+  // (Round 18: UFOs on the planets too; the last dimension's go, its crews and
+  // beam with them. A guest's puppets go by DimSync, js/dimensions.js.)
+  if (!ufos.puppets) ufos.clear();
+  ufos.setEnabled(mods.enabled && ufosHere());
   refreshSurvivalSystems();
   game._viewJump = true; // (Round 17: the new dimension's view distance at once, updateAltitudeView)
 });
