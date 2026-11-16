@@ -99,7 +99,24 @@ you are straight in the air at the controls of it; or the Tiger tank, the
 battle tank, the missile truck or the **Helicopter** (an Apache), parked on
 open ground just ahead with you straight in it; or (Round 15) the **Rocket**,
 on its launch pad a few blocks ahead with you aboard (see **Space**), and the
-**HACKS** button (see **Creative hacks**)).
+**HACKS** button (see **Creative hacks**); (Round 18) and the **teleports**:
+one click to **Overworld** (home: your bed, else the world spawn), the
+**Nether** (out of your portal there, else on safe ground), **The End** (its
+obsidian platform), the **Moon**, **Mars**, **Mercury** or **Venus** (your
+last landing there, else the middle of the map, on solid ground). Online
+each player goes alone, as through a portal. A vehicle you sit in comes
+along when it fits there (an aircraft in the air above you, a ground
+vehicle beside you, you at its controls), else it stays where it was. The
+buttons are greyed out (with the reason) in a world without dimensions.)
+
+(Round 18) **Every vehicle in every mode.** Switching between Creative and
+Survival never takes you out of a vehicle or removes one, nor does the
+Mods switch. Every vehicle can be boarded in every mode and world type: the
+airports' jets and UFOs, the bases' tanks, the helicopters, the missile
+truck and the ones called in and left behind, whatever the mission chain
+has reached. Only the call-ins (and the Creative palette) stay Creative's;
+a vehicle item in your inventory is placed in Survival too (and used up,
+as a boat is).
 
 **Fullscreen.** Settings > Graphics > **Fullscreen** keeps the game
 fullscreen: with it on, the game goes fullscreen as you enter it (Play,

@@ -431,8 +431,10 @@ export class VehicleManager {
   // Whether vehicles exist and work here: with the Mods on, or in any world
   // that is not a Missions world (a Survival world has no Mods but has
   // Creative's vehicles). (Round 15: in every dimension.)
+  // (Round 18: always: every vehicle in every world, mode and Mods setting;
+  // the Mods switch keeps only the Missions layer's AI off, not the vehicles.)
   get enabled() {
-    return this._on || !isMissionsWorld();
+    return true;
   }
 
   // (Round 18) In a passenger's seat (someone else flies it).
@@ -466,8 +468,10 @@ export class VehicleManager {
 
   // (Round 13) A Survival world: only a player in Creative summons or boards
   // a vehicle (a Missions world has its own locks: canBoard).
+  // (Round 18: never: every vehicle is boarded in every mode; only the
+  // call-ins stay Creative's, summonRefusal.)
   get creativeOnly() {
-    return !isMissionsWorld() && !this.player.creative;
+    return false;
   }
 
   // (Round 13) Whether F is the vehicles' just now: seated, or a vehicle in
@@ -861,8 +865,9 @@ export class VehicleManager {
 
   // Why nothing can be summoned just now (the message), or null. seatedOk:
   // the caller takes the player out of a vehicle first (the call-ins).
-  summonRefusal({ seatedOk = false } = {}) {
-    if (!this.player.creative) return "Vehicles are summoned in Creative only";
+  // (Round 18) item: a vehicle item from the inventory, placed in any mode.
+  summonRefusal({ seatedOk = false, item = false } = {}) {
+    if (!this.player.creative && !item) return "Vehicles are summoned in Creative only";
     if (!this.enabled) return "Switch the mods on first (Settings > Missions mods)";
     if (this.player.dead) return "Not now";
     if (this.active && !seatedOk) return "Get out of your vehicle first (F)";
@@ -880,7 +885,7 @@ export class VehicleManager {
     const held = now - this._summonT < SUMMON_REPEAT;
     this._summonT = now;
     if (held) return true;
-    const why = this.summonRefusal();
+    const why = this.summonRefusal({ item: true }); // (Round 18: in Survival too)
     const def = VehicleManager.summons[key];
     if (why || !def || !VehicleManager.types[def.type]) {
       this.onMessage?.(why || "That vehicle isn't here yet");
@@ -889,8 +894,9 @@ export class VehicleManager {
     const eye = this.player.getEyePosition();
     const f = Array.isArray(ctx?.forward) ? new THREE.Vector3().fromArray(ctx.forward) : this.player.getForwardVector();
     const hit = this._aimGround(eye, f.normalize());
-    if (hit) this.summonOnGround(key, hit, ctx);
-    else this.summonInAir(key, ctx);
+    const v = hit ? this.summonOnGround(key, hit, ctx) : this.summonInAir(key, ctx);
+    // (Round 18) Out of Creative the item is used up, as a boat placed.
+    if (v && !this.player.creative) ctx?.inventory?.consumeSelected?.(1);
     return true;
   }
 

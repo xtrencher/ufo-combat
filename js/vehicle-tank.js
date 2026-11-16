@@ -54,6 +54,7 @@ const WHEEL_STEP = 1.25;
 const MAX_CLIMB = 0.62;
 const CLIMB_SLOW = 0.6;
 const MAX_TILT = 0.7; // (the hull's pitch as drawn)
+const REST_STEP = 0.5; // (Round 18: how often along the hull the ground is read for it to rest on: _restGround)
 const STUCK_TIME = 1.2; // seconds pushing without getting anywhere: see _watchStuck
 const POST_MAX = 6; // the tallest post a hull pushes over (see _knock)
 const DROP_MAX = 4; // the deepest drop it drives over (more would hurt it: see _canMove)
@@ -539,6 +540,175 @@ export class GroundVehicle extends Vehicle {
     return out;
   }
 
+  // ---------- (Round 18) Resting on the ground ----------
+  // The hull's height was the higher of the ground under its middle and the
+  // mean of the ground under its four corners, and its pitch the corners'
+  // slope: on a slope of steps, across a step or over a block under a track
+  // the tracks sank into the ground (and flickered there), and over a crest
+  // both ends hung in the air. Now it rests as a rigid body on the model's
+  // own bottom (tank-model.js profile: the belt rising round the sprocket
+  // and the idler, a truck's tyres): the ground is read along each track
+  // (both its edges) every REST_STEP, and the hull sits on the highest of it.
+
+  // The stations along the hull (a: ahead of the middle, its slice
+  // [a - REST_STEP / 2, a + REST_STEP / 2] and the model's lowest bottom in
+  // it) and the lines across (b: right of the middle: each track's edges, a
+  // truck's tyres' edges), made once.
+  _restLayout() {
+    if (this._rl) return this._rl;
+    const m = this.model;
+    const lay = m.layout || {};
+    const half = REST_STEP / 2;
+    const stations = [];
+    const K = Math.floor((this.half.z + 0.6) / REST_STEP);
+    for (let k = -K; k <= K; k++) {
+      const a = k * REST_STEP;
+      let pmin = Infinity;
+      const bottom = []; // [a', the model's bottom there] across the slice
+      if (m.profile) {
+        for (let t = -half; t <= half + 1e-6; t += 0.1) {
+          const pb = m.profile(a + t);
+          if (pb < 3) bottom.push(a + t, pb);
+          pmin = Math.min(pmin, pb);
+        }
+      } else if (Math.abs(a) <= this.half.z * 0.86) {
+        pmin = 0;
+        bottom.push(a - half, 0, a + half, 0);
+      }
+      // (Within the corners, as the footprint the driving checks use; past
+      // them only where the belt still runs low: the sprocket and the idler
+      // rising over a wall must not lift the hull up it.)
+      if (pmin < 3 && (Math.abs(a) <= this.half.z * 0.86 || pmin < 0.15)) stations.push({ a, a0: a - half, a1: a + half, p: pmin, bottom });
+    }
+    const lines = [];
+    const edges = (x, w) => lines.push(x - w / 2 + 0.02, x + w / 2 - 0.02, -x - w / 2 + 0.02, -x + w / 2 - 0.02);
+    if (lay.track) edges(lay.track.x, lay.track.w);
+    else if (lay.wheels) {
+      for (const x of new Set(lay.wheels.list.map((w) => Math.abs(w[2])))) edges(x, lay.wheels.w);
+    } else lines.push(-this.half.x * 0.8, this.half.x * 0.8);
+    this._rl = { stations, lines: [...new Set(lines.map((b) => Math.round(b * 100) / 100))] };
+    return this._rl;
+  }
+
+  // The ground's height under every station's slice and line, for the hull
+  // where it is now: read at both ends of each slice (a slice is shorter
+  // than a block: whatever cells it is over, their tops are read), the
+  // higher one; where they differ (an edge under the slice), also under
+  // each point of the model's bottom across it (k.fine), so the hull rests
+  // on the edge itself, not a slice's length over the lower side. (Read
+  // again when it has moved or turned, and now and then.)
+  _restGround(from) {
+    const { stations, lines } = this._restLayout();
+    const nl = lines.length;
+    const k = this._rk || (this._rk = { x: NaN, z: NaN, yaw: NaN, n: 0, from: NaN, h: new Float32Array(stations.length * nl), e: new Float32Array(2 * nl), fine: new Array(stations.length * nl).fill(null) });
+    if (Math.abs(k.x - this.pos.x) < 0.01 && Math.abs(k.z - this.pos.z) < 0.01 && Math.abs(k.yaw - this.yaw) < 0.002 && Math.abs(k.from - from) < 0.5 && ++k.n < 20) return k.h;
+    k.x = this.pos.x;
+    k.z = this.pos.z;
+    k.yaw = this.yaw;
+    k.from = from;
+    k.n = 0;
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const read = (a, out, o) => {
+      for (let j = 0; j < nl; j++) out[o + j] = this._ground(this.pos.x + fx * a - fz * lines[j], this.pos.z + fz * a + fx * lines[j], from);
+    };
+    const e = k.e;
+    let lastA1 = NaN;
+    for (let s = 0; s < stations.length; s++) {
+      const st = stations[s];
+      // (the slice's back end: the last one's front end when they meet)
+      if (Math.abs(st.a0 - lastA1) < 1e-6) e.copyWithin(0, nl, 2 * nl);
+      else read(st.a0, e, 0);
+      read(st.a1, e, nl);
+      lastA1 = st.a1;
+      for (let j = 0; j < nl; j++) {
+        const i = s * nl + j;
+        k.h[i] = Math.max(e[j], e[nl + j]);
+        k.fine[i] = null;
+        if (e[j] === e[nl + j]) continue;
+        const bt = st.bottom;
+        const f = new Float32Array(bt.length / 2);
+        for (let q = 0; q < bt.length; q += 2) f[q / 2] = this._ground(this.pos.x + fx * bt[q] - fz * lines[j], this.pos.z + fz * bt[q] + fx * lines[j], from);
+        k.fine[i] = f;
+      }
+    }
+    return k.h;
+  }
+
+  // The height the hull rests at at its pitch and roll now: its bottom over
+  // the ground everywhere under it, touching the highest of it.
+  _restY(from = this.pos.y + this.stepUp + 0.9) {
+    const { stations, lines } = this._restLayout();
+    const h = this._restGround(from);
+    const tp = Math.tan(this.pitch);
+    const tr = Math.tan(this.roll);
+    let y = -Infinity;
+    let i = 0;
+    for (const st of stations) {
+      // (the bottom's lowest across the slice, tilted)
+      let lowA = Infinity;
+      const bt = st.bottom;
+      for (let j = 0; j < bt.length; j += 2) lowA = Math.min(lowA, bt[j + 1] + bt[j] * tp);
+      for (const b of lines) {
+        const f = this._rk.fine[i];
+        let need;
+        if (f) {
+          // (an edge under it: point by point)
+          need = -Infinity;
+          for (let q = 0; q < f.length; q++) need = Math.max(need, f[q] - bt[2 * q + 1] - bt[2 * q] * tp);
+          need -= b * tr;
+        } else need = h[i] - b * tr - lowA;
+        i++;
+        if (need > y) y = need;
+      }
+    }
+    return y;
+  }
+
+  // The pitch it settles to, as a rigid hull on its tracks: on the line
+  // over the ground under it (the upper hull of the ground less the model's
+  // bottom, along it) that passes under its middle. On a slope or in a dip
+  // that is the slope, as before; over a crest or a step's edge it rests on
+  // the edge and the higher side, a bump under its middle tips it the way
+  // it leans.
+  _restPitch(from = this.pos.y + this.stepUp + 0.9) {
+    const { stations, lines } = this._restLayout();
+    const h = this._restGround(from);
+    const pts = [];
+    let i = 0;
+    for (const st of stations) {
+      let top = -Infinity;
+      for (let j = 0; j < lines.length; j++) top = Math.max(top, h[i++]);
+      pts.push([st.a, top - st.p]);
+    }
+    const hull = [];
+    for (const q of pts) {
+      while (hull.length >= 2) {
+        const a = hull[hull.length - 2];
+        const b = hull[hull.length - 1];
+        if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) >= 0) hull.pop();
+        else break;
+      }
+      hull.push(q);
+    }
+    const slope = (a, b) => (b[1] - a[1]) / (b[0] - a[0]);
+    for (let j = 0; j + 1 < hull.length; j++) {
+      const a = hull[j];
+      const b = hull[j + 1];
+      if (b[0] <= 0) continue;
+      if (a[0] < 0) return Math.atan(slope(a, b));
+      if (j > 0) {
+        // The middle on a corner of it: the flatter side (the way it leans now on a tie).
+        const s0 = slope(hull[j - 1], a);
+        const s1 = slope(a, b);
+        if (Math.abs(Math.abs(s0) - Math.abs(s1)) < 1e-6) return Math.atan(this.pitch * s1 >= 0 ? s1 : s0);
+        return Math.atan(Math.abs(s0) < Math.abs(s1) ? s0 : s1);
+      }
+      return Math.atan(slope(a, b));
+    }
+    return this.pitch;
+  }
+
   // (Round 17) The points of the hull's outline, in its own frame: [along
   // (forward +), across (right +), limit]. The limit is how far above the
   // hull's floor the ground may rise under it: a step at the front and back
@@ -611,15 +781,18 @@ export class GroundVehicle extends Vehicle {
     const w = this.manager.world;
     if (!w.getChunk(Math.floor(this.pos.x) >> 4, Math.floor(this.pos.z) >> 4) && !force) return;
     const fp = this._footprint(this.pos.x, this.pos.z, this.yaw, this.pos.y + 3, this._fp || (this._fp = {}));
-    const g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    this._attitude(fp, 1, this.pos.y + 3);
+    // (Round 18: at rest on it at that attitude, see _restY.)
+    const g = this._restY(this.pos.y + 3);
     if (Number.isFinite(g) && (force || g > this.pos.y)) this.pos.y = g;
-    this._attitude(fp, 1);
     this._place();
   }
 
-  _attitude(fp, k) {
+  _attitude(fp, k, from) {
     // (Round 17: a little steeper than before, as far as it now climbs.)
-    const [tp, tr] = this._tilt(fp);
+    // (Round 18: the pitch as a rigid hull rests, _restPitch.)
+    const tr = this._tilt(fp)[1];
+    const tp = this._restPitch(from);
     const p = clamp(tp, -MAX_TILT, MAX_TILT);
     const r = clamp(tr, -0.5, 0.5);
     this.pitch += (p - this.pitch) * k;
@@ -867,10 +1040,11 @@ export class GroundVehicle extends Vehicle {
     this._fpT = (this._fpT || 0) - dt;
     this._tp = this._tilt(fp)[0];
     // Up a step at once (smoothly), down a ledge with gravity.
-    let g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
+    // (Round 18: resting on the highest ground under it at its attitude, _restY.)
+    let g = this._restY();
     // (Round 16) Nothing under it at all (driven off an island of the End):
     // it falls into the void and is lost, not left floating at the bottom.
-    const voidBelow = g <= 0;
+    const voidBelow = Math.max(fp.c, fp.fl, fp.fr, fp.bl, fp.br) <= 0;
     if (voidBelow) g = -64;
     if (g > this.pos.y + 0.01) {
       // (Round 17: a big step up costs a little speed: a bump, not a lift.)
