@@ -447,7 +447,8 @@ async function browserChecks() {
     });
     assert(!r.none, "no airport near the seed's spawn");
     assert(r.spots >= 1 && r.parked, `parked: ${JSON.stringify(r)}`);
-    assert(r.locked && r.unlocked && r.creative, `the lock: ${JSON.stringify(r)}`);
+    // (Round 18: no locks on boarding any more: every vehicle in every mode.)
+    assert(!r.locked && r.unlocked && r.creative, `never locked: ${JSON.stringify(r)}`);
     assert(r.taken, `boarded: ${JSON.stringify(r)}`);
   });
 

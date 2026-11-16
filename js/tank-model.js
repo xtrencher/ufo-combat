@@ -782,6 +782,82 @@ function geometriesFor(kind, paint) {
   return g;
 }
 
+// (Round 18) How far the model reaches below its y 0 at rest: the track
+// links' grousers round the bottom of the belt, the road wheels' and the
+// truck tyres' tread, the hull (each kind's own, measured once from its
+// geometries). The links ran 0.06-0.1 under y 0, the wheels' tread to 0.05:
+// into the ground's top face, where they flickered against it. The model is
+// lifted by this plus TRACK_GAP, so the lowest point sits a hair over the
+// ground (no visible gap, no shared plane for the depth test to fight over).
+// Also its bottom's profile along its length (g.profile: the lowest point in
+// each PROFILE_STEP slice along z, over the lowest point; Infinity where
+// nothing reaches down), for the hull to rest on the ground as it is shaped
+// (vehicle-tank.js _rest): the belt round the sprocket and the idler rises
+// at the ends, a truck's tyres touch only under each axle.
+export const TRACK_GAP = 0.012;
+const PROFILE_STEP = 0.1;
+function lowestPoint(g) {
+  if (g.lowest !== undefined) return g.lowest;
+  const lay = g.layout;
+  const z0 = -lay.length / 2 - 1;
+  const n = Math.ceil((lay.length + 2) / PROFILE_STEP) + 1;
+  const prof = new Float32Array(n).fill(Infinity);
+  let min = 0;
+  const put = (z, y) => {
+    if (y < min) min = y;
+    const i = Math.round((z - z0) / PROFILE_STEP);
+    if (i >= 0 && i < n && y < prof[i]) prof[i] = y;
+  };
+  const radial = (geo) => {
+    const p = geo.getAttribute("position");
+    let r = 0;
+    for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getY(i), p.getZ(i)));
+    return r;
+  };
+  const wheel = (zc, yc, r) => {
+    for (let dz = -r; dz <= r + 1e-6; dz += PROFILE_STEP / 2) put(zc + dz, yc - Math.sqrt(Math.max(0, r * r - dz * dz)));
+  };
+  if (g.hull) {
+    const p = g.hull.getAttribute("position");
+    for (let i = 0; i < p.count; i++) if (p.getY(i) < 1) put(p.getZ(i), p.getY(i));
+  }
+  if (lay.track && g.link) {
+    const T = lay.track;
+    const path = beltPath(T.circles, T.thick / 2);
+    const pos = g.link.getAttribute("position");
+    const o = { z: 0, y: 0, a: 0 };
+    const k1 = Math.ceil(path.length / 0.02);
+    for (let k = 0; k < k1; k++) {
+      path.at((k / k1) * path.length, o);
+      if (o.y > 1) continue;
+      // (as roll() lays a link: turned by -a about x)
+      const c = Math.cos(-o.a);
+      const sn = Math.sin(-o.a);
+      for (let i = 0; i < pos.count; i++) put(o.z + pos.getY(i) * sn + pos.getZ(i) * c, o.y + pos.getY(i) * c - pos.getZ(i) * sn);
+    }
+  }
+  if (lay.wheels && g.wheel) {
+    const r = radial(g.wheel);
+    for (const w of lay.wheels.list) wheel(w[0], w[1], r);
+    if (lay.wheels.extra && g.small) {
+      const rs = radial(g.small);
+      for (const w of lay.wheels.extra) wheel(w[0], w[1], rs);
+    }
+  }
+  for (let i = 0; i < n; i++) prof[i] -= min;
+  g.lowest = min;
+  g.profile = { z0, step: PROFILE_STEP, bins: prof };
+  return min;
+}
+
+// (Round 18) The model's bottom at `a` ahead of its middle (model z = -a),
+// over its lowest point: Infinity where nothing of it reaches down there.
+function profileAt(g, a) {
+  const P = g.profile;
+  const i = Math.round((-a - P.z0) / P.step);
+  return i >= 0 && i < P.bins.length ? P.bins[i] : Infinity;
+}
+
 // A muzzle flash quad (additive), for the moment a gun fires.
 let flashTex = null;
 function flashTexture() {
@@ -830,8 +906,11 @@ export function createTankModel(kind = "mbt", { paint = "olive" } = {}) {
   };
   const hull = new THREE.Group();
   root.add(hull);
+  // (Round 18) The tracks (or tyres) on the ground's surface, not in it: lowestPoint.
+  const lift = TRACK_GAP - lowestPoint(g);
+  hull.position.y = lift;
   mesh(g.hull, mat, hull);
-  const model = { root, hull, light, layout: lay, kind, paint, length: lay.length, width: lay.width, height: lay.height };
+  const model = { root, hull, light, layout: lay, kind, paint, length: lay.length, width: lay.width, height: lay.height, lift, profile: (a) => profileAt(g, a) };
 
   // ---- Tracks and wheels ----
   let links = null;

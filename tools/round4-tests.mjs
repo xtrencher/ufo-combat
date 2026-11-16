@@ -600,7 +600,8 @@ await check("airport bunkers (Round 5): an alien ship hovers in the hall of a se
     g.setMode("creative");
     return { early: !!early, late: !!late };
   });
-  assert(lock.early && !lock.late, `locked early, open with Salvage: ${JSON.stringify(lock)}`);
+  // (Round 18: no locks on boarding any more: every vehicle in every mode.)
+  assert(!lock.early && !lock.late, `never locked: ${JSON.stringify(lock)}`);
 });
 
 // ================= Part 3: UFO piloting =================
@@ -986,7 +987,7 @@ await check("the chain: jets unlock with 'Take to the air', alien ships with 'Sa
   });
   const j = JSON.stringify(r);
   assert(r.n === 28 && r.rewards === "261,262", `28 missions, apples only: ${j}`);
-  assert(r.jetEarly && !r.jetLate, `jets with mission 10: ${j}`);
+  assert(!r.jetEarly && !r.jetLate, `jets never locked (Round 18): ${j}`);
 });
 
 // ================= Part 5: parrots =================
