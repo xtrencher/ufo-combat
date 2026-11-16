@@ -5,6 +5,8 @@
 // (start(), update(dt), playerJoined(p), playerLeft(p), stop()):
 //   players.js   remote players: states, avatars, nameplates
 //   vehicles.js  vehicles: owners, puppets, claims
+//   seats.js     (Round 18) who sits where: the pilot, the passengers
+//   space.js     (Round 18) a crew's trip through space together
 //   world.js     block edits, the join transfer of the world
 //   fx.js        explosions, shots, projectiles seen by everyone
 //   entities.js  the host's UFOs, creatures and enemy jets on the clients,
@@ -34,6 +36,9 @@ import { PvpSync } from "./pvp.js";
 import { CrateSync } from "./crates.js";
 import { ChestSync } from "./chests.js";
 import { FurnaceSync } from "./furnace.js";
+import { SeatSync } from "./seats.js";
+import { CrewSpaceSync } from "./space.js";
+import { savedRules } from "./config.js";
 
 export class Multiplayer {
   constructor(net, game) {
@@ -48,6 +53,8 @@ export class Multiplayer {
     this.ui = new MpMenus(this);
     this.players = this.addModule(new PlayerSync(this));
     this.vehicles = this.addModule(new VehicleSync(this));
+    this.seats = this.addModule(new SeatSync(this)); // (Round 18)
+    this.crewSpace = this.addModule(new CrewSpaceSync(this)); // (Round 18)
     this.world = this.addModule(new WorldSync(this));
     this.fx = this.addModule(new FxSync(this));
     this.rules = this.addModule(new RulesSync(this));
@@ -55,7 +62,13 @@ export class Multiplayer {
     this.coop = this.addModule(new CoopSync(this));
     this.dogfight = this.addModule(new Dogfight(this));
     this.items = this.addModule(new ItemSync(this));
-    this.pvp = true; // the host's "PvP / friendly fire" rule (Round 8: on by default)
+    // The host's "PvP / friendly fire" rule (Round 8: on by default; Round 18:
+    // in every mode, and kept for the host's next room), and (Round 18) its
+    // "Team play" rule: anyone can get into anyone's vehicle (on by default).
+    const rules = game.GUEST ? { pvp: true, teamPlay: true } : savedRules();
+    this.pvp = rules.pvp;
+    this.teamPlay = rules.teamPlay;
+
     this.pvpSync = this.addModule(new PvpSync(this));
     this.crates = this.addModule(new CrateSync(this));
     this.chests = this.addModule(new ChestSync(this));

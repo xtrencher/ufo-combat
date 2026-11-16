@@ -187,7 +187,8 @@ await check("a new world under automation plays the classic chain; a drawn run p
   });
   const j = JSON.stringify(r);
   assert(r.classic && r.random && r.total >= 26 && r.total <= 30, j);
-  assert(r.lockedText && r.lockedText.includes(`mission ${r.wingsN} `) && r.unlocked, `unlocks by id: ${j}`);
+  // (Round 18: no locks on boarding any more: every vehicle in every mode.)
+  assert(!r.lockedText && r.unlocked, `never locked (Round 18): ${j}`);
   assert(!r.cratesAtSupply && r.cratesAfter, `crates after the supply drop: ${j}`);
   assert(r.items === 5 && r.done === 3 && r.current?.startsWith(r.currentTitle) && /classified/.test(r.secret || "") && r.leaks === 0, `the list: ${j}`);
   // The tracker: MISSION 4/N, and no title for what comes next.

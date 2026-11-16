@@ -828,7 +828,8 @@ await check("saving and reloading while flying a UFO puts you back in it", async
   assert(again === "ufo", `after reload: ${again}`);
 });
 
-await check("mods off while flying: set down safely, vehicles and UFOs gone; mods on: they're back", async () => {
+// (Round 18: the vehicles are no longer the Mods': a pilot flies on, they stay.)
+await check("mods off while flying: the UFOs gone, the pilot still flying (Round 18), the vehicles still there", async () => {
   const r = await v((g) => {
     g.ufos.spawn({ size: "small", pos: g.player.position.clone().add(new g.THREE.Vector3(80, 30, 0)) });
     g.setModsEnabled(false);
@@ -842,7 +843,7 @@ await check("mods off while flying: set down safely, vehicles and UFOs gone; mod
     s.back = g.vehicles.vehicles.some((x) => x.root.visible);
     return s;
   });
-  assert(!r.vehicle && r.ufos === 0 && !r.shown && !r.solid && r.back, JSON.stringify(r));
+  assert(r.vehicle && r.ufos === 0 && r.shown && !r.solid && r.back, JSON.stringify(r));
 });
 
 await check("dying in a destroyed vehicle: the message names what brought it down ('Shot down by an enemy UFO', Round 9)", async () => {

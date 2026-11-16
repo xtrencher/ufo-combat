@@ -29,6 +29,14 @@
 //     (js/net/vehicles.js). The Missions layer's (the airports' parked
 //     aircraft, the ground war, the helicopters' war, the fighters) stays
 //     the Overworld's: `away` (out of the Overworld) puts it to rest.
+//   - (Round 18) seats: every vehicle has the pilot's (driver's) seat and
+//     passengers' seats (seatCount). Online a player who boards a vehicle
+//     somebody else flies takes a passenger's seat (board): `active` is that
+//     vehicle (another player's puppet), `seat` 1 or more; it rides along
+//     (its seat follows the vehicle), looks round with the mouse and has
+//     cameras of its own (chase, the pilot's view, its seat); F gets out.
+//     Who sits where is the host's (js/net/seats.js): it calls promote()
+//     when the pilot left and this passenger takes the controls.
 // Vehicle types register themselves with VehicleManager.register(), and
 // what Creative can summon with VehicleManager.registerSummon().
 import * as THREE from "three";
@@ -66,6 +74,54 @@ const _pose = { pos: null, q: null, vel: null };
 const _pose2 = { pos: null, q: null, vel: null };
 const _lead = new THREE.Vector3();
 const _lead2 = new THREE.Vector3();
+
+// ---------- Seats (Round 18) ----------
+
+// How many people a vehicle carries, the pilot's (driver's) seat included:
+// a fighter 1 (the F-16 is a two-seater here), the SR-71 and the B-2 2, a
+// helicopter 4 (the Black Hawk 8), a tank or a launcher 3, the rocket 4, a
+// UFO by its size (2 to 8). The AI's vehicles and anything else: 1.
+// (A vehicle may set its own `seats`.)
+const JET_SEATS = { f22: 1, f16: 2, sr71: 2, b2: 2 };
+export function seatCount(v) {
+  if (!v) return 0;
+  if (Number.isFinite(v.seats)) return v.seats;
+  if (v.isEnemyJet || v.npc) return 1;
+  switch (v.type) {
+    case "jet":
+      return JET_SEATS[v.jetType] ?? 1;
+    case "heli":
+      return v.kind === "blackhawk" ? 8 : 4;
+    case "tank":
+    case "aapark":
+    case "tel":
+      return 3;
+    case "rocket":
+      return 4;
+    case "ufo":
+      return Math.max(2, Math.min(8, Math.round((v.radius || 4) / 1.5)));
+    default:
+      return 1;
+  }
+}
+
+// Where passenger `seat` (1, 2...) sits in vehicle v: behind the pilot in a
+// jet (the second crew seat), round the cabin in anything else, turned with
+// the vehicle.
+const _sq = new THREE.Quaternion();
+const _sy = new THREE.Vector3(0, 1, 0);
+export function passengerSeat(v, seat, out = new THREE.Vector3()) {
+  v.seatPosition(out);
+  const row = Math.ceil(seat / 2);
+  const side = seat % 2 ? -1 : 1;
+  let off;
+  if (v.type === "jet") off = _dir.set(0, 0.15, 1.4 * row);
+  else if (v.type === "ufo") off = _dir.set(Math.cos(seat * 2.1) * v.radius * 0.3, 0, Math.sin(seat * 2.1) * v.radius * 0.3);
+  else off = _dir.set(side * 0.8, 0.1, 1.1 * row);
+  const q = v.q && v.q.isQuaternion ? v.q : _sq.setFromAxisAngle(_sy, v.yaw ?? 0);
+  return out.add(off.applyQuaternion(q));
+}
+const PASSENGER_CAMS = ["chase", "pilot's view", "seat"];
 
 // ---------- Base class ----------
 
@@ -339,6 +395,13 @@ export class VehicleManager {
     this._summonT = -99; // (the last summon's time, for the held button)
     this._ufoNext = Math.floor(Math.random() * UFO_DESIGNS.length); // (the UFO item's next design)
     this.restoring = false; // true while load() puts the player back in a saved seat
+    // (Round 18) Seats: 0 at the controls of `active` (or on foot), 1+ a
+    // passenger's seat in it (board); a passenger's own look and camera.
+    this.seat = 0;
+    this.look = { yaw: 0, pitch: 0 };
+    this.passCam = 0;
+    this.pilotName = null; // (v) => the name of whoever flies it (net/seats.js)
+    this.boardPrompt = null; // (v) => the "Press F" text for v, or null (net/seats.js)
     this.config = {}; // per-type settings (Vehicles tab), filled in by main.js
     this.parachute = new Parachute(scene);
     this.input = { dx: 0, dy: 0, buttons: [false, false, false], wheel: 0, pressed: new Set(), keys: player.keys };
@@ -368,8 +431,20 @@ export class VehicleManager {
   // Whether vehicles exist and work here: with the Mods on, or in any world
   // that is not a Missions world (a Survival world has no Mods but has
   // Creative's vehicles). (Round 15: in every dimension.)
+  // (Round 18: always: every vehicle in every world, mode and Mods setting;
+  // the Mods switch keeps only the Missions layer's AI off, not the vehicles.)
   get enabled() {
-    return this._on || !isMissionsWorld();
+    return true;
+  }
+
+  // (Round 18) In a passenger's seat (someone else flies it).
+  get passenger() {
+    return !!this.active && this.seat > 0;
+  }
+
+  // (Round 18) The vehicle this player flies or drives (not one it rides in).
+  get driving() {
+    return this.seat > 0 ? null : this.active;
   }
 
   // (Round 15) The dimension the world is in.
@@ -393,8 +468,10 @@ export class VehicleManager {
 
   // (Round 13) A Survival world: only a player in Creative summons or boards
   // a vehicle (a Missions world has its own locks: canBoard).
+  // (Round 18: never: every vehicle is boarded in every mode; only the
+  // call-ins stay Creative's, summonRefusal.)
   get creativeOnly() {
-    return !isMissionsWorld() && !this.player.creative;
+    return false;
   }
 
   // (Round 13) Whether F is the vehicles' just now: seated, or a vehicle in
@@ -566,6 +643,7 @@ export class VehicleManager {
   enter(v) {
     if (!v || !v.alive || this.active) return false;
     this.active = v;
+    this.seat = 0;
     v.occupied = true;
     const p = this.player;
     p.vehicle = v;
@@ -582,18 +660,103 @@ export class VehicleManager {
     return true;
   }
 
+  // ---------- Seats (Round 18) ----------
+
+  // Into passenger seat `seat` (1+) of v (someone else's: online, the host
+  // gave us that seat, js/net/seats.js). The vehicle is not ours to fly: it
+  // is left alone (no onEnter); we ride along and look round.
+  board(v, seat = 1) {
+    if (!v || !v.alive || seat < 1) return false;
+    if (this.active === v) {
+      this.seat = seat; // (moved to another seat)
+      return true;
+    }
+    if (this.active) return false;
+    const p = this.player;
+    this.active = v;
+    this.seat = seat;
+    p.vehicle = v;
+    p.velocity.set(0, 0, 0);
+    p.knockback.set(0, 0, 0);
+    this.parachute.close(p);
+    this.look.yaw = p.yaw;
+    this.look.pitch = Math.max(-1.2, Math.min(0.6, p.pitch));
+    this.releaseAll();
+    if (this.audio?.playVehicleEnter) this.audio.playVehicleEnter(v.type);
+    if (this.onEnter) this.onEnter(v);
+    this.onMessage?.(`You ride in the ${v.name}: F gets out, F5 the view`);
+    return true;
+  }
+
+  // A passenger takes the controls (the pilot got out: net/seats.js, once
+  // the vehicle is ours to fly). Motion and attitude stay as they were.
+  promote() {
+    const v = this.active;
+    if (!v || this.seat === 0) return false;
+    this.seat = 0;
+    v.occupied = true;
+    v.camYaw = this.look.yaw;
+    v.camPitch = Math.min(0, this.look.pitch);
+    try {
+      v.onEnter();
+    } catch (err) {
+      console.warn("MINECLAUDE: taking the controls", err);
+    }
+    this.releaseAll();
+    this.onMessage?.(`You have the controls of the ${v.name}`);
+    return true;
+  }
+
+  // The pilot's seat lost (online: someone else was given it first): a
+  // passenger's seat instead, still aboard.
+  demote(seat = 1) {
+    const v = this.active;
+    if (!v || this.seat > 0) {
+      if (v) this.seat = Math.max(1, seat);
+      return false;
+    }
+    this.look.yaw = v.camYaw ?? this.player.yaw;
+    this.look.pitch = v.camPitch ?? 0;
+    try {
+      v.onExit();
+    } catch (err) {
+      console.warn("MINECLAUDE: leaving the controls", err);
+    }
+    v.occupied = false;
+    this.seat = Math.max(1, seat);
+    this.releaseAll();
+    return true;
+  }
+
+  // A passenger's vehicle was destroyed with them aboard (online: its owner
+  // says so): they go with it, as its pilot does (destroy).
+  crewLost(v, cause = "vehicle") {
+    if (!v || this.active !== v || this.seat === 0) return false;
+    this.active = null;
+    this.seat = 0;
+    this.player.vehicle = null;
+    if (this.onExit) this.onExit(v);
+    if (this.onPilotKilled) this.onPilotKilled(cause, v);
+    return true;
+  }
+
   // Gets out: onto the ground beside the vehicle, into the water, out of a
   // tunnel or, from high up, below it on a parachute (a jet ejects its
   // pilot upward first). force: no ejection effects (mods off, death).
+  // (Round 18: a passenger gets out the same way; the vehicle is not touched.)
   exit({ force = false } = {}) {
     const v = this.active;
     if (!v) return false;
     const p = this.player;
     const airborne = v.airborne;
-    v.occupied = false;
+    const rider = this.seat > 0;
     this.active = null;
+    this.seat = 0;
     p.vehicle = null;
-    v.onExit();
+    if (!rider) {
+      v.occupied = false;
+      v.onExit();
+    }
     let spot = null;
     if (!airborne) spot = this.safeExit(v);
     if (spot) {
@@ -623,8 +786,8 @@ export class VehicleManager {
       p.position.set(x, (top >= 0 ? top : this.world.heightAt(Math.floor(x), Math.floor(z))) + 1.05, z);
       p.velocity.set(0, 0, 0);
     }
-    p.yaw = v.camYaw;
-    p.pitch = Math.max(-1.2, Math.min(1.2, v.camPitch));
+    p.yaw = rider ? this.look.yaw : v.camYaw;
+    p.pitch = Math.max(-1.2, Math.min(1.2, rider ? this.look.pitch : v.camPitch));
     p.resetFall?.();
     if (this.audio?.playVehicleExit && !force) this.audio.playVehicleExit(v.type);
     if (this.onExit) this.onExit(v);
@@ -645,6 +808,7 @@ export class VehicleManager {
     v.onDestroyed(cause);
     if (pilot) {
       this.active = null;
+      this.seat = 0;
       v.occupied = false;
       this.player.vehicle = null;
       if (this.onExit) this.onExit(v);
@@ -701,8 +865,9 @@ export class VehicleManager {
 
   // Why nothing can be summoned just now (the message), or null. seatedOk:
   // the caller takes the player out of a vehicle first (the call-ins).
-  summonRefusal({ seatedOk = false } = {}) {
-    if (!this.player.creative) return "Vehicles are summoned in Creative only";
+  // (Round 18) item: a vehicle item from the inventory, placed in any mode.
+  summonRefusal({ seatedOk = false, item = false } = {}) {
+    if (!this.player.creative && !item) return "Vehicles are summoned in Creative only";
     if (!this.enabled) return "Switch the mods on first (Settings > Missions mods)";
     if (this.player.dead) return "Not now";
     if (this.active && !seatedOk) return "Get out of your vehicle first (F)";
@@ -720,7 +885,7 @@ export class VehicleManager {
     const held = now - this._summonT < SUMMON_REPEAT;
     this._summonT = now;
     if (held) return true;
-    const why = this.summonRefusal();
+    const why = this.summonRefusal({ item: true }); // (Round 18: in Survival too)
     const def = VehicleManager.summons[key];
     if (why || !def || !VehicleManager.types[def.type]) {
       this.onMessage?.(why || "That vehicle isn't here yet");
@@ -729,8 +894,9 @@ export class VehicleManager {
     const eye = this.player.getEyePosition();
     const f = Array.isArray(ctx?.forward) ? new THREE.Vector3().fromArray(ctx.forward) : this.player.getForwardVector();
     const hit = this._aimGround(eye, f.normalize());
-    if (hit) this.summonOnGround(key, hit, ctx);
-    else this.summonInAir(key, ctx);
+    const v = hit ? this.summonOnGround(key, hit, ctx) : this.summonInAir(key, ctx);
+    // (Round 18) Out of Creative the item is used up, as a boat placed.
+    if (v && !this.player.creative) ctx?.inventory?.consumeSelected?.(1);
     return true;
   }
 
@@ -1176,7 +1342,7 @@ export class VehicleManager {
       // vehicle over ground not loaded yet waits, as vanilla's things do:
       // a parked jet doesn't sink while the Nether's chunks come back in.
       if (v !== this.active && !v.puppet && noMap && !this.world.getChunk(Math.floor(v.pos.x) >> 4, Math.floor(v.pos.z) >> 4)) continue;
-      v.update(dt, v === this.active ? this.input : null);
+      v.update(dt, v === this.active && this.seat === 0 ? this.input : null);
       if (!v.alive && v.removeAt !== undefined) {
         v.removeAt -= dt;
         if (v.removeAt <= 0 && !v.keepWreck) {
@@ -1188,7 +1354,18 @@ export class VehicleManager {
     }
     if (this.enabled) this._collide(dt);
     const v = this.active;
-    if (v) {
+    if (v && this.seat > 0) {
+      // (Round 18) A passenger: the seat follows the vehicle; the mouse looks round.
+      const sens = 0.0022 * (this.mouseSensitivity ?? 0.6);
+      this.look.yaw -= this.input.dx * sens;
+      this.look.pitch = Math.max(-1.45, Math.min(1.45, this.look.pitch - this.input.dy * sens * (this.invertY ? -1 : 1)));
+      passengerSeat(v, this.seat, this._seat);
+      p.position.copy(this._seat);
+      p.velocity.set(0, 0, 0);
+      p.knockback.set(0, 0, 0);
+      p.yaw = this.look.yaw;
+      p.pitch = Math.max(-1.2, Math.min(1.2, this.look.pitch));
+    } else if (v) {
       v.seatPosition(this._seat);
       p.position.copy(this._seat);
       p.velocity.set(0, 0, 0);
@@ -1204,7 +1381,56 @@ export class VehicleManager {
   }
 
   updateCamera(camera, dt) {
-    if (this.active) this.active.updateCamera(camera, dt);
+    if (!this.active) return;
+    if (this.seat > 0) this._passengerCamera(camera, dt);
+    else this.active.updateCamera(camera, dt);
+  }
+
+  // (Round 18) F5: the vehicle's own cameras, or a passenger's.
+  cycleCamera() {
+    if (!this.active) return null;
+    if (this.seat === 0) return this.active.cycleCamera();
+    this.passCam = (this.passCam + 1) % PASSENGER_CAMS.length;
+    return PASSENGER_CAMS[this.passCam];
+  }
+
+  // (Round 18) A passenger's camera: "chase" round the vehicle as it looks,
+  // "pilot's view" (the pilot's own camera, sent with the vehicle's states:
+  // net/vehicles.js pilotCam; until one comes, the chase), "seat" from its seat.
+  _passengerCamera(camera, dt) {
+    const v = this.active;
+    const mode = PASSENGER_CAMS[this.passCam];
+    const fov = this.player.fov || camera.fov;
+    if (Math.abs(camera.fov - fov) > 0.05) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+    camera.up.set(0, 1, 0);
+    camera.rotation.order = "YXZ";
+    const pc = v.pilotCam;
+    if (mode === "pilot's view" && pc && performance.now() - pc.t < 1500) {
+      camera.position.copy(v.pos).add(pc.off);
+      camera.quaternion.copy(pc.q);
+      return;
+    }
+    const { yaw, pitch } = this.look;
+    if (mode === "seat") {
+      passengerSeat(v, this.seat, camera.position);
+      camera.position.y += 1.2;
+      camera.rotation.set(pitch, yaw, 0);
+      return;
+    }
+    const r = v.hitRadius ?? v.radius ?? 3;
+    const dist = Math.max(8, Math.min(70, r * 2.4 + 7));
+    const center = _lead.copy(v.pos);
+    center.y += Math.max(1.5, r * 0.35);
+    const cp = Math.cos(pitch);
+    const back = _lead2.set(Math.sin(yaw) * cp, -Math.sin(pitch), Math.cos(yaw) * cp);
+    let d = dist;
+    const hit = this.world.raycast?.(center, back, dist, { solidOnly: true });
+    if (hit) d = Math.max(2, hit.distance - 0.6);
+    camera.position.copy(center).addScaledVector(back, d);
+    camera.rotation.set(pitch, yaw, 0);
   }
 
   // HUD panel and the boarding hint (throttled DOM updates).
@@ -1223,7 +1449,8 @@ export class VehicleManager {
     if (this.promptEl) {
       this.promptEl.classList.toggle("hidden", !near);
       // (Written only when it changes: no DOM work every frame.)
-      const text = near ? (this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : `Press F to board the ${near.name}`) : "";
+      // (Round 18: online, a seat in a vehicle someone flies: net/seats.js boardPrompt.)
+      const text = near ? (this.canBoard?.(near) ? `The ${near.name} is locked for now (a later mission)` : this.boardPrompt?.(near) || `Press F to board the ${near.name}`) : "";
       if (text !== this._promptText) {
         this._promptText = text;
         if (text) this.promptEl.textContent = text;
@@ -1233,7 +1460,7 @@ export class VehicleManager {
     this._hudTimer = 0.1;
     // (Live rows such as hull and ghost mode stay current while I is open.)
     if (this.infoOpen) this.refreshInfo();
-    const h = v.hud();
+    const h = this.seat > 0 ? this._passengerHud(v) : v.hud();
     const rows = h.rows.map(([k, val]) => `<div class="vh-row"><span>${k}</span><b>${val}</b></div>`).join("");
     const bars = (h.bars || []).map((b) => `<div class="vh-bar-row"><span>${b.label}</span><div class="vh-bar"><div class="${b.hot ? "hot" : ""}" style="width:${Math.round(Math.max(0, Math.min(1, b.value)) * 100)}%"></div></div></div>`).join("");
     const hp = Math.max(0, Math.min(1, h.health));
@@ -1245,6 +1472,24 @@ export class VehicleManager {
       (h.help ? `<div class="vh-help">${this.exitLocked?.() ? h.help.replace(/F (EJECT|get out|exit)/i, "F: no getting out") : h.help}</div>` : "");
     // (Written only when it changes: no rebuild of the panel 10 times a second.)
     if (html !== this._hudHtml) this.hudEl.innerHTML = this._hudHtml = html;
+  }
+
+  // (Round 18) A passenger's panel: who flies it, the seat, speed and height.
+  _passengerHud(v) {
+    const speed = v.vel.length();
+    const ground = this.groundBelow(v.pos.x, v.pos.y - v.bottom - 0.5, v.pos.z);
+    const pilot = this.pilotName?.(v) || null;
+    return {
+      title: `${v.name}: passenger`,
+      rows: [
+        ["Pilot", pilot || "nobody"],
+        ["Seat", `${this.seat + 1} of ${seatCount(v)}`],
+        ["Speed", `${Math.round(speed * 3.6)} km/h`],
+        ["Height", `${Math.max(0, Math.round(v.pos.y - v.bottom - ground))} m`],
+      ],
+      health: v.health / v.maxHealth,
+      help: `F get out · F5 view (${PASSENGER_CAMS[this.passCam]}) · mouse: look round`,
+    };
   }
 
   // The vehicle info panel (I): stats and controls of the vehicle you are in.
@@ -1279,6 +1524,8 @@ export class VehicleManager {
       for (const v of this.vehicles) v.root.visible = true;
       return;
     }
+    // (Round 18: a passenger simply gets out.)
+    if (!on && this.active && this.seat > 0) this.exit({ force: true });
     if (!on && this.active) {
       const v = this.active;
       const p = this.player;

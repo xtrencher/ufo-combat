@@ -480,9 +480,9 @@ export class Tel extends GroundVehicle {
     this.model.setMissile(this.loaded);
   }
 
-  // Creative only (and never the aliens'): a launcher is no Missions weapon.
+  // Never the aliens'. (Round 18: in every mode, no longer Creative only.)
   get unusable() {
-    return this._unusable || this.enemy || !this.manager.player?.creative;
+    return this._unusable || this.enemy;
   }
   set unusable(v) {
     this._unusable = !!v;

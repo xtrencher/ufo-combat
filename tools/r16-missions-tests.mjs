@@ -450,7 +450,8 @@ async function browserChecks() {
       g.vehicles.remove(jet);
       return { before, after, won: [...P.won.keys()] };
     });
-    assert(/Air mission/.test(r.before || "") && !r.after && r.won.includes("dogfight"), JSON.stringify(r));
+    // (Round 18: no locks on boarding any more: every vehicle in every mode.)
+    assert(!r.before && !r.after && r.won.includes("dogfight"), JSON.stringify(r));
     await v(page, (g) => (g.flushSave(), true));
     await page.reload({ waitUntil: "load" });
     await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });

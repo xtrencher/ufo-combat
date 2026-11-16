@@ -30,7 +30,7 @@
 // cuts to pick from, the result) have their own slots, like the anvil.
 // (js/content/workstations.js.)
 import { BLOCK } from "./blocks.js";
-import { itemInfo, maxStack, CREATIVE_ITEMS, ALL_WEAPONS, itemAllowed, ARMOR_SLOTS } from "./items.js";
+import { itemInfo, maxStack, CREATIVE_ITEMS, ALL_WEAPONS, itemAllowed, ARMOR_SLOTS, MOD_ITEMS } from "./items.js";
 import { HOTBAR_SIZE, INVENTORY_SIZE, makeStack, clickSlot, quickMove, addToRange, addInOrder, canMerge, ORDER_RESULT, ORDER_CONTAINER, Inventory } from "./inventory.js";
 import { SlotView, stackLines, stackName } from "./slot-view.js";
 import { CHEST_SLOTS } from "./chests.js";
@@ -42,11 +42,11 @@ import { BARREL, GRINDSTONE, STONECUTTER, ENCHANTED_BOOK, BOOK } from "./content
 import { sameStack } from "./inventory.js";
 import { craftResult, gridIds, consumeGrid, isFuel } from "./crafting.js";
 import { FURNACE_SLOTS, furnaceAccepts } from "./furnace.js";
-import { vanillaRules } from "./worldtype.js";
+import { vanillaRules, isSurvivalWorld } from "./worldtype.js";
 import { tableOffers, applyOffer, countBookshelves, enchantSeed, nextEnchantSeed, anvilResult, enchantName } from "./enchant.js";
 import { BREWING_SLOTS, BREW_TICKS, BREWING_FUEL, brewingAccepts, isBottle, isIngredient, isBrewingFuel } from "./brewing.js";
 import { spendLevels } from "./xp.js";
-import { ENCHANTING_TABLE, LAPIS_LAZULI, ARROW, SHIELD } from "./content/ids.js";
+import { ENCHANTING_TABLE, LAPIS_LAZULI, ARROW, SHIELD, SNOWBALL, EGG, ENDER_PEARL } from "./content/ids.js";
 import { isAnvil, wornAnvil } from "./content/containers.js";
 
 function el(tag, className, parent) {
@@ -118,16 +118,25 @@ function injectCraftCss() {
 // arrows, the shield, the armor and, with Mods on, the mod weapons) and no
 // Armor tab (Round 13: in both world types; the Missions worlds' Weapons and
 // Armor tabs were before).
+// (Round 18) Every hand weapon is in the Weapons tab: the guns, the grenade,
+// the bazooka, the lasers, the railgun, the airstrike designator, the bow,
+// the swords and (as vanilla's Combat tab) the axes, the snowball, the egg
+// and the ender pearl (the throwables), the shield, the arrows, the armor.
+// The axes stay in Tools too.
 const WEAPON_SET = new Set(ALL_WEAPONS);
+const THROWN = new Set([SNOWBALL, EGG, ENDER_PEARL]);
 const COMBAT = (id) => {
   const info = itemInfo(id);
-  return WEAPON_SET.has(id) || !!info?.weapon || !!info?.armor || !!info?.shield || info?.tool?.type === "sword" || id === ARROW;
+  return WEAPON_SET.has(id) || !!info?.weapon || !!info?.armor || !!info?.shield || info?.tool?.type === "sword" || info?.tool?.type === "axe" || id === ARROW || THROWN.has(id);
 };
 const notCombat = (id) => !vanillaRules() || !COMBAT(id);
+// (Round 18) What the palette offers: what the Mods allow, and in a Survival
+// world (Mods off for good there) the mod weapons too, Creative's to take.
+const offered = (id) => itemAllowed(id) || (MOD_ITEMS.has(id) && isSurvivalWorld());
 const TABS = [
   ["Weapons", (id) => (vanillaRules() ? COMBAT(id) : WEAPON_SET.has(id) || !!itemInfo(id)?.weapon)],
   ["Blocks", (id) => itemInfo(id)?.block !== undefined && !WEAPON_SET.has(id)],
-  ["Tools", (id) => !!itemInfo(id)?.tool && !itemInfo(id)?.weapon && notCombat(id)],
+  ["Tools", (id) => !!itemInfo(id)?.tool && !itemInfo(id)?.weapon && (notCombat(id) || itemInfo(id)?.tool?.type === "axe")],
   ["Armor", (id) => !vanillaRules() && !!itemInfo(id)?.armor],
   ["Items", (id) => itemInfo(id)?.block === undefined && !itemInfo(id)?.tool && !itemInfo(id)?.weapon && !itemInfo(id)?.armor && !itemInfo(id)?.vehicle && !WEAPON_SET.has(id) && notCombat(id)],
   ["Vehicles", (id) => !!itemInfo(id)?.vehicle], // (Round 13: Creative's aircraft, js/content/vehicles.js)
@@ -452,7 +461,7 @@ export class InventoryScreen {
     }
     this.paletteViews.forEach((v, k) => {
       const id = CREATIVE_ITEMS[k];
-      v.el.classList.toggle("hidden", !itemAllowed(id) || !pred(id));
+      v.el.classList.toggle("hidden", !offered(id) || !pred(id));
     });
   }
 

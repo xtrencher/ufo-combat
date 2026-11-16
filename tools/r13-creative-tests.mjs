@@ -8,10 +8,10 @@
 // flies; a jet lands on a field of grass (no runway); a B-2 and a UFO are
 // summoned and boarded; nothing brings UFO fleets or missions; after a
 // reload the summoned vehicles are back; in the Nether they stay behind
-// in the Overworld. In Survival mode: no palette, the
-// items summon nothing, F next to a vehicle swaps the hands instead of
-// boarding, and a pilot switched to Survival is set down. A Missions world's
-// Creative has them too (and its call-ins); with its Mods off they say so.
+// in the Overworld. In Survival mode: no palette (Round 18: a pilot
+// switched to Survival stays at the controls, F boards, an item in hand is
+// placed and used up). A Missions world's Creative has them too (and its
+// call-ins); (Round 18) with its Mods off too.
 // With --online: a
 // guest sees the host's jet, and the host the guest's UFO.
 //
@@ -370,7 +370,10 @@ async function browserChecks() {
     await play(page);
   });
 
-  await browserCheck("Survival mode: no palette, the items summon nothing, F swaps the hands, a pilot is set down", async () => {
+  // (Round 18: every vehicle in every mode: a pilot switched to Survival stays
+  // at the controls, F boards, a vehicle item in the inventory is placed (and
+  // used up); the palette and the call-ins stay Creative's.)
+  await browserCheck("Survival mode: no palette; a pilot stays at the controls, F boards, an item in hand is placed and used up", async () => {
     const a = await field(page);
     const jetAt = await useItem(page, 266, down);
     assert(jetAt.v, "a jet to test with");
@@ -383,7 +386,10 @@ async function browserChecks() {
       const seated = vm.active === jet;
       g.setMode("survival");
       vm.update(1 / 30);
-      const setDown = !vm.active && !g.player.vehicle;
+      const setDown = vm.active === jet && g.player.vehicle === jet; // (Round 18: still in it)
+      vm.exit({ force: true });
+      g.inventory.slots[0] = { id: 266, count: 1 };
+      g.inventory.selected = 0;
       g.invScreen.open("inventory", false);
       const palette = !g.invScreen.paletteEl.classList.contains("hidden");
       g.invScreen.close();
@@ -394,14 +400,15 @@ async function browserChecks() {
       g.player.position.set(jet.pos.x + 4, jet.pos.y - jet.bottom, jet.pos.z + 3);
       const wants = vm.wantsF();
       const boarded = vm.toggle();
-      return { seated, setDown, palette, summoned, wants, boarded, prompt: vm.promptEl?.classList.contains("hidden") };
+      return { seated, setDown, palette, summoned, left: g.inventory.slots[0]?.count ?? 0, wants, boarded, prompt: vm.promptEl?.classList.contains("hidden") };
     });
-    assert(r.seated && r.setDown, `set down: ${JSON.stringify(r)}`);
-    assert(!r.palette && r.summoned === 0 && !r.wants && !r.boarded, `nothing of Creative's: ${JSON.stringify(r)}`);
+    assert(r.seated && r.setDown, `still at the controls: ${JSON.stringify(r)}`);
+    assert(!r.palette && r.summoned === 1 && r.left === 0 && r.wants && r.boarded, `no palette; the item placed and used up, F boards: ${JSON.stringify(r)}`);
+    await v(page, (g) => g.vehicles.exit({ force: true }));
     await v(page, (g) => g.setMode("creative"));
   });
 
-  await browserCheck("a Missions world: a palette jet and a call-in in its Creative; with the Mods off, the items say so", async () => {
+  await browserCheck("a Missions world: a palette jet and a call-in in its Creative; with the Mods off too (Round 18)", async () => {
     await page.goto(`http://127.0.0.1:${PORT}/index.html?seed=9139&type=missions&graphics=low`, { waitUntil: "load", timeout: 60000 });
     await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
     await play(page);
@@ -420,12 +427,15 @@ async function browserChecks() {
       g.setModsEnabled(false, false);
       const n = g.vehicles.vehicles.length;
       g.vehicles._summonT = -99;
+      const why = g.vehicles.summonRefusal(); // (Round 18: asked before: the item puts the player in the jet up in the air)
       C.ITEM_USE[266]({ ...g.interaction._useCtx(null), forward: [0, 0.8, -0.6] });
-      const res = { on: g.vehicles.enabled, added: g.vehicles.vehicles.length - n, why: g.vehicles.summonRefusal() };
+      const res = { on: g.vehicles.enabled, added: g.vehicles.vehicles.length - n, why };
+      g.vehicles.exit({ force: true });
       g.setModsEnabled(true, false);
       return res;
     });
-    assert(!off.on && off.added === 0 && /mods/i.test(off.why), `Mods off: ${JSON.stringify(off)}`);
+    // (Round 18: the vehicles are no longer the Mods': they stay, and the items place them.)
+    assert(off.on && off.added === 1 && !off.why, `Mods off: ${JSON.stringify(off)}`);
   });
 
   if (args.online) {

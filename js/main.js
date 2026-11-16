@@ -94,7 +94,8 @@ import { Sleep } from "./sleep.js";
 import { oreXp, protectedDamage, nightVisionFactor } from "./survival.js";
 import { LIB } from "./content/base.js";
 import { shieldRaised, shieldInOffhand } from "./content/items-vanilla.js";
-import { DimensionManager, loadDimensionEdits, savedDimension } from "./dimensions.js";
+import { DimensionManager, loadDimensionEdits, savedDimension, END_PLATFORM } from "./dimensions.js";
+import { DIMS, scaleBetween } from "./dim-registry.js"; // (Round 18: the teleports)
 import { NetherPortals } from "./portal.js";
 import { NetherAtmosphere } from "./nether-fx.js";
 import { EndGame } from "./dragon.js";
@@ -1315,10 +1316,192 @@ function callIn(kind) {
 // Survival world's too: its Creative has the aircraft).
 function refreshCallIns() {
   document.getElementById("pause-callins")?.classList.toggle("hidden", !player.creative || mp.mode === "dogfight");
+  refreshTeleports(); // (Round 18)
 }
 for (const b of document.querySelectorAll("#pause-callins [data-callin]")) {
   b.addEventListener("click", () => {
     if (callIn(b.dataset.callin)) requestLock();
+  });
+}
+// ---------- (Round 18) Creative's one-click teleports ----------
+// The pause menu's Creative part (#pause-teleports): home (the Overworld's
+// spawn, the bed if there is one), the Nether (at a portal of yours near
+// where you are, else safe ground), the End (its obsidian platform), the
+// Moon, Mars, Mercury and Venus (the last landing there, else the middle of
+// the map, on solid ground). The dimensions engine's own travel (the
+// loading screen, the safe spot): online each player goes alone, as
+// through a portal (the host's room stays where it is). A vehicle you sit
+// in comes along when it fits there (an aircraft in the air above you, a
+// ground vehicle parked beside you, you back at the controls); else it
+// stays where it was and you arrive on foot.
+const TELEPORT_DIMS = ["overworld", "nether", "end", "moon", "mars", "mercury", "venus"];
+let teleportCarry = null; // { v, data, dim }: the vehicle going along, until the arrival
+// Why there is no teleporting in this world (the buttons' tooltip), or null.
+function teleportUnavailable() {
+  if (!dims.enabled || CANYON) return "This world has no other dimensions";
+  return null;
+}
+// Why not just now, or null.
+function teleportRefusal() {
+  const no = teleportUnavailable();
+  if (no) return no;
+  if (!player.creative) return "Teleports are Creative's";
+  if (gameState === "start" || player.dead || gameState === "dead") return "Not now";
+  if (mp.mode === "dogfight") return "Not in a dogfight";
+  if (space.solar?.active) return "Not out in space: land first (or fly there)";
+  if (dims.pending || teleportCarry) return "Already on the way";
+  return null;
+}
+// (A vehicle that can go along: yours, whole, not a rocket or an alien machine.)
+function canCarry(v) {
+  return !!v && v.alive && !v.puppet && !v.enemy && !v.unusable && ["jet", "ufo", "heli", "tank", "tel", "aapark"].includes(v.type);
+}
+function teleportTo(dim) {
+  const why = teleportRefusal();
+  if (why) {
+    toast(`${why}.`, 3);
+    return false;
+  }
+  if (!TELEPORT_DIMS.includes(dim) || !DIMS[dim]) return false;
+  const v = vehicles.active;
+  if (v) {
+    const locked = vehicles.exitLocked?.();
+    if (locked) {
+      toast(locked, 3);
+      return false;
+    }
+  }
+  const carry = canCarry(v) ? { v, data: v.serialize(), dim } : null;
+  if (v) vehicles.exit({ force: true });
+  const ok = teleportTravel(dim);
+  if (!ok) {
+    if (v && v.alive && !vehicles.active) vehicles.enter(v);
+    toast("The teleport didn't work here.", 3);
+    return false;
+  }
+  teleportCarry = carry;
+  toast(`To ${DIMS[dim].name}...`, 2);
+  return true;
+}
+// The travel itself (the dimensions engine), from where the player is.
+function teleportTravel(dim) {
+  const here = dims.dim;
+  const p = player.position;
+  if (dim === "overworld") return dims.toSpawn();
+  if (dim === "end") return dims.travel("end", END_PLATFORM.x + 0.5, END_PLATFORM.y + 1, END_PLATFORM.z + 0.5, { place: "endPlatform", yaw: Math.PI / 2 });
+  if (dim === "nether") {
+    // (From the Overworld or the Nether: where you are; from anywhere else: home's spot.)
+    const s = { x: spawnX, z: spawnZ };
+    const from = here === "overworld" || here === "nether" ? here : "overworld";
+    const bx = from === here ? p.x : s.x + 0.5;
+    const bz = from === here ? p.z : s.z + 0.5;
+    const x = scaleBetween(from, "nether", bx);
+    const z = scaleBetween(from, "nether", bz);
+    const y = here === "nether" ? Math.max(34, Math.min(110, p.y)) : 64;
+    // (A portal of yours there, found as vanilla's search would: you come out of it.)
+    const found = dims.nearestPortal("nether", x, y, z, 128);
+    if (found) return dims.travel("nether", found[0] + 0.5, found[1], found[2] + 0.5, { place: "portal", kind: "nether", found: true });
+    return dims.travel("nether", x, y, z, { place: "safe" });
+  }
+  // The planets: the last landing there, else the map's middle; on its ground.
+  const site = space.sites?.[dim];
+  const x = site ? site[0] + 0.5 : 0.5;
+  const z = site ? site[2] + 0.5 : 0.5;
+  const y = world.terrainOf(dim).heightAt(Math.floor(x), Math.floor(z)) + 1;
+  return dims.travel(dim, x, Number.isFinite(y) ? y : 80, z, { place: "safe" });
+}
+// Each frame: the vehicle that went along is set down once the player is there.
+function updateTeleportCarry() {
+  const c = teleportCarry;
+  if (!c || dims.pending) return;
+  teleportCarry = null;
+  if (player.dead || dims.dim !== c.dim || vehicles.active || !vehicles.has(c.v) || !c.v.alive) return;
+  const nv = carriedVehicle(c);
+  if (!nv) {
+    toast(`No room for the ${c.v.name} here: it stayed where it was.`, 4);
+    return;
+  }
+  vehicles.remove(c.v);
+  vehicles._addSummoned(nv);
+  vehicles.enter(nv);
+}
+// The vehicle made again here from its data: an aircraft in the air above
+// the player (a UFO hovering, a jet flying), a ground vehicle (or a
+// helicopter) on open ground beside them; null if it fits nowhere.
+function carriedVehicle(c) {
+  const cls = VehicleManager.types[c.data.type];
+  if (!cls) return null;
+  const p = player.position;
+  const yaw = player.yaw;
+  const data = { ...c.data, yaw };
+  delete data.q;
+  delete data.dim;
+  delete data.airborne;
+  delete data.parkKey;
+  const make = (x, y, z, extra = {}) => {
+    const v = new cls(vehicles, { ...data, ...extra, pos: [x, y, z] });
+    v.dim = vehicles.here;
+    return v;
+  };
+  const roof = !!world.dimInfo?.ceiling;
+  if (c.data.type === "jet" || c.data.type === "ufo") {
+    const base = roof ? p.y : vehicles.groundBelow(p.x, WORLD_HEIGHT - 1, p.z);
+    const want = Math.min(210, Math.max(base + (c.data.type === "jet" ? 60 : 30), p.y + 30));
+    const y = vehicles.skyY(p, want, 8);
+    if (y !== null) {
+      const v = c.data.type === "jet" ? make(p.x, y, p.z, { airborne: true, speed: (vehicles.config.jet?.maxSpeed || 200) * 0.62, throttle: 0.75 }) : make(p.x, y, p.z);
+      if (vehicles._roomFor(v, yaw)) {
+        if (v.type === "jet") {
+          v.vel.copy(v.forward(new THREE.Vector3())).multiplyScalar(v.cfg.maxSpeed * 0.62);
+          v.throttle = 0.75;
+        }
+        v._place?.();
+        return v;
+      }
+      v.dispose();
+    }
+  }
+  // On the ground beside the player: the first open spot round about.
+  for (const d of [7, 10, 14, 19, 25]) {
+    for (const a of [0, 0.7, -0.7, 1.5, -1.5, 2.3, -2.3, Math.PI]) {
+      const gx = p.x - Math.sin(yaw + a) * d;
+      const gz = p.z - Math.cos(yaw + a) * d;
+      if (!world.getChunk(Math.floor(gx) >> 4, Math.floor(gz) >> 4)) continue;
+      const g = vehicles.groundBelow(gx, roof ? p.y + 4 : WORLD_HEIGHT - 1, gz);
+      if (g <= 0 || Math.abs(g - p.y) > 10) continue;
+      if (IS_WET[world.getBlock(Math.floor(gx), Math.floor(g - 1), Math.floor(gz))]) continue;
+      const v = make(gx, g, gz);
+      v.pos.y = g + (v.bottom || 0) + (v.type === "jet" ? 0 : 0.3);
+      if (v.type === "jet" && typeof v._contacts === "function") {
+        const ct = v._contacts(yaw);
+        if (ct) v.pos.y = Math.max(v.pos.y, ct.centerY);
+      }
+      if (!vehicles._roomFor(v, yaw)) {
+        v.dispose();
+        continue;
+      }
+      v.settle?.(true);
+      v._place?.();
+      return v;
+    }
+  }
+  return null;
+}
+function refreshTeleports() {
+  const box = document.getElementById("pause-teleports");
+  if (!box) return;
+  const no = teleportUnavailable();
+  for (const b of box.querySelectorAll("[data-teleport]")) {
+    b.disabled = !!no;
+    b.title = no || b.dataset.tip || "";
+  }
+  // (A disabled button shows no tooltip in every browser: the row says it too.)
+  box.title = no || "";
+}
+for (const b of document.querySelectorAll("#pause-teleports [data-teleport]")) {
+  b.dataset.tip = b.title;
+  b.addEventListener("click", () => {
+    if (teleportTo(b.dataset.teleport)) requestLock();
   });
 }
 // A jet that is destroyed right after landing on its strip (something in the
@@ -1471,13 +1654,24 @@ if (savedPlayer) {
 let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
 mods.onChange((on) => {
-  ufos.setEnabled(on && missionsHere());
+  ufos.setEnabled(on && ufosHere());
   vehicles.setEnabled(on); // (Round 15: in every dimension; the Missions layer's rest out of the Overworld, vehicles.away)
   if (!on) mobs.removeKind("alien");
 });
 // (A Survival world: Mods off for that world, whatever the setting, which is
 // left as it is for the Missions worlds.)
 mods.set(settings.mods && !isVanilla(), { initial: true });
+// (Round 18) A Survival world: its Mods are off for good, but the hand
+// weapons are Creative's there too (its palette's Weapons tab has every
+// one): taken from the palette they stay in the inventory, in either mode,
+// and fire (as a vehicle item placed there does). None are crafted, looted
+// or dropped there: crafting, chests and loot still ask itemAllowed.
+function keepSurvivalWorldWeapons() {
+  if (!isVanilla()) return;
+  weapons.enabled = true;
+  if (mods.stash.length) mods.restoreItems();
+}
+keepSurvivalWorldWeapons();
 stats.loadWorld(savedPlayer?.stats);
 
 // ---------- Missions, loot, supply crates ----------
@@ -1648,6 +1842,11 @@ let progressOffAt = null; // (the mission stats when the chain went off)
 function missionsHere() {
   return (world.dim ?? "overworld") === "overworld";
 }
+// (Round 18) The UFOs (not the rest of the layer) are on the planets too;
+// still none in the Nether, the End or the canyon.
+function ufosHere() {
+  return ["overworld", "moon", "mars", "mercury", "venus"].includes(world.dim ?? "overworld");
+}
 // (Round 15) The mission chain's locks on the vehicles (jets, the B-2, UFOs,
 // helicopters): while the chain runs, and in the Nether and the End too,
 // where it only pauses (vehicles are in every dimension now). Never in Creative.
@@ -1655,11 +1854,13 @@ function chainLocks() {
   return progress.enabled || (!missionsHere() && mods.enabled && !player.creative && !survivalPaused && !isVanilla() && !testFlags.noMissions);
 }
 helis.locked = () => !player.creative && chainLocks() && !progress.reached(heliMissionId(progress));
-// (Round 16) On the mission board the helicopters' lock says how to open it.
-{
-  const heliCan = vehicles.canBoard;
-  vehicles.canBoard = (v) => (progress.board && v.type === "heli" && helis.locked() ? "Helicopters join the fight with a win in a Helicopter mission. Press M for the mission board." : heliCan(v));
-}
+// (Round 16) On the mission board the helicopters' lock said how to open it.
+// (Round 18) No locks on boarding any more: every vehicle (the airports'
+// jets and UFOs, the B-2, the helicopters, the bases' tanks) is boarded in
+// every mode and world, whatever the mission chain has reached. The locks
+// above still hold back what the chain brings by itself (patrol fighters,
+// a jet called by the test hook).
+vehicles.canBoard = () => null;
 function refreshSurvivalSystems() {
   // (Missions, loot and supply drops are a Missions world's: never in a Survival world.)
   const on = mods.enabled && !player.creative && !survivalPaused && !isVanilla() && missionsHere();
@@ -1775,6 +1976,7 @@ function setModsEnabled(on, persist = true) {
   modsCheckbox.checked = on;
   if (!on) stashCursorMod();
   mods.set(on);
+  keepSurvivalWorldWeapons(); // (Round 18)
   if (on && gameState !== "start") fillStartingWeapons(false);
   markInventoryChanged();
   refreshModsPills();
@@ -3238,7 +3440,7 @@ window.addEventListener("keydown", (e) => {
     if (gameState !== "playing" || e.repeat) return;
     if (e.code === "F1") toggleHud();
     else if (e.code === "F3") toggleDebug();
-    else if (vehicles.active) toast(`Camera: ${vehicles.active.cycleCamera()}`, 1.2);
+    else if (vehicles.active) toast(`Camera: ${vehicles.cycleCamera()}`, 1.2); // (Round 18: a passenger's cameras too)
     else player.cycleCamera();
     return;
   }
@@ -3614,6 +3816,7 @@ const game = {
   giveMissionReward,
   showVictory,
   callIn,
+  teleportTo, // (Round 18: the pause menu's teleports)
   deathMessage,
   // Online: a player's things (the host keeps a guest's between visits).
   playerData() {
@@ -3746,6 +3949,7 @@ const game = {
     if (mods.enabled === on) return;
     if (!on) stashCursorMod();
     mods.set(on);
+    keepSurvivalWorldWeapons(); // (Round 18)
     if (on && gameState !== "start") fillStartingWeapons(false);
     markInventoryChanged();
     refreshModsPills();
@@ -3832,7 +4036,10 @@ const dims = new DimensionManager(game, { lod, distant, signs, brewing, potionTh
 game.dims = dims;
 // (Round 13) The Missions layer stays in the Overworld (missionsHere).
 dims.onChange.push(() => {
-  ufos.setEnabled(mods.enabled && missionsHere());
+  // (Round 18: UFOs on the planets too; the last dimension's go, its crews and
+  // beam with them. A guest's puppets go by DimSync, js/dimensions.js.)
+  if (!ufos.puppets) ufos.clear();
+  ufos.setEnabled(mods.enabled && ufosHere());
   refreshSurvivalSystems();
   game._viewJump = true; // (Round 17: the new dimension's view distance at once, updateAltitudeView)
 });
@@ -4093,7 +4300,7 @@ const missileWarnTextEl = missileWarnEl.querySelector(".mw-text");
 const _lockV = new THREE.Vector3();
 const fighterHud = new FighterHud(document.getElementById("fighter-hud"));
 function updateJetOverlay() {
-  const v = vehicles.active;
+  const v = vehicles.driving; // (Round 18: not a passenger's: the sights are the pilot's)
   const o = (v?.type === "jet" || v?.type === "ufo" || v?.type === "heli") && v.overlay && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
   const place = (el, p) => {
     el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
@@ -4609,6 +4816,7 @@ function simulate(dt, frameTime) {
   updateDebug(dt, frameTime);
   endGame.update(dt); // (Round 12: the End's fight, the portals' starfield, eyes of ender)
   dims.update(dt); // (Round 12: portals, a travel's arrival)
+  updateTeleportCarry(); // (Round 18: a vehicle that went along with a teleport)
   space.update(dt); // (Round 15: the rocket's trip, the planets' skies and air)
   netherPortals.update(dt); // (Round 12: the nether portals, js/portal.js)
   netherAir.update(dt);

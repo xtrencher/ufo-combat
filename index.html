@@ -733,6 +733,7 @@
   #pause-callins .subhead { font-size: 12px; opacity: 0.8; margin-bottom: 6px; }
   #pause-callins .callin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   #pause-callins .btn { padding: 8px 4px; font-size: 13px; }
+  #pause-teleports .btn:disabled { cursor: not-allowed; opacity: 0.55; } /* (Round 18: no other dimensions in this world) */
   #stats-table table { width: 100%; border-collapse: collapse; font-size: 14px; }
   #stats-table th, #stats-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); }
   #stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1506,6 +1507,11 @@
           <label for="mp-lobby-pvp">PvP / friendly fire</label>
           <input type="checkbox" id="mp-lobby-pvp" checked />
         </div>
+        <!-- (Round 18) Team play: anyone can ride in anyone's vehicle -->
+        <div class="row">
+          <label for="mp-lobby-team" title="On: anyone can get into anyone's vehicle (the first one in flies it). Off: only your own vehicles or free ones.">Team play (share vehicles)</label>
+          <input type="checkbox" id="mp-lobby-team" checked />
+        </div>
         <div class="row mp-dogfight-row">
           <label for="mp-lobby-deaths">Dogfight: deaths until you're out</label>
           <select id="mp-lobby-deaths">
@@ -1734,6 +1740,17 @@
           <button class="btn" data-callin="tel" title="Ballistic missile truck">Missile truck</button>
           <button class="btn" data-callin="heli" title="AH-64 Apache attack helicopter">Helicopter</button>
           <button class="btn" data-callin="rocket" title="A rocket on its launch pad: fly it to space, the Moon and Mars">Rocket</button>
+        </div>
+        <!-- (Round 18) One-click teleports: the dimensions engine's travel, your vehicle along when it fits. -->
+        <div class="subhead" style="margin-top:8px">Teleport (Creative): you go alone, your vehicle with you</div>
+        <div class="callin-grid" id="pause-teleports">
+          <button class="btn" data-teleport="overworld" title="Home: the Overworld's spawn (your bed if you have one)">Overworld</button>
+          <button class="btn" data-teleport="nether" title="The Nether: at your portal there, else on safe ground">Nether</button>
+          <button class="btn" data-teleport="end" title="The End: its obsidian platform">The End</button>
+          <button class="btn" data-teleport="moon" title="The Moon: on solid ground (your last landing there)">Moon</button>
+          <button class="btn" data-teleport="mars" title="Mars: on solid ground (your last landing there)">Mars</button>
+          <button class="btn" data-teleport="mercury" title="Mercury: on solid ground (your last landing there)">Mercury</button>
+          <button class="btn" data-teleport="venus" title="Venus: on solid ground (your last landing there)">Venus</button>
         </div>
       </div>
       <div class="row">

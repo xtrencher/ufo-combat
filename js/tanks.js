@@ -1370,7 +1370,8 @@ export function installGround(game) {
   // (After the tank battle, in the mission chain: platoons and AA sites now and then.)
   war.ambientAllowed = () => !!progress?.enabled && !game.player.creative && (progress.reached?.("tank_battle") ?? false) && progress.isDone?.("tank_battle") !== false && game.mods?.enabled !== false;
   // (The bases' tanks: in Creative, or from the tank battle on.)
-  war.yardAllowed = () => game.player.creative || !progress?.enabled || !!progress.reached?.("tank_battle");
+  // (Round 18: always, in every mode: parked vehicles are anyone's to board.)
+  war.yardAllowed = () => true;
   // (Round 14) The site the aliens hold: the base assault's, while it plays
   // (the director picked it: on a guest, where the host's garrison stands).
   // Its yard is theirs (the mission's garrison, on its own patrols round
