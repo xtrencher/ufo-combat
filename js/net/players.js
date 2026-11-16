@@ -157,6 +157,10 @@ export class RemotePlayer {
       px = veh.pos.x;
       py = veh.pos.y + Math.max(2.5, (veh.radius ?? 3) * 0.55) + 1.2;
       pz = veh.pos.z;
+      // (Round 18) A passenger's name over the pilot's, in the order they got in.
+      const row = this.sync.mp.seats?.rowOf(veh);
+      const k = row ? row.r.indexOf(this.pid) : -1;
+      if (k >= 0) py += 1.1 * (k + 1);
     }
     const d = Math.hypot(px - me.x, py - me.y, pz - me.z);
     const extra = d > 40 ? `${d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d / 10) * 10} m`}` : "";

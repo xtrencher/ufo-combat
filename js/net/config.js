@@ -9,7 +9,8 @@
 // Bumped whenever the messages between peers change incompatibly: a host and
 // a client with different versions refuse to play together (with a message
 // saying to reload), instead of misbehaving.
-export const NET_VERSION = 11; // (9: Survival worlds, wide block edits; 10: dimensions; 11: one world (the terrain's generator in the welcome, vanilla rules in Missions rooms))
+export const NET_VERSION = 12; // (9: Survival worlds, wide block edits; 10: dimensions; 11: one world (the terrain's generator in the welcome, vanilla rules in Missions rooms); 12: seats (passengers), crews in space)
+
 
 // The PeerJS client library (loaded only when multiplayer is used, so single
 // player never needs it).
@@ -37,6 +38,23 @@ export const ICE_SERVERS = [
   // { urls: "turn:turn.example.com:3478", username: "USERNAME", credential: "PASSWORD" },
   // { urls: "turns:turn.example.com:5349", username: "USERNAME", credential: "PASSWORD" },
 ];
+
+// (Round 18) The host's room rules kept between rooms (this browser):
+// "PvP / friendly fire" and "Team play", both on by default.
+const RULES_KEY = "mineclaude_mp_rules";
+export function savedRules() {
+  try {
+    const r = JSON.parse(localStorage.getItem(RULES_KEY) || "{}");
+    return { pvp: r.pvp !== false, teamPlay: r.teamPlay !== false };
+  } catch {
+    return { pvp: true, teamPlay: true };
+  }
+}
+export function saveRules(mp) {
+  try {
+    localStorage.setItem(RULES_KEY, JSON.stringify({ pvp: mp.pvp !== false, teamPlay: mp.teamPlay !== false }));
+  } catch {}
+}
 
 // How often things are sent (per second) and the timeouts (seconds).
 export const RATES = {

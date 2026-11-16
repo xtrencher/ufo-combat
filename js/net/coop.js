@@ -107,7 +107,7 @@ export class CoopSync {
       g.missions.pilotJets = () => {
         const out = [];
         const act = g.vehicles.active;
-        if (act?.type === "jet" && !act.isEnemyJet) out.push(act);
+        if (act?.type === "jet" && !act.isEnemyJet && !act.puppet) out.push(act); // (Round 18: not a passenger's seat in a puppet)
         for (const v of g.vehicles.vehicles) if (v.puppet && v.type === "jet" && v.netOcc && v.alive) out.push(v);
         return out;
       };

@@ -2150,7 +2150,14 @@ keeps running there (it just isn't drawn).
   ("Killed by NAME", counted in Stats); off, nothing another player does
   hurts you, not even their nuke (Round 9: it used to). The aliens, UFOs,
   enemy fighters, crashes and meteors always hurt. In a Dogfight it is
-  always on.
+  always on. (Round 18: on by default in every mode, Missions, Survival
+  and Creative, and the host's choice is remembered for its next room. A
+  player in Creative still takes no damage on foot, as Creative's rule; their
+  vehicle does.)
+- **Team play** (Round 18) is the host's choice too (the lobby's "Team play
+  (share vehicles)", **on** by default): on, anyone can get into anyone's
+  vehicle; off, only into their own (one they called in or summoned) or a
+  free one (nobody's), and the others get a message ("Team play is off").
 - **Chests** are the host's: everyone sees the same contents, two players
   can have the same chest open at once and see each other's clicks, and
   what a broken chest held drops for everyone.
@@ -2175,7 +2182,32 @@ keeps running there (it just isn't drawn).
 - To try it alone, open the game in **two browser tabs or windows** on one
   computer: host in one, join with the code in the other.
 
+### Riding together: shared vehicles (Round 18)
+
+Every vehicle has a pilot's (driver's) seat and, most of them, passengers'
+seats: a fighter 1 (the F-16 2), the SR-71 and the B-2 2, the Apache 4, the
+Black Hawk 8, a tank, the AA vehicle and the missile truck 3, the rocket 4,
+a UFO 2 to 8 by its size (boats and minecarts as before: a boat takes two).
+
+- **F** near a vehicle someone is in takes a passenger's seat ("Press F to
+  ride in Bob's UFO"). The **first one in flies it**; the others ride.
+- When the pilot gets out (or leaves the game, or dies), the passenger who
+  got in first **takes the controls** at once, where the vehicle is (in
+  flight too). When everyone is out it is empty, and the next one in flies
+  it. The host keeps who sits where, so this is the same every time: A in
+  (A flies), B in (rides), both out, B in (B flies), A in (A rides).
+- A passenger's seat follows the vehicle; the mouse looks round, **F5**
+  switches between the chase view, the **pilot's view** (the pilot's own
+  camera) and the passenger's seat; the panel shows who flies it; **F** gets
+  out (a parachute high up). Shots and blasts hit the vehicle, not the
+  passengers; a vehicle destroyed takes its passengers with it.
+- **Space together:** a rocket or a UFO with passengers takes them all into
+  space (they see the pilot's craft, flying with it, warp too) and down to
+  the Moon, Mars, Mercury, Venus or back to Earth: they arrive in the same
+  dimension at the same place, still in their seats.
+
 ### If connecting fails
+
 
 - **"Room not found":** check the code (there is no 0/O or 1/I in codes),
   and that the host is still in the game with the room open (a room closes

@@ -49,6 +49,15 @@
 // back on the ground: js/rocket.js serialize). Online: each player flies on
 // their own (the world they left holds their craft, still, up at the space
 // line; the dimensions engine takes them alone to the planet they land on).
+// (Round 18) A crew together: a rocket or a UFO with passengers aboard
+// takes them along. The pilot's machine flies the craft (as alone) and sends
+// its place in space to them (js/net/space.js `crew`: entered, tick,
+// landing, ended); a passenger's machine draws the same craft from it
+// (follow: the craft "remote", looked round with the mouse), and when the
+// pilot goes down to a planet the passengers travel to the same spot of the
+// same dimension (remoteLand) and are seated again in the craft it comes
+// down as (crew.seatFor). A passenger left in charge (the pilot gone) flies
+// on from there (takeControl).
 import * as THREE from "three";
 import { SolarView } from "./solar-render.js";
 import { SolarUI } from "./solar-ui.js";
@@ -134,6 +143,7 @@ export class SolarSystem {
     this.mapOpen = false;
     this.mapZoom = 1;
     this.pending = null; // a landing waiting for the world's ground
+    this.crew = null; // (Round 18) online crews (js/net/space.js)
     this.resume = null; // (a save made in space: where the ship was)
     this._prewarmed = new WeakSet();
     this.inp = { dx: 0, dy: 0, wheel: 0, pressed: new Set(), buttons: [false, false, false] };
@@ -300,7 +310,207 @@ export class SolarSystem {
     this.space.caption(c.kind === "rocket" ? "R: assist · M: map · N: guides · T: target · , and . time warp" : c.kind === "warp" ? "J: warp drive · M: map · N: guides · T: target · , and . time warp" : "M: map · N: guides · T: target · , and . time warp · wheel: speed", "hint", 7);
     if (c.kind === "rocket") voice.say("rocket_space", { text: "We are in space" });
     this.ui?.show(true);
+    // (Round 18) The passengers come along.
+    try {
+      this.crew?.entered?.(c);
+    } catch (err) {
+      console.warn("MINECLAUDE: the crew's trip", err);
+    }
     return true;
+  }
+
+  // ---------- A crew (Round 18): a passenger's view of the pilot's craft ----------
+
+  // Into space as a passenger of puppet v (its pilot just went up): m is the
+  // pilot's word ({ kind, spins, t, s: the craft's state }).
+  follow(v, m) {
+    if (this.active || !v) return false;
+    this.resume = null;
+    if (!this.enter(v)) return false;
+    const c = this.craft;
+    c.remote = true;
+    c.kind = m.kind === "rocket" ? "rocket" : "warp";
+    if (m.spins && typeof m.spins === "object") for (const [k, a] of Object.entries(m.spins)) if (BODIES[k] && Number.isFinite(a)) this.spins[k] = a;
+    this.remoteState(m.s);
+    c.camYaw = v.camYaw ?? 0;
+    c.camPitch = -0.2;
+    this.stats.exits--;
+    this.space.caption("SPACE", "big", 2.5);
+    this.space.caption("Riding along: the mouse looks round · M: map · N: guides", "hint", 6);
+    return true;
+  }
+
+  // The pilot's craft as its machine sent it (a passenger's).
+  remoteState(s) {
+    const c = this.craft;
+    if (!c?.remote || !s || !BODIES[s.ref] || !Array.isArray(s.r) || !Array.isArray(s.v)) return;
+    c.ref = s.ref;
+    c.r = s.r.slice(0, 3);
+    c.vel = s.v.slice(0, 3);
+    if (Array.isArray(s.q) && s.q.length === 4) c.q.fromArray(s.q).normalize();
+    if (Number.isFinite(s.t)) this.t = s.t;
+    this.warpIndex = Math.max(0, Math.min(TIME_WARPS.length - 1, s.tw | 0));
+    c.throttle = Number.isFinite(s.th) ? s.th : 0;
+    c.warpOn = !!s.wo;
+    c.warpK = Number.isFinite(s.wk) ? s.wk : 0;
+    if (Array.isArray(s.wd)) c.warpDir.fromArray(s.wd);
+    if (c.v.type === "rocket" && typeof s.st === "string" && s.st !== c.v.stack) {
+      c.v.stack = s.st;
+      if (s.st === "ship") c.v.name = "Ship";
+    }
+    if (Number.isFinite(s.y)) c.v.yaw = s.y;
+    if (Array.isArray(s.tl) && c.v.tilt) c.v.tilt.set(s.tl[0], 0, s.tl[1]);
+    if (BODIES[s.tg]) this.target = s.tg;
+    c.accel = null;
+  }
+
+  // What a passenger's machine needs of the craft (the pilot's).
+  crewState() {
+    const c = this.craft;
+    if (!c) return null;
+    const v = c.v;
+    const s = { ref: c.ref, r: c.r.slice(), v: c.vel.slice(), t: this.t, tw: this.warpIndex, th: Math.round(c.throttle * 100) / 100, tg: this.target };
+    if (c.kind === "rocket") {
+      s.q = c.q.toArray().map((x) => Math.round(x * 1e4) / 1e4);
+      s.st = v.stack;
+    } else {
+      s.y = Math.round((v.yaw || 0) * 1000) / 1000;
+      if (v.tilt) s.tl = [Math.round(v.tilt.x * 1000) / 1000, Math.round(v.tilt.z * 1000) / 1000];
+    }
+    if (c.warpOn || c.warpK > 0) {
+      s.wo = c.warpOn ? 1 : 0;
+      s.wk = Math.round(c.warpK * 1000) / 1000;
+      s.wd = [c.warpDir.x, c.warpDir.y, c.warpDir.z].map((x) => Math.round(x * 1e4) / 1e4);
+    }
+    return s;
+  }
+
+  // A passenger's frame: its own look; the craft carried on between the
+  // pilot's states (a coast round the body, or straight on), drawn as it is.
+  _remote(dt, inp) {
+    const c = this.craft;
+    const v = c.v;
+    const sens = 0.0022 * (this.vehicles.mouseSensitivity ?? 0.6);
+    c.camYaw -= inp.dx * sens;
+    c.camPitch = Math.max(-1.45, Math.min(1.45, c.camPitch - inp.dy * sens));
+    if (inp.wheel && c.kind === "rocket") c.camDist = Math.max(8, Math.min(400, (c.camDist ?? this._rocketDist()) * (inp.wheel > 0 ? 1.12 : 0.89)));
+    const h = dt * this.timeWarp;
+    const B = BODIES[c.ref];
+    if (c.kind === "rocket" && c.throttle <= 0.001 && !c.warpOn) kepler(c.r, c.vel, h, B.gm);
+    else add(c.r, scale(c.vel, h), c.r);
+    this.t += h;
+    v.time = (v.time || 0) + dt;
+    try {
+      if (c.kind === "rocket") {
+        const pw = c.throttle;
+        v.model.setStack(v.stack);
+        v.model.setFlames({ core: v.stack === "ship" ? 0 : pw, boost: 0, ship: v.stack === "ship" ? pw : 0 }, v.time, 1);
+        v.model.setLegs(0);
+        v.model.light.sky = 15;
+        v.model.light.block = Math.round(12 * pw);
+      } else {
+        const want = frameQuat(localFrame(c.r), _q2);
+        c.frameQ.slerp(want, Math.min(1, dt * 2.5));
+        v.model.body.rotation.set(v.tilt?.x || 0, (v.yaw || 0) + (designFacingOffset(v.design) ?? 0), v.tilt?.z || 0, "YXZ");
+        v.model.light.sky = 15;
+        v.model.light.block = 0;
+        v.model.animate(v.time, { night: 0, damage: 1 - v.health / v.maxHealth, beam: 0, speed: Math.min(len(c.vel), 300) });
+        v.warpFx?.(dt, c.warpK, c.warpOn);
+      }
+    } catch (err) {
+      // (a model without these parts: still drawn)
+    }
+  }
+
+  // The passenger left in charge (the pilot gone): its craft from now on.
+  takeControl() {
+    const c = this.craft;
+    if (!c?.remote) return false;
+    c.remote = false;
+    if (c.kind === "rocket") c.assist = true;
+    this.space.caption("You have the controls", "stage", 2.5);
+    return true;
+  }
+
+  // The pilot went down to a planet (m: where, as land() worked it out): this
+  // passenger travels there too, and is seated again in the craft it comes
+  // down as (net/space.js seatFor), or, if that never comes, under a parachute.
+  remoteLand(m) {
+    const c = this.craft;
+    if (!c?.remote || this.pending) return false;
+    const B = BODIES[m.body];
+    if (!B?.dim) return false;
+    const vm = this.vehicles;
+    const v = c.v;
+    this.warpIndex = 0;
+    this.pending = { body: m.body, dim: B.dim, x: m.x, y: m.y, z: m.z, vel: Array.isArray(m.vel) ? m.vel : [0, 0, 0], yaw: Number.isFinite(m.yaw) ? m.yaw : c.camYaw, pitch: Number.isFinite(m.pitch) ? m.pitch : 0, started: performance.now(), travelled: false, remote: true, from: m.n, detached: true };
+    this.space.caption(`Entering ${B.name}'s ${B.atmo ? "atmosphere" : "approach"}`, "stage", 2.5);
+    if (vm.active === v) vm.exit({ force: true });
+    const i = vm.vehicles.indexOf(v);
+    if (i >= 0) vm.vehicles.splice(i, 1);
+    const j = vm.elsewhere.indexOf(v);
+    if (j >= 0) vm.elsewhere.splice(j, 1);
+    const fromDim = this.world.dim || "overworld";
+    const p = this.player;
+    const ok = this.dims?.travel(B.dim, m.x, m.y, m.z, { place: "exact", from: { dim: fromDim, x: Math.floor(p.position.x), y: p.position.y, z: Math.floor(p.position.z) } });
+    if (!ok) console.warn("MINECLAUDE: a passenger's landing travel was refused");
+    this.pending.travelled = !!ok;
+    this._hideLoading();
+    this._mouseWhileLoading(true);
+    return true;
+  }
+
+  // A passenger waiting for the ground and the pilot's craft there.
+  _waitRemote(dt) {
+    const pd = this.pending;
+    const c = this.craft;
+    const sens = 0.0022 * (this.vehicles.mouseSensitivity ?? 0.6);
+    c.camYaw -= this.inp.dx * sens;
+    c.camPitch = Math.max(-1.45, Math.min(1.45, c.camPitch - this.inp.dy * sens));
+    const late = performance.now() - pd.started;
+    if (this.dims?.pending && late < 25000) return;
+    const seat = this.crew?.seatFor?.(pd) || null;
+    if (!seat && late < 25000) return;
+    const old = c.v;
+    this.view.craft.remove(old.root);
+    if (old._spaceDamage) {
+      old.damage = old._spaceDamage;
+      delete old._spaceDamage;
+    }
+    try {
+      old.dispose?.();
+    } catch {}
+    this._end();
+    const vm = this.vehicles;
+    const B = BODIES[pd.body];
+    this.crew?.arrived?.(seat?.v || null);
+    if (seat) {
+      if (seat.seat === 0) this.crew?.enterOwn?.(seat.v);
+      else vm.board(seat.v, seat.seat);
+      vm.look.yaw = pd.yaw;
+      vm.look.pitch = Math.max(-1.2, Math.min(0.6, pd.pitch));
+      this.space.caption(pd.body === "earth" ? "Welcome back to Earth" : `${B.name}`, "big", 3);
+    } else {
+      // (the craft never came: down under a parachute)
+      vm.parachute.deploy(this.player, 0);
+      this.space.caption("Your ride didn't make it down: parachute!", "hint", 4);
+    }
+  }
+
+  // The pilot's trip ended at once (an abort): a passenger is back in the
+  // world with the craft, at the line it left by.
+  followEnd() {
+    const c = this.craft;
+    if (!this.active || !c?.remote) return;
+    if (this.pending) return; // (on the way down already: the landing goes on)
+    const v = c.v;
+    this.view.craft.remove(v.root);
+    if (this.vehicles.has(v)) this.vehicles.scene.add(v.root);
+    if (v._spaceDamage) {
+      v.damage = v._spaceDamage;
+      delete v._spaceDamage;
+    }
+    this._end();
   }
 
   // The world's sun direction (world axes).
@@ -318,13 +528,23 @@ export class SolarSystem {
     const inp = this.inp;
     if (running) {
       this._keys(inp);
-      if (this.pending) this._waitLanding(dt);
+      if (this.pending?.remote) this._waitRemote(dt);
+      else if (this.pending) this._waitLanding(dt);
+      else if (c.remote) this._remote(dt, inp); // (Round 18: a passenger's)
       else if (c.kind === "rocket") this._rocket(dt, inp);
       else this._ufo(dt, inp);
     }
     if (!this.active) return;
     this._camera(dt);
     this._draw(dt);
+    // (Round 18) The pilot's craft to its passengers.
+    if (!c.remote && !this.pending) {
+      try {
+        this.crew?.tick?.(dt, c);
+      } catch (err) {
+        console.warn("MINECLAUDE: the crew's trip", err);
+      }
+    }
     inp.dx = inp.dy = inp.wheel = 0;
     inp.pressed.clear();
   }
@@ -807,6 +1027,12 @@ export class SolarSystem {
     this.space.caption(`Entering ${B.name}'s ${B.atmo ? "atmosphere" : "approach"}`, "stage", 2.5);
     const vm = this.vehicles;
     const v = c.v;
+    // (Round 18) The passengers come down to the same spot (their seats wait for the craft there).
+    try {
+      if (this.dims?.enabled) this.crew?.landing?.(this.pending, c);
+    } catch (err) {
+      console.warn("MINECLAUDE: the crew's landing", err);
+    }
     // (straight back into the same world: no travel needed when the dimensions are off)
     if (!this.dims?.enabled) {
       if (B.dim !== (this.world.dim || "overworld")) {
@@ -888,7 +1114,11 @@ export class SolarSystem {
     if (refused) pos[1] = Math.min(pos[1], spaceLineY(pd.dim) - 200);
     let v = null;
     if (direct && !pd.detached) {
-      // (the same vehicle, moved: it never left the world)
+      // (the same vehicle, moved: it never left the world; Round 18: its
+      // passengers' trip ends with it, their seats as they were)
+      try {
+        this.crew?.ended?.(c);
+      } catch {}
       v = old;
       vm.scene.add(v.root);
       v.pos.fromArray(pos);
@@ -905,6 +1135,8 @@ export class SolarSystem {
       if (v) {
         v.keep = true;
         v.calledIn = old.calledIn;
+        // (Round 18: the craft it was, online: its seats, its passengers, follow: net/vehicles.js)
+        if (typeof old.net?.nid === "string") v.netPrev = old.net.nid;
       }
     }
     if (v && c.kind === "rocket") {
@@ -929,6 +1161,7 @@ export class SolarSystem {
       v.camPitch = Math.max(-1.4, Math.min(1.1, pd.pitch));
       if (c.kind === "rocket") v._camManual = true;
     }
+    this.crew?.arrived?.(v);
     const B = BODIES[pd.body];
     this.stats.lastEntry = { body: pd.body, dim: this.world.dim, x: pd.x, z: pd.z };
     if (!refused) {
@@ -958,7 +1191,7 @@ export class SolarSystem {
   // new UFO right here, at once (make: () => the new vehicle, in the world).
   swapCraft(make) {
     const c = this.craft;
-    if (!this.active || !c || this.pending) return null;
+    if (!this.active || !c || this.pending || c.remote) return null;
     const vm = this.vehicles;
     const old = c.v;
     if (c.warpOn) this.dropWarp(null);
@@ -1001,6 +1234,20 @@ export class SolarSystem {
     if (!this.active) return;
     const c = this.craft;
     const v = c.v;
+    // (Round 18) A passenger's: back with the craft (or, on the way down, without it).
+    if (c.remote) {
+      if (this.pending?.detached) {
+        this.view.craft.remove(v.root);
+        this.crew?.arrived?.(null);
+        this._end();
+      } else this.followEnd();
+      return;
+    }
+    if (!this.pending) {
+      try {
+        this.crew?.ended?.(c);
+      } catch {}
+    }
     if (this.pending?.detached) {
       // (already out of the world it left: the travel goes on; the craft is lost)
       this.view.craft.remove(v.root);
@@ -1353,7 +1600,8 @@ export class SolarSystem {
   serialize() {
     const out = { t: Math.round(this.t), spins: { ...this.spins }, guides: this.guides, target: this.target };
     const c = this.craft;
-    if (this.active && c && c.kind !== "rocket" && !this.pending) out.resume = { ref: c.ref, r: c.r.map((x) => Math.round(x)), speedLevel: c.speedLevel, warpFactor: c.warpFactor, camYaw: c.camYaw, camPitch: c.camPitch };
+    if (this.active && c && c.kind !== "rocket" && !this.pending && !c.remote) out.resume
+ = { ref: c.ref, r: c.r.map((x) => Math.round(x)), speedLevel: c.speedLevel, warpFactor: c.warpFactor, camYaw: c.camYaw, camPitch: c.camPitch };
     return out;
   }
 
