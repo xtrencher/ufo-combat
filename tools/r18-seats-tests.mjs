@@ -256,6 +256,16 @@ async function pressF(who, nid) {
   }, nid);
 }
 
+// (Round 18) Everyone out of whatever they sit in (F once each).
+async function allOut() {
+  for (const who of ["host", "bob", "carol"]) {
+    if (PAGE[who].closing) continue;
+    await v(PAGE[who], (g) => g.vehicles.active && g.vehicles.toggle());
+  }
+  for (const who of ["host", "bob", "carol"]) assert(await until(PAGE[who], (g) => !g.vehicles.active, 10000), `${who} still aboard`);
+  await sleep(500);
+}
+
 // Where player `who` sits in nid: 0 the pilot, 1+ a passenger, -1 out.
 const seatOf = (who, nid) => v(PAGE[who], (g, n) => {
   const veh = g.mp.vehicles.byNid(n);
@@ -515,6 +525,8 @@ await check("travel together: a UFO with two players aboard to the Moon and back
 });
 
 await check("a vehicle destroyed with a passenger aboard: the passenger is out (lost with it), the seats cleared", async () => {
+  // (Everyone out of the last check's UFO first: its crew is still aboard.)
+  await allOut();
   const nid = await spawnVehicle("tank", { kind: "tiger" }, 120);
   await pressF("bob", nid);
   await waitSeat("bob", nid, 0, "Bob in");
@@ -531,8 +543,7 @@ await check("a vehicle destroyed with a passenger aboard: the passenger is out (
 
 await check("the pilot leaves the game: the passenger takes the controls (and the vehicle stays)", async () => {
   // Carol flies, Bob rides; then Carol's page closes.
-  await pressF("carol", ufo); // (out)
-  await pressF("bob", ufo); // (out)
+  await allOut();
   await waitSeat("bob", ufo, -1, "Bob out");
   await waitSeat("carol", ufo, -1, "Carol out");
   await hostRow(ufo, 0, []);
