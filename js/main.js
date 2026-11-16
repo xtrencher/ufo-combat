@@ -3238,7 +3238,7 @@ window.addEventListener("keydown", (e) => {
     if (gameState !== "playing" || e.repeat) return;
     if (e.code === "F1") toggleHud();
     else if (e.code === "F3") toggleDebug();
-    else if (vehicles.active) toast(`Camera: ${vehicles.active.cycleCamera()}`, 1.2);
+    else if (vehicles.active) toast(`Camera: ${vehicles.cycleCamera()}`, 1.2); // (Round 18: a passenger's cameras too)
     else player.cycleCamera();
     return;
   }
@@ -4093,7 +4093,7 @@ const missileWarnTextEl = missileWarnEl.querySelector(".mw-text");
 const _lockV = new THREE.Vector3();
 const fighterHud = new FighterHud(document.getElementById("fighter-hud"));
 function updateJetOverlay() {
-  const v = vehicles.active;
+  const v = vehicles.driving; // (Round 18: not a passenger's: the sights are the pilot's)
   const o = (v?.type === "jet" || v?.type === "ufo" || v?.type === "heli") && v.overlay && gameState === "playing" && !hudHidden ? v.overlay(camera) : null;
   const place = (el, p) => {
     el.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;

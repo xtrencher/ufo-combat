@@ -7,6 +7,7 @@
 // guest's own settings are never overwritten: the host's values are applied
 // on top and the guest's rows are locked ("set by the host") until they leave.
 import { dayLength } from "../sky.js";
+import { saveRules } from "./config.js";
 
 // (Round 11) The room's modes. The room plays the host's world, whose type
 // is fixed: "survival" is that world's own game (named Missions in a
@@ -77,7 +78,7 @@ export class RulesSync {
 
   _rules() {
     const g = this.game;
-    return { t: "rules", mode: this.mp.mode, s: g.settingsPanel.ruleValues(), d: g.difficulty, mods: g.mods.enabled, pvp: this.mp.pvp !== false };
+    return { t: "rules", mode: this.mp.mode, s: g.settingsPanel.ruleValues(), d: g.difficulty, mods: g.mods.enabled, pvp: this.mp.pvp !== false, tp: this.mp.teamPlay !== false };
   }
 
   // The host's "PvP / friendly fire" rule.
@@ -85,7 +86,19 @@ export class RulesSync {
     if (!this.net.isHost) return;
     this.mp.pvp = !!on;
     this._sig = "";
+    saveRules(this.mp);
     this.mp.feed(`PvP / friendly fire: ${on ? "on" : "off"}`);
+    this.mp.ui.refresh();
+  }
+
+  // (Round 18) The host's "Team play" rule: on, anyone gets into anyone's
+  // vehicle (as its pilot or a passenger); off, only into their own or a free one.
+  setTeamPlay(on) {
+    if (!this.net.isHost) return;
+    this.mp.teamPlay = !!on;
+    this._sig = "";
+    saveRules(this.mp);
+    this.mp.feed(`Team play: ${on ? "on (anyone can ride in anyone's vehicle)" : "off (only your own vehicles)"}`);
     this.mp.ui.refresh();
   }
 
@@ -152,7 +165,13 @@ export class RulesSync {
       this.mp.feed(`PvP / friendly fire: ${m.pvp ? "on" : "off"}`);
       this.mp.ui.refresh();
     }
+    if (typeof m.tp === "boolean" && m.tp !== this.mp.teamPlay) {
+      this.mp.teamPlay = m.tp;
+      this.mp.feed(`Team play: ${m.tp ? "on" : "off"}`);
+      this.mp.ui.refresh();
+    }
     if (m.mode && m.mode !== this.mp.mode) this._onMode({ mode: m.mode });
+
     // (A Dogfight watcher is in Creative on purpose: left flying.)
     else if (m.mode && !this.mp.dogfight?.watching && this.game.player.mode !== playerModeOf(m.mode)) this._applyMode(m.mode, m.mode);
   }

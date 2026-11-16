@@ -24,6 +24,13 @@
 // Overworld's where they were on the way back. A vehicle aside on its owner's
 // machine (its owner is in another dimension) stands still and takes no hits
 // there; it can still be claimed by a player in its dimension.
+//
+// (Round 18) Seats: who sits where is net/seats.js's (the host's table).
+// Boarding a vehicle somebody else owns or sits in asks the host for a seat
+// there (the old "claim"); the pilot is always the owner, so the host moves
+// the vehicle ("vown") to whoever gets the pilot's seat, keeping its motion
+// when a passenger aboard takes over in flight. A pilot with passengers
+// sends its camera too (`pc`, `pq`: the passengers' "pilot's view").
 import * as THREE from "three";
 import { Interp, r2, r3, vec2, vec1 } from "./interp.js";
 import { RATES } from "./config.js";
@@ -55,9 +62,7 @@ export class VehicleSync {
     net.on("vdead", (m, from) => this._onDead(m, from));
     net.on("vpgone", (m) => this._onParkedGone(m));
     net.on("vrem", (m, from) => this._onRemove(m, from));
-    net.on("vclaim", (m, from) => this._onClaim(m, from));
     net.on("vown", (m) => this._onOwn(m));
-    net.on("vdeny", (m) => this._onDeny(m));
     net.on("vhit", (m, from) => this._onHit(m, from));
     net.registerSync("vehicles", {
       save: () => this._snapshot(),
@@ -99,6 +104,10 @@ export class VehicleSync {
     // (they stay parked in the world).
     for (const v of [...this.byId.values()]) {
       if (!v.net || v.net.owner !== p.pid) continue;
+      // (Round 18) Passengers aboard: the first takes the controls (the host's
+      // seats, net/seats.js, move the vehicle to them), it isn't removed.
+      const row = this.mp.seats?.rowOf(v);
+      if (row && row.r.some((x) => x !== p.pid) && v.alive) continue;
       const occupiedByIt = v.netOcc === p.pid;
       // (A Dogfight's match jets go with their pilot too.)
       if (occupiedByIt || !v.alive || this.mp.mode === "dogfight") {
@@ -135,13 +144,20 @@ export class VehicleSync {
       // who boarded it at once each had one here.)
       if (v.tookKey && !this.vehicles.vehicles.some((o) => o !== v && o.tookKey === v.tookKey)) this.game.airports.taken.delete(v.tookKey);
       if (!this.mp.active || !v.net) return;
-      if (!v.puppet && v.net.owner === this.net.pid) this.net.toAll({ t: "vrem", nid: v.net.nid });
+      // (Round 18: tr, a craft gone into space with its crew: js/solar.js marks it.)
+      if (!v.puppet && v.net.owner === this.net.pid) {
+        this.net.toAll({ t: "vrem", nid: v.net.nid, tr: v.inTransit ? 1 : undefined });
+        if (!v.inTransit) this.mp.seats?.gone(v.net.nid);
+      }
       if (this.byId.get(v.net.nid) === v) this.byId.delete(v.net.nid);
     };
     const prevDestroyed = vm.onDestroyedHook;
     vm.onDestroyedHook = (v, cause) => {
       prevDestroyed?.(v, cause);
-      if (this.mp.active && v.net && !v.puppet) this.net.toAll({ t: "vdead", nid: v.net.nid, cause });
+      if (this.mp.active && v.net && !v.puppet) {
+        this.net.toAll({ t: "vdead", nid: v.net.nid, cause });
+        this.mp.seats?.gone(v.net.nid); // (Round 18: the host's; a guest's goes with its vdead there)
+      }
       // (Round 9) An aircraft still parked at an airport is every peer's own
       // copy: blown up here, the others' copies go too (the blast itself
       // reaches them as an explosion), so the airport is the same for all.
@@ -152,11 +168,17 @@ export class VehicleSync {
       if (this.mp.active) this._entered(v);
       prevEnter?.(v);
     };
+    // (Round 18) Out of a vehicle, any way: the host's seats are told.
+    const prevExit = vm.onExit;
+    vm.onExit = (v) => {
+      prevExit?.(v);
+      if (this.mp.active && v) this.mp.seats?.exited(v);
+    };
     // (canBoard is a question, asked every frame for the "Press F" hint too:
     // the claim itself is made when boarding.)
     const prevCan = vm.canBoard;
+    // (Round 18: a vehicle someone flies has passengers' seats: net/seats.js says.)
     vm.canBoard = (v) => {
-      if (this.mp.active && v.puppet && v.netOcc) return `${this.mp.playerName(v.netOcc)} is flying it`;
       if (this.mp.active && v.puppet && (!v.alive || v.wreck)) return "It's a wreck";
       return prevCan ? prevCan(v) : null;
     };
@@ -175,13 +197,21 @@ export class VehicleSync {
     };
     const enter = vm.enter.bind(vm);
     vm.enter = (v) => {
-      // Someone else's vehicle: ask the host for it first (we climb in when it says yes).
-      if (this.mp.active && v?.puppet) {
-        const why = this._claim(v);
-        vm.onMessage?.(why);
+      const S = this.mp.seats;
+      if (!this.mp.active || !v || !S || this._seating) return enter(v);
+      // (Round 18) Someone else's vehicle, or one somebody sits in: ask the
+      // host for a seat (we climb in when it says where: net/seats.js).
+      if (v.puppet || S.takenByOther(v)) {
+        vm.onMessage?.(S.request(v));
         return false;
       }
-      return enter(v);
+      // Our own empty one: in at once, the host told.
+      const ok = enter(v);
+      if (ok) {
+        if (!v.net) this._adopt(v, true);
+        S.entered(v);
+      }
+      return ok;
     };
   }
 
@@ -198,7 +228,12 @@ export class VehicleSync {
     const nid = `${this.net.pid}:${this._n++}`;
     v.net = { nid, owner: this.net.pid };
     this.byId.set(nid, v);
-    if (announce) this.net.toAll({ t: "vadd", nid, owner: this.net.pid, type: v.type, data: this._data(v) });
+    if (announce) {
+      // (Round 18: a craft down from space, js/solar.js: the one it was, its seats follow.)
+      const prev = typeof v.netPrev === "string" ? v.netPrev : undefined;
+      this.net.toAll({ t: "vadd", nid, owner: this.net.pid, type: v.type, data: this._data(v), prev });
+      if (prev) this.mp.seats?.relink(prev, nid);
+    }
   }
 
   // We boarded something: a parked aircraft becomes shared now.
@@ -238,6 +273,7 @@ export class VehicleSync {
       this._creatingPuppet = false;
     }
     if (!v) return null;
+    if (data?.calledIn) v.calledIn = true; // (Round 18: whose it is, for team play)
     this._makePuppet(v, nid, owner);
     return v;
   }
@@ -247,7 +283,7 @@ export class VehicleSync {
     v.puppet = true;
     v.transient = true; // (never saved: its owner keeps it)
     v.keep = true;
-    v.interp = v.interp || new Interp({ angles: ["y"], quats: ["q"], snap: 60 });
+    v.interp = v.interp || new Interp({ angles: ["y"], quats: ["q", "pq"], snap: 60 });
     v.netOcc = v.netOcc || 0;
     if (!v._realUpdate) v._realUpdate = v.update;
     v.update = (dt) => this._drivePuppet(v, dt);
@@ -257,7 +293,8 @@ export class VehicleSync {
   }
 
   // A puppet becomes ours (a claim was granted): real updates and damage again.
-  _makeOwned(v) {
+  // (Round 18) keep: we sit in it (a passenger taking over): it flies on as it was.
+  _makeOwned(v, keep = false) {
     if (!v.puppet) return;
     v.puppet = false;
     v.update = v._realUpdate;
@@ -266,12 +303,15 @@ export class VehicleSync {
     v.keep = (v.type === "ufo" && !v.wreck) || !!v.summoned; // (Round 13: a Creative summon stays kept)
     v.net.owner = this.net.pid;
     v.interp?.clear();
-    // Where it was last seen, at rest.
-    if (v.type === "jet") {
-      v.throttle = 0;
-      v.afterburner = false;
-    }
-    v.vel.set(0, 0, 0);
+    v.pilotCam = null;
+    // Where it was last seen, at rest (unless taken over in motion).
+    if (!keep) {
+      if (v.type === "jet") {
+        v.throttle = 0;
+        v.afterburner = false;
+      }
+      v.vel.set(0, 0, 0);
+    } else if (v.type === "jet" && Number.isFinite(v.speed)) v.speed = v.vel.length();
     v.netOcc = 0;
     v.netDash = false;
     v.netDashT = 0;
@@ -298,8 +338,17 @@ export class VehicleSync {
       if (!v.isEnemyJet) {
         v.netOcc = st.o | 0;
         v.occupied = !!v.netOcc;
-        v.unusable = !!v.netOcc || v.wreck || !v.alive;
+        // (Round 18: one somebody flies can still be boarded, as a passenger.)
+        v.unusable = v.wreck || !v.alive;
+        // (Round 18) The pilot's camera, for its passengers' "pilot's view".
+        if (Array.isArray(st.pc) && Array.isArray(st.pq) && st.pq.length === 4) {
+          const pc = v.pilotCam || (v.pilotCam = { off: new THREE.Vector3(), q: new THREE.Quaternion(), t: 0 });
+          pc.off.fromArray(st.pc);
+          pc.q.fromArray(st.pq).normalize();
+          pc.t = performance.now();
+        }
       }
+
     }
     const night = this.vehicles.night ?? 0;
     if (v.type === "jet" || v.isEnemyJet) {
@@ -497,43 +546,9 @@ export class VehicleSync {
     (v._realDamage || v.damage).call(v, m.dmg, m.cause === "beam" ? "beam" : player ? "pvp" : m.cause || "explosion_other", player);
   }
 
-  // ---------- Claims ----------
+  // ---------- Owners (Round 18: the seats, net/seats.js, decide) ----------
 
-  // Boarding someone else's empty vehicle: ask the host first.
-  _claim(v) {
-    if (v.netOcc) return `${this.mp.playerName(v.netOcc)} is flying it`;
-    if (!v.alive || v.wreck) return "It's a wreck";
-    const t = performance.now();
-    if (this.pendingClaim && this.pendingClaim.nid === v.net.nid && t - this.pendingClaim.t < 3000) return "Climbing in...";
-    this.pendingClaim = { nid: v.net.nid, t };
-    if (this.net.isHost) this._grant(v.net.nid, HOST_PID);
-    else this.net.toHost({ t: "vclaim", nid: v.net.nid });
-    return "Climbing in...";
-  }
-
-  _onClaim(m, from) {
-    if (!this.net.isHost) return;
-    this._grant(m.nid, from);
-  }
-
-  _grant(nid, pid) {
-    const v = this.byId.get(nid);
-    // (Round 9) A grant holds for a moment: a second claim that arrives before
-    // the first player's states say they are in it is refused, instead of
-    // granted too (the first player used to be thrown out again).
-    const g = this._granted?.get(nid);
-    const recent = g && g.pid !== pid && performance.now() - g.t < 2500;
-    const busy = !v || !v.alive || recent || (v.puppet ? v.netOcc && v.netOcc !== pid : v === this.vehicles.active);
-    if (busy) {
-      if (pid !== HOST_PID) this.net.send(pid, { t: "vdeny", nid });
-      else this._onDeny({ nid });
-      return;
-    }
-    (this._granted || (this._granted = new Map())).set(nid, { pid, t: performance.now() });
-    this._broadcastOwn(nid, pid);
-    this._onOwn({ nid, owner: pid });
-  }
-
+  // (The host) vehicle nid is player `owner`'s to simulate from now on.
   _broadcastOwn(nid, owner) {
     const v = this.byId.get(nid);
     this.net.broadcast({ t: "vown", nid, owner, data: v && !v.puppet ? this._data(v) : null });
@@ -542,24 +557,20 @@ export class VehicleSync {
   _onOwn(m) {
     const v = this.byId.get(m.nid);
     if (!v) return;
+    const vm = this.vehicles;
     if (m.owner === this.net.pid) {
-      // Ours now: the puppet becomes the real vehicle, and we climb in if we asked.
-      const wanted = this.pendingClaim && this.pendingClaim.nid === m.nid;
-      this.pendingClaim = null;
-      this._makeOwned(v);
-      if (wanted && !this.vehicles.active && !this.game.player.dead && this.vehicles.vehicles.includes(v)) this.vehicles.enter(v);
-    } else {
-      if (!v.puppet) {
-        // Someone else's now: we stop simulating it.
-        if (v === this.vehicles.active) this.vehicles.exit({ force: true });
-        this._makePuppet(v, m.nid, m.owner);
-      } else v.net.owner = m.owner;
-    }
-  }
-
-  _onDeny(m) {
-    if (this.pendingClaim?.nid === m.nid) this.pendingClaim = null;
-    this.game.toast?.("Someone else got there first.", 2);
+      // Ours now: the puppet becomes the real vehicle. A passenger aboard
+      // takes the controls where it is, as it moves (the pilot got out); a
+      // player who asked climbs in when the host's seats say so.
+      const aboard = v === vm.active;
+      this._makeOwned(v, aboard);
+      if (aboard && vm.seat > 0) vm.promote();
+    } else if (!v.puppet) {
+      // Someone else's now: we stop simulating it. (Still aboard: a
+      // passenger's seat; the host's seats say which, or that we're out.)
+      if (v === vm.active && vm.seat === 0) vm.demote(1);
+      this._makePuppet(v, m.nid, m.owner);
+    } else v.net.owner = m.owner;
   }
 
   // ---------- Messages ----------
@@ -582,6 +593,11 @@ export class VehicleSync {
     if (this.byId.has(m.nid)) return;
     const v = this._createPuppet(m.nid, m.owner, m.type, m.data);
     if (v && m.took) v.tookKey = m.took;
+    // (Round 18) A craft down from space as a new vehicle: its seats go with it (the host's).
+    if (v && typeof m.prev === "string") {
+      v.netPrev = m.prev;
+      this.mp.seats?.relink(m.prev, m.nid);
+    }
   }
 
   _onStates(m, from) {
@@ -603,6 +619,9 @@ export class VehicleSync {
     v.alive = false;
     v.netOcc = 0;
     v.removeAt = 60; // (the owner says when the wreck is gone)
+    // (Round 18) Aboard as a passenger: lost with it, as its pilot is; its seats go.
+    if (v === this.vehicles.active) this.vehicles.crewLost(v, m.cause === "crash" ? "crash" : "vehicle");
+    this.mp.seats?.gone(m.nid);
     if (v.type === "ufo") {
       v.root.visible = false;
       v.beam.set(false);
@@ -626,6 +645,8 @@ export class VehicleSync {
 
   _onRemove(m) {
     const v = this.byId.get(m.nid);
+    // (Round 18: a craft gone on into space, m.tr, keeps its seats for the one it lands as.)
+    if (!m.tr) this.mp.seats?.gone(m.nid);
     if (!v || !v.puppet) return;
     this.byId.delete(m.nid);
     this._removeLocal(v);
@@ -637,7 +658,15 @@ export class VehicleSync {
     // (Round 9 fix: an enemy fighter has no shared id of its own (the host's
     // snapshots name it); this used to throw for every fighter, which stopped
     // all of the host's snapshots while one flew near a guest.)
-    const s = { n: v.net ? v.net.nid : 0, p: vec2(v.pos), v: vec1(v.vel), hp: Math.round(v.health), o: v === this.vehicles.active ? this.net.pid : 0 };
+    // (Round 18: o, the pilot: not a passenger's seat.)
+    const flown = v === this.vehicles.active && this.vehicles.seat === 0;
+    const s = { n: v.net ? v.net.nid : 0, p: vec2(v.pos), v: vec1(v.vel), hp: Math.round(v.health), o: flown ? this.net.pid : 0 };
+    // (Round 18) Passengers aboard: the pilot's camera, from the vehicle (their "pilot's view").
+    const cam = this.game.camera;
+    if (flown && cam && v.net && this.mp.seats?.rowOf(v)?.r.length) {
+      s.pc = [r2(cam.position.x - v.pos.x), r2(cam.position.y - v.pos.y), r2(cam.position.z - v.pos.z)];
+      s.pq = cam.quaternion.toArray().map(r3);
+    }
     if (v.type === "jet" || v.isEnemyJet) {
       s.q = v.q.toArray().map(r3);
       s.th = r2(v.throttle);
@@ -713,7 +742,8 @@ export class VehicleSync {
       // whose slot this session never took keeps the joiner's copy too.)
       const k = v.tookKey || (v.parkKey && !v.parkedAt ? v.parkKey : null);
       const took = k && this.game.airports.taken.has(k) ? k : null;
-      out.push({ nid: v.net.nid, owner: v.net.owner, type: v.type, data, occ: v.puppet ? v.netOcc : v === this.vehicles.active ? HOST_PID : 0, took });
+      out.push({ nid: v.net.nid, owner: v.net.owner, type: v.type, data, occ: v.puppet ? v.netOcc : v === this.vehicles.driving ? HOST_PID : 0, took });
+
     }
     return { list: out, taken: [...this.game.airports.taken] };
   }
