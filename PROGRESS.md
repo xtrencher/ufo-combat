@@ -2867,3 +2867,16 @@ The owner: "Try to find bugs in the game and think long and deep... Just find bu
 - **Found in other tracks' files (reported, not changed):** js/dimensions.js `serialize()` saves the current non-Overworld dimension's creatures with `serializeKept()` (should pass `{ pending: true }`, as main.js now does), and no dimension's stashed orbs; its `init()` stuck test reads the feet's cell (a Nether save on a slab moves to a safe spot).
 - Looked at and fine: worker vs main-thread chunk generation (identical, every dimension, both world types), memory per activity (dimensions, vehicles, creatures, UFOs, blasts, deaths, screens: flat after warm-up), simulation spikes flying a jet across new ground, listeners and intervals, every pause/settings/hacks/inventory screen at 1280x720 and 1366x768, a multiplayer probe (the Nether's edits recorded for the host, a boat the guest rides, a guest's helicopter, a death in the Nether).
 - **Tests:** tools/r17-bugs-tests.mjs (14 checks, every one failing on the base commit but the boot); tools/probe.mjs takes `--query=` for the page's address.
+
+## Round 18 plan
+User asks:
+- every vehicle can be boarded in every game mode (switching to Survival no longer throws you out);
+- Creative one-click teleports (the Nether, the End, the Moon, Mars, Mercury, Venus, home), online too;
+- shared vehicles online: everyone can board any vehicle; the first one in controls it, and control passes on cleanly. Rockets and UFOs carry friends to other planets;
+- a team-play setting, on by default (off: others can't board your vehicle); friendly fire on by default in every mode;
+- every hand weapon in Creative's menu;
+- tanks raised so their wheels don't sink into the ground or flicker.
+
+Tracks:
+- **18.A Shared vehicles**: vehicles.js, net/*, solar/space travel with passengers, team and friendly-fire settings.
+- **18.B Modes & Creative**: main.js mode and call-in code, the teleport buttons, the Creative inventory, tank-model.js.
