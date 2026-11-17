@@ -122,6 +122,10 @@ const TRICKS = ["hover_lake", "zigzag", "follow", "abduct", "hover", "abduct", "
 const MAX_UFOS = 150;
 // (Round 18) A planet's flavour: about half its ships are of these designs,
 // and about half its crews of this kind.
+export const PLANET_DIMS = ["moon", "mars", "mercury", "venus"];
+const PLANET_MIN = 4; // (at least this many in a planet's sky, at any activity but Off)
+const PLANET_RATE = 6; // (and they come this much faster)
+const PLANET_ARRIVAL = 3; // (and this many are there soon after landing, in sight)
 const PLANET_FLAVOUR = {
   moon: { designs: ["sphere", "tictac", "saucer_disc"], crew: "alien_gray" },
   mars: { designs: ["triangle", "boomerang", "saucer_domed"], crew: "alien_red" },
@@ -277,6 +281,13 @@ export class UfoManager {
     return !d || d === "overworld";
   }
 
+  // (Round 18) On a planet (the Moon, Mars, Mercury, Venus): a busier sky
+  // than home (a visit is short), whatever the Mods setting.
+  get onPlanet() {
+    const d = this.world.dim;
+    return !!d && PLANET_DIMS.includes(d);
+  }
+
   get seaLevel() {
     return this.hasSea ? SEA_LEVEL : -Infinity;
   }
@@ -307,7 +318,8 @@ export class UfoManager {
     const g = this.groupScale;
     if (this.missionDriven) return this.rules.max <= 0 ? 0 : Math.min(MAX_UFOS, Math.max(1, Math.round(this.rules.max * nightBoost * jet * g)));
     const auto = Math.round((3 * c.activity + (c.activity > 0 ? 1 : 0)) * nightBoost * (this.rules?.count ?? 1) * jet * g);
-    return Math.min(MAX_UFOS, c.maxCount > 0 ? Math.max(1, Math.round(c.maxCount * jet)) : Math.max(c.activity > 0 ? 1 : 0, auto));
+    const n = Math.min(MAX_UFOS, c.maxCount > 0 ? Math.max(1, Math.round(c.maxCount * jet)) : Math.max(c.activity > 0 ? 1 : 0, auto));
+    return this.onPlanet && c.activity > 0 && !(c.maxCount > 0) ? Math.max(n, PLANET_MIN) : n;
   }
 
   // Expected new UFOs per second.
@@ -315,7 +327,7 @@ export class UfoManager {
     const c = this.config;
     const jet = this._playerVehicle()?.type === "jet" ? JET_COUNT_FACTOR : 1;
     if (this.missionDriven) return this.rules.rate * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * 0.5 * this.night);
-    return (c.activity / 50) * c.spawnChance * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * this.night);
+    return (c.activity / 50) * c.spawnChance * 0.8 * (jet < 1 ? 0.7 : 1) * (1 + (c.nightMultiplier - 1) * this.night) * (this.onPlanet ? PLANET_RATE : 1);
   }
 
   // How far UFOs spawn and wander: scales with the view distance.
@@ -506,8 +518,39 @@ export class UfoManager {
     return score;
   }
 
+  // (Round 18) Just landed on a planet: a few ships in sight a moment later
+  // (the ground loaded by then), growing in from dots, not a long wait for
+  // the first one out of view.
+  arrive() {
+    this._arriveT = this.onPlanet ? 2.5 : 0; // (a guest with the host here: update() runs the host's puppets instead)
+  }
+
+  _arrivals() {
+    const p = this.player.position;
+    const fwd = this.camera ? this.camera.getWorldDirection(this._camDir).clone() : new THREE.Vector3(0, 0, -1);
+    const yaw0 = Math.atan2(fwd.x, fwd.z);
+    const n = Math.min(PLANET_ARRIVAL, this.maxCount - this.ufos.length);
+    // (The first close ahead and a big one off to one side, both in view;
+    // the others around: near enough to be ships, not dots.)
+    const plan = [
+      { a: rand(-0.25, 0.25), d: rand(70, 100), h: rand(22, 36), size: "medium" },
+      { a: (Math.random() < 0.5 ? -1 : 1) * rand(0.35, 0.6), d: rand(140, 180), h: rand(45, 65), size: "large" },
+      { a: rand(-Math.PI, Math.PI), d: rand(90, 150), h: rand(25, 45), size: Math.random() < 0.5 ? "small" : "medium" },
+    ];
+    for (let k = 0; k < n; k++) {
+      const o = plan[k % plan.length];
+      const a = yaw0 + o.a;
+      const x = p.x + Math.sin(a) * o.d;
+      const z = p.z + Math.cos(a) * o.d;
+      const ground = this.world.heightAt(Math.floor(x), Math.floor(z));
+      const y = Math.max(Number.isFinite(ground) ? ground : p.y, p.y) + o.h;
+      this.spawn({ pos: new THREE.Vector3(x, y, z), hidden: true, size: o.size });
+    }
+  }
+
   _updateSpawning(dt) {
     if (this.missionDriven ? this.rules.max <= 0 : this.config.activity <= 0) return;
+    if (this._arriveT > 0 && (this._arriveT -= dt) <= 0) this._arrivals();
     this._spawnT -= dt;
     if (this._spawnT > 0) return;
     this._spawnT = 1;
