@@ -2909,3 +2909,10 @@ The owner: "add ufos to all planets".
 - **Tests:** tools/r18-ufos-tests.mjs (new, port 10180+): each planet (UFOs on, none carried over, spawn points above the ground, no sea states or tricks, the flavour, the night from its sky), one shot down on each (no splash, a wreck of that dimension, intact ones boardable, the crew out), home again (the planet's UFOs gone, wrecks aside, the Overworld's UFOs and sea tricks, a wreck there), the Nether (none), online (`--solo` skips: a guest sees the host's Moon UFOs; host home: the guest's own there, its wreck shared; host back: the host's again).
 - **Results:** tools/r18-ufos-tests.mjs 12/12 (about 3 minutes, online included); tools/ufo-tests.mjs 35/35 (first run); `node --check` on js/ufos.js, js/main.js, js/dimensions.js and the new suite.
 - Left open: a ship flying fast at a steep wall (Mars' canyon terraces) eases up over it as on Earth's cliffs, so it can clip into the rock for a moment; two guests on one planet without the host each see their own UFOs (as with creatures this round).
+
+### Round 18 fix: UFOs visible on the planets
+- They were off in Creative and Survival worlds (those worlds' Mods are off, and UFOs followed the Mods), and at the default activity the first one took minutes, always out of view.
+- Now the planets (Moon, Mars, Mercury, Venus) have their UFOs in every world type; only activity "Off" stops them.
+- Each planet has at least 4 in its sky (`PLANET_MIN`), and they arrive 6x faster (`PLANET_RATE`).
+- About 2.5 s after landing, 3 ships appear in view (`ufos.arrive()`, called from `dims.onChange`): a medium one close ahead, a large one off to the side, and one more nearby.
+- Probe: a new Creative world teleported to each planet had UFOs on screen within about 6 s; Earth was unchanged. r18-ufos-tests 12/12.

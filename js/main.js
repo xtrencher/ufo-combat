@@ -1654,7 +1654,7 @@ if (savedPlayer) {
 let newWorld = !savedPlayer;
 mods.load(savedPlayer?.modStash);
 mods.onChange((on) => {
-  ufos.setEnabled(on && ufosHere());
+  ufos.setEnabled(ufosHere() && (on || planetHere()));
   vehicles.setEnabled(on); // (Round 15: in every dimension; the Missions layer's rest out of the Overworld, vehicles.away)
   if (!on) mobs.removeKind("alien");
 });
@@ -1846,6 +1846,11 @@ function missionsHere() {
 // still none in the Nether, the End or the canyon.
 function ufosHere() {
   return ["overworld", "moon", "mars", "mercury", "venus"].includes(world.dim ?? "overworld");
+}
+// (Round 18) The planets have their UFOs in every world (Creative and Survival
+// worlds too, whose Mods are off): only the activity setting's Off stops them.
+function planetHere() {
+  return ["moon", "mars", "mercury", "venus"].includes(world.dim);
 }
 // (Round 15) The mission chain's locks on the vehicles (jets, the B-2, UFOs,
 // helicopters): while the chain runs, and in the Nether and the End too,
@@ -4039,7 +4044,8 @@ dims.onChange.push(() => {
   // (Round 18: UFOs on the planets too; the last dimension's go, its crews and
   // beam with them. A guest's puppets go by DimSync, js/dimensions.js.)
   if (!ufos.puppets) ufos.clear();
-  ufos.setEnabled(mods.enabled && ufosHere());
+  ufos.setEnabled(ufosHere() && (mods.enabled || planetHere()));
+  ufos.arrive(); // (Round 18: a planet's first ships in sight soon after landing)
   refreshSurvivalSystems();
   game._viewJump = true; // (Round 17: the new dimension's view distance at once, updateAltitudeView)
 });
