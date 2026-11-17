@@ -522,7 +522,10 @@ export class UfoManager {
   // (the ground loaded by then), growing in from dots, not a long wait for
   // the first one out of view.
   arrive() {
-    this._arriveT = this.onPlanet ? 2.5 : 0; // (a guest with the host here: update() runs the host's puppets instead)
+    this._arriveT = this.onPlanet ? 2.5 : 0;
+    // (Round 18: a calm half minute after landing anywhere: no UFO comes for
+    // a player who just arrived.)
+    this.graceT = Math.max(this.graceT, 30); // (a guest with the host here: update() runs the host's puppets instead)
   }
 
   _arrivals() {
@@ -530,12 +533,12 @@ export class UfoManager {
     const fwd = this.camera ? this.camera.getWorldDirection(this._camDir).clone() : new THREE.Vector3(0, 0, -1);
     const yaw0 = Math.atan2(fwd.x, fwd.z);
     const n = Math.min(PLANET_ARRIVAL, this.maxCount - this.ufos.length);
-    // (The first close ahead and a big one off to one side, both in view;
-    // the others around: near enough to be ships, not dots.)
+    // (Far off, high up, in view: ships in the sky to look at, never on top
+    // of a player who just landed. A calm moment too: graceT.)
     const plan = [
-      { a: rand(-0.25, 0.25), d: rand(70, 100), h: rand(22, 36), size: "medium" },
-      { a: (Math.random() < 0.5 ? -1 : 1) * rand(0.35, 0.6), d: rand(140, 180), h: rand(45, 65), size: "large" },
-      { a: rand(-Math.PI, Math.PI), d: rand(90, 150), h: rand(25, 45), size: Math.random() < 0.5 ? "small" : "medium" },
+      { a: rand(-0.4, 0.4), d: rand(280, 360), h: rand(70, 110), size: "large" },
+      { a: (Math.random() < 0.5 ? -1 : 1) * rand(0.5, 0.8), d: rand(260, 340), h: rand(60, 95), size: "medium" },
+      { a: rand(-Math.PI, Math.PI), d: rand(300, 400), h: rand(60, 100), size: Math.random() < 0.5 ? "medium" : "large" },
     ];
     for (let k = 0; k < n; k++) {
       const o = plan[k % plan.length];

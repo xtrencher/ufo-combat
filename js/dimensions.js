@@ -366,7 +366,9 @@ export class DimensionManager {
     p.resetFall?.();
     const yaw = Number.isFinite(spot.yaw) ? spot.yaw : o.yaw;
     if (Number.isFinite(yaw)) p.yaw = yaw;
-    p.enabled = pd.wasEnabled;
+    // (Round 18: a trip begun from the pause menu (its teleports) or from
+    // space ends in the game, not held: the controls back if it is running.)
+    p.enabled = pd.wasEnabled || this.game.gameState === "playing";
     p.syncCamera?.();
     this.x.streamAround?.(spot.x, spot.z);
     this._hideLoading();
