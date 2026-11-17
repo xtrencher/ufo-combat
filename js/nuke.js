@@ -104,8 +104,25 @@ export class NukeSystem {
   // fireball, shockwave and cloud, and what it does to this player, but not
   // the crater (its blocks arrive as edits). opts.R: its size.
   // by: online, the player whose nuke it is (a mirror of another player's).
-  detonate(center, { mirror = false, R: size = null, by = 0 } = {}) {
+  // (Round 20) mini: a jet's mini-nuke (vehicle-jet.js MINI_NUKE: a smaller
+  // flash and shake, no mission credit, main.js). Any nuke going off high
+  // above the ground (an air burst: more than 1.3 R over the first solid
+  // block under it) digs no crater and clears no ground (the cloud, the
+  // shockwave and the blast's damage as ever).
+  detonate(center, { mirror = false, R: size = null, by = 0, mini = false } = {}) {
     const R = size ?? this.radius;
+    const gx = Math.floor(center.x);
+    const gz = Math.floor(center.z);
+    let air = true;
+    if (!this.world.getChunk(gx >> 4, gz >> 4)) air = center.y - this.world.heightAt(gx, gz) > R * 1.3; // (ground not loaded here: the terrain's own height)
+    else {
+      for (let y = Math.floor(center.y), y0 = Math.max(0, Math.floor(center.y - R * 1.3)); y >= y0; y--) {
+        if (IS_SOLID[this.world.getBlock(gx, y, gz)]) {
+          air = false;
+          break;
+        }
+      }
+    }
     const d = {
       center: center.clone(),
       R,
@@ -121,6 +138,8 @@ export class NukeSystem {
       burnR: R * BURN,
       height: Math.min(300, 50 + R * 3.8), // mushroom cap height above the ground
       mirror,
+      air,
+      mini,
     };
     if (mirror) {
       // (Another player's nuke: its crater arrives as their edits; the blast
@@ -134,21 +153,27 @@ export class NukeSystem {
     const r = R * BURN;
     d.zone = zone;
     d.chunks = []; // [cx, cz, ...]: the chunks the scorch pass walks
-    for (let cz = Math.floor((center.z - r) / 16); cz <= Math.floor((center.z + r) / 16); cz++) {
+    if (air) {
+      // (Round 20: an air burst: no crater, no blast zone.)
+      d.slice = d.slices;
+      d.scorched = true;
+      d.zone = null;
+    }
+    if (!air) for (let cz = Math.floor((center.z - r) / 16); cz <= Math.floor((center.z + r) / 16); cz++) {
       for (let cx = Math.floor((center.x - r) / 16); cx <= Math.floor((center.x + r) / 16); cx++) {
         if (!this.world.getChunk(cx, cz)) continue;
         zone.done.add(`${cx},${cz}`);
         d.chunks.push(cx, cz);
       }
     }
-    this.zones.push(zone);
+    if (!air) this.zones.push(zone);
     if (this.zones.length > 24) this.zones.shift();
     this._buildCloud(d);
     this.active.push(d);
     this.count++;
     const dist = center.distanceTo(this.listener);
     // The flash: blinding up close, still a white-out from far away.
-    const flash = Math.max(0.25, Math.min(1, 1.6 - dist / 600));
+    const flash = Math.max(0.25, Math.min(1, 1.6 - dist / 600)) * (mini ? 0.75 : 1);
     if (this.flashEl) {
       this.flashEl.style.transition = "none";
       this.flashEl.style.opacity = String(flash);
@@ -156,14 +181,14 @@ export class NukeSystem {
       this.flashEl.style.transition = "opacity 2.8s ease-out";
       this.flashEl.style.opacity = "0";
     }
-    this.effects.shake.add(Math.min(1, 1.3 - dist / 900));
+    this.effects.shake.add(Math.min(1, 1.3 - dist / (mini ? 600 : 900)));
     const fl = this.effects.flashLight;
     fl.position.copy(center).add(new THREE.Vector3(0, R * 0.5, 0));
     fl.distance = R * 12;
     this.effects._flashPower = 60000;
     this.effects._flashTime = 0;
     if (this.audio?.playNuke) this.audio.playNuke(dist, R);
-    if (this.onDetonate) this.onDetonate(center, R, { mirror, by });
+    if (this.onDetonate) this.onDetonate(center, R, { mirror, by, mini });
     return d;
   }
 

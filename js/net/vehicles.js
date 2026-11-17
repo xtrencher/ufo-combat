@@ -387,7 +387,9 @@ export class VehicleSync {
         v.model.setControls?.(v.surf.pitch, v.surf.roll, v.surf.yaw, v.airbrake);
         v.model.setGear(v.gearT);
         v._effects(dt, null);
+        v.netJet?.(st, dt); // (Round 20: the nose laser's beam, drawn from the flags)
       } else {
+        v.netJet?.(null, 0);
         v.model.setBurnt?.(true, v.time);
         this._wreckFx(v, dt);
       }

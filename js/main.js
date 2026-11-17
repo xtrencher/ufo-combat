@@ -619,7 +619,7 @@ vehicles.lod = lod; // (the UFO dash never outruns the land that is drawn)
 settingsPanel.on("weapons.nukeSize", (v) => (nuke.config.size = v));
 settingsPanel.on("weapons.nukeIntensity", (v) => (nuke.config.intensity = v));
 nuke.onDetonate = (center, R, info = {}) => {
-  hooks.onNuke?.(center, R);
+  if (!info.mini) hooks.onNuke?.(center, R); // (Round 20: a jet's mini-nuke is no mission's big bomb)
   if (!info.mirror) stats.add("nukes");
   // (Round 9) Another player's nuke, with the host's PvP rule off: it doesn't
   // hurt you or your aircraft (like their other blasts; its crater and the
@@ -662,6 +662,7 @@ nuke.onDetonate = (center, R, info = {}) => {
 };
 vehicles.onMissileHit = () => stats.add("missilesHit");
 vehicles.onNukeDropped = () => {};
+vehicles.miniNukeRefusal = () => (CANYON ? "No nukes on the canyon run" : null); // (Round 20: the jets' mini-nuke, vehicle-jet.js)
 settingsPanel.on("sensitivity", (v) => (vehicles.mouseSensitivity = v));
 settingsPanel.on("invertY", (v) => (vehicles.invertY = v));
 
@@ -4632,7 +4633,7 @@ function updateHints(dt) {
   hintT = 0.5;
   if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Your first mission starts in a moment, the next ones by themselves (M: the mission board). The tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." /* (Round 17) */ : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
-  if (v?.type === "jet") hint("jet", `Mouse steers, W/S throttle, Shift afterburner (double tap: latch it on).${v.armed === false ? "" : " Tap right click: a missile straight ahead; hold it to lock on. X: the super missile."}`, 7); // (Round 17: the latch, the super missile)
+  if (v?.type === "jet") hint("jet", `Mouse steers, W/S throttle, Shift afterburner (double tap: latch it on).${v.armed === false ? " X switches the right button: the recon camera, the MINI-NUKE, the NOSE LASER (hold)." : " Tap right click: a missile straight ahead; hold it to lock on. X (or 1-4) switches the right button: missiles, super missile, MINI-NUKE, NOSE LASER (hold)."}`, 9); // (Round 17: the latch, the super missile; Round 20: the mini-nuke, the laser)
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   else if (v?.type === "heli") hint("heli", "Wait for the rotor, then Space lifts off. W/S tilt, A/D turn, Q/E sidestep; the mouse aims. LMB gun, RMB rockets, X: Hellfires, C flares.", 7);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);

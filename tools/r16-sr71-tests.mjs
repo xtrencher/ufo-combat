@@ -202,7 +202,8 @@ await browserCheck("the SR-71 call-in: in the air at the controls; the model, th
   assert(r.ok && r.type === "sr71" && r.air && r.button, JSON.stringify(r));
   assert(r.tris > 3000 && r.tris < 40000, `triangles: ${r.tris}`);
   assert(r.hull && r.meshes > 8, JSON.stringify(r));
-  assert(/Unarmed/.test(r.weapon) && r.rows.includes("Camera") && !r.rows.includes("Missile") && /reconnaissance/.test(r.info), JSON.stringify(r));
+  // (Round 20: no missiles or cannon still, but the mini-nuke and the nose laser on X: its right button starts as the camera.)
+  assert(/RMB recon camera/.test(r.weapon) && !/cannon|missile \(/.test(r.weapon) && r.rows.includes("Camera") && !r.rows.includes("Missile") && /reconnaissance/.test(r.info), JSON.stringify(r));
   await frames(6);
 });
 
