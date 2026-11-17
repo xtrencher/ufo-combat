@@ -20,7 +20,7 @@ import { LASER_COLORS } from "../lasers.js";
 import { itemInfo } from "../items.js";
 import { bindEntityLight } from "../shaders.js";
 import { LAYER_FX } from "../layers.js";
-import { Jet, missileGeometry, nukeGeometry, superMissileGeometry } from "../vehicle-jet.js";
+import { Jet, missileGeometry, nukeGeometry, superMissileGeometry, miniNukeGeometry } from "../vehicle-jet.js";
 import { r2, r1 } from "./interp.js";
 
 const PJ_RATE = 15;
@@ -91,7 +91,7 @@ export class FxSync {
     const detonate = nuke.detonate.bind(nuke);
     nuke.detonate = (center, opts = {}) => {
       const d = detonate(center, opts);
-      if (this.mp.active && !opts.mirror) this.out.push(["n", ...v3(center), d.R]);
+      if (this.mp.active && !opts.mirror) this.out.push(["n", ...v3(center), d.R, opts.mini ? 1 : 0]); // (Round 20: 1 a jet's mini-nuke; older versions ignore it)
       return d;
     };
     const air = w.airstrike;
@@ -188,7 +188,8 @@ export class FxSync {
       if (v.puppet || v.type === "ufo") continue;
       if (v.net || (this.net.isHost && v.isEnemyJet)) {
         // (Round 17: the heavy missile as "sm": drawn big, with its thick trail; an older version skips it.)
-        for (const m of v.missiles || []) if (!m.dead) add(m, m.heavy ? "sm" : "ms", m.target?.ref ? this.mp.refOf?.(m.target.ref) || 0 : 0);
+        // (Round 20: the mini-nuke as "mn", drawn as itself with the heavy trail; older versions skip it.)
+        for (const m of v.missiles || []) if (!m.dead) add(m, m.mini ? "mn" : m.heavy ? "sm" : "ms", m.target?.ref ? this.mp.refOf?.(m.target.ref) || 0 : 0);
         for (const b of v.bombs || []) add(b, "nb", b.chute?.visible ? 1 : 0);
       }
     }
@@ -265,7 +266,7 @@ export class FxSync {
         g.weapons._beam(new THREE.Vector3(e[1], e[2], e[3]), new THREE.Vector3(e[4], e[5], e[6]), e[7], e[8]);
         break;
       case "n":
-        g.nuke.detonate(new THREE.Vector3(e[1], e[2], e[3]), { mirror: true, R: e[4], by: from });
+        g.nuke.detonate(new THREE.Vector3(e[1], e[2], e[3]), { mirror: true, R: e[4], by: from, mini: e[5] === 1 });
         break;
       case "m":
         g.weapons.airstrike._launch({ start: new THREE.Vector3(e[1], e[2], e[3]), dir: new THREE.Vector3(e[4], e[5], e[6]).normalize(), speed: e[7], len: e[8], mirror: true });
@@ -336,6 +337,7 @@ export class FxSync {
     else if (kind === "fb") mesh = w.fishing?.remoteMesh();
     else if (kind === "ms") mesh = new THREE.Mesh(this._missileGeo || (this._missileGeo = missileGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true })));
     else if (kind === "sm") mesh = new THREE.Mesh(this._superGeo || (this._superGeo = superMissileGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }))); // (Round 17)
+    else if (kind === "mn") mesh = new THREE.Mesh(this._miniGeo || (this._miniGeo = miniNukeGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }))); // (Round 20)
     else if (kind === "nb") {
       mesh = new THREE.Group();
       mesh.add(new THREE.Mesh(this._nukeGeo || (this._nukeGeo = nukeGeometry()), this._missileMat || (this._missileMat = new THREE.MeshLambertMaterial({ vertexColors: true }))));
@@ -357,7 +359,7 @@ export class FxSync {
     if (!this.remotePj.size || !jet?.net) return out;
     const me = `v:${jet.net.nid}`;
     const mePlayer = `p:${this.net.pid}`;
-    for (const p of this.remotePj.values()) if ((p.kind === "ms" || p.kind === "sm") && (p.extra === me || p.extra === mePlayer)) out.push(p.pos);
+    for (const p of this.remotePj.values()) if ((p.kind === "ms" || p.kind === "sm" || p.kind === "mn") && (p.extra === me || p.extra === mePlayer)) out.push(p.pos);
     return out;
   }
 
@@ -365,7 +367,7 @@ export class FxSync {
   _incomingAt(ref) {
     if (!this.remotePj.size) return NONE;
     const out = [];
-    for (const p of this.remotePj.values()) if ((p.kind === "ms" || p.kind === "sm") && p.extra === ref) out.push(p.pos);
+    for (const p of this.remotePj.values()) if ((p.kind === "ms" || p.kind === "sm" || p.kind === "mn") && p.extra === ref) out.push(p.pos);
     return out;
   }
 
@@ -396,7 +398,7 @@ export class FxSync {
         p.light.block = l.block;
       }
       // Smoke trails behind rockets and missiles.
-      if (p.kind === "sm") this._superTrail(p, dt, fx); // (Round 17: the heavy missile's, thick and long)
+      if (p.kind === "sm" || p.kind === "mn") this._superTrail(p, dt, fx); // (Round 17: the heavy missile's, thick and long; Round 20: the mini-nuke's too)
       else if (p.kind === "rk" || p.kind === "ms") {
         p.trail -= dt;
         if (p.trail <= 0) {
