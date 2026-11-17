@@ -36,6 +36,15 @@
 // night is that dimension's own sky's (sky.daylight reads its sun); on an
 // airless planet's black sky the ships glow as at night. Each planet leans
 // toward a few designs and one crew kind (PLANET_FLAVOUR).
+//
+// (Round 19) Whims (js/ufo-mischief.js, installed below): they see a
+// player's shots coming and sometimes slide just clear of them; they have
+// moods that change, and now and then come and play pranks on a player
+// (state "prank": photobombing, mimicking, circling your head, glaring,
+// peekaboo, shadowing, buzzing, squatting on a roof, dropping a cow on you,
+// splitting into holograms, mooing, leading you somewhere, calling others to
+// gawk). Shot at during one, they flee laughing or fight. A player in their
+// calm after arriving or respawning is kept clear of (GRACE_KEEP).
 import * as THREE from "three";
 import { createUfoModel, designInfo, designFacingOffset, randomUfoSpec, ufoLaserKey } from "./ufo-models.js";
 import { TractorBeam } from "./tractor-beam.js";
@@ -45,6 +54,7 @@ import { SEA_LEVEL } from "./constants.js";
 import { effectsQuality } from "./effects.js";
 import { LAYER_FX } from "./layers.js";
 import { DashTrail } from "./dash-trail.js";
+import { Mischief, GRACE_KEEP } from "./ufo-mischief.js";
 
 export const UFO_ACTIVITY_LEVELS = [0, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16];
 export const UFO_ACTIVITY_NAMES = ["Off", "Very rare", "Rare", "Occasional", "Normal", "Frequent", "Busy skies", "Invasion", "UFO APOCALYPSE"];
@@ -262,6 +272,20 @@ export class UfoManager {
     this.onPuppetAbsorb = null; // (ufo, ship) => void
     this._cur = null; // the player the current UFO is thinking about (online)
     this._acc = new WeakMap(); // vehicle -> its smoothed acceleration (_trackAcc)
+    // (Round 19) Whims (js/ufo-mischief.js).
+    this.threatSources = []; // (see) => void: calls see(pos, vel, ref, homing) for each of a player's projectiles in flight (main.js: the bazooka's rockets)
+    this.aimCharge = null; // () => seconds until this player's railgun fires (0: not charging)
+    this.dodgeScale = 1; // every ship's dodging (0: none; tests)
+    this.prankRate = 1; // how often they come and play pranks (0: never; tests raise it)
+    this.onPrank = null; // (ufo, kind) => void
+    this.items = null; // the items lying in the world (js/entities.js ItemEntities: a snatch prank)
+    this.mischief = { threats: 0, tries: 0, dodges: 0, slides: 0, sways: 0, fled: 0, buzzes: 0, squats: 0, drops: 0, lured: 0, signals: 0, decoys: 0, pops: 0, moos: 0, snatched: 0, pranks: {}, fx: {}, last: null };
+    this._pcache = new Map();
+    this._boltSeen = 0;
+    this._threatSeen = new WeakSet();
+    this._mvOut = { m: new THREE.Vector3(), w: new THREE.Vector3() };
+    this._prankers = 0;
+    this._prankCap = 2;
   }
 
   get count() {
@@ -431,6 +455,7 @@ export class UfoManager {
       lazy: 0,
     };
     u.hitHalfHeight = Math.max(u.info.h * radius * 0.55, radius * 0.3); // (thin discs: a little generous, so a shot that looks like a hit is one)
+    this._initWhims(u); // (Round 19: dodging skill, mood, pranks)
     u.pos.copy(opts.pos ? opts.pos : this._spawnPoint(u));
     u.spawnFade = opts.pos && !opts.hidden ? 0 : 3.2; // grows in from a dot when it appears far away
     if (u.spawnFade === 0) u.age = 9;
@@ -665,6 +690,11 @@ export class UfoManager {
       if (byPlayer) this.onPuppetHit?.(u, amount, from);
       return true;
     }
+    // (Round 19) A hologram (a prankster's twin): it pops.
+    if (u.decoy) {
+      this._popDecoy(u);
+      return true;
+    }
     // A mission's landing ship: its hull shrugs off hand weapons.
     if (u.immune || (u.immuneUntil && this.time < u.immuneUntil)) {
       if (byPlayer && this.time - (u.immuneMsgT ?? -99) > 6) {
@@ -696,7 +726,8 @@ export class UfoManager {
       u.lastHitPid = this.currentAttacker ?? 1; // (online: which player; 1 is the host)
       u.lastPlayerHitT = this.time;
       this.lastPlayerAttack = this.time; // the alien air force takes notice
-      this._provoked(u);
+      // (Round 19: shot mid-prank, it may flee laughing instead of fighting.)
+      if (!(u.prank && u.health > 0 && this._prankShot(u))) this._provoked(u);
     }
     // (Downed by something else long after a player's last hit: not the
     // player's kill. An assist window, as for the creatures.)
@@ -757,7 +788,7 @@ export class UfoManager {
 
   // Makes a UFO angry at the player for a while.
   anger(u, seconds = rand(35, 70)) {
-    if (u.falling || u.state === "gone" || u.peaceful) return; // (peaceful: a mission's landing ship)
+    if (u.falling || u.state === "gone" || u.peaceful || u.decoy) return; // (peaceful: a mission's landing ship)
     u.hostile = true;
     u.hostileT = Math.max(u.hostileT, seconds);
     u.lastSeen = this.time;
@@ -881,9 +912,11 @@ export class UfoManager {
     this._updateCrews(dt);
     const p = this.player.position;
     let tgt = this._targetInfo();
+    const targets0 = this.targets ? this.targets() : null;
+    this._whimFrame(targets0); // (Round 19: the shots coming, the pranksters about)
     const night = this.glowNight; // (drawing only: _place)
     // Online (host): the attackers' cap covers every player.
-    const targets = this.targets ? this.targets() : null;
+    const targets = targets0;
     this._attackCap = targets ? targets.reduce((s, t) => s + (t.vehicle?.type === "jet" ? JET_MAX_ATTACKERS : MAX_ATTACKERS), 0) : 0;
     if (this.camera) this.camera.getWorldDirection(this._camDir);
     // Count the attackers first, so the cap holds within a frame.
@@ -983,12 +1016,12 @@ export class UfoManager {
         // The beam always hangs from the ship: it follows it, and goes out
         // the moment the ship stops beaming (shot and dodging, dashing,
         // falling, or off to attack), instead of staying behind in the air.
-        const beaming = !u.falling && !u.dash && (u.state === "beam" || (u.state === "trick" && u.trick === "abduct"));
+        const beaming = !u.falling && !u.dash && (u.state === "beam" || (u.state === "trick" && u.trick === "abduct") || (u.state === "prank" && u.prank?.beam)); // (Round 19: a cowdrop's)
         if (!beaming && u.beam.on) u.beam.set(false);
         u.beam.top.set(u.pos.x, u.pos.y - u.info.bottom * u.radius, u.pos.z);
         u.beam.update(step, this.effects);
         if (u.beam.on && u === this.beamingPlayer) beamOnPlayer = true;
-        if (!u.beam.on && u.beam.strength < 0.02 && u.state !== "beam" && u.state !== "trick") this._freeBeam(u);
+        if (!u.beam.on && u.beam.strength < 0.02 && u.state !== "beam" && u.state !== "trick" && !u.prank?.beam) this._freeBeam(u);
       }
       this._place(u, step, localDist, night);
     }
@@ -1008,6 +1041,7 @@ export class UfoManager {
       u.hurtTime += dt;
       u.age += dt;
       this.onPuppetUpdate?.(u, dt);
+      this._puppetFx(u, dt); // (Round 19: the host's ship's laughs, moos, glare, holograms)
       if (u.beam) {
         u.beam.top.set(u.pos.x, u.pos.y - u.info.bottom * u.radius, u.pos.z);
         u.beam.update(dt, this.effects);
@@ -1059,6 +1093,7 @@ export class UfoManager {
   absorb(u, ship) {
     if (u.state === "gone" || u.falling) return;
     if (u.boss || u.shield || u.immune) return; // (never swallowed: also a guest's claim)
+    if (u.decoy && !u.net) return this._popDecoy(u); // (Round 19: a hologram pops)
     if (u.net) {
       this.onPuppetAbsorb?.(u, ship);
       // (The toast is the capturing guest's; once, though the claim repeats until the host takes it.)
@@ -1084,6 +1119,11 @@ export class UfoManager {
 
   _remove(i) {
     const u = this.ufos[i];
+    if (u.decoy && !u.falling) this._sparkle(u); // (Round 19: a hologram pops)
+    if (u.prank) {
+      u.prank.cargo = null; // (gone with it: nothing falls out of a ship that leaves or is cleared away)
+      this._endPrank(u);
+    }
     this._stopWeapons(u);
     this._dropTarget(u);
     if (this.beamingPlayer === u) this.beamingPlayer = null;
@@ -1132,7 +1172,8 @@ export class UfoManager {
     // with a home, a mission's scout or raider, stays near it, and low).
     const p = u.home || this.player.position;
     const a = Math.random() * Math.PI * 2;
-    const d = u.tether ? rand(u.tether * 0.3, u.tether) : rand(20, Math.max(420, this.range * 0.75));
+    // (Round 19: never near a player in their calm after arriving.)
+    const d = u.tether ? rand(u.tether * 0.3, u.tether) : rand(this._inGrace() ? GRACE_KEEP + 40 : 20, Math.max(420, this.range * 0.75));
     const x = p.x + Math.cos(a) * d;
     const z = p.z + Math.sin(a) * d;
     const ground = this._groundAt(x, z);
@@ -1160,6 +1201,17 @@ export class UfoManager {
     const to = new THREE.Vector3(u.pos.x + Math.cos(a) * d, 0, u.pos.z + Math.sin(a) * d);
     const ground = this._groundAt(to.x, to.z) + u.info.bottom * u.radius + 6;
     to.y = Math.max(ground, u.pos.y + rand(-30, 40));
+    // (Round 19: not into the calm round a player who just arrived.)
+    if (this._inGrace() && !u.missionTarget) {
+      const P = this.player.position;
+      const off = _w.copy(to).sub(P);
+      const keep = GRACE_KEEP + u.radius + 10;
+      if (off.length() < keep) {
+        if (off.lengthSq() < 1e-6) off.set(1, 0, 0);
+        to.copy(P).add(off.setLength(keep));
+        to.y = Math.max(to.y, this._groundAt(to.x, to.z) + u.info.bottom * u.radius + 6);
+      }
+    }
     const len = to.distanceTo(u.pos);
     u.dash = { from: u.pos.clone(), to, t: 0, dur: THREE.MathUtils.clamp(len / 1100, 0.06, 0.2), last: u.pos.clone() };
     u.blinkT = rand(15, 60);
@@ -1329,7 +1381,7 @@ export class UfoManager {
       }
       return;
     }
-    if (agg <= 0 || this._inGrace() || this.player.dead || u.peaceful) return;
+    if (agg <= 0 || this._inGrace() || this.player.dead || u.peaceful || u.decoy) return;
     const pv = tgt.vehicle;
     const disguised = pv?.type === "ufo";
     if (disguised) return;
@@ -1340,7 +1392,7 @@ export class UfoManager {
       u.stareLosT = this.time + 0.2;
       u.stareLos = this._canSee(u, this.camera.position);
     }
-    if (stared && (this.camera ? u.stareLos : true)) {
+    if (stared && (this.camera ? u.stareLos : true) && u.state !== "prank") {
       u.stare += dt * (this.player.zoomFov || this.player.binocularFov ? 2 : 1);
     } else {
       u.stare = Math.max(0, u.stare - dt * 0.6);
@@ -1367,6 +1419,8 @@ export class UfoManager {
       this._updateDash(u, dt);
       return;
     }
+    // (Round 19) A sidestep out of a shot's way, a taunting sway: on top of its flying.
+    if (u.evade || u.drift || u.evVel) this._applyOffsets(u, dt);
     // A missile closing in: it often dashes away at the last moment.
     u.missileT = (u.missileT ?? 0) - dt;
     if (u.missileT <= 0) {
@@ -1389,6 +1443,7 @@ export class UfoManager {
     const pv = tgt.vehicle;
     const disguised = pv?.type === "ufo" && !u.hostile;
     this._updateMood(u, dt, tgt, dist);
+    this._updateWhims(u, dt, tgt, dist); // (Round 19: moods, the crosshair, pranks)
 
     // Rarely, and more often after an abduction or with a jet on its tail,
     // a UFO leaves forever.
@@ -1418,7 +1473,7 @@ export class UfoManager {
       const eligible = !this.player.dead && !disguised && (pv || (!this._inGrace() && !this.player.creative));
       if (u.hostile && eligible && dist < range * 1.8 && this._canSee(u, tgt.pos)) {
         u.lastSeen = this.time;
-        if (u.state === "roam" || u.state === "trick" || u.state === "circle" || u.state === "emerge") {
+        if (u.state === "roam" || u.state === "trick" || u.state === "circle" || u.state === "emerge" || u.state === "prank") {
           if (this._wantAttack(u)) {
             u.state = "attack";
             u.timer = 0;
@@ -1469,6 +1524,9 @@ export class UfoManager {
       case "trick":
         this._trick(u, dt);
         break;
+      case "prank":
+        this._prank(u, dt, tgt, dist);
+        break;
       case "circle":
         this._circle(u, dt, tgt);
         break;
@@ -1512,12 +1570,14 @@ export class UfoManager {
     }
 
     this._updateWeapons(u, dt);
+    this._graceKeep(u, dt); // (Round 19: clear of a player in their calm after arriving)
 
     // Stay above the ground and below the ceiling (not while leaving, or
     // while it is allowed to pass through terrain: diving, burrowing).
     if (u.state !== "leave" && u.state !== "emerge" && u.ghostT <= 0) {
       tr = u.state === "trick" ? u.trick : null; // (the state may have changed since)
-      const minY = this._minAltitude(u, tr === "land" ? 0.3 : u.state === "beam" || tr === "hover_lake" || tr === "abduct" ? 2 : 4);
+      const low = u.state === "prank" ? u.prank?.low : undefined; // (Round 19: a peekaboo ducks low, a squatter sits)
+      const minY = this._minAltitude(u, low !== undefined ? low : tr === "land" ? 0.3 : u.state === "beam" || tr === "hover_lake" || tr === "abduct" ? 2 : 4);
       if (u.pos.y < minY) {
         u.pos.y += (minY - u.pos.y) * Math.min(1, dt * 4);
         if (u.vel.y < 0) u.vel.y = 0;
@@ -2227,6 +2287,9 @@ export class UfoManager {
   // ---------- Shot down ----------
 
   _shotDown(u) {
+    if (u.prank) this._endPrank(u); // (Round 19: an animal it carried falls out)
+    u.evade = null;
+    u.drift = null;
     this._stopWeapons(u);
     u.falling = true;
     u.state = "falling";
@@ -2485,7 +2548,9 @@ export class UfoManager {
       if (facing === null) u.yaw += (u.spin * (u.spinBoost || 1)) * dt;
       u.spinBoost = 1;
       // Bank into the direction of motion.
-      const localV = _v.copy(u.vel).applyAxisAngle(_up, -u.yaw);
+      const localV = _v.copy(u.vel);
+      if (u.evVel) localV.add(u.evVel); // (Round 19: leaning into a sidestep)
+      localV.applyAxisAngle(_up, -u.yaw);
       const sp = Math.max(4, u.S.top);
       u.tilt.x += (THREE.MathUtils.clamp(localV.z / sp, -1, 1) * 0.35 - u.tilt.x) * Math.min(1, dt * 3);
       u.tilt.y += (THREE.MathUtils.clamp(-localV.x / sp, -1, 1) * 0.35 - u.tilt.y) * Math.min(1, dt * 3);
@@ -2556,6 +2621,7 @@ export class UfoManager {
       u.hostileT = 0;
       u.stare = 0;
       this._stopWeapons(u);
+      if (u.prank && u.prank.kind !== "decoy") this._endPrank(u); // (Round 19)
       if (u.state === "attack" || u.state === "react" || u.state === "beam" || u.state === "circle") {
         u.state = "roam";
         u.waypoint = null;
@@ -2564,3 +2630,6 @@ export class UfoManager {
     }
   }
 }
+
+// (Round 19) The whims: dodging, moods, pranks (js/ufo-mischief.js).
+Object.assign(UfoManager.prototype, Mischief);
