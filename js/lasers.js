@@ -236,6 +236,7 @@ export class LaserBolts {
     if (!(bolt.dir.lengthSq() > 0.5) || ![bolt.pos.x, bolt.pos.y, bolt.pos.z].every(Number.isFinite)) bolt.dead = true;
     this.bolts.push(bolt);
     this.fired++;
+    bolt.serial = this.fired; // (Round 19: each shot told apart, though bolt objects are reused: js/ufos.js dodging)
     // A little muzzle glow (a gun's own flash does that for a bullet).
     if (!tracer) this.effects.glow.spawn({ x: from.x, y: from.y, z: from.z, life: 0.08, size0: radius * 9, size1: radius * 3, color0: bolt.color, alpha: 0.9 });
     if (sound && this.audio?.playBlaster) {
