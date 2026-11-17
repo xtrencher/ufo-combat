@@ -647,6 +647,31 @@ export class Audio {
     this._hit({ type: "bandpass", f: 2400, fEnd: 300, q: 1.2, d: 0.35, v, attack: 0.02 }, Math.min(distance / 343, 0.6));
   }
 
+  // (Round 19) A UFO's mischief (js/ufo-mischief.js): "laugh" (a warbling
+  // run of blips down the scale), "beep" (a two-note chirp), "moo" (a cow's
+  // low, wobbly voice from the sky), `distance` blocks away.
+  playUfoTaunt(kind, distance = 0) {
+    this._cat("creatures");
+    const ctx = this.ctx;
+    if (!ctx || !(distance < 260)) return;
+    const k = 1 / (1 + Math.max(0, distance) / 22);
+    if (k < 0.03) return;
+    const at = Math.min(distance / 343, 0.6);
+    if (kind === "laugh") {
+      const base = 700 + Math.random() * 300;
+      for (let i = 0; i < 6; i++) {
+        const f = base * Math.pow(0.9, i) * (i % 2 ? 1.12 : 1);
+        this._tone(f, 0.08, { type: "square", vol: 0.05 * k, at: at + i * 0.1, fEnd: f * 0.82, attack: 0.008 });
+      }
+    } else if (kind === "beep") {
+      const f = 1200 + Math.random() * 500;
+      this._tone(f, 0.08, { type: "sine", vol: 0.09 * k, at });
+      this._tone(f * 1.35, 0.11, { type: "sine", vol: 0.09 * k, at: at + 0.11 });
+    } else if (kind === "moo") {
+      this._voice({ f0: 100 + Math.random() * 20, f1: 140 + Math.random() * 30, d: 1, v: 0.38, formants: [[300, 5, 1], [700, 6, 0.5]], vib: 0.1, breath: 0.15, delay: at }, Math.min(1, k * 1.6));
+    }
+  }
+
   // A UFO charging a shot: a rising whine for `dur` seconds.
   playUfoCharge(dur = 1.3, distance = 0) {
     this._cat("weapons");

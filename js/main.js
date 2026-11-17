@@ -45,7 +45,7 @@ import { Spawners } from "./structures.js";
 import { RedstoneSim } from "./redstone-sim.js";
 import { Gadgets, GadgetSync } from "./gadgets.js"; // (Round 12)
 import { IS_STORAGE } from "./chests.js";
-import { WeaponSystem, RAIL_DAMAGE_UFO } from "./weapons.js";
+import { WeaponSystem, RAIL_DAMAGE_UFO, RAIL_CHARGE } from "./weapons.js";
 import { LaserBolts, sweptBox } from "./lasers.js";
 import { BulletHoles } from "./decals.js";
 import { GRENADE_RADIUS, explosionScale, effectsQuality } from "./effects.js";
@@ -697,6 +697,13 @@ const vehicleTarget = {
   },
 };
 weapons.targets.push(ufoTarget, vehicleTarget);
+// (Round 19) What the UFOs see coming besides bullets and bolts (js/ufo-mischief.js
+// dodging): the bazooka's rockets, and the railgun charging (its beam is instant).
+ufos.threatSources.push((see) => {
+  for (const r of weapons.rockets) see(r.pos, r.vel, r, !!r.target);
+});
+ufos.items = entities; // (and the items lying about: a UFO may snatch one)
+ufos.aimCharge = () => (weapons.rail.charging ? Math.max(0.01, (1 - (weapons.held?.charge || 0)) * RAIL_CHARGE) : 0);
 weapons.onHit = () => hud.hitMarker?.(); // (a gun, rail or arrow hit on a creature)
 // The railgun's beam goes through everything: every UFO and vehicle on the line.
 weapons.pierce.push({

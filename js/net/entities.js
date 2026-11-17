@@ -579,7 +579,8 @@ export class EntitySync {
   }
 
   _ufoState(u) {
-    const f = (u.falling ? 1 : 0) | (u.beam?.on ? 2 : 0) | (u.hostile ? 4 : 0) | (u.shield ? 8 : 0) | (u.immune ? 16 : 0) | (u.beam?.floating ? 32 : 0) | (u.byPlayer ? 64 : 0) | (u.splashed ? 128 : 0);
+    // (Round 19: and the ship's whims, ufo-mischief.js fxFlags: its glare, laughs and moos, a hologram.)
+    const f = (u.falling ? 1 : 0) | (u.beam?.on ? 2 : 0) | (u.hostile ? 4 : 0) | (u.shield ? 8 : 0) | (u.immune ? 16 : 0) | (u.beam?.floating ? 32 : 0) | (u.byPlayer ? 64 : 0) | (u.splashed ? 128 : 0) | (this.game.ufos.fxFlags?.(u) ?? 0);
     const s = [u.id, r2(u.pos.x), r2(u.pos.y), r2(u.pos.z), r3(u.yaw), r3(u.tilt.x), r3(u.tilt.y), r1(u.vel.x), r1(u.vel.y), r1(u.vel.z), Math.round((u.health / u.maxHealth) * 1000) / 1000, f];
     if (u.beam?.on) s.push(r2(u.beam.bottomY), r2(u.beam.radius ?? u.radius));
     else s.push(0, 0);
@@ -954,6 +955,7 @@ export class EntitySync {
     u.tilt.y = st.tz;
     u.health = st.hp * u.maxHealth;
     const f = st.f | 0;
+    u.netF = f; // (Round 19: ufos.js _puppetFx)
     u.hostile = !!(f & 4);
     u.shield = !!(f & 8);
     u.immune = !!(f & 16);
