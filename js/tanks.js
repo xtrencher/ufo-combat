@@ -60,8 +60,8 @@ const YARD_MAX = { low: 8, high: 16 };
 
 // Enemy shells: lighter than the players' (fair on foot), but they look the part.
 export const ENEMY_SHELL = { damage: 38, ufoDamage: 0, radius: 2, look: 7.5 };
-// The AA vehicle's numbers.
-export const AA_SPEC = { id: "aa", name: "AA vehicle", paint: "enemy", maxHealth: 280, speed: 9, reverse: 4, accel: 3, brake: 10, turn: 0.6, traverse: 1.6, elev: 1.2, minPitch: -0.05, maxPitch: 1.35, reload: 0, shellSpeed: 380, mass: 4 };
+// The AA vehicle's numbers. (Round 20.B: faster with the tanks, 9 -> 11.)
+export const AA_SPEC = { id: "aa", name: "AA vehicle", paint: "enemy", maxHealth: 280, speed: 11, reverse: 4.8, accel: 3.6, brake: 10, turn: 0.6, traverse: 1.6, elev: 1.2, minPitch: -0.05, maxPitch: 1.35, reload: 0, shellSpeed: 380, mass: 4 };
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -536,11 +536,11 @@ export class AAVehicle extends EnemyMixin(GroundVehicle) {
   // (Round 14) Another machine's AA vehicle opened fire (net/ground.js
   // "flak"): its barrels kick by turns for the burst, a flash at each
   // muzzle (the rounds themselves come as the host's tracers).
-  netFire(kind, from, vel) {
+  netFire(kind, from, vel, ammo) {
     if (kind === "flak") {
       this._netBurst = 9;
       this._netBurstT = 0;
-    } else super.netFire(kind, from, vel);
+    } else super.netFire(kind, from, vel, ammo);
   }
 
   netPuppet(st, dt) {
@@ -951,11 +951,11 @@ export class ParkedAA extends Tank {
   // ---------- Online ----------
 
   // Another machine's AA opened fire (net/ground.js "flak"): the barrels kick by turns.
-  netFire(kind, from, vel) {
+  netFire(kind, from, vel, ammo) {
     if (kind === "flak") {
       this._netBurst = 8;
       this._netBurstT = 0;
-    } else super.netFire(kind, from, vel);
+    } else super.netFire(kind, from, vel, ammo);
   }
 
   netPuppet(st, dt) {

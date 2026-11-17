@@ -5,11 +5,13 @@
 // erector); the host runs the aliens' and their AI fights every player
 // (the AI's targets: net/entities.js). This module adds what those states
 // don't carry. Messages (an older peer has no handler and ignores them):
-//   "gfire" { n, k, p, v, q }  a shot: n the vehicle's shared id, k "shell"
+//   "gfire" { n, k, p, v, q, a }  a shot: n the vehicle's shared id, k "shell"
 //                              (p the muzzle, v the shell's velocity: the
 //                              others fly a shell of their own, drawn only;
 //                              the owner's blast reaches everyone as an
-//                              explosion) or "flak" (q the bursts' points)
+//                              explosion; Round 20.B: a, the round, "he" or
+//                              "super", none for AP: how it looks) or "flak"
+//                              (q the bursts' points)
 //   "gbm"   { i, s, e, h, b }  a ballistic missile away: from s to e over
 //                              an arc of height h (every peer flies the same
 //                              path; the owner's warhead is the real one)
@@ -38,6 +40,7 @@ export class GroundSync {
       if (!this.mp.active || !this.mp.stateLoaded || v.puppet) return;
       const msg = { t: "gfire", n: v.net?.nid || 0, k: kind, p: v3(from) };
       if (vel) msg.v = v3(vel);
+      if (kind === "shell" && extra?.ammo && extra.ammo !== "ap") msg.a = extra.ammo; // (Round 20.B)
       if (kind === "flak" && Array.isArray(extra)) msg.q = extra.slice(0, 6).map(v3);
       this.net.toAll(msg);
     };
@@ -90,8 +93,9 @@ export class GroundSync {
     if (m.k === "shell") {
       const vel = vec(m.v);
       if (!vel || vel.length() > 2000) return;
-      if (v?.netFire) v.netFire("shell", p, vel);
-      else shellsOf(this.war.vehicles).fire({ pos: p, vel, remote: true });
+      const ammo = m.a === "he" || m.a === "super" ? m.a : "ap";
+      if (v?.netFire) v.netFire("shell", p, vel, ammo);
+      else shellsOf(this.war.vehicles).fire({ pos: p, vel, remote: true, ammo });
     } else if (m.k === "flak" && Array.isArray(m.q)) {
       const pts = m.q.slice(0, 6).map(vec).filter(Boolean);
       if (pts.length) flakBursts(this.war.vehicles, pts, 0.4);
