@@ -12,6 +12,10 @@
 //     SUPER MSL, X switches) with its reload bar, and the afterburner (AB,
 //     orange, flickering while lit; LATCH when a double tap of Shift holds
 //     it on);
+//   - (Round 20) the same place: the MINI-NUKE with how many are aboard and
+//     its reload bar, or the LASER with its heat bar (red and blinking
+//     when overheated); DANGER CLOSE / TOO CLOSE over it (red, blinking)
+//     when our own mini-nuke's blast would reach us, or it would be a dud;
 //   - the warnings, small on the screen's edge: a chevron on the bearing
 //     they come from, the word at the top: MISSILE (red, flashing, faster
 //     when close), or LOCK (amber) when something has its nose on us.
@@ -25,6 +29,8 @@ const YELLOW = "#ffd84a"; // (Round 12's lock box)
 const LOCK = "#ff3a2a";
 const AMBER = "#ffb02e";
 const GREEN = "#a0ffbe";
+const NUKE = "#ffe23a"; // (Round 20: the mini-nuke ready)
+const BEAM = "#7fc8ff"; // (Round 20: the nose laser)
 const WHITE = "#f2fff6";
 const EDGE = "rgba(0, 0, 0, 0.55)";
 const FONT = 'ui-monospace, "Cascadia Mono", Consolas, monospace';
@@ -96,6 +102,7 @@ export class FighterHud {
       this.ring = 0;
       this._setState("", "");
       this.canvas.dataset.weapon = this._wState = ""; // (Round 17)
+      this.canvas.dataset.danger = this._dState = ""; // (Round 20)
       this.canvas.dataset.ab = this._aState = "";
     }
   }
@@ -288,8 +295,16 @@ export class FighterHud {
     let wState = "";
     if (wp) {
       const ready = clamp(wp.ready ?? 1, 0, 1);
-      const color = wp.super ? (ready >= 1 ? LOCK : AMBER) : GREEN;
+      let color = wp.super ? (ready >= 1 ? LOCK : AMBER) : GREEN;
       wState = wp.super ? (ready >= 1 ? "super" : "super-reload") : "missile";
+      // (Round 20) The mini-nuke (yellow when ready) and the laser (its heat: the bar).
+      if (wp.kind === "mininuke") {
+        color = wp.ammo <= 0 ? AMBER : ready >= 1 ? NUKE : AMBER;
+        wState = wp.ammo <= 0 ? "mininuke-empty" : ready >= 1 ? "mininuke" : "mininuke-reload";
+      } else if (wp.kind === "laser") {
+        color = wp.jam ? (Math.sin(this.t * 18) > 0 ? LOCK : AMBER) : (wp.heat ?? 0) > 0.75 ? AMBER : BEAM;
+        wState = wp.jam ? "laser-hot" : wp.on ? "laser-firing" : "laser";
+      }
       const x = W / 2 + 34 * s;
       this._text(wp.name, x, y, color, 11 * s, "center", 800, 0.95);
       // The reload bar under it (full: ready).
@@ -304,10 +319,19 @@ export class FighterHud {
       ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
       ctx.fillRect(bx, by, bw, bh);
       ctx.fillStyle = color;
-      ctx.fillRect(bx, by, Math.round(bw * ready), bh);
+      // (The laser's bar is its heat, filling as it heats up.)
+      ctx.fillRect(bx, by, Math.round(bw * (wp.kind === "laser" ? clamp(wp.heat ?? 0, 0, 1) : ready)), bh);
       ctx.globalAlpha = 1;
-      if (wp.super && ready < 1 && wp.left > 0) this._text(`${Math.ceil(wp.left)} S`, x + bw / 2 + 6 * s, by + 1, AMBER, 9 * s, "left", 700, 0.9);
+      if ((wp.super || wp.kind === "mininuke") && ready < 1 && wp.left > 0) this._text(`${Math.ceil(wp.left)} S`, x + bw / 2 + 6 * s, by + 1, AMBER, 9 * s, "left", 700, 0.9);
+      if (wp.kind === "laser" && wp.jam) this._text("HOT", x + bw / 2 + 6 * s, by + 1, LOCK, 9 * s, "left", 800, 0.95);
     }
+    // (Round 20) The mini-nuke's warning, over the weapon.
+    const danger = hud.danger || "";
+    if (danger) {
+      const on = Math.sin(this.t * Math.PI * 2 * 3) > -0.3;
+      this._text(danger === "close" ? "DANGER CLOSE" : "TOO CLOSE: DUD", W / 2 + 34 * s, y - 16 * s, danger === "close" ? LOCK : AMBER, 12 * s, "center", 900, on ? 1 : 0.35);
+    }
+    if (danger !== this._dState) this.canvas.dataset.danger = this._dState = danger;
     const ab = hud.ab;
     let aState = ab ? "off" : "";
     if (ab && (ab.on || ab.latched)) {

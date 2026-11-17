@@ -43,6 +43,7 @@ import { airDensity } from "./solar-data.js"; // (Round 16: the thin air high up
 import { hullShape } from "./hitboxes.js";
 import { AirFx, MACH1 } from "./air-fx.js";
 import { voice } from "./voice.js";
+import { LAYER_FX } from "./layers.js"; // (Round 20: the laser's beam)
 
 export const JET_DEFAULTS = { maxSpeed: 300, accel: 1, turnRate: 1, stallSpeed: 42, assist: true, airborne: false, aimAssist: true };
 const G = 14; // gravity on the jet (blocks/s^2)
@@ -148,6 +149,58 @@ export const SUPER_MISSILE = {
   fuse: 5, // the proximity fuse (blocks from an aircraft's surface)
   life: 12, // seconds before it goes off by itself (about 3,000 blocks out)
 };
+// (Round 20) The mini-nuke (X or 3 selects it): a small tactical nuclear
+// missile for every jet, launched like the super missile (a click: straight
+// ahead; hold: lock), that goes off as a real nuke of size R (js/nuke.js:
+// the flash, the fireball, the mushroom cloud, the shockwave, a crater about
+// 1.6 R wide, the blast's damage falling off with distance) far smaller than
+// the B-2's big one (96) and far bigger than the super missile's 14. It only
+// arms ARM seconds after launch: a hit sooner is a dud (a small bang). Its
+// blast hurts the jet that fired it too, within about DANGER blocks (the HUD
+// warns). A few per sortie (the B-2 more): one more every REARM seconds in
+// the air, all of them after REARM_GROUND seconds stopped on the ground.
+export const MINI_NUKE = {
+  R: 22, // its nuke's size (the big nuke's default 96: crater radius 1.6 R, 35 here)
+  ammo: { f22: 2, f16: 1, b2: 4, sr71: 1 },
+  reload: 25, // seconds between two launches
+  rearm: 90, // seconds for one more, in the air
+  rearmGround: 4, // seconds stopped on the ground for a full load
+  arm: 1.6, // seconds after launch before it can go off (a hit sooner is a dud)
+  dud: 3, // the dud's small blast (radius)
+  direct: 900, // a direct hit's own damage (the super missile 650), the blast on top
+  speed: 260, // blocks/s (more off a fast jet: + speedOver, up to maxSpeed)
+  speedOver: 70,
+  maxSpeed: 480,
+  accel: 140,
+  turn: 1.4, // rad/s
+  fuse: 6, // the proximity fuse (once armed)
+  life: 14, // seconds before it goes off by itself
+  danger: 95, // blocks from its blast: closer, the jet that fired it gets hurt
+};
+// (Round 20) The nose laser (X or 4 selects it; hold the right button): a
+// beam from just under the nose straight along it, out to RANGE blocks. Its
+// damage comes as RATE fast pulses a second (laser bolts, js/lasers.js: they
+// hit what the cannon hits, online as any bolt, and a UFO may dodge one now
+// and then, js/ufo-mischief.js; sustained fire still lands). It heats up
+// (HEAT_UP a second: 5 s of fire overheats it, then it must cool below
+// RESUME); kept BURN seconds on one spot it burns a hole there.
+export const JET_LASER = {
+  rate: 15, // pulses a second
+  damage: 4, // per pulse (60 a second: a medium UFO in under 4 s)
+  range: 1200,
+  speed: 2000, // the pulses' speed (blocks/s: a UFO far off may see one coming and slip it)
+  heatUp: 0.2, // per second of fire
+  cool: 0.3, // per second off
+  resume: 0.3, // an overheated laser works again below this
+  burn: 0.45, // seconds on one spot: a hole burnt there (a block or a few)
+  burnR: 1.6,
+};
+const LASER_C = new THREE.Color(1.3, 3.4, 6.5); // (electric blue: the cannon's tracers are orange, the UFOs' bolts green and red)
+const LASER_CORE = new THREE.Color(2.4, 3.4, 6);
+const LASER_GLOW = new THREE.Color(0.32, 0.85, 2.4); // (the beam's halo: blue even where there is no bloom)
+// (Round 20) The weapons the right button can have, in X's order.
+const WEAPON_NAMES = { missile: "MISSILES", super: "SUPER MISSILE", mininuke: "MINI-NUKE", laser: "NOSE LASER", recon: "RECON CAMERA" };
+const NO_INPUT = { buttons: [], pressed: new Set(), keys: new Set() };
 // (Round 17) A light touch of the terrain (a wingtip, the tail or the belly,
 // shallow and slow into it) scrapes instead of crashing, for every pilot's
 // jet (the canyon run's hook too): sparks, a grind, a small shake, a little
@@ -214,10 +267,21 @@ const _right = new THREE.Vector3();
 const _acc = new THREE.Vector3();
 const _probes = [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3());
 const _lv = [0, 1, 2, 3].map(() => new THREE.Vector3()); // (Round 17: the lock's views, _offView)
+// (Round 20) The nose laser's scratch, its mount (forward, up from the
+// middle: just under the nose) and its colours.
+const _lp = new THREE.Vector3();
+const _ld = new THREE.Vector3();
+const _le = new THREE.Vector3();
+const _lb = new THREE.Vector3();
+const LASER_MOUNT = { f22: [6.3, -0.8], f16: [5.9, -0.7], b2: [8.0, -1.2], sr71: [12.2, -0.75] };
+const SPARK_C = new THREE.Color(5, 3.6, 1.6);
+const LASER_SMOKE0 = new THREE.Color(0.3, 0.29, 0.28);
+const LASER_SMOKE1 = new THREE.Color(0.55, 0.55, 0.55);
 
 // (Shared by every jet's missiles and bombs: made once, never per jet or per drop.)
 let _missileGeo = null;
 let _superGeo = null; // (Round 17: the heavy missile)
+let _miniGeo = null; // (Round 20: the mini-nuke)
 let _nukeGeo = null;
 let _missileMat = null;
 function missileMaterial() {
@@ -286,8 +350,22 @@ export class Jet extends Vehicle {
     this._abWant = false;
     this.abLatch = false; // (Round 17) the afterburner latched on (a double tap of Shift)
     this._shiftAt = -9; // (when Shift was last pressed: the double tap)
-    this.weapon = "missile"; // (Round 17) "missile" or "super" (the heavy missile): X switches
+    this.weapon = spec.recon ? "recon" : "missile"; // (Round 17) "missile" or "super" (the heavy missile): X switches; (Round 20) "mininuke", "laser" (the SR-71: "recon")
     this.superT = 0; // the heavy missile's reload (s)
+    // (Round 20) The mini-nukes (MINI_NUKE): how many aboard, the reload, the rearm.
+    this.miniMax = MINI_NUKE.ammo[spec.id] ?? 1;
+    this.miniAmmo = Number.isFinite(data.mn) ? clamp(Math.round(data.mn), 0, this.miniMax) : this.miniMax;
+    this.miniT = 0;
+    this.rearmT = 0;
+    this._restT = 0;
+    this.miniDanger = ""; // "close": our own mini-nuke near enough to hurt us; "short": straight ahead too close (a dud)
+    // (Round 20) The nose laser (JET_LASER).
+    this.laserOn = false;
+    this.laserHeat = 0;
+    this.laserJam = false;
+    this._laserPulseT = 0;
+    this._laserBlock = false;
+    this.laserHit = null; // { point, kind, dist } where the beam ends this frame (tests, the HUD)
     this.angVel = new THREE.Vector3(); // body rates: x pitch, y yaw, z roll
     this.onGround = !data.airborne;
     const fwd = this.forward(new THREE.Vector3());
@@ -626,6 +704,7 @@ export class Jet extends Vehicle {
       this._updateMissiles(dt);
       this._updateFlares(dt);
       this._updateWreck(dt);
+      this._updateLaser(dt, false); // (Round 20)
       return;
     }
     // Held in a UFO's tractor beam: no flying, drawn along by the beam (it sets `vel`).
@@ -639,6 +718,7 @@ export class Jet extends Vehicle {
       this._updateMissiles(dt);
       this._updateFlares(dt);
       this._place();
+      this._updateLaser(dt, false); // (Round 20)
       this.model.setThrottle(this.throttle, false, this.time);
       return;
     }
@@ -646,6 +726,7 @@ export class Jet extends Vehicle {
     const stick = _stick.set(0, 0, 0);
     this.brake = false;
     this.reversing = false;
+    this._laserWant = false; // (Round 20: _weapons says, each frame)
     if (input) {
       const k = input.keys;
       const sens = 0.0022 * (this.manager.mouseSensitivity ?? 0.6);
@@ -741,6 +822,7 @@ export class Jet extends Vehicle {
       this.cannonT = Math.max(0, this.cannonT - dt);
       this.missileT = Math.max(0, this.missileT - dt);
       this.superT = Math.max(0, this.superT - dt); // (Round 17)
+      this.miniT = Math.max(0, this.miniT - dt); // (Round 20)
     }
     this.stickX = stick.x;
     // The cannon cools all the time (firing heats it faster than that).
@@ -772,6 +854,8 @@ export class Jet extends Vehicle {
     this._updateWarning(dt, !!input);
     this.incoming = Math.max(0, this.incoming - dt);
     this._place();
+    this._updateLaser(dt, !!input && this._laserWant); // (Round 20: the beam from the nose where it is now)
+    if (!this.isEnemyJet) this._rearm(dt); // (Round 20: the mini-nukes)
     this._effects(dt, aero);
     this.model.setThrottle(this.throttle, this.afterburner, this.time);
     this.model.setLights(this.time, this.manager.night ?? 0, this.lightsActive);
@@ -894,6 +978,179 @@ export class Jet extends Vehicle {
 
   // Visual extras per frame: tyre smoke when braking hard, wingtip vapour in
   // tight turns, a plume of engine haze.
+  // ---------- (Round 20) The nose laser ----------
+
+  // Where the beam leaves the jet: just under the nose (written into `out`).
+  laserOrigin(out = new THREE.Vector3()) {
+    const m = LASER_MOUNT[this.spec.id] || LASER_MOUNT.f22;
+    return out.set(0, m[1], -m[0]).applyQuaternion(this.q).add(this.pos);
+  }
+
+  // One frame of the laser: `want` (the pilot holds it) fires it unless it
+  // overheated; the heat; the pulses that do the damage; the beam drawn.
+  _updateLaser(dt, want) {
+    const L = JET_LASER;
+    const mgr = this.manager;
+    if (want && this.laserJam) {
+      if (!(this._laserJamMsgT > 0) && this === mgr.active) {
+        this._laserJamMsgT = 0.8;
+        mgr.onMessage?.("LASER OVERHEATED: let it cool");
+        mgr.audio?.playOverheat?.();
+      }
+      want = false;
+    }
+    this._laserJamMsgT = Math.max(0, (this._laserJamMsgT || 0) - dt);
+    if (want && !this.laserOn) this._laserPulseT = 0;
+    this.laserOn = want;
+    if (want) {
+      this.laserHeat = Math.min(1, this.laserHeat + L.heatUp * dt);
+      this._laserPulseT -= dt;
+      let n = 0;
+      while (this._laserPulseT <= 0 && n++ < 4) {
+        this._laserPulseT += 1 / L.rate;
+        this._laserPulse();
+      }
+      if (this._laserPulseT < 0) this._laserPulseT = 0;
+      if (this.laserHeat >= 1) {
+        this.laserJam = true;
+        this.laserOn = false;
+        if (this === mgr.active) {
+          this._laserJamMsgT = 0.8;
+          mgr.onMessage?.("LASER OVERHEATED: let it cool");
+          mgr.audio?.playOverheat?.();
+        }
+      }
+    } else {
+      this.laserHeat = Math.max(0, this.laserHeat - L.cool * dt);
+      if (this.laserJam && this.laserHeat < L.resume) this.laserJam = false;
+    }
+    this._drawLaser(dt, this.laserOn, true);
+  }
+
+  // One pulse: a very fast bolt along the nose from the emitter (the damage;
+  // a bolt as the cannon's, so it hits what the cannon hits, is sent to the
+  // other players, and a UFO sees it coming).
+  _laserPulse() {
+    const mgr = this.manager;
+    if (!mgr.lasers) return;
+    const from = this.laserOrigin(_lp);
+    const dir = this.forward(_ld);
+    const L = JET_LASER;
+    mgr.lasers.fire({ from, dir, color: LASER_C, speed: L.speed, damage: L.damage * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: L.range, radius: 0.06, length: 30, scorch: false, sound: false });
+    this.laserPulses = (this.laserPulses || 0) + 1;
+  }
+
+  // The beam (on: drawn this frame): a white-hot core in a blue glow from the
+  // emitter to the first thing along the nose (a block, a UFO, an aircraft),
+  // flickering, wider far off (seen from a distance); a glow at the emitter,
+  // sparks and smoke where it burns. owner: our own (not another player's
+  // copy): a spot kept under it for JET_LASER.burn seconds burns a hole.
+  _drawLaser(dt, on, owner) {
+    const mgr = this.manager;
+    const level = on ? (this === mgr.active ? 1 : Math.max(0, 1 - this.pos.distanceTo(mgr.effects?.listener ?? this.pos) / 420)) : 0;
+    if (level > (mgr._laserLevel || 0)) mgr._laserLevel = level;
+    if (!on) {
+      if (this._beam) this._beam.group.visible = false;
+      this.laserHit = null;
+      this._burnAt = null;
+      return;
+    }
+    // (The beam rides on the jet: its mount under the nose, pointing along it;
+    // only its length changes. Hidden with the jet, in another dimension too.)
+    let b = this._beam;
+    if (!b) {
+      b = this._beam = makeLaserBeam(this.root);
+      const m = LASER_MOUNT[this.spec.id] || LASER_MOUNT.f22;
+      b.group.position.set(0, m[1], -m[0]);
+      b.group.rotation.set(0, Math.PI, 0);
+    }
+    const from = this.laserOrigin(_lp);
+    const dir = this.forward(_ld);
+    let len = JET_LASER.range;
+    let kind = null;
+    let block = null;
+    const wh = mgr.world.raycast(from, dir, len, { solidOnly: true });
+    if (wh) {
+      len = wh.distance;
+      kind = "block";
+      block = wh;
+    }
+    const uh = mgr.ufos?.raycast(from, dir, len);
+    if (uh) {
+      len = uh.distance;
+      kind = "ufo";
+    }
+    const vh = mgr.raycast?.(from, dir, len, this);
+    if (vh) {
+      len = vh.distance;
+      kind = "vehicle";
+    }
+    const end = _le.copy(from).addScaledVector(dir, len);
+    const t = this.time;
+    const flick = 0.85 + 0.3 * Math.random();
+    b.group.visible = true;
+    b.core.scale.set(0.05 * flick, 0.05 * flick, len);
+    b.halo.scale.set(0.16 * flick, 0.16 * flick, len);
+    b.haze.scale.set(0.42, 0.42, len);
+    b.haze.material.opacity = 0.12 + 0.05 * Math.sin(t * 40);
+    this.laserHit = { point: end.clone(), kind, dist: len, from: from.clone(), dir: dir.clone() };
+    const fx = mgr.effects;
+    if (!fx?.glow) return;
+    // The emitter's glow.
+    fx.glow.spawn({ x: from.x, y: from.y, z: from.z, vx: this.vel.x, vy: this.vel.y, vz: this.vel.z, life: 0.05, size0: 1.1 * flick, size1: 0.5, color0: LASER_C, alpha: 0.9 });
+    if (!kind) return;
+    // Where it hits: a hot flare, sparks, smoke (fewer on the low presets).
+    const q = effectsQuality.scale;
+    const back = _lb.copy(end).addScaledVector(dir, -0.25);
+    fx.glow.spawn({ x: back.x, y: back.y, z: back.z, life: 0.06, size0: 2.2 * flick, size1: 0.8, color0: LASER_CORE, alpha: 0.95 });
+    const n = Math.max(1, Math.round(3 * q));
+    for (let i = 0; i < n; i++) {
+      const r = () => Math.random() * 2 - 1;
+      const k = 3 + Math.random() * 9;
+      fx.glow.spawn({ x: back.x, y: back.y, z: back.z, vx: -dir.x * k + r() * 7, vy: -dir.y * k + r() * 7 + 3, vz: -dir.z * k + r() * 7, life: 0.2 + Math.random() * 0.3, size0: 0.22, size1: 0.04, color0: i % 2 ? LASER_C : SPARK_C, alpha: 1, drag: 1.5, gravity: 0.9 });
+    }
+    if (fx.smoke && Math.random() < 0.35 * q + 0.1) fx.smoke.spawn({ x: back.x, y: back.y, z: back.z, vx: (Math.random() - 0.5) * 1.2, vy: 1.5, vz: (Math.random() - 0.5) * 1.2, life: 1.4, size0: 0.5, size1: 2.4, color0: LASER_SMOKE0, color1: LASER_SMOKE1, alpha: 0.45, drag: 1 });
+    // Burning a hole (ours only: the blocks reach the other players as edits).
+    if (!owner || this.puppet || kind !== "block") {
+      this._burnAt = null;
+      return;
+    }
+    if (this._burnAt && this._burnAt.distanceTo(end) < 2.5) this._burnT += dt;
+    else {
+      this._burnAt = (this._burnAt || new THREE.Vector3()).copy(end);
+      this._burnT = 0;
+    }
+    if (this._burnT >= JET_LASER.burn && fx._carve) {
+      this._burnT = 0;
+      const at = _lb.copy(end).addScaledVector(dir, 0.6);
+      const removed = fx._carve(at, JET_LASER.burnR);
+      if (removed.length) fx.floodInto?.(removed);
+      this.laserBurnt = (this.laserBurnt || 0) + removed.length / 4;
+      // Molten bits flying out.
+      if (fx.debris && block) {
+        const id = removed[3] ?? mgr.world.getBlock(block.block[0], block.block[1], block.block[2]);
+        const rgb = mgr.world.blockColors?.[id] || [0.4, 0.36, 0.32];
+        const c = this._burnC || (this._burnC = new THREE.Color());
+        c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+        for (let i = 0; i < 4; i++) fx.debris.spawn(at.x, at.y, at.z, -dir.x * 6 + (Math.random() - 0.5) * 6, 4 + Math.random() * 4, -dir.z * 6 + (Math.random() - 0.5) * 6, 0.2 + Math.random() * 0.15, c, 1.2);
+      }
+      const ears = fx.listener;
+      mgr.audio?.playLaserHit?.(ears ? at.distanceTo(ears) : 0);
+    }
+  }
+
+  // Online: the laser's on/off goes with the jet's state (16 in its flags);
+  // another player's copy draws the beam from it (net/vehicles.js).
+  netState(s) {
+    if (this.laserOn) s.f = (s.f | 0) | 16;
+  }
+
+  netJet(st, dt) {
+    if (st) this._netLaser = !!((st.f | 0) & 16);
+    this.laserOn = !!this._netLaser && this.alive;
+    this._drawLaser(dt, this.laserOn, false);
+  }
+
   _effects(dt, aero) {
     const fx = this.manager.effects;
     this._fxT = (this._fxT || 0) - dt;
@@ -1256,13 +1513,19 @@ export class Jet extends Vehicle {
     this.nukeT = Math.max(0, this.nukeT - dt);
     this.flareT = Math.max(0, this.flareT - dt);
     this.superT = Math.max(0, this.superT - dt);
+    this.miniT = Math.max(0, this.miniT - dt); // (Round 20)
     // (Round 17) X switches the missiles: the normal ones or the heavy one
     // (1 and 2 pick them); the right button fires whichever is selected.
-    if (this.armed) {
+    // (Round 20) X goes on through the mini-nuke and the nose laser (3 and 4
+    // pick them); the SR-71's list is its camera (1), the mini-nuke, the laser.
+    {
       const p = input.pressed;
-      if (p.has("KeyX")) this.selectWeapon(this.weapon === "super" ? "missile" : "super");
-      else if (p.has("Digit1")) this.selectWeapon("missile");
+      const list = this.weapons;
+      if (p.has("KeyX")) this.selectWeapon(list[(list.indexOf(this.weapon) + 1) % list.length]);
+      else if (p.has("Digit1")) this.selectWeapon(this.armed ? "missile" : "recon");
       else if (p.has("Digit2")) this.selectWeapon("super");
+      else if (p.has("Digit3")) this.selectWeapon("mininuke");
+      else if (p.has("Digit4")) this.selectWeapon("laser");
     }
     const fwd = this.forward(new THREE.Vector3());
     // Autocannon: rapid fire with tracers; it pulls toward a target near the
@@ -1288,8 +1551,14 @@ export class Jet extends Vehicle {
     // (The B-2 has no cannon: a left click is only the lock's cancel.)
     if (firing && !this.jammed && this.cannonT <= 0 && this.spec.cannonRate > 0) this._fireCannon(fwd);
     // (Round 16: the unarmed SR-71's right button is its reconnaissance camera.)
-    if (this.spec.recon) this._recon(dt, input);
+    // (Round 20) The nose laser: the right button held fires it (no lock).
+    if (this.weapon === "laser") {
+      if (!input.buttons[2]) this._laserBlock = false;
+      this._laserWant = !!input.buttons[2] && !this._laserBlock && !this.freeLook && !(both && this.bothT > LOOK_DELAY * 0.5);
+      this._laserLock(dt);
+    } else if (this.weapon === "recon") this._recon(dt, input);
     else this._updateLock(dt, input);
+    this.miniDanger = this._miniDangerNow(); // (Round 20)
     // Flares (C).
     if (input.pressed.has("KeyC")) {
       if (this.flareT > 0) mgr.onMessage?.(`Flares reloading (${Math.ceil(this.flareT)} s)`);
@@ -1299,8 +1568,34 @@ export class Jet extends Vehicle {
     if (input.pressed.has("KeyB") && this.nukeT <= 0) {
       this.nukeT = NUKE_COOLDOWN;
       if (this.spec.nuke) this._dropNuke();
-      else mgr.onMessage?.(this.spec.recon ? "The SR-71 is unarmed: no nuke (only the B-2 bomber carries it)" : "No nuke on a fighter: only the B-2 bomber carries it (airports)");
+      else mgr.onMessage?.(`No big nuke on ${this.spec.recon ? "the SR-71" : "a fighter"} (only the B-2 bomber carries it): X or 3 selects the MINI-NUKE`); // (Round 20)
     }
+  }
+
+  // (Round 20) What the right button can be, in X's order.
+  get weapons() {
+    if (this.isEnemyJet) return [this.weapon];
+    return this.armed ? ["missile", "super", "mininuke", "laser"] : this.spec.recon ? ["recon", "mininuke", "laser"] : ["mininuke", "laser"];
+  }
+
+  // (Round 20) With the laser selected: no lock (the camera comes back from
+  // a missile's target as it would).
+  _laserLock(dt) {
+    const lock = this.lock;
+    if (lock.follow) {
+      this._updateLock(dt, NO_INPUT);
+      return;
+    }
+    lock.look += (0 - lock.look) * Math.min(1, dt * 3.2);
+    if (lock.look < 0.02) lock.look = 0;
+    lock.target = null;
+    lock.locked = false;
+    lock.salvo = false;
+    lock.progress = 0;
+    lock.t = 0;
+    lock.auto = false;
+    lock.holding = false;
+    lock.autoSave = null;
   }
 
   // (Round 17) Does it carry missiles (the SR-71 doesn't)?
@@ -1309,15 +1604,43 @@ export class Jet extends Vehicle {
   }
 
   // (Round 17) Selects the missiles ("missile") or the heavy missile ("super").
+  // (Round 20) Or the mini-nuke ("mininuke"), the nose laser ("laser"), the
+  // SR-71's camera ("recon").
   selectWeapon(w) {
-    if (!this.armed || (w !== "missile" && w !== "super")) return;
+    if (!this.weapons.includes(w)) return;
     const changed = w !== this.weapon;
+    const was = this.weapon;
     this.weapon = w;
     // (A salvo charged for the missiles isn't the heavy missile's: it fires one.)
-    if (w === "super") this.lock.salvo = false;
+    if (w !== "missile") this.lock.salvo = false;
+    if (changed) {
+      // (A lock being held for the old weapon is dropped, nothing fired; the
+      // laser waits for the button to be let go and pressed again.)
+      const lock = this.lock;
+      if (lock.holding) {
+        lock.holding = false;
+        lock.target = null;
+        lock.locked = false;
+        lock.progress = 0;
+        lock.t = 0;
+        lock.suppress = true;
+        lock.autoSave = null;
+      }
+      this._laserBlock = true;
+      if (was === "recon") lock.target = null;
+    }
     if (!changed || this !== this.manager.active) return;
-    this.manager.audio?.playSalvoPip?.(w === "super" ? 2 : 1, 3);
-    this.manager.onMessage?.(w === "super" ? `SUPER MISSILE selected${this.superT > 0 ? ` (reloading ${Math.ceil(this.superT)} s)` : ""}: right click fires it (X: back to missiles)` : "MISSILES selected (X: super missile)");
+    const i = this.weapons.indexOf(w);
+    this.manager.audio?.playSalvoPip?.(i + 1, this.weapons.length + 1);
+    const next = WEAPON_NAMES[this.weapons[(i + 1) % this.weapons.length]].toLowerCase();
+    const say = {
+      missile: `MISSILES selected (X: ${next})`,
+      super: `SUPER MISSILE selected${this.superT > 0 ? ` (reloading ${Math.ceil(this.superT)} s)` : ""}: right click fires it (X: ${next})`,
+      mininuke: `MINI-NUKE selected (${this.miniAmmo} left${this.miniT > 0 && this.miniAmmo > 0 ? `, ready in ${Math.ceil(this.miniT)} s` : ""}): right click launches it; it arms after ${MINI_NUKE.arm} s. Fire from far off! (X: ${next})`,
+      laser: `NOSE LASER selected: hold right click to fire along the nose; watch the heat (X: ${next})`,
+      recon: `RECON CAMERA selected: right click takes a photo (X: ${next})`,
+    }[w];
+    this.manager.onMessage?.(say);
   }
 
   // (Round 16) The SR-71's top Mach: machLow near the ground, the full Mach high up.
@@ -1581,7 +1904,7 @@ export class Jet extends Vehicle {
       const wasLocked = lock.locked;
       const wasSalvo = lock.salvo;
       lock.locked = !!lock.target && lock.t >= LOCK_TIME;
-      lock.salvo = !!lock.target && lock.t >= this.spec.salvoTime && this.weapon !== "super"; // (Round 17: the heavy missile flies alone)
+      lock.salvo = !!lock.target && lock.t >= this.spec.salvoTime && this.weapon === "missile"; // (Round 17: the heavy missile flies alone; Round 20: so does the mini-nuke)
       // (Only the one being tracked, and only once the lock is really building.)
       if (lock.target && lock.t > 0.3) lock.target.ref.lockedOn = mgr.ufos.time;
       // Look at it (not for a quick click, which fires straight ahead).
@@ -1598,10 +1921,10 @@ export class Jet extends Vehicle {
       if (lock.target && (lock.held > TAP_TIME || lock.fromAuto)) mgr.audio?.setSeekerTone?.(lock.locked ? 2 : 1, lock.progress);
       // The salvo charges pip by pip (one click per missile, each higher than the last).
       const n = this.spec.salvo;
-      const pip = lock.locked && this.weapon !== "super" ? Math.min(n, Math.floor(((lock.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME)) * n)) : 0;
+      const pip = lock.locked && this.weapon === "missile" ? Math.min(n, Math.floor(((lock.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME)) * n)) : 0;
       if (pip > (lock.pip || 0) && pip < n) mgr.audio?.playSalvoPip?.(pip, n);
       lock.pip = pip;
-      if (lock.locked && !wasLocked && !lock.fromAuto) mgr.onMessage?.(this.weapon === "super" ? "LOCKED: release to fire the SUPER MISSILE (left click cancels)" : this.spec.salvo > 1 ? "LOCKED: release to fire (hold for a salvo; left click cancels)" : "LOCKED: release to fire (left click cancels)");
+      if (lock.locked && !wasLocked && !lock.fromAuto) mgr.onMessage?.(this.weapon === "super" ? "LOCKED: release to fire the SUPER MISSILE (left click cancels)" : this.weapon === "mininuke" ? "LOCKED: release to launch the MINI-NUKE (left click cancels)" : this.spec.salvo > 1 ? "LOCKED: release to fire (hold for a salvo; left click cancels)" : "LOCKED: release to fire (left click cancels)");
       if (lock.salvo && !wasSalvo) {
         mgr.onMessage?.(`SALVO READY x${this.spec.salvo}`);
         mgr.audio?.playSalvoTone?.();
@@ -1771,6 +2094,7 @@ export class Jet extends Vehicle {
 
   _fireLock() {
     const lock = this.lock;
+    if (this.weapon === "mininuke") return this._fireMini(); // (Round 20)
     // (Round 17) The heavy missile: one at a time, its own long reload.
     const heavy = this.weapon === "super" && this.armed;
     if (heavy ? this.superT > 0 : this.missileT > 0) {
@@ -1818,6 +2142,83 @@ export class Jet extends Vehicle {
       // Released while the lock was still building: no missile.
       this.manager.onMessage?.("Lock cancelled");
     }
+  }
+
+  // (Round 20) The mini-nuke: as the super missile (a click: straight ahead;
+  // a lock: guided), from what is aboard, with its own reload.
+  _fireMini() {
+    const lock = this.lock;
+    const mgr = this.manager;
+    const me = this === mgr.active;
+    const why = mgr.miniNukeRefusal?.(); // (main.js: not on the canyon run)
+    if (why) {
+      if (me) mgr.onMessage?.(why);
+      return;
+    }
+    if (this.miniAmmo <= 0) {
+      if (me) mgr.onMessage?.(`MINI-NUKE: none left (one more every ${MINI_NUKE.rearm} s, or land and stop to rearm)`);
+      return;
+    }
+    if (this.miniT > 0) {
+      if (me && (lock.locked || lock.held <= TAP_TIME)) mgr.onMessage?.(`MINI-NUKE: next one ready in ${Math.ceil(this.miniT)} s`);
+      return;
+    }
+    const target = lock.target && this._targetAlive(lock.target) ? lock.target : null;
+    if (!(target && lock.locked) && !(lock.held <= TAP_TIME || !lock.target)) {
+      mgr.onMessage?.("Lock cancelled");
+      return;
+    }
+    const t = target && lock.locked ? target : null;
+    if (t?.kind === "ufo") t.ref.lockedOn = mgr.ufos?.time ?? 0;
+    const m = this._launchMissile(t, { heavy: true, mini: true });
+    this.miniAmmo--;
+    this.miniT = MINI_NUKE.reload;
+    this.missileT = Math.max(this.missileT, this.spec.missileCooldown);
+    if (t && !(lock.fromAuto && lock.held <= TAP_TIME)) lock.follow = { target: t, missiles: [m], after: FOLLOW_AFTER + 1.2, last: null };
+    if (me) {
+      mgr.onMessage?.(`MINI-NUKE AWAY${t ? "" : " (unguided)"}: it arms in ${MINI_NUKE.arm} s. Turn away! (${this.miniAmmo} left)`);
+      mgr.audio?.playWarning?.();
+      voice.say("fox2");
+    }
+  }
+
+  // (Round 20) The mini-nukes come back: one every MINI_NUKE.rearm seconds,
+  // all of them after a short stop on the ground.
+  _rearm(dt) {
+    if (this.miniAmmo >= this.miniMax) {
+      this.rearmT = 0;
+      this._restT = 0;
+      return;
+    }
+    if (this.onGround && this.speed < 3) {
+      this._restT += dt;
+      if (this._restT >= MINI_NUKE.rearmGround) {
+        this.miniAmmo = this.miniMax;
+        this.miniT = 0;
+        this.rearmT = 0;
+        if (this === this.manager.active) this.manager.onMessage?.(`REARMED: ${this.miniMax} mini-nuke${this.miniMax > 1 ? "s" : ""} aboard`);
+      }
+      return;
+    }
+    this._restT = 0;
+    this.rearmT += dt;
+    if (this.rearmT >= MINI_NUKE.rearm) {
+      this.rearmT = 0;
+      this.miniAmmo++;
+      if (this === this.manager.active) this.manager.onMessage?.(`One more MINI-NUKE aboard (${this.miniAmmo})`);
+    }
+  }
+
+  // (Round 20) The HUD's mini-nuke warning: "close" while one of ours (armed,
+  // or about to be) is near enough for its blast to hurt us, "short" with it
+  // selected and something straight ahead closer than it can arm (a dud).
+  _miniDangerNow() {
+    for (const m of this.missiles) if (m.mini && m.age > MINI_NUKE.arm - 0.5 && m.pos.distanceTo(this.pos) < MINI_NUKE.danger + 30) return "close";
+    if (this.weapon !== "mininuke" || this.miniAmmo <= 0 || this.onGround) return "";
+    const f = this.forward(_v);
+    const reach = Math.min(600, Math.max(MINI_NUKE.speed, this.speed + MINI_NUKE.speedOver) * MINI_NUKE.arm);
+    const h = this.manager.world.raycast(_w.copy(this.pos).addScaledVector(f, 8), f, reach, { solidOnly: true });
+    return h ? "short" : "";
   }
 
   _updateQueue(dt) {
@@ -1880,13 +2281,13 @@ export class Jet extends Vehicle {
   // jet's) hunt the player, can be fooled by flares, and don't harm UFOs.
   // (Round 17) heavy: the super missile (one from under the belly, bigger,
   // slower, a blast of its own: SUPER_MISSILE).
-  _launchMissile(target, { hostile = false, rogue = false, heavy = false } = {}) {
+  _launchMissile(target, { hostile = false, rogue = false, heavy = false, mini = false } = {}) {
     const mgr = this.manager;
     const fwd = this.forward(new THREE.Vector3());
     const right = this.right(new THREE.Vector3());
     this.rail = -this.rail;
     const pos = heavy ? this.pos.clone().addScaledVector(this.up(_v), -1.6) : this.pos.clone().addScaledVector(right, this.rail * 2.4).addScaledVector(this.up(_v), -0.7);
-    const mesh = new THREE.Mesh(heavy ? _superGeo || (_superGeo = superMissileGeometry()) : _missileGeo || (_missileGeo = missileGeometry()), missileMaterial());
+    const mesh = new THREE.Mesh(mini ? _miniGeo || (_miniGeo = miniNukeGeometry()) : heavy ? _superGeo || (_superGeo = superMissileGeometry()) : _missileGeo || (_missileGeo = missileGeometry()), missileMaterial());
     mesh.castShadow = true;
     mgr.scene.add(mesh);
     // A target behind the jet: the missile makes a hard turn to get around.
@@ -1907,6 +2308,18 @@ export class Jet extends Vehicle {
       m.vmax = Math.max(SUPER_MISSILE.speed, Math.min(SUPER_MISSILE.maxSpeed, this.speed + SUPER_MISSILE.speedOver));
       m.turn = SUPER_MISSILE.turn;
       m.vel.copy(this.vel).addScaledVector(fwd, 6);
+      if (mini) {
+        // (Round 20) The mini-nuke's own: faster off the rail, an arming time.
+        const M = MINI_NUKE;
+        m.mini = true;
+        m.vmax = Math.max(M.speed, Math.min(M.maxSpeed, this.speed + M.speedOver));
+        m.turn = M.turn;
+        m.accel = M.accel;
+        m.fuse = M.fuse;
+        m.life = M.life;
+        m.armAt = M.arm;
+        m.shooter = this === mgr.active;
+      }
       if (this === mgr.active) mgr.effects?.shake?.add?.(0.12);
       this._sound(() => mgr.audio?.playSuperLaunch?.());
     }
@@ -1968,7 +2381,7 @@ export class Jet extends Vehicle {
       const tvl = m.target && m.target.kind !== "decoy" ? this._targetVel(m.target)?.length() || 0 : 0;
       // (Round 17: the heavy missile flies at its own, slower speed.)
       const maxSpeed = m.heavy ? m.vmax : m.hostile ? clamp(tvl + 30, 330, 440) : clamp(tvl + 85, 420, 520);
-      const speed = Math.min(maxSpeed, m.vel.length() + (m.heavy ? SUPER_MISSILE.accel : 260) * dt);
+      const speed = Math.min(maxSpeed, m.vel.length() + (m.accel ?? (m.heavy ? SUPER_MISSILE.accel : 260)) * dt);
       if ((m.hostile || m.target?.kind === "jet") && m.age > 0.3) this._checkDecoys(m);
       // Guidance: lead pursuit, with a turn-rate limit. A rear shot gets a
       // hard turn at first. A target crossing the seeker's view too fast
@@ -2014,7 +2427,7 @@ export class Jet extends Vehicle {
         // which it moved along too; anything else: near its middle.)
         const hv = this._targetHull(m.target);
         if (hv) {
-          const t = hv.sweptRaycast(m.pos, m.dir, step, m.heavy ? SUPER_MISSILE.fuse : MISSILE_FUSE, dt);
+          const t = hv.sweptRaycast(m.pos, m.dir, step, m.mini ? (m.age < m.armAt ? 0.3 : m.fuse) : m.heavy ? SUPER_MISSILE.fuse : MISSILE_FUSE, dt);
           if (t !== null) {
             boom = m.pos.clone().addScaledVector(m.dir, t);
             direct = m.target;
@@ -2022,7 +2435,7 @@ export class Jet extends Vehicle {
         } else {
           const tp = this._targetPos(m.target, _w);
           const r = this._targetRadius(m.target);
-          if (tp.distanceTo(m.pos) < r + step + (m.heavy ? SUPER_MISSILE.fuse - 2 : 0)) {
+          if (tp.distanceTo(m.pos) < r + step + (m.mini ? (m.age < m.armAt ? 0 : m.fuse - 2) : m.heavy ? SUPER_MISSILE.fuse - 2 : 0)) {
             boom = m.pos.clone().lerp(tp, 0.7);
             direct = m.target;
           }
@@ -2067,10 +2480,14 @@ export class Jet extends Vehicle {
         continue;
       }
       // (Round 17: the heavy missile goes off at the end of its flight, wherever it is.)
-      if (!boom && m.heavy && m.age > SUPER_MISSILE.life) boom = m.pos.clone();
+      if (!boom && m.heavy && m.age > (m.life ?? SUPER_MISSILE.life)) boom = m.pos.clone();
       if (boom || m.age > (m.hostile ? 11 : 14) || m.pos.y < -10) {
         mgr.scene.remove(m.mesh);
         this.missiles.splice(i, 1);
+        if (boom && m.mini) {
+          this._miniBoom(m, boom, direct); // (Round 20)
+          continue;
+        }
         if (boom && m.heavy) {
           this._superBoom(m, boom, direct);
           continue;
@@ -2139,6 +2556,33 @@ export class Jet extends Vehicle {
       v?.damage?.(S.damage * 0.55, "missile");
     }
     mgr.effects.explode(at, { radius: S.radius, source: "missile", visual: S.look });
+  }
+
+  // (Round 20) The mini-nuke goes off at `at`: a dud (a small bang) before
+  // it armed; else its direct hit's damage and a nuke of size MINI_NUKE.R
+  // (nuke.js: the flash, the cloud, the crater, the blast's damage round it,
+  // this jet included, main.js nuke.onDetonate; online as any nuke, "n").
+  _miniBoom(m, at, direct) {
+    const mgr = this.manager;
+    const M = MINI_NUKE;
+    if (m.age < m.armAt) {
+      mgr.effects.explode(at, { radius: M.dud, source: "missile" });
+      if (this === mgr.active) mgr.onMessage?.("MINI-NUKE DUD: it hit before it armed (launch it from farther away)");
+      return;
+    }
+    if (direct?.kind === "ufo") {
+      mgr.ufos.damage(direct.ref, M.direct, true, at);
+      mgr.onMissileHit?.(direct.ref);
+    } else if (direct?.kind === "jet") {
+      direct.ref.damage(M.direct, "nuke", true);
+      mgr.onMissileHit?.(direct.ref);
+    } else if (direct?.kind === "vehicle" || direct?.kind === "player") {
+      const v = direct.kind === "vehicle" ? direct.ref : direct.ref.vehicle;
+      v?.damage?.(M.direct * 0.55, "nuke");
+    }
+    this.lastMiniBoom = { at: at.clone(), age: m.age, dist: at.distanceTo(this.pos) }; // (tests)
+    if (mgr.nuke) mgr.nuke.detonate(at, { R: M.R, mini: true });
+    else mgr.effects.explode(at, { radius: SUPER_MISSILE.radius, source: "missile", visual: SUPER_MISSILE.look });
   }
 
   // (Round 13) One step of proportional navigation for missile `m` at a
@@ -2434,6 +2878,9 @@ export class Jet extends Vehicle {
     if (this.warn) warnings.push(this.warn.kind === "missile" ? "MISSILE INCOMING" : "INCOMING ATTACK");
     else if (this.incoming > 0) warnings.push("INCOMING ATTACK");
     if (this.jammed) warnings.push("CANNON OVERHEATED");
+    if (this.laserJam) warnings.push("LASER OVERHEATED"); // (Round 20)
+    if (this.miniDanger === "close") warnings.push("DANGER CLOSE: TURN AWAY FROM THE MINI-NUKE");
+    else if (this.miniDanger === "short") warnings.push("TOO CLOSE TO LAUNCH: THE MINI-NUKE WOULD BE A DUD");
     if (this.health < this.maxHealth * 0.3) warnings.push("DAMAGE CRITICAL");
     const cfg = this.cfg;
     const vr = cfg.stallSpeed * ROTATE_SPEED;
@@ -2457,19 +2904,39 @@ export class Jet extends Vehicle {
         ...(this.airbrake > 0.02 ? [["Air brakes", `<span class="vh-on">${this.airbrake > 0.97 ? "OPEN" : this.onGround ? "wheel brakes" : "OPENING"}</span> ${"▮".repeat(Math.round(this.airbrake * 5))}${"▯".repeat(5 - Math.round(this.airbrake * 5))}`]] : []),
         ...(this.freeLook ? [["View", `<span class="vh-lock">FREE LOOK</span> (controls held)`]] : []),
         ["Heading", `${Math.round(heading)}° ${card}`],
-        this.spec.recon ? ["Camera", this.reconT > 0 ? "advancing the film..." : `READY (RMB: recon photo)${this.reconShots ? ` · ${this.reconShots} taken, ${this.reconSeen} contacts in the last` : ""}`] : ["Missile", lockText],
+        this.weapon === "recon" ? ["Camera", this.reconT > 0 ? "advancing the film..." : `READY (RMB: recon photo)${this.reconShots ? ` · ${this.reconShots} taken, ${this.reconSeen} contacts in the last` : ""}`] : this.weapon === "laser" ? ["Laser", this.laserJam ? `<span class="vh-lock">OVERHEATED</span> (cooling)` : this.laserOn ? `<span class="vh-on">FIRING</span>${this.laserHit?.kind ? ` · ${Math.round(this.laserHit.dist)} blocks` : ""}` : "READY (hold RMB)"] : ["Missile", lockText],
         // (Round 17) The selected missile (X switches) and the heavy one's reload.
-        ...(this.armed ? [["Weapon", this.weapon === "super" ? `<span class="vh-lock">SUPER MISSILE</span> ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "READY"} (X: missiles)` : `MISSILES · super missile ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "ready"} (X)`]] : []),
+        // (Round 20) X goes on to the mini-nuke and the nose laser.
+        ["Weapon", this._weaponRow()],
+        ["Mini-nukes", `${this.miniAmmo} of ${this.miniMax}${this.miniAmmo < this.miniMax ? ` (one more in ${Math.ceil(MINI_NUKE.rearm - this.rearmT)} s; land and stop: all)` : ""}${this.miniT > 0 && this.miniAmmo > 0 ? ` · next ready in ${Math.ceil(this.miniT)} s` : ""}`],
         ["Flares", this.flareT > 0 ? `reloading ${Math.ceil(this.flareT)} s` : "READY (C)"],
         ...(this.spec.nuke ? [["Nuke", this.nukeT > 0 ? `reloading ${Math.ceil(this.nukeT)} s` : "READY (B)"]] : []),
         ...(onRunway ? [["Takeoff", onRunway]] : []),
       ],
-      bars: this.spec.cannonRate > 0 ? [{ label: "Cannon heat", value: this.heat, hot: this.jammed || this.heat > 0.75 }] : [],
-      weapon: this.spec.recon ? "Unarmed · RMB recon camera · C flares" : `${this.spec.nuke ? "" : "LMB cannon · "}RMB ${this.weapon === "super" ? "SUPER MISSILE" : "missile"} (hold to lock; LMB cancels) · X switch missiles · C flares${this.spec.nuke ? " · B NUKE" : ""}`,
+      bars: [...(this.spec.cannonRate > 0 ? [{ label: "Cannon heat", value: this.heat, hot: this.jammed || this.heat > 0.75 }] : []), ...(this.weapon === "laser" || this.laserHeat > 0 ? [{ label: "Laser heat", value: this.laserHeat, hot: this.laserJam || this.laserHeat > 0.75 }] : [])],
+      weapon: `${this.spec.cannonRate > 0 ? "LMB cannon · " : ""}RMB ${{ missile: "missile (hold to lock; LMB cancels)", super: "SUPER MISSILE (hold to lock; LMB cancels)", mininuke: "MINI-NUKE (hold to lock; LMB cancels)", laser: "NOSE LASER (hold)", recon: "recon camera" }[this.weapon] || "missile"} · X switch (${this.weapons.map((w) => WEAPON_NAMES[w].toLowerCase()).join(" / ")}) · C flares${this.spec.nuke ? " · B NUKE" : ""}`,
       warning: warnings.join(" · "),
       health: this.health / this.maxHealth,
-      help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle${this.spec.ab !== false ? " · Shift afterburner (double tap: latch)" : ""}${this.armed ? " · X missiles / super missile" : ""} · A/D roll · Q/E rudder · Space air brakes · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
+      help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle${this.spec.ab !== false ? " · Shift afterburner (double tap: latch)" : ""} · X weapons (1-4) · A/D roll · Q/E rudder · Space air brakes · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
     };
+  }
+
+  // (Round 20) The flight panel's "Weapon" row: what the right button is now, what X goes to.
+  _weaponRow() {
+    const list = this.weapons;
+    const next = WEAPON_NAMES[list[(list.indexOf(this.weapon) + 1) % list.length]]?.toLowerCase();
+    const w = this.weapon;
+    const now =
+      w === "super"
+        ? `<span class="vh-lock">SUPER MISSILE</span> ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "READY"}`
+        : w === "mininuke"
+          ? `<span class="vh-lock">MINI-NUKE</span> ${this.miniAmmo <= 0 ? "NONE LEFT" : this.miniT > 0 ? `reloading ${Math.ceil(this.miniT)} s` : "READY"} (${this.miniAmmo} aboard)`
+          : w === "laser"
+            ? `<span class="vh-lock">NOSE LASER</span> heat ${Math.round(this.laserHeat * 100)}%${this.laserJam ? " OVERHEATED" : ""}`
+            : w === "recon"
+              ? "RECON CAMERA"
+              : `MISSILES · super missile ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "ready"}`;
+    return `${now} (X: ${next})`;
   }
 
   // The vehicle info panel (I): stats and controls.
@@ -2489,14 +2956,16 @@ export class Jet extends Vehicle {
         ["Afterburner", this.spec.ab !== false ? `${AB_THRUST_PILOT}x the thrust; a top speed of ${Math.round(Math.max(cfg.maxSpeed, MACH1 * (this.spec.mach || 0)) * 3.6)} km/h with it, ${Math.round((cfg.maxSpeed / Math.sqrt(AB_THRUST)) * 3.6)} without; hold Shift, or double tap it to latch it on` : "none"],
         ["Auto aim", this.autoAim ? `on: keep a UFO or aircraft in (or near) the seeker ring round the crosshair for ${AUTO_LOCK_TIME} s and it is locked (the tone goes solid); a click then sends a homing missile after it` : "off (Settings > Vehicles): lock by holding the right button"],
         ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
-        ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the nuke"],
+        ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the big nuke"],
+        ["Mini-nuke", `X (or 3) selects it: a small tactical nuke on a missile (a click: straight ahead; hold: lock), ${this.miniMax} aboard, ${MINI_NUKE.reload} s between two; it arms ${MINI_NUKE.arm} s after launch (a hit sooner is a dud) and goes off as a nuke of size ${MINI_NUKE.R} (the big one: 96 by default): a crater about ${Math.round(MINI_NUKE.R * 1.6)} blocks in radius, a mushroom cloud; its blast hurts you too within about ${MINI_NUKE.danger} blocks. One more every ${MINI_NUKE.rearm} s in the air; land and stop for ${MINI_NUKE.rearmGround} s to rearm fully`],
+        ["Nose laser", `X (or 4) selects it; hold the right button: a beam straight along the nose from under it, ${JET_LASER.range} blocks, ${JET_LASER.damage * JET_LASER.rate} damage a second; overheats after ${Math.round(1 / JET_LASER.heatUp)} s of fire (works again once cooled to ${Math.round(JET_LASER.resume * 100)}%); kept on one spot it burns through blocks`],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],
       ],
       controls: [
         ["Mouse", cfg.assist ? "Steer (the jet flies toward the crosshair)" : "Stick: up/down pitch, left/right roll"],
         ["W / S", "Throttle up / down"],
         ["Shift", this.spec.ab !== false ? "Afterburner while held; a double tap latches it on (another double tap, or S, lets it go)" : "(no afterburner on the bomber)"],
-        ...(this.armed ? [["X (or 1 / 2)", `Switch: missiles / the SUPER MISSILE (one at a time, a huge blast, ${SUPER_MISSILE.reload} s to reload); the right button fires the selected one`]] : []),
+        ...(this.armed ? [["X (or 1 / 2 / 3 / 4)", `Switch the right button's weapon: missiles / the SUPER MISSILE (one at a time, a huge blast, ${SUPER_MISSILE.reload} s to reload) / the MINI-NUKE / the NOSE LASER`]] : [["X (or 1 / 3 / 4)", "Switch the right button: the recon camera / the MINI-NUKE / the NOSE LASER"]]),
         ["A / D", "Roll (hold for a full roll; let go and it stops without overshoot)"],
         ["Mouse: pull right through", "Loops and barrel rolls: the aim goes over the top, the jet follows"],
         ["Both mouse buttons", "Free look: the controls freeze (the jet holds its attitude) and the mouse looks around"],
@@ -2504,9 +2973,11 @@ export class Jet extends Vehicle {
         ["Q / E", "Rudder (yaw)"],
         ["Space (hold)", "Air brakes: panels / control surfaces open, the jet sheds speed very fast and turns much tighter (too slow and it stalls); on the ground the wheel brakes"],
         ["Left click", this.spec.cannonRate > 0 ? "Autocannon (hold; watch the heat bar); while locking: cancel the lock" : "While locking: cancel the lock"],
-        ...(this.spec.recon
+        ...(this.weapon === "recon"
           ? [["Right click", "Reconnaissance photo (counts what is within 3,000 blocks)"]]
-          : [["Right click", this.autoAim ? "Missile: homing at the auto aim's lock, else straight ahead" : "Unguided missile straight ahead"], ["Right click (hold)", "Missile lock on the UFO or aircraft nearest the view centre (attackers first); release to fire; click again to bring the view back"]]),
+          : this.weapon === "laser"
+            ? [["Right click (hold)", "The nose laser: a beam straight ahead along the nose; watch its heat"]]
+            : [["Right click", this.autoAim ? "Missile: homing at the auto aim's lock, else straight ahead" : "Unguided missile straight ahead"], ["Right click (hold)", "Missile lock on the UFO or aircraft nearest the view centre (attackers first); release to fire; click again to bring the view back"]]),
         ["C", "Flares"],
         ["B", this.spec.nuke ? "Drop the nuke" : "(the B-2 only: the nuke)"],
         ["F", "Get out on the ground / eject in the air"],
@@ -2527,7 +2998,7 @@ export class Jet extends Vehicle {
         const l = this.lock;
         // The salvo charges from the moment the lock is solid until the salvo time: 0-1
         // (a spiral closing in on the target; none for a one-at-a-time bomber).
-        const canSalvo = this.spec.salvo > 1;
+        const canSalvo = this.spec.salvo > 1 && this.weapon === "missile"; // (Round 20: no salvo for the others)
         const charge = !canSalvo ? 0 : l.locked && l.holding ? clamp((l.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME), 0, 1) : l.salvo ? 1 : 0;
         out.lock = { x: p.x, y: p.y, locked: l.locked, salvo: l.salvo, progress: l.progress, charge, spiral: canSalvo && l.locked };
       }
@@ -2574,7 +3045,7 @@ export class Jet extends Vehicle {
       const dist = d.length();
       const tv = this._targetVel(t);
       const closure = dist > 1e-3 ? (this.vel.dot(d) - (tv ? tv.dot(d) : 0)) / dist : 0;
-      const canSalvo = this.spec.salvo > 1;
+      const canSalvo = this.spec.salvo > 1 && this.weapon === "missile";
       const charge = !canSalvo || L.auto ? 0 : L.locked && L.holding ? clamp((L.t - LOCK_TIME) / Math.max(0.1, this.spec.salvoTime - LOCK_TIME), 0, 1) : L.salvo ? 1 : 0;
       const name = t.kind === "ufo" ? (r.boss ? String(r.bossName || "BOSS").toUpperCase() : r.design === "sphere" ? "BALL UFO" : r.size === "mothership" || r.size === "giant" ? "MOTHERSHIP" : "UFO") : r.isEnemyJet ? (r.hijacked ? "HIJACKED" : "BANDIT") : groundName(r) || "PILOT";
       target = { pos, radius: t.kind === "ufo" ? r.radius : (r.hitRadius ?? r.radius ?? 5), name, dist, closure, progress: L.progress, locked: L.locked, salvo: L.salvo, charge, n: canSalvo ? this.spec.salvo : 0, pips: L.pip || 0, holding: L.holding, auto: !!L.auto };
@@ -2588,13 +3059,24 @@ export class Jet extends Vehicle {
       missiles.push({ pos: m.pos, ttg: tp.distanceTo(m.pos) / close, onTarget: !!t && m.target.ref === t.ref });
     }
     // (Round 17) The selected missile and its reload (0-1, 1 ready); the afterburner.
-    const heavy = this.weapon === "super";
-    const weapon = this.armed ? { super: heavy, name: heavy ? "SUPER MSL" : "MSL", ready: heavy ? 1 - this.superT / SUPER_MISSILE.reload : this.missileT > 0 ? 0.5 : 1, left: heavy ? this.superT : this.missileT } : null;
+    // (Round 20) kind: which weapon; the mini-nuke's count, the laser's heat;
+    // danger: the mini-nuke warning (_miniDangerNow).
+    const w = this.weapon;
+    const heavy = w === "super";
+    const weapon =
+      w === "mininuke"
+        ? { kind: w, name: `MINI-NUKE ${this.miniAmmo}`, ready: this.miniAmmo <= 0 ? 0 : 1 - this.miniT / MINI_NUKE.reload, left: this.miniAmmo <= 0 ? MINI_NUKE.rearm - this.rearmT : this.miniT, ammo: this.miniAmmo }
+        : w === "laser"
+          ? { kind: w, name: "LASER", ready: 1 - this.laserHeat, heat: this.laserHeat, jam: this.laserJam, on: this.laserOn }
+          : this.armed
+            ? { kind: heavy ? "super" : "missile", super: heavy, name: heavy ? "SUPER MSL" : "MSL", ready: heavy ? 1 - this.superT / SUPER_MISSILE.reload : this.missileT > 0 ? 0.5 : 1, left: heavy ? this.superT : this.missileT }
+            : null;
     return {
       weapon,
+      danger: this.miniDanger || "",
       ab: this.spec.ab !== false ? { on: !!this.afterburner, latched: !!this.abLatch } : null,
       bore,
-      cone: this.autoAim && !L.holding && !L.follow && !this.freeLook ? AUTO_CONE : 0,
+      cone: this.autoAim && !L.holding && !L.follow && !this.freeLook && w !== "laser" ? AUTO_CONE : 0,
       target,
       missiles,
       threat: this.warn && this._warnPos ? { pos: this._warnPos, dist: this.warn.dist, kind: this.warn.kind } : null,
@@ -2719,12 +3201,19 @@ export class Jet extends Vehicle {
   }
 
   serialize() {
-    return { ...super.serialize(), jetType: this.jetType, paint: this.paint, q: this.q.toArray().map((v) => Math.round(v * 10000) / 10000), throttle: Math.round(this.throttle * 100) / 100, speed: Math.round(this.speed * 10) / 10, airborne: !this.onGround };
+    return { ...super.serialize(), mn: this.miniAmmo, jetType: this.jetType, paint: this.paint, q: this.q.toArray().map((v) => Math.round(v * 10000) / 10000), throttle: Math.round(this.throttle * 100) / 100, speed: Math.round(this.speed * 10) / 10, airborne: !this.onGround };
   }
 
   dispose() {
     super.dispose();
     this.model.dispose?.();
+    // (Round 20) The laser's beam (its materials: the geometries are shared).
+    if (this._beam) {
+      this._beam.group.removeFromParent();
+      for (const m of [this._beam.core, this._beam.halo, this._beam.haze]) m.material.dispose();
+      this._beam = null;
+    }
+    this.laserOn = false;
     for (const m of this.missiles) this.manager.scene.remove(m.mesh);
     // A bomb already falling still goes off when its jet is removed (crashed,
     // ejected from, called away): the manager carries it on.
@@ -2774,7 +3263,59 @@ VehicleManager.prototype.update = function (dt) {
   if (this.enabled && this.strayBombs?.length) stepBombs(this, this.strayBombs, dt);
   if (!this.airFx && this.scene && this.effects) this.airFx = new AirFx(this);
   if (this.enabled) this.airFx?.update(dt);
+  // (Round 20) The nose lasers' hum: the loudest beam this frame (ours, or
+  // another's by its distance), one voice.
+  const lv = this._laserLevel || 0;
+  this._laserLevel = 0;
+  if (lv > 0 || this._laserHum) {
+    this._laserHum = lv > 0;
+    const a = this.active;
+    this.audio?.setJetLaser?.(lv, a?.type === "jet" ? a.laserHeat : 0);
+  }
 };
+
+// (Round 20) The nose laser's beam: three open tubes along +Z, unit long
+// (scaled to the beam's length), wider at the far end (still seen far off):
+// a white-hot core, a blue halo and a faint haze (additive, bloom). One per
+// jet that fires, made on its first shot, on the jet (`parent`); the
+// geometries are shared.
+let _beamGeo = null;
+function makeLaserBeam(parent) {
+  const g = _beamGeo || (_beamGeo = {
+    core: new THREE.CylinderGeometry(1.6, 1, 1, 8, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5),
+    halo: new THREE.CylinderGeometry(3, 1, 1, 10, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5),
+  });
+  const mat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(g.core, mat(LASER_CORE, 1));
+  const halo = new THREE.Mesh(g.halo, mat(LASER_GLOW, 0.7));
+  const haze = new THREE.Mesh(g.halo, mat(LASER_GLOW, 0.14));
+  for (const m of [core, halo, haze]) {
+    m.layers.set(LAYER_FX);
+    m.frustumCulled = false;
+    m.renderOrder = 14;
+    group.add(m);
+  }
+  group.visible = false;
+  parent.add(group);
+  return { group, core, halo, haze };
+}
+
+// (Round 20) The mini-nuke: an olive body with yellow and black bands, a
+// dark nose, fins (along -Z): the super missile's size.
+export function miniNukeGeometry() {
+  const parts = [
+    [new THREE.CylinderGeometry(0.46, 0.46, 4.2, 12).rotateX(Math.PI / 2), 0x55633a],
+    [new THREE.ConeGeometry(0.46, 1.4, 12).rotateX(-Math.PI / 2).translate(0, 0, -2.8), 0x24272b],
+    [new THREE.CylinderGeometry(0.48, 0.48, 0.34, 12).rotateX(Math.PI / 2).translate(0, 0, -1.45), 0xf0cc1c],
+    [new THREE.CylinderGeometry(0.48, 0.48, 0.34, 12).rotateX(Math.PI / 2).translate(0, 0, -0.75), 0x18181a],
+    [new THREE.CylinderGeometry(0.48, 0.48, 0.34, 12).rotateX(Math.PI / 2).translate(0, 0, -0.05), 0xf0cc1c],
+    [new THREE.CylinderGeometry(0.3, 0.4, 0.4, 12).rotateX(Math.PI / 2).translate(0, 0, 2.3), 0x2b2b2b],
+    [new THREE.BoxGeometry(2.0, 0.06, 0.95).translate(0, 0, 1.6), 0x6b7450],
+    [new THREE.BoxGeometry(0.06, 2.0, 0.95).translate(0, 0, 1.6), 0x6b7450],
+  ];
+  return mergeColored(parts);
+}
 
 // (Round 17) The heavy missile's trail: a thick, long-lived smoke column, a
 // big flame and a red beacon blinking on its body (seen from far off).

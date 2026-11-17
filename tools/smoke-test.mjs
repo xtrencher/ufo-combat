@@ -2468,7 +2468,8 @@ try {
     assert(savedRaw, "expected saved block edits after break/place/explosions");
     const parsed = JSON.parse(savedRaw);
     // (v3 once a chunk holds a block id above 255: Round 13's Missions world has every vanilla block.)
-    assert((parsed.v === 2 || parsed.v === 3) && Object.keys(parsed.chunks).length > 0, `expected the v2/v3 per-chunk format: v${parsed.v}`);
+    // (Round 20: v4, the packed chunks, js/storage.js PACKED.)
+    assert((parsed.v === 2 || parsed.v === 3 || parsed.v === 4) && Object.keys(parsed.chunks).length > 0, `expected the v2/v3/v4 per-chunk format: v${parsed.v}`);
     editCount = await countEdits();
     console.log(`        ${editCount} block changes saved in ${savedRaw.length} chars`);
     assert(editCount > 300, "explosion edits missing");

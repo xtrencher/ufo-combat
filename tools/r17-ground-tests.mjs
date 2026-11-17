@@ -651,7 +651,7 @@ async function browserChecks() {
     return { dz: z0 - t.pos.z, top, y: t.pos.y, maxSpeed };
   }`;
 
-  await browserCheck("the obstacle course: tanks climb one- and two-block steps (a truck one), stop at a wall and back off; a gentle slope slowly, never a steep one; a tree knocked down; fences, slabs and flowers rolled over", async () => {
+  await browserCheck("the obstacle course: tanks and a truck climb a one-block step, stop at two blocks (Round 20.B) and at a wall and back off; a gentle slope slowly, never a steep one; a tree knocked down; fences, slabs and flowers rolled over", async () => {
     const f = await field();
     const r = await v(async (g, a) => {
       const { f, DRIVE } = a;
@@ -741,8 +741,9 @@ async function browserChecks() {
     console.log(`        (${["step1", "step1tel", "step2", "step2tiger", "step2tel", "wall", "wallBack", "flat", "gentle", "steep", "steepBack", "tree"].map((k) => `${k} ${r[k].dz.toFixed(0)} along, up ${(r[k].top - f.y).toFixed(1)}`).join("; ")}; uphill ${r.gentle.uphillSpeed.toFixed(1)} vs ${r.flat.maxSpeed.toFixed(1)})`);
     assert(r.step1.dz > 45 && r.step1.top >= f.y + 0.9, `a one-block step: ${s(r.step1)}`);
     assert(r.step1tel.dz > 40 && r.step1tel.top >= f.y + 0.9, `a truck over a one-block step: ${s(r.step1tel)}`);
-    assert(r.step2.dz > 45 && r.step2.top >= f.y + 1.9, `a tank up two blocks: ${s(r.step2)}`);
-    assert(r.step2tiger.dz > 40 && r.step2tiger.top >= f.y + 1.9, `the heavy tank up two blocks: ${s(r.step2tiger)}`);
+    // (Round 20.B: "tanks can drive up walls": a step is one block now; a two-block wall stops a tank too.)
+    assert(r.step2.dz < 25 && r.step2.top < f.y + 0.5, `a tank stops at two blocks: ${s(r.step2)}`);
+    assert(r.step2tiger.dz < 25 && r.step2tiger.top < f.y + 0.5, `the heavy tank stops at two blocks: ${s(r.step2tiger)}`);
     assert(r.step2tel.dz < 25 && r.step2tel.top < f.y + 0.5, `a truck stops at two blocks: ${s(r.step2tel)}`);
     assert(r.wall.dz < 22 && r.wall.top < f.y + 0.5 && r.wallBack.dz < -3, `a wall stops it, it backs off: ${s(r.wall)} ${s(r.wallBack)}`);
     assert(r.gentle.top >= f.y + 15 && r.gentle.dz > 45, `up the gentle slope: ${s(r.gentle)}`);

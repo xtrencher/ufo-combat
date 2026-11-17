@@ -372,7 +372,8 @@ await browserCheck("the super missile: X selects it (1 / 2 pick), one big slow m
     return { w: [w0, w1, w2, w3, w4], fired, fired2, heavy, reload, top: Math.round(top), topN: Math.round(topN), boom, rings, hudWeapon: hud.weapon, rows, msgs };
   });
   console.log(`    super missile ${r.top} blocks/s (a missile ${r.topN}); blast ${JSON.stringify(r.boom && { radius: r.boom.radius, look: r.boom.look, removed: r.boom.removed, maxDist: +r.boom.maxDist.toFixed(1) })}`);
-  assert(r.w.join() === "missile,super,missile,super,missile", `X switches, 1 / 2 pick: ${JSON.stringify(r.w)}`);
+  // (Round 20: X goes on to the mini-nuke and the nose laser after the super missile.)
+  assert(r.w.join() === "missile,super,mininuke,super,missile", `X switches, 1 / 2 pick: ${JSON.stringify(r.w)}`);
   assert(r.fired === 1 && r.heavy && r.reload >= 10, `one heavy missile, a long reload: ${JSON.stringify(r)}`);
   assert(r.fired2 === 1 && r.msgs.some((t) => /reloading/i.test(t)), `nothing while it reloads (a word instead): ${JSON.stringify(r)}`);
   assert(r.top > 150 && r.top < 420 && r.top < r.topN, `slower than a missile: ${JSON.stringify(r)}`);

@@ -402,13 +402,13 @@ await check("broken in survival it drops as an item, is picked up, carried and p
   assert(again.placed === DEBUG_BLOCK && again.left === 0, JSON.stringify(again));
 });
 
-await check("saved (format v3) and back after a reload", async () => {
+await check("saved (format v4: Round 20's packed chunks, 16-bit ids and all) and back after a reload", async () => {
   const saved = await v((g) => {
     g.flushSave();
     const raw = JSON.parse(localStorage.getItem(`ufocombat_v1_edits_${g.world.seed}`));
-    return { v: raw.v, wide: Object.values(raw.chunks).some((s) => s.startsWith("!")) };
+    return { v: raw.v, packed: Object.values(raw.chunks).some((s) => s.startsWith("*")) };
   });
-  assert(saved.v === 3 && saved.wide, JSON.stringify(saved));
+  assert(saved.v === 4 && saved.packed, JSON.stringify(saved));
   await page.reload({ waitUntil: "load", timeout: 60000 });
   await boot();
   await play();

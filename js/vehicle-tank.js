@@ -11,6 +11,10 @@
 // (Round 17: tracks climb two-block steps and slopes up to about 35
 // degrees, slower uphill; fences and slabs are rolled over, trees knocked
 // down; a hull wedged anywhere is nudged up or out; see _drive.)
+// (Round 20.B: a step is one block again, and a wall the tracks touch is
+// no longer ground they rest on (it lifted hulls up walls); a player
+// drives off any ledge; faster; three rounds for the gun: AP, HE and the
+// SUPER shell, X to switch, see TANK_AMMO.)
 //
 // The gun: the mouse aims; the turret traverses and the gun elevates toward
 // the aim at their own (slow) rates, so a heavy turret takes a few seconds
@@ -49,15 +53,31 @@ export const SHELL_G = 20; // gravity on a shell (blocks/s^2)
 // hull climbs a two-block step, a wheeled one (the missile trucks) a block
 // and a bit; slopes up to MAX_CLIMB (about 35 degrees: a voxel hill's
 // two-up-three-along), losing up to CLIMB_SLOW of its speed on the way up.
-const TRACK_STEP = 2.1;
-const WHEEL_STEP = 1.25;
+// (Round 20.B) The player: "tanks can drive up walls". A step is now one
+// block for every ground vehicle (tracks a block and a bit, a slab's or a
+// snow layer's worth over it; wheels a block): a two-block wall stops it,
+// a staircase of one-block steps (and a voxel hill) is still climbed.
+const TRACK_STEP = 1.3;
+const WHEEL_STEP = 1.1;
+// (Round 20.B) Ground under the tracks higher than this over the hull's
+// floor there (its plane at that point) is a wall beside or ahead of it,
+// not ground it rests on (see _restY): the tracks' outer edges and
+// the belt's run past the corners reach a little outside the outline the
+// driving checks use, and resting on whatever they were over lifted the
+// hull onto any wall it touched (then, its floor raised, on up it).
+const REST_REACH = 0.35; // (over stepUp)
+// (Round 20.B) The longest move in one step of the driving checks: a fast
+// hull's frame (or a slow frame) is cut into steps no longer than this, so
+// nothing thin passes between two of them (see _drive).
+const MOVE_STEP = 0.45;
 const MAX_CLIMB = 0.62;
 const CLIMB_SLOW = 0.6;
 const MAX_TILT = 0.7; // (the hull's pitch as drawn)
 const REST_STEP = 0.5; // (Round 18: how often along the hull the ground is read for it to rest on: _restGround)
 const STUCK_TIME = 1.2; // seconds pushing without getting anywhere: see _watchStuck
 const POST_MAX = 6; // the tallest post a hull pushes over (see _knock)
-const DROP_MAX = 4; // the deepest drop it drives over (more would hurt it: see _canMove)
+const DROP_MAX = 4; // the deepest drop a driverless one drives over (see _canMove; Round 20.B: a player drives off any height)
+const FALL_SAFE = 30; // (Round 20.B) blocks/s down it lands at unhurt (about an 18-block fall; a thud and a jolt)
 const ESCAPE_RUN = 10; // blocks of drivable ground that count as a way out of a pit (_escapes)
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // A solid block's height for the tracks: its collision box's top, never
@@ -78,10 +98,58 @@ const CHASE_TILT = 0.12; // (the chase view's look down past the turret)
 // radians, reload in seconds, shell speed in blocks/s; damage: a direct
 // hit's extra on what it strikes (the blast does the rest); radius: the
 // shell's blast (what it digs and hurts), look: how big it looks.
+// (Round 20.B: faster, "especially the Tiger": the battle tank 14 -> 17.5
+// (+25%), the Tiger 8.5 -> 13 (+53%), reverse, acceleration and the hull's
+// turn with them.)
 export const TANK_TYPES = {
-  tiger: { id: "tiger", name: "Tiger heavy tank", short: "heavy WWII tank: thick armour, the long 88", paint: "grey", maxHealth: 460, speed: 8.5, reverse: 3.5, accel: 2.6, brake: 9, turn: 0.5, traverse: 0.42, elev: 0.28, minPitch: -0.14, maxPitch: 0.3, reload: 5, shellSpeed: 240, damage: 85, ufoDamage: 130, blast: 5.5, look: 9.5, zoom: 26, camBack: 13, camUp: 5.2, coax: 0.1, mass: 4 },
-  mbt: { id: "mbt", name: "Main battle tank", short: "modern tank: fast, a stabilised 120 mm gun", paint: "olive", maxHealth: 400, speed: 14, reverse: 5.5, accel: 4.2, brake: 12, turn: 0.75, traverse: 0.85, elev: 0.45, minPitch: -0.16, maxPitch: 0.36, reload: 4, shellSpeed: 300, damage: 80, ufoDamage: 120, blast: 5, look: 9, zoom: 18, camBack: 14, camUp: 5.5, coax: 0.085, mass: 4 },
+  tiger: { id: "tiger", name: "Tiger heavy tank", short: "heavy WWII tank: thick armour, the long 88", paint: "grey", maxHealth: 460, speed: 13, reverse: 5.2, accel: 3.9, brake: 11, turn: 0.6, traverse: 0.42, elev: 0.28, minPitch: -0.14, maxPitch: 0.3, reload: 5, shellSpeed: 240, damage: 85, ufoDamage: 130, blast: 5.5, look: 9.5, zoom: 26, camBack: 13, camUp: 5.2, coax: 0.1, mass: 4 },
+  mbt: { id: "mbt", name: "Main battle tank", short: "modern tank: fast, a stabilised 120 mm gun", paint: "olive", maxHealth: 400, speed: 17.5, reverse: 6.8, accel: 5.2, brake: 14, turn: 0.82, traverse: 0.85, elev: 0.45, minPitch: -0.16, maxPitch: 0.36, reload: 4, shellSpeed: 300, damage: 80, ufoDamage: 120, blast: 5, look: 9, zoom: 18, camBack: 14, camUp: 5.5, coax: 0.085, mass: 4 },
 };
+
+// (Round 20.B) The main gun's rounds. The player: "add different kinds of
+// shells for the tank, including ones that blow things up: a super shell,
+// like on the planes: bigger explosion, longer reload". X cycles them (as
+// the jets' X switches to the super missile), 1 / 2 / 3 pick one; the HUD
+// shows the round and its reload.
+//   ap: armour-piercing (the standard round: the old shell's speed and
+//       reload): a heavy direct hit, a small blast (a hole, not a crater).
+//   he: high explosive: a lighter hit, a wide blast that digs a crater and
+//       hurts everything round it; slower, a longer reload.
+//   super: the heavy round: a direct hit near the super missile's and its
+//       blast (SUPER_MISSILE.radius 14), slow (it arcs: aim high), the gun's
+//       load and its own long reload (superReload: one at a time).
+// Numbers per tank (the spec's damage, blast, speed, reload scaled), from ammoStats.
+export const TANK_AMMO = {
+  ap: { id: "ap", name: "AP", label: "AP shell", damage: 1.45, ufoDamage: 1.25, blast: 0.6, look: 0.8, speed: 1, reload: 1 },
+  he: { id: "he", name: "HE", label: "HE shell", damage: 0.7, ufoDamage: 0.85, blast: 1.6, look: 1.6, speed: 0.8, reload: 1.3 },
+  super: { id: "super", name: "SUPER", label: "SUPER shell", abs: { damage: 380, ufoDamage: 650, radius: 14, look: 42, speed: 150 }, reload: 1.4, superReload: 15 },
+};
+export const AMMO_ORDER = ["ap", "he", "super"];
+const AMMO_SWAP = 1; // (Round 20.B) s to swap a loaded round for another kind
+const _ammoCache = new Map();
+// A round's numbers for a tank's spec: { id, name, label, damage,
+// ufoDamage, radius, look, speed, reload, superReload }.
+export function ammoStats(spec, id = "ap") {
+  const a = TANK_AMMO[id] || TANK_AMMO.ap;
+  const key = `${spec.id}:${a.id}`;
+  let r = _ammoCache.get(key);
+  if (r) return r;
+  const abs = a.abs || {};
+  r = {
+    id: a.id,
+    name: a.name,
+    label: a.label,
+    damage: abs.damage ?? Math.round((spec.damage ?? 60) * a.damage),
+    ufoDamage: abs.ufoDamage ?? Math.round((spec.ufoDamage ?? spec.damage ?? 60) * a.ufoDamage),
+    radius: abs.radius ?? Math.round((spec.blast ?? 4) * a.blast * 10) / 10,
+    look: abs.look ?? Math.round((spec.look ?? 7) * a.look * 10) / 10,
+    speed: abs.speed ?? Math.round((spec.shellSpeed ?? 240) * a.speed),
+    reload: Math.round((spec.reload || 4) * a.reload * 10) / 10,
+    superReload: a.superReload || 0,
+  };
+  _ammoCache.set(key, r);
+  return r;
+}
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -139,10 +207,16 @@ export function ballisticPitch(dx, dy, v, g = SHELL_G) {
 
 // A tank gun's report: a sharp crack, a deep boom, a rumble (falls off and
 // lags with distance like an explosion's).
-export function playTankGun(audio, distance = 0, size = 1) {
+export function playTankGun(audio, distance = 0, size = 1, heavy = false) {
   if (!audio?.ctx) return;
   audio.playExplosion?.(distance, 0.9 * size);
   if (distance < 60) audio._hit?.({ type: "highpass", f: 2200, q: 0.7, d: 0.09, v: 0.5 * size * (1 - distance / 60), attack: 0.002 });
+  // (Round 20.B) The super round: a long, deep roll after the crack, and the breech's clang.
+  if (heavy && distance < 400) {
+    const k = 1 - distance / 400;
+    audio._hit?.({ type: "lowpass", f: 110, fEnd: 45, q: 0.8, d: 1.4, v: 0.75 * k, attack: 0.01 });
+    if (distance < 40) audio._hit?.({ type: "bandpass", f: 900, q: 6, d: 0.25, v: 0.25 * (1 - distance / 40) }, 0.12);
+  }
 }
 
 // The engine (a diesel's low thrum and the tracks' clatter) and the
@@ -249,12 +323,13 @@ export class ShellSystem {
     this.driven = false; // (updated by the ground war each frame; else by the first tank)
     this.fired = 0;
     this.hits = []; // (tests: the last impacts { at, what, t })
-    this._c = { hot: new THREE.Color(5, 3, 1.2), trail0: new THREE.Color(0.55, 0.53, 0.5), trail1: new THREE.Color(0.7, 0.69, 0.67) };
+    this._c = { hot: new THREE.Color(5, 3, 1.2), trail0: new THREE.Color(0.55, 0.53, 0.5), trail1: new THREE.Color(0.7, 0.69, 0.67), heHot: new THREE.Color(6, 2.6, 0.6), superHot: new THREE.Color(7, 1.4, 0.35), superCore: new THREE.Color(6, 5, 3.5), superTrail0: new THREE.Color(0.42, 0.4, 0.38), superTrail1: new THREE.Color(0.62, 0.6, 0.58), fire: new THREE.Color(5, 2.2, 0.6), fireEnd: new THREE.Color(0.9, 0.35, 0.1) };
   }
 
-  // o: { pos, vel, owner (a vehicle), cause, damage, ufoDamage, radius, look, remote, targets }
+  // o: { pos, vel, owner (a vehicle), cause, damage, ufoDamage, radius, look, remote, targets, ammo }
+  // (Round 20.B: ammo, the round's kind, "ap" | "he" | "super": how its tracer looks.)
   fire(o) {
-    const s = { pos: o.pos.clone(), vel: o.vel.clone(), owner: o.owner || null, cause: o.cause || "tankshell", damage: o.damage ?? 60, ufoDamage: o.ufoDamage ?? o.damage ?? 60, radius: o.radius ?? 4, look: o.look ?? 7, remote: !!o.remote, age: 0, trail: 0, player: !!o.player, foes: o.foes || null };
+    const s = { pos: o.pos.clone(), vel: o.vel.clone(), owner: o.owner || null, cause: o.cause || "tankshell", damage: o.damage ?? 60, ufoDamage: o.ufoDamage ?? o.damage ?? 60, radius: o.radius ?? 4, look: o.look ?? 7, remote: !!o.remote, age: 0, trail: 0, player: !!o.player, foes: o.foes || null, ammo: TANK_AMMO[o.ammo] ? o.ammo : "ap" };
     this.shells.push(s);
     this.fired++;
     if (this.shells.length > 40) this.shells.shift();
@@ -322,20 +397,49 @@ export class ShellSystem {
         const at = s.pos.clone().addScaledVector(dir, Math.max(0, (hit ?? 0) - 0.3));
         this.shells.splice(i, 1);
         if (hit !== null && !s.remote) this._impact(s, at, what);
-        else if (hit !== null && s.remote) fx.glow.spawn({ x: at.x, y: at.y, z: at.z, life: 0.12, size0: 3, size1: 1, color0: c.hot, alpha: 0.8 });
+        else if (hit !== null && s.remote) {
+          fx.glow.spawn({ x: at.x, y: at.y, z: at.z, life: 0.12, size0: 3, size1: 1, color0: c.hot, alpha: 0.8 });
+          // (the owner's blast arrives as an explosion; the super round's fire column is drawn here too)
+          if (s.ammo === "super") this._superFx(at);
+        }
         continue;
       }
       s.pos.addScaledVector(dir, step);
       // The tracer: a hot point and a streak behind it; a thin trail of smoke.
-      fx.glow.spawn({ x: s.pos.x, y: s.pos.y, z: s.pos.z, life: Math.max(0.05, dt * 1.2), size0: 0.9, size1: 0.5, color0: c.hot, alpha: 0.95 });
-      fx.glow.spawn({ x: s.pos.x - dir.x * step * 0.5, y: s.pos.y - dir.y * step * 0.5, z: s.pos.z - dir.z * step * 0.5, life: Math.max(0.05, dt * 1.2), size0: 0.6, size1: 0.3, color0: c.hot, alpha: 0.6 });
+      // (Round 20.B: an HE round's is orange; the super round's a big red-hot
+      // ball with a white core and a thick trail of smoke, easy to follow.)
+      const sup = s.ammo === "super";
+      const hot = sup ? c.superHot : s.ammo === "he" ? c.heHot : c.hot;
+      const life = Math.max(0.05, dt * 1.2);
+      fx.glow.spawn({ x: s.pos.x, y: s.pos.y, z: s.pos.z, life, size0: sup ? 2.6 : 0.9, size1: sup ? 1.4 : 0.5, color0: hot, alpha: 0.95 });
+      fx.glow.spawn({ x: s.pos.x - dir.x * step * 0.5, y: s.pos.y - dir.y * step * 0.5, z: s.pos.z - dir.z * step * 0.5, life, size0: sup ? 1.8 : 0.6, size1: sup ? 0.9 : 0.3, color0: hot, alpha: 0.6 });
+      if (sup) fx.glow.spawn({ x: s.pos.x, y: s.pos.y, z: s.pos.z, life, size0: 1.1, size1: 0.6, color0: c.superCore, alpha: 1 });
       s.trail += step;
-      const spacing = 3.5 / Math.max(0.35, effectsQuality.scale);
+      const spacing = (sup ? 1.4 : 3.5) / Math.max(0.35, effectsQuality.scale);
       if (s.trail > spacing) {
         s.trail = 0;
-        fx.smoke.spawn({ x: s.pos.x, y: s.pos.y, z: s.pos.z, vx: 0, vy: 0.3, vz: 0, life: 0.9, size0: 0.35, size1: 1.4, color0: c.trail0, color1: c.trail1, alpha: 0.28, drag: 1.2 });
+        if (sup) fx.smoke.spawn({ x: s.pos.x, y: s.pos.y, z: s.pos.z, vx: 0, vy: 0.4, vz: 0, life: 2.4, size0: 0.8, size1: 3.2, color0: c.superTrail0, color1: c.superTrail1, alpha: 0.5, drag: 1 });
+        else fx.smoke.spawn({ x: s.pos.x, y: s.pos.y, z: s.pos.z, vx: 0, vy: 0.3, vz: 0, life: 0.9, size0: 0.35, size1: 1.4, color0: c.trail0, color1: c.trail1, alpha: 0.28, drag: 1.2 });
       }
     }
+  }
+
+  // (Round 20.B) The super round's blast, on top of the shell's own (the
+  // dirt, the fireball and the shock, by its size: effects.js): a column of
+  // fire rising from it and a ring of flame rolling out over the ground.
+  _superFx(at) {
+    const fx = this.manager.effects;
+    if (!fx?.glow) return;
+    const c = this._c;
+    const q = Math.max(0.35, effectsQuality.scale);
+    const r = (a, b) => a + Math.random() * (b - a);
+    for (let i = 0, n = Math.round(46 * q) + 8; i < n; i++) fx.glow.spawn({ x: at.x + r(-3, 3), y: at.y + r(0, 4), z: at.z + r(-3, 3), vx: r(-2.5, 2.5), vy: r(10, 24), vz: r(-2.5, 2.5), life: r(1.2, 2.4), size0: r(4, 7), size1: r(8, 14), color0: c.fire, color1: c.fireEnd, alpha: 0.42, drag: 1.1 });
+    for (let i = 0, n = Math.round(36 * q) + 8; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const sp = r(18, 30);
+      fx.glow.spawn({ x: at.x, y: at.y + 0.6, z: at.z, vx: Math.cos(a) * sp, vy: r(0.5, 2), vz: Math.sin(a) * sp, life: r(0.6, 1.1), size0: r(3, 5), size1: r(6, 9), color0: c.fire, color1: c.fireEnd, alpha: 0.35, drag: 2.2 });
+    }
+    fx.shockSphere?.(at, 3, 60, 0.7, 0.5);
   }
 
   _impact(s, at, what) {
@@ -352,6 +456,7 @@ export class ShellSystem {
     }
     // (The blast: the crater, the fire, the shock; what it does to everyone near.)
     fx.explode(at, { radius: s.radius, source: s.cause, visual: s.look });
+    if (s.ammo === "super") this._superFx(at);
   }
 
   clear() {
@@ -458,6 +563,11 @@ export class GroundVehicle extends Vehicle {
     this.flashT = 9;
     this.kick = { x: 0, z: 0, vx: 0, vz: 0 }; // (the hull rocking: pitch, roll)
     this.reloadT = 0;
+    // (Round 20.B) The round in the gun (TANK_AMMO), the load it was
+    // reloading for (the reload ring's full turn), the super round's own reload.
+    this.ammo = TANK_AMMO[data.ammo] ? data.ammo : "ap";
+    this.reloadFull = spec.reload || 4;
+    this.superT = 0;
     this.coaxT = 0;
     this.mgYaw = 0; // (Round 14: the roof MG's bearing on its ring (turret frame) and elevation)
     this.mgPitch = 0;
@@ -637,11 +747,15 @@ export class GroundVehicle extends Vehicle {
 
   // The height the hull rests at at its pitch and roll now: its bottom over
   // the ground everywhere under it, touching the highest of it.
-  _restY(from = this.pos.y + this.stepUp + 0.9) {
+  _restY(from = this.pos.y + this.stepUp + 0.9, all = false) {
     const { stations, lines } = this._restLayout();
     const h = this._restGround(from);
     const tp = Math.tan(this.pitch);
     const tr = Math.tan(this.roll);
+    // (Round 20.B: only ground the hull can be on, see _restUsable; none at
+    // all, as when a block was put into the whole hull: everything, as before.)
+    const cap = all ? Infinity : this.stepUp + REST_REACH;
+    const y0 = this.pos.y;
     let y = -Infinity;
     let i = 0;
     for (const st of stations) {
@@ -651,17 +765,17 @@ export class GroundVehicle extends Vehicle {
       for (let j = 0; j < bt.length; j += 2) lowA = Math.min(lowA, bt[j + 1] + bt[j] * tp);
       for (const b of lines) {
         const f = this._rk.fine[i];
-        let need;
+        let need = -Infinity;
         if (f) {
           // (an edge under it: point by point)
-          need = -Infinity;
-          for (let q = 0; q < f.length; q++) need = Math.max(need, f[q] - bt[2 * q + 1] - bt[2 * q] * tp);
+          for (let q = 0; q < f.length; q++) if (f[q] - (y0 + bt[2 * q] * tp + b * tr) <= cap) need = Math.max(need, f[q] - bt[2 * q + 1] - bt[2 * q] * tp);
           need -= b * tr;
-        } else need = h[i] - b * tr - lowA;
+        } else if (h[i] - (y0 + st.a * tp + b * tr) <= cap) need = h[i] - b * tr - lowA;
         i++;
         if (need > y) y = need;
       }
     }
+    if (y === -Infinity && !all) return this._restY(from, true);
     return y;
   }
 
@@ -676,11 +790,16 @@ export class GroundVehicle extends Vehicle {
     const h = this._restGround(from);
     const pts = [];
     let i = 0;
+    // (Round 20.B: a wall beside or ahead of it is no ground to rest on, see _restY.)
+    const tp = Math.tan(this.pitch);
+    const tr = Math.tan(this.roll);
+    const cap = this.stepUp + REST_REACH;
     for (const st of stations) {
       let top = -Infinity;
-      for (let j = 0; j < lines.length; j++) top = Math.max(top, h[i++]);
-      pts.push([st.a, top - st.p]);
+      for (let j = 0; j < lines.length; j++, i++) if (h[i] - (this.pos.y + st.a * tp + lines[j] * tr) <= cap) top = Math.max(top, h[i]);
+      if (top > -Infinity) pts.push([st.a, top - st.p]);
     }
+    if (pts.length < 2) return this.pitch;
     const hull = [];
     for (const q of pts) {
       while (hull.length >= 2) {
@@ -707,6 +826,52 @@ export class GroundVehicle extends Vehicle {
       return Math.atan(slope(a, b));
     }
     return this.pitch;
+  }
+
+  // (Round 20.B) The roll it settles to, as _restPitch across: the highest
+  // ground under each line along the tracks (at the pitch now, less the
+  // model's bottom), and the line over them under its middle: one track on
+  // a ledge, the other on the ground below, tips it toward the low side.
+  // null: no ground read under one side (the caller keeps the corners').
+  _restRoll(from = this.pos.y + this.stepUp + 0.9) {
+    const { stations, lines } = this._restLayout();
+    const h = this._restGround(from);
+    const nl = lines.length;
+    const tp = Math.tan(this.pitch);
+    const tr = Math.tan(this.roll);
+    const cap = this.stepUp + REST_REACH;
+    const top = this._rrTop || (this._rrTop = new Float32Array(nl));
+    top.fill(-Infinity);
+    let i = 0;
+    for (const st of stations) {
+      for (let j = 0; j < nl; j++, i++) {
+        const g = h[i];
+        if (g - (this.pos.y + st.a * tp + lines[j] * tr) > cap) continue;
+        const v = g - st.a * tp - st.p;
+        if (v > top[j]) top[j] = v;
+      }
+    }
+    const pts = [];
+    for (let j = 0; j < nl; j++) if (top[j] > -Infinity) pts.push([lines[j], top[j]]);
+    pts.sort((a, b) => a[0] - b[0]);
+    if (pts.length < 2 || pts[0][0] >= 0 || pts[pts.length - 1][0] <= 0) return null;
+    const hull = [];
+    for (const q of pts) {
+      while (hull.length >= 2) {
+        const a = hull[hull.length - 2];
+        const b = hull[hull.length - 1];
+        if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) >= 0) hull.pop();
+        else break;
+      }
+      hull.push(q);
+    }
+    for (let j = 0; j + 1 < hull.length; j++) {
+      const a = hull[j];
+      const b = hull[j + 1];
+      if (b[0] < 0) continue;
+      return Math.atan((b[1] - a[1]) / (b[0] - a[0]));
+    }
+    return null;
   }
 
   // (Round 17) The points of the hull's outline, in its own frame: [along
@@ -791,7 +956,10 @@ export class GroundVehicle extends Vehicle {
   _attitude(fp, k, from) {
     // (Round 17: a little steeper than before, as far as it now climbs.)
     // (Round 18: the pitch as a rigid hull rests, _restPitch.)
-    const tr = this._tilt(fp)[1];
+    // (Round 20.B: the roll too, _restRoll: it was the corners' slope, which
+    // missed a ledge under a track's outer edge: the hull rested on that
+    // edge level, and the step beside it counted from there.)
+    const tr = this._restRoll(from) ?? this._tilt(fp)[1];
     const tp = this._restPitch(from);
     const p = clamp(tp, -MAX_TILT, MAX_TILT);
     const r = clamp(tr, -0.5, 0.5);
@@ -909,7 +1077,9 @@ export class GroundVehicle extends Vehicle {
     let d = 0;
     const bx = Math.floor(x);
     const bz = Math.floor(z);
-    for (let y = Math.floor(groundY); y < groundY + 4; y++) {
+    // (Round 20.B: from a hair above it: a hull resting on the bed sits a
+    // rounding error under the block's top, and read the bed itself as dry.)
+    for (let y = Math.floor(groundY + 0.05); y < groundY + 4; y++) {
       const id = w.getBlock(bx, y, bz);
       if (!IS_WET[id] && !isLava(id)) break; // (Round 16: lava is no `liquid`, deep lava stops it too)
       d++;
@@ -932,9 +1102,14 @@ export class GroundVehicle extends Vehicle {
       if (p * dir > MAX_CLIMB && Math.abs(p) > Math.abs(this._tp ?? this.pitch) + 1e-3) return false;
       // Not over a drop that would hurt it (a cliff, a ravine's edge: it fell
       // in and could never climb out); down a slope is fine.
+      // (Round 20.B: the player: "once you've driven up onto it, you can't get
+      // down". Driven by a player it goes off any ledge (it lands with a
+      // thud, unhurt from as high as FALL_SAFE allows); never over the void.
+      // The AI and convoys keep away from big drops as before.)
       const L = this.half.z * 0.86;
       const lead = dir > 0 ? Math.max(fp.ff, fp.fl, fp.fr) : Math.max(fp.bb, fp.bl, fp.br);
-      if (this.pos.y + dir * L * Math.tan(this.pitch) - lead > DROP_MAX) return false;
+      if (lead <= 0 && this.pos.y > 2) return false;
+      if (!this.occupied && this.pos.y + dir * L * Math.tan(this.pitch) - lead > DROP_MAX) return false;
     }
     return !this._snagged(x, z, yaw, from);
   }
@@ -968,6 +1143,20 @@ export class GroundVehicle extends Vehicle {
   _drive(dt, throttle, steer, brake = false) {
     const S = this.spec;
     const mgr = this.manager;
+    // (Round 20.B) Faster hulls: a frame's move longer than MOVE_STEP (a
+    // fast tank, or a slow frame) is driven in shorter steps, so the checks
+    // see everything it passes (a post, a thin wall) and it lands on every step.
+    const far = Math.max(Math.abs(this.speed), S.speed * Math.abs(throttle)) * dt;
+    if (far > MOVE_STEP && !this._subStep) {
+      const n = Math.min(8, Math.ceil(far / MOVE_STEP));
+      this._subStep = true;
+      try {
+        for (let i = 0; i < n; i++) this._drive(dt / n, throttle, steer, brake);
+      } finally {
+        this._subStep = false;
+      }
+      return;
+    }
     // (Round 17) A driverless one (the AI, a convoy, a patrol) that has been
     // pushing against something backs off a little, turning, then goes on.
     if (this._backT > 0 && !this.occupied) {
@@ -1058,7 +1247,9 @@ export class GroundVehicle extends Vehicle {
       this.pos.y += this.vy * dt;
       if (this.pos.y <= g) {
         if (this.vy < -9 && this === mgr.active) mgr.effects?.shake?.add?.(Math.min(0.4, -this.vy * 0.02));
-        if (this.vy < -14) this.damage(Math.round((-this.vy - 14) * 6), "crash");
+        // (Round 20.B: the thud of a landing off a ledge; hurt only by a long fall.)
+        if (this.vy < -7) this._thud(-this.vy);
+        if (this.vy < -FALL_SAFE) this.damage(Math.round((-this.vy - FALL_SAFE) * 5), "crash");
         this.pos.y = g;
         this.vy = 0;
         this.onGround = true;
@@ -1072,6 +1263,22 @@ export class GroundVehicle extends Vehicle {
     this._liquid(dt);
     this._watchStuck(dt, throttle, steer, brake);
     this.vel.set(-Math.sin(this.yaw) * this.speed, this.vy, -Math.cos(this.yaw) * this.speed);
+  }
+
+  // (Round 20.B) A landing: a thud and a puff of dust off the ground round it.
+  _thud(v) {
+    const mgr = this.manager;
+    const fx = mgr.effects;
+    const ears = fx?.listener;
+    const d = ears ? ears.distanceTo(this.pos) : 0;
+    if (d < 120) mgr.audio?._hit?.({ type: "lowpass", f: 140, q: 0.7, d: 0.35, v: Math.min(0.9, 0.25 + v * 0.025) * Math.max(0, 1 - d / 120), n: 1, spread: 0.02 });
+    if (!fx?.smoke) return;
+    const c = this._thudC || (this._thudC = { a: new THREE.Color(0.56, 0.5, 0.4), b: new THREE.Color(0.66, 0.62, 0.55) });
+    const n = Math.round(10 * Math.max(0.4, effectsQuality.scale));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      fx.smoke.spawn({ x: this.pos.x + Math.cos(a) * this.half.x, y: this.pos.y + 0.3, z: this.pos.z + Math.sin(a) * this.half.z, vx: Math.cos(a) * 4, vy: 0.6, vz: Math.sin(a) * 4, life: 1.6, size0: 1, size1: 3, color0: c.a, color1: c.b, alpha: 0.35, drag: 2 });
+    }
   }
 
   // (Round 17) The hull goes to (x, z, yaw): the tracks run.
@@ -1178,7 +1385,8 @@ export class GroundVehicle extends Vehicle {
     this._footprint(x, z, yaw, from, fp);
     const g = Math.max(fp.c, (fp.fl + fp.fr + fp.bl + fp.br) / 4);
     if (!(g > 0) || this.pos.y - g > 24) return null;
-    if (up ? g - this.pos.y < 1.5 : g - this.pos.y > this.stepUp + 1 || (!low && this.pos.y - g > this.stepUp + 1)) return null;
+    // (Round 20.B: a nudge lifts it no higher than a step: not up onto a wall.)
+    if (up ? g - this.pos.y < 1.5 : g - this.pos.y > this.stepUp + 0.2 || (!low && this.pos.y - g > this.stepUp + 1)) return null;
     // (Out of a pit: open sky over it, not a ledge inside a cave.)
     if (up && IS_SOLID[this.manager.world.getBlock(Math.floor(x), Math.floor(g) + 3, Math.floor(z))]) return null;
     if (this._water(x, z, fp.c) > DEEP_WATER) return null;
@@ -1346,7 +1554,7 @@ export class GroundVehicle extends Vehicle {
     const dz = p.z - from.z;
     const flat = Math.hypot(dx, dz);
     const los = Math.atan2(p.y - from.y, flat);
-    const el = ballisticPitch(flat, p.y - from.y, this.spec.shellSpeed) ?? Math.PI / 4;
+    const el = ballisticPitch(flat, p.y - from.y, this.shellSpeed) ?? Math.PI / 4;
     this.superElev = el - los;
     const yaw = Math.atan2(-dx, -dz);
     return out.set(-Math.sin(yaw) * Math.cos(el), Math.sin(el), -Math.cos(yaw) * Math.cos(el));
@@ -1357,7 +1565,7 @@ export class GroundVehicle extends Vehicle {
   impactPoint(out = new THREE.Vector3(), maxT = 4) {
     const mgr = this.manager;
     const p = this.muzzleWorld(_ip);
-    const vel = this.gunDir(_iv).multiplyScalar(this.spec.shellSpeed);
+    const vel = this.gunDir(_iv).multiplyScalar(this.shellSpeed);
     const dt = 0.08;
     for (let t = 0; t < maxT; t += dt) {
       vel.y -= SHELL_G * dt * 0.5;
@@ -1371,24 +1579,62 @@ export class GroundVehicle extends Vehicle {
     return null;
   }
 
+  // (Round 20.B) The round in the gun's numbers (ammoStats), its muzzle speed.
+  get ammoStats() {
+    return ammoStats(this.spec, this.ammo);
+  }
+  get shellSpeed() {
+    return ammoStats(this.spec, this.ammo).speed;
+  }
+
+  // (Round 20.B) Loads round `id` ("ap", "he", "super"): a loaded round of
+  // another kind is swapped (AMMO_SWAP seconds; a reload under way goes on).
+  selectAmmo(id) {
+    if (!TANK_AMMO[id] || id === this.ammo) return false;
+    this.ammo = id;
+    if (this.reloadT <= 0) {
+      this.reloadT = AMMO_SWAP;
+      this.reloadFull = AMMO_SWAP;
+    }
+    return true;
+  }
+
+  // (Round 20.B) Can the round in the gun be fired now? How long until it
+  // can (the load, or the super round's own reload), out of how long.
+  get gunReady() {
+    return this.reloadT <= 0 && (this.ammo !== "super" || this.superT <= 0);
+  }
+  get gunLeft() {
+    return this.ammo === "super" && this.superT > this.reloadT ? this.superT : this.reloadT;
+  }
+  get gunFull() {
+    return this.ammo === "super" && this.superT > this.reloadT ? ammoStats(this.spec, "super").superReload : this.reloadFull;
+  }
+
   // Fires the main gun (o: overrides for the shell: cause, damage...).
+  // (Round 20.B: the round in it, this.ammo: its damage, blast, speed and
+  // reload unless o says otherwise; the AI's tanks pass their own.)
   fireGun(o = {}) {
     const mgr = this.manager;
-    const S = this.spec;
+    const A = ammoStats(this.spec, o.ammo || this.ammo);
     const from = this.muzzleWorld(new THREE.Vector3());
     const dir = o.dir || this.gunDir(new THREE.Vector3());
-    const vel = dir.clone().multiplyScalar(S.shellSpeed).add(_v.set(this.vel.x, 0, this.vel.z));
-    const shell = shellsOf(mgr).fire({ pos: from, vel, owner: this, cause: o.cause || "tankshell", damage: o.damage ?? S.damage, ufoDamage: o.ufoDamage ?? S.ufoDamage, radius: o.radius ?? S.blast, look: o.look ?? S.look, player: o.player ?? true, foes: o.foes || null });
-    this.reloadT = o.reload ?? S.reload;
+    const vel = dir.clone().multiplyScalar(o.speed ?? A.speed).add(_v.set(this.vel.x, 0, this.vel.z));
+    const shell = shellsOf(mgr).fire({ pos: from, vel, owner: this, cause: o.cause || "tankshell", damage: o.damage ?? A.damage, ufoDamage: o.ufoDamage ?? A.ufoDamage, radius: o.radius ?? A.radius, look: o.look ?? A.look, player: o.player ?? true, foes: o.foes || null, ammo: A.id });
+    this.reloadT = o.reload ?? A.reload;
+    this.reloadFull = Math.max(0.1, this.reloadT);
+    if (A.superReload && o.reload === undefined) this.superT = A.superReload;
+    const sup = A.id === "super";
     this.recoil = 1;
     this.flashT = 0;
     // The hull rocks back from the gun (along the turret's bearing).
-    this.kick.vx += Math.cos(this.turretYaw) * (this.kind === "tiger" ? 0.9 : 0.7);
-    this.kick.vz += -Math.sin(this.turretYaw) * 0.6;
+    this.kick.vx += Math.cos(this.turretYaw) * (this.kind === "tiger" ? 0.9 : 0.7) * (sup ? 1.5 : 1);
+    this.kick.vz += -Math.sin(this.turretYaw) * 0.6 * (sup ? 1.5 : 1);
     const ground = mgr.groundBelow(from.x, from.y, from.z);
-    mgr.effects?.tankFire?.(from, dir, { size: this.kind === "tiger" ? 1.15 : 1, groundY: ground, hull: this.pos });
+    mgr.effects?.tankFire?.(from, dir, { size: (this.kind === "tiger" ? 1.15 : 1) * (sup ? 1.5 : 1), groundY: ground, hull: this.pos });
     const ears = mgr.effects?.listener;
-    playTankGun(mgr.audio, ears ? from.distanceTo(ears) : 0, 1);
+    playTankGun(mgr.audio, ears ? from.distanceTo(ears) : 0, sup ? 1.6 : 1, sup);
+    if (sup && this === mgr.active) mgr.effects?.shake?.add?.(0.25);
     mgr.onGroundFire?.(this, "shell", from, vel, shell);
     return shell;
   }
@@ -1551,6 +1797,7 @@ export class GroundVehicle extends Vehicle {
     this.model.setFlash?.(this.flashT < 0.07 ? 1 - this.flashT / 0.07 : 0, this.kind === "tiger" ? 1.5 : 1.3);
     this._mgFlash(dt);
     this.reloadT = Math.max(0, this.reloadT - dt);
+    this.superT = Math.max(0, this.superT - dt); // (Round 20.B)
     this.smokeT = Math.max(0, this.smokeT - dt);
     this._place();
     this._animateTracks();
@@ -1641,16 +1888,18 @@ export class GroundVehicle extends Vehicle {
   }
 
   // Another machine's shot from this vehicle, drawn here (net/ground.js).
-  netFire(kind, from, vel) {
+  // (Round 20.B: ammo, the round's kind: its tracer, flash and report.)
+  netFire(kind, from, vel, ammo = "ap") {
     if (kind !== "shell") return;
+    const sup = ammo === "super";
     this.recoil = 1;
     this.flashT = 0;
-    this.kick.vx += Math.cos(this.turretYaw) * 0.7;
-    shellsOf(this.manager).fire({ pos: from, vel, owner: this, remote: true });
+    this.kick.vx += Math.cos(this.turretYaw) * 0.7 * (sup ? 1.5 : 1);
+    shellsOf(this.manager).fire({ pos: from, vel, owner: this, remote: true, ammo });
     const fx = this.manager.effects;
     const dir = vel.clone().normalize();
-    fx?.tankFire?.(from, dir, { size: this.kind === "tiger" ? 1.15 : 1, groundY: this.manager.groundBelow(from.x, from.y, from.z), hull: this.pos });
-    playTankGun(this.manager.audio, fx ? from.distanceTo(fx.listener) : 0, 1);
+    fx?.tankFire?.(from, dir, { size: (this.kind === "tiger" ? 1.15 : 1) * (sup ? 1.5 : 1), groundY: this.manager.groundBelow(from.x, from.y, from.z), hull: this.pos });
+    playTankGun(this.manager.audio, fx ? from.distanceTo(fx.listener) : 0, sup ? 1.6 : 1, sup);
   }
 
   serialize() {
@@ -1658,6 +1907,7 @@ export class GroundVehicle extends Vehicle {
     // (Round 13: a base's spot it was taken from, and a mission's own tank: both kept over a reload.)
     if (this.tookKey) data.tookKey = this.tookKey;
     if (this.missionTank) data.missionTank = true;
+    if (this.ammo && this.ammo !== "ap") data.ammo = this.ammo; // (Round 20.B: the round in the gun)
     return data;
   }
 
@@ -1696,7 +1946,7 @@ export class Tank extends GroundVehicle {
     this.camYaw = this.lookYaw;
     this.camPitch = this.lookPitch;
     if (!this.engine) this.engine = new EngineSound(this.manager.audio);
-    this.manager.onMessage?.(`${this.spec.name}: W/S drive, A/D turn, the mouse aims, left click fires, right click the MG, V the gunner's sight, C smoke`);
+    this.manager.onMessage?.(`${this.spec.name}: W/S drive, A/D turn, the mouse aims, left click fires, X the shell (AP / HE / SUPER), right click the MG, V the gunner's sight, C smoke`);
   }
 
   onExit() {
@@ -1746,12 +1996,23 @@ export class Tank extends GroundVehicle {
     this.aimError = this._traverse(dt, want);
     this.camYaw = this.lookYaw;
     this.camPitch = this.lookPitch;
-    // Fire.
-    if ((input.pressed.has("mouse0") || input.buttons[0]) && this.reloadT <= 0) {
-      this.fireGun({ foes: null });
-      this._reloadSound = true;
+    // (Round 20.B) The round: X cycles AP / HE / SUPER, 1 / 2 / 3 pick one.
+    const p = input.pressed;
+    const pick = p.has("KeyX") ? AMMO_ORDER[(AMMO_ORDER.indexOf(this.ammo) + 1) % AMMO_ORDER.length] : p.has("Digit1") ? "ap" : p.has("Digit2") ? "he" : p.has("Digit3") ? "super" : null;
+    if (pick && this.selectAmmo(pick)) {
+      const A = this.ammoStats;
+      const sup = pick === "super";
+      mgr.audio?.playSalvoPip?.(sup ? 2 : 1, 3);
+      mgr.onMessage?.(`${A.label.toUpperCase()} loading${sup && this.superT > 0 ? ` (the super round in ${Math.ceil(this.superT)} s)` : ""}: ${sup ? `a huge blast (${A.radius} blocks), slow: it arcs, ${A.superReload} s to reload` : pick === "he" ? `explosive: a wide blast (${A.radius} blocks) that blows up blocks` : "armour-piercing: a heavy hit, a small blast"} (X: next shell)`);
     }
-    if (this._reloadSound && this.reloadT <= 0) {
+    // Fire.
+    if (p.has("mouse0") || input.buttons[0]) {
+      if (this.gunReady) {
+        this.fireGun({ foes: null });
+        this._reloadSound = true;
+      } else if (p.has("mouse0") && this.ammo === "super" && this.superT > 0 && this.reloadT <= 0) mgr.onMessage?.(`SUPER SHELL reloading: ${Math.ceil(this.superT)} s (X: next shell)`);
+    }
+    if (this._reloadSound && this.gunReady) {
       this._reloadSound = false;
       mgr.audio?._hit?.({ type: "bandpass", f: 1300, q: 3, d: 0.07, v: 0.28, n: 2, spread: 0.12 });
     }
@@ -1967,9 +2228,12 @@ export class Tank extends GroundVehicle {
     // The crosshair: the view's centre (where the aim is).
     P.cross.setAttribute("transform", `translate(${W / 2},${H / 2})`);
     const S = this.spec;
-    const frac = this.reloadT > 0 ? 1 - this.reloadT / S.reload : 1;
+    // (Round 20.B: the round in the gun's load; the super round's own reload when that is longer.)
+    const left = this.gunLeft;
+    const frac = left > 0 ? 1 - left / this.gunFull : 1;
     const circ = 2 * Math.PI * 22;
-    P.reload.setAttribute("stroke-dasharray", this.reloadT > 0 ? `${(circ * frac).toFixed(1)} 999` : "0 999");
+    P.reload.setAttribute("stroke-dasharray", left > 0 ? `${(circ * frac).toFixed(1)} 999` : "0 999");
+    P.reload.setAttribute("stroke", this.ammo === "super" ? "rgba(255,90,60,0.9)" : "rgba(255,200,80,0.85)");
     // The gun's reticle: where a shell would land now.
     const ip = this.impactPoint(_u);
     let gx = W / 2;
@@ -1983,20 +2247,20 @@ export class Tank extends GroundVehicle {
     }
     P.gun.setAttribute("transform", `translate(${gx.toFixed(1)},${gy.toFixed(1)})`);
     P.gun.style.display = sight ? "none" : "block";
-    P.gun.setAttribute("stroke", this.reloadT > 0 ? "rgba(255,190,90,0.9)" : "rgba(120,255,150,0.95)");
+    P.gun.setAttribute("stroke", left > 0 ? "rgba(255,190,90,0.9)" : "rgba(120,255,150,0.95)");
     // The sight's stadia (rebuilt when the window's size changes).
     P.stadia.style.display = sight ? "block" : "none";
     if (sight) {
-      const key = `${this.kind}:${H}`;
+      const key = `${this.kind}:${H}:${this.ammo}`;
       if (P.stadia._key !== key) {
         P.stadia._key = key;
-        P.stadia.innerHTML = stadiaSvg(this.kind, S.shellSpeed, S.zoom, H);
+        P.stadia.innerHTML = stadiaSvg(this.kind, this.shellSpeed, S.zoom, H);
       }
       P.stadia.setAttribute("transform", `translate(${W / 2},${H / 2})`);
       P.cross.style.display = "none";
     } else P.cross.style.display = "block";
     // (Round 15: a vehicle of its own guns says its own: the AA's, tanks.js.)
-    const txt = this.overlayText ? this.overlayText(sight) : `${sight ? `RANGE ${Math.round(this.range)} m  ` : ""}${this.reloadT > 0 ? `RELOAD ${this.reloadT.toFixed(1)}` : "HE READY"}`;
+    const txt = this.overlayText ? this.overlayText(sight) : `${sight ? `RANGE ${Math.round(this.range)} m  ` : ""}${this.ammoStats.name} ${left > 0 ? `RELOAD ${left.toFixed(1)}` : "READY"}`;
     if (P.read._t !== txt) {
       P.read._t = txt;
       P.read.textContent = txt;
@@ -2013,16 +2277,17 @@ export class Tank extends GroundVehicle {
       title: S.name,
       rows: [
         ["Speed", `${kmh} km/h${this.speed < -0.2 ? " (R)" : ""}`],
-        ["Gun", this.reloadT > 0 ? `reloading ${this.reloadT.toFixed(1)} s` : "HE ready"],
+        ["Gun", `${this.ammoStats.label}: ${this.gunLeft > 0 ? `reloading ${this.gunLeft.toFixed(1)} s` : "ready"}`],
+        ["Shells", AMMO_ORDER.map((id) => (id === this.ammo ? `[${TANK_AMMO[id].name}]` : TANK_AMMO[id].name)).join(" ") + (this.ammo !== "super" && this.superT > 0 ? ` · super ${Math.ceil(this.superT)} s` : "") + " (X)"],
         ["Turret", `${bearing}°`],
         ["Range", `${Math.round(this.range)} m`],
         ["Smoke", this.smokeT > 0 ? `${Math.ceil(this.smokeT)} s` : "ready"],
       ],
-      bars: [{ label: "Reload", value: this.reloadT > 0 ? 1 - this.reloadT / S.reload : 1, hot: this.reloadT > 0 }],
-      weapon: "HE shell",
+      bars: [{ label: "Reload", value: this.gunLeft > 0 ? 1 - this.gunLeft / this.gunFull : 1, hot: this.gunLeft > 0 }],
+      weapon: `${this.ammoStats.label}${this.ammo === "super" ? "!" : ""} · X: next shell`,
       warning: this.health / this.maxHealth < 0.25 ? "ON FIRE: get out (F)!" : this.flooded ? "Engine flooded: get out (F) and swim" : this.inWater ? "In the water: slow going" : "",
       health: this.health / this.maxHealth,
-      help: "W/S drive, A/D turn, mouse aim, LMB fire, RMB MG, V sight, C smoke, F get out",
+      help: "W/S drive, A/D turn, mouse aim, LMB fire, X shell (1 AP, 2 HE, 3 SUPER), RMB MG, V sight, C smoke, F get out",
     };
   }
 
@@ -2034,7 +2299,10 @@ export class Tank extends GroundVehicle {
         ["Armour", `${Math.round(this.health)} / ${this.maxHealth}`],
         ["Top speed", `${Math.round(S.speed * 3.6)} km/h (reverse ${Math.round(S.reverse * 3.6)})`],
         ["Turret traverse", `${Math.round((S.traverse * 180) / Math.PI)}° a second`],
-        ["Main gun", `HE, reload ${S.reload} s, ${S.shellSpeed} m/s`],
+        ...AMMO_ORDER.map((id) => {
+          const A = ammoStats(S, id);
+          return [A.label, `${A.damage} on a hit, a ${A.radius}-block blast, ${A.speed} m/s, reload ${A.reload} s${A.superReload ? ` (and ${A.superReload} s between two)` : ""}`];
+        }),
         ["Gun elevation", `${Math.round((S.minPitch * 180) / Math.PI)}° to +${Math.round((S.maxPitch * 180) / Math.PI)}°`],
       ],
       controls: [
@@ -2043,6 +2311,7 @@ export class Tank extends GroundVehicle {
         ["Space", "Brake"],
         ["Mouse", "Aim (the turret follows at its own speed)"],
         ["Left click", "Main gun"],
+        ["X (or 1 / 2 / 3)", "The shell: AP (a heavy hit), HE (a wide blast that blows up blocks), SUPER (a huge blast, slow, a long reload)"],
         ["Right click", this.model.roofMg ? "Machine gun (the coax beside the gun; the roof MG at what the gun isn't on)" : "Coaxial machine gun"],
         ["V / F5", "Gunner's sight"],
         ["C", "Smoke screen"],

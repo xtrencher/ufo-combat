@@ -23,6 +23,11 @@
 // the old one (edits_<seed>), the Nether's and the End's edits_<seed>_nether
 // and edits_<seed>_end, in the same format (js/dimensions.js saves them). A
 // save from before has only the first: its world is the Overworld's.
+//
+// (Round 20) The saves write each chunk packed (PACKED, below: varints,
+// about 40% smaller): format v4. v2 / v3 are still read, and still what
+// travels online. Writes that hit the browser's quota first free what can be
+// rebuilt and try again (storeItem); see "A full storage" below.
 import { CHUNK_SIZE, WORLD_HEIGHT, blockIndex, floorDiv, chunkKey } from "./constants.js";
 import { BLOCK_LIMIT } from "./content/base.js";
 
@@ -78,9 +83,80 @@ export function encodeChunkEdits(map) {
   return wide ? WIDE + bytesToBase64(bytes) : bytesToBase64(bytes);
 }
 
+// (Round 20) The saves' own, smaller form (prefix PACKED, never in base64):
+// the same runs as varints, each [gap since the last run's end * 2 + 1 if
+// its id is the last run's, length - 1, the id unless the same], so a
+// scattered edit (a nuke's scorched ground: a block a column) takes 2-3
+// bytes instead of 4-5, and a run has no 255 cap. A nuke's zone was about
+// 250,000 characters of edits; the Round 20 measurements are in PROGRESS.md.
+// Only the saves use it (format v4); online the chunks still travel as above.
+export const PACKED = "*";
+
+export function encodeChunkEditsPacked(map) {
+  const indices = [...map.keys()].sort((a, b) => a - b);
+  const bytes = [];
+  const varint = (n) => {
+    while (n >= 0x80) {
+      bytes.push((n & 0x7f) | 0x80);
+      n >>>= 7;
+    }
+    bytes.push(n);
+  };
+  let prevEnd = 0;
+  let prevId = -1;
+  let i = 0;
+  while (i < indices.length) {
+    const start = indices[i];
+    const id = map.get(start);
+    let len = 1;
+    while (i + len < indices.length && indices[i + len] === start + len && map.get(indices[i + len]) === id) len++;
+    const same = id === prevId;
+    varint((start - prevEnd) * 2 + (same ? 1 : 0));
+    varint(len - 1);
+    if (!same) varint(id);
+    prevEnd = start + len;
+    prevId = id;
+    i += len;
+  }
+  return PACKED + bytesToBase64(bytes);
+}
+
+function decodePacked(str) {
+  const map = new Map();
+  const bytes = base64ToBytes(str.slice(1));
+  let p = 0;
+  const varint = () => {
+    let n = 0;
+    let shift = 0;
+    for (;;) {
+      if (p >= bytes.length || shift > 28) throw new Error("damaged edits (packed record cut short)");
+      const b = bytes[p++];
+      n += (b & 0x7f) * 2 ** shift;
+      if (b < 0x80) return n;
+      shift += 7;
+    }
+  };
+  let prevEnd = 0;
+  let prevId = -1;
+  while (p < bytes.length) {
+    const head = varint();
+    const len = varint() + 1;
+    const same = head % 2 === 1;
+    const start = prevEnd + Math.floor(head / 2);
+    const id = same ? prevId : varint();
+    if (id < 0 || id >= BLOCK_LIMIT) throw new Error(`damaged edits (block id ${id})`);
+    if (start + len > BLOCKS_PER_CHUNK) throw new Error("damaged edits (past the chunk)");
+    for (let k = 0; k < len; k++) map.set(start + k, id);
+    prevEnd = start + len;
+    prevId = id;
+  }
+  return map;
+}
+
 // Throws on a string it can't read (a newer format, or damaged): the caller
 // skips that chunk and says so.
 export function decodeChunkEdits(str) {
+  if (str.startsWith(PACKED)) return decodePacked(str);
   const map = new Map();
   const wide = str.startsWith(WIDE);
   if (!wide && /^[^A-Za-z0-9+/=]/.test(str)) throw new Error(`unknown edit format "${str.slice(0, 2)}"`);
@@ -126,8 +202,8 @@ function editsFromLegacyArray(arr) {
 export function parseEdits(data) {
   if (Array.isArray(data)) return editsFromLegacyArray(data);
   const edits = new Map();
-  if (!data || (data.v !== 2 && data.v !== 3) || typeof data.chunks !== "object" || data.chunks === null) {
-    if (data && data.v > 3) console.warn(`UFO COMBAT: saved edits are format v${data.v}, newer than this version reads; the world's changes are not loaded`);
+  if (!data || (data.v !== 2 && data.v !== 3 && data.v !== 4) || typeof data.chunks !== "object" || data.chunks === null) {
+    if (data && data.v > 4) console.warn(`UFO COMBAT: saved edits are format v${data.v}, newer than this version reads; the world's changes are not loaded`);
     return edits;
   }
   for (const [key, encoded] of Object.entries(data.chunks)) {
@@ -145,20 +221,23 @@ export function parseEdits(data) {
 // Serializes edits to the v2 format (v3 once a chunk holds an id above 255:
 // see the top). `cache` (Map<chunkKey, string>) keeps each chunk's encoded
 // form between saves so only `dirtyKeys` get re-encoded.
+// (Round 20) Each chunk in the packed form (above): format v4.
 export function serializeEdits(edits, cache = null, dirtyKeys = null) {
   const chunks = {};
   let wide = false;
+  let packed = false;
   for (const [key, map] of edits) {
     if (map.size === 0) continue;
     let encoded = cache && (!dirtyKeys || !dirtyKeys.has(key)) ? cache.get(key) : undefined;
     if (encoded === undefined) {
-      encoded = encodeChunkEdits(map);
+      encoded = encodeChunkEditsPacked(map);
       if (cache) cache.set(key, encoded);
     }
     if (encoded.startsWith(WIDE)) wide = true;
+    else if (encoded.startsWith(PACKED)) packed = true;
     chunks[key] = encoded;
   }
-  return { v: wide ? 3 : 2, chunks };
+  return { v: packed ? 4 : wide ? 3 : 2, chunks };
 }
 
 export function loadEdits(seed, dim = "overworld") {
@@ -178,17 +257,203 @@ export function loadEdits(seed, dim = "overworld") {
 export let lastEditsBytes = 0;
 const editsBytes = new Map(); // dim -> characters last written
 export function saveEdits(seed, edits, cache = null, dirtyKeys = null, dim = "overworld") {
+  let json;
   try {
-    const json = JSON.stringify(serializeEdits(edits, cache, dirtyKeys));
-    localStorage.setItem(editsKey(seed, dim), json);
-    editsBytes.set(dim, json.length);
-    lastEditsBytes = 0;
-    for (const n of editsBytes.values()) lastEditsBytes += n;
-    return true;
+    json = JSON.stringify(serializeEdits(edits, cache, dirtyKeys));
   } catch (err) {
-    console.warn("UFO COMBAT: failed to save world edits (storage full or unavailable)", err);
+    console.warn("UFO COMBAT: failed to save world edits", err);
     return false;
   }
+  // (Round 20: a full storage first frees what can be rebuilt, then tries again: storeItem.)
+  if (!storeItem(editsKey(seed, dim), json, "world edits")) return false;
+  editsBytes.set(dim, json.length);
+  lastEditsBytes = 0;
+  for (const n of editsBytes.values()) lastEditsBytes += n;
+  return true;
+}
+
+// ---------- (Round 20) A full storage ----------
+// Every save goes to localStorage, which browsers cap at about 5 MB per site
+// (GitHub Pages: the whole user's site, other games included). Once it was
+// full, every world save failed with only a toast once a session: a death
+// (the page then often left: see main.js) cost everything since the last
+// save that still fitted. Now a write that fails for room (storeItem):
+//   1. frees what can be rebuilt or is only nice to have (freeCaches: the
+//      canyon run's ghost replays, any canyon edits, a stale tab lock),
+//      then tries once more;
+//   2. still full: the caller is told (false) and main.js shows a warning
+//      that stays up, with a way to free space (js/storage-ui.js: the saved
+//      worlds and their sizes, a Delete for each other one), and keeps
+//      trying; a save that fits again takes the warning away.
+// A failed write never leaves half a value: localStorage keeps the old one.
+export function isQuotaError(err) {
+  if (!err) return false;
+  return err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED" || err.code === 22 || err.code === 1014;
+}
+
+// The keys of this game (every world, every record).
+function ownKeys() {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(PREFIX)) out.push(k);
+    }
+  } catch {
+    // (storage off)
+  }
+  return out;
+}
+
+function sizeOf(k) {
+  try {
+    return k.length + (localStorage.getItem(k)?.length ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+// Frees what can be rebuilt (or is only a nicety), largest first: the
+// canyon run's ghost replays (its best times stay), edits of the canyon's
+// dimension (never meant to be kept), the tab lock. The characters freed
+// (the keys' and values' lengths together).
+export function freeCaches() {
+  let freed = 0;
+  const gone = [];
+  const ghosts = [];
+  for (const k of ownKeys()) {
+    if (k.startsWith(`${PREFIX}canyon_ghost_`)) ghosts.push([k, sizeOf(k)]);
+    else if ((k.startsWith(`${PREFIX}edits_`) && k.endsWith("_canyon")) || k === `${PREFIX}world_open`) gone.push(k);
+  }
+  ghosts.sort((a, b) => b[1] - a[1]);
+  for (const k of [...ghosts.map((g) => g[0]), ...gone]) {
+    const n = sizeOf(k);
+    try {
+      localStorage.removeItem(k);
+      freed += n;
+    } catch {
+      // (nothing to do)
+    }
+  }
+  if (freed) console.warn(`UFO COMBAT: browser storage was full; removed ${ghosts.length} canyon ghost replay(s) and other rebuildable data (${freed} characters)`);
+  return freed;
+}
+
+// Writes key = value; when the storage is full, frees the caches and tries
+// once more. Never throws. `what` names the data in the console's message
+// (null: no message).
+export function storeItem(key, value, what = "data") {
+  let err0 = null;
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    err0 = err;
+  }
+  if (isQuotaError(err0) && freeCaches() > 0) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (err) {
+      err0 = err;
+    }
+  }
+  if (what) console.warn(`UFO COMBAT: failed to save the ${what} (${isQuotaError(err0) ? "browser storage full" : "storage unavailable"}: ${value.length} characters)`, err0?.name || err0);
+  return false;
+}
+
+// (Round 20) The saved worlds, for the storage screen: [{ seed, type, chars,
+// keys, at (last saved, ms; 0: unknown), hasPlayer }], the largest first,
+// and the rest of the game's data: { worlds, ghosts: { n, chars }, other, total }.
+export function storageReport() {
+  const worlds = new Map();
+  const ghosts = { n: 0, chars: 0 };
+  let other = 0;
+  let total = 0;
+  const worldOf = (seed) => {
+    let w = worlds.get(seed);
+    if (!w) worlds.set(seed, (w = { seed, type: null, chars: 0, keys: [], at: 0, hasPlayer: false }));
+    return w;
+  };
+  for (const k of ownKeys()) {
+    const n = sizeOf(k);
+    total += n;
+    const rest = k.slice(PREFIX.length);
+    const m = /^(player|world|edits|hacks)_(\d+)(_[a-z]+)?$/.exec(rest);
+    if (m) {
+      const w = worldOf(m[2]);
+      w.chars += n;
+      w.keys.push(k);
+      if (m[1] === "player") {
+        w.hasPlayer = true;
+        try {
+          const p = JSON.parse(localStorage.getItem(k));
+          w.type = p?.worldType ?? w.type;
+          if (Number.isFinite(p?.savedAt)) w.at = p.savedAt;
+        } catch {
+          // (unreadable: still listed, still deletable)
+        }
+      } else if (m[1] === "world" && !w.type) {
+        try {
+          w.type = JSON.parse(localStorage.getItem(k))?.type ?? null;
+        } catch {}
+      }
+    } else if (rest.startsWith("canyon_ghost_")) {
+      ghosts.n++;
+      ghosts.chars += n;
+    } else other += n;
+  }
+  return { worlds: [...worlds.values()].sort((a, b) => b.chars - a.chars), ghosts, other, total };
+}
+
+// (Round 20) Deletes a saved world (every dimension's edits, the player, its
+// record, its hacks) and forgets it as the last world played. The characters freed.
+export function deleteWorld(seed) {
+  seed = String(seed);
+  if (seed === String(activeSeed)) return 0; // (never the one being played)
+  let freed = 0;
+  const re = new RegExp(`^${PREFIX}(player|world|edits|hacks)_${seed}(_[a-z]+)?$`);
+  for (const k of ownKeys()) {
+    if (!re.test(k)) continue;
+    const n = sizeOf(k);
+    try {
+      localStorage.removeItem(k);
+      freed += n;
+    } catch {}
+  }
+  for (const name of ["last", "worlds"]) {
+    const rec = loadJSON(name);
+    if (!rec) continue;
+    let changed = false;
+    if (String(rec.seed) === seed) {
+      try {
+        localStorage.removeItem(`${PREFIX}${name}`);
+      } catch {}
+      continue;
+    }
+    for (const t of Object.keys(rec)) {
+      if (String(rec[t]) === seed) {
+        delete rec[t];
+        changed = true;
+      }
+    }
+    if (changed) saveJSON(name, rec);
+  }
+  return freed;
+}
+
+// (Round 20) Deletes the canyon run's ghost replays (its best times stay).
+export function deleteGhosts() {
+  let freed = 0;
+  for (const k of ownKeys()) {
+    if (!k.startsWith(`${PREFIX}canyon_ghost_`)) continue;
+    const n = sizeOf(k);
+    try {
+      localStorage.removeItem(k);
+      freed += n;
+    } catch {}
+  }
+  return freed;
 }
 
 // Settings live in one versioned object under `${PREFIX}settings`.
@@ -249,7 +514,9 @@ export function saveSettings(settings) {
   }
   const padded = json.length < SETTINGS_RESERVE ? json + " ".repeat(SETTINGS_RESERVE - json.length) : json;
   if (trySet(SETTINGS_KEY, padded) || trySet(SETTINGS_KEY, json)) return true;
-  // Full: make room by removing other worlds' block edits, largest first.
+  // (Round 20) Full: first what can be rebuilt (the canyon's ghost replays...), never a world.
+  if (freeCaches() > 0 && (trySet(SETTINGS_KEY, padded) || trySet(SETTINGS_KEY, json))) return true;
+  // Still full: make room by removing other worlds' block edits, largest first.
   // (Round 12: a world's every dimension together: never half a world.)
   const evicted = [];
   const worlds = new Map(); // seed -> { keys, size }
@@ -330,14 +597,16 @@ export function loadPlayer(seed) {
   }
 }
 
+// (Round 20: with the time it was saved, for the storage screen's list.)
 export function savePlayer(seed, data) {
+  let json;
   try {
-    localStorage.setItem(playerKey(seed), JSON.stringify({ v: 1, ...data }));
-    return true;
+    json = JSON.stringify({ v: 1, ...data, savedAt: Date.now() });
   } catch (err) {
     console.warn("UFO COMBAT: failed to save player state", err);
     return false;
   }
+  return storeItem(playerKey(seed), json, "player state");
 }
 
 // (Round 13) A world's own small record, written once, with its first save:
@@ -360,7 +629,7 @@ export function loadWorldRecord(seed) {
 }
 
 export function saveWorldRecord(seed, { type, gen }) {
-  return trySet(worldRecordKey(seed), JSON.stringify({ type, gen }));
+  return storeItem(worldRecordKey(seed), JSON.stringify({ type, gen }), null);
 }
 
 // Small JSON records outside any one world: the last world played (so the
@@ -377,12 +646,13 @@ export function loadJSON(name, fallback = null) {
 }
 
 export function saveJSON(name, data) {
+  let json;
   try {
-    localStorage.setItem(`${PREFIX}${name}`, JSON.stringify(data));
-    return true;
+    json = JSON.stringify(data);
   } catch (err) {
     return false;
   }
+  return storeItem(`${PREFIX}${name}`, json, null);
 }
 
 export function hasSavedWorld(seed) {

@@ -1366,6 +1366,56 @@ export class Audio {
     m.bg.gain.setTargetAtTime(firing ? 0.12 : 0, t, 0.03);
   }
 
+  // (Round 20) A jet's nose laser while it fires: a bright electric whine
+  // over a pulsing low buzz (the pulses, 15 a second), rising in pitch as it
+  // heats up. level 0-1 (0: off; another player's beam by its distance).
+  // Call every frame while any beam is on, and once with 0 after.
+  setJetLaser(level, heat = 0) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this._jl) {
+      if (level <= 0.01) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.buses.weapons || this.master);
+      const whine = ctx.createOscillator();
+      whine.type = "sawtooth";
+      whine.frequency.value = 1400;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 2600;
+      f.Q.value = 3;
+      const wg = ctx.createGain();
+      wg.gain.value = 0.35;
+      whine.connect(f).connect(wg).connect(out);
+      const buzz = ctx.createOscillator();
+      buzz.type = "square";
+      buzz.frequency.value = 110;
+      const bf = ctx.createBiquadFilter();
+      bf.type = "lowpass";
+      bf.frequency.value = 900;
+      const bg = ctx.createGain();
+      bg.gain.value = 0.3;
+      // (the pulses: the buzz throbs 15 times a second)
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 15;
+      const lg = ctx.createGain();
+      lg.gain.value = 0.22;
+      lfo.connect(lg).connect(bg.gain);
+      buzz.connect(bf).connect(bg).connect(out);
+      whine.start();
+      buzz.start();
+      lfo.start();
+      this._jl = { out, whine, f, buzz };
+    }
+    const m = this._jl;
+    const t = ctx.currentTime;
+    m.out.gain.setTargetAtTime(level > 0.01 ? 0.2 * level : 0, t, level > 0.01 ? 0.02 : 0.06);
+    m.whine.frequency.setTargetAtTime(1300 + heat * 900, t, 0.1);
+    m.f.frequency.setTargetAtTime(2400 + heat * 1600, t, 0.1);
+    m.buzz.frequency.setTargetAtTime(105 + heat * 40, t, 0.1);
+  }
+
   // One minigun laser bolt (they come ~30 a second: tiny and cheap).
   playMinigunShot() {
     this._cat("weapons");
