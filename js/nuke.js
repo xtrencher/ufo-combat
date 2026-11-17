@@ -37,6 +37,13 @@ const KNOCK = 2.6;
 const BURN = 3.3;
 const isPlant = (id) => IS_LEAVES[id] || id === BLOCK.TALL_GRASS || id === BLOCK.FLOWER_RED || id === BLOCK.FLOWER_YELLOW || id === BLOCK.SNOW;
 const INTENSITY = { low: 0.4, medium: 0.7, high: 1 };
+// (Round 20) The chunks a blast zone can reach: its square (the saved bitmap's frame).
+function zoneBox(z) {
+  const r = z.R * BURN;
+  const cx0 = Math.floor((z.x - r) / 16);
+  const cz0 = Math.floor((z.z - r) / 16);
+  return { cx0, cz0, w: Math.floor((z.x + r) / 16) - cx0 + 1, h: Math.floor((z.z + r) / 16) - cz0 + 1 };
+}
 const SLICES_MIN = 10;
 
 export class NukeSystem {
@@ -566,14 +573,43 @@ export class NukeSystem {
     // (a zone whose scorch pass is still running saves no chunk as done: those
     // ahead of the pass are not, and doing one again changes nothing)
     const busy = new Set(this.active.filter((d) => !d.scorched && d.zone).map((d) => d.zone));
-    return this.zones.map((z) => ({ x: Math.round(z.x * 10) / 10, y: Math.round(z.y * 10) / 10, z: Math.round(z.z * 10) / 10, R: z.R, done: busy.has(z) ? [] : [...z.done] }));
+    // (Round 20) The chunks done as a bitmap over the zone's square (`db`,
+    // base64): a big nuke's zone has thousands of chunks, ~11 characters
+    // each as a list; a chunk outside the square (none expected) stays listed.
+    return this.zones.map((z) => {
+      const out = { x: Math.round(z.x * 10) / 10, y: Math.round(z.y * 10) / 10, z: Math.round(z.z * 10) / 10, R: z.R, done: [] };
+      if (busy.has(z) || !z.done.size) return out;
+      const b = zoneBox(out);
+      const bits = new Uint8Array(Math.ceil((b.w * b.h) / 8));
+      for (const k of z.done) {
+        const [cx, cz] = k.split(",").map(Number);
+        const i = cx - b.cx0;
+        const j = cz - b.cz0;
+        if (i >= 0 && i < b.w && j >= 0 && j < b.h) bits[(j * b.w + i) >> 3] |= 1 << ((j * b.w + i) & 7);
+        else out.done.push(k);
+      }
+      let s = "";
+      for (let i = 0; i < bits.length; i++) s += String.fromCharCode(bits[i]);
+      out.db = btoa(s);
+      return out;
+    });
   }
 
   loadZones(list) {
     this.zones = [];
     for (const z of Array.isArray(list) ? list : []) {
       if (![z.x, z.y, z.z, z.R].every(Number.isFinite) || !Array.isArray(z.done)) continue;
-      this.zones.push({ x: z.x, y: z.y, z: z.z, R: z.R, done: new Set(z.done.filter((k) => typeof k === "string")) });
+      const zone = { x: z.x, y: z.y, z: z.z, R: z.R, done: new Set(z.done.filter((k) => typeof k === "string")) };
+      if (typeof z.db === "string") {
+        try {
+          const b = zoneBox(zone);
+          const s = atob(z.db);
+          for (let n = 0; n < b.w * b.h; n++) if ((s.charCodeAt(n >> 3) >> (n & 7)) & 1) zone.done.add(`${b.cx0 + (n % b.w)},${b.cz0 + Math.floor(n / b.w)}`);
+        } catch {
+          // (unreadable: those chunks get the zone's rules again)
+        }
+      }
+      this.zones.push(zone);
     }
     // (Chunks already loaded that a zone hasn't done yet: now.)
     if (this.zones.length) for (const chunk of this.world.chunks.values()) this._chunkGenerated(chunk);

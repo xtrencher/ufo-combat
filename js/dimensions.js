@@ -394,6 +394,13 @@ export class DimensionManager {
     return top >= 0 ? this.safeSpot(x, top + 1, z) : null;
   }
 
+  // (Round 20) A travel's loading cut short: dead on the way, the respawn
+  // places the player (enterNow alone kept a travel to the respawn's own
+  // dimension, which then pulled the respawned player back to its spot).
+  cancelTravel() {
+    this._cancelPending();
+  }
+
   _cancelPending() {
     const pd = this.pending;
     if (!pd) return;

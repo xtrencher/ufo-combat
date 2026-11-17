@@ -2000,7 +2000,7 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
     assert.equal(enc, Buffer.from([5, 0, 2, 3, 7, 0, 1, 255, 255, 127, 1, 1]).toString("base64"));
   });
 
-  await test("an old save (format v2, byte ids) loads every edit; a new one with 16-bit ids is v3", () => {
+  await test("an old save (format v2, byte ids) loads every edit; a new one (16-bit ids too) is v4", () => {
     // A v2 save as the previous version wrote it: records of [index lo, index hi, run, id].
     const rec = (idx, run, id) => [idx & 255, idx >> 8, run, id];
     const old = { v: 2, chunks: { "0,0": Buffer.from([...rec(blockIndex(1, 30, 2), 3, 9), ...rec(blockIndex(4, 40, 4), 1, 41)]).toString("base64"), "-3,7": Buffer.from(rec(0, 255, 0)).toString("base64") } };
@@ -2009,10 +2009,12 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
     assert.equal(edits.get("0,0").get(blockIndex(3, 30, 2)), 9);
     assert.equal(edits.get("0,0").get(blockIndex(4, 40, 4)), BLOCK.CHEST);
     assert.equal(edits.get("-3,7").size, 255);
-    assert.equal(serializeEdits(edits).v, 2, "no 16-bit id: still v2");
+    // (Round 20: the saves are packed, format v4, 16-bit ids and all; the
+    // v2 / v3 strings above are still read, and still travel online.)
+    assert.equal(serializeEdits(edits).v, 4, "saved packed: v4");
     setEdit(edits, 2, 2, 77, DEBUG.SLAB);
     const data = JSON.parse(JSON.stringify(serializeEdits(edits)));
-    assert.equal(data.v, 3);
+    assert.equal(data.v, 4);
     const back = parseEdits(data);
     assert.equal(back.get("2,2").get(77), DEBUG.SLAB);
     assert.equal(back.get("0,0").get(blockIndex(4, 40, 4)), BLOCK.CHEST);
@@ -2026,7 +2028,7 @@ console.log("\nRound 11: 16-bit block ids and the content registries");
     let warned = 0;
     console.warn = () => warned++;
     try {
-      assert.equal(parseEdits({ v: 4, chunks: {} }).size, 0);
+      assert.equal(parseEdits({ v: 5, chunks: {} }).size, 0); // (Round 20: v4 is the packed saves')
       const p = parseEdits({ v: 3, chunks: { "0,0": "~xx", "1,0": encodeChunkEdits(new Map([[3, DEBUG.BLOCK]])) } });
       assert.equal(p.get("1,0").get(3), DEBUG.BLOCK);
       assert.equal(p.has("0,0"), false);

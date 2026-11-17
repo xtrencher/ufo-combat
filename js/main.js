@@ -107,6 +107,7 @@ import { HeliSync } from "./net/heli.js"; // (Round 14)
 import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: the canyon run)
 import { installCanyonMenu } from "./menu-canyon.js";
 import { WorldLock } from "./world-lock.js"; // (Round 17: one tab per world)
+import { StorageUI } from "./storage-ui.js"; // (Round 20: a full storage's warning, the saved worlds)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -2213,12 +2214,15 @@ let playerDirty = false;
 let lastPlayerSave = 0;
 
 let saveFailWarned = false; // (the storage-full toast: once a session)
+let restoredFromCache = false; // (Round 20: see "pageshow")
 let nextEditTry = 0; // (storage full: the edits' next try, see flushSave)
 // `force`: try the edits even while backing off (leaving, a menu's save).
 function flushSave(force = true) {
   // A guest in someone else's game saves nothing (the host keeps the world).
   // (Round 15: nor does the canyon run: the player's worlds stay as they were.)
   // (Round 17: nor a tab whose world was opened in another tab since: that one saves it now.)
+  // (Round 20: nor a page back from the back-forward cache, being reloaded: its world is an old one.)
+  if (restoredFromCache) return;
   if (GUEST || CANYON || worldLock?.superseded) {
     pendingSave = false;
     dims.clearDirty();
@@ -2233,7 +2237,8 @@ function flushSave(force = true) {
   if (pendingSave && (force || performance.now() >= nextEditTry)) {
     // (A failed save keeps the edits: the cache holds them all for the next try.)
     // (Round 12: every dimension's that changed, js/dimensions.js.)
-    failed = !dims.saveEdits(SEED, encodedEditCache);
+    editsFailing = !dims.saveEdits(SEED, encodedEditCache);
+    failed = editsFailing;
     pendingSave = failed;
     // (Storage full: the next try in about 30 s, not the whole edit set with
     // every player save.)
@@ -2245,17 +2250,46 @@ function flushSave(force = true) {
   lastSaveTime = performance.now();
   stats.save();
   if (!newWorld || playerDirty) {
-    const ok = savePlayer(SEED, playerState());
+    // (Round 20) A part of the state that can't be written (a bug) must not
+    // stop this save every 5 s, nor the frame it runs in: said once.
+    let state = null;
+    try {
+      state = playerState();
+    } catch (err) {
+      if (!stateErrorSaid) console.error("UFO COMBAT: the player's state couldn't be saved", err);
+      stateErrorSaid = true;
+    }
+    const ok = !!state && savePlayer(SEED, state);
+    if (state) playerSaveFailed = !ok;
     if (!ok) failed = true;
     playerDirty = !ok;
     newWorld = false;
     lastPlayerSave = performance.now();
   }
-  if (failed && !saveFailWarned) {
+  // (Round 20) A full storage keeps a warning up (over the death screen too)
+  // with a way to free space (js/storage-ui.js), not one toast a session;
+  // the next save that fits takes it away. Edits still waiting for their
+  // next try count as failing.
+  if (storageUi?.report(!editsFailing && !playerSaveFailed) === "recovered") toast("Saved: there is room again and the world is being saved.", 4);
+  else if (failed && !saveFailWarned && (editsFailing || playerSaveFailed)) {
     saveFailWarned = true;
-    toast("Browser storage is full: this world can't be saved. Free some space (site data) or delete old worlds.", 8);
+    toast("Browser storage is full: this world can't be saved. Free some space (Free space, at the top).", 8);
   }
 }
+let editsFailing = false;
+let playerSaveFailed = false;
+let stateErrorSaid = false;
+const storageUi = new StorageUI({
+  seed: SEED,
+  guest: GUEST || CANYON,
+  audio,
+  onFreed: () => {
+    // (Room again: everything saved now, the edits' back-off over.)
+    nextEditTry = 0;
+    playerDirty = true;
+    flushSave();
+  },
+});
 
 // (Round 17) The world was opened in another tab (js/world-lock.js): this
 // one has stopped saving it; it says so, and "Play here" reloads it from
@@ -2281,12 +2315,29 @@ document.getElementById("world-elsewhere-here")?.addEventListener("click", () =>
 window.addEventListener("pagehide", () => {
   if (!graphicsLost && (!graphicsReady || framesSinceReady < 3)) saveBootRecord({ preset: graphicsPreset, ok: true });
 });
+// (Round 20: on the death screen too: dead is still mid-game.)
 window.addEventListener("beforeunload", (e) => {
-  flushSave();
-  if ((gameState === "playing" || gameState === "inventory") && !leavingToMenu) {
+  try {
+    flushSave();
+  } catch (err) {
+    console.error("UFO COMBAT: the save on leaving failed", err);
+  }
+  if ((gameState === "playing" || gameState === "inventory" || gameState === "dead") && !leavingToMenu) {
     e.preventDefault();
     e.returnValue = "";
   }
+});
+// (Round 20) Back on this page through the browser's Back / Forward with the
+// page kept as it was (the back-forward cache): its world is the one it had
+// then, older than the save made since (on another page, or by this world
+// further on). Playing it on would save that old world over the new one: the
+// page is loaded again, from the save.
+// (Nothing of the old world is saved on the way: flushSave checks restoredFromCache.)
+window.addEventListener("pageshow", (e) => {
+  if (!e.persisted) return;
+  restoredFromCache = true;
+  leavingToMenu = true;
+  location.reload();
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushSave();
@@ -2370,25 +2421,42 @@ player.onHurt = (amount, cause) => {
   playerDirty = true;
 };
 
+// (Round 20) Each step of a death on its own: one that throws (a vehicle, a
+// trip, a dimension's state) never keeps the death screen away or the save
+// from being made; it is reported in the console.
+function deathStep(fn) {
+  try {
+    fn();
+  } catch (err) {
+    console.error("UFO COMBAT: an error while dying (the death goes on)", err);
+  }
+}
 player.onDeath = (cause) => {
-  stats.add("deaths");
-  if (vehicles.active) vehicles.exit({ force: true });
-  vehicles.parachute.close(player);
+  deathStep(() => stats.add("deaths"));
+  // (Round 20) Dead out in space: back to the world first (the craft where it
+  // left it). It stayed "in space" before: the respawn drew space, the world idle.
+  deathStep(() => space.busy && space.abort());
+  deathStep(() => vehicles.active && vehicles.exit({ force: true }));
+  deathStep(() => vehicles.parachute.close(player));
   // A fall right after being launched by an explosion was the explosive's doing.
   if (cause === "fall" && performance.now() - lastBlastHitTime < 6000) cause = `${lastBlastSource}_fall`;
   deathCause = cause;
-  audio.playDeath();
-  if (invScreen.isOpen) invScreen.close();
-  chord.reset();
-  interaction.release();
+  deathStep(() => audio.playDeath());
+  deathStep(() => invScreen.isOpen && invScreen.close());
+  deathStep(() => chord.reset());
+  deathStep(() => interaction.release());
   // (Dogfight: nothing to drop, and back in a jet in a moment, mouse and all.)
-  if (!mp.dogfight?.live) dropEverything();
+  if (!mp.dogfight?.live) deathStep(dropEverything);
   gameState = "dead";
   clickToPlay.classList.add("hidden"); // (it sits above the death screen)
   hud.showDeath(deathMessage(cause));
-  mp.playerDied?.(cause, deathMessage(cause));
+  deathStep(() => mp.playerDied?.(cause, deathMessage(cause)));
   if (document.pointerLockElement === canvas && !mp.dogfight?.live) document.exitPointerLock();
   playerDirty = true;
+  // (Round 20) Saved at once, as respawned with the things on the ground:
+  // whatever the page does next (a reload, a crash, the tab closed), the
+  // death costs nothing more than in the game.
+  deathStep(() => flushSave());
 };
 
 // Everything in the inventory spills out where the player died.
@@ -2449,6 +2517,46 @@ function respawn(at = null) {
     flyover.hide();
   }
   hud.hideDeath();
+  // (Round 20) A respawn that throws on the way (a dimension, a mission's
+  // spot, a bed) still brings the player back, at the world spawn; failing
+  // that too, the death screen comes back (it used to vanish, the player
+  // left dead with no button: only a reload, the main menu, got out).
+  try {
+    respawnPlace(at);
+  } catch (err) {
+    console.error("UFO COMBAT: the respawn failed; back at the world spawn instead", err);
+    try {
+      if (dims.dim !== "overworld") dims.enterNow("overworld");
+      if (player.dead) player.revive();
+      world.prepareArea(spawnX + 0.5, spawnZ + 0.5, INITIAL_SYNC_RADIUS);
+      player.spawnAt(...safeSpawnColumn());
+    } catch (err2) {
+      console.error("UFO COMBAT: the respawn failed", err2);
+      hud.showDeath(deathMessage(deathCause));
+      return;
+    }
+  }
+  streamAround(player.position.x, player.position.z);
+  deathCause = null;
+  // (Online the UFOs only give this player a moment: the others are still
+  // fighting. Round 9: a guest's moment too, which the host's UFOs grant.)
+  if (mp.active) {
+    if (net.isHost) player.graceUntil = ufos.time + 8;
+    else mp.coop?.respawned?.();
+  } else ufos.playerRespawned();
+  playerDirty = true;
+  gameState = "paused";
+  audio.ensureStarted();
+  // (Still holding the mouse, e.g. a Dogfight respawn: straight back in.)
+  if (document.pointerLockElement === canvas) {
+    gameState = "playing";
+    player.enabled = true;
+    ui.showHud(true);
+  } else requestLock();
+}
+// The respawn's place: the dimension, then a friend's spot, the mission's, the bed or the world spawn.
+function respawnPlace(at) {
+  dims.cancelTravel(); // (Round 20: dead on a travel's loading screen)
   // (Round 12) Back in the Overworld (vanilla), unless next to a friend in this dimension.
   dims.enterNow(Array.isArray(at) ? dims.dim : dims.respawnDimension());
   const spot = Array.isArray(at) ? at : missionRespawnSpot();
@@ -2477,23 +2585,6 @@ function respawn(at = null) {
   player.yaw = 0;
   player.pitch = 0;
   player.syncCamera();
-  streamAround(player.position.x, player.position.z);
-  deathCause = null;
-  // (Online the UFOs only give this player a moment: the others are still
-  // fighting. Round 9: a guest's moment too, which the host's UFOs grant.)
-  if (mp.active) {
-    if (net.isHost) player.graceUntil = ufos.time + 8;
-    else mp.coop?.respawned?.();
-  } else ufos.playerRespawned();
-  playerDirty = true;
-  gameState = "paused";
-  audio.ensureStarted();
-  // (Still holding the mouse, e.g. a Dogfight respawn: straight back in.)
-  if (document.pointerLockElement === canvas) {
-    gameState = "playing";
-    player.enabled = true;
-    ui.showHud(true);
-  } else requestLock();
 }
 hud.respawnBtn.addEventListener("click", () => respawn());
 
@@ -3325,7 +3416,9 @@ document.getElementById("main-menu-btn").addEventListener("click", () => {
 let leavingToMenu = false;
 
 // Fullscreen button, F11 / Alt+Enter and the Keyboard Lock API (js/fullscreen.js).
-const fullscreen = new FullscreenControl({ isInGame: () => gameState === "playing" || gameState === "inventory", settings, save: persistSettings });
+// (Round 20: dead too: a sprint's Ctrl held as R reloads the gun, at the
+// moment of death, reloaded the page, to the main menu.)
+const fullscreen = new FullscreenControl({ isInGame: () => gameState === "playing" || gameState === "inventory" || gameState === "dead", settings, save: persistSettings });
 // With the keyboard locked (fullscreen in Chromium) Esc reaches the page as a
 // key press and the browser no longer drops the pointer lock itself: do it here.
 window.addEventListener("keydown", (e) => {
@@ -3582,7 +3675,10 @@ const chord = new MouseChord({
 });
 
 // (The mouse's back / forward side buttons would leave the page mid-game.)
-const isSideButton = (e) => (e.button === 3 || e.button === 4) && (gameState === "playing" || gameState === "inventory");
+// (Round 20: on the death screen and the pause menu too, which have the
+// mouse free. A thumb on the back button there left the page for the
+// previous one, a main menu, without a word: "dead, and thrown to the menu".)
+const isSideButton = (e) => (e.button === 3 || e.button === 4) && gameState !== "start";
 document.addEventListener("mousedown", (e) => {
   if (isSideButton(e)) e.preventDefault();
   if (gameState !== "playing") return;
