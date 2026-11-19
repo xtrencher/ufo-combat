@@ -196,22 +196,27 @@ export class DistantStructures {
     };
     const half = s.half;
     const rw = s.rw;
-    // The runway's edge lights (the same spots as the glowing blocks), white.
-    for (let u = -half; u <= half; u += 12) for (const v of [-(rw + 2), rw + 2]) add(u, v, 1.6, 1.0, 0.95, 0.8);
-    // Green thresholds across both ends, red end lights beyond them.
-    for (let v = -rw; v <= rw; v += 3) {
-      add(-half - 2, v, 1.5, 0.3, 1.0, 0.4);
-      add(half + 2, v, 1.5, 0.3, 1.0, 0.4);
-      add(-half - 6, v, 1.5, 1.0, 0.25, 0.2);
-      add(half + 6, v, 1.5, 1.0, 0.25, 0.2);
-    }
-    // Approach lights: rows reaching out from both ends.
-    for (let k = 1; k <= 8; k++) {
-      for (const sgn of [-1, 1]) {
-        const u = sgn * (half + 6 + k * 12);
-        for (let v = -4; v <= 4; v += 2) add(u, v, 2.2, 1.0, 0.92, 0.75);
+    // (Round 21: each runway, a big international airport's second one too.)
+    for (const c of s.rw2 ? [0, s.rw2.v] : [0]) {
+      // The runway's edge lights (the same spots as the glowing blocks), white.
+      for (let u = -half; u <= half; u += 12) for (const v of [-(rw + 2), rw + 2]) add(u, c + v, 1.6, 1.0, 0.95, 0.8);
+      // Green thresholds across both ends, red end lights beyond them.
+      for (let v = -rw; v <= rw; v += 3) {
+        add(-half - 2, c + v, 1.5, 0.3, 1.0, 0.4);
+        add(half + 2, c + v, 1.5, 0.3, 1.0, 0.4);
+        add(-half - 6, c + v, 1.5, 1.0, 0.25, 0.2);
+        add(half + 6, c + v, 1.5, 1.0, 0.25, 0.2);
+      }
+      // Approach lights: rows reaching out from both ends.
+      for (let k = 1; k <= 8; k++) {
+        for (const sgn of [-1, 1]) {
+          const u = sgn * (half + 6 + k * 12);
+          for (let v = -4; v <= 4; v += 2) add(u, c + v, 2.2, 1.0, 0.92, 0.75);
+        }
       }
     }
+    // (Round 21) The apron's floodlight masts.
+    for (const m of s.masts || []) add(m.u, m.v, 13.5, 1.0, 0.9, 0.7);
     // The taxiway's blue edge lights, sparse.
     for (let u = -half + 6; u <= half - 6; u += 24) add(u, rw + 6, 1.2, 0.35, 0.55, 1.0);
     // A red beacon on the control tower.

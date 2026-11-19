@@ -3605,8 +3605,8 @@ function toggleDebug() {
 
 // F3: the nearest airport or city (a jet needs a runway: J calls one to it).
 function airportLine(p) {
-  const a = airports.nearest(3500);
-  if (!a) return "Airports: none within 3500 blocks";
+  const a = airports.nearest(airports.far(3500)); // (Round 21: farther in a world of big airports)
+  if (!a) return `Airports: none within ${Math.round(airports.far(3500))} blocks`;
   const dx = a.site.x - p.x;
   const dz = a.site.z - p.z;
   const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) / 45) % 8];
