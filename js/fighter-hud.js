@@ -7,14 +7,15 @@
 //     it (a quick pop), its range beside it, the salvo's pips under it
 //     (SALVO and a double box once the salvo is charged);
 //   - auto aim's seeker: a small, faint broken ring round the crosshair;
+//   - (Round 21) the laser's aim assist: blue corner ticks round the target
+//     a burst would bend onto, a dot where it leads it;
 //   - an arrow on the screen's edge when the target is off the screen;
 //   - (Round 17) at the bottom in the middle: the selected missile (MSL or
 //     SUPER MSL, X switches) with its reload bar, and the afterburner (AB,
 //     orange, flickering while lit; LATCH when a double tap of Shift holds
 //     it on);
 //   - (Round 20) the same place: the MINI-NUKE with how many are aboard and
-//     its reload bar, or the LASER with its heat bar (red and blinking
-//     when overheated); DANGER CLOSE / TOO CLOSE over it (red, blinking)
+//     its reload bar, or the LASER with its charge bar (Round 21); DANGER CLOSE / TOO CLOSE over it (red, blinking)
 //     when our own mini-nuke's blast would reach us, or it would be a dud;
 //   - the warnings, small on the screen's edge: a chevron on the bearing
 //     they come from, the word at the top: MISSILE (red, flashing, faster
@@ -103,6 +104,7 @@ export class FighterHud {
       this._setState("", "");
       this.canvas.dataset.weapon = this._wState = ""; // (Round 17)
       this.canvas.dataset.danger = this._dState = ""; // (Round 20)
+      this.canvas.dataset.assist = this._lState = ""; // (Round 21)
       this.canvas.dataset.ab = this._aState = "";
     }
   }
@@ -269,6 +271,7 @@ export class FighterHud {
       b.ok = false;
       b.size = 0;
     }
+    this._laserCue(hud.laserAim, camera); // (Round 21)
     // Threats, on the screen's edge.
     let warn = "";
     if (hud.threat?.kind === "missile" || hud.threat?.kind === "seeker") {
@@ -282,6 +285,46 @@ export class FighterHud {
     }
     this._setState(state, warn);
     this._drawStatus(hud);
+  }
+
+  // (Round 21) The laser's aim assist: four small corner ticks (the laser's
+  // blue) round the target a burst would bend onto now, and a dot where it
+  // leads it. The canvas's data-assist is "1" while it shows (tests).
+  _laserCue(aim, camera) {
+    let on = false;
+    if (aim) {
+      const tp = this._proj(aim.pos, camera, (this._lcp ||= {}));
+      if (tp.on) {
+        on = true;
+        const s = this.s;
+        const fpx = this.h / 2 / Math.tan(((camera.fov || 75) * Math.PI) / 360);
+        const r = clamp((Math.atan2(aim.radius || 2, Math.max(1, aim.dist)) * fpx) * 1.1, 9 * s, 40 * s);
+        const x = Math.round(tp.x) + 0.5;
+        const y = Math.round(tp.y) + 0.5;
+        const t = Math.max(3, r * 0.4);
+        const a = 0.75 + 0.2 * Math.sin(this.t * 9);
+        this._stroke((c) => {
+          for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+            c.moveTo(x + sx * r, y + sy * (r - t));
+            c.lineTo(x + sx * r, y + sy * r);
+            c.lineTo(x + sx * (r - t), y + sy * r);
+          }
+        }, BEAM, 1.4 * s, a);
+        const lp = aim.lead ? this._proj(aim.lead, camera, (this._llp ||= {})) : null;
+        if (lp?.on) {
+          const ctx = this.ctx;
+          ctx.globalAlpha = 0.9;
+          ctx.fillStyle = EDGE;
+          ctx.fillRect(Math.round(lp.x) - 2, Math.round(lp.y) - 2, 4, 4);
+          ctx.fillStyle = BEAM;
+          ctx.fillRect(Math.round(lp.x) - 1, Math.round(lp.y) - 1, 2, 2);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+    const st = on ? "1" : "";
+    if (st !== this._lState) this.canvas.dataset.assist = this._lState = st;
+    this.assist = on;
   }
 
   // (Round 17) The selected missile and its reload, the afterburner: small,
@@ -302,8 +345,9 @@ export class FighterHud {
         color = wp.ammo <= 0 ? AMBER : ready >= 1 ? NUKE : AMBER;
         wState = wp.ammo <= 0 ? "mininuke-empty" : ready >= 1 ? "mininuke" : "mininuke-reload";
       } else if (wp.kind === "laser") {
-        color = wp.jam ? (Math.sin(this.t * 18) > 0 ? LOCK : AMBER) : (wp.heat ?? 0) > 0.75 ? AMBER : BEAM;
-        wState = wp.jam ? "laser-hot" : wp.on ? "laser-firing" : "laser";
+        // (Round 21) Bursts: its charge is the bar (white while one fires).
+        color = wp.on ? WHITE : ready >= 1 ? BEAM : AMBER;
+        wState = wp.on ? "laser-firing" : ready >= 1 ? "laser" : "laser-charging";
       }
       const x = W / 2 + 34 * s;
       this._text(wp.name, x, y, color, 11 * s, "center", 800, 0.95);
@@ -319,11 +363,9 @@ export class FighterHud {
       ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
       ctx.fillRect(bx, by, bw, bh);
       ctx.fillStyle = color;
-      // (The laser's bar is its heat, filling as it heats up.)
-      ctx.fillRect(bx, by, Math.round(bw * (wp.kind === "laser" ? clamp(wp.heat ?? 0, 0, 1) : ready)), bh);
+      ctx.fillRect(bx, by, Math.round(bw * ready), bh);
       ctx.globalAlpha = 1;
       if ((wp.super || wp.kind === "mininuke") && ready < 1 && wp.left > 0) this._text(`${Math.ceil(wp.left)} S`, x + bw / 2 + 6 * s, by + 1, AMBER, 9 * s, "left", 700, 0.9);
-      if (wp.kind === "laser" && wp.jam) this._text("HOT", x + bw / 2 + 6 * s, by + 1, LOCK, 9 * s, "left", 800, 0.95);
     }
     // (Round 20) The mini-nuke's warning, over the weapon.
     const danger = hud.danger || "";

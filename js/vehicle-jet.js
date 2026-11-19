@@ -177,23 +177,28 @@ export const MINI_NUKE = {
   life: 14, // seconds before it goes off by itself
   danger: 95, // blocks from its blast: closer, the jet that fired it gets hurt
 };
-// (Round 20) The nose laser (X or 4 selects it; hold the right button): a
-// beam from just under the nose straight along it, out to RANGE blocks. Its
-// damage comes as RATE fast pulses a second (laser bolts, js/lasers.js: they
-// hit what the cannon hits, online as any bolt, and a UFO may dodge one now
-// and then, js/ufo-mischief.js; sustained fire still lands). It heats up
-// (HEAT_UP a second: 5 s of fire overheats it, then it must cool below
-// RESUME); kept BURN seconds on one spot it burns a hole there.
+// (Round 20) The nose laser (X or 4 selects it). (Round 21) Not a held beam
+// any more: one click is one short, punchy burst (BURST s of a bright beam
+// from just under the nose), then it must recharge (RECHARGE s: a click
+// sooner does nothing; held, it fires again each time it is charged). A
+// burst's damage is one fast, unseen bolt (js/lasers.js: it hits what the
+// cannon hits, goes to the other players as any bolt, and a UFO sees it
+// coming and may slip it: js/ufo-mischief.js); the beam drawn follows it,
+// out to RANGE, and ends where it struck. Aim assist: a target (UFO, enemy
+// aircraft or ground vehicle, anything in `vehicles.aimTargets`) within CONE
+// of the nose (CONE_FAR at full range) bends the burst toward where it will
+// be when the bolt gets there, by at most that cone; never another player's.
+// A burst on a block burns a small hole (BURN_R).
 export const JET_LASER = {
-  rate: 15, // pulses a second
-  damage: 4, // per pulse (60 a second: a medium UFO in under 4 s)
+  damage: 55, // per burst (one a second held: ~55 a second, the old beam's 60 while it didn't overheat)
+  burst: 0.2, // seconds: the beam's flash
+  recharge: 0.8, // seconds after a burst before the next (a burst every 1 s held)
   range: 1200,
-  speed: 2000, // the pulses' speed (blocks/s: a UFO far off may see one coming and slip it)
-  heatUp: 0.2, // per second of fire
-  cool: 0.3, // per second off
-  resume: 0.3, // an overheated laser works again below this
-  burn: 0.45, // seconds on one spot: a hole burnt there (a block or a few)
-  burnR: 1.6,
+  speed: 2500, // the burst's bolt (blocks/s: 400 blocks in 0.16 s; a quick, skilled UFO from ~500 blocks out may see it coming and slip it)
+  cone: 0.105, // radians (6 degrees): the aim assist's reach round the nose, up to CONE_NEAR blocks
+  coneFar: 0.07, // radians (4 degrees) at the full range
+  coneNear: 150,
+  burnR: 2, // a burst on a block burns a hole this big (a few blocks)
 };
 const LASER_C = new THREE.Color(1.3, 3.4, 6.5); // (electric blue: the cannon's tracers are orange, the UFOs' bolts green and red)
 const LASER_CORE = new THREE.Color(2.4, 3.4, 6);
@@ -273,6 +278,14 @@ const _lp = new THREE.Vector3();
 const _ld = new THREE.Vector3();
 const _le = new THREE.Vector3();
 const _lb = new THREE.Vector3();
+const _lq = new THREE.Quaternion(); // (Round 21)
+const _la = [0, 1, 2, 3].map(() => new THREE.Vector3()); // (Round 21: the aim assist)
+const LASER_QUEUE = 0.2; // (Round 21) seconds: a click this long before the laser is charged fires it then
+// (Round 21) The aim assist's cone at `dist` blocks (radians).
+function laserCone(dist) {
+  const L = JET_LASER;
+  return L.cone + (L.coneFar - L.cone) * clamp((dist - L.coneNear) / (L.range - L.coneNear), 0, 1);
+}
 const LASER_MOUNT = { f22: [6.3, -0.8], f16: [5.9, -0.7], b2: [8.0, -1.2], sr71: [12.2, -0.75] };
 const SPARK_C = new THREE.Color(5, 3.6, 1.6);
 const LASER_SMOKE0 = new THREE.Color(0.3, 0.29, 0.28);
@@ -359,11 +372,12 @@ export class Jet extends Vehicle {
     this.rearmT = 0;
     this._restT = 0;
     this.miniDanger = ""; // "close": our own mini-nuke near enough to hurt us; "short": straight ahead too close (a dud)
-    // (Round 20) The nose laser (JET_LASER).
-    this.laserOn = false;
-    this.laserHeat = 0;
-    this.laserJam = false;
-    this._laserPulseT = 0;
+    // (Round 20) The nose laser (JET_LASER). (Round 21: bursts.)
+    this.laserOn = false; // a burst's beam is out now (from the nose)
+    this.laserT = 0; // seconds until it can fire again (the recharge)
+    this.laserShot = null; // the burst being drawn: { t, origin, dir, hitDist, hitKind, serial, assisted, remote }
+    this.laserBursts = 0; // bursts fired (online: told to the others, so they draw each one)
+    this.laserAim = null; // (Round 21) the aim assist's pick now: { pos (where to aim), target, dist, name } or null
     this._laserBlock = false;
     this.laserHit = null; // { point, kind, dist } where the beam ends this frame (tests, the HUD)
     this.angVel = new THREE.Vector3(); // body rates: x pitch, y yaw, z roll
@@ -726,7 +740,8 @@ export class Jet extends Vehicle {
     const stick = _stick.set(0, 0, 0);
     this.brake = false;
     this.reversing = false;
-    this._laserWant = false; // (Round 20: _weapons says, each frame)
+    this._laserWant = false; // (Round 20: _weapons says, each frame; Round 21: and a click)
+    this._laserPress = false;
     if (input) {
       const k = input.keys;
       const sens = 0.0022 * (this.manager.mouseSensitivity ?? 0.6);
@@ -854,7 +869,7 @@ export class Jet extends Vehicle {
     this._updateWarning(dt, !!input);
     this.incoming = Math.max(0, this.incoming - dt);
     this._place();
-    this._updateLaser(dt, !!input && this._laserWant); // (Round 20: the beam from the nose where it is now)
+    this._updateLaser(dt, !!input && this._laserWant, !!input && this._laserPress); // (Round 20: from the nose where it is now)
     if (!this.isEnemyJet) this._rearm(dt); // (Round 20: the mini-nukes)
     this._effects(dt, aero);
     this.model.setThrottle(this.throttle, this.afterburner, this.time);
@@ -978,7 +993,7 @@ export class Jet extends Vehicle {
 
   // Visual extras per frame: tyre smoke when braking hard, wingtip vapour in
   // tight turns, a plume of engine haze.
-  // ---------- (Round 20) The nose laser ----------
+  // ---------- (Round 20) The nose laser (Round 21: bursts, aim assist) ----------
 
   // Where the beam leaves the jet: just under the nose (written into `out`).
   laserOrigin(out = new THREE.Vector3()) {
@@ -986,169 +1001,283 @@ export class Jet extends Vehicle {
     return out.set(0, m[1], -m[0]).applyQuaternion(this.q).add(this.pos);
   }
 
-  // One frame of the laser: `want` (the pilot holds it) fires it unless it
-  // overheated; the heat; the pulses that do the damage; the beam drawn.
-  _updateLaser(dt, want) {
-    const L = JET_LASER;
-    const mgr = this.manager;
-    if (want && this.laserJam) {
-      if (!(this._laserJamMsgT > 0) && this === mgr.active) {
-        this._laserJamMsgT = 0.8;
-        mgr.onMessage?.("LASER OVERHEATED: let it cool");
-        mgr.audio?.playOverheat?.();
-      }
-      want = false;
+  // One frame of the laser: `want` (the right button held, or clicked: see
+  // _weapons) fires a burst once it is charged; `pressed` (a click this
+  // frame) a moment before it is charged is kept for then. The recharge,
+  // the aim assist's pick (the HUD's cue), the burst being drawn.
+  _updateLaser(dt, want, pressed = false) {
+    this.laserT = Math.max(0, this.laserT - dt);
+    const armed = this.alive && this.weapon === "laser";
+    if (!armed) this._laserQueued = false;
+    else if (pressed) this._laserQueued = this.laserT <= LASER_QUEUE;
+    // (Only for our own pilot's HUD: the target the burst would bend to.)
+    this.laserAim = armed && this === this.manager.active && !this.isEnemyJet ? this._laserAssist(this.laserOrigin(_lp), this.forward(_ld)) : null;
+    if (armed && (want || this._laserQueued) && this.laserT <= 0) {
+      this._laserQueued = false;
+      this._fireLaser();
     }
-    this._laserJamMsgT = Math.max(0, (this._laserJamMsgT || 0) - dt);
-    if (want && !this.laserOn) this._laserPulseT = 0;
-    this.laserOn = want;
-    if (want) {
-      this.laserHeat = Math.min(1, this.laserHeat + L.heatUp * dt);
-      this._laserPulseT -= dt;
-      let n = 0;
-      while (this._laserPulseT <= 0 && n++ < 4) {
-        this._laserPulseT += 1 / L.rate;
-        this._laserPulse();
+    this._drawLaser(dt);
+  }
+
+  // One burst: its direction (the nose's, bent by the aim assist), the bolt
+  // that does the damage (unseen: the beam drawn is the burst; a bolt as
+  // the cannon's, so it hits what the cannon hits, is sent to the other
+  // players, and a UFO sees it coming), the flash and the zap.
+  _fireLaser() {
+    const mgr = this.manager;
+    const L = JET_LASER;
+    const from = this.laserOrigin(new THREE.Vector3());
+    const fwd = this.forward(new THREE.Vector3());
+    const a = this._laserAssist(from, fwd);
+    const dir = a ? a.dir : fwd;
+    this.laserT = L.burst + L.recharge;
+    this.laserBursts++;
+    const shot = { t: 0, origin: from, dir, hitDist: null, hitKind: null, serial: 0, assisted: !!a, target: a?.ref ?? null, flared: false, remote: false };
+    // (In the jet's own frame: what the other players' copies draw it along.)
+    this._laserLocal = (this._laserLocal || new THREE.Vector3()).copy(dir).applyQuaternion(_lq.copy(this.q).invert());
+    this.laserShot = shot;
+    if (mgr.lasers) {
+      const b = mgr.lasers.fire({ from, dir, color: LASER_C, speed: L.speed, damage: L.damage * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: L.range, radius: 0.012, length: 2, scorch: false, sound: false, onHit: (bolt, hit, point) => this._laserStruck(shot, bolt, hit, point) });
+      shot.serial = b.serial;
+    }
+    this._laserFlash(from);
+    this._sound(() => mgr.audio?.playJetLaserZap?.());
+  }
+
+  // The flash at the emitter as a burst leaves it.
+  _laserFlash(from) {
+    const fx = this.manager.effects;
+    if (!fx?.glow) return;
+    fx.glow.spawn({ x: from.x, y: from.y, z: from.z, vx: this.vel.x, vy: this.vel.y, vz: this.vel.z, life: 0.12, size0: 4.2, size1: 0.8, color0: LASER_CORE, alpha: 1 });
+    fx.glow.spawn({ x: from.x, y: from.y, z: from.z, vx: this.vel.x, vy: this.vel.y, vz: this.vel.z, life: 0.22, size0: 2.4, size1: 6, color0: LASER_GLOW, alpha: 0.6 });
+  }
+
+  // Our burst's bolt struck (js/lasers.js onHit): the beam ends there; on a
+  // block it burns a small hole (ours only: the blocks reach the other
+  // players as edits).
+  _laserStruck(shot, bolt, hit, point) {
+    if (bolt.serial !== shot.serial) return;
+    shot.hitDist = point.distanceTo(shot.origin);
+    shot.hitKind = hit.block ? "block" : "target";
+    const fx = this.manager.effects;
+    if (!hit.block || this.puppet || !fx?._carve) return;
+    const mgr = this.manager;
+    const at = _lb.copy(point).addScaledVector(shot.dir, 0.6);
+    const id0 = mgr.world.getBlock(hit.block.block[0], hit.block.block[1], hit.block.block[2]);
+    const removed = fx._carve(at, JET_LASER.burnR);
+    if (removed.length) fx.floodInto?.(removed);
+    this.laserBurnt = (this.laserBurnt || 0) + removed.length / 4;
+    // Molten bits flying out.
+    if (fx.debris && removed.length) {
+      const rgb = mgr.world.blockColors?.[removed[3] ?? id0] || [0.4, 0.36, 0.32];
+      const c = this._burnC || (this._burnC = new THREE.Color());
+      c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+      const d = shot.dir;
+      for (let i = 0; i < 6; i++) fx.debris.spawn(at.x, at.y, at.z, -d.x * 7 + (Math.random() - 0.5) * 7, 4 + Math.random() * 5, -d.z * 7 + (Math.random() - 0.5) * 7, 0.2 + Math.random() * 0.15, c, 1.2);
+    }
+  }
+
+  // (Round 21) What the aim assist may pick: UFOs, the enemy aircraft and
+  // ground vehicles (gunships too), and whatever `vehicles.aimTargets`'
+  // providers give (a boss's weak points). Never another player or their
+  // vehicle. Each: { pos, vel, radius, ref, kind, name }.
+  _aimTargets() {
+    const mgr = this.manager;
+    const list = [];
+    for (const u of mgr.ufos?.ufos ?? []) {
+      if (u.falling || u.state === "gone" || u.state === "leave" || u.captured) continue;
+      list.push({ pos: u.pos, vel: u.vel, radius: u.radius, ref: u, kind: "ufo" });
+    }
+    for (const v of mgr.vehicles) {
+      if (v === this || !v.alive || (v.puppet && v.netOcc)) continue; // (another player's: never)
+      if (v.isEnemyJet || v.isEnemyGround) list.push({ pos: v.pos, vel: v.vel, radius: v.hitRadius ?? v.radius ?? 5, ref: v, kind: v.isEnemyJet ? "jet" : "vehicle" });
+    }
+    for (const fn of mgr.aimTargets ?? []) {
+      let got = null;
+      try {
+        got = fn(this);
+      } catch (err) {
+        if (!fn._aimWarned) console.warn("an aim target provider failed:", err);
+        fn._aimWarned = true;
       }
-      if (this._laserPulseT < 0) this._laserPulseT = 0;
-      if (this.laserHeat >= 1) {
-        this.laserJam = true;
-        this.laserOn = false;
-        if (this === mgr.active) {
-          this._laserJamMsgT = 0.8;
-          mgr.onMessage?.("LASER OVERHEATED: let it cool");
-          mgr.audio?.playOverheat?.();
+      if (got) for (const t of got) if (t?.pos && !t.player && !t.friendly) list.push({ radius: 4, kind: "other", ...t });
+    }
+    return list;
+  }
+
+  // (Round 21) The aim assist: the target nearest the nose within the cone
+  // (JET_LASER.cone near, coneFar at the full range; to the target's edge),
+  // and the burst's direction bent toward where it will be when the bolt
+  // gets there (its own velocity: the bolt doesn't carry the jet's), by at
+  // most the cone. Null: nothing there (the burst goes along the nose).
+  _laserAssist(from, fwd) {
+    if (this.cfg.aimAssist === false) return null;
+    const L = JET_LASER;
+    let best = null;
+    let bestScore = Infinity;
+    const P = _la[0];
+    const D = _la[1];
+    for (const t of this._aimTargets()) {
+      D.copy(t.pos).sub(from);
+      let dist = D.length();
+      if (dist < 15 || dist > L.range + (t.radius || 0)) continue;
+      // Lead: where it will be when the bolt gets there (a few passes).
+      P.copy(t.pos);
+      if (t.vel) {
+        let tt = dist / L.speed;
+        for (let i = 0; i < 3; i++) {
+          P.copy(t.pos).addScaledVector(t.vel, tt);
+          tt = P.distanceTo(from) / L.speed;
         }
       }
-    } else {
-      this.laserHeat = Math.max(0, this.laserHeat - L.cool * dt);
-      if (this.laserJam && this.laserHeat < L.resume) this.laserJam = false;
+      D.copy(P).sub(from);
+      dist = D.length();
+      if (dist < 1e-3) continue;
+      const ang = D.angleTo(fwd);
+      const cone = laserCone(dist);
+      const edge = ang - Math.atan2((t.radius || 0) * 0.8, dist);
+      if (edge > cone) continue;
+      const score = Math.max(0, edge) + (dist / L.range) * 0.01;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { t, pos: P.clone(), dist, ang, cone };
+      }
     }
-    this._drawLaser(dt, this.laserOn, true);
+    if (!best) return null;
+    const aim = _la[2].copy(best.pos).sub(from).normalize();
+    const bend = Math.min(best.ang, best.cone);
+    const axis = _la[3].crossVectors(fwd, aim);
+    const dir = axis.lengthSq() > 1e-12 ? fwd.clone().applyAxisAngle(axis.normalize(), bend) : aim.clone();
+    const r = best.t.ref;
+    const name = best.t.name || (best.t.kind === "ufo" ? (r?.boss ? String(r.bossName || "BOSS").toUpperCase() : "UFO") : r?.isEnemyJet ? "BANDIT" : groundName(r) || "TARGET");
+    return { dir, pos: best.pos, target: best.t.pos.clone(), ref: r ?? null, radius: best.t.radius || 0, dist: best.dist, ang: best.ang, bend, name };
   }
 
-  // One pulse: a very fast bolt along the nose from the emitter (the damage;
-  // a bolt as the cannon's, so it hits what the cannon hits, is sent to the
-  // other players, and a UFO sees it coming).
-  _laserPulse() {
-    const mgr = this.manager;
-    if (!mgr.lasers) return;
-    const from = this.laserOrigin(_lp);
-    const dir = this.forward(_ld);
+  // The burst drawn (ours, or another player's copy): a white-hot core in a
+  // blue glow from the emitter along its line, out as far as its bolt got
+  // (the bolt's speed), to where it struck (or the first block, UFO or
+  // aircraft on the line: it strikes there next); after BURST s its tail
+  // leaves the nose and follows the head. A flare, sparks and smoke where it
+  // strikes.
+  _drawLaser(dt) {
+    const s = this.laserShot;
     const L = JET_LASER;
-    mgr.lasers.fire({ from, dir, color: LASER_C, speed: L.speed, damage: L.damage * (this.cannonScale ?? 1), owner: this.cannonOwner || "jet", source: this, range: L.range, radius: 0.06, length: 30, scorch: false, sound: false });
-    this.laserPulses = (this.laserPulses || 0) + 1;
-  }
-
-  // The beam (on: drawn this frame): a white-hot core in a blue glow from the
-  // emitter to the first thing along the nose (a block, a UFO, an aircraft),
-  // flickering, wider far off (seen from a distance); a glow at the emitter,
-  // sparks and smoke where it burns. owner: our own (not another player's
-  // copy): a spot kept under it for JET_LASER.burn seconds burns a hole.
-  _drawLaser(dt, on, owner) {
     const mgr = this.manager;
-    const level = on ? (this === mgr.active ? 1 : Math.max(0, 1 - this.pos.distanceTo(mgr.effects?.listener ?? this.pos) / 420)) : 0;
-    if (level > (mgr._laserLevel || 0)) mgr._laserLevel = level;
-    if (!on) {
-      if (this._beam) this._beam.group.visible = false;
+    if (!s || !this.alive) {
+      this.laserShot = null;
+      this.laserOn = false;
       this.laserHit = null;
-      this._burnAt = null;
+      if (this._beam) this._beam.group.visible = false;
       return;
     }
-    // (The beam rides on the jet: its mount under the nose, pointing along it;
-    // only its length changes. Hidden with the jet, in another dimension too.)
+    s.t += dt;
+    const on = s.t <= L.burst;
+    this.laserOn = on;
+    const dir = s.dir;
+    let head = Math.min(L.range, L.speed * s.t);
+    let kind = s.hitKind;
+    if (s.hitDist !== null) head = Math.min(head, s.hitDist);
+    else {
+      kind = null;
+      const wh = mgr.world.raycast(s.origin, dir, head, { solidOnly: true });
+      if (wh) {
+        head = wh.distance;
+        kind = "block";
+      }
+      const uh = mgr.ufos?.raycast(s.origin, dir, head);
+      if (uh) {
+        head = uh.distance;
+        kind = "ufo";
+      }
+      const vh = mgr.raycast?.(s.origin, dir, head, this);
+      if (vh) {
+        head = vh.distance;
+        kind = "vehicle";
+      }
+    }
+    const tail = on ? this.laserOrigin(_lp) : _lp.copy(s.origin).addScaledVector(dir, L.speed * (s.t - L.burst));
+    const end = _le.copy(s.origin).addScaledVector(dir, head);
+    const seg = _lb.copy(end).sub(tail);
+    const len = seg.dot(dir);
+    if (len < 0.5) {
+      // (All of it gone past the end, or the jet flew past where it struck.)
+      this.laserShot = null;
+      this.laserOn = false;
+      this.laserHit = null;
+      if (this._beam) this._beam.group.visible = false;
+      return;
+    }
     let b = this._beam;
-    if (!b) {
-      b = this._beam = makeLaserBeam(this.root);
-      const m = LASER_MOUNT[this.spec.id] || LASER_MOUNT.f22;
-      b.group.position.set(0, m[1], -m[0]);
-      b.group.rotation.set(0, Math.PI, 0);
-    }
-    const from = this.laserOrigin(_lp);
-    const dir = this.forward(_ld);
-    let len = JET_LASER.range;
-    let kind = null;
-    let block = null;
-    const wh = mgr.world.raycast(from, dir, len, { solidOnly: true });
-    if (wh) {
-      len = wh.distance;
-      kind = "block";
-      block = wh;
-    }
-    const uh = mgr.ufos?.raycast(from, dir, len);
-    if (uh) {
-      len = uh.distance;
-      kind = "ufo";
-    }
-    const vh = mgr.raycast?.(from, dir, len, this);
-    if (vh) {
-      len = vh.distance;
-      kind = "vehicle";
-    }
-    const end = _le.copy(from).addScaledVector(dir, len);
-    const t = this.time;
-    const flick = 0.85 + 0.3 * Math.random();
+    if (!b) b = this._beam = makeLaserBeam(mgr.scene);
+    // (Brightest and widest as it leaves, thinner after, fading once it's off the nose.)
+    const flash = Math.max(0, 1 - s.t / 0.06);
+    const fade = on ? 1 : Math.max(0.15, 1 - (s.t - L.burst) / 0.3);
+    const flick = 0.9 + 0.2 * Math.random();
+    const w = (1 + 0.8 * flash) * flick;
     b.group.visible = true;
-    b.core.scale.set(0.05 * flick, 0.05 * flick, len);
-    b.halo.scale.set(0.16 * flick, 0.16 * flick, len);
-    b.haze.scale.set(0.42, 0.42, len);
-    b.haze.material.opacity = 0.12 + 0.05 * Math.sin(t * 40);
-    this.laserHit = { point: end.clone(), kind, dist: len, from: from.clone(), dir: dir.clone() };
+    b.group.position.copy(tail);
+    b.group.quaternion.setFromUnitVectors(Z, seg.normalize());
+    const l = tail.distanceTo(end);
+    b.core.scale.set(0.075 * w, 0.075 * w, l);
+    b.halo.scale.set(0.24 * w, 0.24 * w, l);
+    b.haze.scale.set(0.6 * w, 0.6 * w, l);
+    b.core.material.opacity = fade;
+    b.halo.material.opacity = 0.75 * fade;
+    b.haze.material.opacity = (0.16 + 0.14 * flash) * fade;
+    this.laserHit = { point: end.clone(), kind, dist: head, from: tail.clone(), dir: dir.clone(), assisted: s.assisted };
     const fx = mgr.effects;
     if (!fx?.glow) return;
-    // The emitter's glow.
-    fx.glow.spawn({ x: from.x, y: from.y, z: from.z, vx: this.vel.x, vy: this.vel.y, vz: this.vel.z, life: 0.05, size0: 1.1 * flick, size1: 0.5, color0: LASER_C, alpha: 0.9 });
-    if (!kind) return;
-    // Where it hits: a hot flare, sparks, smoke (fewer on the low presets).
+    if (on) fx.glow.spawn({ x: tail.x, y: tail.y, z: tail.z, vx: this.vel.x, vy: this.vel.y, vz: this.vel.z, life: 0.05, size0: 1.6 * flick, size1: 0.6, color0: LASER_C, alpha: 0.95 });
+    // Where it strikes (once it gets there): a flare, a burst of sparks,
+    // smoke, the crack; then sparks while the beam is on it.
+    if (!kind || L.speed * s.t < head) return;
     const q = effectsQuality.scale;
     const back = _lb.copy(end).addScaledVector(dir, -0.25);
-    fx.glow.spawn({ x: back.x, y: back.y, z: back.z, life: 0.06, size0: 2.2 * flick, size1: 0.8, color0: LASER_CORE, alpha: 0.95 });
-    const n = Math.max(1, Math.round(3 * q));
+    const first = !s.flared;
+    s.flared = true;
+    fx.glow.spawn({ x: back.x, y: back.y, z: back.z, life: first ? 0.16 : 0.06, size0: (first ? 5.5 : 2.4) * flick, size1: 0.8, color0: LASER_CORE, alpha: 1 });
+    const n = Math.max(1, Math.round((first ? 12 : 2) * q));
     for (let i = 0; i < n; i++) {
       const r = () => Math.random() * 2 - 1;
-      const k = 3 + Math.random() * 9;
-      fx.glow.spawn({ x: back.x, y: back.y, z: back.z, vx: -dir.x * k + r() * 7, vy: -dir.y * k + r() * 7 + 3, vz: -dir.z * k + r() * 7, life: 0.2 + Math.random() * 0.3, size0: 0.22, size1: 0.04, color0: i % 2 ? LASER_C : SPARK_C, alpha: 1, drag: 1.5, gravity: 0.9 });
+      const k = 4 + Math.random() * 12;
+      fx.glow.spawn({ x: back.x, y: back.y, z: back.z, vx: -dir.x * k + r() * 9, vy: -dir.y * k + r() * 9 + 3, vz: -dir.z * k + r() * 9, life: 0.2 + Math.random() * 0.35, size0: 0.26, size1: 0.04, color0: i % 2 ? LASER_C : SPARK_C, alpha: 1, drag: 1.5, gravity: 0.9 });
     }
-    if (fx.smoke && Math.random() < 0.35 * q + 0.1) fx.smoke.spawn({ x: back.x, y: back.y, z: back.z, vx: (Math.random() - 0.5) * 1.2, vy: 1.5, vz: (Math.random() - 0.5) * 1.2, life: 1.4, size0: 0.5, size1: 2.4, color0: LASER_SMOKE0, color1: LASER_SMOKE1, alpha: 0.45, drag: 1 });
-    // Burning a hole (ours only: the blocks reach the other players as edits).
-    if (!owner || this.puppet || kind !== "block") {
-      this._burnAt = null;
-      return;
-    }
-    if (this._burnAt && this._burnAt.distanceTo(end) < 2.5) this._burnT += dt;
-    else {
-      this._burnAt = (this._burnAt || new THREE.Vector3()).copy(end);
-      this._burnT = 0;
-    }
-    if (this._burnT >= JET_LASER.burn && fx._carve) {
-      this._burnT = 0;
-      const at = _lb.copy(end).addScaledVector(dir, 0.6);
-      const removed = fx._carve(at, JET_LASER.burnR);
-      if (removed.length) fx.floodInto?.(removed);
-      this.laserBurnt = (this.laserBurnt || 0) + removed.length / 4;
-      // Molten bits flying out.
-      if (fx.debris && block) {
-        const id = removed[3] ?? mgr.world.getBlock(block.block[0], block.block[1], block.block[2]);
-        const rgb = mgr.world.blockColors?.[id] || [0.4, 0.36, 0.32];
-        const c = this._burnC || (this._burnC = new THREE.Color());
-        c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
-        for (let i = 0; i < 4; i++) fx.debris.spawn(at.x, at.y, at.z, -dir.x * 6 + (Math.random() - 0.5) * 6, 4 + Math.random() * 4, -dir.z * 6 + (Math.random() - 0.5) * 6, 0.2 + Math.random() * 0.15, c, 1.2);
-      }
-      const ears = fx.listener;
-      mgr.audio?.playLaserHit?.(ears ? at.distanceTo(ears) : 0);
-    }
+    // (The crack on a block is the bolt's own, js/lasers.js.)
+    if (first && fx.smoke) for (let i = 0; i < Math.max(1, Math.round(3 * q)); i++) fx.smoke.spawn({ x: back.x, y: back.y, z: back.z, vx: (Math.random() - 0.5) * 2, vy: 1.5, vz: (Math.random() - 0.5) * 2, life: 1.4, size0: 0.6, size1: 2.8, color0: LASER_SMOKE0, color1: LASER_SMOKE1, alpha: 0.45, drag: 1 });
   }
 
-  // Online: the laser's on/off goes with the jet's state (16 in its flags);
-  // another player's copy draws the beam from it (net/vehicles.js).
+  // Online: each burst goes with the jet's state (`lz`: the count and its
+  // direction in the jet's own frame, a string so it isn't blended between
+  // two states); another player's copy draws it along that (the aim
+  // assist's bend too) from its own nose, and its bolt arrives as any bolt.
   netState(s) {
-    if (this.laserOn) s.f = (s.f | 0) | 16;
+    const d = this._laserLocal;
+    if (this.laserBursts > 0 && d) s.lz = `${this.laserBursts % 1000}:${d.x.toFixed(3)}:${d.y.toFixed(3)}:${d.z.toFixed(3)}`;
   }
 
   netJet(st, dt) {
-    if (st) this._netLaser = !!((st.f | 0) & 16);
-    this.laserOn = !!this._netLaser && this.alive;
-    this._drawLaser(dt, this.laserOn, false);
+    if (st) {
+      const lz = typeof st.lz === "string" ? st.lz : null;
+      if (!this._netSeen) {
+        // (A burst from before we saw this jet isn't drawn.)
+        this._netSeen = true;
+        this._netLz = lz;
+      } else if (lz !== this._netLz) {
+        this._netLz = lz;
+        const a = lz ? lz.split(":").map(Number) : null;
+        if (a && a.length === 4 && a.every(Number.isFinite) && this.alive) {
+          const dir = new THREE.Vector3(a[1], a[2], a[3]);
+          if (dir.lengthSq() > 0.5) {
+            dir.normalize().applyQuaternion(this.q);
+            this.laserShot = { t: 0, origin: this.laserOrigin(new THREE.Vector3()), dir, hitDist: null, hitKind: null, serial: 0, assisted: false, target: null, flared: false, remote: true };
+            this.laserBursts++;
+            this._laserFlash(this.laserShot.origin);
+            this._sound(() => this.manager.audio?.playJetLaserZap?.());
+          }
+        }
+      }
+    }
+    this._drawLaser(dt);
   }
 
   _effects(dt, aero) {
@@ -1551,10 +1680,15 @@ export class Jet extends Vehicle {
     // (The B-2 has no cannon: a left click is only the lock's cancel.)
     if (firing && !this.jammed && this.cannonT <= 0 && this.spec.cannonRate > 0) this._fireCannon(fwd);
     // (Round 16: the unarmed SR-71's right button is its reconnaissance camera.)
-    // (Round 20) The nose laser: the right button held fires it (no lock).
+    // (Round 20) The nose laser: the right button (no lock). (Round 21) Only
+    // the right button: a click is one burst, held it fires one each time it
+    // is charged; the cannon above is the left button's alone.
     if (this.weapon === "laser") {
-      if (!input.buttons[2]) this._laserBlock = false;
-      this._laserWant = !!input.buttons[2] && !this._laserBlock && !this.freeLook && !(both && this.bothT > LOOK_DELAY * 0.5);
+      const pressed = input.pressed.has("mouse2");
+      if (!input.buttons[2] || pressed) this._laserBlock = false;
+      const free = !this.freeLook && !(both && this.bothT > LOOK_DELAY * 0.5);
+      this._laserWant = (!!input.buttons[2] || pressed) && !this._laserBlock && free;
+      this._laserPress = pressed && free;
       this._laserLock(dt);
     } else if (this.weapon === "recon") this._recon(dt, input);
     else this._updateLock(dt, input);
@@ -1637,7 +1771,7 @@ export class Jet extends Vehicle {
       missile: `MISSILES selected (X: ${next})`,
       super: `SUPER MISSILE selected${this.superT > 0 ? ` (reloading ${Math.ceil(this.superT)} s)` : ""}: right click fires it (X: ${next})`,
       mininuke: `MINI-NUKE selected (${this.miniAmmo} left${this.miniT > 0 && this.miniAmmo > 0 ? `, ready in ${Math.ceil(this.miniT)} s` : ""}): right click launches it; it arms after ${MINI_NUKE.arm} s. Fire from far off! (X: ${next})`,
-      laser: `NOSE LASER selected: hold right click to fire along the nose; watch the heat (X: ${next})`,
+      laser: `NOSE LASER selected: right click fires a burst (it helps your aim a little); ${JET_LASER.recharge} s to recharge (X: ${next})`, // (Round 21)
       recon: `RECON CAMERA selected: right click takes a photo (X: ${next})`,
     }[w];
     this.manager.onMessage?.(say);
@@ -2878,7 +3012,6 @@ export class Jet extends Vehicle {
     if (this.warn) warnings.push(this.warn.kind === "missile" ? "MISSILE INCOMING" : "INCOMING ATTACK");
     else if (this.incoming > 0) warnings.push("INCOMING ATTACK");
     if (this.jammed) warnings.push("CANNON OVERHEATED");
-    if (this.laserJam) warnings.push("LASER OVERHEATED"); // (Round 20)
     if (this.miniDanger === "close") warnings.push("DANGER CLOSE: TURN AWAY FROM THE MINI-NUKE");
     else if (this.miniDanger === "short") warnings.push("TOO CLOSE TO LAUNCH: THE MINI-NUKE WOULD BE A DUD");
     if (this.health < this.maxHealth * 0.3) warnings.push("DAMAGE CRITICAL");
@@ -2904,7 +3037,7 @@ export class Jet extends Vehicle {
         ...(this.airbrake > 0.02 ? [["Air brakes", `<span class="vh-on">${this.airbrake > 0.97 ? "OPEN" : this.onGround ? "wheel brakes" : "OPENING"}</span> ${"▮".repeat(Math.round(this.airbrake * 5))}${"▯".repeat(5 - Math.round(this.airbrake * 5))}`]] : []),
         ...(this.freeLook ? [["View", `<span class="vh-lock">FREE LOOK</span> (controls held)`]] : []),
         ["Heading", `${Math.round(heading)}° ${card}`],
-        this.weapon === "recon" ? ["Camera", this.reconT > 0 ? "advancing the film..." : `READY (RMB: recon photo)${this.reconShots ? ` · ${this.reconShots} taken, ${this.reconSeen} contacts in the last` : ""}`] : this.weapon === "laser" ? ["Laser", this.laserJam ? `<span class="vh-lock">OVERHEATED</span> (cooling)` : this.laserOn ? `<span class="vh-on">FIRING</span>${this.laserHit?.kind ? ` · ${Math.round(this.laserHit.dist)} blocks` : ""}` : "READY (hold RMB)"] : ["Missile", lockText],
+        this.weapon === "recon" ? ["Camera", this.reconT > 0 ? "advancing the film..." : `READY (RMB: recon photo)${this.reconShots ? ` · ${this.reconShots} taken, ${this.reconSeen} contacts in the last` : ""}`] : this.weapon === "laser" ? ["Laser", this.laserOn ? `<span class="vh-on">BURST</span>${this.laserHit?.kind ? ` · ${Math.round(this.laserHit.dist)} blocks` : ""}${this.laserShot?.assisted ? " · assisted" : ""}` : this.laserT > 0 ? `charging ${this.laserT.toFixed(1)} s` : `READY (RMB: a burst)${this.laserAim ? ` · <span class="vh-lock">AIM ${this.laserAim.name}</span>` : ""}`] : ["Missile", lockText],
         // (Round 17) The selected missile (X switches) and the heavy one's reload.
         // (Round 20) X goes on to the mini-nuke and the nose laser.
         ["Weapon", this._weaponRow()],
@@ -2913,8 +3046,8 @@ export class Jet extends Vehicle {
         ...(this.spec.nuke ? [["Nuke", this.nukeT > 0 ? `reloading ${Math.ceil(this.nukeT)} s` : "READY (B)"]] : []),
         ...(onRunway ? [["Takeoff", onRunway]] : []),
       ],
-      bars: [...(this.spec.cannonRate > 0 ? [{ label: "Cannon heat", value: this.heat, hot: this.jammed || this.heat > 0.75 }] : []), ...(this.weapon === "laser" || this.laserHeat > 0 ? [{ label: "Laser heat", value: this.laserHeat, hot: this.laserJam || this.laserHeat > 0.75 }] : [])],
-      weapon: `${this.spec.cannonRate > 0 ? "LMB cannon · " : ""}RMB ${{ missile: "missile (hold to lock; LMB cancels)", super: "SUPER MISSILE (hold to lock; LMB cancels)", mininuke: "MINI-NUKE (hold to lock; LMB cancels)", laser: "NOSE LASER (hold)", recon: "recon camera" }[this.weapon] || "missile"} · X switch (${this.weapons.map((w) => WEAPON_NAMES[w].toLowerCase()).join(" / ")}) · C flares${this.spec.nuke ? " · B NUKE" : ""}`,
+      bars: [...(this.spec.cannonRate > 0 ? [{ label: "Cannon heat", value: this.heat, hot: this.jammed || this.heat > 0.75 }] : []), ...(this.weapon === "laser" ? [{ label: "Laser charge", value: this._laserCharge(), hot: false }] : [])],
+      weapon: `${this.spec.cannonRate > 0 ? "LMB cannon · " : ""}RMB ${{ missile: "missile (hold to lock; LMB cancels)", super: "SUPER MISSILE (hold to lock; LMB cancels)", mininuke: "MINI-NUKE (hold to lock; LMB cancels)", laser: "NOSE LASER (a click: a burst)", recon: "recon camera" }[this.weapon] || "missile"} · X switch (${this.weapons.map((w) => WEAPON_NAMES[w].toLowerCase()).join(" / ")}) · C flares${this.spec.nuke ? " · B NUKE" : ""}`,
       warning: warnings.join(" · "),
       health: this.health / this.maxHealth,
       help: `${cfg.assist ? "Mouse: steer" : "Mouse: stick"} · W/S throttle${this.spec.ab !== false ? " · Shift afterburner (double tap: latch)" : ""} · X weapons (1-4) · A/D roll · Q/E rudder · Space air brakes · both mouse buttons: look around · F ${this.onGround ? "get out" : "EJECT"} · F5 view · I info`,
@@ -2932,7 +3065,7 @@ export class Jet extends Vehicle {
         : w === "mininuke"
           ? `<span class="vh-lock">MINI-NUKE</span> ${this.miniAmmo <= 0 ? "NONE LEFT" : this.miniT > 0 ? `reloading ${Math.ceil(this.miniT)} s` : "READY"} (${this.miniAmmo} aboard)`
           : w === "laser"
-            ? `<span class="vh-lock">NOSE LASER</span> heat ${Math.round(this.laserHeat * 100)}%${this.laserJam ? " OVERHEATED" : ""}`
+            ? `<span class="vh-lock">NOSE LASER</span> ${this.laserT > 0 ? `charging ${this.laserT.toFixed(1)} s` : "READY"}`
             : w === "recon"
               ? "RECON CAMERA"
               : `MISSILES · super missile ${this.superT > 0 ? `reloading ${Math.ceil(this.superT)} s` : "ready"}`;
@@ -2958,7 +3091,7 @@ export class Jet extends Vehicle {
         ["Flares", `a salvo of ${FLARE_SALVO} decoys, one after another (over ${((FLARE_SALVO - 1) * FLARE_INTERVAL).toFixed(1)} s), ${FLARE_COOLDOWN} s to reload: fool missiles and seeking shots`],
         ["Nuke", this.spec.nuke ? "one big bomb on a parachute (B); no cooldown" : "none: only the B-2 bomber carries the big nuke"],
         ["Mini-nuke", `X (or 3) selects it: a small tactical nuke on a missile (a click: straight ahead; hold: lock), ${this.miniMax} aboard, ${MINI_NUKE.reload} s between two; it arms ${MINI_NUKE.arm} s after launch (a hit sooner is a dud) and goes off as a nuke of size ${MINI_NUKE.R} (the big one: 96 by default): a crater about ${Math.round(MINI_NUKE.R * 1.6)} blocks in radius, a mushroom cloud; its blast hurts you too within about ${MINI_NUKE.danger} blocks. One more every ${MINI_NUKE.rearm} s in the air; land and stop for ${MINI_NUKE.rearmGround} s to rearm fully`],
-        ["Nose laser", `X (or 4) selects it; hold the right button: a beam straight along the nose from under it, ${JET_LASER.range} blocks, ${JET_LASER.damage * JET_LASER.rate} damage a second; overheats after ${Math.round(1 / JET_LASER.heatUp)} s of fire (works again once cooled to ${Math.round(JET_LASER.resume * 100)}%); kept on one spot it burns through blocks`],
+        ["Nose laser", `X (or 4) selects it; a right click fires a burst from under the nose, ${JET_LASER.range} blocks, ${JET_LASER.damage} damage; ${JET_LASER.recharge} s to recharge (held: a burst every ${JET_LASER.burst + JET_LASER.recharge} s). Aim assist: a UFO or enemy aircraft within about ${Math.round((JET_LASER.cone * 180) / Math.PI)} degrees of the nose draws the burst onto it (leading it). A burst on a block burns a small hole`],
         ["Flight assist", cfg.assist ? "on: the jet flies toward the crosshair" : "off: the mouse is the stick"],
       ],
       controls: [
@@ -2976,7 +3109,7 @@ export class Jet extends Vehicle {
         ...(this.weapon === "recon"
           ? [["Right click", "Reconnaissance photo (counts what is within 3,000 blocks)"]]
           : this.weapon === "laser"
-            ? [["Right click (hold)", "The nose laser: a beam straight ahead along the nose; watch its heat"]]
+            ? [["Right click", "The nose laser: a burst along the nose (onto a target close to it); held: one each time it is charged"]]
             : [["Right click", this.autoAim ? "Missile: homing at the auto aim's lock, else straight ahead" : "Unguided missile straight ahead"], ["Right click (hold)", "Missile lock on the UFO or aircraft nearest the view centre (attackers first); release to fire; click again to bring the view back"]]),
         ["C", "Flares"],
         ["B", this.spec.nuke ? "Drop the nuke" : "(the B-2 only: the nuke)"],
@@ -3067,7 +3200,7 @@ export class Jet extends Vehicle {
       w === "mininuke"
         ? { kind: w, name: `MINI-NUKE ${this.miniAmmo}`, ready: this.miniAmmo <= 0 ? 0 : 1 - this.miniT / MINI_NUKE.reload, left: this.miniAmmo <= 0 ? MINI_NUKE.rearm - this.rearmT : this.miniT, ammo: this.miniAmmo }
         : w === "laser"
-          ? { kind: w, name: "LASER", ready: 1 - this.laserHeat, heat: this.laserHeat, jam: this.laserJam, on: this.laserOn }
+          ? { kind: w, name: "LASER", ready: this._laserCharge(), left: this.laserT, on: this.laserOn }
           : this.armed
             ? { kind: heavy ? "super" : "missile", super: heavy, name: heavy ? "SUPER MSL" : "MSL", ready: heavy ? 1 - this.superT / SUPER_MISSILE.reload : this.missileT > 0 ? 0.5 : 1, left: heavy ? this.superT : this.missileT }
             : null;
@@ -3081,7 +3214,15 @@ export class Jet extends Vehicle {
       missiles,
       threat: this.warn && this._warnPos ? { pos: this._warnPos, dist: this.warn.dist, kind: this.warn.kind } : null,
       spiked: this.spiked || null,
+      // (Round 21) The laser's aim assist: the target a burst would bend onto now.
+      laserAim: w === "laser" && this.laserAim && !this.freeLook ? { pos: this.laserAim.target, lead: this.laserAim.pos, radius: this.laserAim.radius, dist: this.laserAim.dist, name: this.laserAim.name } : null,
     };
+  }
+
+  // (Round 21) The laser's charge: 0 just fired, 1 ready.
+  _laserCharge() {
+    const L = JET_LASER;
+    return clamp(1 - this.laserT / (L.burst + L.recharge), 0, 1);
   }
 
   // Shot down (or broken up) in the air: a big blast, then the burning wreck
@@ -3263,22 +3404,14 @@ VehicleManager.prototype.update = function (dt) {
   if (this.enabled && this.strayBombs?.length) stepBombs(this, this.strayBombs, dt);
   if (!this.airFx && this.scene && this.effects) this.airFx = new AirFx(this);
   if (this.enabled) this.airFx?.update(dt);
-  // (Round 20) The nose lasers' hum: the loudest beam this frame (ours, or
-  // another's by its distance), one voice.
-  const lv = this._laserLevel || 0;
-  this._laserLevel = 0;
-  if (lv > 0 || this._laserHum) {
-    this._laserHum = lv > 0;
-    const a = this.active;
-    this.audio?.setJetLaser?.(lv, a?.type === "jet" ? a.laserHeat : 0);
-  }
+  // ((Round 21) No laser hum any more: each burst has its own zap.)
 };
 
 // (Round 20) The nose laser's beam: three open tubes along +Z, unit long
 // (scaled to the beam's length), wider at the far end (still seen far off):
 // a white-hot core, a blue halo and a faint haze (additive, bloom). One per
-// jet that fires, made on its first shot, on the jet (`parent`); the
-// geometries are shared.
+// jet that fires, made on its first shot, in the world (`parent`: Round 21,
+// a burst runs along its own line, not the nose); the geometries are shared.
 let _beamGeo = null;
 function makeLaserBeam(parent) {
   const g = _beamGeo || (_beamGeo = {

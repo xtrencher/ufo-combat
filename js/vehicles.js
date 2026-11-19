@@ -403,6 +403,10 @@ export class VehicleManager {
     this.pilotName = null; // (v) => the name of whoever flies it (net/seats.js)
     this.boardPrompt = null; // (v) => the "Press F" text for v, or null (net/seats.js)
     this.config = {}; // per-type settings (Vehicles tab), filled in by main.js
+    // (Round 21) More for the jets' laser aim assist to pick (vehicle-jet.js
+    // _aimTargets): functions (jet) => a list of { pos, vel?, radius?, ref?,
+    // name? } (a boss's weak points); remove a provider when it's done.
+    this.aimTargets = [];
     this.parachute = new Parachute(scene);
     this.input = { dx: 0, dy: 0, buttons: [false, false, false], wheel: 0, pressed: new Set(), keys: player.keys };
     // Hooks set by the game.
