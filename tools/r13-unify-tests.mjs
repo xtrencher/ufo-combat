@@ -73,7 +73,7 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 await check("the terrain's version: new worlds the vanilla terrain, a Missions save from before Round 13 the old one", async () => {
   const g = WT.terrainGenOf;
-  assert(g("missions", undefined) === WT.GEN_ONE_WORLD, "a new Missions world");
+  assert(g("missions", undefined) === WT.TERRAIN_GEN && WT.TERRAIN_GEN >= WT.GEN_ONE_WORLD, "a new Missions world (Round 21: the big airports, generator 3)");
   assert(g("missions", undefined, { old: true }) === WT.GEN_LEGACY, "a Missions save without a version");
   assert(g("missions", 2, { old: true }) === WT.GEN_ONE_WORLD && g("missions", 1) === WT.GEN_LEGACY, "a saved version is kept");
   assert(g("missions", "junk", { old: true }) === WT.GEN_LEGACY && g("missions", 99) === WT.TERRAIN_GEN, "junk and a newer version");
@@ -84,7 +84,7 @@ await check("the terrain's version: new worlds the vanilla terrain, a Missions s
   };
   assert(opts("missions", 2) === JSON.stringify({ sites: true, vanilla: true, gen: 2, legacy: false, rules: true, layer: true, survival: false }), opts("missions", 2));
   assert(opts("missions", 1) === JSON.stringify({ sites: true, vanilla: false, gen: 1, legacy: true, rules: true, layer: true, survival: false }), opts("missions", 1));
-  assert(opts("survival", 1) === JSON.stringify({ sites: false, vanilla: true, gen: 2, legacy: false, rules: true, layer: false, survival: true }), opts("survival", 1));
+  assert(opts("survival", 1) === JSON.stringify({ sites: false, vanilla: true, gen: WT.TERRAIN_GEN, legacy: false, rules: true, layer: false, survival: true }), opts("survival", 1));
   WT.setWorldType("missions");
 });
 
@@ -340,7 +340,7 @@ async function browserChecks() {
       await page.goto(`http://127.0.0.1:${PORT}/index.html?seed=${SEED}&type=missions&graphics=low`, { waitUntil: "load", timeout: 60000 });
       await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
       const w = await v(page, WORLD);
-      assert(w.type === "missions" && w.gen === 2 && w.opts.sites === true && w.opts.vanilla === true && w.structures && w.vanillaVillages && w.home, `the world: ${JSON.stringify(w)}`);
+      assert(w.type === "missions" && w.gen === WT.TERRAIN_GEN && w.opts.sites === true && w.opts.vanilla === true && w.structures && w.vanillaVillages && w.home, `the world: ${JSON.stringify(w)}`);
       await play(page);
       const s = await v(page, async (g) => {
         const { ITEM, itemInfo } = await import("./js/items.js");
@@ -417,7 +417,7 @@ async function browserChecks() {
         const d = JSON.parse(localStorage.getItem(St.playerKey(seed)));
         return { type: d.worldType, gen: d.gen, surv: !!d.surv };
       }, SEED);
-      assert(saved.type === "missions" && saved.gen === 2 && saved.surv, `the save: ${JSON.stringify(saved)}`);
+      assert(saved.type === "missions" && saved.gen === WT.TERRAIN_GEN && saved.surv, `the save: ${JSON.stringify(saved)}`);
     });
 
     // (Review fix) The world's own record: a new Missions world with edits but
@@ -441,12 +441,12 @@ async function browserChecks() {
         };
         return { edits: St.hasSavedEdits(seed), rec: St.loadWorldRecord(seed) };
       }, SEED);
-      assert(before.edits && before.rec && before.rec.type === "missions" && before.rec.gen === 2, `saved: ${JSON.stringify(before)}`);
+      assert(before.edits && before.rec && before.rec.type === "missions" && before.rec.gen === WT.TERRAIN_GEN, `saved: ${JSON.stringify(before)}`);
       await page.goto(`http://127.0.0.1:${PORT}/index.html?seed=${SEED}&graphics=low`, { waitUntil: "load", timeout: 60000 });
       await page.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
       const w = await v(page, WORLD);
       const noPlayer = await page.evaluate(async (seed) => localStorage.getItem((await import("./js/storage.js")).playerKey(seed)) === null, SEED);
-      assert(w.type === "missions" && w.gen === 2 && w.opts.vanilla === true && noPlayer, `reloaded (no player save: ${noPlayer}): ${JSON.stringify(w)}`);
+      assert(w.type === "missions" && w.gen === WT.TERRAIN_GEN && w.opts.vanilla === true && noPlayer, `reloaded (no player save: ${noPlayer}): ${JSON.stringify(w)}`);
     });
 
     await browserCheck("an old Missions save (no terrain version) loads with its old terrain, plays, and keeps it in its save", async () => {
@@ -524,7 +524,7 @@ async function browserChecks() {
       await v(guest, noDraw);
       const hw = await v(host, WORLD);
       const gw = await v(guest, WORLD);
-      assert(JSON.stringify(hw) === JSON.stringify(gw) && gw.gen === 2 && gw.opts.vanilla && gw.opts.sites, `host ${JSON.stringify(hw)} guest ${JSON.stringify(gw)}`);
+      assert(JSON.stringify(hw) === JSON.stringify(gw) && gw.gen === WT.TERRAIN_GEN && gw.opts.vanilla && gw.opts.sites, `host ${JSON.stringify(hw)} guest ${JSON.stringify(gw)}`);
       const hc = await chunks(host, LIST);
       const gc = await chunks(guest, LIST);
       assert(hc === gc, `the chunks differ: ${hc} / ${gc}`);

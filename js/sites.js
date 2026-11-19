@@ -29,6 +29,10 @@
 //   helipad, fuel tanks, earth-covered ammo bunkers, sandbagged AA
 //   positions. Only in worlds made with the Round 13 terrain (an older
 //   Missions world keeps its sites as they were).
+//   (Round 21) A world made with generator 3 (a new Missions world) has
+//   bigger airports and fewer of them (AIRPORT_SIZES_BIG, SITE_CELL_BIG):
+//   longer, wider runways (two at an international one), more hangars, a
+//   bigger tower and terminal, more fuel tanks, floodlights.
 //
 // Local coordinates: u runs along the runway, v across it (the apron and the
 // city lie on the +v side); the runway's centre is (u, v) = (0, 0). `axis`
@@ -80,6 +84,32 @@ const AIRPORT_SIZES = {
   airbase: { half: 380, rw: 16, apronHalfW: 112, apronD: 62, hangars: 3, tanks: 3, parking: 3, tower: 26, terminal: false, radar: true, bunker: 0, base: true },
 };
 
+// (Round 21) The big airports of a world made with generator 3 or later
+// (worldtype.js GEN_BIG_AIRPORTS; terrain option bigAirports): about 1.6 to
+// 2 times the footprint of the ones above, and fewer of them (a bigger
+// grid cell: about 2/5 as many sites per area, fewer still once the bigger
+// pad has to find flat land). Longer, wider runways (the international one
+// has a second, parallel runway with a taxiway between the two), more
+// connectors to the taxiway, a wider and deeper apron with more hangars
+// (most of them house a fighter), a bigger control tower and terminal,
+// more fuel tanks and floodlight masts behind the hangars. tw: the
+// terminal's half length; towerW: the tower shaft's width - 1; jetHangars:
+// the share of hangars that take a fighter; masts: floodlights behind the
+// hangar row; second: the parallel runway (its centre line's distance from
+// the main one's).
+const AIRPORT_SIZES_BIG = {
+  field: { half: 440, rw: 16, apronHalfW: 130, apronD: 70, hangars: 4, tanks: 4, parking: 3, tower: 28, terminal: true, tw: 40, radar: false, bunker: 0.45 },
+  regional: { half: 540, rw: 18, apronHalfW: 180, apronD: 84, hangars: 6, tanks: 6, parking: 4, tower: 34, terminal: true, tw: 56, radar: true, bunker: 0.7 },
+  international: { half: 620, rw: 20, apronHalfW: 225, apronD: 94, hangars: 8, tanks: 9, parking: 6, tower: 42, terminal: true, tw: 68, radar: true, bunker: 0.95, second: 92 },
+  airbase: { half: 540, rw: 18, apronHalfW: 180, apronD: 84, hangars: 6, tanks: 4, parking: 4, tower: 34, terminal: false, radar: true, bunker: 0, base: true },
+};
+const SITE_CELL_BIG = 2100; // (Round 21) the bigger airports' grid cell (2.6 times the area of SITE_CELL's)
+const REACH_BIG = 730; // (their bounding half-size incl. the slopes: the 620 half runway, its end and the blend)
+const BLEND_BIG = 40; // (a longer slope down from their bigger pads)
+const HOME_GAP = 1700; // the other sites keep this far from the home airport
+const HOME_GAP_BIG = 2000;
+const JET_HANGAR_BIG = 0.75; // (Round 21) the share of a big airport's hangars that take a fighter
+
 const CITY_V_GAP = 6; // between the apron and the first street of the city
 const LOT = 32; // city grid pitch (24 lot + 8 street)
 const BUNKER_H = 10; // clear height of the bunker hall
@@ -108,6 +138,17 @@ export class SiteGrower {
     // (Round 13) The airbases come with the Round 13 terrain only (the vanilla
     // land under a Missions world): an older world's land stays as it was.
     this.bases = !off && !!terrain.options?.vanilla;
+    // (Round 21) The big airports, fewer of them (generator 3 and later:
+    // worldtype.js terrainOptions bigAirports): an older world's sites stay
+    // where and as they were.
+    this.big = !off && !!terrain.options?.bigAirports;
+    this.cell = this.big ? SITE_CELL_BIG : SITE_CELL;
+    this.reach = this.big ? REACH_BIG : REACH;
+    this.blend = this.big ? BLEND_BIG : BLEND;
+    this.sizes = this.big ? AIRPORT_SIZES_BIG : AIRPORT_SIZES;
+    // How much farther apart the sites are than the older ones: the game's
+    // "find the airport" searches reach this much farther (airports.js far()).
+    this.scale = this.cell / SITE_CELL;
     if (off) {
       this._homeDone = true;
       this.home = null;
@@ -123,7 +164,7 @@ export class SiteGrower {
   _site(cx, cz) {
     this._ensureHome();
     // The home airport belongs to the cell its centre is in.
-    if (this.home && Math.floor(this.home.x / SITE_CELL) === cx && Math.floor(this.home.z / SITE_CELL) === cz) return this.home;
+    if (this.home && Math.floor(this.home.x / this.cell) === cx && Math.floor(this.home.z / this.cell) === cz) return this.home;
     const key = this._key(cx, cz);
     if (this._cells.has(key)) return this._cells.get(key);
     const site = this._make(cx, cz);
@@ -140,18 +181,20 @@ export class SiteGrower {
     if (roll >= CITY_CHANCE + AIRPORT_CHANCE && !extraBase) return null;
     const kind = roll < CITY_CHANCE ? "city" : "airport";
     const sizeRoll = hash2((this.seed ^ SIZE_SALT) >>> 0, cx, cz);
-    let sizeName = kind === "city" ? (sizeRoll < 0.6 ? "regional" : "international") : sizeRoll < 0.45 ? "field" : sizeRoll < 0.8 ? "regional" : "international";
+    // (Round 21: the big airports are fewer small fields, more international ones.)
+    const [fieldP, regionalP] = this.big ? [0.3, 0.68] : [0.45, 0.8];
+    let sizeName = kind === "city" ? (sizeRoll < 0.6 ? "regional" : "international") : sizeRoll < fieldP ? "field" : sizeRoll < regionalP ? "regional" : "international";
     if (kind === "airport" && (extraBase || baseRoll < BASE_SHARE)) sizeName = "airbase";
     for (let t = 0; t < TRIES; t++) {
       const jx = hash2((this.seed ^ PLACE_SALT) >>> 0, cx * 16 + t, cz);
       const jz = hash2((this.seed ^ PLACE_SALT ^ 0x9e37) >>> 0, cx * 16 + t, cz);
-      const x = cx * SITE_CELL + REACH + Math.floor(jx * (SITE_CELL - REACH * 2));
-      const z = cz * SITE_CELL + REACH + Math.floor(jz * (SITE_CELL - REACH * 2));
+      const x = cx * this.cell + this.reach + Math.floor(jx * (this.cell - this.reach * 2));
+      const z = cz * this.cell + this.reach + Math.floor(jz * (this.cell - this.reach * 2));
       const axis = hash2((this.seed ^ ORIENT_SALT) >>> 0, cx * 16 + t, cz) < 0.5 ? 0 : 1;
       const flip = hash2((this.seed ^ ORIENT_SALT ^ 0x77) >>> 0, cx * 16 + t, cz) < 0.5 ? 1 : -1;
       const site = { kind, size: sizeName, x, z, axis, flip, rect: null, y: 0, seed: (this.seed ^ Math.imul(x, 0x9e3779b1) ^ Math.imul(z, 0x85ebca6b)) >>> 0, id: `${kind}:${x},${z}` };
       if (!this._fits(site)) continue;
-      if (this.home && Math.hypot(x - this.home.x, z - this.home.z) < 1700) return null; // (the home airport has its space: the other sites are at least this far from it)
+      if (this.home && Math.hypot(x - this.home.x, z - this.home.z) < (this.big ? HOME_GAP_BIG : HOME_GAP)) return null; // (the home airport has its space: the other sites are at least this far from it)
       return site;
     }
     return null;
@@ -235,10 +278,12 @@ export class SiteGrower {
           const axis = o === 0 ? (hash2((this.seed ^ ORIENT_SALT) >>> 0, x, z) < 0.5 ? 0 : 1) : 1 - (hash2((this.seed ^ ORIENT_SALT) >>> 0, x, z) < 0.5 ? 0 : 1);
           const flip = hash2((this.seed ^ ORIENT_SALT ^ 0x77) >>> 0, x, z) < 0.5 ? 1 : -1;
           const site = { kind: "airport", size: sizeName, home: true, x, z, axis, flip, rect: null, y: 0, seed: (this.seed ^ Math.imul(x, 0x9e3779b1) ^ Math.imul(z, 0x85ebca6b)) >>> 0, id: `airport:${x},${z}` };
-          if (!this._fits(site, { spread, coarse: 2 })) continue;
           // The start must lie clear of the levelled pad and its slopes.
+          // (Round 21: checked first, from the plan alone: the same answer, sooner.)
+          this._plan(site);
           const [u, v] = this.toLocal(site, bx, bz);
           if (this._outside(site, u, v) < 90) continue;
+          if (!this._fits(site, { spread, coarse: 2 })) continue;
           if (!this._fits(site, { spread })) continue;
           this.home = site;
           return;
@@ -251,12 +296,14 @@ export class SiteGrower {
   // runway, apron, hangars, tower, terminal, tanks, bunkers, and the
   // rectangle that is levelled.
   _plan(site) {
-    const S = AIRPORT_SIZES[site.size];
+    const S = this.sizes[site.size];
     const rand = mulberry32(site.seed ^ 0x1a77);
     const half = S.half;
     const rw = S.rw;
     site.half = half;
     site.rw = rw;
+    const big = this.big;
+    if (big) site.big = true; // (Round 21: the big layout, see AIRPORT_SIZES_BIG)
     const side = rand() < 0.5 ? -1 : 1; // which end of the apron the tower stands at
     const ao = Math.round((rand() - 0.5) * half * 0.3); // the apron's offset along the runway
     const apron = { u0: ao - S.apronHalfW, u1: ao + S.apronHalfW, v0: rw + 6, v1: rw + 6 + S.apronD };
@@ -275,16 +322,18 @@ export class SiteGrower {
     }
     // The tower at one end of the apron's front edge; a terminal beside it.
     const tu = side > 0 ? apron.u1 - 22 : apron.u0 + 16;
-    site.tower = { u0: tu, u1: tu + 5, v0: rw + 16, v1: rw + 21, h: S.tower, wall: TOWER_WALLS[Math.floor(rand() * TOWER_WALLS.length)], cab: Math.floor(rand() * 2) };
+    const tws = big ? 7 : 5; // (Round 21: a wider shaft at the big airports)
+    site.tower = { u0: tu, u1: tu + tws, v0: rw + 16, v1: rw + 16 + tws, h: S.tower, wall: TOWER_WALLS[Math.floor(rand() * TOWER_WALLS.length)], cab: Math.floor(rand() * 2) };
     if (S.terminal) {
-      const tw = half >= 250 ? 46 : 34; // half length
+      const tw = S.tw ?? (half >= 250 ? 46 : 34); // half length
       const tc = Math.max(apron.u0 + tw + 4, Math.min(apron.u1 - tw - 36, ao - side * 20));
-      site.terminal = { u0: tc - tw, u1: tc + tw, v0: rw + 30, v1: rw + 44, h: 8 + (half >= 250 ? 2 : 0), id: 0 };
+      site.terminal = { u0: tc - tw, u1: tc + tw, v0: rw + 30, v1: rw + (big ? 50 : 44), h: big ? 12 : 8 + (half >= 250 ? 2 : 0), id: 0 };
     } else site.terminal = null;
     // Fuel tanks off the end of the apron (away from the tower).
     site.tanks = [];
-    const tk0 = side > 0 ? apron.u0 - 12 : apron.u1 + 12;
-    for (let i = 0; i < S.tanks; i++) site.tanks.push({ u: tk0 - side * (i % 3) * 11, v: rw + 14 + Math.floor(i / 3) * 11 + 2, r: 3.6, h: 7 });
+    const tk0 = side > 0 ? apron.u0 - (big ? 14 : 12) : apron.u1 + (big ? 14 : 12);
+    const tkp = big ? 13 : 11; // (Round 21: bigger tanks at the big airports)
+    for (let i = 0; i < S.tanks; i++) site.tanks.push({ u: tk0 - side * (i % 3) * tkp, v: rw + 14 + Math.floor(i / 3) * tkp + 2, r: big ? 4.6 : 3.6, h: big ? 9 : 7 });
     site.radar = S.radar ? { u: side > 0 ? apron.u0 + 14 : apron.u1 - 14, v: rw + 26, r: 5 } : null;
     // Parked aircraft: in front of the hangars (nose toward the runway), more at the bigger airports.
     site.parking = [];
@@ -322,6 +371,20 @@ export class SiteGrower {
     }
     // (Round 13) The military base behind the apron.
     site.base = S.base ? this._planBase(site, apron) : null;
+    // (Round 21) The international big airport's second runway, parallel to
+    // the first on the far side (-v), with a taxiway between the two; and
+    // floodlight masts behind the hangar row (not in the way of a road to a
+    // bunker or the base's gate).
+    if (S.second) site.rw2 = { v: -S.second, rw };
+    if (big) {
+      site.masts = [];
+      const hs = site.hangars;
+      const roads = [...site.bunkers.map((b) => b.uc), ...(site.base ? [site.base.gate] : [])];
+      for (let i = 0; i + 1 < hs.length; i++) {
+        const u = Math.round((hs[i].u1 + hs[i + 1].u0) / 2);
+        if (hs[i + 1].u0 - hs[i].u1 >= 6 && !roads.some((r) => Math.abs(r - u) <= 9)) site.masts.push({ u, v: apron.v1 - 2 });
+      }
+    }
     // The levelled rectangle.
     let v1 = apron.v1 + 6;
     if (site.bunkers.length) v1 = Math.max(v1, site.bunkers[0].cv1 + 4);
@@ -329,7 +392,7 @@ export class SiteGrower {
     let u0 = -(half + 24);
     let u1 = half + 24;
     if (site.kind === "city") {
-      site.cols = site.size === "international" ? 12 : 9;
+      site.cols = (site.size === "international" ? 12 : 9) + (big ? 2 : 0);
       site.rows = 4;
       site.cityV0 = apron.v1 + CITY_V_GAP;
       v1 = Math.max(v1, site.cityV0 + 8 + site.rows * LOT);
@@ -354,7 +417,7 @@ export class SiteGrower {
       u0 = Math.min(u0, site.base.u0 - 6);
       u1 = Math.max(u1, site.base.u1 + 6);
     }
-    site.rect = { u0, u1, v0: -(rw + 13), v1 };
+    site.rect = { u0, u1, v0: site.rw2 ? site.rw2.v - site.rw2.rw - 13 : -(rw + 13), v1 };
   }
 
   // (Round 13) The military base: everything in local (u, v) from its own
@@ -362,8 +425,8 @@ export class SiteGrower {
   // Rects are [u0, u1, v0, v1] inclusive.
   _planBase(site, apron) {
     const rand = mulberry32(site.seed ^ 0xba5e);
-    const W = 150 + Math.floor(rand() * 4) * 10; // half width
-    const D = 200 + Math.floor(rand() * 4) * 10; // depth
+    const W = 150 + Math.floor(rand() * 4) * 10 + (site.big ? 30 : 0); // half width (Round 21: bigger at the big airports)
+    const D = 200 + Math.floor(rand() * 4) * 10 + (site.big ? 30 : 0); // depth
     const uc = Math.round((apron.u0 + apron.u1) / 2);
     const b = { u0: uc - W, u1: uc + W, v0: apron.v1 + 10, v1: apron.v1 + 10 + D, uc };
     const { u0, u1, v0, v1 } = b;
@@ -847,7 +910,7 @@ export class SiteGrower {
     const room = base.fighters;
     for (const h of site.hangars) {
       h.jet = false;
-      if (hash2((site.seed ^ JET_HANGAR_SALT) >>> 0, h.id, 7) >= JET_HANGAR_CHANCE) continue;
+      if (hash2((site.seed ^ JET_HANGAR_SALT) >>> 0, h.id, 7) >= (site.big ? JET_HANGAR_BIG : JET_HANGAR_CHANCE)) continue;
       // The way out, from the door to the taxiway: the doorway's width clear
       // of buildings; in the parking row, the jet's wingspan and a little
       // more (a parked jet's slot keeps its own room around it).
@@ -899,12 +962,12 @@ export class SiteGrower {
   siteAt(wx, wz) {
     this._ensureHome();
     const h = this.home;
-    if (h && Math.abs(wx - h.x) <= REACH && Math.abs(wz - h.z) <= REACH) return h;
-    const cx = Math.floor(wx / SITE_CELL);
-    const cz = Math.floor(wz / SITE_CELL);
+    if (h && Math.abs(wx - h.x) <= this.reach && Math.abs(wz - h.z) <= this.reach) return h;
+    const cx = Math.floor(wx / this.cell);
+    const cz = Math.floor(wz / this.cell);
     const s = this._site(cx, cz);
     if (!s) return null;
-    if (Math.abs(wx - s.x) > REACH || Math.abs(wz - s.z) > REACH) return null;
+    if (Math.abs(wx - s.x) > this.reach || Math.abs(wz - s.z) > this.reach) return null;
     return s;
   }
 
@@ -940,8 +1003,8 @@ export class SiteGrower {
     if (!s) return h;
     const [u, v] = this.toLocal(s, wx, wz);
     const d = this._outside(s, u, v);
-    if (d >= BLEND) return h;
-    const w = smooth(1 - d / BLEND);
+    if (d >= this.blend) return h;
+    const w = smooth(1 - d / this.blend);
     return Math.floor(h * (1 - w) + s.y * w + 0.5);
   }
 
@@ -961,7 +1024,10 @@ export class SiteGrower {
     const s = this.siteAt(wx, wz);
     if (!s || s.kind === undefined || !s.rect) return null;
     const [u, v] = this.toLocal(s, wx, wz);
-    return Math.abs(u) <= s.half + 2 + margin && Math.abs(v) <= s.rw + margin ? s : null;
+    if (Math.abs(u) > s.half + 2 + margin) return null;
+    if (Math.abs(v) <= s.rw + margin) return s;
+    // (Round 21) The big international airport's second runway.
+    return s.rw2 && Math.abs(v - s.rw2.v) <= s.rw2.rw + margin ? s : null;
   }
 
   // Every site within maxDist of (wx, wz) (the radar).
@@ -971,13 +1037,13 @@ export class SiteGrower {
   // cells does not stall a frame on many terrain surveys.
   withinCached(wx, wz, maxDist, ms = 3) {
     const out = [];
-    const c0x = Math.floor((wx - maxDist) / SITE_CELL);
-    const c1x = Math.floor((wx + maxDist) / SITE_CELL);
-    const c0z = Math.floor((wz - maxDist) / SITE_CELL);
-    const c1z = Math.floor((wz + maxDist) / SITE_CELL);
+    const c0x = Math.floor((wx - maxDist) / this.cell);
+    const c1x = Math.floor((wx + maxDist) / this.cell);
+    const c0z = Math.floor((wz - maxDist) / this.cell);
+    const c1z = Math.floor((wz + maxDist) / this.cell);
     this._ensureHome();
-    const hx = this.home ? Math.floor(this.home.x / SITE_CELL) : NaN;
-    const hz = this.home ? Math.floor(this.home.z / SITE_CELL) : NaN;
+    const hx = this.home ? Math.floor(this.home.x / this.cell) : NaN;
+    const hz = this.home ? Math.floor(this.home.z / this.cell) : NaN;
     const t0 = performance.now();
     let made = 0;
     for (let cz = c0z; cz <= c1z; cz++) {
@@ -995,10 +1061,10 @@ export class SiteGrower {
 
   within(wx, wz, maxDist) {
     const out = [];
-    const c0x = Math.floor((wx - maxDist) / SITE_CELL);
-    const c1x = Math.floor((wx + maxDist) / SITE_CELL);
-    const c0z = Math.floor((wz - maxDist) / SITE_CELL);
-    const c1z = Math.floor((wz + maxDist) / SITE_CELL);
+    const c0x = Math.floor((wx - maxDist) / this.cell);
+    const c1x = Math.floor((wx + maxDist) / this.cell);
+    const c0z = Math.floor((wz - maxDist) / this.cell);
+    const c1z = Math.floor((wz + maxDist) / this.cell);
     for (let cz = c0z; cz <= c1z; cz++) {
       for (let cx = c0x; cx <= c1x; cx++) {
         const s = this._site(cx, cz);
@@ -1012,10 +1078,10 @@ export class SiteGrower {
   nearest(wx, wz, maxDist, kind = null) {
     let best = null;
     let bestD = maxDist;
-    const c0x = Math.floor((wx - maxDist) / SITE_CELL);
-    const c1x = Math.floor((wx + maxDist) / SITE_CELL);
-    const c0z = Math.floor((wz - maxDist) / SITE_CELL);
-    const c1z = Math.floor((wz + maxDist) / SITE_CELL);
+    const c0x = Math.floor((wx - maxDist) / this.cell);
+    const c1x = Math.floor((wx + maxDist) / this.cell);
+    const c0z = Math.floor((wz - maxDist) / this.cell);
+    const c1z = Math.floor((wz + maxDist) / this.cell);
     for (let cz = c0z; cz <= c1z; cz++) {
       for (let cx = c0x; cx <= c1x; cx++) {
         const s = this._site(cx, cz);
@@ -1036,11 +1102,14 @@ export class SiteGrower {
     const [ux, uz] = this.dirU(site);
     const half = site.half ?? RUNWAY_HALF;
     const out = [];
-    for (const s of [-1, 1]) {
-      const [x, z] = this.toWorld(site, s * (half - 12), 0);
-      const dx = -s * ux;
-      const dz = -s * uz;
-      out.push({ x: x + 0.5, z: z + 0.5, dx, dz, yaw: Math.atan2(-dx, -dz), length: half * 2 - 24, y: site.y + 1 });
+    // (Round 21: a big international airport's second runway's ends after the main one's.)
+    for (const v of site.rw2 ? [0, site.rw2.v] : [0]) {
+      for (const s of [-1, 1]) {
+        const [x, z] = this.toWorld(site, s * (half - 12), v);
+        const dx = -s * ux;
+        const dz = -s * uz;
+        out.push({ x: x + 0.5, z: z + 0.5, dx, dz, yaw: Math.atan2(-dx, -dz), length: half * 2 - 24, y: site.y + 1 });
+      }
     }
     return out;
   }
@@ -1198,21 +1267,23 @@ export class SiteGrower {
     const half = s.half;
     const rw = s.rw;
     // The runway: dark, with a dashed centre line, edge lines, thresholds and edge lights.
-    if (au <= half + 2 && Math.abs(v) <= rw) {
-      const av = Math.abs(v);
-      if (av === rw - 1 && au <= half - 2) return BLOCK.WOOL;
-      if (v === 0 && au <= half - 14 && (((u + 1000) % 16) < 8)) return BLOCK.WOOL;
-      if (au >= half - 10 && au <= half - 2 && av >= 1 && av <= rw - 2 && (av & 1) === 1) return BLOCK.WOOL;
-      // Touchdown zone bars on the bigger runways.
-      if (rw >= 8 && au >= half - 70 && au <= half - 52 && av >= 2 && av <= rw - 3 && ((au - (half - 70)) % 6) < 2) return BLOCK.WOOL;
-      return BLOCK.BEDROCK;
-    }
+    if (au <= half + 2 && Math.abs(v) <= rw) return this._runwayCell(u, au, Math.abs(v), half, rw);
     // Runway edge lights (they glow at night).
     if (Math.abs(v) === rw + 2 && au <= half && ((u + 1200) % 12) === 0) return BLOCK.LUMEN;
+    // (Round 21) The connectors of a big airport: also halfway out along the runway.
+    const link = Math.abs(au - (half - 34)) <= 3 || au <= 3 || (s.big && Math.abs(au - Math.round(half / 2)) <= 3);
+    // (Round 21) The second runway, and between the two a parallel taxiway and the links across.
+    const r2 = s.rw2;
+    if (r2 && v < -rw) {
+      const v2 = v - r2.v;
+      if (au <= half + 2 && Math.abs(v2) <= r2.rw) return this._runwayCell(u, au, Math.abs(v2), half, r2.rw);
+      if (Math.abs(v2) === r2.rw + 2 && au <= half && ((u + 1200) % 12) === 0) return BLOCK.LUMEN;
+      if (v2 > r2.rw && (link || (Math.abs(v - Math.round(r2.v / 2)) <= 3 && au <= half - 6))) return BLOCK.GRAVEL;
+    }
     // Taxiway.
     if (v >= rw + 1 && v <= rw + 5 && au <= half - 6) return BLOCK.GRAVEL;
     // Connectors from the runway to the taxiway and the apron.
-    if (v >= rw + 1 && v <= rw + 6 && (Math.abs(au - (half - 34)) <= 3 || au <= 3)) return BLOCK.GRAVEL;
+    if (v >= rw + 1 && v <= rw + 6 && link) return BLOCK.GRAVEL;
     // Apron.
     const a = s.apron;
     if (v >= a.v0 && v <= a.v1 && u >= a.u0 && u <= a.u1) return (u + 1200) % 16 === 0 || (v & 15) === 0 ? BLOCK.GRAVEL : BLOCK.STONE;
@@ -1242,6 +1313,17 @@ export class SiteGrower {
     return 0;
   }
 
+  // One cell of a runway (local u, |u|, |v| from its centre line): the
+  // markings in white, the dark strip.
+  _runwayCell(u, au, av, half, rw) {
+    if (av === rw - 1 && au <= half - 2) return BLOCK.WOOL;
+    if (av === 0 && au <= half - 14 && (((u + 1000) % 16) < 8)) return BLOCK.WOOL;
+    if (au >= half - 10 && au <= half - 2 && av >= 1 && av <= rw - 2 && (av & 1) === 1) return BLOCK.WOOL;
+    // Touchdown zone bars on the bigger runways.
+    if (rw >= 8 && au >= half - 70 && au <= half - 52 && av >= 2 && av <= rw - 3 && ((au - (half - 70)) % 6) < 2) return BLOCK.WOOL;
+    return BLOCK.BEDROCK;
+  }
+
   // The city lot of the grid cell holding local (u, v), or null.
   _lotAt(s, u, v) {
     if (!s.lots) return null;
@@ -1265,6 +1347,9 @@ export class SiteGrower {
     }
     const rd = s.radar;
     if (rd && Math.hypot(u - rd.u, v - rd.v) <= rd.r + 1) out.push({ t: "radar", o: rd });
+    if (s.masts) {
+      for (const m of s.masts) if (Math.abs(u - m.u) <= 1 && Math.abs(v - m.v) <= 1) out.push({ t: "floodlight", o: m });
+    }
     if (s.bunkers) {
       for (const b of s.bunkers) if (u >= b.cu0 && u <= b.cu1 && v >= b.cv0 && v <= b.cv1) out.push({ t: "bunker", o: b });
     }
@@ -1378,6 +1463,12 @@ export class SiteGrower {
       }
       case "lamp":
         return y <= 5 ? (y === 5 ? BLOCK.LUMEN : BLOCK.COBBLESTONE) : 0;
+      case "floodlight": {
+        // (Round 21) An apron floodlight mast: a stone column, a head of lights.
+        const d = Math.abs(u - o.u) + Math.abs(v - o.v);
+        if (d === 0) return y <= 11 ? BLOCK.COBBLESTONE : y === 12 ? BLOCK.STONE : y === 13 ? BLOCK.LUMEN : 0;
+        return d === 1 && y === 12 ? BLOCK.LUMEN : 0;
+      }
       default:
         return 0;
     }
@@ -1543,6 +1634,9 @@ export class SiteGrower {
         if (out > 0) continue;
         const surf = this._surface(site, u, v);
         if (surf) blocks[idx(lx, y0, lz)] = surf;
+        // (Round 21) A big airport's grass too: where a cave or a river
+        // channel opened the pad's natural ground, it is closed again.
+        else if (site.big && (blocks[idx(lx, y0, lz)] === BLOCK.AIR || blocks[idx(lx, y0, lz)] === BLOCK.WATER)) blocks[idx(lx, y0, lz)] = BLOCK.GRASS;
         // The pad's ground: solid down to the natural stone.
         for (let y = y0 - 1; y >= Math.max(1, y0 - 3); y--) {
           if (blocks[idx(lx, y, lz)] === BLOCK.AIR || blocks[idx(lx, y, lz)] === BLOCK.WATER) blocks[idx(lx, y, lz)] = BLOCK.DIRT;

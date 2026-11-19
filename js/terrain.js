@@ -164,6 +164,7 @@ export class TerrainGenerator {
     this.seed = seed >>> 0;
     // (by default the vanilla terrain when there are no sites)
     this.options = { sites: opts?.sites !== false, vanilla: opts?.vanilla ?? opts?.sites === false };
+    if (opts?.bigAirports) this.options.bigAirports = true; // (Round 21: the big airports, sites.js; generator 3 on)
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
     this.biomes = new BiomeSource(this.seed, { vanilla: this.options.vanilla });

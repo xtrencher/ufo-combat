@@ -569,7 +569,7 @@ export class MissionDirector {
   }
 
   _airportTarget(label) {
-    const a = this.airports.nearest(3000);
+    const a = this.airports.nearest(this.airports.far(3000));
     if (!a) return null;
     return { pos: new THREE.Vector3(a.site.x, a.site.y ?? SEA_LEVEL, a.site.z), label, follow: null };
   }
@@ -2282,7 +2282,7 @@ export class MissionDirector {
     if (!st.aim) {
       const c = this._groupMiddle();
       st.center = c;
-      const ap = this.terrain.sites.nearest(c.x, c.z, 3000);
+      const ap = this.terrain.sites.nearest(c.x, c.z, 3000 * (this.terrain.sites.scale || 1));
       st.aim = ap ? new THREE.Vector3(ap.x, (ap.y ?? SEA_LEVEL) + 1, ap.z) : c.clone();
       st.aimName = ap ? "the airport" : "you";
       const spot = this._farSpot(st.aim, v === 2 ? rand(950, 1150) : rand(700, 880));
@@ -3381,7 +3381,7 @@ export class MissionDirector {
       } else {
         // The marker: a jet to take, or the nearest runway.
         const parked = this._parkedJetTarget();
-        const a = this.airports.nearest(3500);
+        const a = this.airports.nearest(this.airports.far(3500));
         if (parked && !inJet) this.target = parked;
         else if (a) this.target = { pos: new THREE.Vector3(a.site.x, (a.site.y ?? SEA_LEVEL) + 1, a.site.z), label: inJet ? (st.air ? "Land on the runway" : "Take off, then land on the runway") : "Airport", follow: null };
         else this.target = null;
@@ -3840,7 +3840,7 @@ export class MissionDirector {
   _pickBase() {
     const p = this._anyone().position;
     const sites = this.terrain.sites;
-    const home = sites.nearest(p.x, p.z, 4000, "airport");
+    const home = sites.nearest(p.x, p.z, 4000 * (sites.scale || 1), "airport");
     const from = home || { x: p.x, z: p.z };
     let best = null;
     let bestD = Infinity;
@@ -4202,7 +4202,7 @@ export class MissionDirector {
     const sites = this.terrain.sites;
     // (The airport, or city with one, nearest to pos: where the jets are parked.)
     const airport = (pos) => {
-      const s = pos && sites.nearest(pos.x, pos.z, 3000);
+      const s = pos && sites.nearest(pos.x, pos.z, 3000 * (sites.scale || 1));
       return s ? { x: s.x, z: s.z, r: 45 } : null;
     };
     // (Where the group is: its middle, so online every respawn is around the
