@@ -205,6 +205,9 @@ export const DEATH_MESSAGES = {
   // The missions' world.
   meteor: "Hit by a falling meteor",
   meteor_fall: "Thrown by a falling meteor",
+  // (Round 21) The colossi (js/colossi.js).
+  colossus: "Torn apart by a colossus",
+  colossus_fall: "Flung by a colossus",
 };
 
 // A pilot whose aircraft was destroyed: the cause that names what did it.

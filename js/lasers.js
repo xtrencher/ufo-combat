@@ -199,7 +199,7 @@ export class LaserBolts {
   // cause: what a hit by it is called (damage.js; an AI shooter's own, e.g. "soldier").
   // gun: which gun fired a bullet ("pistol", "machinegun", "sniper": its
   // sound for the other players online); kb: a creature's knockback (main.js).
-  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false, cause = null, gun = null, kb = null }) {
+  fire({ from, dir, color = LASER_COLORS.red, speed = 120, damage = 6, owner = "player", source = null, range = 220, radius = 0.06, length = 1.8, scorch = true, sound = true, blast = 0, hole = false, mirror = false, tracer = false, cause = null, gun = null, kb = null, onHit = null }) {
     if (this.bolts.length >= MAX_BOLTS) this._retire(this.bolts.shift());
     // (Bolt objects are reused: a machine gun or a UFO volley makes no garbage per shot.)
     const bolt = this._free.pop() || { pos: new THREE.Vector3(), origin: new THREE.Vector3(), dir: new THREE.Vector3(), color: new THREE.Color() };
@@ -225,6 +225,7 @@ export class LaserBolts {
     bolt.cause = cause;
     bolt.gun = gun;
     bolt.kb = kb;
+    bolt.onHit = onHit; // (Round 21: told where it struck, after the hit: the jets' laser bursts)
     bolt.dead = false;
     bolt.hitDist = -1; // (where it struck, along its last step: drawn up to there once)
     bolt.step = 0;
@@ -286,6 +287,7 @@ export class LaserBolts {
       hit.target.hit(b, point, b.dir);
     }
     if (b.blast > 0 && this.onBlast) this.onBlast(point, b);
+    if (b.onHit) b.onHit(b, hit, point); // (Round 21)
   }
 
   // A spent bolt: reused from the frame after next (see _dying).
@@ -306,6 +308,7 @@ export class LaserBolts {
     // Last frame's spent bolts: nobody reads them any more.
     for (const b of this._dying) {
       b.source = null; // (lets a dead UFO or a left player go)
+      b.onHit = null;
       b.homing = null;
       this._free.push(b);
     }

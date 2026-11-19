@@ -59,9 +59,11 @@ export class AirportManager {
     this.groupSize = 1;
   }
 
-  // The number of fighters parked at an airport.
+  // The number of fighters parked at an airport. (Round 21: one or two more
+  // at the big airports, most of them in their many hangars.)
   fighterCount(s) {
-    return Math.max(1 + (s.seed % 3), this.groupSize + 1);
+    const more = s.big ? (s.size === "international" ? 2 : 1) : 0;
+    return Math.max(1 + (s.seed % 3) + more, this.groupSize + 1);
   }
 
   // Whether an aircraft's footprint on its slot is clear and flat: solid pad
@@ -274,6 +276,12 @@ export class AirportManager {
     this.reship.add(key);
   }
 
+  // (Round 21) A search radius for "the nearest airport", grown with how far
+  // apart this world's sites are (the big airports are fewer: sites.scale).
+  far(d) {
+    return d * (this.sites.scale || 1);
+  }
+
   // The nearest airport (or city with one) within maxDist of the player: { site, dist }.
   nearest(maxDist = 4000) {
     const p = this.player.position;
@@ -331,8 +339,10 @@ export class AirportManager {
   // The airport near p: its aircraft (and guards) set out.
   _near(p) {
     const veh = this.vehicles;
-    const s = this.sites.nearest(p.x, p.z, NEAR + 200);
-    if (!s || Math.hypot(s.x - p.x, s.z - p.z) > NEAR + 100) return;
+    // (Round 21: a big airport's aircraft from a little farther out.)
+    const near = NEAR + (this.sites.big ? 160 : 0);
+    const s = this.sites.nearest(p.x, p.z, near + 200);
+    if (!s || Math.hypot(s.x - p.x, s.z - p.z) > near + 100) return;
     if (this.parked.has(s.id)) {
       const jets = this.parked.get(s.id);
       // Slots whose chunks weren't there yet, or more aircraft for a bigger group.

@@ -24,6 +24,8 @@
 // world saved before Round 13 keeps the old Missions generator (GEN_LEGACY:
 // no vanilla terrain features) so its builds stay in their landscape; new
 // worlds, and every Survival world, have the vanilla terrain (GEN_ONE_WORLD).
+// (Round 21) GEN_BIG_AIRPORTS: a new Missions world's airports are bigger
+// and fewer (sites.js); a world saved with GEN_ONE_WORLD keeps its sites.
 // The version is saved with the player (main.js "gen") and sent to guests in
 // the welcome (net/multiplayer.js), and terrainOptions() is what World, the
 // chunk workers and the distant terrain generate with.
@@ -32,7 +34,8 @@ export const WORLD_TYPE_NAMES = { missions: "Missions", survival: "Survival" };
 
 export const GEN_LEGACY = 1; // (the Missions generator before Round 13: sites on the old terrain)
 export const GEN_ONE_WORLD = 2; // (Round 13: the vanilla terrain, with the sites in a Missions world)
-export const TERRAIN_GEN = GEN_ONE_WORLD; // a new world's
+export const GEN_BIG_AIRPORTS = 3; // (Round 21: bigger airports, fewer of them: sites.js AIRPORT_SIZES_BIG)
+export const TERRAIN_GEN = GEN_BIG_AIRPORTS; // a new world's
 
 let current = "missions";
 let set = false;
@@ -111,9 +114,14 @@ export function legacyTerrain() {
 
 // What the terrain generates with (World, the chunk workers, the LOD):
 // sites (airports and cities) in a Missions world; the vanilla terrain in
-// every world but an old Missions save.
+// every world but an old Missions save; (Round 21) the big airports, fewer
+// of them, in a Missions world made with generator 3 or later (a world
+// saved with 2 keeps its sites where and as they were; a guest gets the
+// host's generator in the welcome).
 export function terrainOptions() {
-  return { sites: current === "missions", vanilla: current === "survival" || gen >= GEN_ONE_WORLD };
+  const o = { sites: current === "missions", vanilla: current === "survival" || gen >= GEN_ONE_WORLD };
+  if (current === "missions" && gen >= GEN_BIG_AIRPORTS) o.bigAirports = true;
+  return o;
 }
 
 // Whether setWorldType has run (systems built before it can wait for the event).

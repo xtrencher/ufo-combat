@@ -86,6 +86,8 @@ export const SCHEMA = [
   { key: "mobSpawning", creativeOnly: true, id: "mob-spawning", group: "gameplay", type: "checkbox", label: "Creatures spawn", def: true, static: true },
   { key: "timeLocked", creativeOnly: true, id: "time-lock", group: "gameplay", type: "checkbox", label: "Lock time of day", def: false, static: true },
   { key: "statsOverlay", group: "gameplay", type: "checkbox", label: "Stats on the HUD (UFOs shot down, play time)", def: false },
+  // (Round 21) The mission chain: the next mission right after the last one, until stopped.
+  { key: "missionChain", group: "gameplay", type: "checkbox", label: "Missions start one after another (no waiting)", def: true, hint: "A Missions world: the next mission starts about 3 seconds after the last one ends. Off: they stop (start one from the board, M). Shift+M stops or resumes them at any time." },
 
   // ----- Weapons -----
   { key: "explosionScale.grenade", creativeOnly: true, id: "explosion-grenade", group: "weapons", type: "range", label: "Grenade blast size", min: 0.4, max: 2, step: 0.05, def: 1, fmt: times, static: true },

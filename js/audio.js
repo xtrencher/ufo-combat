@@ -1366,54 +1366,39 @@ export class Audio {
     m.bg.gain.setTargetAtTime(firing ? 0.12 : 0, t, 0.03);
   }
 
-  // (Round 20) A jet's nose laser while it fires: a bright electric whine
-  // over a pulsing low buzz (the pulses, 15 a second), rising in pitch as it
-  // heats up. level 0-1 (0: off; another player's beam by its distance).
-  // Call every frame while any beam is on, and once with 0 after.
-  setJetLaser(level, heat = 0) {
+  // (Round 21) A jet's nose laser burst: a sharp, bright zap (a falling
+  // electric shriek over a hard crack and a short low thump), one per burst.
+  // (Another player's through playDistant.)
+  playJetLaserZap() {
+    this._cat("weapons");
     const ctx = this.ctx;
     if (!ctx) return;
-    if (!this._jl) {
-      if (level <= 0.01) return;
-      const out = ctx.createGain();
-      out.gain.value = 0;
-      out.connect(this.buses.weapons || this.master);
-      const whine = ctx.createOscillator();
-      whine.type = "sawtooth";
-      whine.frequency.value = 1400;
-      const f = ctx.createBiquadFilter();
-      f.type = "bandpass";
-      f.frequency.value = 2600;
-      f.Q.value = 3;
-      const wg = ctx.createGain();
-      wg.gain.value = 0.35;
-      whine.connect(f).connect(wg).connect(out);
-      const buzz = ctx.createOscillator();
-      buzz.type = "square";
-      buzz.frequency.value = 110;
-      const bf = ctx.createBiquadFilter();
-      bf.type = "lowpass";
-      bf.frequency.value = 900;
-      const bg = ctx.createGain();
-      bg.gain.value = 0.3;
-      // (the pulses: the buzz throbs 15 times a second)
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = 15;
-      const lg = ctx.createGain();
-      lg.gain.value = 0.22;
-      lfo.connect(lg).connect(bg.gain);
-      buzz.connect(bf).connect(bg).connect(out);
-      whine.start();
-      buzz.start();
-      lfo.start();
-      this._jl = { out, whine, f, buzz };
-    }
-    const m = this._jl;
     const t = ctx.currentTime;
-    m.out.gain.setTargetAtTime(level > 0.01 ? 0.2 * level : 0, t, level > 0.01 ? 0.02 : 0.06);
-    m.whine.frequency.setTargetAtTime(1300 + heat * 900, t, 0.1);
-    m.f.frequency.setTargetAtTime(2400 + heat * 1600, t, 0.1);
-    m.buzz.frequency.setTargetAtTime(105 + heat * 40, t, 0.1);
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.42, t + 0.004);
+    out.gain.exponentialRampToValueAtTime(0.12, t + 0.09);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(5200, t);
+    bp.frequency.exponentialRampToValueAtTime(1200, t + 0.25);
+    bp.Q.value = 0.9;
+    out.connect(bp).connect(this._out || this.master);
+    const f0 = 3400 * (0.95 + Math.random() * 0.1);
+    for (const [type, mul, g] of [["sawtooth", 1, 0.5], ["square", 0.503, 0.35], ["sine", 1.99, 0.3]]) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0 * mul, t);
+      osc.frequency.exponentialRampToValueAtTime(260 * mul, t + 0.26);
+      const og = ctx.createGain();
+      og.gain.value = g;
+      osc.connect(og).connect(out);
+      osc.start(t);
+      osc.stop(t + 0.32);
+    }
+    this._hit({ type: "highpass", f: 3000, q: 0.7, d: 0.04, v: 0.3, attack: 0.001 });
+    this._hit({ type: "lowpass", f: 180, fEnd: 60, q: 1.2, d: 0.14, v: 0.32, attack: 0.002 });
   }
 
   // One minigun laser bolt (they come ~30 a second: tiny and cheap).

@@ -239,6 +239,8 @@ await check("the hangar's lights hang on its walls and light the hall; the way o
     const w = g.world;
     const at = (u, vv, y) => {
       const [x, z] = g.sites.toWorld(s, u, vv);
+      // (Round 21: a big airport's lane reaches past the loaded area: generated here.)
+      if (!w.getChunk(x >> 4, z >> 4)) w._generate(x >> 4, z >> 4);
       return w.getBlock(x, s.y + y, z);
     };
     const light = (x, y, z) => w.getChunk(x >> 4, z >> 4).light[(y << 8) | ((z & 15) << 4) | (x & 15)] & 15;

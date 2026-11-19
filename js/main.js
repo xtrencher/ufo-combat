@@ -108,6 +108,8 @@ import { CanyonRun, canyonParams, menuUrl } from "./canyon.js"; // (Round 15: th
 import { installCanyonMenu } from "./menu-canyon.js";
 import { WorldLock } from "./world-lock.js"; // (Round 17: one tab per world)
 import { StorageUI } from "./storage-ui.js"; // (Round 20: a full storage's warning, the saved worlds)
+import { ColossusManager, colossusAimTargets } from "./colossi.js"; // (Round 21: the giant horror creatures)
+import { ColossusSync } from "./net/colossi.js"; // (Round 21)
 
 // ---------- Seed ----------
 // ?seed=N opens that world. Without it, the last world played is loaded
@@ -560,6 +562,11 @@ const vehicles = new VehicleManager({ scene, world, player, effects, audio, lase
 vehicles.cameraRef = camera;
 const ufos = new UfoManager({ scene, world, player, effects, audio, lasers, mobs, vehicles, sky, camera });
 mobs.lasers = lasers;
+// (Round 21) The colossi (js/colossi.js): every weapon that hits UFOs hits
+// their parts (ufos.extras); the jets' missiles lock onto their weak points
+// (the adapter colossusAimTargets, vehicle-jet.js _lockables).
+const colossi = new ColossusManager({ scene, world, camera, effects, audio, ufos, vehicles, player, lasers });
+vehicles.extraLockables = () => colossusAimTargets(colossi);
 
 // UFOs: activity and the advanced options.
 for (const k of ["activity", "spawnChance", "maxCount", "aggression", "detection", "beamLift", "sizes", "nightMultiplier", "toughness"]) {
@@ -1793,6 +1800,11 @@ crates.onMessage = (t) => toast(t, 5);
 // The mission director: sets up each mission in the world and points the marker at its target.
 const missionDirector = new MissionDirector({ progress, stats, ufos, mobs, crates, vehicles, enemyJets, airports, terrain: world.terrain, player, sky, toast, weapons, effects, audio, world });
 missionDirector.entities = entities;
+// (Round 21) The colossus missions (js/mission-colossi.js); their stats and messages.
+missionDirector.colossi = colossi;
+colossi.onStat = (k, n = 1) => stats.add(k, n);
+colossi.onMessage = (t, s) => (missionDirector.toast || toast)(t, s); // (online the host's go to everyone: js/net/coop.js wraps it)
+colossi.onLocalMessage = (t, s) => toast(t, s);
 // (Round 13) The ground war (js/tanks.js): enemy tanks, AA vehicles and missile launchers, the
 // bases' parked tanks, the shells and ballistic missiles. It runs right after the vehicles each frame.
 const ground = installGround({ scene, camera, world, player, vehicles, effects, audio, lasers, ufos, mobs, crates, stats, progress, missions: missionDirector, airports, toast, hud, mods });
@@ -1822,6 +1834,19 @@ progress.onStart = (m) => {
   else setTimeout(() => toast(`NEW MISSION ${m.n + 1}/${progress.total}: ${m.title}. ${m.text}`, 7), 6500);
 };
 // (Round 16) A board mission lost: why, and the way to retry.
+// (Round 21) Stop / resume the missions (Shift+M, the setting); the board has its buttons.
+function toggleMissionChain(on = !progress.auto) {
+  if (player.creative && on) {
+    toast("Missions run in the Missions game mode: switch to it in the pause menu first.", 3);
+    return;
+  }
+  progress.setAuto(on);
+  toast(on ? "MISSIONS RESUMED: the next one starts right away (Shift+M stops them)." : "MISSIONS STOPPED: none start until you resume them (Shift+M, or M: the board).", 4);
+}
+settingsPanel.on("missionChain", (v) => {
+  if (progress.board && !GUEST && progress.auto !== (v !== false)) progress.setAuto(v !== false);
+}, { now: false });
+if (settings.missionChain === false && !GUEST) progress.auto = false;
 progress.onFail = (m, why) => {
   toast(`MISSION FAILED: ${m.title}. ${why} ${progress.failNote?.() ?? "Press M to retry."}`, 7); // (Round 17: retried by itself, or the next one)
   audio.playNotice?.();
@@ -3551,6 +3576,11 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (gameState !== "playing") return;
+  // (Round 21) Shift+M: stop the missions (or resume them), on foot or flying.
+  if (e.code === "KeyM" && e.shiftKey && !e.repeat && progress.board && !isVanilla()) {
+    toggleMissionChain();
+    return;
+  }
   // In a vehicle the keys fly it (it reads the held keys itself); only F
   // (get out) and its own key presses are handled here.
   if (vehicles.active) {
@@ -3605,8 +3635,8 @@ function toggleDebug() {
 
 // F3: the nearest airport or city (a jet needs a runway: J calls one to it).
 function airportLine(p) {
-  const a = airports.nearest(3500);
-  if (!a) return "Airports: none within 3500 blocks";
+  const a = airports.nearest(airports.far(3500)); // (Round 21: farther in a world of big airports)
+  if (!a) return `Airports: none within ${Math.round(airports.far(3500))} blocks`;
   const dx = a.site.x - p.x;
   const dz = a.site.z - p.z;
   const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) / 45) % 8];
@@ -3898,6 +3928,7 @@ const game = {
   stats,
   progress,
   missions: missionDirector,
+  colossi, // (Round 21)
   crates,
   mods,
   settings,
@@ -4148,6 +4179,7 @@ dims.onChange.push(() => {
   // (Round 18: UFOs on the planets too; the last dimension's go, its crews and
   // beam with them. A guest's puppets go by DimSync, js/dimensions.js.)
   if (!ufos.puppets) ufos.clear();
+  if ((world.dim ?? "overworld") !== "overworld") colossi.clear(); // (Round 21: they are the Overworld's)
   ufos.setEnabled(ufosHere() && (mods.enabled || planetHere()));
   ufos.arrive(); // (Round 18: a planet's first ships in sight soon after landing)
   refreshSurvivalSystems();
@@ -4161,6 +4193,7 @@ game.transport = transport;
 mp.addModule(new TransportSync(mp, transport));
 mp.addModule(new GroundSync(mp, ground)); // (Round 13: the ground war's shots, missiles and kills)
 mp.addModule(new HeliSync(mp, helis)); // (Round 14: the gunships' kills, a helicopter's flares)
+mp.addModule(new ColossusSync(mp, colossi)); // (Round 21: the host's colossi, a guest's hits)
 interaction.combat = transport.combat(mobs); // (hitting them, aiming at them)
 // (Round 12) The Nether: its portals (lit, broken, the way through and back), the respawn anchor, its biomes' fog and air.
 const netherPortals = new NetherPortals(game, dims);
@@ -4268,6 +4301,7 @@ window.__ufo = window.__voxelands = {
   progress,
   crates,
   missions: missionDirector,
+  colossi, // (Round 21)
   testFlags,
   MISSIONS,
   dropLoot,
@@ -4545,7 +4579,7 @@ function updateBossBar(show) {
   bossBarEl.classList.toggle("shielded", b.shield);
   bossBarEl.classList.toggle("final", b.final);
   bossFillEl.style.width = `${(b.health * 100).toFixed(1)}%`;
-  const note = b.shield ? `SHIELD UP: ${b.pylons} pylon${b.pylons === 1 ? "" : "s"} left` : b.final ? "NO SHIELD: FINISH IT" : `SHIELD DOWN: ${Math.ceil(b.downT)} s`;
+  const note = b.note || (b.shield ? `SHIELD UP: ${b.pylons} pylon${b.pylons === 1 ? "" : "s"} left` : b.final ? "NO SHIELD: FINISH IT" : `SHIELD DOWN: ${Math.ceil(b.downT)} s`); // (Round 21: a colossus's own note)
   if (bossNoteEl.textContent !== note) bossNoteEl.textContent = note;
 }
 // The mission tracker (Survival): the current mission, its objectives, and
@@ -4633,7 +4667,7 @@ function updateHints(dt) {
   hintT = 0.5;
   if (stats.world.playTime < 20) hint("welcome", player.creative ? "Weapons are in slots 1-9. Esc > Call in puts you straight in the air in a jet, the B-2 or a UFO. Hold both mouse buttons for binoculars." : progress.board && !isVanilla() ? "You have a sword, a pickaxe and apples. Your first mission starts in a moment, the next ones by themselves (M: the mission board). The tracker (top right) and the yellow marker show the way. Hold both mouse buttons for binoculars." /* (Round 17) */ : "You have a sword, a pickaxe and apples. Follow your mission (top right, and the yellow marker). Hold both mouse buttons for binoculars.", 6);
   const v = vehicles.active;
-  if (v?.type === "jet") hint("jet", `Mouse steers, W/S throttle, Shift afterburner (double tap: latch it on).${v.armed === false ? " X switches the right button: the recon camera, the MINI-NUKE, the NOSE LASER (hold)." : " Tap right click: a missile straight ahead; hold it to lock on. X (or 1-4) switches the right button: missiles, super missile, MINI-NUKE, NOSE LASER (hold)."}`, 9); // (Round 17: the latch, the super missile; Round 20: the mini-nuke, the laser)
+  if (v?.type === "jet") hint("jet", `Mouse steers, W/S throttle, Shift afterburner (double tap: latch it on).${v.armed === false ? " X switches the right button: the recon camera, the MINI-NUKE, the NOSE LASER (a click: a burst)." : " Tap right click: a missile straight ahead; hold it to lock on. X (or 1-4) switches the right button: missiles, super missile, MINI-NUKE, NOSE LASER (a click: a burst)."}`, 9); // (Round 17: the latch, the super missile; Round 20: the mini-nuke, the laser)
   else if (v?.type === "ufo") hint("ufo", "WASD + Space/Shift fly, wheel: speed. LMB: the ship's weapon, hold RMB: beam, hold R: streak.", 6);
   else if (v?.type === "heli") hint("heli", "Wait for the rotor, then Space lifts off. W/S tilt, A/D turn, Q/E sidestep; the mouse aims. LMB gun, RMB rockets, X: Hellfires, C flares.", 7);
   if (!v && ufos.lastHum < 260) hint("ufo-sighted", "A UFO! If its blue beam catches you, run out of the light (or shoot it down).", 5);
@@ -4821,6 +4855,7 @@ function simulate(dt, frameTime) {
     weapons.viewRange = viewRD * 16;
     weapons.fairBullets = mp.active && mp.pvpAllowed();
     ufos.update(dt);
+    colossi.update(dt); // (Round 21)
     nuke.update(dt, vehicles.active ? camera.position : player.getEyePosition(), sky.daylight);
     effects.listener.copy(vehicles.active ? camera.position : player.getEyePosition());
     effects.update(dt);

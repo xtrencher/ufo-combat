@@ -477,7 +477,7 @@ export class HackSystem {
     if (!v || v.puppet || !H.active) return;
     if (H.godMode && Number.isFinite(v.maxHealth) && v.alive !== false && v.health < v.maxHealth) v.health = v.maxHealth;
     if (H.noReload) {
-      for (const k of ["missileT", "rocketT", "flareT", "nukeT", "superT", "miniT"]) if (typeof v[k] === "number" && v[k] > 0.25) v[k] = 0.25; // (Round 20: the super missile's, the mini-nuke's)
+      for (const k of ["missileT", "rocketT", "flareT", "nukeT", "superT", "miniT", "laserT"]) if (typeof v[k] === "number" && v[k] > 0.25) v[k] = 0.25; // (Round 20: the super missile's, the mini-nuke's; Round 21: the jets' laser's recharge)
       if (typeof v.miniAmmo === "number" && v.miniMax > 0) v.miniAmmo = v.miniMax;
       if (typeof v.reloadT === "number" && v.reloadT > 0.15) v.reloadT = 0.15;
       if (typeof v.telReloadT === "number" && v.telReloadT > 0.5) v.telReloadT = 0.5;
@@ -488,8 +488,6 @@ export class HackSystem {
     if (H.noOverheat) {
       if (typeof v.heat === "number") v.heat = 0;
       if (v.jammed === true) v.jammed = false;
-      if (typeof v.laserHeat === "number") v.laserHeat = 0; // (Round 20: the jets' nose laser)
-      if (v.laserJam === true) v.laserJam = false;
       if (v.gun && typeof v.gun.heat === "number") {
         v.gun.heat = 0;
         v.gun.overheated = false;

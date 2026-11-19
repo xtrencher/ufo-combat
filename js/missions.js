@@ -13,6 +13,7 @@ import { BLOCK, IS_LEAVES, IS_LOG, IS_WET } from "./blocks.js";
 import { dayLength } from "./sky.js";
 import { summonTank } from "./vehicle-tank.js";
 import { placeHeli } from "./vehicle-heli.js"; // (Round 14)
+import { colossusMission, colossusCleanup } from "./mission-colossi.js"; // (Round 21: the colossi)
 
 
 const _v = new THREE.Vector3();
@@ -55,7 +56,7 @@ const FORTRESS_KINDS = [
 ];
 // (Round 10) The missions with a place drawn on the ground every frame (a
 // zone to hold, a shelter, the bombardment's rings, the signal beacons).
-const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons", "launch", "baseassault", "medevac", "aaraid", "apdefense"]); // (Round 16: the defended position's ring) // (Round 13: an incoming ballistic missile's ring; Round 14: the rescue's landing zone and crash sites)
+const ZONE_EVENTS = new Set(["hold", "crashsite", "evac", "beacons", "launch", "baseassault", "medevac", "aaraid", "apdefense", "colossus"]); // (Round 21: Long Legs' town) // (Round 16: the defended position's ring) // (Round 13: an incoming ballistic missile's ring; Round 14: the rescue's landing zone and crash sites)
 const ZONE_KINDS = ["beacon", "site", "shelter"]; // (by index, online: netObjects)
 const TAKEN_SETBACK = 60; // seconds a player taken by the hunters costs the clock ("Don't look up")
 
@@ -201,7 +202,7 @@ export class MissionDirector {
       return;
     }
     this._wasOn = true;
-    if (m.event !== "boss") this.bossInfo = null;
+    if (m.event !== "boss" && m.event !== "colossus") this.bossInfo = null; // (Round 21: the colossi's bar too)
     // (Round 16: the same mission started again on the board is a fresh set-up too.)
     const runKey = `${m.id}/${this.progress.runId ?? 0}`;
     if (m.id !== this.missionId || runKey !== this._runKey) {
@@ -368,6 +369,10 @@ export class MissionDirector {
       case "apdefense":
         this._apDefense();
         break;
+      // (Round 21) The colossi (js/mission-colossi.js).
+      case "colossus":
+        colossusMission(this);
+        break;
       default:
         this.target = null;
     }
@@ -375,6 +380,7 @@ export class MissionDirector {
 
   // Leftovers of the previous mission's set-up go (or stay, if harmless).
   _cleanup() {
+    colossusCleanup(this); // (Round 21: the colossi still standing go)
     if (this.sky) this.sky.timeScale = 1;
     this._warping = false;
     this.ufos.forceIntact = false;
@@ -569,7 +575,7 @@ export class MissionDirector {
   }
 
   _airportTarget(label) {
-    const a = this.airports.nearest(3000);
+    const a = this.airports.nearest(this.airports.far(3000));
     if (!a) return null;
     return { pos: new THREE.Vector3(a.site.x, a.site.y ?? SEA_LEVEL, a.site.z), label, follow: null };
   }
@@ -2282,7 +2288,7 @@ export class MissionDirector {
     if (!st.aim) {
       const c = this._groupMiddle();
       st.center = c;
-      const ap = this.terrain.sites.nearest(c.x, c.z, 3000);
+      const ap = this.terrain.sites.nearest(c.x, c.z, 3000 * (this.terrain.sites.scale || 1));
       st.aim = ap ? new THREE.Vector3(ap.x, (ap.y ?? SEA_LEVEL) + 1, ap.z) : c.clone();
       st.aimName = ap ? "the airport" : "you";
       const spot = this._farSpot(st.aim, v === 2 ? rand(950, 1150) : rand(700, 880));
@@ -2931,7 +2937,7 @@ export class MissionDirector {
     st.provideT = (st.provideT ?? 0) - 0.5;
     if (st.provideT > 0) return;
     st.provideT = 2;
-    if (this.callJet?.(m.vehicle === "b2" ? "b2" : "f16")) st.provided = true;
+    if (this.callJet?.(m.vehicle === "b2" ? "b2" : m.jetType || "f16")) st.provided = true; // (Round 21: a mission may ask for its type)
   }
 
   // A parked AA vehicle of ours for the group (one each, two at most), near `c`.
@@ -3381,7 +3387,7 @@ export class MissionDirector {
       } else {
         // The marker: a jet to take, or the nearest runway.
         const parked = this._parkedJetTarget();
-        const a = this.airports.nearest(3500);
+        const a = this.airports.nearest(this.airports.far(3500));
         if (parked && !inJet) this.target = parked;
         else if (a) this.target = { pos: new THREE.Vector3(a.site.x, (a.site.y ?? SEA_LEVEL) + 1, a.site.z), label: inJet ? (st.air ? "Land on the runway" : "Take off, then land on the runway") : "Airport", follow: null };
         else this.target = null;
@@ -3840,7 +3846,7 @@ export class MissionDirector {
   _pickBase() {
     const p = this._anyone().position;
     const sites = this.terrain.sites;
-    const home = sites.nearest(p.x, p.z, 4000, "airport");
+    const home = sites.nearest(p.x, p.z, 4000 * (sites.scale || 1), "airport");
     const from = home || { x: p.x, z: p.z };
     let best = null;
     let bestD = Infinity;
@@ -4202,7 +4208,7 @@ export class MissionDirector {
     const sites = this.terrain.sites;
     // (The airport, or city with one, nearest to pos: where the jets are parked.)
     const airport = (pos) => {
-      const s = pos && sites.nearest(pos.x, pos.z, 3000);
+      const s = pos && sites.nearest(pos.x, pos.z, 3000 * (sites.scale || 1));
       return s ? { x: s.x, z: s.z, r: 45 } : null;
     };
     // (Where the group is: its middle, so online every respawn is around the

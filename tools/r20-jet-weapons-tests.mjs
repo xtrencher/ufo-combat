@@ -2,7 +2,8 @@
 // JET_LASER; js/nuke.js; js/fighter-hud.js; js/net/fx.js, js/net/vehicles.js).
 // Node: the numbers (the mini-nuke's crater between the super missile's
 // blast and the big nuke's, a few aboard, the B-2 more, a long reload; the
-// laser's damage, range and heat); the enemy fighters never touch them.
+// laser's damage and range; Round 21: bursts, see r21-laser-tests.mjs);
+// the enemy fighters never touch them.
 // In the browser (Creative, a clear sky):
 // - the weapon switch: X goes missiles -> super missile -> MINI-NUKE ->
 //   NOSE LASER -> missiles (1-4 pick); the SR-71: camera -> mini-nuke ->
@@ -11,7 +12,8 @@
 //   points along the nose (and the flight path); it damages a UFO (a ship
 //   that dodges still takes most of it), a target block burns away, an
 //   enemy fighter is hurt; its pulses are seen by the UFOs (dodging);
-// - overheat: 5 s of fire jams it, it cools and works again; the HUD;
+// - (Round 21: no overheat any more: held, a burst a second, never jams;
+//   the bursts themselves: tools/r21-laser-tests.mjs);
 // - the mini-nuke: a hit before it arms is a dud; armed, it goes off as a
 //   nuke of size 22 (no mission credit): its crater wider than the super
 //   missile's blast and far narrower than the big nuke's; the HUD's
@@ -20,7 +22,7 @@
 // - the frame time while one goes off (the real game loop);
 // - no console errors throughout.
 // With --online (on by default; --solo skips): a host and a guest: the guest
-// sees the host's laser beam (and its pulses) and the mini-nuke in flight
+// sees the host's laser bursts (and their bolts) and the mini-nuke in flight
 // and going off; the guest's own laser hurts the host's UFO.
 //
 //   node r20-jet-weapons-tests.mjs [--only=substring] [--seed=42] [--solo] [--verbose]
@@ -80,8 +82,10 @@ await check("the numbers: the mini-nuke between the super missile and the big nu
   const ammo = /ammo: \{ f22: (\d+), f16: (\d+), b2: (\d+), sr71: (\d+) \}/.exec(M);
   assert(ammo && +ammo[1] >= 1 && +ammo[1] <= 2 && +ammo[2] >= 1 && +ammo[2] <= 2 && +ammo[3] > +ammo[1] && +ammo[4] >= 1, `ammo: ${ammo?.[0]}`);
   assert(numIn(M, "reload") >= 20 && numIn(M, "rearm") >= 60 && numIn(M, "arm") >= 1, "a long reload and rearm, an arming delay");
-  assert(numIn(L, "damage") * numIn(L, "rate") >= 40 && numIn(L, "damage") * numIn(L, "rate") <= 90, "moderate damage a second");
-  assert(numIn(L, "range") >= 800 && numIn(L, "heatUp") > 0 && numIn(L, "resume") < 1, "range, heat");
+  // (Round 21: bursts: a burst's damage over its cycle, about the old beam's 60 a second.)
+  const dps = numIn(L, "damage") / (numIn(L, "burst") + numIn(L, "recharge"));
+  assert(dps >= 40 && dps <= 90, `moderate damage a second: ${dps}`);
+  assert(numIn(L, "range") >= 800 && numIn(L, "recharge") > 0, "range, recharge");
   const enemy = fs.readFileSync(path.join(ROOT, "js/enemy-jets.js"), "utf8");
   assert(!/mininuke|laser|_fireMini|JET_LASER|MINI_NUKE/.test(enemy), "the enemy fighters never use them");
 });
@@ -369,7 +373,8 @@ await browserCheck("the laser: the beam starts just under the nose of each jet a
       j._levelAim();
       const at = H.snap(j);
       g.vehicles.mouseDown(2);
-      for (let i = 0; i < 6; i++) {
+      // (Round 21: a burst's beam is out 0.2 s: looked at mid-burst.)
+      for (let i = 0; i < 4; i++) {
         H.hold(j, at);
         H.step(1 / 30);
       }
@@ -390,18 +395,22 @@ await browserCheck("the laser: the beam starts just under the nose of each jet a
         angMesh: +beamDir.angleTo(fwd).toFixed(4),
         meshAt: +j._beam.group.getWorldPosition(new T.Vector3()).distanceTo(hit.from).toFixed(3),
         len: Math.round(j._beam.core.scale.z),
-        pulses: j.laserPulses || 0,
+        pulses: j.laserBursts || 0,
       };
       g.vehicles.mouseUp(2);
-      H.step(1 / 30);
+      // (Round 21: the burst's tail follows its head out to the range, then it's gone.)
+      for (let i = 0; i < 30; i++) {
+        H.hold(j, at);
+        H.step(1 / 30);
+      }
       r.off = !j.laserOn && !j._beam.group.visible;
       return r;
     }, type);
     out.push(r);
-    assert(r.on && r.visible && r.off, `fires while held, stops when let go: ${JSON.stringify(r)}`);
+    assert(r.on && r.visible && r.off, `a burst, then gone: ${JSON.stringify(r)}`);
     assert(r.along > r.nose * 0.75 && r.along <= r.nose + 0.3 && r.under < 0 && r.under > -1.6, `from just under the nose: ${JSON.stringify(r)}`);
     assert(r.angNose < 1e-3 && r.angVel < 0.02 && r.angMesh < 1e-3 && r.meshAt < 0.01, `along the nose and the flight path: ${JSON.stringify(r)}`);
-    assert(r.len > 100 && r.pulses >= 2, `a long beam and its pulses: ${JSON.stringify(r)}`);
+    assert(r.len > 100 && r.pulses === 1, `a long beam, one burst: ${JSON.stringify(r)}`);
   }
   console.log(`    ${out.map((r) => `${r.type} ${r.along}/${r.nose} fwd, ${r.under} up`).join("; ")}`);
   if (SHOTS) {
@@ -434,7 +443,7 @@ await browserCheck("the laser: the beam starts just under the nose of each jet a
   }
 });
 
-await browserCheck("the laser hurts a UFO (one that dodges still takes most of it; the UFOs see the pulses), an enemy fighter, and burns a target block", async () => {
+await browserCheck("the laser hurts a UFO (a skilled dodger far off slips some; the UFOs see the bursts), an enemy fighter, and burns a target block", async () => {
   await sky({ y: 200, speed: 150 });
   const r = await v((g) => {
     const H = window.__r20;
@@ -454,9 +463,11 @@ await browserCheck("the laser hurts a UFO (one that dodges still takes most of i
         if (u.state !== "gone" && !u.falling) {
           H.still(u);
           u.dash = null;
-          if (!u.evade) u.pos.copy(p0);
+          // (Round 21: a burst is one bolt: once it slid, it stays a moment, till the bolt is past.)
+          if (u.evade) u._slidT = 0.6;
+          else if ((u._slidT = (u._slidT || 0) - 1 / 30) <= 0) u.pos.copy(p0);
         }
-        j.laserHeat = 0; // (the heat is the next check's)
+        j.laserHeat = 0; // (Round 20: the heat was the next check's; Round 21: none)
         H.step(1 / 30);
         each?.();
       }
@@ -499,10 +510,11 @@ await browserCheck("the laser hurts a UFO (one that dodges still takes most of i
     g.vehicles.remove(ej);
     return { plain, hitKind, dodged, seen, dodges, ejHurt };
   });
-  console.log(`    UFO: ${r.plain} damage in 3 s (no dodging), ${r.dodged} by a skilled dodger (${r.dodges} dodges of ${r.seen} pulses seen); enemy fighter ${r.ejHurt} in 1 s`);
+  console.log(`    UFO: ${r.plain} damage in 3 s (no dodging), ${r.dodged} by a skilled dodger (${r.dodges} dodges of ${r.seen} bursts seen); enemy fighter ${r.ejHurt} in 1 s`);
+  // (Round 21: held 3 s, a burst a second: 3 bursts.)
   assert(r.hitKind === "ufo" && r.plain >= 120 && r.plain <= 260, `about 60 a second on a UFO: ${JSON.stringify(r)}`);
-  assert(r.seen > 20, `the UFOs see the pulses coming: ${JSON.stringify(r)}`);
-  assert(r.dodges >= 1 && r.dodged >= r.plain * 0.5, `a dodger slips some, still takes most: ${JSON.stringify(r)}`);
+  assert(r.seen >= 3, `the UFOs see the bursts coming: ${JSON.stringify(r)}`);
+  assert(r.dodges >= 1 && r.dodged < r.plain, `a skilled dodger far off slips some: ${JSON.stringify(r)}`);
   assert(r.ejHurt >= 25, `an enemy fighter hurt: ${JSON.stringify(r)}`);
   // A target block: a stone pillar ahead, kept under the beam. (Blocks go
   // up to y 127: the jet flies at 112 here, the air cleared before it.)
@@ -543,47 +555,27 @@ await browserCheck("the laser hurts a UFO (one that dodges still takes most of i
   assert(b.kind === "block" && b.n0 === 105 && b.n1 < b.n0 && b.burnt >= 1 && b.n0 - b.n1 <= 40, `burns a few blocks where it is held: ${JSON.stringify(b)}`);
 });
 
-await browserCheck("overheat: 5 s of fire jams the laser (a word, the HUD), it cools and fires again", async () => {
+await browserCheck("(Round 21) no overheat any more: held 6 s, a burst a second, it never jams; the HUD's charge", async () => {
   await sky({ y: 220, speed: 150 });
   const r = await v((g) => {
     const H = window.__r20;
     const j = window.__j;
     H.press("Digit4");
     const at = H.snap(j);
+    const b0 = j.laserBursts;
     g.vehicles.mouseDown(2);
-    let t = 0;
-    while (!j.laserJam && t < 8) {
+    let charging = false;
+    for (let t = 0; t < 6; t += 1 / 30) {
       H.hold(j, at);
       H.step(1 / 30);
-      t += 1 / 30;
+      charging ||= j.overlay(g.camera).hud.weapon.ready < 1;
     }
-    const jamAt = +t.toFixed(2);
-    const pulses = j.laserPulses;
-    for (let i = 0; i < 15; i++) {
-      H.hold(j, at);
-      H.step(1 / 30);
-    }
-    const whileJam = { on: j.laserOn, pulses: j.laserPulses - pulses, hud: { ...j.overlay(g.camera).hud.weapon }, warn: j.hud().warning };
-    g.vehicles.mouseUp(2);
-    let c = 0;
-    while (j.laserJam && c < 10) {
-      H.hold(j, at);
-      H.step(1 / 30);
-      c += 1 / 30;
-    }
-    g.vehicles.mouseDown(2);
-    H.step(1 / 30);
-    H.hold(j, at);
-    H.step(1 / 30);
-    const again = j.laserOn;
     g.vehicles.mouseUp(2);
     H.step(1 / 30);
-    return { jamAt, whileJam, cool: +c.toFixed(2), again, msgs: H.msgs.filter((m) => /OVERHEAT/.test(m)) };
+    return { bursts: j.laserBursts - b0, charging, warn: j.hud().warning, msgs: H.msgs.filter((m) => /OVERHEAT/.test(m)) };
   });
-  console.log(`    jammed after ${r.jamAt} s of fire, cooled in ${r.cool} s`);
-  assert(r.jamAt > 4.5 && r.jamAt < 5.6, `jams after ~5 s: ${JSON.stringify(r)}`);
-  assert(!r.whileJam.on && r.whileJam.pulses === 0 && r.whileJam.hud.jam && /LASER OVERHEATED/.test(r.whileJam.warn) && r.msgs.length >= 1, `jammed: no beam, no pulses, the HUD says so: ${JSON.stringify(r)}`);
-  assert(r.cool > 1 && r.cool < 3.5 && r.again, `cools and fires again: ${JSON.stringify(r)}`);
+  console.log(`    held 6 s: ${r.bursts} bursts`);
+  assert(r.bursts === 6 && r.charging && !/LASER/.test(r.warn) && r.msgs.length === 0, `a burst a second, no jam: ${JSON.stringify(r)}`);
 });
 
 // Flies the jet's mini-nuke: the jet held level (or `follow`ing it `follow`
@@ -860,7 +852,7 @@ if (!args.solo) {
   };
   const host = await newPage("host", { width: 640, height: 360 });
   const guest = await newPage("guest", { width: 640, height: 360 });
-  await browserCheck("online: the guest sees the host's laser beam and pulses, the mini-nuke in flight and going off; the guest's laser hurts the host's UFO", async () => {
+  await browserCheck("online: the guest sees the host's laser bursts and their bolts, the mini-nuke in flight and going off; the guest's laser hurts the host's UFO", async () => {
     await host.goto(`http://127.0.0.1:${PORT}/index.html?seed=${SEED}&${NET_Q}`, { waitUntil: "load", timeout: 60000 });
     await host.waitForFunction(() => !!window.__ufo && window.__ufo.graphicsReady, null, { timeout: 120000 });
     await host.click("#menu-mp-btn");
@@ -917,9 +909,11 @@ if (!args.solo) {
       if (!p) return null;
       g.player.position.set(p.pos.x + 60, p.pos.y - 30, p.pos.z + 40);
       g.player.flying = true;
-      return p.laserOn && p._beam?.group.visible && window.__mirror > 3 ? { on: true, mirror: window.__mirror, hit: p.laserHit?.dist } : null;
+      // (Round 21: bursts: a burst a second held, each one bolt.)
+      window.__lseen ||= p.laserOn && p._beam?.group.visible ? p.laserHit?.dist || 1 : 0;
+      return p.laserBursts >= 2 && window.__mirror >= 2 ? { on: true, mirror: window.__mirror, hit: window.__lseen, bursts: p.laserBursts } : null;
     }, hj.nid, 40000);
-    assert(seen?.on, `the guest sees the beam and its pulses: ${JSON.stringify(seen)} ${JSON.stringify(await vOn(guest, (g, nid) => { const p = g.vehicles.vehicles.find((x) => x.puppet && x.net?.nid === nid); return p ? { laser: p.laserOn, netLaser: p._netLaser, mirror: window.__mirror } : "no puppet"; }, hj.nid))}`);
+    assert(seen?.on, `the guest sees the bursts and their bolts: ${JSON.stringify(seen)} ${JSON.stringify(await vOn(guest, (g, nid) => { const p = g.vehicles.vehicles.find((x) => x.puppet && x.net?.nid === nid); return p ? { laser: p.laserOn, netLaser: p._netLaser, mirror: window.__mirror } : "no puppet"; }, hj.nid))}`);
     // The host lets go: the beam goes on the guest's side too.
     await vOn(host, (g) => g.vehicles.mouseUp(2));
     const off = await untilOn(guest, (g, nid) => {

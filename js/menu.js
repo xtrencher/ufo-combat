@@ -23,7 +23,8 @@ export const CONTROLS = [
     ["1-9 / mouse wheel", "Pick a hotbar slot"],
     ["E", "Inventory (all items in Creative)"],
     ["Q", "Drop the held item (whole stack with Ctrl)"],
-    ["M", "The mission board (a Missions world): what comes next, start one now, pause the automatic missions, retry or abandon one"], // (Round 17: the missions come by themselves)
+    ["M", "The mission board (a Missions world): what comes next, start one now, stop the missions, retry or abandon one"], // (Round 17: the missions come by themselves)
+    ["Shift+M", "Stop the missions (they come one after another, no waiting) or resume them; also while flying"], // (Round 21)
     ["Middle click", "Pick the targeted block (Creative)"],
     ["F11 or Alt+Enter", "Fullscreen (or the Fullscreen button on the main and pause menus; Settings > Graphics > Fullscreen keeps it on). In Chrome and Edge fullscreen also locks the keyboard, so Ctrl+W, Ctrl+R and the like reach the game instead of closing or reloading the page; hold Esc to leave fullscreen then"],
   ]],
@@ -65,9 +66,9 @@ export const CONTROLS = [
     ["Mouse", "Steer (flight assist: fly toward the crosshair)"],
     ["W / S", "Throttle up / down (a takeoff roll takes about 175 blocks, 130 in the F-16, 270 in the B-2, 300 in the SR-71: use a runway)"],
     ["Shift", "Afterburner while held (much more thrust and a higher top speed); double tap Shift to latch it on, double tap again (or S) to let it go"], // (Round 17: the latch)
-    ["X (or 1 / 2 / 3 / 4)", "Switch the right button's weapon: normal missiles / the SUPER MISSILE (one at a time, slow, a huge blast, 14 s to reload; locks like a missile) / the MINI-NUKE / the NOSE LASER. The HUD shows which, its reload, ammo or heat"], // (Round 17: the heavy missile; Round 20: the mini-nuke, the laser)
+    ["X (or 1 / 2 / 3 / 4)", "Switch the right button's weapon: normal missiles / the SUPER MISSILE (one at a time, slow, a huge blast, 14 s to reload; locks like a missile) / the MINI-NUKE / the NOSE LASER. The HUD shows which, its reload, ammo or charge"], // (Round 17: the heavy missile; Round 20: the mini-nuke, the laser)
     ["Mini-nuke (X or 3)", "A small tactical nuke on a missile, in every jet (1-2 aboard, the B-2 4): right click launches it (hold to lock). It arms after 1.6 s (a hit sooner is a dud), then a flash, a mushroom cloud and a crater about 35 blocks in radius. Its blast hurts you too within about 95 blocks: fire from far off (DANGER CLOSE on the HUD). One more every 90 s, or land and stop to rearm"], // (Round 20)
-    ["Nose laser (X or 4)", "Hold right click: a beam from under the nose, straight where the nose points, 1,200 blocks; 60 damage a second, burns through blocks it is held on; overheats after 5 s (the heat bar)"], // (Round 20)
+    ["Nose laser (X or 4)", "Right click: a short, hard laser burst from under the nose (55 damage, 1,200 blocks), then 0.8 s to recharge (held: one a second). It bends a little onto a UFO or enemy aircraft close to the nose (blue corner ticks show which); a burst on a block burns a small hole"], // (Round 20; Round 21: bursts, aim assist)
     ["A / D", "Roll (hold for a full 360; let go and it stops cleanly)"],
     ["Q / E", "Rudder (yaw)"],
     ["Space (hold)", "Air brakes: panels (F-16) or control surfaces (F-22) open, the jet sheds speed very fast and turns much tighter; too slow and it stalls. On the ground: wheel brakes"],
