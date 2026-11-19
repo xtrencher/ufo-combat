@@ -273,6 +273,7 @@ export class UfoManager {
     this._cur = null; // the player the current UFO is thinking about (online)
     this._acc = new WeakMap(); // vehicle -> its smoothed acceleration (_trackAcc)
     // (Round 19) Whims (js/ufo-mischief.js).
+    this.extras = []; // (Round 21) more things the UFO weapons hit: { raycast, sphereHit, explosion } (js/colossi.js)
     this.threatSources = []; // (see) => void: calls see(pos, vel, ref, homing) for each of a player's projectiles in flight (main.js: the bazooka's rockets)
     this.aimCharge = null; // () => seconds until this player's railgun fires (0: not charging)
     this.dodgeScale = 1; // every ship's dodging (0: none; tests)
@@ -656,6 +657,12 @@ export class UfoManager {
       if (t < 0 || t > maxDist) continue;
       if (!best || t < best.distance) best = { ufo: u, distance: t };
     }
+    // (Round 21) What else the weapons that hit UFOs hit: the colossi's
+    // parts (js/colossi.js), UFO-like objects whose extDamage takes the hit.
+    for (const x of this.extras) {
+      const h = x.raycast(origin, dir, best ? best.distance : maxDist, filter);
+      if (h && (!best || h.distance < best.distance)) best = h;
+    }
     return best;
   }
 
@@ -665,10 +672,15 @@ export class UfoManager {
       const dy = (p.y - u.pos.y) * (u.radius / u.hitHalfHeight);
       if (Math.hypot(p.x - u.pos.x, dy, p.z - u.pos.z) < u.radius + r) return u;
     }
+    for (const x of this.extras) {
+      const h = x.sphereHit(p, r); // (Round 21)
+      if (h) return h;
+    }
     return null;
   }
 
   explosion(center, radius, byPlayer = true) {
+    for (const x of this.extras) x.explosion(center, radius, byPlayer); // (Round 21: the colossi)
     for (const u of this.ufos) {
       if (u.state === "gone" || u.falling) continue;
       const d = Math.max(0, u.pos.distanceTo(center) - u.radius * 0.7);
@@ -683,6 +695,7 @@ export class UfoManager {
   // player flying a UFO, maybe its neighbours).
   damage(u, amount, byPlayer = true, from = null, attacker = null) {
     if (u.state === "gone" || u.falling || amount <= 0) return false;
+    if (u.extDamage) return u.extDamage(amount, byPlayer, from, attacker); // (Round 21: a colossus's part, js/colossi.js)
     // (Online: a guest's hit on the host's UFO goes to the host, after the
     // same checks as below for what the hull shrugs off.)
     if (u.net && !u.shield && !u.immune) {

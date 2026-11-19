@@ -296,7 +296,7 @@ async function browserChecks() {
     assert(r.board && !r.mission && r.enabled && r.wins === 0, JSON.stringify(r));
     await frames(page, 4);
     const t = await until(page, (g) => document.getElementById("mission-tracker").textContent || null, 10000);
-    assert(/NO MISSION/.test(t || "") && /Press M/.test(t), `the tracker: ${t}`);
+    assert(/MISSIONS STOPPED/.test(t || "") && /M: the board/.test(t), `the tracker: ${t}`); // (Round 21: "stopped", Shift+M)
   });
 
   await browserCheck("the board screen: six categories, tiers, locks; Start from a card begins the mission", async () => {
@@ -310,7 +310,7 @@ async function browserChecks() {
       btn?.click();
       return { tabs, cards, started: g.progress.mission?.id || null };
     });
-    assert(r.tabs.length === 6 && r.tabs.some((t) => /Helicopter/.test(t)) && r.tabs.some((t) => /Defense/.test(t)), `tabs: ${r.tabs}`);
+    assert(r.tabs.length === 7 && r.tabs.some((t) => /Colossi/.test(t)) && r.tabs.some((t) => /Helicopter/.test(t)) && r.tabs.some((t) => /Defense/.test(t)), `tabs: ${r.tabs}`);
     assert(r.cards.some((c) => /locked\|Base assault/.test(c)) && r.cards.some((c) => /open\|Tank battle/.test(c)), `cards: ${r.cards}`);
     assert(r.started === "tank_battle", `started: ${r.started}`);
     await clear(page);

@@ -63,20 +63,22 @@ export function renderBoard(el, o) {
   rows.push(`<div class="mb-head"><span class="mb-rank">${esc(b.rank)}</span><span class="mb-sub">${b.wins} mission${b.wins === 1 ? "" : "s"} won (${won} of ${list.length} different)${b.fails ? ` · ${b.fails} failed` : ""}</span>${o.guest ? `<span class="mb-sub">Online: the host's board (your picks are sent to the host)</span>` : ""}</div>`);
   if (cur) {
     const obj = (cur.objectives || []).map((x) => `${x.value >= x.goal ? "✔" : "○"} ${esc(x.label)}: ${x.value}/${x.goal}`).join(" · ");
-    rows.push(`<div class="mb-box"><b>Now: ${esc(cur.title)}</b> (${esc(CATEGORIES.find((c) => c.id === cur.cat)?.name)}, ${esc(cur.tierName)})${b.active ? ` · ${clock(b.active.left)} left` : ""}<div class="mb-brief">${esc(cur.text)}</div><div class="mb-meta">${obj}</div><div style="margin-top:6px"><button class="btn mb-small" data-act="abandon">Abandon</button></div></div>`);
+    rows.push(`<div class="mb-box"><b>Now: ${esc(cur.title)}</b> (${esc(CATEGORIES.find((c) => c.id === cur.cat)?.name)}, ${esc(cur.tierName)})${b.active ? ` · ${clock(b.active.left)} left` : ""}<div class="mb-brief">${esc(cur.text)}</div><div class="mb-meta">${obj}</div><div style="margin-top:6px"><button class="btn mb-small" data-act="abandon">Abandon (the next one starts)</button> <button class="btn mb-small" data-act="pause">Stop missions</button></div></div>`);
   } else {
     if (b.result) {
       const r = b.result;
       const title = list.find((m) => m.id === r.id)?.title || r.id;
-      rows.push(r.ok ? `<div class="mb-box win"><b>Won: ${esc(title)}</b>${r.unlock ? ` · ${esc(r.unlock)}` : ""}<div style="margin-top:6px"><button class="btn mb-small" data-act="retry">Play again</button></div></div>` : `<div class="mb-box fail"><b>${r.reason === "Abandoned." ? "Abandoned" : "Failed"}: ${esc(title)}</b>${r.reason === "Abandoned." ? "" : ` · ${esc(r.reason)}`}<div style="margin-top:6px"><button class="btn mb-small" data-act="retry">Retry now</button></div></div>`);
+      const quiet = r.reason === "Abandoned." || r.reason === "Stopped.";
+      rows.push(r.ok ? `<div class="mb-box win"><b>Won: ${esc(title)}</b>${r.unlock ? ` · ${esc(r.unlock)}` : ""}<div style="margin-top:6px"><button class="btn mb-small" data-act="retry">Play again</button></div></div>` : `<div class="mb-box fail"><b>${r.reason === "Abandoned." ? "Abandoned" : r.reason === "Stopped." ? "Stopped" : "Failed"}: ${esc(title)}</b>${quiet ? "" : ` · ${esc(r.reason)}`}<div style="margin-top:6px"><button class="btn mb-small" data-act="retry">${r.reason === "Stopped." ? "Play it now" : "Retry now"}</button></div></div>`);
     }
     // (Round 17) The automatic flow: what comes next, start it now, pause or resume.
     const n = b.next;
     const nt = n ? list.find((m) => m.id === n.id)?.title || n.id : "";
-    if (n) rows.push(`<div class="mb-box"><b>Up next: ${esc(nt)}</b> in ${clock(n.left)}${n.retry ? " (trying again)" : ""}<div class="mb-brief">Missions come one after another by themselves. Start any open one below to skip ahead.</div><div style="margin-top:6px"><button class="btn mb-small" data-act="next">Start now</button> <button class="btn mb-small" data-act="pause">Pause automatic missions</button></div></div>`);
-    else if (!b.auto) rows.push(`<div class="mb-box">Automatic missions are paused: start one below, or let them come by themselves again.<div style="margin-top:6px"><button class="btn mb-small" data-act="resume">Resume automatic missions</button></div></div>`);
+    // (Round 21: no countdown: the next one starts right after the result.)
+    if (n) rows.push(`<div class="mb-box"><b>Up next: ${esc(nt)}</b>${n.retry ? " (trying again)" : ""}: starting now<div class="mb-brief">Missions come one after another, with no wait, until you stop them (here, Shift+M, or the setting). Start any open one below to skip ahead.</div><div style="margin-top:6px"><button class="btn mb-small" data-act="next">Start now</button> <button class="btn mb-small" data-act="pause">Stop missions</button></div></div>`);
+    else if (!b.auto) rows.push(`<div class="mb-box">Missions are stopped: start one below, or resume them (they come one after another again).<div style="margin-top:6px"><button class="btn mb-small" data-act="resume">Resume missions</button></div></div>`);
     else if (b.allDone) rows.push(`<div class="mb-box win">Every mission is won. Play any of them again below.</div>`);
-    else rows.push(`<div class="mb-box">The next mission starts by itself in a moment. Start any open one below to skip ahead.</div>`);
+    else rows.push(`<div class="mb-box">The next mission starts right away. Start any open one below to skip ahead.<div style="margin-top:6px"><button class="btn mb-small" data-act="pause">Stop missions</button></div></div>`);
   }
   rows.push(`<div class="mb-tabs">${CATEGORIES.map((c) => {
     const n = list.filter((m) => m.cat === c.id);
@@ -134,17 +136,17 @@ export function trackerHtml(o) {
       parts.push(`<div class="mt-target">◆ ${esc(t.label)}: ${Math.round(Math.hypot(dx, dz))} blocks ${dir}</div>`);
     }
     if (o.note) parts.push(`<div class="mt-note">${esc(o.note)}</div>`);
-    parts.push(`<div class="mt-next">${m.retry ? `Try ${m.retry + 1} · ` : ""}M: mission board (abandon, details)</div>`);
+    parts.push(`<div class="mt-next">${m.retry ? `Try ${m.retry + 1} · ` : ""}M: mission board · Shift+M: stop missions</div>`);
   } else {
     // (Round 17) Between missions: the outcome and what comes next by itself.
     const r = b.result;
     const n = b.next;
-    if (r && !r.ok && r.reason !== "Abandoned.") parts.push(`<div class="mt-fail">MISSION FAILED</div><div class="mt-text">${esc(r.reason)}</div>`);
+    if (r && !r.ok && r.reason !== "Abandoned." && r.reason !== "Stopped.") parts.push(`<div class="mt-fail">MISSION FAILED</div><div class="mt-text">${esc(r.reason)}</div>`);
     else if (r?.ok) parts.push(`<div class="mt-win">MISSION COMPLETE</div>${r.unlock ? `<div class="mt-text">${esc(r.unlock)}</div>` : ""}`);
     if (n) {
       const title = b.missionById(n.id)?.title || n.id;
-      parts.push(`<div class="mt-title">${n.retry ? "TRYING AGAIN" : "NEXT MISSION"}</div><div class="mt-text">${esc(title)}: starts in ${clock(n.left)}.</div>`);
-    } else if (!b.auto) parts.push(`<div class="mt-title">NO MISSION</div><div class="mt-text">Automatic missions are paused. ${r && !r.ok ? "Press M to retry it, start another or resume them." : "Press M to start one or resume them."}</div>`);
+      parts.push(`<div class="mt-title">${n.retry ? "TRYING AGAIN" : "NEXT MISSION"}</div><div class="mt-text">${esc(title)}: starting now. (Shift+M stops the missions.)</div>`);
+    } else if (!b.auto) parts.push(`<div class="mt-title">MISSIONS STOPPED</div><div class="mt-text">Shift+M resumes them (or M: the board, ${r && !r.ok && r.reason !== "Stopped." && r.reason !== "Abandoned." ? "to retry it or pick another" : "to pick one"}).</div>`);
     else if (b.allDone) parts.push(`<div class="mt-title">ALL MISSIONS WON</div><div class="mt-text">Press M to play any of them again.</div>`);
     else parts.push(`<div class="mt-title">NEXT MISSION</div><div class="mt-text">Starting in a moment.</div>`);
     parts.push(`<div class="mt-next">${esc(b.rank)} · ${b.wins} won · M: mission board</div>`);
