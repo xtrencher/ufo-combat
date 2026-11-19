@@ -69,7 +69,7 @@ export class CoopSync {
       if (m.k === "auto") {
         if (p.auto !== (m.id === "on")) {
           p.setAuto(m.id === "on");
-          this.game.toast?.(`${who} ${p.auto ? "resumed" : "paused"} the automatic missions.`, 4);
+          this.game.toast?.(`${who} ${p.auto ? "resumed" : "stopped"} the missions.`, 4);
         }
         return;
       }
@@ -268,7 +268,7 @@ export class CoopSync {
       tgt: t ? [Math.round(t.pos.x * 10) / 10, Math.round(t.pos.y * 10) / 10, Math.round(t.pos.z * 10) / 10, t.label] : null,
       // What the marker follows (a guest points it at the nearest one of those to them).
       tk: t?.follow ? (t.follow.canopy ? "c" : t.follow.S ? (t.follow.missionTarget ? "u" : "U") : t.follow.spec && t.follow.kind ? "m" : null) : null,
-      boss: b ? { name: b.name || null, health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0) } : null,
+      boss: b ? { name: b.name || null, health: Math.round(b.health * 1000) / 1000, shield: !!b.shield, final: !!b.final, pylons: b.pylons | 0, downT: Math.round(b.downT || 0), ...(b.note ? { note: String(b.note).slice(0, 120) } : {}) } : null, // (Round 21: a colossus's note)
       note: g.missions.note?.() || "",
       ev: p.mission?.event || null,
       mo: g.missions.netObjects?.() || null,
@@ -318,7 +318,7 @@ export class CoopSync {
       const ev = p.applyNet(m.bd);
       if (ev === "start" && this._lastStep >= 0 && p.mission) g.toast?.(`MISSION: ${p.mission.title}. ${p.mission.text}`, 7);
       // (Round 17: what comes next, from the host's automatic flow.)
-      if (ev === "fail" && p.result) g.toast?.(`MISSION FAILED: ${p.result.reason} ${p.next ? (p.next.retry ? `Trying again in ${Math.ceil(p.next.left)} s.` : `Next: ${p.missionById(p.next.id)?.title || "another mission"} in ${Math.ceil(p.next.left)} s.`) : "The host can retry it (M: the board)."}`, 6);
+      if (ev === "fail" && p.result) g.toast?.(`MISSION FAILED: ${p.result.reason} ${p.next ? (p.next.retry ? "Trying again now." : `Next: ${p.missionById(p.next.id)?.title || "another mission"}.`) : "The host can retry it (M: the board)."}`, 6); // (Round 21: no wait)
       this._lastStep = 0;
     } else if (typeof m.ch === "string" && m.ch.length < 4000) {
       const ids = m.ch.split(",");

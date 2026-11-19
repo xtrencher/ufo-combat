@@ -131,7 +131,7 @@ await check("failing: retried by itself after a pause; after three failures in a
   b.onFail = () => fails++;
   b.fail("Test failure.");
   assert(b.next?.id === "supply" && b.next.retry && b.next.left === AUTO_BREAK.fail && b.next.tries === 1, `a retry queued: ${JSON.stringify(b.next)}`);
-  assert(/Trying again in 12 s \(try 2 of 3\)/.test(b.failNote()), b.failNote());
+  assert(/Trying again now \(try 2 of 3\)/.test(b.failNote()), b.failNote()); // (Round 21: no wait)
   const run = b.runId;
   assert(tick(b, st) === "supply" && b.runId === run + 1 && b.mission.retry === 1, "retried (a fresh set-up)");
   b.fail("Again.");
@@ -150,7 +150,7 @@ await check("failing: retried by itself after a pause; after three failures in a
   // Pause and resume.
   b.setAuto(false);
   assert(!b.next && !tick(b, st, 100), "paused: nothing starts");
-  assert(/paused/.test(b.failNote()), "the note says so");
+  assert(/stopped/.test(b.failNote()), "the note says so"); // (Round 21: "Stop missions")
   b.setAuto(true);
   assert(b.next?.id === "touchdown" && tick(b, st) === "touchdown", "resumed");
   // A board pick skips ahead (what was coming waits).
@@ -336,7 +336,7 @@ async function browserChecks() {
       g.player.damage = () => false;
       return g.progress.mission ? "started" : await new Function("g", `return (${TRACK})(g)`)(g);
     }, TRACK.toString());
-    assert(t0 === "started" || (/NEXT MISSION/.test(t0) && /The archer: starts in 0:0\d/.test(t0)), `the tracker before it: ${t0}`);
+    assert(t0 === "started" || (/NEXT MISSION/.test(t0) && /The archer: starting now/.test(t0)), `the tracker before it: ${t0}`);
     // (The rest of the break skipped: a software-rendered page plays slowly. The game's own loop starts it.)
     await v((g) => (g.progress.next && (g.progress.next.left = Math.min(g.progress.next.left, 0.3)), true));
     const started = await until((g) => g.progress.mission?.id, 30000);
@@ -372,7 +372,8 @@ async function browserChecks() {
     }, { track: TRACK.toString(), run: RUN.toString() });
     const w = r.afterWin;
     assert(w.result?.ok && w.result.id === "skeleton" && w.apples >= 1, `won, with its reward: ${JSON.stringify(w)}`);
-    assert(w.next?.id === "supply" && w.next.left === 20 && /NEXT MISSION/.test(w.track) && /0:20/.test(w.track), `the next one queued, the tracker counting down: ${JSON.stringify(w)}`);
+    assert(w.next?.id === "supply" && w.next.left === 3 && /NEXT MISSION/.test(w.track) && /starting now/.test(w.track), // (Round 21: a 3 s banner, no countdown)
+      `the next one queued, the tracker counting down: ${JSON.stringify(w)}`);
     assert(r.next === "supply", `chained: ${r.next}`);
     const [f1, f2, f3] = r.fails;
     assert(f1.q?.id === "supply" && f1.q.retry && /TRYING AGAIN/.test(f1.tr) && f1.id === "supply" && f1.retry === 1 && f1.fresh, `the first failure: ${JSON.stringify(f1)}`);

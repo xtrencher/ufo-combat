@@ -23,7 +23,8 @@ export const CONTROLS = [
     ["1-9 / mouse wheel", "Pick a hotbar slot"],
     ["E", "Inventory (all items in Creative)"],
     ["Q", "Drop the held item (whole stack with Ctrl)"],
-    ["M", "The mission board (a Missions world): what comes next, start one now, pause the automatic missions, retry or abandon one"], // (Round 17: the missions come by themselves)
+    ["M", "The mission board (a Missions world): what comes next, start one now, stop the missions, retry or abandon one"], // (Round 17: the missions come by themselves)
+    ["Shift+M", "Stop the missions (they come one after another, no waiting) or resume them; also while flying"], // (Round 21)
     ["Middle click", "Pick the targeted block (Creative)"],
     ["F11 or Alt+Enter", "Fullscreen (or the Fullscreen button on the main and pause menus; Settings > Graphics > Fullscreen keeps it on). In Chrome and Edge fullscreen also locks the keyboard, so Ctrl+W, Ctrl+R and the like reach the game instead of closing or reloading the page; hold Esc to leave fullscreen then"],
   ]],

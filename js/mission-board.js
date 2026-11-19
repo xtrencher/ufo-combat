@@ -22,6 +22,12 @@
 // row it is put aside (`skipped`: it comes back once everything else is
 // done) and the next one comes. The board stays: the overview, starting a
 // mission out of turn, and pausing the flow (`auto`, saved).
+//
+// (Round 21) No waiting: the player wanted the next mission at once, "unless
+// I stop them". The breaks are a short result banner now (AUTO_BREAK, about
+// 3 s, no countdown); "Stop missions" (the board, Shift+M, the setting)
+// ends the running mission (no failure, nothing put aside) and starts no
+// other until "Resume missions", which brings the stopped one back first.
 import { Progress, missionById as poolMission, curveAt } from "./progression.js";
 import { BOARD, BOARD_BY_ID, CATEGORIES, TIERS, VEHICLE_NAMES, AUTO_ORDER, tierCurve, limitFor, rewardFor, rankFor, lockReason, setTitles } from "./mission-catalog.js";
 
@@ -32,7 +38,8 @@ setTitles((id) => poolMission(id)?.title);
 const GATES = { wings: "jet", salvage: "ufo", sunburn: "b2", air_cav: "heli", tank_battle: "tank", supply: "any" };
 
 // (Round 17) The automatic flow's breaks (seconds of play) and tries.
-export const AUTO_BREAK = { first: 8, win: 20, fail: 12, skip: 12 };
+// (Round 21: a 3 s result banner, no wait; 1.5 s after a resume.)
+export const AUTO_BREAK = { first: 3, win: 3, fail: 3, skip: 2.5, resume: 1.5 };
 export const MAX_TRIES = 3;
 
 // (Round 17: a page opened with ?auto=0 starts with the flow paused, for the
@@ -71,6 +78,7 @@ export class MissionBoard extends Progress {
     this.skipped = new Set(); // put aside after MAX_TRIES failures (or abandoned)
     this.streak = { id: null, n: 0 }; // failures in a row of one mission
     this.allDone = false; // nothing left to come (every mission won)
+    this.stopped = null; // (Round 21) the mission "Stop missions" ended: it comes first on a resume
     this._idle(null);
   }
 
@@ -221,6 +229,7 @@ export class MissionBoard extends Progress {
     this.active = { id, tier: e.tier, limit: limitFor(e), left: limitFor(e) };
     this.result = null;
     this.next = null; // (Round 17: what was coming waits for this one)
+    if (this.stopped === id) this.stopped = null;
     if (this.streak.id !== id) this.streak = { id, n: 0 };
     this.mission.retry = this.streak.n; // (the failures before this try)
     if (this.onChange) this.onChange();
@@ -258,9 +267,9 @@ export class MissionBoard extends Progress {
   // (Round 17) What comes after a failure, for its message.
   failNote() {
     const n = this.next;
-    if (!n) return this.auto ? "Press M for the mission board." : "Press M to retry it (automatic missions are paused).";
-    if (n.retry) return `Trying again in ${Math.ceil(n.left)} s (try ${n.tries + 1} of ${MAX_TRIES}).`;
-    return `Moving on: ${this._title(n.id)} in ${Math.ceil(n.left)} s (this one comes back later).`;
+    if (!n) return this.auto ? "Press M for the mission board." : "Press M to retry it (missions are stopped).";
+    if (n.retry) return `Trying again now (try ${n.tries + 1} of ${MAX_TRIES}).`;
+    return `Moving on: ${this._title(n.id)} (this one comes back later).`;
   }
 
   // Walking away from it (no penalty but the time).
@@ -364,7 +373,9 @@ export class MissionBoard extends Progress {
     return this.mission;
   }
 
-  // Pauses (false) or resumes (true) the automatic flow.
+  // Stops (false) or resumes (true) the missions. (Round 21) Stopping ends
+  // the running mission too (no failure, nothing put aside: it comes back
+  // first on a resume); nothing starts by itself until the resume.
   setAuto(on) {
     if (this.mirror) {
       this.onRequest?.("auto", on ? "on" : "off");
@@ -373,8 +384,25 @@ export class MissionBoard extends Progress {
     this.auto = !!on;
     this.next = null;
     this.allDone = false;
-    if (this.auto && !this.mission) this._queueNext(AUTO_BREAK.first);
+    if (!this.auto && this.board && this.mission && this.active) {
+      const m = this.mission;
+      this.stopped = m.id;
+      this.result = { id: m.id, ok: false, reason: "Stopped.", t: Date.now() };
+      this._idle(m.id);
+    }
+    if (this.auto && !this.mission) {
+      const s = this.stopped;
+      this.stopped = null;
+      if (s && BOARD_BY_ID.has(s) && !this.lockOf(s) && !this.won.has(s)) this._queue(s, AUTO_BREAK.resume);
+      else this._queueNext(AUTO_BREAK.resume);
+    }
     if (this.onChange) this.onChange();
+  }
+
+  // (Round 21) Shift+M and the board's button: stop the missions, or resume them.
+  toggleChain() {
+    this.setAuto(!this.auto);
+    return this.auto;
   }
 
   // Starts what comes next at once (the board's "Start now").
@@ -493,7 +521,7 @@ export class MissionBoard extends Progress {
     if (r && (!this.result || this.result.t !== r.t || this.result.id !== r.id)) {
       this.result = r;
       // (Not for the outcome already there when joining.)
-      if (this._joined && !r.ok && r.reason !== "Abandoned.") out = out || "fail";
+      if (this._joined && !r.ok && r.reason !== "Abandoned." && r.reason !== "Stopped.") out = out || "fail";
     }
     // (Round 17) The host's flow (an older host sends none: nothing shown as coming).
     const n = Array.isArray(s.n) && BOARD_BY_ID.has(s.n[0]) ? s.n : null;

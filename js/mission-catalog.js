@@ -22,6 +22,9 @@
 //     below, a short break between them; a failed one is retried by
 //     itself, and after a few failures the next one comes. The board is
 //     the overview, and a way to skip ahead or to pause the flow.
+//   - (Round 21) no break: the next one starts after a 3 s result, until
+//     the player stops them; and a seventh category, the Colossi: giant
+//     horror creatures to fight from a jet (js/colossi.js).
 //
 // Missions left off the board (from the Round 10 pool): "The crew" (it only
 // worked straight after First contact), "UFO slayer" (twenty-five UFOs: a
@@ -43,6 +46,15 @@ for (const e of [
   ["trucksDelivered", "Trucks escorted home (mission)"],
   ["raidDown", "Air raiders shot down (mission)"],
   ["attackersDown", "Airport attackers destroyed (mission)"],
+  // (Round 21) The colossi (js/colossi.js, js/mission-colossi.js).
+  ["colossiDown", "Colossi brought down"],
+  ["striderDown", "Striders brought down"],
+  ["weeperDown", "Watchers killed"],
+  ["hiveDown", "Hive Mothers killed"],
+  ["weeperBeaten", "Watchers blinded or killed (mission)"],
+  ["watcherEyes", "Watcher eyes put out"],
+  ["parasitesDown", "Parasites shot down"],
+  ["weakPointsDown", "Colossus weak points destroyed"],
 ]) if (!STAT_LABELS.some(([k]) => k === e[0])) STAT_LABELS.push(e);
 
 const R = (sizes, health, damage, aggression, max, rate, crew = { alien: 1 }) => ({ sizes, health, damage, aggression, max, rate, crew });
@@ -87,6 +99,76 @@ registerMission({
   sky: { max: 1, rate: 0.008 },
 });
 
+// ---------- (Round 21) The colossi ----------
+// Giant horror creatures (js/colossi.js), fought from a jet the mission
+// calls in (an F-22: two mini-nukes, super missiles). The sky stays clear of
+// UFOs: the fight is with the colossus. No goal grows with the group (the
+// creatures' health does, as the UFOs' does).
+
+const COLOSSUS_SKY = { max: 0, rate: 0 };
+
+registerMission({
+  id: "long_legs",
+  title: "Long Legs",
+  text: "Something enormous is walking toward the town (ringed): a Strider, a small black body slung between six impossibly long legs. Your jet is called in. Shoot out its glowing knees (three bring it down) or crack the armour round the sac hanging under it (super missile, mini-nuke) and burst the sac. Fly between its legs to trip it. Keep away from its tendrils and the acid it spits. If it reaches the town, the mission fails.",
+  objectives: [{ stat: "striderDown", goal: 1, label: "Strider brought down" }],
+  event: "colossus",
+  colossi: ["strider"],
+  jetType: "f22",
+  act: [3, 4], optional: true,
+  twists: { 1: "It walks faster.", 2: "It starts closer to the town.", 3: "A tougher one." },
+  tier: 3,
+  rules: MID_SKY,
+  sky: COLOSSUS_SKY,
+});
+
+registerMission({
+  id: "watcher",
+  title: "The Watcher",
+  text: "A gaunt thing taller than the hills is hunting your jet with seven red eyes. Blind it: shoot the eyes out (they are tough, but take triple damage while it charges its eye beam). It swats aircraft out of the sky and screeches (engines stall): lure its swat into the ground by flying low, and its hand sticks there, wrist and eyes wide open. Or crack its chest plates with heavy weapons and burst the heart.",
+  objectives: [{ stat: "weeperBeaten", goal: 1, label: "The Watcher blinded (or killed)" }],
+  event: "colossus",
+  colossi: ["weeper"],
+  jetType: "f22",
+  act: [3, 4], optional: true,
+  twists: { 1: "It charges its beam faster.", 2: "It comes closer.", 3: "A tougher one." },
+  tier: 4,
+  rules: MID_SKY,
+  sky: COLOSSUS_SKY,
+});
+
+registerMission({
+  id: "nest",
+  title: "Nest",
+  text: "A Hive Mother, a bloated spider the size of a hill, is launching swarms of flying parasites from the glowing egg sacs on its back. They chase aircraft: flares lure them, the afterburner and tight turns shake them, the cannon and the laser pick them off. Shoot a sac as it glows white to open (triple damage: its brood dies inside), crack the carapace over its heart with heavy weapons, and kill it.",
+  objectives: [
+    { stat: "hiveDown", goal: 1, label: "Hive Mother killed" },
+    { stat: "parasitesDown", goal: 20, label: "Parasites shot down" },
+  ],
+  event: "colossus",
+  colossi: ["hive"],
+  jetType: "f22",
+  act: [3, 4], optional: true,
+  twists: { 1: "Bigger broods.", 2: "It sits closer.", 3: "A tougher one." },
+  tier: 4,
+  rules: MID_SKY,
+  sky: COLOSSUS_SKY,
+});
+
+registerMission({
+  id: "colossi",
+  title: "Colossi",
+  text: "Two of them at once. Everything you have learnt: knees, eyes, sacs, the armour only heavy weapons crack. Bring both down.",
+  objectives: [{ stat: "colossiDown", goal: 2, label: "Colossi brought down" }],
+  event: "colossus",
+  jetType: "f22",
+  act: 4, optional: true, bonus: 5,
+  twists: { 1: "A Strider and a Hive Mother.", 2: "A Watcher and a Hive Mother.", 3: "A Strider and a tougher Watcher." },
+  tier: 5,
+  rules: MID_SKY,
+  sky: { max: 0, rate: 0 },
+});
+
 // ---------- Categories and tiers ----------
 
 export const CATEGORIES = [
@@ -96,6 +178,7 @@ export const CATEGORIES = [
   { id: "heli", name: "Helicopter", blurb: "Attack and transport helicopters: one waits for you." },
   { id: "ufo", name: "UFO war", blurb: "Bring their ships down, stop the abductions, face the Overlord." },
   { id: "defense", name: "Defense", blurb: "Hold out: air raids, an airport under attack, nights under siege." },
+  { id: "colossus", name: "Colossi", blurb: "Giant horrors walk the land (Round 21): bring them down from your jet. Find their weak points." },
 ];
 export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 
@@ -173,6 +256,11 @@ export const BOARD = [
   { id: "hunted", cat: "defense", tier: 2, brief: "Abductor ships hunt you: hold out." },
   { id: "airport_defense", cat: "defense", tier: 3, vehicle: "heli", limit: 900, bonus: 2, brief: "Hold the airport against a combined attack." },
   { id: "swarm", cat: "defense", tier: 3, limit: 1080, bonus: 1, brief: "A night of swarms: survive and shoot down eight." },
+  // (Round 21) Colossi
+  { id: "long_legs", cat: "colossus", tier: 1, vehicle: "jet", limit: 840, bonus: 1, brief: "A Strider walks on a town: bring it down from your jet." },
+  { id: "watcher", cat: "colossus", tier: 2, vehicle: "jet", limit: 900, bonus: 2, brief: "Blind the Watcher: put out its seven eyes." },
+  { id: "nest", cat: "colossus", tier: 2, vehicle: "jet", limit: 900, bonus: 2, brief: "Kill the Hive Mother and shoot down its parasite swarm." },
+  { id: "colossi", cat: "colossus", tier: 3, vehicle: "jet", limit: 1320, bonus: 5, brief: "Two colossi at once." },
 ];
 export const BOARD_BY_ID = new Map(BOARD.map((e) => [e.id, e]));
 
@@ -186,11 +274,12 @@ export const BOARD_BY_ID = new Map(BOARD.map((e) => [e.id, e]));
 // last). The board (M) can still start any open one out of turn.
 export const AUTO_ORDER = [
   // Recruit
-  "skeleton", "supply", "landing", "first_contact", "scout_hunter", "tank_battle", "touchdown", "air_cav", "air_raid", "dogfight", "village", "evac",
+  // (Round 21: the colossi early: Long Legs the eighth, right after the first jet mission)
+  "skeleton", "supply", "landing", "first_contact", "scout_hunter", "tank_battle", "touchdown", "long_legs", "air_cav", "air_raid", "dogfight", "village", "evac",
   // Veteran
-  "patrol", "escort", "air_superiority", "salvage", "medevac", "long_night", "hold_line", "stop_launch", "convoy", "abductors", "gunship_hunt", "hunted", "grays", "air_defense", "rescue", "crash_site", "big_game",
+  "patrol", "escort", "watcher", "air_superiority", "salvage", "medevac", "long_night", "nest", "hold_line", "stop_launch", "convoy", "abductors", "gunship_hunt", "hunted", "grays", "air_defense", "rescue", "crash_site", "big_game",
   // Elite
-  "reds", "base_assault", "scramble", "sabotage", "airport_defense", "fortress", "steal", "sunburn", "swarm", "titan", "overlord", "armada",
+  "reds", "base_assault", "scramble", "colossi", "sabotage", "airport_defense", "fortress", "steal", "sunburn", "swarm", "titan", "overlord", "armada",
 ];
 
 // The classic curve's place for a tier (its sky rules and loot tier).

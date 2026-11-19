@@ -1832,6 +1832,8 @@ export class Jet extends Vehicle {
       if (v === this || !v.alive || !(v.isEnemyJet || rival)) continue;
       list.push({ kind: "jet", ref: v, weight: 0.85, attacking: !this.isEnemyJet && (v.hostile || v.provoked > 0) });
     }
+    // (Round 21) More to lock onto: the colossi's weak points and armour (main.js: colossusAimTargets).
+    if (!this.isEnemyJet && mgr.extraLockables) for (const t of mgr.extraLockables()) list.push(t);
     return list;
   }
 
