@@ -851,6 +851,7 @@ await browserCheck("stealth: the UFOs' aim at the F-35 is much worse than at the
     const spread = (t) => {
       const j = H.sky(t, { y: 300, speed: 100 });
       const u = H.hover(j.pos.clone().add(new T.Vector3(300, 40, 0)));
+      u.style = "volley"; // (the same plain style for both: a fan or a burst spreads its shots on purpose)
       const dirs = [];
       const fire = g.lasers.fire.bind(g.lasers);
       g.lasers.fire = (o) => {

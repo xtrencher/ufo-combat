@@ -405,7 +405,7 @@ BUILD.f35 = (pal) => {
   const nozzle = lathe([[0, 0.6], [0.5, 0.6], [1.1, 0.55], [1.15, 0.5]], (x, y, z) => (z > 1.1 ? BURNT : 0x4e5257), { cx: 0, cy: 0, seg: 20, capEnd: true });
   const nozzleIn = lathe([[1.05, 0.48], [1.12, 0.46]], BURNT, { seg: 16 });
   // The gear.
-  const gear = [gearUnit({ at: [0, -0.5, -5.2], len: 1.05, r: 0.28, w: 0.18, axis: [1, 0, 0], ret: 1.65, door: true }), ...[1, -1].map((sd) => gearUnit({ at: [sd * 1.55, -0.55, 0.9], len: 0.84, r: 0.36, w: 0.26, axis: [0, 0, -sd], ret: 1.5 }))];
+  const gear = [gearUnit({ at: [0, -0.41, -5.2], len: 1.05, r: 0.28, w: 0.18, axis: [1, 0, 0], ret: 1.65, door: true }), ...[1, -1].map((sd) => gearUnit({ at: [sd * 1.55, -0.54, 0.9], len: 0.84, r: 0.36, w: 0.26, axis: [0, 0, -sd], ret: 1.5 }))];
   return {
     hull,
     glass,
