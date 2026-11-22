@@ -23,6 +23,19 @@ const GEAR = 1.35;
 // runway's edge, and the gap between it and a stand's nose.
 const B2_STAND = [48, 22];
 const SR71_STAND = [16, 30];
+const AC130_STAND = [34, 26]; // (Round 22: the AC-130's 32.5-block wing)
+// (Round 22) The other fighters by slot (fixed per airport and slot; the
+// first slot keeps a Raptor or a Falcon): the apron's mix, and the
+// hangars' (the smaller ones: the Su-57 is too long, the A-10 and the F-14
+// too wide for the doors).
+const APRON_MIX = ["f22", "f16", "f35", "f14", "a10", "su57", "f16", "f22", "p51", "f35", "a10", "f14"];
+const HANGAR_MIX = ["f22", "f16", "f35", "f22", "f16", "p51"];
+function slotHash(seed, key) {
+  let h = (seed ^ 0x9e3779b9) >>> 0;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 2246822519) >>> 0;
+  h ^= h >>> 15;
+  return h >>> 0;
+}
 const TAXI_EDGE = 6;
 const STAND_GAP = 3;
 const HANGAR_DESIGNS =["saucer", "saucer_disc", "saucer_domed", "tictac", "triangle"]; // small enough for the bunker hall
@@ -121,8 +134,10 @@ export class AirportManager {
       have.add(slot.key);
     };
     // A mix of Raptors and Falcons (fixed per airport and slot), and a B-2.
-    for (let i = 0; i < n; i++) put(slots.fighters[i], (s.seed + i) % 2 ? "f16" : "f22", 15, 16);
-    for (let i = 0; i < nh; i++) put(inHangars[i], ((s.seed >>> 3) + inHangars[i].hangar) % 2 ? "f16" : "f22", 15, 16);
+    // (Round 22: the first a Raptor or a Falcon as before, the rest of every type.)
+    const mix = (list, key) => (JET_TYPES.a10 ? list[slotHash(s.seed, key) % list.length] : list[slotHash(s.seed, key) % 2]);
+    for (let i = 0; i < n; i++) put(slots.fighters[i], i === 0 ? ((s.seed + i) % 2 ? "f16" : "f22") : mix(APRON_MIX, slots.fighters[i].key), 15, 16);
+    for (let i = 0; i < nh; i++) put(inHangars[i], i === 0 && n === 0 ? (((s.seed >>> 3) + inHangars[i].hangar) % 2 ? "f16" : "f22") : mix(HANGAR_MIX, inHangars[i].key), 15, 16);
     if (JET_TYPES.b2 && !have.has(`${s.id}#b`) && !this.taken.has(`${s.id}#b`)) {
       const spot = this._bomberSpot(s, slots, jets);
       if (spot) put(spot, "b2", 48, 22, true);
@@ -132,6 +147,27 @@ export class AirportManager {
       const spot = this._sr71Spot(s, jets);
       if (spot) put(spot, "sr71", 16, 30, true);
     }
+    // (Round 22) About one big airport in three keeps an AC-130 gunship on a stand.
+    if (JET_TYPES.ac130 && this.hasAC130(s) && !have.has(`${s.id}#c`) && !this.taken.has(`${s.id}#c`)) {
+      const spot = this._standFor(s, `${s.id}#c`, AC130_STAND, jets);
+      if (spot) put(spot, "ac130", AC130_STAND[0], AC130_STAND[1], true);
+    }
+  }
+
+  // (Round 22) Whether airport s keeps an AC-130 (fixed per airport).
+  hasAC130(s) {
+    return !!s.big && slotHash(s.seed, "ac130") % 3 === 0;
+  }
+
+  // (Round 22) A stand beside the taxiway for a big aircraft (see _sr71Spot).
+  _standFor(s, key, [span, len], jets) {
+    for (const slot of this._stands(s, span, len, key)) {
+      if (this._overlapsJets(s, slot, span, len, jets, key)) continue;
+      const ok = this._clear(s, slot, span, len);
+      if (ok === null) return null;
+      if (ok) return slot;
+    }
+    return null;
   }
 
   // (Round 16) Whether airport s keeps an SR-71 (fixed per airport: the same for every player).
@@ -233,7 +269,7 @@ export class AirportManager {
     for (const j of jets || []) {
       if (j.type !== "jet" || j.parkKey === key || !j.alive) continue;
       const [ju, jv] = this.sites.toLocal(s, j.pos.x, j.pos.z);
-      const [js, jl] = j.jetType === "b2" ? B2_STAND : j.jetType === "sr71" ? SR71_STAND : [15, 16];
+      const [js, jl] = j.jetType === "b2" ? B2_STAND : j.jetType === "sr71" ? SR71_STAND : j.jetType === "ac130" ? AC130_STAND : [15, 16];
       if (Math.abs(ju - u) < (span + js) / 2 + 3 && Math.abs(jv - v) < (len + jl) / 2 + 3) return true;
     }
     return false;

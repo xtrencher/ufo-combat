@@ -124,7 +124,7 @@ const MODULES = [
   { name: "workstations", mod: workstations, blocks: [[2816, 2879]], items: [] }, // (Round 12)
   { name: "transport", mod: transport, blocks: [[2880, 2943]], items: [[960, 991]] }, // (Round 12)
   // (Round 13: in the core item range's unused ids; 316-319 kept for more vehicles.)
-  { name: "vehicles", mod: vehicles, blocks: [], items: [[266, 269], [316, 319], [912, 919]] }, // (Round 16: 912 the SR-71)
+  { name: "vehicles", mod: vehicles, blocks: [], items: [[266, 269], [316, 319], [912, 919]] }, // (Round 16: 912 the SR-71; Round 22: 913-918 more aircraft)
   { name: "space", mod: space, blocks: [[3072, 3199]], items: [[920, 959]] }, // (Round 15)
   // (Test-only blocks: never in the palette or the terrain; tools/r11-engine16-tests.mjs.)
   { name: "debug", mod: debug, blocks: [[4064, 4095]], items: [] },

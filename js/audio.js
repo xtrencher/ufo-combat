@@ -841,9 +841,16 @@ export class Audio {
   // The jet engine: a continuous turbine whine plus a roar that grows with
   // the throttle; the afterburner adds a deep rumble. active = false fades
   // it out (out of the jet).
-  setJetEngine(throttle, afterburner, speed, active) {
+  // (Round 22) kind: "jet" (default), "fan" (the A-10's TF34s: a high
+  // whine over a softer roar), "piston" (the P-51's Merlin: a deep,
+  // rumbling growl and the prop's buzz), "turboprop" (the AC-130: a turbine
+  // whine over the props' beating drone). The others fall silent.
+  setJetEngine(throttle, afterburner, speed, active, kind = "jet") {
     const ctx = this.ctx;
     if (!ctx) return;
+    const prop = kind === "piston" || kind === "turboprop";
+    this._setPropEngine(throttle, speed, active && prop, kind);
+    if (prop) active = false;
     if (!this._jet) {
       if (!active) return;
       const out = ctx.createGain();
@@ -883,16 +890,115 @@ export class Audio {
       const abG = ctx.createGain();
       abG.gain.value = 0;
       ab.connect(abF).connect(abG).connect(out);
-      this._jet = { out, roarF, roarG, whine, whineF, abG };
+      this._jet = { out, roarF, roarG, whine, whineF, whineG, abG };
     }
     const j = this._jet;
     const t = ctx.currentTime;
     j.out.gain.setTargetAtTime(active ? 0.14 : 0, t, active ? 0.2 : 0.4);
     j.roarF.frequency.setTargetAtTime(350 + throttle * 1400 + speed * 3, t, 0.2);
     j.roarG.gain.setTargetAtTime(0.15 + throttle * 0.4, t, 0.2);
-    j.whine.frequency.setTargetAtTime(600 + throttle * 900, t, 0.3);
-    j.whineF.frequency.setTargetAtTime(1800 + throttle * 1800, t, 0.3);
+    const fan = kind === "fan";
+    j.whine.frequency.setTargetAtTime((fan ? 1400 : 600) + throttle * (fan ? 1300 : 900), t, 0.3);
+    j.whineF.frequency.setTargetAtTime((fan ? 2800 : 1800) + throttle * (fan ? 2600 : 1800), t, 0.3);
+    j.whineG?.gain.setTargetAtTime(fan ? 0.06 + throttle * 0.05 : 0.02, t, 0.3);
     j.abG.gain.setTargetAtTime(afterburner ? 0.7 : 0, t, 0.15);
+  }
+
+  // (Round 22) A propeller aircraft's engine (see setJetEngine).
+  _setPropEngine(throttle, speed, active, kind) {
+    const ctx = this.ctx;
+    if (!this._prop) {
+      if (!active) return;
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.buses.weapons || this.master);
+      // The engine's growl: a sawtooth through a low-pass, its loudness wobbling (the firing).
+      const growl = ctx.createOscillator();
+      growl.type = "sawtooth";
+      growl.frequency.value = 60;
+      const gf = ctx.createBiquadFilter();
+      gf.type = "lowpass";
+      gf.frequency.value = 700;
+      gf.Q.value = 2;
+      const gg = ctx.createGain();
+      gg.gain.value = 0.4;
+      const wob = ctx.createOscillator();
+      wob.frequency.value = 9;
+      const wobG = ctx.createGain();
+      wobG.gain.value = 0.18;
+      wob.connect(wobG).connect(gg.gain);
+      growl.connect(gf).connect(gg).connect(out);
+      // The prop: a buzz at its blades' passing.
+      const buzz = ctx.createOscillator();
+      buzz.type = "square";
+      buzz.frequency.value = 80;
+      const bf = ctx.createBiquadFilter();
+      bf.type = "bandpass";
+      bf.frequency.value = 240;
+      bf.Q.value = 1.5;
+      const bg = ctx.createGain();
+      bg.gain.value = 0.12;
+      buzz.connect(bf).connect(bg).connect(out);
+      // A turbine's whine (the turboprop's).
+      const whine = ctx.createOscillator();
+      whine.type = "sine";
+      whine.frequency.value = 1500;
+      const wg = ctx.createGain();
+      wg.gain.value = 0;
+      whine.connect(wg).connect(out);
+      // Air: filtered noise.
+      const air = ctx.createBufferSource();
+      air.buffer = this._noiseBuffer;
+      air.loop = true;
+      const af = ctx.createBiquadFilter();
+      af.type = "lowpass";
+      af.frequency.value = 500;
+      const ag = ctx.createGain();
+      ag.gain.value = 0.15;
+      air.connect(af).connect(ag).connect(out);
+      for (const o of [growl, wob, buzz, whine, air]) o.start();
+      this._prop = { out, growl, gf, gg, wob, wobG, buzz, bf, bg, whine, wg, af, ag };
+    }
+    const p = this._prop;
+    const t = ctx.currentTime;
+    const turbo = kind === "turboprop";
+    p.out.gain.setTargetAtTime(active ? 0.16 : 0, t, active ? 0.2 : 0.4);
+    if (!active) return;
+    p.growl.frequency.setTargetAtTime(turbo ? 45 + throttle * 25 : 38 + throttle * 62, t, 0.25);
+    p.gf.frequency.setTargetAtTime(turbo ? 380 : 420 + throttle * 900, t, 0.25);
+    p.gg.gain.setTargetAtTime(turbo ? 0.22 : 0.42, t, 0.25);
+    p.wob.frequency.setTargetAtTime(turbo ? 1.3 : 6 + throttle * 10, t, 0.25);
+    p.wobG.gain.setTargetAtTime(turbo ? 0.12 : 0.2, t, 0.25);
+    p.buzz.frequency.setTargetAtTime(turbo ? 95 + throttle * 15 : 70 + throttle * 90, t, 0.25);
+    p.bg.gain.setTargetAtTime(turbo ? 0.2 : 0.1 + throttle * 0.08, t, 0.25);
+    p.whine.frequency.setTargetAtTime(1300 + throttle * 600, t, 0.4);
+    p.wg.gain.setTargetAtTime(turbo ? 0.035 + throttle * 0.03 : 0, t, 0.3);
+    p.af.frequency.setTargetAtTime(300 + speed * 4, t, 0.3);
+    p.ag.gain.setTargetAtTime(0.1 + Math.min(0.3, speed / 600), t, 0.3);
+  }
+
+  // (Round 22) The A-10's GAU-8: a short slice of its tearing BRRRT (a
+  // low, very fast buzz and a crack), one every few rounds.
+  playGau8() {
+    this._cat("weapons");
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.value = 65 * (0.97 + Math.random() * 0.06);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 1100;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.004);
+    g.gain.setValueAtTime(0.35, t + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+    o.connect(f).connect(g).connect(this._out || this.master);
+    o.start(t);
+    o.stop(t + 0.11);
+    this._hit({ type: "lowpass", f: 700, q: 0.8, d: 0.06, v: 0.3, attack: 0.001 });
   }
 
   // One autocannon round (a very short, low crack; they come 16 a second).

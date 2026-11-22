@@ -9,7 +9,8 @@
 // Ids: the core item range's unused 266-269; 316-319 are kept for more
 // vehicles (the tanks; Round 14: 319 the helicopter, placed as the Black
 // Hawk while sneaking). (Round 16) 912-919 (taken from end.js's unused
-// top): 912 the SR-71 Blackbird.
+// top): 912 the SR-71 Blackbird; (Round 22) 913-918 the A-10, the F-35B,
+// the Su-57, the F-14, the P-51 and the AC-130.
 import { LIB } from "./base.js";
 
 export const F22_ITEM = 266;
@@ -24,6 +25,13 @@ export const TEL_ITEM = 318;
 export const HELI_ITEM = 319;
 // (Round 16) The SR-71 Blackbird (js/sr71-model.js).
 export const SR71_ITEM = 912;
+// (Round 22) More aircraft (js/plane-specs.js): 913-918.
+export const A10_ITEM = 913;
+export const F35_ITEM = 914;
+export const SU57_ITEM = 915;
+export const F14_ITEM = 916;
+export const P51_ITEM = 917;
+export const AC130_ITEM = 918;
 // (Round 15) The Battle Tank placed while sneaking: the AA vehicle
 // (js/tanks.js ParkedAA: twin cannons and SAMs; `sneak`, another summon's key).
 
@@ -32,6 +40,12 @@ export const items = {
   [F16_ITEM]: { name: "F-16 Fighting Falcon", icon: "vehicle_f16", stack: 1, vehicle: "f16" },
   [B2_ITEM]: { name: "B-2 Spirit", icon: "vehicle_b2", stack: 1, vehicle: "b2" },
   [SR71_ITEM]: { name: "SR-71 Blackbird", icon: "vehicle_sr71", stack: 1, vehicle: "sr71" },
+  [A10_ITEM]: { name: "A-10 Thunderbolt II", icon: "vehicle_a10", stack: 1, vehicle: "a10" },
+  [F35_ITEM]: { name: "F-35B Lightning II", icon: "vehicle_f35", stack: 1, vehicle: "f35" },
+  [SU57_ITEM]: { name: "Su-57", icon: "vehicle_su57", stack: 1, vehicle: "su57" },
+  [F14_ITEM]: { name: "F-14 Tomcat", icon: "vehicle_f14", stack: 1, vehicle: "f14" },
+  [P51_ITEM]: { name: "P-51 Mustang", icon: "vehicle_p51", stack: 1, vehicle: "p51" },
+  [AC130_ITEM]: { name: "AC-130J Ghostrider", icon: "vehicle_ac130", stack: 1, vehicle: "ac130" },
   [UFO_ITEM]: { name: "UFO", icon: "vehicle_ufo", stack: 1, vehicle: "ufo" },
   [TIGER_ITEM]: { name: "Tiger Tank", icon: "vehicle_tiger", stack: 1, vehicle: "tiger" },
   [MBT_ITEM]: { name: "Battle Tank (sneaking: AA vehicle)", icon: "vehicle_mbt", stack: 1, vehicle: "mbt", sneak: "aa" },
@@ -105,6 +119,58 @@ icons.vehicle_sr71 = (kit) => {
   const glass = kit.ramp(0x0e1a24, 0x1a2e3e, 0x2a4a60, 0x426c86, 0x6a96ae);
   return c.render([body, nac, glass], [70, 74, 82]);
 };
+// (Round 22) The new aircraft from above, nose up: a body outline (its
+// right half, mirrored), the glass, and extra dark parts (engines, props).
+function planIcon(kit, half, { glass = null, dark = [], body, darkRamp = [0x22262b, 0x2f343a, 0x3d434a, 0x4c535b, 0x5b636b] }) {
+  const c = new kit.Canvas();
+  const left = half.map(([x, y]) => [32 - x, y]).reverse();
+  c.poly(0, [...half, ...left], (x, y) => (y < 12 ? 0.3 : x < 16 ? 0.1 : -0.15));
+  for (const d of dark) {
+    if (d.disc) c.disc(1, ...d.disc, () => 0);
+    else if (d.line) c.line(1, ...d.line, () => -0.1);
+    else c.poly(1, d, () => 0.1);
+  }
+  if (glass) c.poly(2, glass, () => 0.4);
+  const glassR = kit.ramp(0x0e1a24, 0x1a2e3e, 0x2a4a60, 0x426c86, 0x6a96ae);
+  return c.render([kit.ramp(...body), kit.ramp(...darkRamp), glassR], [18, 20, 24]);
+}
+const mirrorPts = (pts) => pts.map(([x, y]) => [32 - x, y]);
+icons.vehicle_a10 = (kit) =>
+  planIcon(kit, [[16, 2.5], [17.3, 4], [17.4, 13], [30.8, 13.6], [30.8, 17], [17.2, 17], [17, 24], [21.6, 24.5], [21.6, 28.5], [16.6, 28.2], [16, 29]], {
+    glass: [[16, 6.5], [16.9, 8], [16.8, 10.5], [15.2, 10.5], [15.1, 8]],
+    dark: [[[18, 17.5], [20.6, 17.5], [20.6, 23], [18, 23]], mirrorPts([[18, 17.5], [20.6, 17.5], [20.6, 23], [18, 23]]), { line: [20.8, 23.3, 20.8, 29.5, 1.2] }, { line: [11.2, 23.3, 11.2, 29.5, 1.2] }],
+    body: [0x40454b, 0x555b61, 0x6b7177, 0x82888e, 0x9ca2a8],
+  });
+icons.vehicle_f35 = (kit) =>
+  planIcon(kit, [[16, 2], [17.2, 5], [18.6, 10], [19.4, 14], [28.4, 21.5], [28.4, 23.5], [21.5, 23.6], [25.5, 27.5], [25.5, 29.5], [17.6, 29.5], [16, 30.5]], {
+    glass: [[16, 5.5], [17.1, 7.5], [17, 11], [15, 11], [14.9, 7.5]],
+    dark: [{ line: [18.2, 21, 20, 27.5, 1.2] }, { line: [13.8, 21, 12, 27.5, 1.2] }],
+    body: [0x3c4148, 0x4d535a, 0x60666e, 0x757b83, 0x8c9299],
+  });
+icons.vehicle_su57 = (kit) =>
+  planIcon(kit, [[16, 1], [17.1, 4], [17.6, 8], [20.4, 12], [30.6, 21.5], [30.6, 23.4], [21.5, 23], [26.5, 27], [26.5, 28.6], [19.6, 28.6], [17, 29.6], [16, 31]], {
+    glass: [[16, 4.6], [17, 6.4], [16.9, 9.4], [15.1, 9.4], [15, 6.4]],
+    dark: [{ line: [20.5, 21, 22, 26.5, 1.2] }, { line: [11.5, 21, 10, 26.5, 1.2] }],
+    body: [0x4e5865, 0x66737f, 0x7f8c98, 0x9aa6b0, 0xb6c0c8],
+  });
+icons.vehicle_f14 = (kit) =>
+  planIcon(kit, [[16, 1], [17.1, 4], [17.4, 8], [19.6, 10], [21, 13], [31, 19.5], [31, 21], [21.5, 17.8], [21.5, 23], [27.5, 27.5], [27.5, 29.5], [19.8, 29.5], [16, 30]], {
+    glass: [[16, 4.4], [17, 6.4], [16.9, 11], [15.1, 11], [15, 6.4]],
+    dark: [{ line: [19.2, 21, 19.6, 27.5, 1.2] }, { line: [12.8, 21, 12.4, 27.5, 1.2] }],
+    body: [0x6c7277, 0x868c92, 0xa1a7ac, 0xbac0c4, 0xd4d8db],
+  });
+icons.vehicle_p51 = (kit) =>
+  planIcon(kit, [[16, 3.5], [17.5, 4.2], [17.6, 12], [30.6, 13.5], [30.6, 16.5], [17.4, 17], [17, 23], [22, 24], [22, 26.5], [16.6, 27], [16, 28.5]], {
+    glass: [[16, 11.5], [17, 12.5], [17, 16.5], [15, 16.5], [15, 12.5]],
+    dark: [{ line: [9, 3.6, 23, 3.6, 1.2] }, [[21, 13], [22.2, 13], [22.2, 16.6], [21, 16.6]], mirrorPts([[21, 13], [22.2, 13], [22.2, 16.6], [21, 16.6]])],
+    body: [0x6e757c, 0x8d949b, 0xaab1b8, 0xc4cad0, 0xdde2e6],
+  });
+icons.vehicle_ac130 = (kit) =>
+  planIcon(kit, [[16, 2.5], [17.4, 3.5], [17.8, 6], [17.8, 11], [31.2, 11.6], [31.2, 14.4], [17.8, 14.5], [17.6, 25], [23.5, 25.8], [23.5, 28.2], [16.6, 28.4], [16, 29.5]], {
+    glass: [[16, 3.2], [17.1, 4], [16.9, 5], [15.1, 5], [14.9, 4]],
+    dark: [{ line: [20.5, 9, 20.5, 13.5, 1.6] }, { line: [24.8, 9, 24.8, 13.5, 1.6] }, { line: [11.5, 9, 11.5, 13.5, 1.6] }, { line: [7.2, 9, 7.2, 13.5, 1.6] }, { line: [18.7, 8.8, 22.3, 8.8, 0.9] }, { line: [23, 8.8, 26.6, 8.8, 0.9] }, { line: [9.7, 8.8, 13.3, 8.8, 0.9] }, { line: [5.4, 8.8, 9, 8.8, 0.9] }],
+    body: [0x2f3438, 0x3e4449, 0x4f565c, 0x626a70, 0x777f86],
+  });
 // A saucer from the side: the silver disc, its glowing rim lights and the dome.
 icons.vehicle_ufo = (kit) => {
   const c = new kit.Canvas();

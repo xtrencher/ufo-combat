@@ -82,7 +82,7 @@ const _lead2 = new THREE.Vector3();
 // helicopter 4 (the Black Hawk 8), a tank or a launcher 3, the rocket 4, a
 // UFO by its size (2 to 8). The AI's vehicles and anything else: 1.
 // (A vehicle may set its own `seats`.)
-const JET_SEATS = { f22: 1, f16: 2, sr71: 2, b2: 2 };
+const JET_SEATS = { f22: 1, f16: 2, sr71: 2, b2: 2, a10: 1, f35: 1, su57: 1, f14: 2, p51: 1, ac130: 10 }; // (Round 22: the new aircraft, js/plane-specs.js PLANE_SEATS)
 export function seatCount(v) {
   if (!v) return 0;
   if (Number.isFinite(v.seats)) return v.seats;
@@ -1615,6 +1615,8 @@ VehicleManager.registerSummon("f22", jetSummon("f22", 75));
 VehicleManager.registerSummon("f16", jetSummon("f16", 75));
 VehicleManager.registerSummon("b2", jetSummon("b2", 100));
 VehicleManager.registerSummon("sr71", jetSummon("sr71", 90)); // (Round 16: the SR-71 Blackbird)
+// (Round 22) The A-10, the F-35B, the Su-57, the F-14, the P-51 and the AC-130.
+for (const [k, alt] of [["a10", 70], ["f35", 75], ["su57", 75], ["f14", 75], ["p51", 60], ["ac130", 110]]) VehicleManager.registerSummon(k, jetSummon(k, alt));
 VehicleManager.registerSummon("ufo", {
   type: "ufo",
   alt: 40,

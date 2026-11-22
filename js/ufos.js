@@ -1913,7 +1913,8 @@ export class UfoManager {
       } else {
         // The aim error: well under a block at the target, growing slowly
         // with distance.
-        const err = 0.25 + dist * 0.0015 + (u.S.idx >= 3 ? 0.3 : 0) + (n > 1 ? 0.25 : 0);
+        // (Round 22: a stealthy aircraft, the F-35, is much harder to aim at.)
+        const err = (0.25 + dist * 0.0015 + (u.S.idx >= 3 ? 0.3 : 0) + (n > 1 ? 0.25 : 0)) * (1 + 4 * (vehicle?.stealth || 0));
         const spread = (err * 2) / Math.max(20, dist);
         dir.x += (Math.random() - 0.5) * spread;
         dir.y += (Math.random() - 0.5) * spread;

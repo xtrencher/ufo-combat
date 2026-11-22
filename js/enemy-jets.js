@@ -241,7 +241,9 @@ export class EnemyJet extends Jet {
         this._fireCannon(fwd);
       }
       // Missiles: from a distance, with the nose roughly on the target.
-      if (ai.missileT <= 0 && dist > 200 && dist < 1500 && angle < 0.55 && this.missileT <= 0) {
+      // (Round 22: a stealthy foe, the F-35, is only locked much closer in.)
+      const stealth = this.foe?.vehicle?.stealth || 0;
+      if (ai.missileT <= 0 && dist > 200 && dist < 1500 * (1 - 0.6 * stealth) && angle < 0.55 && this.missileT <= 0) {
         ai.missileT = MISSILE_INTERVAL + Math.random() * 5;
         this.missileT = 1;
         this._launchMissile({ kind: "player", ref: this.foe }, { hostile: true });
@@ -448,7 +450,9 @@ export class EnemyJetManager {
     // Flying across (tangent), or straight at the player when hostile.
     // (opts.hostile: a hijacked fighter, flown for the aliens: a mission's.)
     const yaw = opts.toward || opts.hostile ? Math.atan2(-(p.x - x), -(p.z - z)) : Math.atan2(Math.sin(a), -Math.cos(a)) + (Math.random() - 0.5);
-    const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7, hijacked: !!opts.hostile });
+    // (Round 22) About a third of the patrols fly the Su-57 (another air force); a hijacked one is ours.
+    const jetType = opts.jetType || (!opts.hostile && Math.random() < 0.35 ? "su57" : undefined);
+    const jet = this.vehicles.create("enemyjet", { pos: [x, y, z], yaw, airborne: true, speed: 110, throttle: 0.7, hijacked: !!opts.hostile, jetType });
     if (jet && opts.hostile) this.vehicles.onMessage?.("HIJACKED FIGHTER INBOUND! The aliens have taken one of ours.");
     return jet;
   }

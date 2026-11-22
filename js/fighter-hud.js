@@ -105,6 +105,7 @@ export class FighterHud {
       this.canvas.dataset.weapon = this._wState = ""; // (Round 17)
       this.canvas.dataset.danger = this._dState = ""; // (Round 20)
       this.canvas.dataset.assist = this._lState = ""; // (Round 21)
+      this.canvas.dataset.ccip = this._cState = ""; // (Round 22)
       this.canvas.dataset.ab = this._aState = "";
     }
   }
@@ -272,6 +273,7 @@ export class FighterHud {
       b.size = 0;
     }
     this._laserCue(hud.laserAim, camera); // (Round 21)
+    this._ccip(hud.ccip, hud.orbit, camera); // (Round 22: the bomb pipper, the AC-130's orbit centre)
     // Threats, on the screen's edge.
     let warn = "";
     if (hud.threat?.kind === "missile" || hud.threat?.kind === "seeker") {
@@ -285,6 +287,51 @@ export class FighterHud {
     }
     this._setState(state, warn);
     this._drawStatus(hud);
+  }
+
+  // (Round 22) Where a bomb dropped now lands (a ring with a dot, a line
+  // up to it from the screen's middle), and the AC-130's orbit centre (a
+  // diamond). The canvas's data-ccip is "1" while the pipper shows (tests).
+  _ccip(at, orbit, camera) {
+    const s = this.s;
+    let on = false;
+    if (at) {
+      const p = this._proj(at, camera, (this._ccp ||= {}));
+      if (p.on) {
+        on = true;
+        const x = Math.round(p.x) + 0.5;
+        const y = Math.round(p.y) + 0.5;
+        const r = 9 * s;
+        this._stroke((c) => {
+          c.moveTo(x + r, y);
+          c.arc(x, y, r, 0, Math.PI * 2);
+          c.moveTo(this.w / 2, this.h / 2 + 14 * s);
+          c.lineTo(x, y - r);
+        }, AMBER, 1.3 * s, 0.9);
+        const ctx = this.ctx;
+        ctx.fillStyle = AMBER;
+        ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y) - 1, 3, 3);
+        this._text("BOMB", x + r + 4 * s, y + 1, AMBER, 9 * s, "left", 700, 0.85);
+      }
+    }
+    if (orbit) {
+      const p = this._proj(orbit, camera, (this._orp ||= {}));
+      if (p.on) {
+        const x = Math.round(p.x) + 0.5;
+        const y = Math.round(p.y) + 0.5;
+        const r = 11 * s;
+        this._stroke((c) => {
+          c.moveTo(x, y - r);
+          c.lineTo(x + r, y);
+          c.lineTo(x, y + r);
+          c.lineTo(x - r, y);
+          c.closePath();
+        }, GREEN, 1.3 * s, 0.85);
+        this._text("ORBIT", x, y - r - 8 * s, GREEN, 9 * s, "center", 700, 0.85);
+      }
+    }
+    const st = on ? "1" : "";
+    if (st !== this._cState) this.canvas.dataset.ccip = this._cState = st;
   }
 
   // (Round 21) The laser's aim assist: four small corner ticks (the laser's
@@ -348,6 +395,10 @@ export class FighterHud {
         // (Round 21) Bursts: its charge is the bar (white while one fires).
         color = wp.on ? WHITE : ready >= 1 ? BEAM : AMBER;
         wState = wp.on ? "laser-firing" : ready >= 1 ? "laser" : "laser-charging";
+      } else if (wp.kind && wp.kind !== "missile" && wp.kind !== "super") {
+        // (Round 22) Rockets, bombs, the AC-130's guns.
+        color = ready >= 1 ? GREEN : AMBER;
+        wState = wp.ammo === 0 ? `${wp.kind}-empty` : ready >= 1 ? wp.kind : `${wp.kind}-reload`;
       }
       const x = W / 2 + 34 * s;
       this._text(wp.name, x, y, color, 11 * s, "center", 800, 0.95);
