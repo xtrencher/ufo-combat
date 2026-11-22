@@ -84,6 +84,16 @@ export const CONTROLS = [
     ["SR-71", "No missiles or cannon, the fastest thing with wings: Mach 1.7 low down, Mach 3.2 high up (above about 1,800 blocks, its ceiling about 3,500); slow to turn and roll. Right click: a reconnaissance photo (counts every UFO, aircraft and alien vehicle within 3,000 blocks); X switches to its mini-nuke and nose laser"],
     ["F", "Get out on the ground, eject in the air"],
   ]],
+  // (Round 22) The other aircraft: the jet's controls, plus their own.
+  ["A-10, F-35B, Su-57, F-14, P-51 and AC-130", [
+    ["V", "The aircraft's special: the F-35B's HOVER, the F-14's WINGS (auto / forward / back), the AC-130's ORBIT"],
+    ["F-35B hover (V)", "Below about 330 km/h: the nozzle swivels down, the lift fan opens. Space up, Shift down, W / S forward / back, Q / E sideways, the mouse turns (and lifts the nose a little to aim). Lands and takes off straight up and down; V again flies on the wings (the lift fan carries it until they do). Stealthy: enemy fighters lock on late, the UFOs' aim is poor"],
+    ["A-10", "Slow and very tough, short takeoffs. Left click: the GAU-8 (a huge 30 mm gatling: BRRRT). X / 1-5: Maverick missiles, rockets (a pair a click, hold for a ripple), bombs (the HUD's pipper shows where they land), the mini-nuke, the laser"],
+    ["Su-57", "Thrust vectoring: the most agile, still turning when slow; its flight control keeps the wing flying, but with the air brakes open (Space) the nose goes wherever you pull it, past the stall (a cobra, a post-stall turn). The fastest fighter (Mach 1.35)"],
+    ["F-14", "Swing wings: forward (20 degrees) slow, sweeping back to 68 with speed (V overrides). Phoenix missiles: lock from much farther, a salvo of six. Two seats"],
+    ["P-51", "A WWII propeller fighter: six .50 calibre guns (left click), bombs and rockets (X); Shift is war emergency power. It sits tail down: the tail comes up on the takeoff roll"],
+    ["AC-130", "A gunship (ten seats), four turboprops. V circles the point under the crosshair (or the locked target), the view the gunner's: the mouse aims, left click the 25 mm, right click the 40 mm / 105 mm (X), missiles, the mini-nuke or the laser; V or A / D breaks off. Out of the orbit the guns fire out of the left side, down"],
+  ]],
   ["Game", [
     ["Esc", "Pause menu (settings, mods, missions, stats)"],
     ["F1", "Hide the HUD"],
@@ -165,6 +175,9 @@ export const MENU_TIPS = [
   "Press C in the jet for flares: they fool missiles and seeking shots.",
   "In a fighter, X switches to the SUPER MISSILE: one huge blast, then a long reload. Double tap Shift to latch the afterburner on.", // (Round 17)
   "Every jet carries a MINI-NUKE (X or 3) and a NOSE LASER (X or 4, hold right click). Launch the mini-nuke from far off: its blast reaches you too.", // (Round 20)
+  "The F-35B can hover: slow down and press V, then land anywhere (Space / Shift up and down).", // (Round 22)
+  "The AC-130 gunship circles a target with V: its side guns stay on it, the mouse aims.", // (Round 22)
+  "The A-10's left click is the GAU-8: nothing on the ground survives a burst. Its bombs land where the HUD's pipper is.", // (Round 22)
   "Press I in any vehicle for its stats and controls.",
   "A UFO shot down over land may crash in one piece: board it with F and fly it yourself (in Missions from the Salvage mission).",
   "In your own UFO: R dashes you forward (hold it to keep going), B fires a huge laser straight down.",

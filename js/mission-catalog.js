@@ -229,8 +229,8 @@ export const BOARD = [
   { id: "touchdown", cat: "air", tier: 1, vehicle: "jet", brief: "Fly your jet to an airport and land it; then clear the squad." },
   { id: "dogfight", cat: "air", tier: 1, vehicle: "jet", brief: "Shoot down two UFOs from your jet." },
   { id: "air_superiority", cat: "air", tier: 2, vehicle: "jet", brief: "Shoot down a hijacked fighter hunting you." },
-  { id: "convoy", cat: "air", tier: 2, vehicle: "jet", brief: "Destroy an enemy convoy from the air." },
-  { id: "air_defense", cat: "air", tier: 2, vehicle: "jet", brief: "Take out AA vehicles guarding the area." },
+  { id: "convoy", cat: "air", tier: 2, vehicle: "jet", jetType: "a10", brief: "Destroy an enemy convoy from the air." }, // (Round 22: the A-10, the tank killer)
+  { id: "air_defense", cat: "air", tier: 2, vehicle: "jet", jetType: "a10", brief: "Take out AA vehicles guarding the area." }, // (Round 22)
   { id: "scramble", cat: "air", tier: 3, vehicle: "jet", brief: "A wing of hijacked fighters: shoot down three." },
   { id: "sunburn", cat: "air", tier: 3, vehicle: "b2", limit: 1200, bonus: 3, brief: "Fly the B-2 to the alien base and nuke it." },
   // Helicopter

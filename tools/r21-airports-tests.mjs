@@ -90,8 +90,9 @@ async function airportsModule() {
 
 await check("the gating: a new Missions world has the big airports, a saved one keeps its generator, a guest the host's", async () => {
   const g = WT.terrainGenOf;
-  assert(WT.TERRAIN_GEN === WT.GEN_BIG_AIRPORTS && WT.GEN_BIG_AIRPORTS === 3, "generator 3 is a new world's");
-  assert(g("missions", undefined) === 3, "a new Missions world");
+  // (Round 22: a new world's generator is 4, the new mountains, with the big airports still)
+  assert(WT.TERRAIN_GEN >= WT.GEN_BIG_AIRPORTS && WT.GEN_BIG_AIRPORTS === 3, "generator 3 or later is a new world's");
+  assert(g("missions", undefined) === WT.TERRAIN_GEN, "a new Missions world");
   assert(g("missions", 2, { old: true }) === 2 && g("missions", undefined, { old: true }) === WT.GEN_LEGACY, "a saved world keeps its generator");
   assert(g("missions", 3, { old: true }) === 3, "a world saved with 3 keeps it");
   const opts = (type, gen) => {
@@ -507,13 +508,13 @@ async function browserChecks() {
   };
 
   let home = null;
-  await browserCheck("a new Missions world: generator 3, the big airports, the home airport close to the spawn", async () => {
+  await browserCheck("a new Missions world: generator 3 or later, the big airports, the home airport close to the spawn", async () => {
     const r = await v(page, async (g) => {
       const W = await import("./js/worldtype.js");
       const s = g.sites.home;
       return { gen: W.terrainGen(), opts: g.world.terrainOptions, big: g.sites.big, home: s && { id: s.id, size: s.size, half: s.half, d: Math.round(Math.hypot(s.x - g.spawn.x, s.z - g.spawn.z)), rw2: !!s.rw2 }, near: g.airports.nearest(g.airports.far(3000))?.site?.id };
     });
-    assert(r.gen === 3 && r.opts.bigAirports && r.big, `the generator: ${JSON.stringify(r)}`);
+    assert(r.gen === WT.TERRAIN_GEN && r.opts.bigAirports && r.big, `the generator: ${JSON.stringify(r)}`);
     assert(r.home && r.home.d < 1500 && r.home.half >= 540 && r.home.rw2, `the home airport: ${JSON.stringify(r)}`);
     assert(r.near === r.home.id, `the nearest airport: ${JSON.stringify(r)}`);
     home = r.home;
@@ -681,6 +682,8 @@ async function browserChecks() {
   });
 
   // ---------- An older world: its record says generator 2 ----------
+  // (Round 22: the new world's page closed first: left running, it starved the next page's start under software GL)
+  await page.context().close();
   await browserCheck("an older Missions world (saved with generator 2) keeps its old airports", async () => {
     const T = new TerrainGenerator(SEED, OLD);
     T.sites._ensureHome();

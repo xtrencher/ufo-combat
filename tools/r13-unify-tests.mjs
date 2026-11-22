@@ -77,14 +77,15 @@ await check("the terrain's version: new worlds the vanilla terrain, a Missions s
   assert(g("missions", undefined, { old: true }) === WT.GEN_LEGACY, "a Missions save without a version");
   assert(g("missions", 2, { old: true }) === WT.GEN_ONE_WORLD && g("missions", 1) === WT.GEN_LEGACY, "a saved version is kept");
   assert(g("missions", "junk", { old: true }) === WT.GEN_LEGACY && g("missions", 99) === WT.TERRAIN_GEN, "junk and a newer version");
-  assert(g("survival", 1, { old: true }) === WT.TERRAIN_GEN && g("survival", undefined, { old: true }) === WT.TERRAIN_GEN, "a Survival world's terrain never changed");
+  // (Round 22: a Survival world's land changed with generator 4: an older one keeps 3's, the land it always had)
+  assert(g("survival", 1, { old: true }) === WT.GEN_BIG_AIRPORTS && g("survival", undefined, { old: true }) === WT.GEN_BIG_AIRPORTS && g("survival", undefined) === WT.TERRAIN_GEN, "a Survival world's terrain never changed");
   const opts = (type, gen) => {
     WT.setWorldType(type, { gen });
     return JSON.stringify({ ...WT.terrainOptions(), gen: WT.terrainGen(), legacy: WT.legacyTerrain(), rules: WT.vanillaRules(), layer: WT.missionsLayer(), survival: WT.isSurvivalWorld() });
   };
   assert(opts("missions", 2) === JSON.stringify({ sites: true, vanilla: true, gen: 2, legacy: false, rules: true, layer: true, survival: false }), opts("missions", 2));
   assert(opts("missions", 1) === JSON.stringify({ sites: true, vanilla: false, gen: 1, legacy: true, rules: true, layer: true, survival: false }), opts("missions", 1));
-  assert(opts("survival", 1) === JSON.stringify({ sites: false, vanilla: true, gen: WT.TERRAIN_GEN, legacy: false, rules: true, layer: false, survival: true }), opts("survival", 1));
+  assert(opts("survival", 1) === JSON.stringify({ sites: false, vanilla: true, gen: WT.GEN_BIG_AIRPORTS, legacy: false, rules: true, layer: false, survival: true }), opts("survival", 1));
   WT.setWorldType("missions");
 });
 

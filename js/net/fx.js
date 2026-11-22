@@ -189,7 +189,7 @@ export class FxSync {
       if (v.net || (this.net.isHost && v.isEnemyJet)) {
         // (Round 17: the heavy missile as "sm": drawn big, with its thick trail; an older version skips it.)
         // (Round 20: the mini-nuke as "mn", drawn as itself with the heavy trail; older versions skip it.)
-        for (const m of v.missiles || []) if (!m.dead) add(m, m.mini ? "mn" : m.heavy ? "sm" : "ms", m.target?.ref ? this.mp.refOf?.(m.target.ref) || 0 : 0);
+        for (const m of v.missiles || []) if (!m.dead) add(m, m.netKind || (m.mini ? "mn" : m.heavy ? "sm" : "ms"), m.target?.ref ? this.mp.refOf?.(m.target.ref) || 0 : 0); // (Round 22: a jet's rockets "rk", bombs "nb")
         for (const b of v.bombs || []) add(b, "nb", b.chute?.visible ? 1 : 0);
       }
     }

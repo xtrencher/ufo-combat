@@ -25,6 +25,7 @@
 //       deep and whether it began this frame.
 import { S as B2_S, A1, A2, A3, A4, leZ, teZ, b2Section, intakeHood } from "./b2-shape.js";
 import * as SR from "./sr71-shape.js"; // (Round 16: the SR-71)
+import { PLANE_HULLS, K as PLANE_K } from "./plane-specs.js"; // (Round 22: more aircraft)
 
 // ---------- Building ----------
 
@@ -337,6 +338,26 @@ function buildSR71() {
   return parts;
 }
 
+// (Round 22) The new aircraft (plane-specs.js PLANE_HULLS, metres scaled
+// to blocks): the fuselage lofted through octagonal sections, the pods
+// (nacelles, gear pods) as octagonal tubes, the wings and tails as plates,
+// the fins turned up by their cant.
+function buildPlane(type) {
+  const D = PLANE_HULLS[type];
+  const k = PLANE_K;
+  const parts = [];
+  const oct = (z, w, ht, hb, yc, cx = 0) => ({ z: z * k, pts: [[0, ht], [w * 0.7, ht * 0.75], [w, 0], [w * 0.7, -hb * 0.75], [0, -hb], [-w * 0.7, -hb * 0.75], [-w, 0], [-w * 0.7, ht * 0.75]].map(([x, y]) => [(x + cx) * k, (y + yc) * k]) });
+  parts.push(...loftAll(D.body.map(([z, w, ht, hb, yc]) => oct(z, w, ht, hb, yc))));
+  for (const [x, y, z0, z1, r] of D.pods) for (const s of x ? [1, -1] : [1]) parts.push(loft(oct(z0, r, r, r, y, s * x), oct(z1, r, r, r, y, s * x)));
+  for (const w of D.wings) for (const s of [1, -1]) parts.push(plate(w.out.map(([x, z]) => [s * x * k, z * k]), w.y0 * k, w.y1 * k));
+  for (const f of D.fins) {
+    for (const s of f.mirror ? [1, -1] : [1]) {
+      parts.push(plate([[0, f.z0 * k], [0, f.z1 * k], [f.h * k, f.t1 * k], [f.h * k, f.t0 * k]], -0.1, 0.1, finMatrix(Math.PI / 2 - s * f.cant, s * f.x * k, f.y * k, 0)));
+    }
+  }
+  return parts;
+}
+
 // A shape: its pieces, its bounding radius about the origin, and (for
 // collisions) its points and edges, flattened.
 function shapeFrom(parts) {
@@ -359,6 +380,7 @@ function shapeFrom(parts) {
 
 const SHAPES = {};
 const BUILD = { f22: buildF22, f16: buildF16, b2: buildB2, sr71: buildSR71 };
+for (const t of Object.keys(PLANE_HULLS)) BUILD[t] = () => buildPlane(t); // (Round 22)
 
 // The shape of an aircraft type ("f22", "f16", "b2", "sr71"), built once; null for anything else.
 export function hullShape(type) {

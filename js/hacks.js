@@ -479,6 +479,7 @@ export class HackSystem {
     if (H.noReload) {
       for (const k of ["missileT", "rocketT", "flareT", "nukeT", "superT", "miniT", "laserT"]) if (typeof v[k] === "number" && v[k] > 0.25) v[k] = 0.25; // (Round 20: the super missile's, the mini-nuke's; Round 21: the jets' laser's recharge)
       if (typeof v.miniAmmo === "number" && v.miniMax > 0) v.miniAmmo = v.miniMax;
+      v.hackRefill?.(); // (Round 22: a jet's bombs and rockets)
       if (typeof v.reloadT === "number" && v.reloadT > 0.15) v.reloadT = 0.15;
       if (typeof v.telReloadT === "number" && v.telReloadT > 0.5) v.telReloadT = 0.5;
       if (typeof v.rockets === "number" && v.spec?.rockets > 0) v.rockets = v.spec.rockets;

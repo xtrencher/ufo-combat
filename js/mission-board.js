@@ -202,7 +202,7 @@ export class MissionBoard extends Progress {
     const c = tierCurve(e.tier);
     const text = m.twists?.[variant] ? `${m.text} ${m.twists[variant]}` : m.text;
     const objectives = m.objectives.map((o) => (Array.isArray(o.goals) && Number.isFinite(o.goals[variant]) ? { ...o, goal: o.goals[variant] } : o));
-    return { ...m, n: 0, variant, text, objectives, act: 1, tier: Math.max(c.tier, e.loot ?? 0), rules: m.sky ? { ...c.rules, ...m.sky } : c.rules, reward: rewardFor(e, this.won.has(id)), final: !!m.final, cat: e.cat, boardTier: e.tier, vehicle: e.vehicle || null, limit: limitFor(e), brief: e.brief };
+    return { ...m, n: 0, variant, text, objectives, act: 1, tier: Math.max(c.tier, e.loot ?? 0), rules: m.sky ? { ...c.rules, ...m.sky } : c.rules, reward: rewardFor(e, this.won.has(id)), final: !!m.final, cat: e.cat, boardTier: e.tier, vehicle: e.vehicle || null, limit: limitFor(e), brief: e.brief, ...(e.jetType ? { jetType: e.jetType } : {}) }; // (Round 22: the board may name the jet, the A-10 for the ground attacks)
   }
 
   // ---------- Running a mission ----------

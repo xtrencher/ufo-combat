@@ -50,6 +50,7 @@ const SPACING = { 1: 2, 2: 2, 3: 2, 4: 5, 5: 2, 6: 3, 7: 3, 8: 5, 9: 1 };
 // (2x2 trunks: their root column is the trunk's -X -Z quarter)
 const WIDE = { 4: true, 7: true, 8: true };
 
+const MOUNTAIN_TREE_LINE = 66; // (Round 22: generator 4's warm ranges, pines below this: under the lowest bare rock)
 // Biomes with no trees at all.
 const NO_TREE_BIOMES = new Set([BIOME.DESERT, BIOME.BADLANDS, BIOME.SNOWY_PLAINS, BIOME.MOUNTAINS, BIOME.BEACH, BIOME.OCEAN, BIOME.WARM_OCEAN, BIOME.DEEP_OCEAN, BIOME.RIVER]);
 // Density multiplier per biome (<=1, since MAX_DENSITY is the global cap):
@@ -182,6 +183,12 @@ export class TreeGrower {
     const h = info.height;
     if (h <= SEA_LEVEL + 1 || h >= WORLD_HEIGHT - 16) return null;
     const biome = this.terrain.biomes.biomeAt(wx, wz, h, info.mountainT, info.river, info.flat);
+    // (Round 22) Generator 4's warm ranges are grassy low down (terrain.js
+    // surface): pines on those slopes, thinning out toward the bare rock.
+    if (biome === BIOME.MOUNTAINS && h < MOUNTAIN_TREE_LINE && this.terrain.options?.terrainV2) {
+      if (r >= MAX_DENSITY * 0.45 * Math.min(1, (MOUNTAIN_TREE_LINE - h) / 14) || this.terrain.biomes.coldAt(wx, wz)) return null;
+      return { r, species: TREE.PINE, h };
+    }
     if (NO_TREE_BIOMES.has(biome)) return null;
     const k = hash2((this.seed ^ KIND_SALT) >>> 0, wx, wz);
     // (Round 12) A Survival world's jungle, as vanilla's: thick everywhere,
