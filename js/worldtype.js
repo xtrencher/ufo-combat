@@ -26,6 +26,13 @@
 // worlds, and every Survival world, have the vanilla terrain (GEN_ONE_WORLD).
 // (Round 21) GEN_BIG_AIRPORTS: a new Missions world's airports are bigger
 // and fewer (sites.js); a world saved with GEN_ONE_WORLD keeps its sites.
+// (Round 22) GEN_TERRAIN_V2: new mountains (terrain.js _baseInfoV2: sharp,
+// varied peaks instead of the tables the older field made at the top of the
+// world), in a new world of either type; a world saved with an older
+// generator keeps its land. Until Round 22 a Survival world always had the
+// newest generator (its terrain had never changed): now it keeps the one it
+// was saved with too (one saved without a number, or with 1 or 2: 3, the
+// terrain they all had).
 // The version is saved with the player (main.js "gen") and sent to guests in
 // the welcome (net/multiplayer.js), and terrainOptions() is what World, the
 // chunk workers and the distant terrain generate with.
@@ -35,7 +42,8 @@ export const WORLD_TYPE_NAMES = { missions: "Missions", survival: "Survival" };
 export const GEN_LEGACY = 1; // (the Missions generator before Round 13: sites on the old terrain)
 export const GEN_ONE_WORLD = 2; // (Round 13: the vanilla terrain, with the sites in a Missions world)
 export const GEN_BIG_AIRPORTS = 3; // (Round 21: bigger airports, fewer of them: sites.js AIRPORT_SIZES_BIG)
-export const TERRAIN_GEN = GEN_BIG_AIRPORTS; // a new world's
+export const GEN_TERRAIN_V2 = 4; // (Round 22: the new mountains, terrain.js _baseInfoV2; both world types)
+export const TERRAIN_GEN = GEN_TERRAIN_V2; // a new world's
 
 let current = "missions";
 let set = false;
@@ -94,8 +102,13 @@ export function isMissionsWorld() {
 // then a Missions world's terrain is the old one). A Survival world's terrain
 // was always the vanilla one.
 export function terrainGenOf(type, saved, { old = false } = {}) {
-  if (normalizeWorldType(type) === "survival") return TERRAIN_GEN;
   const n = Math.floor(Number(saved));
+  if (normalizeWorldType(type) === "survival") {
+    // (Round 22) A Survival world's land changed for the first time with
+    // generator 4: an older one (any number below 4, or none) keeps 3's.
+    if (Number.isFinite(n) && n >= GEN_TERRAIN_V2) return Math.min(n, TERRAIN_GEN);
+    return old || Number.isFinite(n) ? GEN_BIG_AIRPORTS : TERRAIN_GEN;
+  }
   if (Number.isFinite(n) && n >= GEN_LEGACY) return Math.min(n, TERRAIN_GEN);
   return old ? GEN_LEGACY : TERRAIN_GEN;
 }
@@ -121,6 +134,7 @@ export function legacyTerrain() {
 export function terrainOptions() {
   const o = { sites: current === "missions", vanilla: current === "survival" || gen >= GEN_ONE_WORLD };
   if (current === "missions" && gen >= GEN_BIG_AIRPORTS) o.bigAirports = true;
+  if (gen >= GEN_TERRAIN_V2) o.terrainV2 = true; // (Round 22: the new mountains, either type)
   return o;
 }
 
@@ -132,7 +146,7 @@ export function worldTypeSet() {
 // opts.gen: the terrain generator version (terrainGenOf; a new world's by default).
 export function setWorldType(type, { gen: g } = {}) {
   current = normalizeWorldType(type);
-  gen = current === "survival" ? TERRAIN_GEN : terrainGenOf(current, g ?? TERRAIN_GEN);
+  gen = terrainGenOf(current, g ?? TERRAIN_GEN); // (Round 22: a Survival world's too)
   set = true;
   for (const fn of listeners) {
     try {

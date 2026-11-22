@@ -18,7 +18,7 @@
 //   color    Uint8   x4  [sRGB r, g, b, ambient occlusion] (normalized)
 //   info     Uint8   x4  [normal index (as in the chunk mesher), kind, water depth, 0]
 //   index    Uint16/Uint32
-import { TerrainGenerator, surfaceBlocks } from "./terrain.js";
+import { TerrainGenerator } from "./terrain.js";
 import { BLOCK, IS_SOLID, IS_LOG, IS_LEAVES, IS_WET, BLOCK_LIMIT } from "./blocks.js";
 import { TREE } from "./trees.js";
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL } from "./constants.js";
@@ -121,7 +121,7 @@ export class LodTerrain {
   // highest one, so a narrow ridge or peak that falls between two sample
   // points is still drawn (a mountain seen from afar keeps its silhouette).
   // The column itself comes from the same functions as chunk generation
-  // (heightAt, biomeAt, surfaceBlocks), so what is drawn here is what the
+  // (heightAt, biomeAt, surface), so what is drawn here is what the
   // full-detail chunks will show.
   sample(wx, wz, out, spread = 0) {
     if (this.edits.size > 0) {
@@ -153,7 +153,7 @@ export class LodTerrain {
       out.depth = SEA_LEVEL - h;
     } else {
       out.top = h + 1;
-      out.id = t.sites.surfaceAt(wx, wz) || surfaceBlocks(t.biomeAt(wx, wz), h, t.options.vanilla).top;
+      out.id = t.sites.surfaceAt(wx, wz) || t.surface(t.biomeAt(wx, wz), h, wx, wz).top; // (Round 22: the generator's own lines)
       out.depth = 0;
     }
     return out;

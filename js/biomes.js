@@ -65,6 +65,7 @@ export function isOceanBiome(biome) {
 // column is (jungleDepth: 0 at its edge, the sparse jungle, 1 inside).
 export const JUNGLE_M = 0.22;
 const JUNGLE_DEEP = 0.12; // (moisture above JUNGLE_M at which the jungle is full)
+const ALPINE_LINE = 86; // (Round 22: generator 4, above this every column is the mountains')
 
 export class BiomeSource {
   // opts.vanilla: a Survival world's climate (its wet regions, see climate).
@@ -73,6 +74,9 @@ export class BiomeSource {
     this.moistNoise = new Noise((seed ^ 0x5e6f7081) >>> 0);
     this.dryNoise = new Noise((seed ^ 0x3d5a9e17) >>> 0);
     this.vanilla = !!opts.vanilla;
+    // (Round 22) Generator 4: high ground is alpine whatever the mountain
+    // field says (no desert sand or grass on a summit at the edge of a range).
+    this.alpine = !!opts.alpine;
     this.wetNoise = this.vanilla ? new Noise((seed ^ 0x6b43a9b5) >>> 0) : null;
     this.bambooNoise = this.vanilla ? new Noise((seed ^ 0x2e9b5c17) >>> 0) : null;
   }
@@ -157,6 +161,7 @@ export class BiomeSource {
     if (river && h <= SEA_LEVEL + 3) return BIOME.RIVER;
     if (h <= SEA_LEVEL + 1) return BIOME.BEACH;
     if (mountainT > 0.45 && h > SEA_LEVEL + 14) return BIOME.MOUNTAINS;
+    if (this.alpine && h > ALPINE_LINE) return BIOME.MOUNTAINS;
     const { t, m } = this.climate(wx, wz);
     if (t < -0.3) return m > -0.05 ? BIOME.SNOWY_TAIGA : BIOME.SNOWY_PLAINS;
     // The hot zone is wide: deserts take the dry half of it, jungles the wet third, savanna between.

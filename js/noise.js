@@ -120,4 +120,28 @@ export class Noise {
     }
     return sum / max;
   }
+
+  // (Round 22) Ridged multifractal (after Musgrave), in [0, 1]: each octave
+  // is a sharp crest where perlin2 crosses zero ((1 - |n|)^2), and is
+  // weighted by the octaves above it, so the crests and high slopes are
+  // rough and the valleys between them smooth (an eroded look). 1 only where
+  // every octave's crest meets (never over an area: sharp peaks, no tables).
+  ridged2(x, y, octaves = 5, scale = 1, lacunarity = 2.05, gain = 2) {
+    let amp = 1;
+    let freq = scale;
+    let sum = 0;
+    let max = 0;
+    let w = 1;
+    for (let i = 0; i < octaves; i++) {
+      let s = 1 - Math.abs(this.perlin2(x * freq + i * 31.7, y * freq - i * 17.3)) * 1.2;
+      s = s < 0 ? 0 : s * s * w;
+      w = s * gain;
+      if (w > 1) w = 1;
+      sum += s * amp;
+      max += amp;
+      amp *= 0.5;
+      freq *= lacunarity;
+    }
+    return sum / max;
+  }
 }

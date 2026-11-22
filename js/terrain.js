@@ -49,6 +49,13 @@ const FLAT_LO = 0.08; // relief below this: flat country (fully flat at FLAT_LO 
 const FLAT_SPAN = 0.2;
 const VALLEY_FREQ = 1 / 820;
 const VALLEY_FLOOR = SEA_LEVEL + 4; // the valley floor (a little above the sea)
+// (Round 22) A smooth minimum of a and b (within about k of the smaller).
+function softMin(a, b, k) {
+  const d = a - b;
+  if (d > 8 * k) return b;
+  if (d < -8 * k) return a;
+  return b - k * Math.log1p(Math.exp(-d / k));
+}
 function smooth01(t) {
   t = Math.max(0, Math.min(1, t));
   return t * t * (3 - 2 * t);
@@ -66,17 +73,49 @@ export const BARE_ROCK_LINE = 72; // mountain slopes above this are exposed ston
 const SOFT_CAP_START = 100;
 const SOFT_CAP_RANGE = 24; // asymptote: SOFT_CAP_START + SOFT_CAP_RANGE (124)
 
+// (Round 22) Generator 4's mountains (worldtype.js GEN_TERRAIN_V2, terrain
+// option terrainV2; _baseInfoV2). The older field above overshot the top of
+// the world by up to ~130 blocks in a range's core, so the soft cap had
+// nothing left to compress with: a tenth of every range sat on the cap's
+// last block (y 123), tables hundreds of blocks across. Generator 4 builds
+// the ranges from a domain-warped ridged multifractal (noise.js ridged2:
+// sharp crests, rough high slopes, smooth valleys), its height held (a soft
+// minimum) to the room left under V2_CEIL, so even the highest crest only
+// just enters the knee (114 to 124) and is never squeezed flat: the crests
+// vary along their length (peaks and saddles) and break into crags, a
+// range's core stands taller than its edges, foothills rise on an eased
+// curve, patches of the flanks are stepped into ledges and cliffs, and the
+// rivers fade out toward a range instead of ending in a wall.
+const V2_RIDGE_FREQ = 1 / 270; // crests a hundred-odd blocks apart
+const V2_WARP_FREQ = 1 / 240;
+const V2_WARP = 60; // blocks the ridges are pushed about (no straight noise-grid crests)
+const V2_VARY_FREQ = 1 / 330; // peaks and saddles along a crest
+const V2_AMP = 180; // the ridges (most crests are held to the room under V2_CEIL)
+const V2_SHARP = 1.6;
+const V2_CRAG = 16; // knobs on the crests (blocks, at r = 1)
+const V2_CRAG_FREQ = 1 / 34;
+const V2_LIFT = 42; // the range as a whole raised (more in its core; the foothills stay gentle)
+const V2_CLIFF_FREQ = 1 / 260;
+const V2_CLIFF_STEP = 7; // ledge height
+const V2_CEIL = 127; // the highest a crest's raw height can reach (~122 after the knee)
+const V2_CAP_START = 114;
+const V2_CAP_RANGE = 10; // asymptote 124 (as before)
+// Generator 4's snow and bare rock lines wander (by up to ~6 blocks) instead of following one contour.
+const V2_SNOW_LINE = 97;
+const V2_ROCK_LINE = 74;
+
 // The block that tops a land column of biome `biome` at height `h`, and the
 // block just below it. One function for chunk generation and for the distant
 // terrain, so both always agree. (Round 11) vanilla: a Survival world's
 // terrain: red sand on the badlands, and snowy grass (under a layer of snow,
 // added with the ground cover) in the snowy lowlands.
-export function surfaceBlocks(biome, h, vanilla = false) {
+// (Round 22) snow, rock: generator 4's lines at this column (TerrainGenerator.surface).
+export function surfaceBlocks(biome, h, vanilla = false, snow = SNOW_LINE, rock = BARE_ROCK_LINE) {
   const isBeach = h <= SEA_LEVEL + 1;
   if (isBeach || isOceanBiome(biome) || biome === BIOME.RIVER || biome === BIOME.DESERT) return { top: BLOCK.SAND, sub: BLOCK.SAND };
   if (biome === BIOME.BADLANDS) return vanilla ? { top: V.RED_SAND, sub: BLOCK.TERRACOTTA } : { top: BLOCK.TERRACOTTA, sub: BLOCK.TERRACOTTA };
-  if (biome === BIOME.MOUNTAINS && h > SNOW_LINE) return { top: BLOCK.SNOW, sub: BLOCK.STONE };
-  if (biome === BIOME.MOUNTAINS && h > BARE_ROCK_LINE) return { top: BLOCK.STONE, sub: BLOCK.STONE };
+  if (biome === BIOME.MOUNTAINS && h > snow) return { top: BLOCK.SNOW, sub: BLOCK.STONE };
+  if (biome === BIOME.MOUNTAINS && h > rock) return { top: BLOCK.STONE, sub: BLOCK.STONE };
   if (isSnowy(biome)) return { top: vanilla ? SNOWY_GRASS : BLOCK.SNOW, sub: BLOCK.DIRT };
   return { top: BLOCK.GRASS, sub: BLOCK.DIRT };
 }
@@ -165,9 +204,14 @@ export class TerrainGenerator {
     // (by default the vanilla terrain when there are no sites)
     this.options = { sites: opts?.sites !== false, vanilla: opts?.vanilla ?? opts?.sites === false };
     if (opts?.bigAirports) this.options.bigAirports = true; // (Round 21: the big airports, sites.js; generator 3 on)
+    // (Round 22: generator 4's mountains, worldtype.js GEN_TERRAIN_V2; an older world's land stays as it was)
+    if (opts?.terrainV2) {
+      this.options.terrainV2 = true;
+      this._baseInfo = this._baseInfoV2;
+    }
     this.noise = new Noise(this.seed);
     this.caveNoise = new Noise((this.seed ^ 0x6a09e667) >>> 0);
-    this.biomes = new BiomeSource(this.seed, { vanilla: this.options.vanilla });
+    this.biomes = new BiomeSource(this.seed, { vanilla: this.options.vanilla, alpine: !!this.options.terrainV2 });
     this.sites = new SiteGrower(this, { off: !this.options.sites }); // airports and cities (sites.js): flat pads bend the terrain
     this.trees = new TreeGrower(this);
     this.villages = new VillageGrower(this);
@@ -237,6 +281,98 @@ export class TerrainGenerator {
     return { height: Math.floor(Math.max(3, height)), mountainT, river, flat: flatT };
   }
 
+  // (Round 22) Generator 4's natural terrain: the older one's lowlands,
+  // coasts, flat country, valleys and rivers, with new mountains (see
+  // V2_RIDGE_FREQ above). The same fields as _baseInfo.
+  _baseInfoV2(wx, wz) {
+    const n = this.noise;
+    const continent = n.fbm2(wx, wz, 4, 0.5, 2, CONTINENT_FREQ);
+    const detail = n.fbm2(wx, wz, 4, 0.5, 2, 1 / 80);
+    const relief = n.fbm2(wx - 7000, wz + 5000, 3, 0.5, 2, RELIEF_FREQ);
+    const mask = n.fbm2(wx + 500, wz - 500, 3, 0.5, 2, MOUNTAIN_MASK_FREQ);
+    const land = Math.max(0, Math.min(1, (continent + 0.02) / 0.14));
+    // (the biomes, the rivers and the sites read mountainT as before)
+    const mountainT = Math.max(0, Math.min(1, (mask - MOUNTAIN_MASK_LO) / (MOUNTAIN_MASK_HI - MOUNTAIN_MASK_LO))) * land;
+    const coast = 6 * Math.tanh(continent * 22);
+    const flatT = smooth01((FLAT_LO - relief) / FLAT_SPAN) * land;
+    const ground = BASE_HEIGHT + continent * CONTINENT_AMP + coast + detail * AMPLITUDE * (0.55 + 0.45 * land) * (1 - 0.92 * flatT);
+    let mountains = 0;
+    let slope = 0; // (how far down a ridge's flank a column is: 0 on the crest or in the valley, 1 mid-slope)
+    if (mountainT > 0) {
+      const mt = smooth01(mountainT); // (eased: the foothills rise gently out of the lowlands)
+      // A range's core stands taller than its edges.
+      const core = smooth01((mask - MOUNTAIN_MASK_HI) / 0.25);
+      // Domain warp: the crests wind (no long straight noise-grid lines).
+      const qx = wx + n.perlin2(wx * V2_WARP_FREQ + 5.2, wz * V2_WARP_FREQ + 1.3) * V2_WARP;
+      const qz = wz + n.perlin2(wx * V2_WARP_FREQ - 7.9, wz * V2_WARP_FREQ + 9.4) * V2_WARP;
+      const r = n.ridged2(qx + 1000, qz + 1000, 5, V2_RIDGE_FREQ);
+      // Peaks and saddles along the crests (a ridge line is otherwise level).
+      const vary = 0.8 + 0.2 * Math.max(-1, Math.min(1, n.perlin2(qx * V2_VARY_FREQ - 3.3, qz * V2_VARY_FREQ + 6.6) * 1.4));
+      const lift = mt * V2_LIFT * (0.6 + 0.4 * core);
+      // The ridges' full height, held (a soft minimum) to the room left under
+      // V2_CEIL: even a crest at r = 1 stays below the knee's flat end, so a
+      // summit is a point, not a dome squeezed against the top of the world.
+      const amp = softMin(mountainT * V2_AMP * (0.7 + 0.3 * core), V2_CEIL - ground - lift, 6) * vary;
+      // (r^V2_SHARP: concave flanks, broad valley floors, sharp crests)
+      mountains = lift + Math.max(0, amp) * Math.pow(r, V2_SHARP);
+      // Crags: knobs and notches along the high crests (where r is near 1),
+      // so a broad crest breaks into separate summits.
+      const r4 = r * r * r * r;
+      if (r4 > 0.2) mountains += mountainT * V2_CRAG * (r4 - 0.2) * n.perlin2(wx * V2_CRAG_FREQ + 13.7, wz * V2_CRAG_FREQ - 29.1);
+      slope = smooth01((r - 0.2) / 0.2) * (1 - smooth01((r - 0.62) / 0.2));
+    }
+    mountains *= 1 - 0.85 * flatT * flatT; // (squared: a range keeps its height to the edge of the flat country)
+    let height = ground + mountains;
+    if (height > VALLEY_FLOOR + 3 && land > 0) {
+      const vn = n.fbm2(wx + 3000, wz - 6000, 3, 0.5, 2, VALLEY_FREQ);
+      const vBand = 1 - Math.abs(vn);
+      const valleyT = smooth01((vBand - 0.915) / 0.06) * land * (1 - flatT);
+      if (valleyT > 0) {
+        const floorY = VALLEY_FLOOR + 3 * detail;
+        height = height * (1 - valleyT) + Math.min(height, floorY) * valleyT;
+      }
+    }
+    // Ledges and cliffs: in patches of a range the flanks are stepped (steep
+    // risers, treads that keep half their slope: never level shelves); not on
+    // the crests or the valley floors, so a peak keeps its point.
+    if (slope > 0 && mountainT > 0.2) {
+      const c = n.perlin2(wx * V2_CLIFF_FREQ + 40.1, wz * V2_CLIFF_FREQ - 12.7);
+      const k = 0.5 * slope * smooth01((c - 0.05) / 0.25) * smooth01((mountainT - 0.2) / 0.3);
+      if (k > 0) {
+        const f = height / V2_CLIFF_STEP;
+        const i = Math.floor(f);
+        let t = f - i;
+        t = t * t * (3 - 2 * t);
+        height += ((i + t) * V2_CLIFF_STEP - height) * k;
+      }
+    }
+    // The soft knee: peaks approach the top of the world, never cut off.
+    if (height > V2_CAP_START) height = V2_CAP_START + V2_CAP_RANGE * Math.tanh((height - V2_CAP_START) / V2_CAP_RANGE);
+    const riverN = n.fbm2(wx - 2000, wz + 2000, 2, 0.5, 2, RIVER_FREQ);
+    const riverBand = 1 - Math.abs(riverN);
+    let river = false;
+    if (riverBand > 1 - RIVER_WIDTH && continent > -0.02 && mountainT < 0.3) {
+      river = true;
+      // (faded out toward the ranges: the older generator's channel stops
+      // dead where mountainT reaches 0.3, a wall up to ~50 blocks high)
+      const k = Math.min(1, (riverBand - (1 - RIVER_WIDTH)) / RIVER_WIDTH) * smooth01((0.3 - mountainT) / 0.12);
+      height = height * (1 - k) + (SEA_LEVEL - 3) * k;
+    }
+    return { height: Math.floor(Math.max(3, height)), mountainT, river, flat: flatT };
+  }
+
+  // (Round 22) The top and the block under it of a land column (surfaceBlocks
+  // with generator 4's wandering snow and bare rock lines; the older
+  // generators' fixed ones). Chunk generation and the far terrain both ask it.
+  // Generator 4's mountains below the bare rock are grassy too, except in
+  // the cold climate (the older ones are snowy all the way down).
+  surface(biome, h, wx, wz) {
+    if (!this.options.terrainV2 || biome !== BIOME.MOUNTAINS) return surfaceBlocks(biome, h, this.options.vanilla);
+    const wobble = h <= V2_ROCK_LINE - 10 ? 0 : this.noise.perlin2(wx * 0.017 - 61.3, wz * 0.017 + 23.9) * 7 + (hash2(this.seed ^ 0x5a0e, wx, wz) - 0.5) * 2;
+    if (h <= V2_ROCK_LINE + wobble && !this.biomes.coldAt(wx, wz)) return surfaceBlocks(BIOME.PLAINS, h, this.options.vanilla);
+    return surfaceBlocks(biome, h, this.options.vanilla, V2_SNOW_LINE + wobble, V2_ROCK_LINE + wobble);
+  }
+
   heightAt(wx, wz) {
     return this._terrainInfo(wx, wz).height;
   }
@@ -251,7 +387,7 @@ export class TerrainGenerator {
   // (Round 12) The top block of the land at (wx, wz), its ground at height h
   // (the villages' earthworks end in it).
   landTop(wx, wz, h = this.heightAt(wx, wz)) {
-    return surfaceBlocks(this.biomeAt(wx, wz), h, this.options.vanilla).top;
+    return this.surface(this.biomeAt(wx, wz), h, wx, wz).top;
   }
 
   // (Round 11) Whether a Survival world's water at (wx, wz) is frozen over:
@@ -398,7 +534,7 @@ export class TerrainGenerator {
         const biome = biomeAt(lx, lz);
         const isBeach = h <= SEA_LEVEL + 1;
         const top = Math.min(WORLD_HEIGHT - 1, Math.max(h, SEA_LEVEL));
-        const { top: topId, sub: subId } = surfaceBlocks(biome, h, this.options.vanilla);
+        const { top: topId, sub: subId } = this.surface(biome, h, baseX + lx, baseZ + lz);
         for (let y = 0; y <= top; y++) {
           let id;
           if (y > h) id = BLOCK.WATER;

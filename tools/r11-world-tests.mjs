@@ -712,7 +712,8 @@ async function browserChecks() {
       const zombies = g.mobs.mobs.filter((m) => m.kind === "zombie" && !m.dead && m.pos.y > y0 && m.pos.y < y0 + 5 && Math.abs(m.pos.x - (x0 + 4.5)) < 5);
       const light = g.world.lightAt(x0 + 4, y0 + 2, z0 + 4);
       // A dungeon in the ground around: its chest's loot.
-      const dungeonIds = new Set([262, V.IRON_INGOT, 259, V.BREAD, V.WHEAT, V.BUCKET, V.REDSTONE, 257, V.MELON_SEEDS, V.PUMPKIN_SEEDS, V.BEETROOT_SEEDS, V.BONE, V.GUNPOWDER, V.ROTTEN_FLESH, V.STRING]);
+      // (Round 22: its enchanted books too, LOOT.dungeon "book": a dungeon in the new land rolled one)
+      const dungeonIds = new Set([262, V.ENCHANTED_BOOK, V.IRON_INGOT, 259, V.BREAD, V.WHEAT, V.BUCKET, V.REDSTONE, 257, V.MELON_SEEDS, V.PUMPKIN_SEEDS, V.BEETROOT_SEEDS, V.BONE, V.GUNPOWDER, V.ROTTEN_FLESH, V.STRING]);
       let loot = null;
       for (const c of g.world.chunks.values()) {
         const b = c.blocks;
