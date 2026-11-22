@@ -106,6 +106,7 @@ export class World {
     this.seed = seed >>> 0;
     this.terrainOptions = { sites: terrainOptions?.sites !== false, vanilla: terrainOptions?.vanilla ?? terrainOptions?.sites === false };
     if (terrainOptions?.bigAirports) this.terrainOptions.bigAirports = true; // (Round 21: worldtype.js GEN_BIG_AIRPORTS)
+    if (terrainOptions?.terrainV2) this.terrainOptions.terrainV2 = true; // (Round 22: worldtype.js GEN_TERRAIN_V2)
     this.terrain = createGenerator(OVERWORLD, this.seed, this.terrainOptions);
     // (Round 12) The dimension the world is in (js/dim-registry.js), the
     // block under y 0 there (the End's void: air), the other dimensions'
